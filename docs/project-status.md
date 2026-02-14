@@ -98,8 +98,16 @@
   - tree-sitter Repo Map, Architect/Editor Pattern, Edit Formats (Aider)
   - Skills System, Risk Management (OpenHands), Plan/Act Mode (Cline)
 - [x] Documentation consistency audit: all docs synchronized and translated to English
+- [x] Documentation structure created:
+  - docs/README.md (documentation index)
+  - docs/todo.md (central TODO tracker for LLM agents)
+  - docs/features/ (individual feature specs for all 4 pillars)
+  - docs/architecture/adr/ (ADR template for future decisions)
+  - Documentation Policy added to CLAUDE.md
 
 ### Open
+
+> **For granular tasks, see [todo.md](todo.md)** — this section tracks high-level milestones only.
 
 - [ ] Build and test devcontainer for the first time
 - [ ] Initialize Go module (go mod init)

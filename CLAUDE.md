@@ -186,9 +186,69 @@ Detailed analysis: docs/research/market-analysis.md
 - **Always push to remote after committing** — run `git push` after every successful commit so the remote stays in sync
 - **Before each commit — checklist:**
   1. Run `pre-commit run --all-files` and fix errors
-  2. Update affected documentation:
+  2. Update affected documentation (see Documentation Policy below):
+     - `docs/todo.md` — mark completed tasks `[x]`, add new tasks discovered during work
      - `docs/architecture.md` — for architecture or structural changes
+     - `docs/features/*.md` — for feature-specific changes (scope, design, API, TODOs)
      - `docs/dev-setup.md` — for new directories, ports, tooling, environment variables
      - `docs/tech-stack.md` — for new dependencies, language/tool versions
      - `docs/project-status.md` — check off completed items, add new items
      - `CLAUDE.md` — for changes to core pillars, architecture, workflow rules
+
+## Documentation Policy
+
+**Every change must be documented. Documentation is as important as code.**
+
+### Documentation Structure
+
+```
+docs/
+├── README.md                        # Documentation index (start here)
+├── todo.md                          # Central TODO tracker for LLM agents
+├── architecture.md                  # System architecture overview
+├── dev-setup.md                     # Development setup guide
+├── project-status.md                # Phase tracking & milestones
+├── tech-stack.md                    # Languages, tools, dependencies
+├── features/                        # Feature specifications (one per pillar)
+│   ├── 01-project-dashboard.md      # Pillar 1: Multi-repo management
+│   ├── 02-roadmap-feature-map.md    # Pillar 2: Visual roadmap, specs, PM sync
+│   ├── 03-multi-llm-provider.md     # Pillar 3: LiteLLM, routing, cost tracking
+│   └── 04-agent-orchestration.md    # Pillar 4: Agent modes, execution, safety
+├── architecture/                    # Detailed architecture documents
+│   └── adr/                         # Architecture Decision Records
+└── research/                        # Market research & analysis
+```
+
+### TODO Tracking Rules
+
+- **`docs/todo.md` is the single source of truth** for what needs to be done
+- LLM agents must read `docs/todo.md` before starting any work
+- After completing a task: mark it `[x]` in `docs/todo.md` with the date
+- After discovering new work: add it to `docs/todo.md` in the appropriate section
+- Feature-specific TODOs also live in `docs/features/*.md` but must be cross-referenced in `docs/todo.md`
+- `docs/project-status.md` tracks high-level phase completion; `docs/todo.md` tracks granular tasks
+
+### When to Update Which Document
+
+| Change Type | Update These Files |
+|---|---|
+| New feature work | `docs/features/*.md` (scope, design, TODOs), `docs/todo.md` |
+| Architecture decision | `docs/architecture.md`, `docs/architecture/adr/`, `CLAUDE.md` |
+| New dependency/tool | `docs/tech-stack.md`, `docs/dev-setup.md` |
+| Completed milestone | `docs/project-status.md`, `docs/todo.md` |
+| New directory/port/env var | `docs/dev-setup.md` |
+| Core pillar changes | `CLAUDE.md`, relevant `docs/features/*.md` |
+| Any code change | `docs/todo.md` (mark task done or add new tasks) |
+
+### Feature Documentation Rules
+
+- Each of the four pillars has its own feature spec in `docs/features/`
+- New sub-features are added as sections within the relevant pillar doc
+- Feature docs contain: overview, design decisions, API endpoints, TODOs
+- Feature-specific TODOs are cross-referenced in `docs/todo.md`
+
+### Architecture Decision Records (ADRs)
+
+- Major architectural decisions get an ADR in `docs/architecture/adr/`
+- Use `docs/architecture/adr/_template.md` as the starting point
+- ADR format: Context → Decision → Consequences → Alternatives

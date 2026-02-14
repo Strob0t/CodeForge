@@ -92,10 +92,19 @@ CodeForge/
 │       ├── shared/           # Shared Components, Primitives
 │       └── api/              # API Client, WebSocket
 ├── docs/
+│   ├── README.md             # Documentation index (start here)
+│   ├── todo.md               # TODO tracker for LLM agents
 │   ├── architecture.md       # System Architecture + Hexagonal + Provider Registry
 │   ├── dev-setup.md          # This file
 │   ├── project-status.md     # Project Status & Roadmap
 │   ├── tech-stack.md         # Tech Stack Details
+│   ├── features/             # Feature specifications
+│   │   ├── 01-project-dashboard.md
+│   │   ├── 02-roadmap-feature-map.md
+│   │   ├── 03-multi-llm-provider.md
+│   │   └── 04-agent-orchestration.md
+│   ├── architecture/         # Detailed architecture docs
+│   │   └── adr/              # Architecture Decision Records
 │   └── research/
 │       ├── market-analysis.md# Market Research & Competitors
 │       └── aider-deep-analysis.md # Aider Architecture Deep-Dive
