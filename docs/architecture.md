@@ -108,6 +108,67 @@ The architecture follows a three-layer model with strict language separation by 
 | Go → Ollama/LM Studio | HTTP | Local Model Auto-Discovery |
 | Go → PM Platforms | REST API / Webhooks | Bidirectional PM sync (Plane, OpenProject, etc.) |
 | Go → Repo Specs | Filesystem | Spec detection and sync (OpenSpec, Spec Kit, Autospec) |
+| Go ↔ Tools/Agents | MCP (JSON-RPC) | Tool integration (server: expose tools, client: connect external) |
+| Go → LSP Servers | LSP (JSON-RPC) | Code intelligence per project language |
+| Go → OTEL Collector | OTLP (gRPC/HTTP) | Agent lifecycle traces, metrics |
+| Python → OTEL Collector | OTLP (gRPC/HTTP) | LLM call traces, token metrics |
+| Frontend ← Go | AG-UI events (Phase 2-3) | Standardized agent output streaming |
+| External Agents ↔ Go | A2A (Phase 2-3) | Agent discovery via Agent Cards, task delegation |
+
+## Protocol Support
+
+CodeForge integrates with standardized protocols for tool integration, agent coordination,
+frontend streaming, code intelligence, and observability.
+
+### Tier 1: Essential (Phase 1-2)
+
+| Protocol | Purpose | Standard | Integration Point |
+|---|---|---|---|
+| **MCP** (Model Context Protocol) | Agent ↔ Tool communication | JSON-RPC 2.0 over stdio/SSE/HTTP (Anthropic) | Go Core: MCP server (expose tools) + MCP client registry (connect external tools). Python Workers: MCP for agent tool access |
+| **LSP** (Language Server Protocol) | Code intelligence for agents | JSON-RPC over stdio/TCP (Microsoft) | Go Core: manages LSP server lifecycle per project language. Agents receive go-to-definition, references, diagnostics, completions |
+| **OpenTelemetry GenAI** | Standardized LLM/agent observability | OTEL Semantic Conventions (CNCF) | LiteLLM exports OTEL traces natively. Go Core adds spans for agent lifecycle. Feeds Cost Dashboard + audit trails |
+
+### Tier 2: Important (Phase 2-3)
+
+| Protocol | Purpose | Standard | Integration Point |
+|---|---|---|---|
+| **A2A** (Agent-to-Agent Protocol) | Peer-to-peer agent coordination | Agent Cards + Tasks over HTTP/SSE (Google → Linux Foundation AAIF) | Agent backends register as A2A agents with capability cards. External agents discover and delegate to CodeForge |
+| **AG-UI** (Agent-User Interaction Protocol) | Bi-directional agent ↔ frontend streaming | JSON events over HTTP (CopilotKit) | Frontend WebSocket protocol follows AG-UI event format. Lifecycle events: TEXT_MESSAGE, TOOL_CALL, STATE_DELTA. Human-in-the-loop built in |
+
+### Tier 3: Future / Watch
+
+| Protocol | Purpose | Notes |
+|---|---|---|
+| **ANP** (Agent Network Protocol) | Decentralized agent communication over internet | Early stage, W3C DIDs. Relevant when agents talk to external agent networks |
+| **LSAP** (Language Server Agent Protocol) | LSP extension for AI agents | Emerging proposal, extends LSP with AI-specific capabilities |
+
+### Protocol Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│              TypeScript Frontend                     │
+│                                                     │
+│   AG-UI Events ←→ Agent output streaming            │
+│   (TEXT_MESSAGE, TOOL_CALL, STATE_DELTA, APPROVAL)  │
+└────────────────────┬────────────────────────────────┘
+                     │ WebSocket (AG-UI event format)
+┌────────────────────▼────────────────────────────────┐
+│              Go Core Service                         │
+│                                                     │
+│   MCP Server ←→ Expose CodeForge tools              │
+│   MCP Client ←→ Connect to external MCP servers     │
+│   LSP Client ←→ Code intelligence per language      │
+│   A2A Server ←→ Agent Cards, task delegation        │
+│   OTEL SDK   ←→ Traces, metrics → collector         │
+└────────────────────┬────────────────────────────────┘
+                     │ NATS JetStream
+┌────────────────────▼────────────────────────────────┐
+│              Python Workers                          │
+│                                                     │
+│   MCP Client ←→ Tool access for agents              │
+│   OTEL SDK   ←→ LLM call traces, token metrics      │
+└─────────────────────────────────────────────────────┘
+```
 
 ## Design Decisions
 

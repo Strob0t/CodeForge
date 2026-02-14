@@ -88,6 +88,19 @@
 - Jinja2 (Prompt Templates)
 - KeyBERT (Keyword Extraction for Retrieval)
 
+### Protocols & Standards
+- MCP (Model Context Protocol) — Agent ↔ Tool communication, JSON-RPC 2.0 (Anthropic)
+  - Go Core: MCP server + client registry
+  - Python Workers: MCP client for agent tool access
+- LSP (Language Server Protocol) — Code intelligence for agents (Microsoft)
+  - Go Core: LSP server lifecycle management per project language
+- OpenTelemetry GenAI — LLM/agent observability, traces + metrics (CNCF)
+  - LiteLLM: native OTEL export
+  - Go: `go.opentelemetry.io/otel` SDK
+  - Python: `opentelemetry-api` + `opentelemetry-sdk`
+- A2A (Agent-to-Agent Protocol, Phase 2-3) — Peer-to-peer agent coordination (Linux Foundation)
+- AG-UI (Agent-User Interaction Protocol, Phase 2-3) — Agent ↔ frontend streaming (CopilotKit)
+
 ### Agent Backend Integration (Priority 1)
 - Goose (Rust, MCP-native, subprocess integration)
 - OpenCode (Go, Client/Server, LSP-aware)

@@ -102,6 +102,14 @@ These tasks must be completed before moving to Phase 1.
 - [ ] LiteLLM shared instance configuration (`?schema=litellm`)
 - [ ] Initial schema: projects, agents, tasks
 
+### Protocols (Phase 1)
+
+- [ ] MCP server in Go Core (expose CodeForge tools to agents)
+- [ ] MCP client registry in Go Core (connect to external MCP servers)
+- [ ] LSP client in Go Core (manage LSP server lifecycle per project language)
+- [ ] OpenTelemetry SDK setup (Go: `go.opentelemetry.io/otel`, Python: `opentelemetry-sdk`)
+- [ ] OTEL collector service in `docker-compose.yml`
+
 ### CI/CD
 
 - [ ] GitHub Actions workflow: lint + test (Go, Python, TypeScript)
@@ -135,6 +143,8 @@ See feature specs for detailed breakdown:
 - [ ] OpenSpec/Spec Kit/Autospec integration
 - [ ] SVN integration
 - [ ] Multi-agent orchestration (pipelines, DAGs)
+- [ ] A2A protocol integration (agent discovery, task delegation, Agent Cards)
+- [ ] AG-UI protocol integration (agent ↔ frontend streaming, replace custom WS events)
 - [ ] GitHub/GitLab Webhook integration
 - [ ] Cost tracking dashboard for LLM usage
 - [ ] Multi-tenancy / user management
@@ -148,6 +158,7 @@ See feature specs for detailed breakdown:
 
 > Move items here after completion for context. Periodically archive old items.
 
+- [x] (2026-02-14) Protocol support decided: MCP, LSP, OpenTelemetry (Tier 1), A2A, AG-UI (Tier 2)
 - [x] (2026-02-14) Library decisions: chi (router), coder/websocket (WS), git exec wrapper, SolidJS minimal stack
 - [x] (2026-02-14) PostgreSQL 17 chosen as database — [ADR-002](architecture/adr/002-postgresql-database.md)
 - [x] (2026-02-14) NATS JetStream chosen as message queue — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)

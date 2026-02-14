@@ -105,6 +105,10 @@
   - Go: chi v5 (router, 0 deps), coder/websocket (WS, 0 deps), git exec wrapper (0 deps)
   - Frontend: @solidjs/router, Tailwind CSS (no component lib), @solid-primitives/websocket (728B), native fetch
   - Rejected: Echo, Fiber, gorilla/websocket, go-git (28 deps), axios, styled-components, Kobalte
+- [x] Protocol support analyzed and prioritized: MCP, LSP, OpenTelemetry, A2A, AG-UI
+  - Tier 1 (Phase 1-2): MCP (agent ↔ tools), LSP (code intelligence), OpenTelemetry GenAI (observability)
+  - Tier 2 (Phase 2-3): A2A (agent coordination, Linux Foundation), AG-UI (frontend streaming, CopilotKit)
+  - Tier 3 (future): ANP (decentralized), LSAP (LSP for AI)
 - [x] Documentation consistency audit: all docs synchronized and translated to English
 - [x] Documentation structure created:
   - docs/README.md (documentation index)
