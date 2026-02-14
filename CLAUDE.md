@@ -209,6 +209,12 @@ Detailed analysis: docs/research/market-analysis.md
 - Differentiation through integration of all four pillars
 - Performance focus: Go for core, Python only for AI-specific work
 
+## Character Encoding
+
+- **Config files (.env, .yaml, .toml, .json, .sh, .gitignore) must use ASCII only** — no box-drawing characters (─, ═, │, etc.)
+- Use regular dashes `-` and equals `=` for section separators in config files
+- Box-drawing characters are acceptable in Markdown documentation for architecture diagrams
+
 ## Coding Principles
 
 - **Minimal dependencies**: Use only as many libraries as strictly necessary. Most libraries bring too much overhead. Prefer the standard library when it covers 80%+ of the need.

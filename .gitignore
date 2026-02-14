@@ -1,9 +1,9 @@
-# ── Dependencies ─────────────────────────────────
+# -- Dependencies ---------------------------------
 .venv/
 node_modules/
 vendor/
 
-# ── Build artifacts ──────────────────────────────
+# -- Build artifacts ------------------------------
 /codeforge
 dist/
 build/
@@ -13,40 +13,40 @@ bin/
 *.so
 *.dylib
 
-# ── Python ───────────────────────────────────────
+# -- Python ---------------------------------------
 __pycache__/
 *.py[cod]
 *.egg-info/
 .eggs/
 
-# ── Go ───────────────────────────────────────────
+# -- Go -------------------------------------------
 # go.sum is committed for reproducible builds
 
-# ── Frontend ────────────────────────────────────
+# -- Frontend ------------------------------------
 # node_modules/ and dist/ covered above
 
-# ── IDE ──────────────────────────────────────────
+# -- IDE ------------------------------------------
 .idea/
 *.swp
 *.swo
 *~
 
-# ── OS ───────────────────────────────────────────
+# -- OS -------------------------------------------
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ── Environment ──────────────────────────────────
+# -- Environment ----------------------------------
 .env
 .env.*
 !.env.example
 
-# ── Dev data (docker volumes, caches) ────────────
+# -- Dev data (docker volumes, caches) ------------
 .devdata/
 
-# ── Claude Code ──────────────────────────────────
+# -- Claude Code ----------------------------------
 .claude/
 
-# ── Debug logs ───────────────────────────────────
+# -- Debug logs -----------------------------------
 debug.log
 *.log

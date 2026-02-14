@@ -1,5 +1,5 @@
 repos:
-  # ── General ──────────────────────────────────────────────
+  # -- General ----------------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -10,7 +10,7 @@ repos:
       - id: check-merge-conflict
       - id: detect-private-key
 
-  # ── Python (Ruff) ─────────────────────────────────────────
+  # -- Python (Ruff) -----------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.12
     hooks:
@@ -26,7 +26,7 @@ repos:
       # 3) Format
       - id: ruff-format
 
-  # ── Go ─────────────────────────────────────────────────────
+  # -- Go -----------------------------------------------------
   - repo: https://github.com/TekWizely/pre-commit-golang
     rev: v1.0.0-rc.1
     hooks:
@@ -39,7 +39,7 @@ repos:
       # golangci-lint (must be installed)
       - id: golangci-lint-repo-mod
 
-  # ── TypeScript / JavaScript (ESLint + Prettier) ────────────
+  # -- TypeScript / JavaScript (ESLint + Prettier) ------------
   - repo: local
     hooks:
       - id: eslint
