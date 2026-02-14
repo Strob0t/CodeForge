@@ -56,10 +56,16 @@ Detaillierte Analyse: docs/research/market-analysis.md
   - Vollwertige Agents (Claude Code, Aider): nur Orchestrierung
   - API mit Tools (OpenAI, Gemini): + Context Layer (GraphRAG) + Routing
   - Reine Completion (Ollama, lokal): + alles (Context, Tools, Quality Layer)
-- **Worker-Module:** Context (GraphRAG), Quality (Debate), Routing, Safety, Execution
+- **Worker-Module:** Context (GraphRAG), Quality (Debate/Reviewer/Sampler),
+  Routing, Safety, Execution, History, Hooks, Trajectory
 - **Agent Execution Modes:** Sandbox (isolierter Container), Mount (direkter Dateizugriff), Hybrid
-- **Command Safety Evaluator:** Shell-Befehle pruefen bevor sie ausgefuehrt werden
+- **Command Safety Evaluator:** Shell-Befehle pruefen, Tool-Blocklists (YAML)
 - **Agent-Workflow:** Plan → Approve → Execute → Review → Deliver (konfigurierbar)
+- **YAML-basierte Tool-Bundles:** Deklarative Tool-Definitionen, kein Code noetig
+- **History Processors:** Context-Window-Optimierung als Pipeline
+- **Hook-System:** Observer-Pattern fuer Agent/Environment-Lifecycle
+- **Trajectory Recording:** Aufzeichnung, Replay, Inspector, Audit-Trail
+- **Kosten-Management:** Budget-Limits pro Task/Projekt/User, Auto-Tracking
 - Detaillierte Beschreibung: docs/architecture.md
 
 ## Strategische Prinzipien

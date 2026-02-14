@@ -25,6 +25,10 @@
 - [x] Agent Execution Modes definiert (Sandbox, Mount, Hybrid)
 - [x] Agent-Workflow definiert (Plan → Approve → Execute → Review → Deliver)
 - [x] Command Safety Evaluator und Tool-Provisioning konzipiert
+- [x] Quality Layer erweitert: Action Sampling, RetryAgent + Reviewer, Debate (3 Stufen)
+- [x] YAML-basierte Tool-Bundles, History Processors, Hook-System, Trajectory Recording
+- [x] Kosten-Management konzipiert (Budget-Limits pro Task/Projekt/User)
+- [x] Konkurrenzanalyse vertieft: BjornMelin/codeforge, Open SWE, SWE-agent
 - [x] Git-Workflow mit Commit-Checkliste (pre-commit + Doku-Pflege)
 
 ### Offen
