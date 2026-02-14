@@ -125,10 +125,12 @@ CodeForge/
 |------|----------------------|----------------------------------|
 | 3000 | Frontend Dev Server  | Web GUI                          |
 | 4000 | LiteLLM Proxy        | LLM Routing (OpenAI-compatible)  |
+| 4222 | NATS                 | Message Queue (client connections)|
 | 5173 | Vite HMR             | Hot Module Replacement           |
 | 6280 | docs-mcp-server      | Documentation Indexing           |
 | 8001 | playwright-mcp       | Browser Automation               |
 | 8080 | Go API               | Core Service REST/WebSocket      |
+| 8222 | NATS Monitoring      | NATS HTTP monitoring dashboard   |
 
 ## Running Linting Manually
 

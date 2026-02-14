@@ -119,7 +119,7 @@
 - [ ] Python Worker scaffold (Queue Consumer, Health Check)
 - [ ] Frontend scaffold (Empty app with routing)
 - [ ] LiteLLM Proxy setup (Docker Compose service, litellm_config.yaml, health check)
-- [ ] Message Queue setup (NATS or Redis)
+- [ ] Message Queue setup (NATS JetStream) — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
 - [ ] Database decision and setup
 - [ ] CI/CD Pipeline (GitHub Actions)
 

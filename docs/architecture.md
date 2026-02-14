@@ -35,7 +35,7 @@ The architecture follows a three-layer model with strict language separation by 
 │  └──────────┘  └──────────┘                        │
 └────────────┬────────────────────────┬───────────────┘
              │  Message Queue         │
-             │  (NATS / Redis)        │
+             │  (NATS JetStream)      │
 ┌────────────▼──────┐  ┌─────────────▼───────────────┐
 │  Python Worker 1  │  │  Python Worker N            │
 │                   │  │                             │
@@ -99,8 +99,8 @@ The architecture follows a three-layer model with strict language separation by 
 |---|---|---|
 | Frontend → Go | REST (HTTP/2) | CRUD Operations |
 | Frontend → Go | WebSocket | Real-time updates, logs |
-| Go → Python Workers | Message Queue (NATS/Redis) | Job dispatch |
-| Python Workers → Go | Message Queue (NATS/Redis) | Results, status updates |
+| Go → Python Workers | NATS JetStream | Job dispatch (subject-based routing) |
+| Python Workers → Go | NATS JetStream | Results, status updates |
 | Go → LiteLLM Proxy | HTTP (OpenAI format) | Config management, health checks |
 | Python Workers → LiteLLM Proxy | HTTP (OpenAI format) | LLM calls (`litellm.completion()`) |
 | LiteLLM Proxy → LLM APIs | HTTPS | Provider-specific API calls |
@@ -206,7 +206,7 @@ This pattern follows the Go standard pattern (`database/sql` + `_ "github.com/li
 | `specprovider` | `SpecProvider` | openspec, speckit, autospec |
 | `pmprovider` | `PMProvider` | plane, openproject, github_pm, gitlab_pm |
 | `database` | `Store` | postgres, sqlite |
-| `messagequeue` | `Queue` | nats, redis |
+| `messagequeue` | `Queue` | nats |
 
 #### Capabilities
 

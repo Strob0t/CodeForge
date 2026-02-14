@@ -63,7 +63,7 @@ These tasks must be completed before moving to Phase 1.
 
 ### Python Worker — Scaffold
 
-- [ ] NATS or Redis queue consumer
+- [ ] NATS JetStream queue consumer
 - [ ] Health check endpoint
 - [ ] LiteLLM client integration (against LiteLLM Proxy)
 - [ ] Basic agent execution framework
@@ -85,12 +85,13 @@ These tasks must be completed before moving to Phase 1.
 - [ ] Health check integration
 - [ ] Verify routing with at least one provider (Ollama or OpenAI)
 
-### Message Queue
+### Message Queue (NATS JetStream)
 
-- [ ] Decision: NATS vs Redis (document as ADR)
-- [ ] Docker Compose service for chosen queue
-- [ ] Go producer library integration
-- [ ] Python consumer library integration
+- [x] (2026-02-14) Decision: NATS JetStream — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
+- [ ] Add NATS service to `docker-compose.yml`
+- [ ] Go producer integration (`nats.go` + `nats.go/jetstream`)
+- [ ] Python consumer integration (`nats-py`)
+- [ ] Define subject hierarchy (`tasks.agent.{backend}`, `results.{task_id}`, etc.)
 
 ### Database
 
@@ -146,6 +147,7 @@ See feature specs for detailed breakdown:
 
 > Move items here after completion for context. Periodically archive old items.
 
+- [x] (2026-02-14) NATS JetStream chosen as message queue — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
 - [x] (2026-02-14) Documentation structure created (docs/README.md, docs/todo.md, feature specs)
 - [x] (2026-02-14) Architecture harmony audit: all docs synchronized
 - [x] (2026-02-14) All documentation translated from German to English

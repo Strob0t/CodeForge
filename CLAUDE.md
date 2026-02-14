@@ -25,7 +25,7 @@ TypeScript Frontend (SolidJS)
         v  REST / WebSocket
 Go Core Service (HTTP, WebSocket, Agent Lifecycle, Repo Management, Scheduling)
         |
-        v  Message Queue (NATS/Redis)
+        v  Message Queue (NATS JetStream)
 Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
 ```
 
