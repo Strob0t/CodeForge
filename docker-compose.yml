@@ -16,7 +16,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - codeforge-mcp
+      - codeforge
 
   playwright-mcp:
     image: mcr.microsoft.com/playwright:v1.57.0-jammy
@@ -38,7 +38,7 @@ services:
     ports:
       - "8001:8001"
     networks:
-      - codeforge-mcp
+      - codeforge
 
   postgres:
     image: postgres:17-alpine
@@ -63,9 +63,54 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - codeforge-mcp
+      - codeforge
+
+  nats:
+    image: nats:2-alpine
+    container_name: codeforge-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--jetstream", "--store_dir", "/data", "-m", "8222"]
+    volumes:
+      - ./.devdata/nats:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - codeforge
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: codeforge-litellm
+    ports:
+      - "4000:4000"
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
+      DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge
+      OLLAMA_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - codeforge
 
 networks:
-  codeforge-mcp:
+  codeforge:
     driver: bridge
-    name: codeforge_mcp
+    name: codeforge

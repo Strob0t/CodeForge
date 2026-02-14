@@ -1,0 +1,47 @@
+# LiteLLM Proxy Configuration
+# Docs: https://docs.litellm.ai/docs/proxy/configs
+
+model_list:
+  # -- Local Models (Ollama) --
+  - model_name: "ollama/*"
+    litellm_params:
+      model: "ollama/*"
+      api_base: "http://host.docker.internal:11434"
+    model_info:
+      tags: ["default", "background"]
+
+  # -- OpenAI --
+  - model_name: "gpt-4o"
+    litellm_params:
+      model: "openai/gpt-4o"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "gpt-4o-mini"
+    litellm_params:
+      model: "openai/gpt-4o-mini"
+    model_info:
+      tags: ["default", "background"]
+
+  # -- Anthropic --
+  - model_name: "claude-sonnet-4-20250514"
+    litellm_params:
+      model: "anthropic/claude-sonnet-4-20250514"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "claude-haiku-3.5"
+    litellm_params:
+      model: "anthropic/claude-3-5-haiku-20241022"
+    model_info:
+      tags: ["default", "background"]
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 120
+  num_retries: 2
+
+general_settings:
+  master_key: "os.environ/LITELLM_MASTER_KEY"
+  database_url: "os.environ/DATABASE_URL"

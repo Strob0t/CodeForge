@@ -1,32 +1,36 @@
+version: "2"
+
 run:
   timeout: 5m
   modules-download-mode: readonly
 
 linters:
   enable:
-    - errcheck       # unchecked errors
-    - govet          # suspicious constructs
-    - staticcheck    # staticcheck suite
-    - unused         # unused code
-    - gosimple       # simplifications
-    - ineffassign    # ineffectual assignments
-    - typecheck      # type checking
-    - gocritic       # opinionated linter
-    - gofmt          # format check
-    - goimports      # import order
-    - misspell       # spelling
-    - prealloc       # slice preallocation
-    - unconvert      # unnecessary conversions
-    - unparam        # unused parameters
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gocritic
+    - misspell
+    - unconvert
+    - unparam
 
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-  goimports:
-    local-prefixes: github.com/codeforge
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes: github.com/Strob0t/CodeForge
 
 issues:
   exclude-use-default: false
@@ -35,5 +39,5 @@ issues:
 
 output:
   formats:
-    - format: colored-line-number
+    colored-line-number: {}
   sort-results: true
