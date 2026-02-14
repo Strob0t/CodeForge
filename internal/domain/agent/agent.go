@@ -1,0 +1,26 @@
+// Package agent defines the Agent domain entity.
+package agent
+
+import "time"
+
+// Status represents the current state of an agent.
+type Status string
+
+const (
+	StatusIdle    Status = "idle"
+	StatusRunning Status = "running"
+	StatusError   Status = "error"
+	StatusStopped Status = "stopped"
+)
+
+// Agent represents an AI coding agent instance.
+type Agent struct {
+	ID        string            `json:"id"`
+	ProjectID string            `json:"project_id"`
+	Name      string            `json:"name"`
+	Backend   string            `json:"backend"`
+	Status    Status            `json:"status"`
+	Config    map[string]string `json:"config"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
