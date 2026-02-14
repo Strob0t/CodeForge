@@ -46,6 +46,16 @@
   - Dokument-Pipeline PRD→Design→Tasks→Code
   - MagenticOne Planning Loop (Stall Detection + Re-Planning)
   - HandoffMessage Pattern, Human Feedback Provider Protocol
+- [x] LLM-Routing & Multi-Provider analysiert: LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI
+  - LiteLLM: 127+ Provider, Proxy Server, Router (6 Strategien), Budget-Management, 42+ Observability
+  - OpenRouter: 300+ Models, Cloud-only, ~5.5% Fee → als Provider hinter LiteLLM
+  - Claude Code Router: Scenario-basiertes Routing (default/background/think/longContext)
+  - OpenCode CLI: OpenAI-compatible Base URL Pattern, Copilot Token Exchange, Auto-Discovery
+- [x] Architekturentscheidung: Kein eigenes LLM-Interface, LiteLLM Proxy als Docker-Sidecar
+  - Go Core und Python Workers sprechen OpenAI-kompatible API gegen LiteLLM (Port 4000)
+  - Scenario-basiertes Routing via LiteLLM Tag-based Routing
+  - Eigenentwicklung: Config Manager, User-Key-Mapping, Scenario Router, Cost Dashboard
+  - Local Model Discovery (Ollama/LM Studio), Copilot Token Exchange
 
 ### Offen
 

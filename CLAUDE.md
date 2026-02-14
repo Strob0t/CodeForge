@@ -87,6 +87,14 @@ Detaillierte Analyse: docs/research/market-analysis.md
   - MagenticOne Planning Loop (Stall Detection + Re-Planning)
   - HandoffMessage Pattern (Agent-Uebergabe zwischen Spezialisten)
   - Human Feedback Provider Protocol (Web-GUI, Slack, Email erweiterbar)
+- **LLM-Integration (LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI):**
+  - **Kein eigenes LLM-Provider-Interface** — LiteLLM Proxy als Docker-Sidecar (Port 4000)
+  - Go Core + Python Workers sprechen OpenAI-kompatible API gegen LiteLLM
+  - Scenario-basiertes Routing via LiteLLM Tags (default/background/think/longContext/review/plan)
+  - OpenRouter als optionaler Provider hinter LiteLLM
+  - GitHub Copilot Token-Exchange als Provider (Go Core)
+  - Local Model Auto-Discovery (Ollama/LM Studio `/v1/models`)
+  - LiteLLM Config Manager, User-Key-Mapping, Cost Dashboard als Eigenentwicklung
 - Detaillierte Beschreibung: docs/architecture.md
 - Framework-Vergleich: docs/research/market-analysis.md
 

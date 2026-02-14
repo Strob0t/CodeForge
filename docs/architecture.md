@@ -36,14 +36,23 @@ Die Architektur folgt einem Drei-Schichten-Modell mit strikter Sprachtrennung na
 │  Python Worker 1  │  │  Python Worker N            │
 │                   │  │                             │
 │  ┌─────────────┐  │  │  ┌─────────────┐           │
-│  │  LiteLLM    │  │  │  │  LangGraph  │           │
-│  │  (Routing)  │  │  │  │  (Agents)   │           │
+│  │  LangGraph  │  │  │  │  LangGraph  │           │
+│  │  (Agents)   │  │  │  │  (Agents)   │           │
 │  └─────────────┘  │  │  └─────────────┘           │
 │  ┌─────────────┐  │  │  ┌─────────────┐           │
 │  │ Agent Exec  │  │  │  │ Agent Exec  │           │
 │  │(Aider, etc.)│  │  │  │(OpenHands)  │           │
 │  └─────────────┘  │  │  └─────────────┘           │
-└───────────────────┘  └─────────────────────────────┘
+└────────┬──────────┘  └──────────┬──────────────────┘
+         │  OpenAI-kompatible API │
+┌────────▼────────────────────────▼──────────────────┐
+│            LiteLLM Proxy (Sidecar)                  │
+│  127+ Provider │ Routing │ Budgets │ Cost-Tracking  │
+└────────────────────────┬───────────────────────────┘
+                         │ Provider APIs
+┌────────────────────────▼───────────────────────────┐
+│  OpenAI │ Anthropic │ Ollama │ Bedrock │ OpenRouter │
+└────────────────────────────────────────────────────┘
 ```
 
 ## Schichten im Detail
@@ -88,8 +97,11 @@ Die Architektur folgt einem Drei-Schichten-Modell mit strikter Sprachtrennung na
 | Frontend → Go | WebSocket | Echtzeit-Updates, Logs |
 | Go → Python Workers | Message Queue (NATS/Redis) | Job-Dispatch |
 | Python Workers → Go | Message Queue (NATS/Redis) | Ergebnisse, Status-Updates |
-| Python Workers → LLM APIs | HTTPS | LLM-Calls via LiteLLM |
+| Go → LiteLLM Proxy | HTTP (OpenAI-Format) | Config-Management, Health-Checks |
+| Python Workers → LiteLLM Proxy | HTTP (OpenAI-Format) | LLM-Calls (`litellm.completion()`) |
+| LiteLLM Proxy → LLM APIs | HTTPS | Provider-spezifische API-Calls |
 | Go → SCM (Git/SVN) | CLI / REST API | Repo-Operationen |
+| Go → Ollama/LM Studio | HTTP | Local Model Auto-Discovery |
 
 ## Design-Entscheidungen
 
@@ -939,6 +951,163 @@ Implementierungen:
 - **SlackProvider** — Approval-Requests als Slack-Messages
 - **EmailProvider** — Approval via Email-Link
 - **CliProvider** — Terminal-Input fuer Entwicklung/Debugging
+
+## LLM-Integration: LiteLLM Proxy als Sidecar
+
+### Architekturentscheidung
+
+Nach Analyse von LiteLLM, OpenRouter, Claude Code Router und OpenCode CLI:
+**CodeForge baut kein eigenes LLM-Provider-Interface.** LiteLLM Proxy laeuft als Docker-Sidecar
+und stellt eine einheitliche OpenAI-kompatible API bereit. Detaillierte Analyse: docs/research/market-analysis.md
+
+### Integrations-Architektur
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  TypeScript Frontend                 │
+│                                                     │
+│  ┌──────────────────────────────────────────────┐   │
+│  │  Cost Dashboard  │  Provider Config UI       │   │
+│  └──────────────────────────────────────────────┘   │
+└────────────────────┬────────────────────────────────┘
+                     │ REST / WebSocket
+┌────────────────────▼────────────────────────────────┐
+│                  Go Core Service                     │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐                 │
+│  │ LiteLLM      │  │ Scenario     │                 │
+│  │ Config Mgr   │  │ Router       │                 │
+│  └──────────────┘  └──────────────┘                 │
+│  ┌──────────────┐  ┌──────────────┐                 │
+│  │ User-Key     │  │ Local Model  │                 │
+│  │ Mapping      │  │ Discovery    │                 │
+│  └──────────────┘  └──────────────┘                 │
+│  ┌──────────────┐                                   │
+│  │ Copilot      │                                   │
+│  │ Token Exch.  │                                   │
+│  └──────────────┘                                   │
+└────────────┬────────────────────────┬───────────────┘
+             │ OpenAI-kompatible API  │
+             │ (Port 4000)            │
+┌────────────▼────────────────────────┤
+│      LiteLLM Proxy (Sidecar)       │
+│                                     │
+│  ┌──────────────┐  ┌────────────┐  │
+│  │  Router      │  │  Budget    │  │
+│  │  (6 Strat.)  │  │  Manager   │  │
+│  └──────────────┘  └────────────┘  │
+│  ┌──────────────┐  ┌────────────┐  │
+│  │  Caching     │  │  Callbacks │  │
+│  │  (Redis)     │  │(Prometheus)│  │
+│  └──────────────┘  └────────────┘  │
+└────────────┬────────────────────────┘
+             │ Provider APIs
+┌────────────▼────────────────────────────────────────┐
+│  OpenAI │ Anthropic │ Ollama │ Bedrock │ OpenRouter  │
+└─────────────────────────────────────────────────────┘
+```
+
+### Was LiteLLM bereitstellt (nicht selber bauen)
+
+| Feature | LiteLLM-Mechanismus |
+|---|---|
+| Provider-Abstraktion | 127+ Provider, einheitliche API |
+| Routing | 6 Strategien: latency, cost, usage, least-busy, shuffle, tag-based |
+| Fallbacks | Fallback-Ketten mit Cooldown (60s default) |
+| Cost-Tracking | Per-Call, per-Model, per-Key via Pricing-DB (36.000+ Eintraege) |
+| Budgets | Per-Key, Per-Team, Per-User, Per-Provider Limits |
+| Streaming | `CustomStreamWrapper` normalisiert alle Provider auf OpenAI SSE |
+| Tool-Calling | Einheitlich ueber `tools` Parameter, Provider-Konvertierung automatisch |
+| Structured Output | `response_format` cross-provider (nativ oder via Tool-Call-Fallback) |
+| Caching | In-Memory, Redis, Semantic (Qdrant), S3, GCS |
+| Observability | 42+ Integrations (Prometheus, Langfuse, Datadog, etc.) |
+| Rate Limiting | Per-Key TPM/RPM, Per-Team, Per-Model |
+
+### Was CodeForge baut (Eigenentwicklung)
+
+| Komponente | Schicht | Beschreibung |
+|---|---|---|
+| **LiteLLM Config Manager** | Go Core | Generiert `litellm_config.yaml` aus CodeForge-DB. CRUD fuer Models, Deployments, Keys. |
+| **User-Key-Mapping** | Go Core | CodeForge-User → LiteLLM Virtual Keys. API-Keys sicher in CodeForge-DB, Weiterleitung an LiteLLM. |
+| **Scenario Router** | Go Core | Task-Typ → LiteLLM-Tag. `metadata.tags: ["think"]` im Request → LiteLLM routet zum passenden Deployment. |
+| **Cost Dashboard** | Frontend | LiteLLM Spend API abfragen (`/spend/logs`, `/global/spend/per_team`). Visualisierung pro Projekt/User/Agent. |
+| **Local Model Discovery** | Go Core | Ollama (`/api/tags`) und LM Studio (`/v1/models`) Endpoints abfragen. Entdeckte Models automatisch in LiteLLM Config eintragen. |
+| **Copilot Token Exchange** | Go Core | GitHub OAuth Token aus `~/.config/github-copilot/hosts.json` lesen, gegen Bearer Token tauschen via `api.github.com/copilot_internal/v2/token`. |
+
+### Scenario-basiertes Routing
+
+Inspiriert von Claude Code Router. Verschiedene Task-Typen werden automatisch an
+passende Models geroutet ueber LiteLLM's Tag-based Routing:
+
+```yaml
+# litellm_config.yaml (generiert von Go Core)
+model_list:
+  - model_name: default
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+      tags: ["default", "review"]
+
+  - model_name: background
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+      tags: ["background"]
+
+  - model_name: think
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+      tags: ["think", "plan"]
+
+  - model_name: longcontext
+    litellm_params:
+      model: google/gemini-2.0-pro
+      api_key: os.environ/GEMINI_API_KEY
+      tags: ["longContext"]
+
+  - model_name: local
+    litellm_params:
+      model: ollama/llama3
+      api_base: http://ollama:11434
+      tags: ["background", "default"]
+
+router_settings:
+  routing_strategy: "tag-based-routing"
+  num_retries: 3
+  fallbacks:
+    - default: ["local"]
+    - think: ["default"]
+```
+
+| Scenario | Wann | Typische Models |
+|---|---|---|
+| `default` | Allgemeine Coding-Tasks | Claude Sonnet, GPT-4o |
+| `background` | Batch, Index, Embedding | GPT-4o-mini, DeepSeek, lokal |
+| `think` | Architektur, Debugging, komplexe Logik | Claude Opus, o3 |
+| `longContext` | Input > 60K Tokens | Gemini Pro (1M Context) |
+| `review` | Code Review, Quality Check | Claude Sonnet |
+| `plan` | Feature-Planung, Design-Dokumente | Claude Opus |
+
+### LiteLLM Proxy Konfiguration
+
+```yaml
+# docker-compose.yml (Auszug)
+services:
+  litellm:
+    image: docker.litellm.ai/berriai/litellm:main-stable
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
+```
 
 ### Verzeichnisstruktur Frontend (SolidJS)
 

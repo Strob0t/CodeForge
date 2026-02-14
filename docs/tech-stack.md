@@ -49,6 +49,7 @@
 - **Setup:** `.devcontainer/setup.sh` (automatisch via postCreateCommand)
 
 ### Docker Compose (Dev Services)
+- **litellm-proxy** (Port 4000) — LLM-Routing & Multi-Provider Gateway (OpenAI-kompatible API)
 - **docs-mcp-server** (Port 6280) — Dokumentations-Indexierung fuer LLM-Kontext
 - **playwright-mcp** (Port 8001) — Browser-Automatisierung / Web-Scraping
 
@@ -77,9 +78,16 @@
 - Git/SVN Bindings
 
 ### Python Workers
-- LiteLLM (Multi-Provider LLM Routing)
+- LiteLLM (Multi-Provider LLM Routing, auch als Proxy-Sidecar)
 - LangGraph (Agent Orchestrierung)
 - Redis/NATS Client
+
+### Infrastructure Services
+- LiteLLM Proxy (Docker Sidecar, Port 4000) — Zentrales LLM-Gateway
+  - Image: `docker.litellm.ai/berriai/litellm:main-stable`
+  - 127+ Provider, 6 Routing-Strategien, Budget-Management
+  - Config: `litellm_config.yaml` (generiert von Go Core)
+  - Abhaengigkeiten: Postgres (Spend-Tracking), Redis (Caching, Rate-Limiting)
 
 ### TypeScript Frontend
 - SolidJS (reaktives UI-Framework)

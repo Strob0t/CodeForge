@@ -104,6 +104,7 @@ CodeForge/
 | Port | Service              | Zweck                        |
 |------|----------------------|------------------------------|
 | 3000 | Frontend Dev-Server  | Web-GUI                      |
+| 4000 | LiteLLM Proxy        | LLM-Routing (OpenAI-kompatibel) |
 | 5173 | Vite HMR             | Hot Module Replacement       |
 | 6280 | docs-mcp-server      | Dokumentations-Indexierung   |
 | 8001 | playwright-mcp       | Browser-Automatisierung      |
@@ -136,3 +137,9 @@ Siehe `.env.example` fuer alle konfigurierbaren Werte.
 | DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint          |
 | DOCS_MCP_API_KEY          | lmstudio                                 | API Key fuer Embeddings         |
 | DOCS_MCP_EMBEDDING_MODEL  | text-embedding-qwen3-embedding-8b        | Embedding Model Name            |
+| LITELLM_MASTER_KEY        | (erforderlich)                           | Master-Key fuer LiteLLM Proxy   |
+| OPENAI_API_KEY            | (optional)                               | OpenAI API Key (via LiteLLM)    |
+| ANTHROPIC_API_KEY         | (optional)                               | Anthropic API Key (via LiteLLM) |
+| GEMINI_API_KEY            | (optional)                               | Google Gemini API Key           |
+| OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
+| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (lokal)         |

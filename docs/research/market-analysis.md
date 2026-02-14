@@ -170,23 +170,153 @@ Kernfunktionen:
 
 ### LiteLLM
 - **URL:** https://github.com/BerriAI/litellm
-- **Beschreibung:** Universeller LLM-Proxy. Policy-basiertes Routing, Team-Auth, Audit-Logging.
-- **Relevanz:** Starker Kandidat fuer die Multi-LLM-Layer in CodeForge
+- **Stars:** ~22.000 | **Lizenz:** MIT | **Version:** 1.81+
+- **Beschreibung:** Universeller LLM-Proxy (Python). Einheitliche OpenAI-kompatible API (`litellm.completion()`) fuer 127+ Provider. Production-grade Proxy Server (FastAPI + Postgres + Redis). Router mit 6 Routing-Strategien (latency/cost/usage/least-busy/shuffle/tag-based). Fallback-Ketten mit Cooldown. Budget-Management pro Key/Team/User. 42+ Observability-Integrations (Langfuse, Prometheus, Datadog, etc.). Caching (Redis, Semantic, In-Memory).
+- **Kernkonzepte:** `litellm.completion()` (unifizierter Einstiegspunkt), `Router` (Load Balancing + Fallbacks), Proxy Server (FastAPI, Port 4000), `model_list` (YAML-Config), `BaseConfig` (Provider-Abstraktion), `CustomStreamWrapper` (Streaming), Callbacks/Hooks
+- **Staerken:**
+  - 127+ Provider nativ (OpenAI, Anthropic, Gemini, Bedrock, Ollama, vLLM, LM Studio, etc.)
+  - OpenAI-kompatible REST-API — jeder Client der OpenAI spricht, spricht automatisch LiteLLM
+  - Router: 6 Routing-Strategien + Fallback-Ketten + Cooldown bei Provider-Ausfaellen
+  - Budget-Management: Per-Key, Per-Team, Per-User, Per-Provider Limits
+  - Docker-Image vorhanden (`docker.litellm.ai/berriai/litellm:main-stable`)
+  - Structured Output cross-provider (Schema als Tool-Call bei Providern ohne native Unterstuetzung)
+  - 42+ Observability-Integrations (Prometheus, Langfuse, Datadog, etc.)
+  - Caching: In-Memory, Redis, Semantic (Qdrant), S3, GCS
+  - Model-Aliase: Logische Namen zu echten Provider-Models mappen
+  - Per-Call Cost Tracking mit umfassender Preis-Datenbank (36.000+ Zeilen JSON)
+- **Schwaechen:**
+  - Monolithische Codebasis (6.500+ Dateien, `main.py` 7.400 Zeilen mit if/elif-Kette)
+  - Python-only — muss als separater Service laufen, nicht in Go einbettbar
+  - Proxy braucht Postgres fuer persistentes Spend-Tracking und Key-Management
+  - Memory-Footprint: 200-500MB+ RAM im Proxy-Modus
+  - Hohe Aenderungsrate (haeufige Releases, gelegentlich Breaking Changes)
+  - Error-Mapping ueber 127 Provider nicht immer perfekt
+  - Kein eingebautes Prompt-Management
+- **Relevanz fuer CodeForge:** **Zentrale Architekturentscheidung — LiteLLM Proxy als Docker-Sidecar.** Kein eigenes LLM-Provider-Interface noetig. Go Core spricht OpenAI-Format gegen LiteLLM. Python Workers nutzen `litellm.completion()` direkt. Routing, Fallbacks, Budgets, Cost-Tracking delegiert an LiteLLM.
 
 ### OpenRouter
 - **URL:** https://openrouter.ai
-- **Beschreibung:** Cloud-Gateway zu 400+ Models. Kein Self-Hosting, aber einfache Integration.
-- **Relevanz:** Als optionaler Provider nutzbar
+- **Stars:** n/a (Cloud SaaS) | **Modelle:** 300+ | **Provider:** 60+
+- **Beschreibung:** Cloud-hosted Unified API Gateway fuer LLMs. Single Endpoint (`/api/v1/chat/completions`) routet zu 300+ Models ueber 60+ Provider. ~30 Billionen Tokens/Monat, 5M+ User. OpenAI-kompatible API. Auto-Router (NotDiamond AI) fuer intelligente Modell-Auswahl. BYOK (Bring Your Own Keys) Support.
+- **Kernkonzepte:** Provider Routing (Preis/Latenz/Throughput-Sortierung), Model Fallbacks (Cross-Model), Auto Router (AI-basierte Modell-Auswahl), Model Variants (:free, :nitro, :thinking, :online), Credits-System, BYOK
+- **Staerken:**
+  - 300+ Models, 60+ Provider ueber einen Endpoint
+  - OpenAI-kompatible API (1-Zeilen-Integration via Base-URL-Aenderung)
+  - Auto-Router: AI waehlt optimales Model je nach Prompt
+  - Provider-Routing: Sortierung nach Preis/Latenz/Throughput, Whitelist/Blacklist
+  - Model Fallbacks: Cross-Model-Fallback-Ketten
+  - Zero Data Retention (ZDR) Option
+  - Rankings/Leaderboard basierend auf echten Nutzungsdaten
+  - Message Transforms: Intelligente Prompt-Kompression bei Context-Overflow
+- **Schwaechen:**
+  - **Cloud-only — kein Self-Hosting** (Kernproblem fuer CodeForge)
+  - ~5.5% Platform-Fee auf alle Ausgaben
+  - Keine lokalen Models (Ollama, LM Studio nicht unterstuetzt)
+  - Privacy-Abhaengigkeit: Alle Prompts transitieren OpenRouter-Infrastruktur
+  - Credits verfallen nach 1 Jahr
+  - Kein Volume-Discount
+- **Relevanz fuer CodeForge:** Als optionaler Provider **hinter** LiteLLM. LiteLLM hat native OpenRouter-Unterstuetzung (`openrouter/<model-id>`). Nutzer die OpenRouter bevorzugen, konfigurieren es als LiteLLM-Deployment. CodeForge baut keine eigene OpenRouter-Integration.
 
 ### Claude Code Router
 - **URL:** https://github.com/musistudio/claude-code-router
-- **Beschreibung:** Intelligenter Proxy zwischen Claude Code und verschiedenen LLM-Providern. Dynamic Model Switching.
-- **Relevanz:** Inspiration fuer Model-Switching-UX
+- **Stars:** ~27.800 | **Lizenz:** MIT | **Version:** 2.0.0 (npm)
+- **Beschreibung:** Lokaler Proxy speziell fuer Claude Code CLI. Setzt `ANTHROPIC_BASE_URL` auf localhost, faengt alle Requests ab, routet zu konfigurierten Providern (OpenAI, Gemini, DeepSeek, Groq, etc.). Transformer-Chain-Architektur fuer Request/Response-Transformation. Scenario-basiertes Routing (default/background/think/longContext/webSearch).
+- **Kernkonzepte:** Transformer Chain (composable Request/Response-Transformers), Scenario-based Routing, Provider Config (JSON5), Preset System (Export/Import/Share), Custom Router Functions (JS-Module), Token-Threshold Routing, Subagent Routing
+- **Staerken:**
+  - **Scenario-basiertes Routing** — verschiedene Models fuer verschiedene Task-Typen:
+    - `default`: Allgemeine Coding-Tasks
+    - `background`: Nicht-interaktive Tasks (guenstigere Models)
+    - `think`: Reasoning-intensive Operationen (Thinking-Models)
+    - `longContext`: Automatisch bei Tokens > Threshold (grosse Context-Windows)
+    - `webSearch`: Web-Such-faehige Models
+  - Transformer-Chain: Composable, geordnete Transformers fuer Provider-Normalisierung
+  - 22 Transformer-Adapter (Provider-spezifisch + Feature-Adapter)
+  - Preset-System: Routing-Konfigurationen exportieren/teilen
+  - Token-basiertes Routing: Auto-Switch zu Long-Context-Models ab Threshold
+  - Custom Router Functions: User-definierte Routing-Logik als JS-Module
+  - React-basierte Config-UI (`ccr ui`)
+- **Schwaechen:**
+  - Claude-Code-spezifisch (funktioniert nur als Proxy fuer Anthropic CLI)
+  - 714 offene Issues (Stabilitaetsprobleme)
+  - Keine formellen GitHub-Releases
+  - Kein Load Balancing, keine Fallback-Ketten
+  - Kein Cost-Tracking, kein Budget-Management
+  - Single-User, keine Multi-Tenancy
+  - Node.js-only, fragile Streaming-Transformation
+- **Relevanz fuer CodeForge:** **Scenario-basiertes Routing** ist das Kernkonzept. CodeForge uebernimmt die Idee (default/background/think/longContext/review/plan), implementiert sie aber ueber LiteLLM's Tag-based Routing statt als eigenen Proxy. Token-Threshold-Routing und Preset-System ebenfalls als Features geplant.
 
 ### OpenCode CLI
-- **URL:** https://yuv.ai/learn/opencode-cli
-- **Beschreibung:** Open-Source Terminal AI-Agent. 75+ LLM-Provider, Ollama, GitHub Copilot, ChatGPT Plus.
-- **Relevanz:** Zeigt wie breite Provider-Unterstuetzung aussehen kann
+- **URL:** https://github.com/opencode-ai/opencode (archiviert) → https://opencode.ai (TypeScript-Rewrite)
+- **Stars:** n/a (archiviert) | **Lizenz:** MIT
+- **Beschreibung:** Open-Source Terminal AI-Agent. Original in Go (archiviert, Nachfolger: Crush by Charm + OpenCode by Anomaly/SST). 7 Go-Clients decken 12 Provider ab ueber OpenAI-kompatibles Base-URL-Pattern. GitHub Copilot Token-Exchange. Lokale Model Auto-Discovery. TypeScript-Rewrite (opencode.ai) nutzt Vercel AI SDK + Models.dev fuer 75+ Provider.
+- **Kernkonzepte:** OpenAI-compatible Base URL Pattern (1 SDK fuer viele Provider), GitHub Copilot Token Exchange, Local Model Auto-Discovery (/v1/models), Provider Priority Chain, Context File Interoperability (CLAUDE.md, .cursorrules, copilot-instructions.md), Per-Model Pricing Data
+- **Staerken:**
+  - Zeigt: Meisten Provider sind OpenAI-kompatibel — Base-URL reicht
+  - GitHub Copilot als Free Provider (Token aus `~/.config/github-copilot/hosts.json`)
+  - Auto-Discovery: Lokale Models via `/v1/models` Endpoint erkennen
+  - Provider Priority Chain (Copilot > Anthropic > OpenAI > Gemini > ...)
+  - Context File Interoperability (liest CLAUDE.md, .cursorrules etc.)
+  - Per-Session Cost-Tracking mit hardcoded Pricing
+- **Schwaechen:**
+  - Go-Codebase archiviert (Split in Crush + OpenCode TypeScript)
+  - Hardcoded Model-Katalog (jedes neue Model braucht Code-Aenderung)
+  - Kein Multi-Provider-Routing (ein Provider pro Agent)
+  - Kein Load Balancing, keine Fallbacks
+  - Single-Agent-Architektur
+  - Kein Web-GUI
+- **Relevanz fuer CodeForge:** **Drei Patterns uebernommen:** (1) GitHub Copilot Token-Exchange als Provider in Go Core, (2) Auto-Discovery fuer lokale Models (Ollama/LM Studio `/v1/models` abfragen), (3) Provider Priority Chain fuer intelligente Defaults ohne Konfiguration.
+
+### Architekturentscheidung: Kein eigenes LLM-Interface
+
+Die Analyse aller vier Tools fuehrt zu einer klaren Entscheidung:
+
+**CodeForge baut KEIN eigenes LLM-Provider-Interface.** LiteLLM deckt 127+ Provider ab, inklusive Routing, Fallbacks, Cost-Tracking, Budgets, Streaming und Tool-Calling. Das selber zu bauen wuerde Monate kosten und waere permanent hinter LiteLLM's Provider-Coverage.
+
+#### Was CodeForge NICHT baut
+- Keinen eigenen LLM-Provider-Proxy
+- Keine eigene Provider-Abstraktion in Go oder Python
+- Kein eigenes Cost-Tracking auf Token-Ebene (LiteLLM macht das)
+- Keine eigene Fallback/Retry-Logik fuer LLM-Calls
+
+#### Was CodeForge BAUT
+| Komponente | Schicht | Beschreibung |
+|---|---|---|
+| **LiteLLM Config Manager** | Go Core | Generiert/aktualisiert LiteLLM Proxy YAML-Config |
+| **User-Key-Mapping** | Go Core | Mappt CodeForge-User auf LiteLLM Virtual Keys |
+| **Scenario-Routing** | Go Core | Mappt Task-Typen auf LiteLLM-Tags (default/background/think/longContext/review/plan) |
+| **Cost Dashboard** | Frontend | Zieht Spend-Daten aus LiteLLM API (`/spend/logs`, `/global/spend/per_team`) |
+| **Local Model Discovery** | Go Core | Auto-Discovery via Ollama/LM Studio `/v1/models` Endpoint |
+| **Copilot Token Exchange** | Go Core | GitHub Copilot Token aus lokaler Config austauschen |
+
+#### Integrations-Architektur
+
+```
+TypeScript Frontend (SolidJS)
+        |
+        v  REST / WebSocket
+Go Core Service
+        |
+        v  HTTP (OpenAI-kompatible API)
+LiteLLM Proxy (Docker Sidecar, Port 4000)
+        |
+        v  Provider APIs
+OpenAI / Anthropic / Ollama / Bedrock / OpenRouter / etc.
+```
+
+Go Core und Python Workers sprechen beide mit LiteLLM ueber die standard OpenAI-API. Go Core nutzt den OpenAI Go SDK oder raw HTTP. Python Workers nutzen `litellm.completion()` direkt.
+
+#### Scenario-basiertes Routing (inspiriert von Claude Code Router)
+
+| Scenario | Beschreibung | Beispiel-Routing |
+|---|---|---|
+| `default` | Allgemeine Coding-Tasks | Claude Sonnet / GPT-4o |
+| `background` | Nicht-interaktive Tasks, Batch | GPT-4o-mini / DeepSeek |
+| `think` | Reasoning-intensive Aufgaben | Claude Opus / o3 |
+| `longContext` | Input > Token-Threshold | Gemini Pro (1M Context) |
+| `review` | Code Review, Quality Check | Claude Sonnet |
+| `plan` | Architektur, Design | Claude Opus |
+
+Implementiert ueber LiteLLM's Tag-based Routing: Go Core setzt `metadata.tags` im Request, LiteLLM routet zum passenden Model-Deployment.
 
 ---
 
