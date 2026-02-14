@@ -70,6 +70,17 @@
 - [x] Architekturentscheidung: Kein eigenes PM-Tool, bidirektionaler Sync mit bestehenden
   - Uebernommene Patterns: Cursor-Pagination, HMAC-SHA256, Label-Sync (Plane), Optimistic Locking, Schema-Endpoints (OpenProject), Delta-Spec-Format (OpenSpec), `/ai` Endpoint (Ploi Roadmap)
   - Explizit NICHT uebernommen: HAL+JSON/HATEOAS, GraphQL, eigenes PM-Tool
+- [x] Tiefenanalyse aller AI Coding Agents (Sektion 1+2 in market-analysis.md):
+  - OpenHands: Event-Sourcing, AgentHub, Microagents, Risk Management, V0→V1 SDK
+  - SWE-agent: ACI, ReAct Loop, Tool-Bundles, History Processors, SWE-ReX, Mini-SWE-Agent
+  - Aider: tree-sitter Repo Map, 7+ Edit-Formate, Architect/Editor Pattern (separate Datei: aider-deep-analysis.md)
+  - Cline: Drei-Tier-Runtime, Plan/Act Mode, Shadow Git, MCP, Ask/Say Approval
+  - Devika: 9 Sub-Agents, Jinja2 Templates, SentenceBERT, Agent State Visualization
+- [x] Erweiterte Konkurrenzanalyse: 12 neue Tools identifiziert und analysiert
+  - 5 neue Konkurrenten: Codel, AutoForge, bolt.diy, Dyad, CLI Agent Orchestrator (AWS)
+  - 7 neue Backend-Kandidaten: Goose, OpenCode, Plandex, AutoCodeRover, Roo Code, Codex CLI, SERA
+  - Backend-Integration-Prioritaeten definiert (Goose, OpenCode, Plandex als Prio 1)
+  - Naechster Konkurrent identifiziert: CLI Agent Orchestrator (AWS) — gleiche Vision ohne Web-GUI
 
 ### Offen
 

@@ -87,6 +87,46 @@ Detaillierte Analyse: docs/research/market-analysis.md
   - MagenticOne Planning Loop (Stall Detection + Re-Planning)
   - HandoffMessage Pattern (Agent-Uebergabe zwischen Spezialisten)
   - Human Feedback Provider Protocol (Web-GUI, Slack, Email erweiterbar)
+- **Coding-Agent-Insights (Cline, Devika):**
+  - Plan/Act Mode Pattern (separate LLM-Configs pro Phase, User-Toggle)
+  - Shadow-Git Checkpoints (isoliertes Git-Repo fuer Rollback)
+  - Ask/Say Approval Pattern (granulare Permissions pro Tool-Kategorie)
+  - MCP als Standard-Extensibility-Protokoll fuer Tools
+  - .clinerules-aehnliche Projekt-Konfiguration (YAML-basiert)
+  - Auto-Compact Context Management (Zusammenfassung bei ~80% Window)
+  - Diff-basiertes File Review (Side-by-Side vor Approval)
+  - Sub-Agent-Architektur (Planner/Researcher/Coder-Trennung)
+  - Agent State Visualization (Internal Monologue, Steps, Browser, Terminal)
+  - LLM-gesteuerter Web Crawler (Page Content → LLM → Action Loop)
+  - Stateless Agent Design (State im Core, nicht in Agents)
+- **Coding-Agent-Insights (OpenHands, SWE-agent):**
+  - Event-Sourcing Architecture (EventStream als zentrale Abstraktion)
+  - Workspace-Abstraktion (Local/Docker/Remote, Self-Healing Containers)
+  - AgentHub mit spezialisierten Agents (CodeAct, Browsing, Delegator, Microagents)
+  - Microagents: YAML+Markdown-basierte trigger-gesteuerte Spezial-Agents
+  - Skills-System (wiederverwendbare Python-Snippets, automatisch in Prompt)
+  - Risk Management mit LLMSecurityAnalyzer (InvariantAnalyzer)
+  - V0→V1 SDK Migration Pattern (AgentSkills als MCP-Server)
+  - RouterLLM fuer lokale Routing-Entscheidung (OpenRouter als Fallback)
+  - ACI (Agent-Computer Interface): Fuer LLMs optimierte Shell-Befehle
+  - Tool-Bundles (YAML): Deklarative, austauschbare Tool-Definitionen
+  - History Processors: Pipeline fuer Context-Window-Optimierung
+  - SWE-ReX Sandbox: Docker-basierte Remote-Execution
+  - Mini-SWE-Agent Pattern: 100 Zeilen Python, 74% SWE-bench
+  - ToolFilterConfig: Blocklist + Conditional Blocking fuer Command Safety
+- **Erweiterte Konkurrenzanalyse (12 neue Tools):**
+  - Codel (Go+React, Docker-Sandbox, AGPL-3.0) — Architektur-Referenz
+  - CLI Agent Orchestrator (AWS, Supervisor/Worker, tmux/MCP) — naechster Konkurrent
+  - Goose (Rust, MCP-native, 30k+ Stars, Apache 2.0) — Backend-Kandidat
+  - OpenCode (Go, Client/Server, LSP, MIT) — Backend-Kandidat
+  - Plandex (Go, Planning-First, Diff-Sandbox, MIT) — Backend-Kandidat
+  - Roo Code (Modes-System, Cloud Agents, Apache 2.0) — Pattern-Referenz
+  - Codex CLI (OpenAI, Multimodal, GitHub Action, Apache 2.0) — Backend-Kandidat
+  - SERA (Ai2, Open Model Weights, $400 Training, Apache 2.0) — Self-Hosted-Modell
+  - bolt.diy (19k Stars, 19+ Provider, MIT) — Multi-LLM-Referenz
+  - AutoForge (Two-Agent, Test-First, Multi-Session) — Workflow-Pattern
+  - Dyad (Local-First, Apache 2.0) — UX-Referenz
+  - AutoCodeRover (AST-aware, GPL-3.0, $0.70/Task) — Nischen-Agent
 - **Roadmap/Feature-Map Auto-Detection & Adaptive Integration:**
   - **Kein eigenes PM-Tool** — Sync mit bestehenden Tools (Plane, OpenProject, GitHub/GitLab Issues)
   - **Auto-Detection:** Drei-Tier-Erkennung (Repo-Dateien → Platform-APIs → File-Marker)
