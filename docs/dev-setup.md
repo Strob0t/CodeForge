@@ -1,58 +1,58 @@
 # CodeForge — Development Setup
 
-## Voraussetzungen
+## Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (mit WSL2 Backend unter Windows)
-- [VS Code](https://code.visualstudio.com/) mit Extension "Dev Containers" (`ms-vscode-remote.remote-containers`)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (with WSL2 backend on Windows)
+- [VS Code](https://code.visualstudio.com/) with Extension "Dev Containers" (`ms-vscode-remote.remote-containers`)
 - Git
 
-## Schnellstart
+## Quick Start
 
-1. **Repository klonen:**
+1. **Clone the repository:**
    ```bash
    git clone <repo-url> CodeForge
    cd CodeForge
    ```
 
-2. **Environment konfigurieren:**
+2. **Configure environment:**
    ```bash
    cp .env.example .env
-   # .env anpassen (LM Studio / Ollama Endpoint, API Keys, etc.)
+   # Edit .env (LM Studio / Ollama endpoint, API keys, etc.)
    ```
 
-3. **Devcontainer starten:**
-   - VS Code oeffnen: `code .`
+3. **Start devcontainer:**
+   - Open VS Code: `code .`
    - `Ctrl+Shift+P` → "Dev Containers: Reopen in Container"
-   - Warten bis `setup.sh` durchgelaufen ist
+   - Wait until `setup.sh` has finished running
 
-4. **Fertig.** Der Container installiert automatisch:
+4. **Done.** The container automatically installs:
    - Go 1.23, Python 3.12, Node.js 22
    - Poetry, golangci-lint, goimports, Claude Code CLI
-   - Python Dependencies (poetry install)
-   - Node Dependencies (npm install, wenn package.json vorhanden)
+   - Python dependencies (poetry install)
+   - Node dependencies (npm install, if package.json exists)
    - Pre-commit Hooks
    - Docker Compose Services (docs-mcp, playwright-mcp)
 
-## Projektstruktur
+## Project Structure
 
 ```
 CodeForge/
 ├── .claude/                  # Claude Code Config (gitignored)
-│   ├── commands/             # Custom Slash-Commands
+│   ├── commands/             # Custom Slash Commands
 │   ├── hooks/                # Pre/Post Tool-Use Hooks
-│   └── settings.local.json   # Lokale Einstellungen
+│   └── settings.local.json   # Local Settings
 ├── .devcontainer/
-│   ├── devcontainer.json     # Container-Definition
+│   ├── devcontainer.json     # Container Definition
 │   └── setup.sh              # Post-Create Setup Script
 ├── .devdata/                 # Docker Volumes (gitignored)
 │   ├── docs_mcp_data/        # Docs MCP Index
 │   └── playwright-mcp/       # Playwright Config
 ├── cmd/
 │   └── codeforge/
-│       ├── main.go           # Einstiegspunkt, Dependency Injection
-│       └── providers.go      # Blank-Imports aller aktiven Adapter
+│       ├── main.go           # Entry point, Dependency Injection
+│       └── providers.go      # Blank imports of all active adapters
 ├── internal/
-│   ├── domain/               # Kern: Entities, Business Rules
+│   ├── domain/               # Core: Entities, Business Rules
 │   │   ├── project/
 │   │   ├── agent/
 │   │   └── roadmap/
@@ -60,11 +60,11 @@ CodeForge/
 │   │   ├── gitprovider/
 │   │   ├── llmprovider/
 │   │   ├── agentbackend/
-│   │   ├── specprovider/    # Spec-Detection (OpenSpec, Spec Kit, Autospec)
-│   │   ├── pmprovider/      # PM-Sync (Plane, OpenProject, GitHub/GitLab)
+│   │   ├── specprovider/    # Spec Detection (OpenSpec, Spec Kit, Autospec)
+│   │   ├── pmprovider/      # PM Sync (Plane, OpenProject, GitHub/GitLab)
 │   │   ├── database/
 │   │   └── messagequeue/
-│   ├── adapter/              # Konkrete Implementierungen
+│   ├── adapter/              # Concrete Implementations
 │   │   ├── github/
 │   │   ├── gitlab/
 │   │   ├── svn/
@@ -76,28 +76,28 @@ CodeForge/
 │   └── service/              # Use Cases
 ├── workers/                  # Python AI Workers
 │   └── codeforge/
-│       ├── consumer/         # Queue-Consumer
-│       ├── agents/           # Agent-Backends
-│       ├── llm/              # LLM-Client via LiteLLM
-│       └── models/           # Datenmodelle
-├── frontend/                 # SolidJS Web-GUI
+│       ├── consumer/         # Queue Consumer
+│       ├── agents/           # Agent Backends
+│       ├── llm/              # LLM Client via LiteLLM
+│       └── models/           # Data Models
+├── frontend/                 # SolidJS Web GUI
 │   └── src/
-│       ├── features/         # Feature-Module
-│       ├── shared/           # Gemeinsame Komponenten, Primitives
-│       └── api/              # API-Client, WebSocket
+│       ├── features/         # Feature Modules
+│       ├── shared/           # Shared Components, Primitives
+│       └── api/              # API Client, WebSocket
 ├── docs/
-│   ├── architecture.md       # Systemarchitektur + Hexagonal + Provider Registry
-│   ├── dev-setup.md          # Diese Datei
-│   ├── project-status.md     # Projektstatus & Roadmap
+│   ├── architecture.md       # System Architecture + Hexagonal + Provider Registry
+│   ├── dev-setup.md          # This file
+│   ├── project-status.md     # Project Status & Roadmap
 │   ├── tech-stack.md         # Tech Stack Details
 │   └── research/
-│       └── market-analysis.md# Marktrecherche & Wettbewerber
+│       └── market-analysis.md# Market Research & Competitors
 ├── .env.example              # Environment Template
 ├── .gitignore
 ├── .golangci.yml             # Go Linter Config
-├── .mcp.json                 # MCP Server fuer Claude Code
+├── .mcp.json                 # MCP Server for Claude Code
 ├── .pre-commit-config.yaml   # Pre-commit Hooks (Python, Go, TS)
-├── CLAUDE.md                 # Projektkontext fuer Claude Code
+├── CLAUDE.md                 # Project Context for Claude Code
 ├── docker-compose.yml        # Dev Services (MCP Server)
 ├── LICENSE                   # AGPL-3.0
 └── pyproject.toml            # Python: Poetry + Ruff + Pytest
@@ -105,45 +105,45 @@ CodeForge/
 
 ## Ports
 
-| Port | Service              | Zweck                        |
-|------|----------------------|------------------------------|
-| 3000 | Frontend Dev-Server  | Web-GUI                      |
-| 4000 | LiteLLM Proxy        | LLM-Routing (OpenAI-kompatibel) |
-| 5173 | Vite HMR             | Hot Module Replacement       |
-| 6280 | docs-mcp-server      | Dokumentations-Indexierung   |
-| 8001 | playwright-mcp       | Browser-Automatisierung      |
-| 8080 | Go API               | Core Service REST/WebSocket  |
+| Port | Service              | Purpose                          |
+|------|----------------------|----------------------------------|
+| 3000 | Frontend Dev Server  | Web GUI                          |
+| 4000 | LiteLLM Proxy        | LLM Routing (OpenAI-compatible)  |
+| 5173 | Vite HMR             | Hot Module Replacement           |
+| 6280 | docs-mcp-server      | Documentation Indexing           |
+| 8001 | playwright-mcp       | Browser Automation               |
+| 8080 | Go API               | Core Service REST/WebSocket      |
 
-## Linting manuell ausfuehren
+## Running Linting Manually
 
 ```bash
-# Alle Sprachen via pre-commit
+# All languages via pre-commit
 pre-commit run --all-files
 
-# Nur Python
+# Python only
 ruff check workers/
 ruff format workers/
 
-# Nur Go
+# Go only
 golangci-lint run ./...
 
-# Nur TypeScript (wenn Frontend existiert)
+# TypeScript only (if frontend exists)
 npx eslint .
 npx prettier --check .
 ```
 
-## Environment-Variablen
+## Environment Variables
 
-Siehe `.env.example` fuer alle konfigurierbaren Werte.
+See `.env.example` for all configurable values.
 
-| Variable                  | Default                                  | Beschreibung                    |
+| Variable                  | Default                                  | Description                     |
 |---------------------------|------------------------------------------|---------------------------------|
 | DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint          |
-| DOCS_MCP_API_KEY          | lmstudio                                 | API Key fuer Embeddings         |
+| DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings          |
 | DOCS_MCP_EMBEDDING_MODEL  | text-embedding-qwen3-embedding-8b        | Embedding Model Name            |
-| LITELLM_MASTER_KEY        | (erforderlich)                           | Master-Key fuer LiteLLM Proxy   |
+| LITELLM_MASTER_KEY        | (required)                               | Master Key for LiteLLM Proxy    |
 | OPENAI_API_KEY            | (optional)                               | OpenAI API Key (via LiteLLM)    |
 | ANTHROPIC_API_KEY         | (optional)                               | Anthropic API Key (via LiteLLM) |
 | GEMINI_API_KEY            | (optional)                               | Google Gemini API Key           |
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
-| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (lokal)         |
+| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |

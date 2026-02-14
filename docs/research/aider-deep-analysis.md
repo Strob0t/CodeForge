@@ -1,139 +1,139 @@
 # Aider — Deep Technical Analysis
 
-> Stand: 2026-02-14
+> Date: 2026-02-14
 
-## Uebersicht
+## Overview
 
 - **URL:** https://aider.chat / https://github.com/Aider-AI/aider
-- **Stars:** ~40.000+ | **Lizenz:** Apache 2.0
-- **Sprache:** Python (100%)
+- **Stars:** ~40,000+ | **License:** Apache 2.0
+- **Language:** Python (100%)
 - **Installation:** `pip install aider-chat` / Docker / pipx
-- **Erstellt von:** Paul Gauthier
-- **Status:** Aktive Entwicklung (letzte stabile Version 0.86.1 — Entwicklungspause ab August 2025 loeste Community-Diskussionen aus)
-- **Selbst-Coding:** Aider schreibt ~70% seines eigenen neuen Codes pro Release
+- **Created by:** Paul Gauthier
+- **Status:** Active development (last stable version 0.86.1 — development pause from August 2025 triggered community discussions)
+- **Self-Coding:** Aider writes ~70% of its own new code per release
 
 ---
 
-## 1. Architektur
+## 1. Architecture
 
 ### 1.1 Tech Stack
 
-| Komponente | Technologie |
+| Component | Technology |
 |---|---|
-| Sprache | Python 3.9+ |
-| LLM-Anbindung | LiteLLM (127+ Provider) |
-| Code-Parsing | tree-sitter (via py-tree-sitter-languages / tree-sitter-language-pack) |
-| Graph-Ranking | NetworkX (PageRank-Algorithmus) |
-| Terminal-UI | prompt_toolkit (Autocomplete, History, Farbausgabe) |
-| Browser-UI | Experimentell (`--browser` Flag) |
-| Git-Integration | GitPython / native git CLI |
-| Spracherkennung | Whisper API (OpenAI) |
-| Web-Scraping | Playwright (optional) |
-| Paketierung | pip / pipx / Docker |
+| Language | Python 3.9+ |
+| LLM Connection | LiteLLM (127+ Providers) |
+| Code Parsing | tree-sitter (via py-tree-sitter-languages / tree-sitter-language-pack) |
+| Graph Ranking | NetworkX (PageRank algorithm) |
+| Terminal UI | prompt_toolkit (Autocomplete, History, Color output) |
+| Browser UI | Experimental (`--browser` flag) |
+| Git Integration | GitPython / native git CLI |
+| Speech Recognition | Whisper API (OpenAI) |
+| Web Scraping | Playwright (optional) |
+| Packaging | pip / pipx / Docker |
 
-### 1.2 Interne Modulstruktur
+### 1.2 Internal Module Structure
 
 ```
 aider/
 ├── main.py                    # Entry Point, CLI-Argument-Parsing
-├── coders/                    # Edit-Format-Implementierungen (Kernmodul)
-│   ├── base_coder.py         # Abstrakte Basis-Klasse (~hoechtse Komplexitaet)
-│   ├── base_prompts.py       # System-Prompts fuer Base Coder
-│   ├── editblock_coder.py    # SEARCH/REPLACE Block Format ("diff")
-│   ├── wholefile_coder.py    # Ganzes File ersetzen ("whole")
-│   ├── udiff_coder.py        # Unified Diff Format ("udiff")
-│   ├── architect_coder.py    # Zwei-Modell Architect/Editor Pattern
-│   ├── ask_coder.py          # Frage-Modus (keine Edits)
-│   ├── help_coder.py         # Hilfe-Modus (Aider-Dokumentation)
-│   ├── context_coder.py      # File-Auswahl mit Reflection
-│   └── [format]_prompts.py   # Format-spezifische Prompts
-├── models.py                  # LLM-Provider-Abstraktion via LiteLLM
-├── commands.py                # In-Chat Befehle (/add, /drop, /undo, etc.)
+├── coders/                    # Edit format implementations (core module)
+│   ├── base_coder.py         # Abstract base class (~highest complexity)
+│   ├── base_prompts.py       # System prompts for base coder
+│   ├── editblock_coder.py    # SEARCH/REPLACE block format ("diff")
+│   ├── wholefile_coder.py    # Whole file replacement ("whole")
+│   ├── udiff_coder.py        # Unified diff format ("udiff")
+│   ├── architect_coder.py    # Two-model architect/editor pattern
+│   ├── ask_coder.py          # Ask mode (no edits)
+│   ├── help_coder.py         # Help mode (Aider documentation)
+│   ├── context_coder.py      # File selection with reflection
+│   └── [format]_prompts.py   # Format-specific prompts
+├── models.py                  # LLM provider abstraction via LiteLLM
+├── commands.py                # In-chat commands (/add, /drop, /undo, etc.)
 ├── io.py                      # Terminal I/O (prompt_toolkit)
-├── repomap.py                 # Repository Map (tree-sitter + PageRank)
-├── repo.py                    # Git-Operationen
-├── linter.py                  # Lint-Integration (built-in + custom)
-├── scrape.py                  # Web-Scraping (Playwright + Markdown-Konvertierung)
-├── voice.py                   # Spracheingabe (Whisper)
-├── resources/                 # Konfigurationsdateien, Model-Metadaten
-│   ├── model-settings.yml    # Default Model-Konfigurationen
-│   └── model-metadata.json   # Context-Window-Groessen, Pricing
-└── website/                   # Dokumentation (aider.chat)
+├── repomap.py                 # Repository map (tree-sitter + PageRank)
+├── repo.py                    # Git operations
+├── linter.py                  # Lint integration (built-in + custom)
+├── scrape.py                  # Web scraping (Playwright + Markdown conversion)
+├── voice.py                   # Voice input (Whisper)
+├── resources/                 # Configuration files, model metadata
+│   ├── model-settings.yml    # Default model configurations
+│   └── model-metadata.json   # Context window sizes, pricing
+└── website/                   # Documentation (aider.chat)
 ```
 
-### 1.3 Coder-Klassenhierarchie
+### 1.3 Coder Class Hierarchy
 
 ```
 Coder (base_coder.py)          # Factory: Coder.create(edit_format=...)
-├── EditBlockCoder             # SEARCH/REPLACE Bloecke (Standard fuer GPT-4o)
-├── WholeFileCoder             # Komplettes File (Standard fuer GPT-3.5)
-├── UdiffCoder                 # Unified Diff (Standard fuer GPT-4 Turbo)
-├── ArchitectCoder             # Zwei-Modell-Pipeline (Architect → Editor)
-├── AskCoder                   # Frage-Modus (read-only)
-├── HelpCoder                  # Hilfe-Modus (Aider-Docs)
-└── ContextCoder               # File-Auswahl mit Reflection
+├── EditBlockCoder             # SEARCH/REPLACE blocks (default for GPT-4o)
+├── WholeFileCoder             # Complete file (default for GPT-3.5)
+├── UdiffCoder                 # Unified diff (default for GPT-4 Turbo)
+├── ArchitectCoder             # Two-model pipeline (Architect → Editor)
+├── AskCoder                   # Ask mode (read-only)
+├── HelpCoder                  # Help mode (Aider docs)
+└── ContextCoder               # File selection with reflection
 ```
 
-**Factory Pattern:** `Coder.create()` waehlt die Implementierung dynamisch basierend auf `edit_format`. Jede Subklasse definiert:
-1. `edit_format` Attribut — Identifiziert die Strategie
-2. `get_edits()` Methode — Extrahiert Code-Aenderungen aus LLM-Response
-3. `apply_edits()` Methode — Wendet extrahierte Aenderungen auf Dateien an
+**Factory Pattern:** `Coder.create()` dynamically selects the implementation based on `edit_format`. Each subclass defines:
+1. `edit_format` attribute — Identifies the strategy
+2. `get_edits()` method — Extracts code changes from the LLM response
+3. `apply_edits()` method — Applies extracted changes to files
 
-### 1.4 Message-Processing-Pipeline
+### 1.4 Message Processing Pipeline
 
 ```
 run()
-  → get_input()           # User-Input lesen (Terminal/Watch/Script)
-  → Command-Routing       # Wenn "/" Prefix: Commands.run()
+  → get_input()           # Read user input (terminal/watch/script)
+  → Command Routing       # If "/" prefix: Commands.run()
   → run_one()             # Preprocessing
-    → send_message()      # Haupt-LLM-Interaktion
+    → send_message()      # Main LLM interaction
       → format_messages()
         → format_chat_chunks()
-          → get_repo_messages()    # Repo Map generieren
-        → System Messages         # Prompts + Kontext
-        → Done Messages            # Zusammengefasste History
-        → Current Messages         # Aktuelle Konversation
-      → LiteLLM API Call          # Streaming oder Batch
-      → get_edits()               # Format-spezifisches Parsing
-      → apply_edits()             # Dateien aendern
-      → Auto-Lint                 # Lint-Check der geaenderten Files
-      → Auto-Test                 # Test-Suite ausfuehren (optional)
-      → Git Commit                # Auto-Commit mit generierten Messages
-    → Reflection Loop             # Bei Fehlern: bis zu max_reflections=3 Versuche
+          → get_repo_messages()    # Generate repo map
+        → System Messages         # Prompts + context
+        → Done Messages            # Summarized history
+        → Current Messages         # Current conversation
+      → LiteLLM API Call          # Streaming or batch
+      → get_edits()               # Format-specific parsing
+      → apply_edits()             # Modify files
+      → Auto-Lint                 # Lint check of changed files
+      → Auto-Test                 # Run test suite (optional)
+      → Git Commit                # Auto-commit with generated messages
+    → Reflection Loop             # On errors: up to max_reflections=3 attempts
 ```
 
-### 1.5 State-Management
+### 1.5 State Management
 
-| Attribut | Typ | Zweck |
+| Attribute | Type | Purpose |
 |---|---|---|
-| `abs_fnames` | set | Absolute Pfade editierbarer Dateien |
-| `abs_read_only_fnames` | set | Referenz-Dateien (nur Kontext) |
-| `main_model` | Model | Primaeres LLM |
-| `repo` | GitRepo | Git-Repository-Interface |
-| `repo_map` | RepoMap | Codebase-Kontext-Generator |
-| `commands` | Commands | Command-Handler |
-| `io` | InputOutput | Terminal-Interaktion |
-| `done_messages` | list | Abgeschlossene Chat-History |
-| `cur_messages` | list | Aktuelle Konversation |
-| `max_reflections` | int | Max. Korrektur-Versuche (Default: 3) |
+| `abs_fnames` | set | Absolute paths of editable files |
+| `abs_read_only_fnames` | set | Reference files (context only) |
+| `main_model` | Model | Primary LLM |
+| `repo` | GitRepo | Git repository interface |
+| `repo_map` | RepoMap | Codebase context generator |
+| `commands` | Commands | Command handler |
+| `io` | InputOutput | Terminal interaction |
+| `done_messages` | list | Completed chat history |
+| `cur_messages` | list | Current conversation |
+| `max_reflections` | int | Max correction attempts (default: 3) |
 
 ---
 
-## 2. Kernkonzepte
+## 2. Core Concepts
 
 ### 2.1 Edit Formats
 
-Aider unterstuetzt verschiedene Strategien, wie LLMs Code-Aenderungen ausdruecken. Jedes Format ist ein Kompromiss zwischen Einfachheit, Effizienz und Modell-Kompatibilitaet.
+Aider supports various strategies for how LLMs express code changes. Each format is a trade-off between simplicity, efficiency, and model compatibility.
 
 #### 2.1.1 Whole Format (`--edit-format whole`)
-- **Prinzip:** LLM gibt komplettes File zurueck, auch wenn nur wenige Zeilen geaendert wurden
-- **Syntax:** Dateiname vor Code-Fence, dann kompletter Dateiinhalt
-- **Default fuer:** GPT-3.5
-- **Vorteile:** Simpelstes Format, geringste Fehlerquote beim Parsing
-- **Nachteile:** Hoher Token-Verbrauch, langsam bei grossen Dateien, teuer
+- **Principle:** LLM returns the complete file, even if only a few lines were changed
+- **Syntax:** Filename before code fence, then complete file contents
+- **Default for:** GPT-3.5
+- **Advantages:** Simplest format, lowest error rate during parsing
+- **Disadvantages:** High token consumption, slow for large files, expensive
 
 #### 2.1.2 Diff Format / Search-Replace Blocks (`--edit-format diff`)
-- **Prinzip:** LLM gibt SEARCH/REPLACE-Bloecke zurueck — sucht exakten Text und ersetzt ihn
+- **Principle:** LLM returns SEARCH/REPLACE blocks — searches for exact text and replaces it
 - **Syntax:**
   ```
   path/to/file.py
@@ -143,145 +143,145 @@ Aider unterstuetzt verschiedene Strategien, wie LLMs Code-Aenderungen ausdruecke
   replacement code
   >>>>>>> REPLACE
   ```
-- **Default fuer:** GPT-4o, Claude Sonnet
-- **Vorteile:** Effizient, nur geaenderte Teile werden uebertragen
-- **Nachteile:** Erfordert exakte String-Matches, empfindlich gegen Whitespace-Fehler
+- **Default for:** GPT-4o, Claude Sonnet
+- **Advantages:** Efficient, only changed parts are transmitted
+- **Disadvantages:** Requires exact string matches, sensitive to whitespace errors
 
 #### 2.1.3 Diff-Fenced Format (`--edit-format diff-fenced`)
-- **Prinzip:** Wie Diff, aber Dateiname innerhalb der Code-Fence
-- **Default fuer:** Gemini-Modelle
-- **Grund:** Gemini-Modelle haben Schwierigkeiten mit Standard-Diff-Fencing
+- **Principle:** Like Diff, but filename inside the code fence
+- **Default for:** Gemini models
+- **Reason:** Gemini models have difficulty with standard diff fencing
 
 #### 2.1.4 Unified Diff Format (`--edit-format udiff`)
-- **Prinzip:** Basiert auf Standard Unified Diff, aber vereinfacht
-- **Syntax:** `---`/`+++` Marker, `@@` Hunk-Headers, `+`/`-` Zeilenmarkierungen
-- **Default fuer:** GPT-4 Turbo Familie
-- **Vorteile:** Reduziert "Lazy Coding" (Modelle elidierten grosse Code-Bloecke mit `# ... original code ...` Kommentaren)
-- **Nachteile:** Komplexeres Parsing, hoehere Fehlerrate bei manchen Modellen
+- **Principle:** Based on Standard Unified Diff, but simplified
+- **Syntax:** `---`/`+++` markers, `@@` hunk headers, `+`/`-` line markers
+- **Default for:** GPT-4 Turbo family
+- **Advantages:** Reduces "Lazy Coding" (models elided large code blocks with `# ... original code ...` comments)
+- **Disadvantages:** More complex parsing, higher error rate with some models
 
 #### 2.1.5 Udiff-Simple Format (`--edit-format udiff-simple`)
-- **Variante:** Vereinfachte Version von Udiff
-- **Default fuer:** Gemini 2.5 Pro
+- **Variant:** Simplified version of Udiff
+- **Default for:** Gemini 2.5 Pro
 
 #### 2.1.6 Patch Format (`--edit-format patch`)
-- **Neues Format:** Speziell fuer OpenAI GPT-4.1
+- **New format:** Specifically for OpenAI GPT-4.1
 
-#### 2.1.7 Editor-Diff und Editor-Whole (`--editor-edit-format`)
-- **Prinzip:** Streamlined Versionen von Diff/Whole fuer Architect Mode
-- **Prompt:** Einfacher, fokussiert nur auf File-Editing (kein Problem-Solving)
-- **Verwendung:** In Kombination mit `--editor-edit-format` bei Architect Mode
+#### 2.1.7 Editor-Diff and Editor-Whole (`--editor-edit-format`)
+- **Principle:** Streamlined versions of Diff/Whole for Architect Mode
+- **Prompt:** Simpler, focused only on file editing (no problem solving)
+- **Usage:** In combination with `--editor-edit-format` in Architect Mode
 
 #### 2.1.8 Architect Format (`--edit-format architect` / `--architect`)
-- **Prinzip:** Zwei-Schritt-Prozess mit zwei LLM-Aufrufen (siehe Abschnitt 2.5)
+- **Principle:** Two-step process with two LLM calls (see Section 2.5)
 
 ### 2.2 Repository Map (tree-sitter + PageRank)
 
-Die Repo Map ist Aiders innovativste Komponente — ein kompakter, token-budgetierter Ueberblick ueber die gesamte Codebasis.
+The Repo Map is Aider's most innovative component — a compact, token-budgeted overview of the entire codebase.
 
-#### Technische Pipeline
+#### Technical Pipeline
 
-**Schritt 1: Code-Parsing mit tree-sitter**
-- tree-sitter parst Quellcode in Abstract Syntax Trees (ASTs)
-- Modifizierte `tags.scm` Dateien (aus Open-Source tree-sitter Implementierungen) identifizieren:
-  - **Definitionen (`def`):** Funktionen, Klassen, Variablen, Typen
-  - **Referenzen (`ref`):** Verwendungen dieser Symbole anderswo im Code
-- Ergebnis: Tag-Eintraege wie `Tag(rel_fname='app/we.py', fname='/path/app/we.py', line=6, name='we', kind='def')`
-- Unterstuetzte Sprachen: 100+ (Python, JS, TS, Java, C/C++, Go, Rust, etc.)
+**Step 1: Code Parsing with tree-sitter**
+- tree-sitter parses source code into Abstract Syntax Trees (ASTs)
+- Modified `tags.scm` files (from open-source tree-sitter implementations) identify:
+  - **Definitions (`def`):** Functions, classes, variables, types
+  - **References (`ref`):** Usages of these symbols elsewhere in the code
+- Result: Tag entries like `Tag(rel_fname='app/we.py', fname='/path/app/we.py', line=6, name='we', kind='def')`
+- Supported languages: 100+ (Python, JS, TS, Java, C/C++, Go, Rust, etc.)
 
-**Schritt 2: Graph-Aufbau**
-- Dateien werden als Knoten im Graphen repraesentiert
-- Kanten verbinden Dateien, die Abhaengigkeiten teilen (eine Datei definiert Symbol X, andere referenziert es)
-- Gewichtung der Kanten:
-  - Referenzierte Identifier: **10x** Gewicht
-  - Lange Identifier: **10x** Gewicht (laengere Namen sind spezifischer)
-  - Dateien im Chat: **50x** Gewicht (Fokus auf aktiven Kontext)
-  - Private Identifier (mit Unterstrich): **1/10** Gewicht
+**Step 2: Graph Construction**
+- Files are represented as nodes in the graph
+- Edges connect files that share dependencies (one file defines symbol X, another references it)
+- Edge weighting:
+  - Referenced identifiers: **10x** weight
+  - Long identifiers: **10x** weight (longer names are more specific)
+  - Files in the chat: **50x** weight (focus on active context)
+  - Private identifiers (with underscore): **1/10** weight
 
-**Schritt 3: Ranking mit PageRank**
-- NetworkX PageRank-Algorithmus auf dem Datei-Graphen
-- Ergebnis: Sortierte Liste der wichtigsten Code-Definitionen
-- Hoeher gerankte Dateien/Symbole erscheinen zuerst in der Map
+**Step 3: Ranking with PageRank**
+- NetworkX PageRank algorithm on the file graph
+- Result: Sorted list of the most important code definitions
+- Higher-ranked files/symbols appear first in the map
 
-**Schritt 4: Token-Budget-Optimierung (Binary Search)**
-- Konfigurierbares Token-Budget via `--map-tokens` (Default: 1024 Tokens)
-- Aider passt das Budget dynamisch an:
-  - Wenn keine Dateien im Chat: Map wird deutlich erweitert
-  - Mit vielen Chat-Dateien: Map wird komprimiert
-- **Binary Search** zwischen unterer und oberer Grenze der gerankte Tags:
-  - Testen ob Token-Count innerhalb `max_map_tokens` passt
-  - Bester Tree der passt wird behalten
-- Caching: Geparste Symbole werden gecacht, um wiederholtes Parsing zu vermeiden
+**Step 4: Token Budget Optimization (Binary Search)**
+- Configurable token budget via `--map-tokens` (default: 1024 tokens)
+- Aider dynamically adjusts the budget:
+  - When no files in chat: Map is significantly expanded
+  - With many chat files: Map is compressed
+- **Binary Search** between lower and upper bounds of ranked tags:
+  - Tests whether token count fits within `max_map_tokens`
+  - Best fitting tree is retained
+- Caching: Parsed symbols are cached to avoid repeated parsing
 
-**Schritt 5: Output-Format**
-- Liste von Dateien mit ihren wichtigsten Symbol-Definitionen
-- Zeigt kritische Code-Zeilen fuer jede Definition (Signaturen, Klassen-Deklarationen)
-- LLM kann daraus API-Nutzung, Modul-Struktur und Abhaengigkeiten ableiten
+**Step 5: Output Format**
+- List of files with their most important symbol definitions
+- Shows critical code lines for each definition (signatures, class declarations)
+- LLM can derive API usage, module structure, and dependencies from this
 
-#### Map-Refresh-Modi
-| Modus | Beschreibung |
+#### Map Refresh Modes
+| Mode | Description |
 |---|---|
-| `auto` (Default) | Aktualisierung wenn sich Dateien aendern |
-| `always` | Bei jeder Nachricht neu generieren |
-| `files` | Nur wenn Chat-Dateien sich aendern |
-| `manual` | Nur auf explizite Anforderung |
+| `auto` (Default) | Refresh when files change |
+| `always` | Regenerate with every message |
+| `files` | Only when chat files change |
+| `manual` | Only on explicit request |
 
-### 2.3 Chat-Modi
+### 2.3 Chat Modes
 
-| Modus | Befehl | Beschreibung |
+| Mode | Command | Description |
 |---|---|---|
-| **Code** (Default) | `/code` | LLM aendert Dateien direkt |
-| **Architect** | `/architect` | Zwei-Modell-Pipeline: Planen + Editieren |
-| **Ask** | `/ask` | Fragen beantworten, keine Aenderungen |
-| **Help** | `/help` | Fragen ueber Aider selbst |
+| **Code** (Default) | `/code` | LLM modifies files directly |
+| **Architect** | `/architect` | Two-model pipeline: Plan + Edit |
+| **Ask** | `/ask` | Answer questions, no changes |
+| **Help** | `/help` | Questions about Aider itself |
 
-- **Einzel-Message-Override:** `/ask warum ist diese Funktion langsam?` sendet eine Nachricht im Ask-Modus, dann zurueck zum aktiven Modus
-- **Persistent Switch:** `/chat-mode architect` wechselt dauerhaft
-- **CLI-Launch:** `aider --chat-mode architect` oder `aider --architect`
+- **Single-Message Override:** `/ask why is this function slow?` sends one message in Ask mode, then returns to the active mode
+- **Persistent Switch:** `/chat-mode architect` switches permanently
+- **CLI Launch:** `aider --chat-mode architect` or `aider --architect`
 
-**Empfohlener Workflow:** Ask-Modus fuer Diskussion und Planung, dann Code-Modus fuer Umsetzung. Die Konversation aus dem Ask-Modus fliesst als Kontext in den Code-Modus ein.
+**Recommended Workflow:** Ask mode for discussion and planning, then Code mode for implementation. The conversation from Ask mode flows as context into Code mode.
 
-### 2.4 Context-Window-Management
+### 2.4 Context Window Management
 
-Aider verwaltet das LLM-Context-Window aktiv:
+Aider actively manages the LLM context window:
 
-**Automatische Zusammenfassung:**
-- Wenn Chat-History die konfigurierte Token-Grenze ueberschreitet (`--max-chat-history-tokens`)
-- "Weak Model" (guenstigeres Modell) erstellt Zusammenfassungen aelterer Nachrichten
-- Juengste Nachrichten bleiben verbatim, aeltere werden komprimiert
-- Fallback auf "Strong Model" wenn Weak Model versagt
+**Automatic Summarization:**
+- When chat history exceeds the configured token limit (`--max-chat-history-tokens`)
+- "Weak Model" (cheaper model) creates summaries of older messages
+- Recent messages remain verbatim, older ones are compressed
+- Fallback to "Strong Model" when Weak Model fails
 
-**Manuelle Steuerung:**
-- `/drop` — Dateien aus dem Chat entfernen
-- `/clear` — Konversations-History loeschen
-- `/tokens` — Token-Verbrauch anzeigen
-- `/add` / `/read-only` — Dateien hinzufuegen (editierbar vs. read-only)
+**Manual Control:**
+- `/drop` — Remove files from the chat
+- `/clear` — Clear conversation history
+- `/tokens` — Display token usage
+- `/add` / `/read-only` — Add files (editable vs. read-only)
 
-**Best Practice:** Nur relevante Dateien zum Chat hinzufuegen. Die Repo Map liefert automatisch Kontext ueber den Rest der Codebasis. Ab ~25k Tokens Context verlieren die meisten Modelle Fokus.
+**Best Practice:** Only add relevant files to the chat. The Repo Map automatically provides context about the rest of the codebase. Beyond ~25k tokens of context, most models lose focus.
 
 ### 2.5 Architect/Editor Pattern
 
-Das Architect/Editor-Pattern ist Aiders wichtigste architektonische Innovation fuer die Trennung von Reasoning und Code-Editing.
+The Architect/Editor pattern is Aider's most important architectural innovation for separating reasoning and code editing.
 
-**Problem:** LLMs muessen gleichzeitig (a) das Coding-Problem loesen und (b) die Loesung in einem praezisen Edit-Format formulieren. Diese Doppelbelastung reduziert die Qualitaet beider Aufgaben.
+**Problem:** LLMs must simultaneously (a) solve the coding problem and (b) formulate the solution in a precise edit format. This dual burden reduces the quality of both tasks.
 
-**Loesung: Zwei-Schritt-Pipeline**
+**Solution: Two-Step Pipeline**
 
 ```
 User Request
      |
      v
-[Architect Model]  ← Stark im Reasoning (z.B. o1, Claude Opus)
-     |  Beschreibt Loesung in natuerlicher Sprache
+[Architect Model]  ← Strong in reasoning (e.g., o1, Claude Opus)
+     |  Describes solution in natural language
      v
-[Editor Model]     ← Stark im Format-Konformitaet (z.B. DeepSeek, Sonnet)
-     |  Uebersetzt in praezise SEARCH/REPLACE Bloecke
+[Editor Model]     ← Strong in format conformance (e.g., DeepSeek, Sonnet)
+     |  Translates into precise SEARCH/REPLACE blocks
      v
 File Changes
 ```
 
-**Benchmark-Ergebnisse (Aider Code Editing Benchmark):**
+**Benchmark Results (Aider Code Editing Benchmark):**
 
-| Kombination | Edit Format | Score |
+| Combination | Edit Format | Score |
 |---|---|---|
 | o1-preview + o1-mini | whole | 85.0% (SOTA) |
 | o1-preview + DeepSeek | whole | 85.0% (SOTA) |
@@ -290,81 +290,81 @@ File Changes
 | GPT-4o self-paired | diff | 75.2% (vs. 71.4% solo) |
 | GPT-4o-mini self-paired | diff | 60.2% (vs. 55.6% solo) |
 
-**Erkenntnis:** DeepSeek ist ueberraschend effektiv als Editor — kann Loesungsbeschreibungen praezise in File-Edits uebersetzen, ohne selbst die Loesung verstehen zu muessen.
+**Key Insight:** DeepSeek is surprisingly effective as an editor — it can precisely translate solution descriptions into file edits without needing to understand the solution itself.
 
-**Auto-Accept:** `--auto-accept-architect` (Default: true) — Architect-Vorschlaege werden automatisch an den Editor weitergeleitet, ohne User-Bestaetigung.
+**Auto-Accept:** `--auto-accept-architect` (Default: true) — Architect suggestions are automatically forwarded to the editor without user confirmation.
 
 ---
 
-## 3. Git-Integration
+## 3. Git Integration
 
-Aider hat die tiefste Git-Integration aller AI-Coding-Tools.
+Aider has the deepest Git integration of all AI coding tools.
 
 ### 3.1 Auto-Commits
 
-- **Default:** Jede LLM-Aenderung wird automatisch committed
-- **Commit Messages:** Vom "Weak Model" generiert, basierend auf Diffs und Chat-History
-- **Format:** Conventional Commits Standard
-- **Custom Prompt:** `--commit-prompt` fuer eigene Commit-Message-Templates
-- **Deaktivierung:** `--no-auto-commits`
+- **Default:** Every LLM change is automatically committed
+- **Commit Messages:** Generated by the "Weak Model", based on diffs and chat history
+- **Format:** Conventional Commits standard
+- **Custom Prompt:** `--commit-prompt` for custom commit message templates
+- **Deactivation:** `--no-auto-commits`
 
-### 3.2 Dirty-File-Handling
+### 3.2 Dirty File Handling
 
-- Vor jeder LLM-Aenderung: Aider committed zuerst existierende uncommitted Changes
-- Separater Commit mit beschreibender Message
-- **Deaktivierung:** `--no-dirty-commits`
+- Before every LLM change: Aider first commits existing uncommitted changes
+- Separate commit with descriptive message
+- **Deactivation:** `--no-dirty-commits`
 
 ### 3.3 Attribution
 
-| Option | Beschreibung |
+| Option | Description |
 |---|---|
-| `--attribute-author` (Default: on) | Haengt "(aider)" an Git Author-Name an |
-| `--attribute-committer` | Haengt "(aider)" an Committer-Name an |
-| `--attribute-commit-message-author` | Prefixed Messages mit "aider: " fuer aider-authored Changes |
-| `--attribute-commit-message-committer` | Prefixed alle Messages mit "aider: " |
-| `--attribute-co-authored-by` (Default: on) | Fuegt Co-authored-by Trailer hinzu |
-| `--no-attribute-author` | Deaktiviert Author-Attribution |
+| `--attribute-author` (Default: on) | Appends "(aider)" to Git author name |
+| `--attribute-committer` | Appends "(aider)" to committer name |
+| `--attribute-commit-message-author` | Prefixes messages with "aider: " for aider-authored changes |
+| `--attribute-commit-message-committer` | Prefixes all messages with "aider: " |
+| `--attribute-co-authored-by` (Default: on) | Adds Co-authored-by trailer |
+| `--no-attribute-author` | Deactivates author attribution |
 
 ### 3.4 Undo/Review
 
-- `/undo` — Macht letzten LLM-Commit sofort rueckgaengig
-- `/diff` — Zeigt Aenderungen seit letzter Nachricht
-- `/commit` — Committed Dirty Files mit generierten Messages
-- `/git <cmd>` — Fuehrt beliebige Git-Befehle aus
+- `/undo` — Instantly reverts the last LLM commit
+- `/diff` — Shows changes since last message
+- `/commit` — Commits dirty files with generated messages
+- `/git <cmd>` — Executes arbitrary Git commands
 
 ### 3.5 .aiderignore
 
-- Analog zu `.gitignore` — Dateien die Aider ignorieren soll
-- Default: `.aiderignore` im Git-Root
-- Konfigurierbar: `--aiderignore <path>`
+- Analogous to `.gitignore` — files that Aider should ignore
+- Default: `.aiderignore` in the Git root
+- Configurable: `--aiderignore <path>`
 
-### 3.6 Subtree-Modus
+### 3.6 Subtree Mode
 
-- `--subtree-only` — Beschraenkt Aider auf das aktuelle Unterverzeichnis
-- Nuetzlich fuer Monorepos oder wenn nur ein Teil bearbeitet werden soll
+- `--subtree-only` — Restricts Aider to the current subdirectory
+- Useful for monorepos or when only a portion should be edited
 
 ---
 
-## 4. LLM-Support & Model-Konfiguration
+## 4. LLM Support & Model Configuration
 
-### 4.1 Provider-Anbindung
+### 4.1 Provider Connection
 
-Aider nutzt **LiteLLM** als universelle Abstraktionsschicht:
-- 127+ Provider: OpenAI, Anthropic, Google, AWS Bedrock, Azure, Ollama, LM Studio, vLLM, etc.
-- OpenAI-kompatible API als einheitliche Schnittstelle
-- Jeder Provider der OpenAI-Format spricht, funktioniert automatisch
+Aider uses **LiteLLM** as a universal abstraction layer:
+- 127+ Providers: OpenAI, Anthropic, Google, AWS Bedrock, Azure, Ollama, LM Studio, vLLM, etc.
+- OpenAI-compatible API as a unified interface
+- Any provider that speaks OpenAI format works automatically
 
-### 4.2 Model-Auswahl-Logik
+### 4.2 Model Selection Logic
 
-1. Explizit: `--model <model-name>`
-2. Automatisch: Aider prueft verfuegbare API-Keys (Umgebung, Config, CLI)
-3. Fallback: OpenRouter-Onboarding (Free Tier: `deepseek/deepseek-r1:free`, Paid: `anthropic/claude-sonnet-4`)
+1. Explicit: `--model <model-name>`
+2. Automatic: Aider checks available API keys (environment, config, CLI)
+3. Fallback: OpenRouter onboarding (Free Tier: `deepseek/deepseek-r1:free`, Paid: `anthropic/claude-sonnet-4`)
 
-### 4.3 Model-Konfiguration
+### 4.3 Model Configuration
 
-**Drei Konfigurationsebenen:**
+**Three configuration levels:**
 
-#### a) `.aider.model.settings.yml` — Verhaltens-Konfiguration
+#### a) `.aider.model.settings.yml` — Behavioral Configuration
 ```yaml
 - name: anthropic/claude-sonnet-4-20250514
   edit_format: diff
@@ -387,39 +387,39 @@ Aider nutzt **LiteLLM** als universelle Abstraktionsschicht:
     - reasoning_effort
 ```
 
-Felder im Detail:
-| Feld | Beschreibung |
+Field details:
+| Field | Description |
 |---|---|
-| `name` | Model-Identifier (mit Provider-Prefix) |
-| `edit_format` | Welches Edit-Format das Model nutzt |
-| `weak_model_name` | Guenstiges Model fuer Commits/Summarization |
-| `editor_model_name` | Editor-Model fuer Architect-Modus |
-| `editor_edit_format` | Edit-Format fuer den Editor |
-| `use_repo_map` | Ob Repo Map gesendet wird |
-| `use_temperature` | Ob Temperature-Parameter unterstuetzt wird |
-| `streaming` | Streaming-Responses aktivieren |
-| `cache_control` | Prompt-Caching aktivieren (Anthropic/DeepSeek) |
-| `lazy` | Deferred Processing Modus |
-| `overeager` | Aggressive Response-Generierung |
-| `examples_as_sys_msg` | Beispiele in System-Messages packen |
-| `extra_params` | Beliebige Parameter fuer `litellm.completion()` |
-| `reasoning_tag` | XML-Tag fuer Reasoning-Output |
-| `remove_reasoning` | Reasoning aus Output entfernen |
-| `accepts_settings` | Unterstuetzte Erweitert-Settings (thinking_tokens, reasoning_effort) |
+| `name` | Model identifier (with provider prefix) |
+| `edit_format` | Which edit format the model uses |
+| `weak_model_name` | Cheap model for commits/summarization |
+| `editor_model_name` | Editor model for Architect mode |
+| `editor_edit_format` | Edit format for the editor |
+| `use_repo_map` | Whether Repo Map is sent |
+| `use_temperature` | Whether temperature parameter is supported |
+| `streaming` | Enable streaming responses |
+| `cache_control` | Enable prompt caching (Anthropic/DeepSeek) |
+| `lazy` | Deferred processing mode |
+| `overeager` | Aggressive response generation |
+| `examples_as_sys_msg` | Pack examples into system messages |
+| `extra_params` | Arbitrary parameters for `litellm.completion()` |
+| `reasoning_tag` | XML tag for reasoning output |
+| `remove_reasoning` | Remove reasoning from output |
+| `accepts_settings` | Supported extended settings (thinking_tokens, reasoning_effort) |
 
-#### b) `.aider.model.metadata.json` — Technische Metadaten
-- Context-Window-Groessen
-- Pricing (Input/Output Tokens)
-- Basiert auf LiteLLM's `model_prices_and_context_window.json` (36.000+ Zeilen)
-- Kann ueberschrieben werden fuer unbekannte Modelle
+#### b) `.aider.model.metadata.json` — Technical Metadata
+- Context window sizes
+- Pricing (input/output tokens)
+- Based on LiteLLM's `model_prices_and_context_window.json` (36,000+ lines)
+- Can be overridden for unknown models
 
-#### c) `.aider.conf.yml` — Allgemeine Aider-Konfiguration
-- Alle CLI-Flags als YAML-Keys
-- Lade-Reihenfolge: Home-Dir → Git-Root → CWD (spaetere ueberschreiben fruehere)
+#### c) `.aider.conf.yml` — General Aider Configuration
+- All CLI flags as YAML keys
+- Load order: Home dir → Git root → CWD (later overrides earlier)
 
-### 4.4 Benchmark-Ergebnisse (Polyglot Leaderboard, Stand 2026)
+### 4.4 Benchmark Results (Polyglot Leaderboard, as of 2026)
 
-| Model | Score | Kosten | Edit Format |
+| Model | Score | Cost | Edit Format |
 |---|---|---|---|
 | GPT-5 (High) | 88.0% | $29.08 | diff |
 | GPT-5 (Medium) | 86.7% | $17.69 | diff |
@@ -428,73 +428,73 @@ Felder im Detail:
 | DeepSeek Reasoner | 74.2% | $1.30 | diff |
 | DeepSeek-V3.2 (Chat) | 70.2% | $0.88 | diff |
 
-**Benchmark-Details:**
-- 225 Exercism Coding-Aufgaben in C++, Go, Java, JavaScript, Python, Rust
-- Zwei Versuche pro Problem (zweiter Versuch mit Test-Feedback)
-- Testet sowohl Problem-Loesung als auch File-Editing-Faehigkeit
+**Benchmark Details:**
+- 225 Exercism coding tasks in C++, Go, Java, JavaScript, Python, Rust
+- Two attempts per problem (second attempt with test feedback)
+- Tests both problem-solving and file-editing capability
 
 ### 4.5 Prompt Caching
 
 - **Provider:** Anthropic (Claude Sonnet, Haiku), DeepSeek
-- **Aktivierung:** `--cache-prompts`
-- **Cache-Struktur:** System Prompt → Read-Only Files → Repo Map → Editable Files
-- **Cache-Warming:** `--cache-keepalive-pings N` — Pingt alle 5 Minuten, haelt Cache N×5 Minuten warm
-- **Kostenersparnis:** Gecachte Tokens kosten ~10x weniger als ungecachte
-- **Limitation:** Cache-Statistiken nur sichtbar wenn Streaming deaktiviert ist (`--no-stream`)
+- **Activation:** `--cache-prompts`
+- **Cache Structure:** System Prompt → Read-Only Files → Repo Map → Editable Files
+- **Cache Warming:** `--cache-keepalive-pings N` — Pings every 5 minutes, keeps cache warm for N×5 minutes
+- **Cost Savings:** Cached tokens cost ~10x less than uncached
+- **Limitation:** Cache statistics only visible when streaming is disabled (`--no-stream`)
 
-### 4.6 Reasoning-Support
+### 4.6 Reasoning Support
 
-- `--reasoning-effort VALUE` — Reasoning-Effort-Parameter (fuer o1/o3/Gemini)
-- `--thinking-tokens VALUE` — Token-Budget fuer Thinking/Reasoning
-- Thinking-Content wird angezeigt wenn Modelle es zurueckgeben
-- Reasoning-Tags koennen via `reasoning_tag` konfiguriert und mit `remove_reasoning` entfernt werden
-
----
-
-## 5. Multi-File-Editing
-
-### 5.1 File-Management
-
-- **Chat-Files (editierbar):** `/add <file>` — LLM kann diese Dateien aendern
-- **Read-Only-Files:** `/read-only <file>` — Nur als Kontext, keine Aenderungen
-- **Drop:** `/drop <file>` — Entfernt Dateien aus dem Chat
-- **CLI-Start:** `aider file1.py file2.py` — Startet mit Dateien im Chat
-
-### 5.2 Strategie
-
-- Aider ermutigt, **nur relevante Dateien** hinzuzufuegen
-- Repo Map liefert automatisch Kontext ueber den Rest der Codebasis
-- Multi-File-Edits werden koordiniert — eine LLM-Antwort kann SEARCH/REPLACE Bloecke fuer mehrere Dateien enthalten
-- Git-Commit umfasst alle geaenderten Dateien atomisch
-
-### 5.3 Watch Mode (IDE-Integration)
-
-- **Aktivierung:** `--watch-files`
-- **Prinzip:** Aider ueberwacht alle Repo-Dateien auf AI-Kommentare
-- **AI-Kommentar-Syntax:**
-  - `# AI! beschreibung` (Python/Bash) — Triggert Code-Aenderung
-  - `// AI! beschreibung` (JavaScript) — Triggert Code-Aenderung
-  - `-- AI? frage` (SQL) — Triggert Frage-Modus
-- **Multi-File:** AI-Kommentare koennen ueber mehrere Dateien verteilt werden
-- **Workflow:** Im IDE AI-Kommentar schreiben → Aider erkennt und verarbeitet → Aenderungen werden angewendet
-- **Kontext:** AI-Kommentare werden mit Repo Map und Chat-Kontext an LLM gesendet
-- **Limitation:** Primaer fuer Code optimiert, Markdown-Editing problematisch
+- `--reasoning-effort VALUE` — Reasoning effort parameter (for o1/o3/Gemini)
+- `--thinking-tokens VALUE` — Token budget for thinking/reasoning
+- Thinking content is displayed when models return it
+- Reasoning tags can be configured via `reasoning_tag` and removed with `remove_reasoning`
 
 ---
 
-## 6. Konfiguration
+## 5. Multi-File Editing
 
-### 6.1 Konfigurationsebenen (Prioritaet aufsteigend)
+### 5.1 File Management
 
-1. **Default-Werte** — Hartcodiert in Aider
-2. **`~/.aider.conf.yml`** — Home-Verzeichnis (globale Defaults)
-3. **`<git-root>/.aider.conf.yml`** — Projekt-spezifisch
-4. **`<cwd>/.aider.conf.yml`** — Verzeichnis-spezifisch
-5. **`.env`** Datei — `AIDER_*` Umgebungsvariablen
-6. **Shell-Umgebungsvariablen** — `AIDER_*`
-7. **CLI-Flags** — Hoechste Prioritaet
+- **Chat files (editable):** `/add <file>` — LLM can modify these files
+- **Read-only files:** `/read-only <file>` — Context only, no changes
+- **Drop:** `/drop <file>` — Removes files from the chat
+- **CLI start:** `aider file1.py file2.py` — Starts with files in the chat
 
-### 6.2 Beispiel `.aider.conf.yml`
+### 5.2 Strategy
+
+- Aider encourages adding **only relevant files**
+- Repo Map automatically provides context about the rest of the codebase
+- Multi-file edits are coordinated — a single LLM response can contain SEARCH/REPLACE blocks for multiple files
+- Git commit encompasses all changed files atomically
+
+### 5.3 Watch Mode (IDE Integration)
+
+- **Activation:** `--watch-files`
+- **Principle:** Aider monitors all repo files for AI comments
+- **AI comment syntax:**
+  - `# AI! description` (Python/Bash) — Triggers code change
+  - `// AI! description` (JavaScript) — Triggers code change
+  - `-- AI? question` (SQL) — Triggers ask mode
+- **Multi-file:** AI comments can be distributed across multiple files
+- **Workflow:** Write AI comment in IDE → Aider detects and processes → Changes are applied
+- **Context:** AI comments are sent to LLM with Repo Map and chat context
+- **Limitation:** Primarily optimized for code, Markdown editing is problematic
+
+---
+
+## 6. Configuration
+
+### 6.1 Configuration Levels (Ascending Priority)
+
+1. **Default values** — Hardcoded in Aider
+2. **`~/.aider.conf.yml`** — Home directory (global defaults)
+3. **`<git-root>/.aider.conf.yml`** — Project-specific
+4. **`<cwd>/.aider.conf.yml`** — Directory-specific
+5. **`.env` file** — `AIDER_*` environment variables
+6. **Shell environment variables** — `AIDER_*`
+7. **CLI flags** — Highest priority
+
+### 6.2 Example `.aider.conf.yml`
 
 ```yaml
 # Model
@@ -525,9 +525,9 @@ stream: true
 pretty: true
 ```
 
-### 6.3 Umgebungsvariablen
+### 6.3 Environment Variables
 
-Jede CLI-Option hat ein `AIDER_*` Aequivalent:
+Every CLI option has an `AIDER_*` equivalent:
 - `AIDER_MODEL` → `--model`
 - `AIDER_AUTO_COMMITS` → `--auto-commits`
 - `AIDER_OPENAI_API_KEY` → `--openai-api-key`
@@ -536,34 +536,34 @@ Jede CLI-Option hat ein `AIDER_*` Aequivalent:
 
 ---
 
-## 7. API/Library-Nutzung
+## 7. API/Library Usage
 
-### 7.1 CLI-Scripting (offiziell unterstuetzt)
+### 7.1 CLI Scripting (Officially Supported)
 
 ```bash
-# Einmalige Aenderung
-aider --message "fuege Error-Handling zu main.py hinzu" main.py
+# One-time change
+aider --message "add error handling to main.py" main.py
 
-# Batch-Verarbeitung
+# Batch processing
 for f in *.py; do
-  aider --message "fuege Type Hints hinzu" "$f"
+  aider --message "add type hints" "$f"
 done
 
-# Nicht-interaktiv
-aider --yes --no-auto-commits --message "refaktoriere die Funktion" app.py
+# Non-interactive
+aider --yes --no-auto-commits --message "refactor the function" app.py
 ```
 
-**Nuetzliche Scripting-Flags:**
-| Flag | Beschreibung |
+**Useful Scripting Flags:**
+| Flag | Description |
 |---|---|
-| `--message` / `-m` | Instruktion ausfuehren und beenden |
-| `--message-file` / `-f` | Instruktion aus Datei lesen |
-| `--yes` | Alle Prompts automatisch bestaetigen |
-| `--no-stream` | Kein Streaming (fuer Pipes) |
-| `--dry-run` | Vorschau ohne Aenderungen |
-| `--commit` | Dirty Files committen und beenden |
+| `--message` / `-m` | Execute instruction and exit |
+| `--message-file` / `-f` | Read instruction from file |
+| `--yes` | Automatically confirm all prompts |
+| `--no-stream` | No streaming (for pipes) |
+| `--dry-run` | Preview without changes |
+| `--commit` | Commit dirty files and exit |
 
-### 7.2 Python API (inoffiziell, instabil)
+### 7.2 Python API (Unofficial, Unstable)
 
 ```python
 from aider.coders import Coder
@@ -580,25 +580,25 @@ coder = Coder.create(
     auto_commits=True
 )
 
-# Ausfuehren
-result = coder.run("implementiere die fehlende validate() Funktion")
-result = coder.run("fuege Tests hinzu")
-result = coder.run("/tokens")  # In-Chat-Befehle funktionieren auch
+# Execute
+result = coder.run("implement the missing validate() function")
+result = coder.run("add tests")
+result = coder.run("/tokens")  # In-chat commands work too
 ```
 
-**WARNUNG:** Die Python API ist **nicht offiziell dokumentiert** und kann sich ohne Rueckwaerts-Kompatibilitaet aendern.
+**WARNING:** The Python API is **not officially documented** and can change without backward compatibility.
 
 ### 7.3 REST API
 
-- **Existiert NICHT** — Es gibt keinen HTTP-Server-Modus
-- **Feature Request:** GitHub Issue #1190 — Community wuenscht OpenAI-kompatiblen API-Server
-- **Workaround:** Community-Loesung: FastAPI-Wrapper mit asyncio Subprocess
+- **Does NOT exist** — There is no HTTP server mode
+- **Feature Request:** GitHub Issue #1190 — Community requests OpenAI-compatible API server
+- **Workaround:** Community solution: FastAPI wrapper with asyncio subprocess
 
-### 7.4 Browser-GUI
+### 7.4 Browser GUI
 
-- **Experimentell:** `aider --browser` oeffnet Web-Interface
-- **Status:** Nicht feature-complete, experimentell
-- **Limitationen:** Nicht alle Terminal-Features verfuegbar, weniger stabil
+- **Experimental:** `aider --browser` opens web interface
+- **Status:** Not feature-complete, experimental
+- **Limitations:** Not all terminal features available, less stable
 
 ---
 
@@ -606,222 +606,222 @@ result = coder.run("/tokens")  # In-Chat-Befehle funktionieren auch
 
 ### 8.1 Auto-Lint
 
-- **Default:** Aktiviert (`--auto-lint`)
-- **Built-in Linter:** tree-sitter-basiert fuer die meisten Sprachen
-- **Custom Linter:** `--lint-cmd <cmd>` (muss Non-Zero Exit bei Fehlern zurueckgeben)
-- **Pro Sprache:** `--lint "python: ruff check" --lint "javascript: eslint"`
-- **Feedback-Loop:** Lint-Fehler werden automatisch ans LLM zurueckgemeldet, das sie zu beheben versucht
+- **Default:** Enabled (`--auto-lint`)
+- **Built-in Linter:** tree-sitter-based for most languages
+- **Custom Linter:** `--lint-cmd <cmd>` (must return non-zero exit on errors)
+- **Per Language:** `--lint "python: ruff check" --lint "javascript: eslint"`
+- **Feedback Loop:** Lint errors are automatically reported back to the LLM, which attempts to fix them
 
 ### 8.2 Auto-Test
 
-- **Default:** Deaktiviert (`--auto-test` zum Aktivieren)
-- **Konfiguration:** `--test-cmd <cmd>` (z.B. `pytest`, `npm test`)
-- **Feedback-Loop:** Test-Fehler (stdout/stderr) werden ans LLM gemeldet
-- **Manuell:** `/test <cmd>` innerhalb des Chats
-- **Reflection:** Bei Fehlern bis zu 3 automatische Korrektur-Versuche
+- **Default:** Disabled (`--auto-test` to enable)
+- **Configuration:** `--test-cmd <cmd>` (e.g., `pytest`, `npm test`)
+- **Feedback Loop:** Test errors (stdout/stderr) are reported to the LLM
+- **Manual:** `/test <cmd>` within the chat
+- **Reflection:** Up to 3 automatic correction attempts on errors
 
-### 8.3 Formatter-Integration
+### 8.3 Formatter Integration
 
-Formatter die Non-Zero Exit-Codes bei Aenderungen zurueckgeben (z.B. `black`, `prettier`) koennen als Linter genutzt werden, erfordern aber einen Shell-Script-Wrapper der doppelt ausfuehrt (1. Formatierung, 2. Check ob noch Fehler).
+Formatters that return non-zero exit codes on changes (e.g., `black`, `prettier`) can be used as linters, but require a shell script wrapper that runs twice (1. formatting, 2. check if errors remain).
 
 ---
 
-## 9. Multimodale Faehigkeiten
+## 9. Multimodal Capabilities
 
 ### 9.1 Image Support
 
-- **Vision-faehige Modelle:** GPT-4o, Claude Sonnet, Gemini
-- **Hinzufuegen:** `/add screenshot.png`, `/paste` (Clipboard), CLI-Argument
-- **Use Cases:** Screenshots von UIs, Design-Mockups, Fehler-Screenshots, Diagramme
-- **Limitation:** Bild-Dateien werden als Chat-Files hinzugefuegt, belasten Context-Window
+- **Vision-capable models:** GPT-4o, Claude Sonnet, Gemini
+- **Adding:** `/add screenshot.png`, `/paste` (clipboard), CLI argument
+- **Use Cases:** UI screenshots, design mockups, error screenshots, diagrams
+- **Limitation:** Image files are added as chat files, consuming context window
 
 ### 9.2 Voice Support
 
 - **Backend:** OpenAI Whisper API
-- **Konfiguration:** `--voice-format wav`, `--voice-language en`, `--voice-input-device`
-- **Workflow:** Sprechen → Whisper-Transkription → Aider verarbeitet als Text
-- **Use Cases:** Hands-free Coding-Instruktionen, Feature-Requests verbal beschreiben
+- **Configuration:** `--voice-format wav`, `--voice-language en`, `--voice-input-device`
+- **Workflow:** Speak → Whisper transcription → Aider processes as text
+- **Use Cases:** Hands-free coding instructions, verbally describing feature requests
 
-### 9.3 Web-Scraping
+### 9.3 Web Scraping
 
-- **Befehl:** `/web <url>` — Scrapet Webseite, konvertiert zu Markdown, fuegt zum Chat hinzu
-- **Backend:** Playwright (optional) oder einfacher HTTP-Fetch
-- **Use Cases:** Aktuelle Dokumentation jenseits des Model-Training-Cutoffs
+- **Command:** `/web <url>` — Scrapes webpage, converts to Markdown, adds to chat
+- **Backend:** Playwright (optional) or simple HTTP fetch
+- **Use Cases:** Current documentation beyond the model's training cutoff
 - **Preview:** `python -m aider.scrape https://example.com`
 
 ---
 
-## 10. Staerken
+## 10. Strengths
 
-### 10.1 Repository Map — Goldstandard fuer Codebase-Kontext
-- **tree-sitter + PageRank** ist der ausgereifteste Ansatz fuer automatische Codebase-Kontextualisierung
-- Kein anderes Tool kombiniert AST-Parsing mit Graph-Ranking und Token-Budget-Optimierung
-- Funktioniert sprachuebergreifend (100+ Sprachen) ohne Konfiguration
-- Dynamische Anpassung an Chat-Kontext (Dateien im Chat bekommen 50x Gewicht)
+### 10.1 Repository Map — Gold Standard for Codebase Context
+- **tree-sitter + PageRank** is the most mature approach for automatic codebase contextualization
+- No other tool combines AST parsing with graph ranking and token budget optimization
+- Works across languages (100+ languages) without configuration
+- Dynamic adaptation to chat context (files in chat receive 50x weight)
 
-### 10.2 Edit Formats — Empirisch optimiert
-- 7+ Edit-Formate, jeweils optimiert fuer spezifische Model-Familien
-- Polyglot Benchmark als objektiver Vergleichsmassstab
-- Kontinuierliche Evaluation neuer Modelle gegen bestehende Formate
-- Neue Formate werden hinzugefuegt wenn Modelle es erfordern (z.B. `patch` fuer GPT-4.1)
+### 10.2 Edit Formats — Empirically Optimized
+- 7+ edit formats, each optimized for specific model families
+- Polyglot Benchmark as an objective comparison metric
+- Continuous evaluation of new models against existing formats
+- New formats are added when models require them (e.g., `patch` for GPT-4.1)
 
-### 10.3 Architect/Editor — Elegante Reasoning-Trennung
-- Trennung von Problem-Solving und Code-Formatting erhoehte Benchmark-Scores signifikant
-- Ermoeglicht Kombination von starken Reasoning-Modellen mit effizienten Code-Modellen
-- Self-Pairing (gleiches Model als Architect+Editor) verbessert fast jedes Model
+### 10.3 Architect/Editor — Elegant Reasoning Separation
+- Separating problem-solving and code formatting significantly increased benchmark scores
+- Enables combination of strong reasoning models with efficient code models
+- Self-pairing (same model as Architect+Editor) improves almost every model
 
-### 10.4 Git-Integration — Native und tiefgreifend
-- Automatische Commits mit semantischen Messages
-- Undo auf Knopfdruck (`/undo`)
+### 10.4 Git Integration — Native and Deep
+- Automatic commits with semantic messages
+- Undo at the push of a button (`/undo`)
 - Attribution (Author, Co-authored-by)
-- Dirty-File-Handling (committed ungespeicherte Aenderungen vor LLM-Edits)
-- Jede Aenderung ist im Git-Verlauf nachvollziehbar
+- Dirty file handling (commits unsaved changes before LLM edits)
+- Every change is traceable in the Git history
 
-### 10.5 Feedback-Loop — Lint + Test + Reflection
+### 10.5 Feedback Loop — Lint + Test + Reflection
 - Auto-Lint → Auto-Fix → Auto-Test → Auto-Fix → Commit
-- Bis zu 3 Reflection-Zyklen bei Fehlern
-- Schliesst den Loop zwischen Code-Generierung und Qualitaetssicherung
+- Up to 3 reflection cycles on errors
+- Closes the loop between code generation and quality assurance
 
-### 10.6 Konfigurierbarkeit — Drei-Schicht-System
-- Model-Settings, Model-Metadata und Aider-Config als separate Dateien
-- Projekt-spezifische Overrides (`.aider.conf.yml` im Repo)
-- Umgebungsvariablen fuer CI/CD-Integration
+### 10.6 Configurability — Three-Layer System
+- Model settings, model metadata, and Aider config as separate files
+- Project-specific overrides (`.aider.conf.yml` in the repo)
+- Environment variables for CI/CD integration
 
-### 10.7 Prompt Caching — Kostenoptimierung
-- Strategische Reihenfolge (System → Read-Only → Map → Editable) maximiert Cache-Hits
-- Cache-Warming via Keepalive-Pings
-- ~10x Kostenreduktion fuer gecachte Tokens
+### 10.7 Prompt Caching — Cost Optimization
+- Strategic prompt ordering (stable → variable) for maximum cache hits
+- Cache warming via keepalive pings
+- ~10x cost reduction for cached tokens
 
 ---
 
-## 11. Schwaechen
+## 11. Weaknesses
 
-### 11.1 Kein Web-GUI (Production-Grade)
-- Terminal-first Design — Browser-UI nur experimentell
-- Keine Multi-User-Faehigkeit
-- Kein Dashboard, kein Projekt-Ueberblick
-- Kein Real-time-Kollaboration
+### 11.1 No Web GUI (Production-Grade)
+- Terminal-first design — browser UI only experimental
+- No multi-user capability
+- No dashboard, no project overview
+- No real-time collaboration
 
 ### 11.2 Single-User, Single-Session
-- Kein Team-Support, kein Shared Context
-- Kein Notification-System
-- Knowledge-Transfer nur ueber Git-History
-- Kein Multi-Projekt-Management
+- No team support, no shared context
+- No notification system
+- Knowledge transfer only via Git history
+- No multi-project management
 
-### 11.3 Keine REST API
-- Nicht als Service deploybar
-- Keine Integration in bestehende Toolchains ohne Subprocess-Hacks
-- Python API inoffiziell und instabil
+### 11.3 No REST API
+- Not deployable as a service
+- No integration into existing toolchains without subprocess hacks
+- Python API unofficial and unstable
 
-### 11.4 Kein Projektmanagement
-- Kein Roadmap/Feature-Map
-- Kein Task-Management, keine Issue-Integration
-- Kein PM-Tool-Sync (Plane, OpenProject, etc.)
-- Kein Spec-Driven-Development-Support
+### 11.4 No Project Management
+- No roadmap/feature map
+- No task management, no issue integration
+- No PM tool sync (Plane, OpenProject, etc.)
+- No spec-driven development support
 
-### 11.5 Kosten-Management begrenzt
-- Per-Session Token-Display (`/tokens`)
-- Keine Budget-Limits, kein Auto-Stop bei Kosten-Ueberschreitung
-- Kein historisches Cost-Tracking (Dashboard)
-- Kein Team/Projekt-basiertes Budget
+### 11.5 Limited Cost Management
+- Per-session token display (`/tokens`)
+- No budget limits, no auto-stop on cost overruns
+- No historical cost tracking (dashboard)
+- No team/project-based budget
 
-### 11.6 Kein Agent-Orchestrierung
-- Nur ein Agent (der User + Aider)
-- Kein Multi-Agent-Pattern (Supervisor, Swarm, etc.)
-- Kein DAG-basierter Workflow
-- Keine Pipeline: Plan → Approve → Execute → Review → Deliver
+### 11.6 No Agent Orchestration
+- Only one agent (the user + Aider)
+- No multi-agent patterns (supervisor, swarm, etc.)
+- No DAG-based workflow
+- No pipeline: Plan → Approve → Execute → Review → Deliver
 
-### 11.7 Kein Sandbox/Container-Isolation
-- Code wird direkt im lokalen Filesystem ausgefuehrt
-- Kein Docker-in-Docker fuer sichere Agent-Execution
-- Keine Command-Safety-Evaluation
-- Git als einziger Rollback-Mechanismus
+### 11.7 No Sandbox/Container Isolation
+- Code is executed directly in the local filesystem
+- No Docker-in-Docker for secure agent execution
+- No command safety evaluation
+- Git as the only rollback mechanism
 
-### 11.8 Projekt-Zukunft unsicher
-- Entwicklungspause seit August 2025 (Version 0.86.1)
-- Community-Diskussionen ueber Succession Plan
-- Single-Maintainer-Risiko (Paul Gauthier)
-- Keine formelle Governance-Struktur
+### 11.8 Uncertain Project Future
+- Development pause since August 2025 (version 0.86.1)
+- Community discussions about succession plan
+- Single-maintainer risk (Paul Gauthier)
+- No formal governance structure
 
-### 11.9 Context-Window-Beschraenkungen
-- Bei grossem Context verlieren Modelle Fokus (~25k Tokens)
-- Kein GraphRAG oder semantisches Retrieval
-- Repo Map ist token-budgetiert, nicht semantisch-optimiert
-- Keine Experience-Pool / Caching erfolgreicher Runs
+### 11.9 Context Window Limitations
+- Models lose focus with large context (~25k tokens)
+- No GraphRAG or semantic retrieval
+- Repo Map is token-budgeted, not semantically optimized
+- No experience pool / caching of successful runs
 
 ---
 
-## 12. Relevanz fuer CodeForge
+## 12. Relevance for CodeForge
 
-### 12.1 Was CodeForge uebernehmen sollte
+### 12.1 What CodeForge Should Adopt
 
-#### A) Repository Map Konzept
-Aiders tree-sitter + PageRank Repo Map ist der Goldstandard. CodeForge sollte:
-- **tree-sitter-Parsing** in Python Workers fuer AST-basierte Code-Analyse
-- **Graph-Ranking** (aber mit GraphRAG statt reinem PageRank) fuer semantisch tiefere Kontextualisierung
-- **Token-Budget-Optimierung** mit Binary Search fuer Context-Window-Management
-- **Dynamische Gewichtung** basierend auf Task-Kontext (aktive Dateien hoeher gewichtet)
+#### A) Repository Map Concept
+Aider's tree-sitter + PageRank Repo Map is the gold standard. CodeForge should:
+- **tree-sitter parsing** in Python Workers for AST-based code analysis
+- **Graph ranking** (but with GraphRAG instead of pure PageRank) for semantically deeper contextualization
+- **Token budget optimization** with binary search for context window management
+- **Dynamic weighting** based on task context (active files weighted higher)
 
-#### B) Edit Format Architektur
-CodeForge muss Edit-Formate verstehen wenn Aider als Agent-Backend genutzt wird:
-- **Modell-spezifische Edit-Formate** in der Model-Konfiguration (analog zu `.aider.model.settings.yml`)
-- **Benchmark-basierte Format-Auswahl** statt Vermutungen
-- **Architect/Editor-Pattern** als Standard-Workflow fuer komplexe Tasks
+#### B) Edit Format Architecture
+CodeForge must understand edit formats when Aider is used as an agent backend:
+- **Model-specific edit formats** in the model configuration (analogous to `.aider.model.settings.yml`)
+- **Benchmark-based format selection** instead of guesswork
+- **Architect/Editor pattern** as standard workflow for complex tasks
 
-#### C) Feedback-Loop Pattern
-Die Lint → Fix → Test → Fix → Commit Pipeline ist direkt uebertragbar:
-- **Quality Layer** in Python Workers: Lint-Check → LLM-Fix → Test → LLM-Fix
-- **Configurable Reflection Cycles** (max_reflections als Parameter)
-- **Structured Error Feedback** (Lint/Test Output als Context fuer naechsten LLM-Call)
+#### C) Feedback Loop Pattern
+The Lint → Fix → Test → Fix → Commit pipeline is directly transferable:
+- **Quality Layer** in Python Workers: Lint check → LLM fix → Test → LLM fix
+- **Configurable reflection cycles** (max_reflections as parameter)
+- **Structured error feedback** (lint/test output as context for the next LLM call)
 
-#### D) Git-Integration Patterns
-- **Auto-Commit mit Attribution** als Standard-Feature
-- **Dirty-File-Handling** vor Agent-Execution
-- **Undo-Mechanismus** ueber Git-History
-- **Conventional Commits** als Default-Format
+#### D) Git Integration Patterns
+- **Auto-commit with attribution** as standard feature
+- **Dirty file handling** before agent execution
+- **Undo mechanism** via Git history
+- **Conventional Commits** as default format
 
-#### E) Prompt Caching Strategie
-- **Strategische Prompt-Reihenfolge** (stabil → variabel) fuer maximale Cache-Hits
-- **Cache-Warming** bei lang laufenden Tasks
-- **Model-spezifische Cache-Konfiguration** (nicht jeder Provider unterstuetzt es)
+#### E) Prompt Caching Strategy
+- **Strategic prompt ordering** (stable → variable) for maximum cache hits
+- **Cache warming** for long-running tasks
+- **Model-specific cache configuration** (not every provider supports it)
 
-### 12.2 Was CodeForge BESSER macht
+### 12.2 What CodeForge Does BETTER
 
-#### A) Web-GUI statt Terminal
-- Aider: Terminal-only (experimentelle Browser-UI)
-- **CodeForge:** Full Web-GUI mit SolidJS, Real-time Updates via WebSocket, Dashboard
+#### A) Web GUI Instead of Terminal
+- Aider: Terminal-only (experimental browser UI)
+- **CodeForge:** Full web GUI with SolidJS, real-time updates via WebSocket, dashboard
 
-#### B) Multi-Projekt-Management
-- Aider: Ein Repo pro Session
-- **CodeForge:** Projekt-Dashboard mit mehreren Repos (Git, GitHub, GitLab, SVN, lokal)
+#### B) Multi-Project Management
+- Aider: One repo per session
+- **CodeForge:** Project dashboard with multiple repos (Git, GitHub, GitLab, SVN, local)
 
-#### C) Agent-Orchestrierung statt Single-Agent
-- Aider: Ein Agent (User + Aider)
-- **CodeForge:** Multi-Agent mit DAG-Orchestrierung, Plan → Approve → Execute → Review → Deliver
+#### C) Agent Orchestration Instead of Single-Agent
+- Aider: One agent (user + Aider)
+- **CodeForge:** Multi-agent with DAG orchestration, Plan → Approve → Execute → Review → Deliver
 
-#### D) Aider ALS Agent-Backend
-- CodeForge nutzt Aider nicht als Konkurrent sondern als **Agent-Backend**
-- Aider via CLI-Scripting (`--message`) oder Python API als Worker
-- Aider's Git-Integration, Repo Map und Edit-Formate als Ausfuehrungsschicht
-- CodeForge liefert Orchestrierung, UI, Projektmanagement darueber
+#### D) Aider AS Agent Backend
+- CodeForge uses Aider not as a competitor but as an **agent backend**
+- Aider via CLI scripting (`--message`) or Python API as worker
+- Aider's Git integration, Repo Map, and edit formats as the execution layer
+- CodeForge provides orchestration, UI, project management on top
 
 #### E) Roadmap/Spec-Driven Development
-- Aider: Kein Projektmanagement, kein Spec-Support
-- **CodeForge:** Bidirektionaler Sync mit PM-Tools, OpenSpec/SpecKit Support, Auto-Detection
+- Aider: No project management, no spec support
+- **CodeForge:** Bidirectional sync with PM tools, OpenSpec/SpecKit support, auto-detection
 
-#### F) Sandbox-Execution
-- Aider: Kein Container-Isolation
-- **CodeForge:** Docker-in-Docker, Command Safety Evaluator, Tool-Blocklists
+#### F) Sandbox Execution
+- Aider: No container isolation
+- **CodeForge:** Docker-in-Docker, Command Safety Evaluator, tool blocklists
 
-#### G) Kosten-Management
-- Aider: Basic Token-Display
-- **CodeForge:** Budget-Limits pro Task/Projekt/User, Cost Dashboard, LiteLLM-Integration
+#### G) Cost Management
+- Aider: Basic token display
+- **CodeForge:** Budget limits per task/project/user, cost dashboard, LiteLLM integration
 
-#### H) Multi-LLM mit Scenario-Routing
-- Aider: Ein Modell pro Session (optional Architect+Editor)
-- **CodeForge:** Scenario-basiertes Routing (default/background/think/longContext/review/plan) via LiteLLM
+#### H) Multi-LLM with Scenario Routing
+- Aider: One model per session (optional Architect+Editor)
+- **CodeForge:** Scenario-based routing (default/background/think/longContext/review/plan) via LiteLLM
 
-### 12.3 Integrations-Strategie: Aider als Agent-Backend
+### 12.3 Integration Strategy: Aider as Agent Backend
 
 ```
 CodeForge Go Core
@@ -830,59 +830,59 @@ CodeForge Go Core
 Python AI Worker
        |
        v  Subprocess / Python API
-Aider (CLI oder Coder-Klasse)
+Aider (CLI or Coder class)
        |
        ├── tree-sitter Repo Map       (Context)
-       ├── Edit Format (diff/whole)    (Code-Editing)
-       ├── Git Auto-Commit             (Versionierung)
+       ├── Edit Format (diff/whole)    (Code Editing)
+       ├── Git Auto-Commit             (Versioning)
        ├── Auto-Lint + Auto-Test       (Quality)
        └── LLM Call via LiteLLM        (AI)
 ```
 
-**Integrationspfade:**
+**Integration Paths:**
 
-| Methode | Stabilitaet | Use Case |
+| Method | Stability | Use Case |
 |---|---|---|
-| `aider --message "..." <files>` | Stabil, offiziell | Einfache Tasks, Batch |
-| `Coder.create()` + `coder.run()` | Inoffiziell, kann sich aendern | Komplexe Workflows, Chaining |
-| Subprocess mit stdin/stdout | Stabil, aber fragil | Server-Integration |
+| `aider --message "..." <files>` | Stable, official | Simple tasks, batch |
+| `Coder.create()` + `coder.run()` | Unofficial, subject to change | Complex workflows, chaining |
+| Subprocess with stdin/stdout | Stable, but fragile | Server integration |
 
-**Empfehlung:** CLI-Scripting (`--message`) fuer robuste Integration, Python API nur wenn noetig und mit Versions-Pinning.
+**Recommendation:** CLI scripting (`--message`) for robust integration, Python API only when necessary and with version pinning.
 
-### 12.4 Architektur-Erkenntnisse fuer CodeForge
+### 12.4 Architecture Insights for CodeForge
 
-| Aider-Konzept | CodeForge-Adaption |
+| Aider Concept | CodeForge Adaptation |
 |---|---|
-| Repo Map (tree-sitter + PageRank) | GraphRAG Context Layer (tiefer, semantisch) |
-| Edit Formats (7+ Varianten) | Modell-spezifische Format-Config in Worker-Settings |
-| Architect/Editor Pattern | Standard-Workflow im Agent-Pipeline (Plan → Edit) |
-| Auto-Lint + Auto-Test Loop | Quality Layer mit konfigurierbaren Reflection Cycles |
-| Prompt Caching (Anthropic/DeepSeek) | Cache-Strategie via LiteLLM Proxy delegieren |
-| `.aider.conf.yml` + `.env` | YAML-basierte Worker-Config + Environment Variables |
-| Watch Mode (AI-Kommentare) | Nicht relevant (CodeForge hat eigene UI) |
-| Voice/Image | Spaetere Phase, nicht Kern-Feature |
-| Weak Model (Commits/Summary) | Scenario-Routing: background Tag fuer guenstige Ops |
+| Repo Map (tree-sitter + PageRank) | GraphRAG Context Layer (deeper, semantic) |
+| Edit Formats (7+ variants) | Model-specific format config in worker settings |
+| Architect/Editor Pattern | Standard workflow in agent pipeline (Plan → Edit) |
+| Auto-Lint + Auto-Test Loop | Quality Layer with configurable reflection cycles |
+| Prompt Caching (Anthropic/DeepSeek) | Cache strategy delegated via LiteLLM Proxy |
+| `.aider.conf.yml` + `.env` | YAML-based worker config + environment variables |
+| Watch Mode (AI comments) | Not relevant (CodeForge has its own UI) |
+| Voice/Image | Later phase, not a core feature |
+| Weak Model (Commits/Summary) | Scenario routing: background tag for cheap ops |
 
 ---
 
-## 13. Zusammenfassung
+## 13. Summary
 
-### Aider in einem Satz
-Terminal-basierter AI Pair-Programmer mit der tiefsten Git-Integration und dem ausgereiftesten Codebase-Kontext-System (tree-sitter + PageRank Repo Map) aller Open-Source-Tools, aber ohne Web-GUI, Projektmanagement oder Agent-Orchestrierung.
+### Aider in One Sentence
+Terminal-based AI pair programmer with the deepest Git integration and the most mature codebase context system (tree-sitter + PageRank Repo Map) of all open-source tools, but without a web GUI, project management, or agent orchestration.
 
-### Zahlen
-- 40.000+ GitHub Stars
-- 100+ unterstuetzte Sprachen (tree-sitter)
-- 127+ LLM-Provider (via LiteLLM)
-- 7+ Edit-Formate (modellspezifisch optimiert)
-- 225 Polyglot Benchmark-Aufgaben (6 Sprachen)
-- ~70% Self-Coded (pro Release)
-- Apache 2.0 Lizenz
+### Numbers
+- 40,000+ GitHub Stars
+- 100+ supported languages (tree-sitter)
+- 127+ LLM providers (via LiteLLM)
+- 7+ edit formats (model-specifically optimized)
+- 225 Polyglot Benchmark tasks (6 languages)
+- ~70% self-coded (per release)
+- Apache 2.0 License
 
-### Kernkonzepte fuer CodeForge
-1. **Repo Map (tree-sitter + PageRank)** — Goldstandard fuer Code-Kontext
-2. **Edit Format Architektur** — Modellspezifisch, benchmark-basiert
-3. **Architect/Editor Pattern** — Reasoning/Editing Trennung
-4. **Lint/Test Feedback Loop** — Auto-Fix mit Reflection Cycles
-5. **Git-native Workflow** — Auto-Commit, Attribution, Undo
-6. **Aider als Agent-Backend** — Via CLI oder Python API in Worker integrierbar
+### Core Concepts for CodeForge
+1. **Repo Map (tree-sitter + PageRank)** — Gold standard for code context
+2. **Edit Format Architecture** — Model-specific, benchmark-based
+3. **Architect/Editor Pattern** — Reasoning/editing separation
+4. **Lint/Test Feedback Loop** — Auto-fix with reflection cycles
+5. **Git-native Workflow** — Auto-commit, attribution, undo
+6. **Aider as Agent Backend** — Integrable into workers via CLI or Python API
