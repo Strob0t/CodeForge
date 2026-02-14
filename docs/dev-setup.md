@@ -31,7 +31,7 @@
    - Python dependencies (poetry install)
    - Node dependencies (npm install, if package.json exists)
    - Pre-commit Hooks
-   - Docker Compose Services (docs-mcp, playwright-mcp, litellm-proxy planned)
+   - Docker Compose Services (docs-mcp, playwright-mcp, postgres, litellm-proxy planned)
 
 ## Project Structure (Planned)
 
@@ -49,7 +49,8 @@ CodeForge/
 │   └── setup.sh              # Post-Create Setup Script
 ├── .devdata/                 # Docker Volumes (gitignored)
 │   ├── docs_mcp_data/        # Docs MCP Index
-│   └── playwright-mcp/       # Playwright Config
+│   ├── playwright-mcp/       # Playwright Config
+│   └── postgres/             # PostgreSQL Data
 ├── cmd/
 │   └── codeforge/
 │       ├── main.go           # Entry point, Dependency Injection
@@ -125,6 +126,7 @@ CodeForge/
 |------|----------------------|----------------------------------|
 | 3000 | Frontend Dev Server  | Web GUI                          |
 | 4000 | LiteLLM Proxy        | LLM Routing (OpenAI-compatible)  |
+| 5432 | PostgreSQL           | Primary Database (App + LiteLLM) |
 | 4222 | NATS                 | Message Queue (client connections)|
 | 5173 | Vite HMR             | Hot Module Replacement           |
 | 6280 | docs-mcp-server      | Documentation Indexing           |
@@ -164,4 +166,5 @@ See `.env.example` for all configurable values.
 | ANTHROPIC_API_KEY         | (optional)                               | Anthropic API Key (via LiteLLM) |
 | GEMINI_API_KEY            | (optional)                               | Google Gemini API Key           |
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
+| POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
 | OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |

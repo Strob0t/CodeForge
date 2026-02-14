@@ -97,6 +97,10 @@
   - Diff-based File Review, ACI (SWE-agent), Stateless Agent Design (Devika)
   - tree-sitter Repo Map, Architect/Editor Pattern, Edit Formats (Aider)
   - Skills System, Risk Management (OpenHands), Plan/Act Mode (Cline)
+- [x] Architecture decision: PostgreSQL 17 as primary database (shared with LiteLLM) — [ADR-002](architecture/adr/002-postgresql-database.md)
+  - pgx v5 (Go driver), goose (migrations), psycopg3 (Python driver)
+  - Shared instance with LiteLLM via schema separation
+  - Simplicity principle: no ORM, no code generator, no extra tooling
 - [x] Documentation consistency audit: all docs synchronized and translated to English
 - [x] Documentation structure created:
   - docs/README.md (documentation index)
@@ -120,7 +124,7 @@
 - [ ] Frontend scaffold (Empty app with routing)
 - [ ] LiteLLM Proxy setup (Docker Compose service, litellm_config.yaml, health check)
 - [ ] Message Queue setup (NATS JetStream) — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
-- [ ] Database decision and setup
+- [ ] Database setup (PostgreSQL 17) — [ADR-002](architecture/adr/002-postgresql-database.md)
 - [ ] CI/CD Pipeline (GitHub Actions)
 
 ## Phase 2: MVP Features

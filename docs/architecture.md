@@ -205,7 +205,7 @@ This pattern follows the Go standard pattern (`database/sql` + `_ "github.com/li
 | `agentbackend` | `Backend` | aider, openhands, sweagent, goose, opencode, plandex |
 | `specprovider` | `SpecProvider` | openspec, speckit, autospec |
 | `pmprovider` | `PMProvider` | plane, openproject, github_pm, gitlab_pm |
-| `database` | `Store` | postgres, sqlite |
+| `database` | `Store` | postgres |
 | `messagequeue` | `Queue` | nats |
 
 #### Capabilities
@@ -278,9 +278,7 @@ internal/
     github_pm/           # GitHub Issues/Projects PM adapter
     gitlab_pm/           # GitLab Issues/Boards PM adapter
     postgres/
-    sqlite/
     nats/
-    redis/
   service/               # Use cases (connects domain with ports)
 ```
 
@@ -1848,8 +1846,10 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge?schema=litellm
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
 ```

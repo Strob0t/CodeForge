@@ -160,6 +160,11 @@ Detailed analysis: docs/research/market-analysis.md
   - **Adopted Patterns:** Plane (Cursor Pagination, HMAC-SHA256, Label Sync), OpenProject (Optimistic Locking, Schema Endpoints), OpenSpec (Delta Spec Format), Ploi Roadmap (`/ai` endpoint)
   - **Gitea/Forgejo:** GitHub adapter works with minimal changes (compatible API)
   - Detailed analysis: docs/research/market-analysis.md Section 5
+- **Database: PostgreSQL 17** (shared instance with LiteLLM, schema separation)
+  - Go: pgx v5 (driver) + goose (migrations)
+  - Python: psycopg3 (sync+async)
+  - NATS JetStream KV for ephemeral state (heartbeats, locks)
+  - ADR: docs/architecture/adr/002-postgresql-database.md
 - **LLM Integration (LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI):**
   - **No custom LLM provider interface** — LiteLLM Proxy as Docker sidecar (port 4000)
   - Go Core + Python Workers communicate via OpenAI-compatible API against LiteLLM

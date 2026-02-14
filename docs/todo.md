@@ -93,12 +93,13 @@ These tasks must be completed before moving to Phase 1.
 - [ ] Python consumer integration (`nats-py`)
 - [ ] Define subject hierarchy (`tasks.agent.{backend}`, `results.{task_id}`, etc.)
 
-### Database
+### Database (PostgreSQL)
 
-- [ ] Decision: PostgreSQL setup (document as ADR)
-- [ ] Docker Compose service for PostgreSQL
-- [ ] Go database client (pgx or sqlx)
-- [ ] Migration tool setup (golang-migrate or goose)
+- [x] (2026-02-14) Decision: PostgreSQL 17 + pgx + goose — [ADR-002](architecture/adr/002-postgresql-database.md)
+- [ ] Add PostgreSQL service to `docker-compose.yml`
+- [ ] Go database client setup (pgx v5 + pgxpool)
+- [ ] Migration tool setup (goose, SQL files in `migrations/`)
+- [ ] LiteLLM shared instance configuration (`?schema=litellm`)
 - [ ] Initial schema: projects, agents, tasks
 
 ### CI/CD
@@ -147,6 +148,7 @@ See feature specs for detailed breakdown:
 
 > Move items here after completion for context. Periodically archive old items.
 
+- [x] (2026-02-14) PostgreSQL 17 chosen as database — [ADR-002](architecture/adr/002-postgresql-database.md)
 - [x] (2026-02-14) NATS JetStream chosen as message queue — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
 - [x] (2026-02-14) Documentation structure created (docs/README.md, docs/todo.md, feature specs)
 - [x] (2026-02-14) Architecture harmony audit: all docs synchronized
