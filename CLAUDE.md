@@ -52,6 +52,11 @@ Detaillierte Analyse: docs/research/market-analysis.md
 - **Provider Registry Pattern** fuer Open-Source-Erweiterbarkeit (Self-Registering via `init()`)
 - **Capabilities** statt Pflicht-Implementierung — jeder Provider deklariert, was er kann
 - **Compliance-Tests** pro Interface — neue Adapter erben automatisch die Test-Suite
+- **LLM Capability Levels** — Workers ergaenzen fehlende Faehigkeiten je nach LLM:
+  - Vollwertige Agents (Claude Code, Aider): nur Orchestrierung
+  - API mit Tools (OpenAI, Gemini): + Context Layer (GraphRAG) + Routing
+  - Reine Completion (Ollama, lokal): + alles (Context, Tools, Quality Layer)
+- **Worker-Module:** Context (GraphRAG), Quality (Debate), Routing, Execution
 - Detaillierte Beschreibung: docs/architecture.md
 
 ## Strategische Prinzipien

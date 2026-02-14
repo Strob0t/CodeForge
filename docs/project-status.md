@@ -21,6 +21,7 @@
 - [x] CLAUDE.md (Projektkontext fuer AI-Assistenten)
 - [x] Dokumentation (docs/)
 - [x] Software-Architektur definiert: Hexagonal Architecture + Provider Registry Pattern
+- [x] LLM Capability Levels und Worker-Module definiert (GraphRAG, Debate, Routing)
 - [x] Git-Workflow mit Commit-Checkliste (pre-commit + Doku-Pflege)
 
 ### Offen

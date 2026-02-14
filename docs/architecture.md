@@ -230,12 +230,102 @@ internal/
   service/               # Use Cases (verbindet Domain mit Ports)
 ```
 
+## LLM Capability Levels
+
+Nicht jedes LLM bringt dieselben Faehigkeiten mit. CodeForge muss die Luecken
+schliessen, damit auch einfache Models produktiv eingesetzt werden koennen.
+
+### Das Problem
+
+```
+Claude Code / Aider       →  eigene Tool-Usage, Codebase-Search, Agent-Loop
+OpenAI API (direkt)       →  Function Calling, aber kein Codebase-Kontext
+Ollama (lokal)            →  reines Text-Completion, keine Tools, kein Kontext
+```
+
+Ein lokales Ollama-Modell weiss nichts ueber das Repo, kann keine Dateien lesen
+und hat kein Gedaechtnis. CodeForge muss diese Faehigkeiten bereitstellen.
+
+### Capability-Stacking durch Python Workers
+
+Die Workers ergaenzen fehlende Faehigkeiten je nach LLM-Level:
+
+```
+┌──────────────────────────────────────────────────────┐
+│                    CodeForge Worker                    │
+│                                                      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │  Context Layer (fuer alle LLMs)                │  │
+│  │  GraphRAG: Vector-Search + Graph-DB +          │  │
+│  │  Web-Fallback → relevanten Code/Docs finden    │  │
+│  └────────────────────────────────────────────────┘  │
+│                                                      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │  Quality Layer (optional, konfigurierbar)      │  │
+│  │  Multi-Agent Debate: Pro/Con/Moderator →       │  │
+│  │  Halluzinationen reduzieren, Loesungen pruefen │  │
+│  └────────────────────────────────────────────────┘  │
+│                                                      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │  Routing Layer                                 │  │
+│  │  Task-basiertes Model-Routing via LiteLLM →    │  │
+│  │  richtige Aufgabe an richtiges Modell          │  │
+│  └────────────────────────────────────────────────┘  │
+│                                                      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │  Execution Layer                               │  │
+│  │  Agent-Backends: Aider, OpenHands, SWE-agent,  │  │
+│  │  oder direkte LLM-API-Calls                    │  │
+│  └────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────┘
+```
+
+### Drei LLM-Integrationsstufen
+
+| Stufe | Beispiel | Was CodeForge bereitstellt |
+|---|---|---|
+| **Vollwertige Agents** | Claude Code, Aider, OpenHands | Nur Orchestrierung — Agent bringt eigene Tools mit |
+| **API mit Tool-Support** | OpenAI, Claude API, Gemini | Context Layer (GraphRAG) + Routing + Tool-Definitionen |
+| **Reine Completion** | Ollama, LM Studio (lokale Models) | Alles: Context, Tools, Prompt-Engineering, Quality Layer |
+
+Je weniger ein LLM kann, desto mehr uebernimmt der CodeForge Worker.
+
+### Worker-Module im Detail
+
+**Context Layer — GraphRAG**
+- Vector-Search (Qdrant/ChromaDB): Semantische Suche im Codebase-Index
+- Graph-DB (Neo4j/optional): Beziehungen zwischen Code-Elementen (Imports, Calls, Vererbung)
+- Web-Fallback (Tavily/SearXNG): Dokumentation und Stack Overflow bei fehlender lokaler Info
+- Ergebnis: Relevanter Kontext wird dem LLM-Prompt vorangestellt
+
+**Quality Layer — Multi-Agent Debate**
+- Pro-Agent argumentiert fuer eine Loesung
+- Con-Agent sucht Schwachstellen
+- Moderator synthetisiert das Ergebnis
+- Optional und konfigurierbar — bei einfachen Tasks unnoetig, bei kritischen Changes wertvoll
+- Funktioniert mit jedem LLM, auch mit guenstigen/lokalen Models
+
+**Routing Layer — Intelligentes Model-Routing**
+- Task-Klassifikation: Architektur, Code-Generierung, Review, Docs, Tests
+- Kosten-Optimierung: Einfache Tasks an guenstige Models, komplexe an starke
+- Latenz-Routing: Schnelle Antworten fuer interaktive Nutzung
+- Fallback-Ketten: Wenn ein Provider ausfaellt, automatisch naechsten nutzen
+- Routing-Regeln konfigurierbar per Projekt und per User
+
 ### Verzeichnisstruktur Python Workers
 
 ```
 workers/
   codeforge/
     consumer/            # Queue-Consumer (Eingang)
+    context/             # Context Layer
+      graphrag.py        # Vector + Graph + Web Retrieval
+      indexer.py         # Codebase-Indexierung
+    quality/             # Quality Layer
+      debate.py          # Multi-Agent Debate (Pro/Con/Moderator)
+    routing/             # Routing Layer
+      router.py          # Task-basiertes Model-Routing
+      cost.py            # Kosten-Tracking und Budgets
     agents/              # Agent-Backends (Aider, OpenHands, etc.)
     llm/                 # LLM-Client via LiteLLM
     models/              # Datenmodelle
