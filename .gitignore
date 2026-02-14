@@ -41,8 +41,8 @@ desktop.ini
 .env.*
 !.env.example
 
-# -- Dev data (docker volumes, caches) ------------
-.devdata/
+# -- Persistent data (docker volumes, caches) ------
+data/
 
 # -- Claude Code ----------------------------------
 .claude/

@@ -47,7 +47,7 @@ services:
       - "8222:8222"   # HTTP monitoring
     command: ["--jetstream", "--store_dir", "/data"]
     volumes:
-      - .devdata/nats:/data
+      - ./data/nats:/data
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
 ```

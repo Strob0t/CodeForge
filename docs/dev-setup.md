@@ -52,9 +52,11 @@ CodeForge/
 ├── .devcontainer/
 │   ├── devcontainer.json     # Container Definition
 │   └── setup.sh              # Post-Create Setup Script
-├── .devdata/                 # Docker Volumes (gitignored)
-│   ├── docs_mcp_data/        # Docs MCP Index
-│   ├── playwright-mcp/       # Playwright Config
+├── data/                     # Persistent data (gitignored, auto-created by docker compose)
+│   ├── docs_mcp/             # Docs MCP Index
+│   ├── litellm/              # LiteLLM Runtime Data
+│   ├── nats/                 # NATS JetStream Data
+│   ├── playwright/           # Playwright Config
 │   └── postgres/             # PostgreSQL Data
 ├── cmd/
 │   └── codeforge/
@@ -114,13 +116,15 @@ CodeForge/
 │   └── research/
 │       ├── market-analysis.md# Market Research & Competitors
 │       └── aider-deep-analysis.md # Aider Architecture Deep-Dive
+├── litellm/
+│   └── config.yaml           # LiteLLM Proxy Configuration
 ├── .env.example              # Environment Template
 ├── .gitignore
 ├── .golangci.yml             # Go Linter Config
 ├── .mcp.json                 # MCP Server for Claude Code
 ├── .pre-commit-config.yaml   # Pre-commit Hooks (Python, Go, TS)
 ├── CLAUDE.md                 # Project Context for Claude Code
-├── docker-compose.yml        # Dev Services (MCP Server)
+├── docker-compose.yml        # Dev Services
 ├── LICENSE                   # AGPL-3.0
 └── pyproject.toml            # Python: Poetry + Ruff + Pytest
 ```
