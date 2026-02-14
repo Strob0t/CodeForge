@@ -19,30 +19,30 @@ These tasks must be completed before moving to Phase 1.
 
 ### Infrastructure
 
-- [ ] Build and test devcontainer for the first time
-  - Verify all tools install correctly (Go 1.23, Python 3.12, Node.js 22)
-  - Verify Docker-in-Docker works
-  - Verify pre-commit hooks run
+- [x] (2026-02-14) Build and test devcontainer
+  - Go 1.23.12, Python 3.12.12, Node.js 22.22.0, Docker 29.2.1, pre-commit 4.5.1
+  - Docker-in-Docker verified
+  - Pre-commit hooks pass
 
 ### Go Core
 
-- [ ] Initialize Go module (`go mod init github.com/Strob0t/CodeForge`)
-- [ ] Create basic directory structure: `cmd/codeforge/`, `internal/domain/`, `internal/port/`, `internal/adapter/`, `internal/service/`
-- [ ] Create `cmd/codeforge/main.go` with minimal HTTP server (health endpoint)
-- [ ] Create `cmd/codeforge/providers.go` (blank imports placeholder)
+- [x] (2026-02-14) Initialize Go module (`go mod init github.com/Strob0t/CodeForge`)
+- [x] (2026-02-14) Create directory structure: `cmd/codeforge/`, `internal/domain/`, `internal/port/`, `internal/adapter/`, `internal/service/`, `migrations/`
+- [x] (2026-02-14) Create `cmd/codeforge/main.go` — chi v5 HTTP server, health endpoint, graceful shutdown
+- [x] (2026-02-14) Create `cmd/codeforge/providers.go` (blank imports placeholder)
 
 ### Python Workers
 
-- [ ] Verify Poetry environment works (`poetry install`, `poetry run pytest`)
-- [ ] Create basic directory structure: `workers/codeforge/` with `__init__.py`
-- [ ] Create placeholder consumer module
+- [x] (2026-02-14) Poetry environment verified (`poetry install`, `poetry run pytest` — 3/3 pass)
+- [x] (2026-02-14) Create `workers/codeforge/` with `__init__.py`, `consumer.py`, `health.py`
+- [x] (2026-02-14) Create `workers/tests/test_health.py` (3 tests)
 
 ### Frontend
 
-- [ ] Initialize SolidJS project in `frontend/` (`npm create solid`)
-- [ ] Configure Tailwind CSS
-- [ ] Configure ESLint + Prettier for TypeScript
-- [ ] Create minimal app shell with routing placeholder
+- [x] (2026-02-14) Initialize SolidJS + TypeScript project in `frontend/`
+- [x] (2026-02-14) Configure Tailwind CSS v4 (via @tailwindcss/vite)
+- [x] (2026-02-14) Configure ESLint 9 (flat config) + Prettier + eslint-plugin-solid
+- [x] (2026-02-14) Create minimal app shell with @solidjs/router, sidebar layout
 
 ---
 
@@ -158,6 +158,7 @@ See feature specs for detailed breakdown:
 
 > Move items here after completion for context. Periodically archive old items.
 
+- [x] (2026-02-14) Phase 0 completed: devcontainer, Go scaffold, Python Workers, SolidJS frontend
 - [x] (2026-02-14) Protocol support decided: MCP, LSP, OpenTelemetry (Tier 1), A2A, AG-UI (Tier 2)
 - [x] (2026-02-14) Library decisions: chi (router), coder/websocket (WS), git exec wrapper, SolidJS minimal stack
 - [x] (2026-02-14) PostgreSQL 17 chosen as database — [ADR-002](architecture/adr/002-postgresql-database.md)

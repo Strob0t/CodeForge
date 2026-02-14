@@ -119,11 +119,13 @@
 
 ### Open
 
-> **For granular tasks, see [todo.md](todo.md)** — this section tracks high-level milestones only.
+> **Phase 0 complete.** All tasks done — proceed to Phase 1.
+> For granular tasks, see [todo.md](todo.md).
 
-- [ ] Build and test devcontainer for the first time
-- [ ] Initialize Go module (go mod init)
-- [ ] Create basic project structure (directories for Go, Python, Frontend)
+- [x] Devcontainer verified (Go 1.23.12, Python 3.12.12, Node.js 22.22.0, Docker-in-Docker)
+- [x] Go module initialized, project structure created, chi HTTP server with health endpoint
+- [x] Python Workers scaffold (consumer, health, 3 tests passing)
+- [x] SolidJS frontend initialized (Tailwind CSS v4, ESLint 9, Prettier, @solidjs/router)
 
 ## Phase 1: Foundation (next step)
 

@@ -4,6 +4,7 @@ node_modules/
 vendor/
 
 # ── Build artifacts ──────────────────────────────
+/codeforge
 dist/
 build/
 bin/
@@ -17,10 +18,12 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .eggs/
-poetry.lock
 
 # ── Go ───────────────────────────────────────────
-go.sum
+# go.sum is committed for reproducible builds
+
+# ── Frontend ────────────────────────────────────
+# node_modules/ and dist/ covered above
 
 # ── IDE ──────────────────────────────────────────
 .idea/

@@ -1,0 +1,29 @@
+{
+  "name": "codeforge-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src/",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
+  },
+  "dependencies": {
+    "solid-js": "^1.9.0",
+    "@solidjs/router": "^0.15.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vite-plugin-solid": "^2.11.0",
+    "typescript": "~5.7.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-solid": "^0.14.0",
+    "typescript-eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  }
+}

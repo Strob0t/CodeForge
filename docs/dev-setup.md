@@ -145,11 +145,31 @@ ruff check workers/
 ruff format workers/
 
 # Go only
+go build ./cmd/codeforge/
 golangci-lint run ./...
 
-# TypeScript only (if frontend exists)
-npx eslint .
-npx prettier --check .
+# TypeScript only
+npm run lint --prefix frontend
+npm run format:check --prefix frontend
+```
+
+## Running the Project
+
+```bash
+# Go Core Service (port 8080)
+go run ./cmd/codeforge/
+
+# Python Worker
+poetry run python -m codeforge.consumer
+
+# Frontend Dev Server (port 3000, proxies /api to Go Core)
+npm run dev --prefix frontend
+
+# Python Tests
+poetry run pytest -v
+
+# Frontend Build
+npm run build --prefix frontend
 ```
 
 ## Environment Variables
