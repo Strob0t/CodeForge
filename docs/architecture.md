@@ -104,3 +104,149 @@ Das gesamte AI/Agent-Ecosystem (LiteLLM, LangGraph, Aider, OpenHands, SWE-agent,
 - Skalierung: Worker horizontal skalierbar
 - Resilienz: Jobs gehen bei Worker-Absturz nicht verloren
 - Backpressure: Queue puffert bei Last-Spitzen
+
+## Software-Architektur: Hexagonal + Provider Registry
+
+### Grundprinzip: Hexagonal Architecture (Ports & Adapters)
+
+Die Kernlogik (Domain + Services) ist vollstaendig von externen Systemen isoliert.
+Alle Abhaengigkeiten zeigen nach innen — nie nach aussen.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    ADAPTER (aussen)                       │
+│  HTTP-Handler, GitHub, Postgres, NATS, Ollama, Aider     │
+│                                                          │
+│    ┌──────────────────────────────────────────────┐       │
+│    │              PORTS (Grenze)                  │       │
+│    │    Go Interfaces — definieren WAS die        │       │
+│    │    Kernlogik braucht, nicht WIE              │       │
+│    │                                              │       │
+│    │    ┌──────────────────────────────┐          │       │
+│    │    │        DOMAIN (Kern)         │          │       │
+│    │    │   Business-Logik, Entities   │          │       │
+│    │    │   Regeln, Validierung        │          │       │
+│    │    │   Null externe Imports       │          │       │
+│    │    └──────────────────────────────┘          │       │
+│    └──────────────────────────────────────────────┘       │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Provider Registry Pattern
+
+Fuer Open-Source-Erweiterbarkeit nutzt CodeForge ein Self-Registering-Provider-Pattern.
+Neue Implementierungen (z.B. ein Gitea-Adapter) erfordern:
+
+1. Ein Go-Package, das das entsprechende Interface erfuellt
+2. Einen Blank-Import in `cmd/codeforge/providers.go`
+3. Keine Aenderungen an der Kernlogik
+
+#### Ablauf
+
+```
+1. Port definiert Interface + Registry
+   (Register, New, Available)
+
+2. Adapter implementiert Interface
+   und registriert sich via init()
+
+3. Blank-Import in providers.go
+   aktiviert den Adapter
+
+4. Kernlogik nutzt nur das Interface —
+   weiss nicht, welcher Adapter dahinter steckt
+```
+
+Dieses Pattern folgt dem Go-Standardmuster (`database/sql` + `_ "github.com/lib/pq"`).
+
+#### Provider-Typen
+
+| Port | Interface | Beispiel-Adapter |
+|---|---|---|
+| `gitprovider` | `Provider` | github, gitlab, gitlocal, svn, gitea |
+| `llmprovider` | `Provider` | openai, claude, ollama, lmstudio |
+| `agentbackend` | `Backend` | aider, openhands, sweagent |
+| `database` | `Store` | postgres, sqlite |
+| `messagequeue` | `Queue` | nats, redis |
+
+#### Capabilities
+
+Nicht jeder Provider unterstuetzt alle Operationen. Statt leere Implementierungen
+deklariert jeder Provider seine Faehigkeiten:
+
+```go
+type Capability string
+const (
+    CapClone    Capability = "clone"
+    CapWebhooks Capability = "webhooks"
+    CapPRs      Capability = "pull_requests"
+    // ...
+)
+```
+
+Die Kernlogik und das Frontend pruefen Capabilities und passen ihr Verhalten an.
+SVN unterstuetzt z.B. keine Webhooks — das ist kein Fehler, sondern deklariertes Verhalten.
+
+#### Compliance-Tests
+
+Jeder Provider-Typ liefert eine wiederverwendbare Test-Suite (`RunComplianceTests`).
+Ein neuer Adapter ruft diese Funktion auf und erhaelt automatisch alle Interface-Tests.
+Contributors schreiben minimalen Test-Code und bekommen maximale Abdeckung.
+
+### Verzeichnisstruktur Go Core
+
+```
+cmd/
+  codeforge/
+    main.go              # Einstiegspunkt, Dependency Injection
+    providers.go         # Blank-Imports aller aktiven Adapter
+internal/
+  domain/                # Kern: Entities, Business Rules (null externe Imports)
+    project/
+    agent/
+    roadmap/
+  port/                  # Interfaces + Registries
+    gitprovider/
+      provider.go        # Interface + Capability-Definitionen
+      registry.go        # Register(), New(), Available()
+      compliance_test.go # Wiederverwendbare Test-Suite
+    llmprovider/
+    agentbackend/
+    database/
+    messagequeue/
+  adapter/               # Konkrete Implementierungen
+    github/
+    gitlab/
+    gitlocal/
+    svn/
+    openai/
+    ollama/
+    aider/
+    openhands/
+    postgres/
+    sqlite/
+    nats/
+    redis/
+  service/               # Use Cases (verbindet Domain mit Ports)
+```
+
+### Verzeichnisstruktur Python Workers
+
+```
+workers/
+  codeforge/
+    consumer/            # Queue-Consumer (Eingang)
+    agents/              # Agent-Backends (Aider, OpenHands, etc.)
+    llm/                 # LLM-Client via LiteLLM
+    models/              # Datenmodelle
+```
+
+### Verzeichnisstruktur Frontend
+
+```
+frontend/
+  src/
+    features/            # Feature-Module (dashboard, roadmap, agents, llm)
+    shared/              # Gemeinsame Komponenten, Hooks, Utils
+    api/                 # API-Client, WebSocket-Handler
+```

@@ -47,9 +47,44 @@ CodeForge/
 ├── .devdata/                 # Docker Volumes (gitignored)
 │   ├── docs_mcp_data/        # Docs MCP Index
 │   └── playwright-mcp/       # Playwright Config
+├── cmd/
+│   └── codeforge/
+│       ├── main.go           # Einstiegspunkt, Dependency Injection
+│       └── providers.go      # Blank-Imports aller aktiven Adapter
+├── internal/
+│   ├── domain/               # Kern: Entities, Business Rules
+│   │   ├── project/
+│   │   ├── agent/
+│   │   └── roadmap/
+│   ├── port/                 # Interfaces + Registries
+│   │   ├── gitprovider/
+│   │   ├── llmprovider/
+│   │   ├── agentbackend/
+│   │   ├── database/
+│   │   └── messagequeue/
+│   ├── adapter/              # Konkrete Implementierungen
+│   │   ├── github/
+│   │   ├── gitlab/
+│   │   ├── svn/
+│   │   ├── postgres/
+│   │   ├── nats/
+│   │   └── ...
+│   └── service/              # Use Cases
+├── workers/                  # Python AI Workers
+│   └── codeforge/
+│       ├── consumer/         # Queue-Consumer
+│       ├── agents/           # Agent-Backends
+│       ├── llm/              # LLM-Client via LiteLLM
+│       └── models/           # Datenmodelle
+├── frontend/                 # TypeScript Web-GUI
+│   └── src/
+│       ├── features/         # Feature-Module
+│       ├── shared/           # Gemeinsame Komponenten
+│       └── api/              # API-Client, WebSocket
 ├── docs/
-│   ├── architecture.md       # Systemarchitektur
+│   ├── architecture.md       # Systemarchitektur + Hexagonal + Provider Registry
 │   ├── dev-setup.md          # Diese Datei
+│   ├── project-status.md     # Projektstatus & Roadmap
 │   ├── tech-stack.md         # Tech Stack Details
 │   └── research/
 │       └── market-analysis.md# Marktrecherche & Wettbewerber
@@ -57,7 +92,7 @@ CodeForge/
 ├── .gitignore
 ├── .golangci.yml             # Go Linter Config
 ├── .mcp.json                 # MCP Server fuer Claude Code
-├── .pre-commit.yaml          # Pre-commit Hooks (Python, Go, TS)
+├── .pre-commit-config.yaml   # Pre-commit Hooks (Python, Go, TS)
 ├── CLAUDE.md                 # Projektkontext fuer Claude Code
 ├── docker-compose.yml        # Dev Services (MCP Server)
 ├── LICENSE                   # AGPL-3.0
@@ -78,7 +113,7 @@ CodeForge/
 
 ```bash
 # Alle Sprachen via pre-commit
-pre-commit run -c .pre-commit.yaml --all-files
+pre-commit run --all-files
 
 # Nur Python
 ruff check workers/

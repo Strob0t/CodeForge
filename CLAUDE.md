@@ -46,6 +46,14 @@ Die spezifische Kombination aus Projekt-Dashboard + Roadmap + Multi-LLM + Agent-
 Naechster Konkurrent: OpenHands (kein Roadmap, kein Multi-Projekt-Dashboard, kein SVN).
 Detaillierte Analyse: docs/research/market-analysis.md
 
+## Software-Architektur
+
+- **Hexagonal Architecture (Ports & Adapters)** fuer den Go Core
+- **Provider Registry Pattern** fuer Open-Source-Erweiterbarkeit (Self-Registering via `init()`)
+- **Capabilities** statt Pflicht-Implementierung — jeder Provider deklariert, was er kann
+- **Compliance-Tests** pro Interface — neue Adapter erben automatisch die Test-Suite
+- Detaillierte Beschreibung: docs/architecture.md
+
 ## Strategische Prinzipien
 
 - Bestehende Bausteine nutzen (LiteLLM, OpenSpec, Aider/OpenHands als Backends)
