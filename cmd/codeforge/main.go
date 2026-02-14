@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,40 +12,110 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimw "github.com/go-chi/chi/v5/middleware"
+
+	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
+	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
+	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
+
+// config holds all runtime configuration loaded from environment variables.
+type config struct {
+	port       string
+	corsOrigin string
+	dbDSN      string
+	natsURL    string
+	litellmURL string
+}
+
+func loadConfig() config {
+	return config{
+		port:       envOr("CODEFORGE_PORT", "8080"),
+		corsOrigin: envOr("CODEFORGE_CORS_ORIGIN", "http://localhost:3000"),
+		dbDSN:      envOr("DATABASE_URL", "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"),
+		natsURL:    envOr("NATS_URL", "nats://localhost:4222"),
+		litellmURL: envOr("LITELLM_URL", "http://localhost:4000"),
+	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
+	if err := run(); err != nil {
+		slog.Error("fatal", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg := loadConfig()
+	ctx := context.Background()
+
+	// --- Infrastructure ---
+
+	// PostgreSQL
+	pool, err := postgres.NewPool(ctx, cfg.dbDSN)
+	if err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
+	defer pool.Close()
+	slog.Info("postgres connected")
+
+	// Run migrations
+	if err := postgres.RunMigrations(ctx, cfg.dbDSN); err != nil {
+		return fmt.Errorf("migrations: %w", err)
+	}
+	slog.Info("migrations applied")
+
+	// NATS
+	queue, err := cfnats.Connect(ctx, cfg.natsURL)
+	if err != nil {
+		return fmt.Errorf("nats: %w", err)
+	}
+	defer func() { _ = queue.Close() }()
+
+	// --- Services ---
+	store := postgres.NewStore(pool)
+	projectSvc := service.NewProjectService(store)
+	taskSvc := service.NewTaskService(store, queue)
+
+	// --- HTTP ---
+	hub := ws.NewHub()
+	handlers := &cfhttp.Handlers{
+		Projects: projectSvc,
+		Tasks:    taskSvc,
+	}
+
 	r := chi.NewRouter()
 
 	// Middleware
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(cfhttp.CORS(cfg.corsOrigin))
+	r.Use(cfhttp.Logger)
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(chimw.Recoverer)
+	r.Use(chimw.Timeout(30 * time.Second))
 
-	// Health endpoint
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	// Health endpoint with service status
+	r.Get("/health", healthHandler(&cfg))
 
-	// API routes placeholder
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"version":"0.1.0"}`))
-		})
-	})
+	// WebSocket endpoint
+	r.Get("/ws", hub.HandleWS)
 
-	addr := ":8080"
-	if port := os.Getenv("CODEFORGE_PORT"); port != "" {
-		addr = ":" + port
-	}
+	// API routes
+	cfhttp.MountRoutes(r, handlers)
+
+	addr := ":" + cfg.port
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -62,21 +134,36 @@ func main() {
 		slog.Info("starting server", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server failed", "error", err)
-			os.Exit(1)
 		}
 	}()
 
 	<-done
 	slog.Info("shutting down server")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		cancel()
-		slog.Error("server shutdown failed", "error", err)
-		os.Exit(1)
+	return srv.Shutdown(shutdownCtx)
+}
+
+// healthHandler returns an http.HandlerFunc that reports service health.
+func healthHandler(cfg *config) http.HandlerFunc {
+	type healthStatus struct {
+		Status   string `json:"status"`
+		Postgres string `json:"postgres"`
+		NATS     string `json:"nats"`
+		LiteLLM  string `json:"litellm"`
 	}
 
-	cancel()
-	slog.Info("server stopped")
+	return func(w http.ResponseWriter, _ *http.Request) {
+		status := healthStatus{
+			Status:   "ok",
+			Postgres: cfg.dbDSN,
+			NATS:     cfg.natsURL,
+			LiteLLM:  cfg.litellmURL,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(status)
+	}
 }
