@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "docs-mcp-server": {
+      "type": "http",
+      "url": "http://localhost:6280/mcp"
+    },
+    "playwright-mcp": {
+      "type": "http",
+      "url": "http://localhost:8001/mcp"
+    }
+  }
+}

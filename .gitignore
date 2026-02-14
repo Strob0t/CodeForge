@@ -1,0 +1,49 @@
+# ── Dependencies ─────────────────────────────────
+.venv/
+node_modules/
+vendor/
+
+# ── Build artifacts ──────────────────────────────
+dist/
+build/
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ── Python ───────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+poetry.lock
+
+# ── Go ───────────────────────────────────────────
+go.sum
+
+# ── IDE ──────────────────────────────────────────
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Environment ──────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Dev data (docker volumes, caches) ────────────
+.devdata/
+
+# ── Claude Code ──────────────────────────────────
+.claude/
+
+# ── Debug logs ───────────────────────────────────
+debug.log
+*.log

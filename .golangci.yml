@@ -1,0 +1,39 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck       # unchecked errors
+    - govet          # suspicious constructs
+    - staticcheck    # staticcheck suite
+    - unused         # unused code
+    - gosimple       # simplifications
+    - ineffassign    # ineffectual assignments
+    - typecheck      # type checking
+    - gocritic       # opinionated linter
+    - gofmt          # format check
+    - goimports      # import order
+    - misspell       # spelling
+    - prealloc       # slice preallocation
+    - unconvert      # unnecessary conversions
+    - unparam        # unused parameters
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  goimports:
+    local-prefixes: github.com/codeforge
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  formats:
+    - format: colored-line-number
+  sort-results: true

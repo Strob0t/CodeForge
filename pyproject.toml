@@ -1,0 +1,57 @@
+[project]
+name = "codeforge"
+version = "0.1.0"
+description = "AI Coding Agent Orchestration Platform"
+requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
+
+[build-system]
+requires = ["poetry-core>=2.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [{ include = "codeforge", from = "workers" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^4.0"
+pytest = "^8.0"
+pytest-asyncio = "^0.25"
+
+# ── Ruff ─────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["workers"]
+
+[tool.ruff.lint]
+select = [
+    "F",     # pyflakes
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "A",     # flake8-builtins
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+    "RUF",   # ruff-specific
+]
+ignore = [
+    "E501",  # line length (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["codeforge"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ── Pytest ───────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["workers/tests"]
+asyncio_mode = "auto"

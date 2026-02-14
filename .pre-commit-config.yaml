@@ -1,0 +1,57 @@
+repos:
+  # ── Allgemein ──────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # ── Python (Ruff) ─────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.12
+    hooks:
+      # 1) Imports sortieren
+      - id: ruff-check
+        name: ruff (sort imports)
+        args: ["--select", "I", "--fix"]
+
+      # 2) Lint/fix
+      - id: ruff-check
+        args: ["--fix", "--exit-non-zero-on-fix"]
+
+      # 3) Format
+      - id: ruff-format
+
+  # ── Go ─────────────────────────────────────────────────────
+  - repo: https://github.com/TekWizely/pre-commit-golang
+    rev: v1.0.0-rc.1
+    hooks:
+      # Format
+      - id: go-fmt
+      # Imports sortieren
+      - id: go-imports-repo
+      # Vet (statische Analyse)
+      - id: go-vet-repo-mod
+      # golangci-lint (muss installiert sein)
+      - id: golangci-lint-repo-mod
+
+  # ── TypeScript / JavaScript (ESLint + Prettier) ────────────
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        entry: npx eslint --fix
+        language: system
+        files: \.(ts|tsx|js|jsx)$
+        types: [file]
+
+      - id: prettier
+        name: prettier
+        entry: npx prettier --write --ignore-unknown
+        language: system
+        files: \.(ts|tsx|js|jsx|json|css|scss|html|svelte|vue)$
+        types: [file]

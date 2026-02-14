@@ -1,0 +1,60 @@
+# CodeForge — Projektkontext
+
+## Was ist CodeForge?
+
+Containerisierter Service zur Orchestrierung von AI-Coding-Agents mit Web-GUI.
+
+### Vier Kernsaeulen:
+1. **Projekt-Dashboard** — Verwaltung mehrerer Repos (Git, GitHub, GitLab, SVN, lokal)
+2. **Roadmap/Feature-Map** — Visuelles Management, kompatibel mit OpenSpec, bidirektionaler Sync zu Repo-Specs
+3. **Multi-LLM-Provider** — OpenAI, Claude, lokale Models (Ollama/LM Studio), Routing via LiteLLM
+4. **Agent-Orchestrierung** — Koordination verschiedener Coding-Agents (Aider, OpenHands, SWE-agent, etc.)
+
+## Architektur
+
+Drei-Schichten Hybrid-Stack:
+
+```
+TypeScript Frontend (React/Svelte)
+        |
+        v  REST / WebSocket
+Go Core Service (HTTP, WebSocket, Agent Lifecycle, Repo-Verwaltung, Scheduling)
+        |
+        v  Message Queue (NATS/Redis)
+Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
+```
+
+## Tech Stack
+
+| Schicht        | Sprache    | Zweck                                    |
+|----------------|------------|------------------------------------------|
+| Frontend       | TypeScript | Web-GUI                                  |
+| Core Service   | Go 1.23    | HTTP/WS Server, Scheduling, Repo-Mgmt   |
+| AI Workers     | Python 3.12| LLM-Integration, Agent-Ausfuehrung      |
+| Infrastructure | Docker     | Containerisierung, Docker-in-Docker      |
+
+## Tooling
+
+- **Python:** Poetry, Ruff (Linting + Formatting), Pytest
+- **Go:** golangci-lint, gofmt, goimports
+- **TypeScript:** ESLint, Prettier
+- **Alle:** pre-commit hooks (.pre-commit.yaml), Docker Compose
+
+## Marktpositionierung
+
+Die spezifische Kombination aus Projekt-Dashboard + Roadmap + Multi-LLM + Agent-Orchestrierung existiert nicht.
+Naechster Konkurrent: OpenHands (kein Roadmap, kein Multi-Projekt-Dashboard, kein SVN).
+Detaillierte Analyse: docs/research/market-analysis.md
+
+## Strategische Prinzipien
+
+- Bestehende Bausteine nutzen (LiteLLM, OpenSpec, Aider/OpenHands als Backends)
+- Nicht das Rad neu erfinden bei Einzelkomponenten
+- Differenzierung durch Integration aller vier Saeulen
+- Performance-Fokus: Go fuer Core, Python nur fuer AI-spezifische Arbeit
+
+## Git-Workflow
+
+- **Commits nur auf `staging`** — niemals direkt auf `main`, es sei denn der User gibt explizit die Anweisung dazu
+- **Vor jedem Commit:** `pre-commit run --all-files` ausfuehren und Fehler beheben
+- **Branch-Strategie:** Entwicklung auf `staging`, Merge nach `main` nur auf Anweisung
