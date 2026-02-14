@@ -127,15 +127,21 @@
 - [x] Python Workers scaffold (consumer, health, 3 tests passing)
 - [x] SolidJS frontend initialized (Tailwind CSS v4, ESLint 9, Prettier, @solidjs/router)
 
-## Phase 1: Foundation (next step)
+## Phase 1: Foundation (COMPLETED)
 
-- [ ] Go Core Service scaffold (HTTP Server, Router, Health Endpoint)
-- [ ] Python Worker scaffold (Queue Consumer, Health Check)
-- [ ] Frontend scaffold (Empty app with routing)
-- [ ] LiteLLM Proxy setup (Docker Compose service, litellm_config.yaml, health check)
-- [ ] Message Queue setup (NATS JetStream) — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
-- [ ] Database setup (PostgreSQL 17) — [ADR-002](architecture/adr/002-postgresql-database.md)
-- [ ] CI/CD Pipeline (GitHub Actions)
+- [x] (2026-02-14) WP1: Infrastructure — Docker Compose (NATS, LiteLLM), DB schema, migrations
+- [x] (2026-02-14) WP2: Go Core — Domain entities, ports, registries, WebSocket, NATS adapter
+- [x] (2026-02-14) WP3: Python Worker — NATS consumer, LiteLLM client, Pydantic models, 16 tests
+- [x] (2026-02-14) WP4: Go Core — DB store, REST API (projects/tasks), services, handler tests
+- [x] (2026-02-14) WP5: Frontend — API client, WebSocket, Dashboard page with CRUD
+- [x] (2026-02-14) WP6: Protocol stubs (MCP, LSP, OTEL), GitHub Actions CI
+
+### Phase 1 Key Deliverables
+- **Go:** 1.24, chi v5, pgx v5, goose, coder/websocket, nats.go — 0 lint issues, 11 tests
+- **Python:** nats-py, httpx, pydantic v2 — 16 tests, ruff clean
+- **Frontend:** SolidJS, @solidjs/router, @solid-primitives/websocket — build + lint + format clean
+- **CI:** 3-job GitHub Actions (Go, Python, Frontend)
+- **API:** 9 REST endpoints, WebSocket, health with service status
 
 ## Phase 2: MVP Features
 

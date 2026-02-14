@@ -25,13 +25,18 @@
    - `Ctrl+Shift+P` → "Dev Containers: Reopen in Container"
    - Wait until `setup.sh` has finished running
 
-4. **Done.** The container automatically installs:
-   - Go 1.23, Python 3.12, Node.js 22
-   - Poetry, golangci-lint, goimports, Claude Code CLI
+4. **Start infrastructure services:**
+   ```bash
+   docker compose up -d
+   ```
+   This starts PostgreSQL, NATS JetStream, LiteLLM Proxy, docs-mcp, and playwright-mcp.
+
+5. **Done.** The container automatically installs:
+   - Go 1.24, Python 3.12, Node.js 22
+   - Poetry, golangci-lint v2, goimports, Claude Code CLI
    - Python dependencies (poetry install)
-   - Node dependencies (npm install, if package.json exists)
+   - Node dependencies (npm install)
    - Pre-commit Hooks
-   - Docker Compose Services (docs-mcp, playwright-mcp, postgres, litellm-proxy planned)
 
 ## Project Structure (Planned)
 
@@ -156,20 +161,22 @@ npm run format:check --prefix frontend
 ## Running the Project
 
 ```bash
-# Go Core Service (port 8080)
+# 1. Start infrastructure (PostgreSQL, NATS, LiteLLM)
+docker compose up -d
+
+# 2. Go Core Service (port 8080)
 go run ./cmd/codeforge/
 
-# Python Worker
-poetry run python -m codeforge.consumer
+# 3. Python Worker (connects to NATS)
+cd workers && poetry run python -m codeforge.consumer
 
-# Frontend Dev Server (port 3000, proxies /api to Go Core)
+# 4. Frontend Dev Server (port 3000, proxies /api and /ws to Go Core)
 npm run dev --prefix frontend
 
-# Python Tests
-poetry run pytest -v
-
-# Frontend Build
-npm run build --prefix frontend
+# Run all tests
+go test ./...                     # Go (11 tests)
+cd workers && poetry run pytest -v  # Python (16 tests)
+npm run build --prefix frontend   # Frontend (type check + build)
 ```
 
 ## Environment Variables
@@ -178,10 +185,15 @@ See `.env.example` for all configurable values.
 
 | Variable                  | Default                                  | Description                     |
 |---------------------------|------------------------------------------|---------------------------------|
+| CODEFORGE_PORT            | 8080                                     | Go Core Service port            |
+| CODEFORGE_CORS_ORIGIN     | http://localhost:3000                     | Allowed CORS origin             |
+| DATABASE_URL              | postgres://codeforge:...@localhost:5432/codeforge | PostgreSQL connection string |
+| NATS_URL                  | nats://localhost:4222                     | NATS server URL                 |
+| LITELLM_URL               | http://localhost:4000                     | LiteLLM Proxy URL               |
+| LITELLM_MASTER_KEY        | (required)                               | Master Key for LiteLLM Proxy    |
 | DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint          |
 | DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings          |
 | DOCS_MCP_EMBEDDING_MODEL  | text-embedding-qwen3-embedding-8b        | Embedding Model Name            |
-| LITELLM_MASTER_KEY        | (required)                               | Master Key for LiteLLM Proxy    |
 | OPENAI_API_KEY            | (optional)                               | OpenAI API Key (via LiteLLM)    |
 | ANTHROPIC_API_KEY         | (optional)                               | Anthropic API Key (via LiteLLM) |
 | GEMINI_API_KEY            | (optional)                               | Google Gemini API Key           |

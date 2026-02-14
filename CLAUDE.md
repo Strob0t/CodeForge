@@ -34,7 +34,7 @@ Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
 | Layer          | Language   | Purpose                                  |
 |----------------|------------|------------------------------------------|
 | Frontend       | TypeScript | Web GUI                                  |
-| Core Service   | Go 1.23    | HTTP/WS Server, Scheduling, Repo Mgmt   |
+| Core Service   | Go 1.24    | HTTP/WS Server, Scheduling, Repo Mgmt   |
 | AI Workers     | Python 3.12| LLM Integration, Agent Execution         |
 | Infrastructure | Docker     | Containerization, Docker-in-Docker       |
 
@@ -217,11 +217,35 @@ Detailed analysis: docs/research/market-analysis.md
 
 ## Coding Principles
 
+- **Strict type safety**: Never use `any` (TypeScript), `interface{}` / `any` (Go), or `Any` (Python) unless there is absolutely no alternative. All function signatures, return types, and variables must be explicitly typed. Use generics, union types, or specific interfaces instead.
 - **Minimal dependencies**: Use only as many libraries as strictly necessary. Most libraries bring too much overhead. Prefer the standard library when it covers 80%+ of the need.
 - **Readable code is documentation**: Write clean, self-explanatory code. Well-written code documents itself. Add comments only where the "why" is not obvious from the code.
 - **DRY / Reusable**: Extract repeating patterns into reusable functions, types, or packages. Avoid copy-paste code. But: don't abstract prematurely — three similar occurrences justify extraction.
 - **Simple over clever**: Prefer straightforward solutions over clever tricks. The next developer (or LLM agent) must understand the code immediately.
 - **Minimal surface area**: Keep APIs, interfaces, and exported types as small as possible. Start private, export only when needed.
+
+### The Zen of Python (PEP 20) — applies to ALL languages, not just Python
+
+These principles guide all code in this project across Go, Python, and TypeScript:
+
+- Beautiful is better than ugly.
+- Explicit is better than implicit.
+- Simple is better than complex.
+- Complex is better than complicated.
+- Flat is better than nested.
+- Sparse is better than dense.
+- Readability counts.
+- Special cases aren't special enough to break the rules.
+- Although practicality beats purity.
+- Errors should never pass silently.
+- Unless explicitly silenced.
+- In the face of ambiguity, refuse the temptation to guess.
+- There should be one-- and preferably only one --obvious way to do it.
+- Now is better than never.
+- Although never is often better than *right* now.
+- If the implementation is hard to explain, it's a bad idea.
+- If the implementation is easy to explain, it may be a good idea.
+- Namespaces are one honking great idea -- let's do more of those!
 
 ## Git Workflow
 
