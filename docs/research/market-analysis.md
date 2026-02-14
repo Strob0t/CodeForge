@@ -1,6 +1,6 @@
 # CodeForge — Marktanalyse & Recherche
 
-> Stand: 2026-02-15
+> Stand: 2026-02-16
 
 ## Projektvision
 
@@ -320,31 +320,340 @@ Implementiert ueber LiteLLM's Tag-based Routing: Go Core setzt `metadata.tags` i
 
 ---
 
-## 5. Spec-Driven Development & Roadmap-Tools
+## 5. Spec-Driven Development, Roadmap-Tools & Projektmanagement
 
-### OpenSpec
+### 5.1 Spec-Driven Development (SDD) Tools
+
+#### OpenSpec
 - **URL:** https://github.com/Fission-AI/OpenSpec
 - **Website:** https://openspec.dev/
-- **Beschreibung:** Lightweight SDD Framework. Specs leben im Repo (openspec/specs/ + openspec/changes/). CLI-basiert, kein Web-GUI. Works with 20+ AI-Tools.
-- **Stars:** 4.100+
-- **Relevanz:** Konzeptionelle Vorlage fuer Roadmap-Management. Integration oder Kompatibilitaet anstreben.
+- **Stars:** ~24.000 | **Lizenz:** MIT | **CLI:** `openspec` (npm)
+- **Beschreibung:** Brownfield SDD Framework. Specs leben im Repo (`openspec/specs/` als Source of Truth, `openspec/changes/` fuer Delta-Proposals). CLI-basiert, kein Web-GUI. Integration mit 22+ AI-Tools (Claude Code, Cursor, Windsurf, Cline, Aider, etc.).
+- **Kernkonzepte:**
+  - **Spec-Verzeichnis:** `openspec/specs/` — YAML/Markdown Requirements, API-Specs, Datenmodelle
+  - **Change-Proposals:** `openspec/changes/` — Delta-Format: ADDED/MODIFIED/REMOVED Requirements
+  - **CLI-Kommandos:** `openspec init`, `openspec review`, `openspec apply`, `openspec status`
+  - **JSON-Output:** `--json` Flag fuer maschinell verarbeitbare CLI-Ausgabe
+  - **Detection:** `openspec/` Verzeichnis im Repo-Root
+- **Staerken:**
+  - Brownfield-faehig (bestehende Projekte ohne grosse Umstellung)
+  - Delta-Spec-Format elegant fuer Change-Management
+  - Agent-agnostisch (funktioniert mit jedem AI-Tool)
+  - CLI mit `--json` fuer programmatische Integration
+  - Wachsende Community (~24k Stars)
+- **Schwaechen:**
+  - Kein Web-GUI
+  - Kein bidirektionaler Sync zu PM-Tools
+  - Kein Task-Tracking (nur Specs, keine Issues/Tasks)
+- **Relevanz fuer CodeForge:** Primaeres SDD-Format. Auto-Detection ueber `openspec/` Verzeichnis. Delta-Spec-Format fuer Change-Proposals uebernommen. CLI-Integration fuer `openspec review`/`apply` als Agent-Tool.
 
-### Plane
-- **URL:** https://plane.so
-- **Beschreibung:** Open-Source Projektmanagement. AI-Features, Roadmaps, Wiki. AGPL-3.0.
-- **Staerken:** Modernes UI, native AI, starke Roadmap-Features
-- **Luecken:** Kein AI-Coding-Agent
-- **Relevanz:** UI/UX-Inspiration fuer Projektmanagement-Teil
+#### GitHub Spec Kit
+- **URL:** https://github.com/spec-kit/spec-kit
+- **Stars:** ~16.000+ | **Lizenz:** MIT
+- **Beschreibung:** Greenfield SDD Framework. `.specify/` Ordner mit `spec.md`/`plan.md`/`tasks/`. Feature-Nummerierung. Agent-agnostisch.
+- **Kernkonzepte:**
+  - **Spec-Verzeichnis:** `.specify/` mit `spec.md`, `plan.md`, `tasks/*.md`
+  - **Pipeline:** Spec → Plan → Tasks (strukturierte Zerlegung)
+  - **Feature-Nummerierung:** Jedes Feature bekommt eine eindeutige Nummer
+  - **Detection:** `.specify/` Verzeichnis im Repo-Root
+- **Staerken:**
+  - Intuitive Markdown-basierte Struktur
+  - Klare Pipeline: Spec → Plan → Tasks
+  - Agent-agnostisch
+  - Gute Community-Adoption
+- **Schwaechen:**
+  - Kein Brownfield-Support (nur fuer neue Features)
+  - Kein Delta-Format (vollstaendige Spec-Rewrites)
+  - Kein CLI fuer maschinelle Verarbeitung
+- **Relevanz fuer CodeForge:** Zweites SDD-Format. Auto-Detection ueber `.specify/`. Spec→Plan→Tasks Pipeline als Inspiration fuer Dokument-Pipeline.
 
-### OpenProject
-- **URL:** https://www.openproject.org/
-- **Beschreibung:** Enterprise PM. GitHub/GitLab-Integration, Version Boards, Roadmaps. GPL v3.
-- **Relevanz:** Inspiration fuer SCM-Integration in PM-Kontext
+#### Autospec
+- **URL:** https://github.com/Autospec-AI/autospec
+- **Beschreibung:** YAML-first SDD. `specs/spec.yaml`, `specs/plan.yaml`, `specs/tasks.yaml`. Ideal fuer programmatische Integration.
+- **Kernkonzepte:**
+  - **Spec-Verzeichnis:** `specs/` mit YAML-Dateien
+  - **YAML-Format:** Strukturiert, maschinenlesbar, versionierbar
+  - **Detection:** `specs/spec.yaml` im Repo
+- **Staerken:**
+  - YAML-Format ideal fuer Go/Python-Parsing (keine Markdown-Ambiguitaet)
+  - Programmatisch erzeugbar und validierbar
+  - Klare Schema-Definition
+- **Schwaechen:**
+  - Kleinere Community als OpenSpec/Spec Kit
+  - YAML weniger menschenlesbar als Markdown fuer lange Texte
+- **Relevanz fuer CodeForge:** Drittes SDD-Format. YAML ideal fuer maschinelle Verarbeitung. Auto-Detection ueber `specs/spec.yaml`.
 
-### Ploi Roadmap
+#### Weitere SDD-Tools
+
+| Tool | Ansatz | Detection-Marker | Relevanz |
+|---|---|---|---|
+| **BMAD-METHOD** | Multi-Agent Design mit spezialisierten Personas | `bmad/` Verzeichnis | Persona-Pattern interessant fuer Agent-Spezialisierung |
+| **Amazon Kiro** | Spec-basierte IDE (Commercial) | `.kiro/` Verzeichnis | Zeigt kommerziellen Trend zu SDD |
+| **cc-sdd** | Claude Code SDD Extension | `.sdd/` Verzeichnis | Leichtgewichtige SDD-Variante |
+
+### 5.2 Projektmanagement-Tools (Open Source)
+
+#### Plane.so
+- **URL:** https://plane.so / https://github.com/makeplane/plane
+- **Stars:** ~45.600 | **Lizenz:** AGPL-3.0
+- **Beschreibung:** Modernes Open-Source-PM mit AI-Features, Roadmaps, Wiki, GitHub/GitLab-Sync. REST API v1 mit 180+ Endpoints. Python SDK verfuegbar.
+- **Kernkonzepte:**
+  - **Hierarchie:** Workspace → Initiative → Project → Epic → Work Item (Issue) + Cycles + Modules
+  - **API:** REST `/api/v1/`, cursor-basierte Pagination, Field Selection (`expand`, `fields`), CRUD fuer alle Entitaeten
+  - **SDK:** `plane-sdk` (Python) — typisierte Clients fuer alle Ressourcen
+  - **Webhooks:** Events fuer Issues, Cycles, Modules mit HMAC-SHA256 Signierung
+  - **MCP Server:** Offizielle MCP-Integration fuer AI-Assistenten
+  - **Labels:** Label-triggered Automation und Sync
+- **Staerken:**
+  - Staerkstes Open-Source-PM-Tool (45.6k Stars, aktive Entwicklung)
+  - Umfassende REST API mit 180+ Endpoints (gut dokumentiert)
+  - Python SDK fuer einfache Integration
+  - Bidirektionaler GitHub/GitLab-Sync (Issues, Labels, Comments)
+  - Initiative/Epic/WorkItem-Hierarchie bildet Roadmap ab
+  - Cursor-basierte Pagination (skaliert gut)
+  - Field Selection und Expansion (reduziert API-Traffic)
+  - Webhooks mit HMAC-SHA256 fuer sichere Integration
+  - MCP Server fuer AI-Integration
+  - AGPL-3.0 (Self-Hosted moeglich)
+- **Schwaechen:**
+  - Kein SVN-Support
+  - Kein AI-Coding-Agent-Integration
+  - API nur REST (kein GraphQL)
+  - AGPL-3.0 erfordert Vorsicht bei Integration
+- **Relevanz fuer CodeForge:** Primaerer PM-Platform-Adapter. REST API als Sync-Ziel. Uebernommene Patterns: Initiative/Epic/WorkItem-Hierarchie, cursor-basierte Pagination, Field Selection, Webhook HMAC-SHA256, Label-triggered Sync.
+
+#### OpenProject
+- **URL:** https://www.openproject.org/ / https://github.com/opf/openproject
+- **Stars:** ~14.400 | **Lizenz:** GPL v3
+- **Beschreibung:** Enterprise PM mit Gantt-Charts, Version Boards, Roadmaps. HAL+JSON API v3 mit HATEOAS. OAuth 2.0. GitHub/GitLab Webhook-Integration. Ruby on Rails.
+- **Kernkonzepte:**
+  - **API:** HAL+JSON API v3 mit HATEOAS (Self-describing Links), 50+ Endpoint-Familien
+  - **Auth:** OAuth 2.0 (PKCE) + API Keys
+  - **Work Packages:** Zentrale Entitaet mit 20+ Typen (Task, Bug, Feature, Epic, etc.)
+  - **Versions:** Versions-basierte Roadmaps (Releases/Milestones)
+  - **Gantt:** Interaktive Gantt-Charts mit Abhaengigkeiten
+  - **SCM-Integration:** GitHub/GitLab Webhooks (Pull Requests → Work Packages)
+  - **Schema-Endpoints:** `/api/v3/work_packages/schema` fuer dynamische Formulare
+  - **Form-Endpoints:** `/api/v3/work_packages/form` fuer Validierung vor Submit
+  - **Notification Reasons:** Granulare Benachrichtigungs-Gruende (mentioned, assigned, responsible, watched)
+- **Staerken:**
+  - Enterprise-ready (14+ Jahre Entwicklung, ISO 27001)
+  - Gantt-Charts und Version Boards (echte Roadmap-Features)
+  - HATEOAS-API (Self-Describing, Discovery ueber Links)
+  - Optimistic Locking via `lockVersion` (Konflikt-Erkennung)
+  - Schema/Form-Endpoints fuer dynamische UIs
+  - GitHub/GitLab Webhook-Integration (PR → Work Package Link)
+  - Notification Reasons (granulare Benachrichtigungen)
+- **Schwaechen:**
+  - HAL+JSON zu komplex fuer Go Core (Heavy Parsing)
+  - Ruby on Rails Monolith (schwierig zu embedden)
+  - GPL v3 (restriktiver als MIT/AGPL)
+  - API-Dokumentation teilweise veraltet
+- **Relevanz fuer CodeForge:** Zweiter PM-Platform-Adapter. Uebernommene Patterns: Optimistic Locking (lockVersion), Schema-Endpoints fuer dynamische Forms, Notification Reasons. HAL+JSON explizit NICHT uebernommen (zu komplex fuer Go Core, normales JSON REST reicht).
+
+#### Ploi Roadmap
 - **URL:** https://github.com/ploi/roadmap
-- **Beschreibung:** Einfaches Open-Source Roadmap-Tool. /ai Endpoint fuer Machine-readable Data.
-- **Relevanz:** Interessanter AI-Endpoint-Ansatz
+- **Lizenz:** MIT | **Stack:** Laravel (PHP)
+- **Beschreibung:** Einfaches Open-Source Roadmap-Tool mit innovativem `/ai` Endpoint fuer Machine-Readable Data.
+- **Kernkonzepte:**
+  - **`/ai` Endpoint:** Stellt Roadmap-Daten in JSON/YAML/Markdown bereit — speziell fuer LLM-Konsum
+  - **Roadmap-Board:** Kanban-artige Darstellung (Under Review → Planned → In Progress → Live)
+  - **Webhooks:** Einfache Event-Benachrichtigungen
+  - **Voting:** User-Voting auf Roadmap-Items
+- **Staerken:**
+  - `/ai` Endpoint — innovatives Pattern fuer Machine-Readable Roadmap-Daten
+  - Einfache, klare Architektur
+  - MIT-Lizenz (maximal permissiv)
+  - Voting-Feature fuer Community-Feedback
+- **Schwaechen:**
+  - Minimaler Funktionsumfang (kein Gantt, kein Epic/Story, keine Hierarchie)
+  - Laravel/PHP-Stack (nicht direkt integrierbar)
+  - Keine API fuer CRUD (nur Read via `/ai`)
+- **Relevanz fuer CodeForge:** `/ai` Endpoint-Pattern uebernommen. CodeForge stellt eigenen `/api/v1/roadmap/ai` Endpoint bereit, der Roadmap-Daten fuer LLM-Konsum in JSON/YAML/Markdown formatiert.
+
+#### Weitere PM-Tools
+
+| Tool | Stars | Lizenz | Kernfeature | Relevanz fuer CodeForge |
+|---|---|---|---|---|
+| **Huly** | ~22.000 | EPL-2.0 | All-in-one PM, bidirektionaler GitHub-Sync | Sync-Architektur als Referenz |
+| **Linear** | Closed Source | Commercial | GraphQL API, MCP Server, beste DX | GraphQL-Pattern, MCP als Integration |
+| **Leantime** | ~5.000 | AGPL-3.0 | Lean PM, Strategy → Portfolio → Project | Strategie-Layer-Konzept |
+| **Roadmapper** | ~500 | MIT | Golang-basiertes Roadmap-Tool | Go-Implementierung als Referenz |
+
+### 5.3 SCM-basiertes Projektmanagement
+
+Viele Teams nutzen die eingebauten PM-Features ihrer SCM-Plattform (GitHub Issues, GitLab Issues/Boards). CodeForge muss diese erkennen und integrieren.
+
+| Plattform | PM-Features | API | Detection |
+|---|---|---|---|
+| **GitHub** | Issues, Projects (v2), Milestones, Labels | REST v3 + GraphQL v4 | Remote-URL `github.com` |
+| **GitLab** | Issues, Boards, Milestones, Epics, Roadmaps | REST v4 + GraphQL | Remote-URL `gitlab.com` oder Self-Hosted |
+| **Gitea/Forgejo** | Issues, Labels, Milestones, Projects | REST (GitHub-kompatibel) | Remote-URL + `/api/v1/version` |
+
+**Gitea/Forgejo-Insight:** Die GitHub-kompatible API bedeutet, dass CodeForge's GitHub-Adapter mit minimalen Aenderungen auch fuer Gitea/Forgejo funktioniert. Empfehlung: Gitea als dritten SCM-Adapter implementieren, basierend auf dem GitHub-Adapter.
+
+### 5.4 Repo-basiertes Projektmanagement
+
+Einige Tools speichern PM-Artefakte direkt im Repository. CodeForge sollte diese erkennen und integrieren.
+
+| Tool | Detection-Marker | Format | Beschreibung |
+|---|---|---|---|
+| **Markdown Projects (mdp)** | `.mdp/` Verzeichnis | Markdown | Projekte als Markdown-Dateien im Repo |
+| **Backlog.md** | `backlog/` Verzeichnis | Markdown | Backlog als Markdown-Dateien |
+| **git-bug** | Eingebettet in Git-Objekte | Git Objects | Bug-Tracking direkt in Git (kein externer Service) |
+| **Tasks.md** | `TASKS.md` Datei | Markdown | Einfache Task-Liste als Markdown |
+| **markdown-plan** | `PLAN.md` / `ROADMAP.md` | Markdown | Roadmap als Markdown |
+
+### 5.5 ADR/RFC Tools
+
+Architectural Decision Records und RFCs sind in vielen Projekten vorhanden und relevant fuer CodeForge's Planungsfunktionen.
+
+| Detection-Marker | Tool/Konvention | Beschreibung |
+|---|---|---|
+| `docs/adr/` | ADR Tools (adr-tools, log4brains) | Architectural Decision Records |
+| `docs/decisions/` | Alternative ADR-Konvention | Entscheidungs-Dokumentation |
+| `docs/rfcs/` oder `rfcs/` | RFC-Prozess | Request for Comments |
+
+CodeForge erkennt diese Verzeichnisse und kann ADRs/RFCs in der Roadmap-Ansicht anzeigen und referenzieren.
+
+### 5.6 Feature-Flag-Tools
+
+Feature-Flags beeinflussen die Roadmap-Sicht (welche Features sind aktiv, im Rollout, etc.).
+
+| Tool | Stars | Lizenz | API | Relevanz |
+|---|---|---|---|---|
+| **Unleash** | ~12.000 | Apache-2.0 | REST API | Feature-Flag-State in Roadmap integrieren |
+| **OpenFeature** | Standard | Apache-2.0 | SDK-Standard | Vendor-neutrales Feature-Flag-Interface |
+| **Flagsmith** | ~5.000 | BSD-3 | REST + SDK | Feature-Flags + Remote Config |
+| **FeatBit** | ~2.000 | MIT | REST API | Self-Hosted Feature-Flags |
+| **GrowthBook** | ~7.000 | MIT | REST + SDK | Feature-Flags + A/B Testing |
+
+Feature-Flag-Integration ist ein Phase-3-Feature. CodeForge kann ueber die REST APIs der Tools den aktuellen Feature-Status abfragen und in der Roadmap-Ansicht anzeigen.
+
+### 5.7 Auto-Detection Architektur
+
+CodeForge erkennt automatisch, welche Spec-, PM- und Roadmap-Tools in einem Projekt verwendet werden, und bietet passende Integration an.
+
+#### Drei-Tier Detection
+
+```
+Tier 1: Spec-Driven Detectors (Repo-Dateien scannen)
+  ├── openspec/           → OpenSpec
+  ├── .specify/           → GitHub Spec Kit
+  ├── specs/spec.yaml     → Autospec
+  ├── .bmad/              → BMAD-METHOD
+  ├── .kiro/              → Amazon Kiro
+  ├── .sdd/               → cc-sdd
+  ├── docs/adr/           → ADR Tools
+  ├── docs/rfcs/          → RFC-Prozess
+  ├── .mdp/               → Markdown Projects
+  ├── backlog/            → Backlog.md
+  ├── TASKS.md            → Tasks.md
+  └── ROADMAP.md          → markdown-plan
+
+Tier 2: Platform Detectors (API-basierte Erkennung)
+  ├── Remote-URL Analyse  → GitHub / GitLab / Gitea / Forgejo
+  ├── API-Probe           → Plane.so / OpenProject / Huly / Linear
+  └── Webhook-Config      → Bestehende Webhook-Setups erkennen
+
+Tier 3: File-Based Detectors (einfache Marker)
+  ├── .github/            → GitHub Actions, Issue Templates
+  ├── .gitlab-ci.yml      → GitLab CI
+  ├── CHANGELOG.md        → Changelog-Management
+  └── .env / .env.example → Environment-Konfiguration
+```
+
+#### Detection-Ablauf
+
+```
+1. Repo wird zu CodeForge hinzugefuegt
+     ↓
+2. Go Core scannt Repo-Root auf Detection-Marker (Tier 1 + 3)
+     ↓
+3. Go Core analysiert Remote-URL und probt Platform-APIs (Tier 2)
+     ↓
+4. Erkannte Tools werden dem User angezeigt:
+   "Erkannt: OpenSpec, GitHub Issues, ADRs"
+     ↓
+5. User konfiguriert Integration:
+   - Welche Tools aktiv verfolgt werden
+   - Sync-Richtung (Import / Export / Bidirektional)
+   - Sync-Frequenz (Webhook / Poll / Manuell)
+     ↓
+6. Go Core richtet Sync ein (Webhooks registrieren, Poll-Jobs schedulen)
+```
+
+### 5.8 Architekturentscheidungen: Roadmap/PM-Integration
+
+| Entscheidung | Begruendung |
+|---|---|
+| **Kein eigenes PM-Tool** | Plane, OpenProject, GitHub Issues existieren. CodeForge synchronisiert, statt neu zu erfinden. |
+| **Repo-basierte Specs als First-Class** | OpenSpec, Spec Kit, Autospec leben im Repo — CodeForge behandelt sie als primaere Roadmap-Quelle. |
+| **Bidirektionaler Sync** | Aenderungen in CodeForge → PM-Tool und umgekehrt. Konflikt-Resolution via Timestamps + User-Entscheidung. |
+| **Provider Registry Pattern** | Gleiche Architektur wie `gitprovider` und `llmprovider` — neue PM-Adapter erfordern nur neues Package + Blank-Import. |
+| **Cursor-basierte Pagination** (von Plane) | Skaliert besser als Offset-basiert fuer grosse Datenmengen. Fuer CodeForge's eigene API und PM-Sync. |
+| **HAL+JSON NICHT uebernommen** (von OpenProject) | Zu komplex fuer Go Core. Normales JSON REST mit klaren Endpoints reicht. |
+| **Label-triggered Sync** (von Plane) | Labels als Trigger fuer automatischen Sync — z.B. Label "codeforge-sync" aktiviert bidirektionale Synchronisierung. |
+| **`/ai` Endpoint** (von Ploi Roadmap) | Dedizierter Endpoint, der Roadmap-Daten fuer LLM-Konsum aufbereitet (JSON/YAML/Markdown). |
+
+### 5.9 Uebernommene Patterns
+
+#### Von Plane.so
+
+| Pattern | Umsetzung in CodeForge |
+|---|---|
+| Initiative/Epic/WorkItem-Hierarchie | CodeForge Roadmap-Modell: Milestone → Feature → Task |
+| Cursor-basierte Pagination | Standard-Pagination fuer CodeForge API und PM-Sync |
+| Field Selection (`expand`, `fields`) | API-Responses konfigurierbar — nur benoetigte Felder |
+| Webhook HMAC-SHA256 | Sichere Webhook-Verifizierung fuer eingehende Events |
+| Label-triggered Sync | Label "codeforge-sync" aktiviert bidirektionale Sync |
+| MCP Server | CodeForge stellt eigenen MCP Server bereit fuer AI-Integration |
+
+#### Von OpenProject
+
+| Pattern | Umsetzung in CodeForge |
+|---|---|
+| Optimistic Locking (lockVersion) | Konflikt-Erkennung bei gleichzeitigen Aenderungen |
+| Schema-Endpoints | `/api/v1/{resource}/schema` fuer dynamische Form-Generierung in der GUI |
+| Form-Endpoints | `/api/v1/{resource}/form` fuer Validierung vor Submit |
+| Notification Reasons | Granulare Benachrichtigungen (mentioned, assigned, responsible, watching) |
+
+#### Von OpenSpec
+
+| Pattern | Umsetzung in CodeForge |
+|---|---|
+| Delta-Spec-Format | Change-Proposals als ADDED/MODIFIED/REMOVED Deltas |
+| Change-Proposal-Workflow | Spec-Aenderungen durchlaufen Review → Apply Pipeline |
+| `--json` CLI-Output | Agent-Tools erhalten maschinenlesbare Outputs |
+
+#### Von GitHub Spec Kit
+
+| Pattern | Umsetzung in CodeForge |
+|---|---|
+| Spec → Plan → Tasks Pipeline | Strukturierte Zerlegung in Dokument-Pipeline |
+| Feature-Nummerierung | Eindeutige Feature-IDs fuer Referenzierung |
+
+#### Von Autospec
+
+| Pattern | Umsetzung in CodeForge |
+|---|---|
+| YAML-first Artefakte | Specs/Plans/Tasks in YAML (maschinenlesbar, validierbar) |
+
+#### Von Ploi Roadmap
+
+| Pattern | Umsetzung in CodeForge |
+|---|---|
+| `/ai` Endpoint | `/api/v1/roadmap/ai` — Roadmap-Daten fuer LLM-Konsum (JSON/YAML/Markdown) |
+
+#### Explizit NICHT uebernommen
+
+| Konzept | Grund |
+|---|---|
+| HAL+JSON / HATEOAS (OpenProject) | Zu komplex fuer Go Core, normales JSON REST reicht |
+| GraphQL API (Linear) | REST als Primaer-API, GraphQL eventuell spaeter |
+| Eigenes PM-Tool | Sync mit bestehenden Tools statt Neuentwicklung |
+| Ruby on Rails Patterns (OpenProject) | Go Core hat eigene Architektur (Hexagonal) |
+| Plane's AGPL-Code | Keine Code-Uebernahme, nur API-Integration und Pattern-Inspiration |
 
 ---
 
@@ -376,8 +685,11 @@ Implementiert ueber LiteLLM's Tag-based Routing: Go Core setzt `metadata.tags` i
 | AI Coding Agents                     | Ueberfuellt (>20)   | Nicht neu erfinden, integrieren        |
 | Multi-LLM-Routing                    | Geloest             | LiteLLM/OpenRouter nutzen              |
 | Self-hosted Web-GUI Agent            | 1-2 Player          | OpenHands dominiert                    |
+| Spec-Driven Development              | Fragmentiert (6+)   | Auto-Detection + Multi-Format-Support  |
+| PM-Tool-Integration                  | Viele Silos         | Bidirektionaler Sync als Aggregator    |
 | Roadmap + Agent + Multi-Projekt      | **Keine Loesung**   | **Hauptdifferenzierung**               |
 | SVN-Support bei AI-Agents            | **Null**            | **Alleinstellungsmerkmal**             |
+| Auto-Detection + Adaptive Integration| **Existiert nicht** | **Technisches Alleinstellungsmerkmal** |
 | Integrierte Plattform (alle 4 Saeulen) | **Existiert nicht** | **Kernangebot von CodeForge**         |
 
 ---
@@ -387,18 +699,23 @@ Implementiert ueber LiteLLM's Tag-based Routing: Go Core setzt `metadata.tags` i
 ### Baue auf bestehenden Bausteinen:
 - **LLM-Routing:** LiteLLM als Proxy-Layer (statt eigenes Routing)
 - **Agent-Backends:** Integration von Aider, OpenHands, SWE-agent als austauschbare Backends
-- **Spec-Format:** OpenSpec-Kompatibilitaet fuer Repo-basierte Specs
+- **Spec-Formate:** Multi-Format-Support (OpenSpec, Spec Kit, Autospec) mit Auto-Detection
+- **PM-Integration:** Sync mit Plane, OpenProject, GitHub/GitLab Issues (statt eigenes PM-Tool)
 
 ### Differenziere durch Integration:
-- Zentrales Dashboard fuer mehrere Projekte (Git, GitHub, GitLab, SVN)
-- Visuelles Roadmap-Management mit bidirektionalem Sync zu Repo-Specs
+- Zentrales Dashboard fuer mehrere Projekte (Git, GitHub, GitLab, SVN, Gitea/Forgejo)
+- Visuelles Roadmap-Management mit bidirektionalem Sync zu Repo-Specs UND PM-Tools
+- **Auto-Detection:** Automatische Erkennung aller Spec/PM/Roadmap-Tools im Repo
+- **Adaptive Integration:** Je nach erkannten Tools passende Sync-Strategie anbieten
 - LLM-Provider-Management mit Task-basiertem Routing
 - Agent-Orchestrierung die verschiedene Coding-Agents koordiniert
 
 ### Vermeide:
 - Eigenen LLM-Proxy von Grund auf bauen (LiteLLM existiert)
 - Eigenen Coding-Agent von Grund auf bauen (integriere bestehende)
+- Eigenes PM-Tool von Grund auf bauen (sync mit Plane/OpenProject/GitHub Issues)
 - Feature-Krieg mit OpenHands auf deren Kerngebiet (einzelne Issues loesen)
+- HAL+JSON/HATEOAS — zu komplex fuer Go, normales JSON REST reicht
 
 ---
 

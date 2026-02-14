@@ -29,6 +29,10 @@ Die Architektur folgt einem Drei-Schichten-Modell mit strikter Sprachtrennung na
 │  │Scheduling│  │  Auth /  │  │  Queue   │          │
 │  │ Engine   │  │ Sessions │  │ Producer │          │
 │  └──────────┘  └──────────┘  └──────────┘          │
+│  ┌──────────┐  ┌──────────┐                        │
+│  │Auto-Detect│  │ PM Sync  │                        │
+│  │ Engine   │  │ Service  │                        │
+│  └──────────┘  └──────────┘                        │
 └────────────┬────────────────────────┬───────────────┘
              │  Message Queue         │
              │  (NATS / Redis)        │
@@ -102,6 +106,8 @@ Die Architektur folgt einem Drei-Schichten-Modell mit strikter Sprachtrennung na
 | LiteLLM Proxy → LLM APIs | HTTPS | Provider-spezifische API-Calls |
 | Go → SCM (Git/SVN) | CLI / REST API | Repo-Operationen |
 | Go → Ollama/LM Studio | HTTP | Local Model Auto-Discovery |
+| Go → PM-Plattformen | REST API / Webhooks | Bidirektionaler PM-Sync (Plane, OpenProject, etc.) |
+| Go → Repo Specs | Filesystem | Spec-Detection und -Sync (OpenSpec, Spec Kit, Autospec) |
 
 ## Design-Entscheidungen
 
@@ -178,6 +184,8 @@ Dieses Pattern folgt dem Go-Standardmuster (`database/sql` + `_ "github.com/lib/
 | `gitprovider` | `Provider` | github, gitlab, gitlocal, svn, gitea |
 | `llmprovider` | `Provider` | openai, claude, ollama, lmstudio |
 | `agentbackend` | `Backend` | aider, openhands, sweagent |
+| `specprovider` | `SpecProvider` | openspec, speckit, autospec |
+| `pmprovider` | `PMProvider` | plane, openproject, github_pm, gitlab_pm |
 | `database` | `Store` | postgres, sqlite |
 | `messagequeue` | `Queue` | nats, redis |
 
@@ -224,6 +232,12 @@ internal/
       compliance_test.go # Wiederverwendbare Test-Suite
     llmprovider/
     agentbackend/
+    specprovider/
+      provider.go        # SpecProvider Interface (Detect, ReadSpecs, WriteChange, Watch)
+      registry.go        # Register(), New(), Available()
+    pmprovider/
+      provider.go        # PMProvider Interface (Detect, SyncItems, CreateItem, Webhooks)
+      registry.go        # Register(), New(), Available()
     database/
     messagequeue/
   adapter/               # Konkrete Implementierungen
@@ -235,6 +249,13 @@ internal/
     ollama/
     aider/
     openhands/
+    openspec/            # OpenSpec Spec-Adapter
+    speckit/             # GitHub Spec Kit Adapter
+    autospec/            # Autospec Adapter
+    plane/               # Plane.so PM-Adapter
+    openproject/         # OpenProject PM-Adapter
+    github_pm/           # GitHub Issues/Projects PM-Adapter
+    gitlab_pm/           # GitLab Issues/Boards PM-Adapter
     postgres/
     sqlite/
     nats/
@@ -951,6 +972,202 @@ Implementierungen:
 - **SlackProvider** — Approval-Requests als Slack-Messages
 - **EmailProvider** — Approval via Email-Link
 - **CliProvider** — Terminal-Input fuer Entwicklung/Debugging
+
+## Roadmap/Feature-Map: Auto-Detection & Adaptive Integration
+
+### Grundprinzip
+
+CodeForge erkennt automatisch, welche Spec-Driven-Development-Tools, PM-Plattformen und
+Roadmap-Artefakte in einem Projekt verwendet werden, und bietet passende Integration an.
+**Kein eigenes PM-Tool** — stattdessen bidirektionaler Sync mit bestehenden Tools.
+
+### Provider Registry fuer Specs und PM
+
+Gleiche Architektur wie `gitprovider` und `llmprovider` — neue Adapter erfordern nur
+ein neues Package und einen Blank-Import:
+
+```
+port/
+  specprovider/
+    provider.go        # Interface: Detect(), ReadSpecs(), WriteChange(), Watch()
+    registry.go        # Register(), New(), Available()
+  pmprovider/
+    provider.go        # Interface: Detect(), SyncItems(), CreateItem(), Webhooks()
+    registry.go        # Register(), New(), Available()
+
+adapter/
+  openspec/            # OpenSpec (openspec/ Verzeichnis)
+  speckit/             # GitHub Spec Kit (.specify/ Verzeichnis)
+  autospec/            # Autospec (specs/spec.yaml)
+  plane/               # Plane.so (REST API v1)
+  openproject/         # OpenProject (REST API v3)
+  github_pm/           # GitHub Issues/Projects (REST + GraphQL)
+  gitlab_pm/           # GitLab Issues/Boards (REST + GraphQL)
+```
+
+### Drei-Tier Auto-Detection
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Auto-Detection Engine                      │
+│                                                             │
+│  Tier 1: Spec-Driven Detectors (Repo-Dateien)              │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │ OpenSpec  │ │ Spec Kit │ │ Autospec │ │ ADR/RFC  │      │
+│  │openspec/ │ │.specify/ │ │specs/*.y │ │docs/adr/ │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│                                                             │
+│  Tier 2: Platform Detectors (API-basiert)                   │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │ GitHub   │ │ GitLab   │ │ Plane.so │ │OpenProj. │      │
+│  │Issues/PR │ │Issues/MR │ │REST API  │ │REST API  │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│                                                             │
+│  Tier 3: File-Based Detectors (einfache Marker)             │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │ROADMAP.md│ │TASKS.md  │ │backlog/  │ │CHANGELOG │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Jeder Detector implementiert das `specprovider.SpecProvider` oder `pmprovider.PMProvider`
+Interface und registriert sich via `init()`. Die Detection-Engine iteriert ueber alle
+registrierten Detectors und liefert eine Liste erkannter Tools.
+
+### Spec-Provider Interface
+
+```go
+type SpecProvider interface {
+    // Detect prueft ob dieses Spec-Format im Repo vorhanden ist
+    Detect(repoPath string) (bool, error)
+
+    // ReadSpecs liest alle Specs aus dem Repo
+    ReadSpecs(repoPath string) ([]Spec, error)
+
+    // WriteChange schreibt eine Aenderung (Delta-Format)
+    WriteChange(repoPath string, change Change) error
+
+    // Watch beobachtet Spec-Aenderungen (fuer bidirektionalen Sync)
+    Watch(repoPath string, callback func(event SpecEvent)) error
+
+    // Capabilities deklariert unterstuetzte Operationen
+    Capabilities() []Capability
+}
+```
+
+### PM-Provider Interface
+
+```go
+type PMProvider interface {
+    // Detect prueft ob diese PM-Plattform fuer das Projekt konfiguriert ist
+    Detect(projectConfig ProjectConfig) (bool, error)
+
+    // SyncItems synchronisiert Items bidirektional
+    SyncItems(ctx context.Context, direction SyncDirection) (SyncResult, error)
+
+    // CreateItem erstellt ein neues Item auf der Plattform
+    CreateItem(ctx context.Context, item Item) (string, error)
+
+    // RegisterWebhook registriert einen Webhook fuer Echtzeit-Sync
+    RegisterWebhook(ctx context.Context, callbackURL string) error
+
+    // Capabilities deklariert unterstuetzte Operationen
+    Capabilities() []Capability
+}
+```
+
+### Bidirektionaler Sync
+
+```
+┌─────────────────┐              ┌─────────────────┐
+│  CodeForge       │  ◄── Sync ──►  │  External PM     │
+│  Roadmap-Modell  │              │  (Plane/GitHub/  │
+│                  │              │   OpenProject)   │
+│  Milestone       │  ←──────→   │  Initiative/     │
+│  Feature         │  ←──────→   │  Epic/Issue      │
+│  Task            │  ←──────→   │  Work Item       │
+└────────┬────────┘              └─────────────────┘
+         │
+         │  ◄── Sync ──►
+         │
+┌────────▼────────┐
+│  Repo Specs      │
+│  (OpenSpec/       │
+│   Spec Kit/       │
+│   Autospec)       │
+└─────────────────┘
+```
+
+- **Import:** PM-Tool → CodeForge Roadmap-Modell (Issues/Epics werden zu Features/Tasks)
+- **Export:** CodeForge → PM-Tool (neue Features werden als Issues angelegt)
+- **Bidirektional:** Aenderungen in beide Richtungen synchronisieren
+- **Konflikt-Resolution:** Timestamp-basiert + User-Entscheidung bei Konflikten
+- **Sync-Trigger:** Webhook (Echtzeit), Poll (periodisch), Manuell
+
+### Roadmap-Datenmodell
+
+```go
+// Internes Roadmap-Modell — PM-Adapter mappen auf dieses Format
+type Milestone struct {
+    ID          string
+    Title       string
+    Description string
+    DueDate     time.Time
+    Features    []Feature
+    Status      MilestoneStatus  // planned, active, completed
+    LockVersion int              // Optimistic Locking (von OpenProject)
+}
+
+type Feature struct {
+    ID          string
+    Title       string
+    Description string
+    Priority    Priority
+    Tasks       []Task
+    Labels      []string         // Label-triggered Sync (von Plane)
+    SpecRef     string           // Referenz zu Spec-Datei (openspec/specs/feature.md)
+    ExternalIDs map[string]string // {"plane": "abc", "github": "123"}
+}
+```
+
+### `/ai` Endpoint fuer LLM-Konsum (von Ploi Roadmap)
+
+```
+GET /api/v1/projects/{id}/roadmap/ai?format=json
+GET /api/v1/projects/{id}/roadmap/ai?format=yaml
+GET /api/v1/projects/{id}/roadmap/ai?format=markdown
+```
+
+Stellt die Roadmap in einem fuer LLMs optimierten Format bereit:
+- Kompakte Zusammenfassung aller Milestones, Features, Tasks
+- Status-Informationen und Abhaengigkeiten
+- Nutzbar fuer AI-Agents die den Projektkontext verstehen muessen
+
+### Verzeichnisstruktur (Erweiterung)
+
+```
+internal/
+  port/
+    specprovider/          # Spec-Detection Interface
+      provider.go          # SpecProvider Interface + Capabilities
+      registry.go          # Register(), New(), Available()
+    pmprovider/            # PM-Platform Interface
+      provider.go          # PMProvider Interface + Capabilities
+      registry.go          # Register(), New(), Available()
+  adapter/
+    openspec/              # OpenSpec Adapter (openspec/ Verzeichnis)
+    speckit/               # GitHub Spec Kit Adapter (.specify/)
+    autospec/              # Autospec Adapter (specs/spec.yaml)
+    plane/                 # Plane.so REST API v1 Adapter
+    openproject/           # OpenProject REST API v3 Adapter
+    github_pm/             # GitHub Issues/Projects Adapter
+    gitlab_pm/             # GitLab Issues/Boards Adapter
+  domain/
+    roadmap/               # Roadmap-Domain (Milestone, Feature, Task)
+  service/
+    detection.go           # Auto-Detection Engine
+    sync.go                # Bidirektionaler Sync Service
+```
 
 ## LLM-Integration: LiteLLM Proxy als Sidecar
 

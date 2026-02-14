@@ -60,12 +60,16 @@ CodeForge/
 │   │   ├── gitprovider/
 │   │   ├── llmprovider/
 │   │   ├── agentbackend/
+│   │   ├── specprovider/    # Spec-Detection (OpenSpec, Spec Kit, Autospec)
+│   │   ├── pmprovider/      # PM-Sync (Plane, OpenProject, GitHub/GitLab)
 │   │   ├── database/
 │   │   └── messagequeue/
 │   ├── adapter/              # Konkrete Implementierungen
 │   │   ├── github/
 │   │   ├── gitlab/
 │   │   ├── svn/
+│   │   ├── openspec/        # OpenSpec Adapter
+│   │   ├── plane/           # Plane.so Adapter
 │   │   ├── postgres/
 │   │   ├── nats/
 │   │   └── ...

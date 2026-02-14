@@ -87,6 +87,15 @@ Detaillierte Analyse: docs/research/market-analysis.md
   - MagenticOne Planning Loop (Stall Detection + Re-Planning)
   - HandoffMessage Pattern (Agent-Uebergabe zwischen Spezialisten)
   - Human Feedback Provider Protocol (Web-GUI, Slack, Email erweiterbar)
+- **Roadmap/Feature-Map Auto-Detection & Adaptive Integration:**
+  - **Kein eigenes PM-Tool** — Sync mit bestehenden Tools (Plane, OpenProject, GitHub/GitLab Issues)
+  - **Auto-Detection:** Drei-Tier-Erkennung (Repo-Dateien → Platform-APIs → File-Marker)
+  - **Multi-Format SDD-Support:** OpenSpec (`openspec/`), Spec Kit (`.specify/`), Autospec (`specs/spec.yaml`)
+  - **Provider Registry:** `specprovider` (Repo-Specs) + `pmprovider` (PM-Plattformen), gleiche Architektur wie Git/LLM
+  - **Bidirektionaler Sync:** CodeForge ↔ PM-Tool ↔ Repo-Specs, Webhook/Poll/Manuell
+  - **Uebernommene Patterns:** Plane (Cursor-Pagination, HMAC-SHA256, Label-Sync), OpenProject (Optimistic Locking, Schema-Endpoints), OpenSpec (Delta-Spec-Format), Ploi Roadmap (`/ai` Endpoint)
+  - **Gitea/Forgejo:** GitHub-Adapter funktioniert mit minimalen Aenderungen (kompatible API)
+  - Detaillierte Analyse: docs/research/market-analysis.md Abschnitt 5
 - **LLM-Integration (LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI):**
   - **Kein eigenes LLM-Provider-Interface** — LiteLLM Proxy als Docker-Sidecar (Port 4000)
   - Go Core + Python Workers sprechen OpenAI-kompatible API gegen LiteLLM

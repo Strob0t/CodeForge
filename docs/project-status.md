@@ -1,6 +1,6 @@
 # CodeForge — Projektstatus
 
-> Letztes Update: 2026-02-15
+> Letztes Update: 2026-02-16
 
 ## Phase 0: Projekt-Setup (aktuell)
 
@@ -56,6 +56,20 @@
   - Scenario-basiertes Routing via LiteLLM Tag-based Routing
   - Eigenentwicklung: Config Manager, User-Key-Mapping, Scenario Router, Cost Dashboard
   - Local Model Discovery (Ollama/LM Studio), Copilot Token Exchange
+- [x] Roadmap/Spec/PM-Tools analysiert: OpenSpec, Spec Kit, Autospec, Plane.so, OpenProject, Ploi Roadmap
+  - 6+ SDD-Tools analysiert (OpenSpec, GitHub Spec Kit, Autospec, BMAD-METHOD, Amazon Kiro, cc-sdd)
+  - 4+ PM-Tools analysiert (Plane.so, OpenProject, Ploi Roadmap, Huly, Linear)
+  - Repo-basierte PM-Tools kartiert (Markdown Projects, Backlog.md, git-bug, Tasks.md)
+  - ADR/RFC-Tools und Feature-Flag-Tools als Erweiterungen identifiziert
+  - Gitea/Forgejo als GitHub-kompatible SCM-Alternative identifiziert
+- [x] Auto-Detection Architektur konzipiert: Drei-Tier Detection (Repo → Platform → File)
+  - Spec-Driven Detectors: OpenSpec, Spec Kit, Autospec, ADR/RFC
+  - Platform Detectors: GitHub, GitLab, Plane.so, OpenProject
+  - File-Based Detectors: ROADMAP.md, TASKS.md, CHANGELOG.md
+- [x] Provider Registry erweitert: specprovider + pmprovider (gleiche Architektur wie Git/LLM)
+- [x] Architekturentscheidung: Kein eigenes PM-Tool, bidirektionaler Sync mit bestehenden
+  - Uebernommene Patterns: Cursor-Pagination, HMAC-SHA256, Label-Sync (Plane), Optimistic Locking, Schema-Endpoints (OpenProject), Delta-Spec-Format (OpenSpec), `/ai` Endpoint (Ploi Roadmap)
+  - Explizit NICHT uebernommen: HAL+JSON/HATEOAS, GraphQL, eigenes PM-Tool
 
 ### Offen
 
@@ -83,8 +97,8 @@
 
 ## Phase 3: Erweiterte Features
 
-- [ ] Roadmap/Feature-Map Editor
-- [ ] OpenSpec-Kompatibilitaet
+- [ ] Roadmap/Feature-Map Editor (Auto-Detection, Multi-Format SDD, bidirektionaler PM-Sync)
+- [ ] OpenSpec/Spec Kit/Autospec-Integration
 - [ ] SVN-Integration
 - [ ] Multi-Agent-Orchestrierung
 - [ ] GitHub/GitLab Webhook-Integration
