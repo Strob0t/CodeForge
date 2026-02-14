@@ -123,6 +123,26 @@ Das gesamte AI/Agent-Ecosystem (LiteLLM, LangGraph, Aider, OpenHands, SWE-agent,
 - Resilienz: Jobs gehen bei Worker-Absturz nicht verloren
 - Backpressure: Queue puffert bei Last-Spitzen
 
+### Warum YAML als einheitliches Konfigurationsformat?
+
+**Alle Konfigurationsdateien in CodeForge verwenden YAML** — keine Ausnahme:
+
+- Agent-Modes und Spezialisierungen
+- Tool-Bundles und Tool-Definitionen
+- Projekt-Einstellungen und Safety-Rules
+- Autonomie-Konfiguration
+- LiteLLM Config (nativ YAML)
+- Prompt-Metadaten (Jinja2-Templates selbst bleiben `.jinja2`)
+
+**Grund:** YAML unterstuetzt Kommentare. Das ist entscheidend fuer:
+- Dokumentation direkt in der Config (`# Warum dieses Budget-Limit?`)
+- Temporaeres Deaktivieren von Einstellungen (`# tools: [terminal]`)
+- Onboarding: Contributors verstehen Configs ohne externe Doku
+- Versionierung: Kommentare erklaeren Aenderungen im Git-Diff
+
+JSON wird **nicht** fuer Konfigurationsdateien verwendet. JSON bleibt
+fuer API-Responses, Event-Serialisierung und internen Datenaustausch.
+
 ## Software-Architektur: Hexagonal + Provider Registry
 
 ### Grundprinzip: Hexagonal Architecture (Ports & Adapters)
@@ -464,24 +484,175 @@ Sandbox obligatorisch.
 
 ### Agent-Workflow: Plan → Execute → Review
 
-Standardisierter Workflow fuer alle nicht-autonomen Agents:
+Standardisierter Workflow fuer alle Agents — mit konfigurierbarem Autonomie-Level:
 
 ```
 1. PLAN      Agent analysiert Task + Codebase, erstellt strukturierten Plan
                 ↓
-2. APPROVE   Plan wird dem User zur Freigabe vorgelegt (Web-GUI)
-                ↓  (User kann ablehnen, aendern, oder auto-approve setzen)
+2. APPROVE   Plan wird zur Freigabe vorgelegt (je nach Autonomie-Level)
+                ↓  (User, Safety-Rules oder Auto-Approve)
 3. EXECUTE   Agent arbeitet Plan Punkt fuer Punkt ab
                 ↓
-4. REVIEW    Automatisches Self-Review oder zweiter Agent prueft Ergebnis
+4. REVIEW    Self-Review, zweiter Agent, oder Guardrail Agent
                 ↓
 5. DELIVER   Ergebnis als Diff/Patch, PR, oder direkte Dateiaenderung
 ```
 
-- Vollwertige Agents (Claude Code) koennen autonom arbeiten — Workflow optional
-- API-basierte LLMs brauchen den strukturierten Workflow
 - Jeder Schritt ist einzeln konfigurierbar (Skip, Auto-Approve, etc.)
-- Human-in-the-Loop an jedem Schritt moeglich ueber die Web-GUI
+- Autonomie-Level bestimmt, wer approven darf (User vs. Safety-Rules)
+- Bei Level 4-5 ersetzen Safety-Rules den menschlichen Approver
+
+### Autonomie-Spektrum
+
+CodeForge unterstuetzt fuenf Autonomie-Level — vom voll-supervisierten
+Betrieb bis zur komplett autonomen Ausfuehrung ohne User-Interaktion:
+
+```
+Level 1   Level 2     Level 3     Level 4      Level 5
+supervised  semi-auto   auto-edit   full-auto    headless
+  │           │           │           │            │
+  ▼           ▼           ▼           ▼            ▼
+ User       User        User       Safety       Safety
+ approves   approves    approves   Rules        Rules
+ ALLES      kritische   Terminal/  ersetzen     ersetzen
+            Aktionen    Deploy     User         User
+                                                + kein UI
+```
+
+| Level | Name | Wer approved | Use Case |
+|---|---|---|---|
+| 1 | `supervised` | User bei jedem Schritt | Lernen, kritische Codebases, Onboarding |
+| 2 | `semi-auto` | User bei destruktiven Aktionen (delete, terminal, deploy) | Alltaegliche Entwicklung mit Sicherheitsnetz |
+| 3 | `auto-edit` | User nur bei Terminal/Deploy, Datei-Aenderungen auto-approved | Erfahrene Nutzer, vertrauenswuerdige Agents |
+| 4 | `full-auto` | Safety-Rules (Budget, Blocklists, Tests) | Batch-Jobs, trusted Agents, delegierte Tasks |
+| 5 | `headless` | Safety-Rules, kein UI noetig | CI/CD, Cron-Jobs, API-getriebene Pipelines |
+
+#### Konfiguration (YAML)
+
+```yaml
+# Projekt-Level: codeforge-project.yaml
+autonomy:
+  default_level: semi-auto       # Standard fuer neue Tasks
+
+  # Safety-Rules — ersetzen den User als Guardrail bei Level 4-5
+  safety:
+    budget_hard_limit: 50.00     # USD — Agent stoppt bei Ueberschreitung
+    max_steps: 100               # Max Aktionen pro Task
+    max_file_changes: 50         # Max geaenderte Dateien pro Task
+    blocked_paths:               # Dateien die nie geaendert werden duerfen
+      - ".env"
+      - "secrets/"
+      - "**/credentials.*"
+      - "production.yml"
+    blocked_commands:             # Shell-Befehle die nie ausgefuehrt werden
+      - "rm -rf /"
+      - "DROP TABLE"
+      - "git push --force"
+      - "chmod 777"
+    require_tests_pass: true     # Agent muss Tests gruen haben vor Deliver
+    require_lint_pass: true      # Linting muss bestehen vor Deliver
+    rollback_on_failure: true    # Auto-Rollback bei Test/Lint-Failure
+    branch_isolation: true       # Autonome Agents arbeiten nie auf main/master
+    max_cost_per_step: 2.00      # USD — einzelner LLM-Call darf max X kosten
+```
+
+#### Sicherheit bei vollautonomer Ausfuehrung
+
+Bei Level 4 (`full-auto`) und Level 5 (`headless`) ersetzen folgende
+Mechanismen den menschlichen Approver:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Safety Layer (ersetzt User)                  │
+│                                                             │
+│  ┌─────────────────┐  ┌─────────────────┐                  │
+│  │  Budget-Limiter  │  │ Command Safety  │                  │
+│  │  Hard Stop bei   │  │ Evaluator       │                  │
+│  │  Ueberschreitung │  │ Blocklist +     │                  │
+│  │                  │  │ Regex-Matching  │                  │
+│  └─────────────────┘  └─────────────────┘                  │
+│  ┌─────────────────┐  ┌─────────────────┐                  │
+│  │  Branch-Isolation│  │ Test/Lint Gate  │                  │
+│  │  Nie auf main,   │  │ Deliver nur     │                  │
+│  │  immer Feature-  │  │ wenn Tests +    │                  │
+│  │  Branch          │  │ Lint bestehen   │                  │
+│  └─────────────────┘  └─────────────────┘                  │
+│  ┌─────────────────┐  ┌─────────────────┐                  │
+│  │  Max-Steps       │  │ Rollback        │                  │
+│  │  Endlos-Loop-    │  │ Automatisch bei │                  │
+│  │  Erkennung       │  │ Failure         │                  │
+│  └─────────────────┘  └─────────────────┘                  │
+│  ┌─────────────────┐  ┌─────────────────┐                  │
+│  │  Path-Blocklist  │  │ Stall-Detection │                  │
+│  │  Sensible Files  │  │ Re-Planning     │                  │
+│  │  geschuetzt      │  │ oder Abbruch    │                  │
+│  └─────────────────┘  └─────────────────┘                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Headless-Modus (Level 5) — Use Cases
+
+```yaml
+# Naechtlicher Code-Review (Cron-Job)
+# codeforge-schedules.yaml
+schedules:
+  - name: nightly-review
+    cron: "0 2 * * *"                  # Jede Nacht um 2:00
+    mode: reviewer
+    autonomy: headless
+    targets:
+      - repo: "myorg/backend"
+        branch: "develop"
+    deliver: github-pr-comment         # Ergebnis als PR-Kommentar
+
+  # Woechentliches Dependency-Update
+  - name: weekly-deps
+    cron: "0 8 * * 1"                  # Montags 8:00
+    mode: dependency-updater
+    autonomy: headless
+    targets:
+      - repo: "myorg/backend"
+      - repo: "myorg/frontend"
+    deliver: pull-request               # Ergebnis als neuer PR
+    safety:
+      require_tests_pass: true
+      max_file_changes: 5
+
+  # Webhook-getriggert: Lint-Fix bei neuem PR
+  - name: auto-lint-fix
+    trigger: github-webhook             # Bei neuem PR
+    event: pull_request.opened
+    mode: lint-fixer
+    autonomy: full-auto
+    deliver: push-to-branch             # Direkt auf den PR-Branch pushen
+    safety:
+      max_file_changes: 20
+      require_lint_pass: true
+```
+
+#### API-getriebene autonome Ausfuehrung
+
+Fuer CI/CD und externe Systeme:
+
+```
+POST /api/v1/tasks
+{
+  "repo": "myorg/backend",
+  "task": "Fix all lint errors in src/",
+  "mode": "lint-fixer",
+  "autonomy": "full-auto",
+  "deliver": "pull-request",
+  "safety": {
+    "budget_hard_limit": 10.00,
+    "require_lint_pass": true
+  },
+  "callback_url": "https://ci.example.com/webhook"
+}
+```
+
+- Keine UI-Interaktion noetig
+- Ergebnis wird per Callback oder Polling abgeholt
+- Ideal fuer GitHub Actions, GitLab CI, Jenkins, etc.
 
 ### Jinja2-Prompt-Templates
 
@@ -526,18 +697,226 @@ Frontend emittiert:
 
 Das Frontend kann so Live-Updates darstellen ohne Polling.
 
-### Agent-Spezialisierung (offener Punkt)
+### Agent-Spezialisierung: Modes System
 
-Statt eines General-Purpose-Agents koennen spezialisierte Sub-Agents
-(Planner, Coder, Reviewer, Researcher, etc.) ueber YAML-Configs definiert
-und in der GUI als eigene Workflows konfiguriert werden.
+Inspiriert von Roo Code's Modes und Cline's `.clinerules`. Statt eines
+General-Purpose-Agents definiert CodeForge spezialisierte Agent-Modes
+als YAML-Konfigurationen. Jeder Mode hat eigene Tools, LLM-Einstellungen
+und Autonomie-Level.
 
-**Dieser Punkt wird zu einem spaeteren Zeitpunkt detailliert ausgearbeitet.**
+#### Architektur
 
-Geplant:
-- Default-YAML-Configs fuer gaengige Spezialisierungen
-- GUI-Workflow-Editor zur Konfiguration der Agent-Pipeline
-- Konfigurierbare Reihenfolge und Aktivierung von Sub-Agents
+```
+┌──────────────────────────────────────────────────────────┐
+│                    Mode Registry                          │
+│                                                          │
+│  Built-in Modes        Custom Modes (User-definiert)     │
+│  ┌──────────────┐      ┌──────────────────────────┐     │
+│  │ architect    │      │ my-react-reviewer        │     │
+│  │ coder        │      │ security-auditor         │     │
+│  │ reviewer     │      │ docs-writer              │     │
+│  │ researcher   │      │ dependency-updater       │     │
+│  │ tester       │      │ ...                      │     │
+│  │ lint-fixer   │      │                          │     │
+│  │ planner      │      │ (YAML in Projekt oder    │     │
+│  │ debugger     │      │  globaler Config)        │     │
+│  └──────────────┘      └──────────────────────────┘     │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### Built-in Mode Definitionen
+
+```yaml
+# modes/architect.yaml
+name: architect
+description: "Analysiert Codebase-Struktur, plant Aenderungen, erstellt Design-Dokumente"
+llm_scenario: think            # LiteLLM Tag → starkes Reasoning-Modell
+autonomy: supervised           # Architektur-Entscheidungen immer mit User
+tools:
+  - read_file
+  - search_file
+  - search_dir
+  - list_files
+  - plan                       # Strukturierten Plan erstellen
+  - web_search                 # Dokumentation recherchieren
+# Kein write_file, kein terminal — Architect darf nur lesen und planen
+prompt_template: architect.jinja2
+max_steps: 30
+```
+
+```yaml
+# modes/coder.yaml
+name: coder
+description: "Implementiert Features, fixt Bugs, schreibt Code"
+llm_scenario: default          # LiteLLM Tag → Standard-Coding-Modell
+autonomy: auto-edit            # Datei-Aenderungen auto, Terminal braucht Approval
+tools:
+  - read_file
+  - write_file
+  - search_file
+  - search_dir
+  - list_files
+  - terminal                   # Shell-Befehle (mit Safety Evaluator)
+  - git_diff
+  - git_commit
+  - lint
+  - test
+prompt_template: coder.jinja2
+max_steps: 50
+```
+
+```yaml
+# modes/reviewer.yaml
+name: reviewer
+description: "Prueft Code-Aenderungen auf Qualitaet, Bugs, Security"
+llm_scenario: review           # LiteLLM Tag → Review-optimiertes Modell
+autonomy: headless             # Kann komplett autonom laufen (readonly)
+tools:
+  - read_file
+  - search_file
+  - search_dir
+  - list_files
+  - git_diff
+  - lint
+  - test
+# Kein write_file — Reviewer darf nicht editieren, nur bewerten
+prompt_template: reviewer.jinja2
+max_steps: 30
+deliver: comment               # Ergebnis als Kommentar (PR, Issue, Web-GUI)
+```
+
+```yaml
+# modes/debugger.yaml
+name: debugger
+description: "Analysiert Fehler, reproduziert Bugs, findet Root Causes"
+llm_scenario: think            # Komplexes Reasoning fuer Debugging
+autonomy: semi-auto            # Terminal-Ausfuehrung mit Approval
+tools:
+  - read_file
+  - search_file
+  - search_dir
+  - list_files
+  - terminal                   # Fuer Reproduktion und Tests
+  - git_log
+  - git_diff
+  - test
+  - lint
+prompt_template: debugger.jinja2
+max_steps: 40
+```
+
+```yaml
+# modes/nightly-reviewer.yaml
+name: nightly-reviewer
+description: "Automatischer naechtlicher Code-Review"
+llm_scenario: review
+autonomy: headless             # Komplett autonom, kein UI
+tools:
+  - read_file
+  - search_file
+  - search_dir
+  - list_files
+  - git_diff
+  - lint
+  - test
+prompt_template: reviewer.jinja2
+schedule: "0 2 * * *"         # Jede Nacht um 2:00
+deliver: github-pr-comment
+safety:
+  budget_hard_limit: 5.00
+  max_steps: 30
+```
+
+#### Custom Modes (User-definiert)
+
+User koennen eigene Modes als YAML-Dateien erstellen:
+
+```yaml
+# .codeforge/modes/security-auditor.yaml
+name: security-auditor
+description: "Prueft Code auf OWASP Top 10, Injection, XSS, etc."
+llm_scenario: think
+autonomy: headless
+tools:
+  - read_file
+  - search_file
+  - search_dir
+  - list_files
+  - lint
+  - terminal                   # Fuer Security-Scanner (npm audit, bandit, etc.)
+prompt_template: security-auditor.jinja2
+safety:
+  blocked_commands:
+    - "curl"                   # Kein Netzwerk-Zugriff
+    - "wget"
+  max_steps: 50
+deliver: security-report       # Strukturierter Security-Report
+```
+
+#### Mode-Auswahl und -Komposition
+
+Modes koennen einzeln oder als Pipeline genutzt werden:
+
+```yaml
+# Einzelner Mode
+task:
+  mode: coder
+  prompt: "Implementiere Feature X"
+
+# Pipeline: Architect plant, Coder implementiert, Reviewer prueft
+task:
+  pipeline:
+    - mode: architect
+      prompt: "Analysiere die Codebase und erstelle einen Plan fuer Feature X"
+    - mode: coder
+      prompt: "Implementiere den Plan aus dem vorherigen Schritt"
+    - mode: reviewer
+      prompt: "Reviewe die Aenderungen des Coders"
+    - mode: tester
+      prompt: "Schreibe Tests fuer die neuen Aenderungen"
+
+# DAG: Parallele Ausfuehrung + Abhaengigkeiten
+task:
+  dag:
+    plan:
+      mode: architect
+    implement:
+      mode: coder
+      depends_on: [plan]
+    test:
+      mode: tester
+      depends_on: [implement]
+    review:
+      mode: reviewer
+      depends_on: [implement]     # Parallel zu test
+    deliver:
+      mode: coder
+      depends_on: [test, review]  # Erst wenn beides fertig
+```
+
+#### Verzeichnisstruktur
+
+```
+# Global (shipped with CodeForge)
+modes/
+  architect.yaml
+  coder.yaml
+  reviewer.yaml
+  researcher.yaml
+  tester.yaml
+  lint-fixer.yaml
+  planner.yaml
+  debugger.yaml
+  dependency-updater.yaml
+
+# Projekt-spezifisch (User-definiert)
+.codeforge/
+  modes/
+    security-auditor.yaml
+    my-react-reviewer.yaml
+  project.yaml                 # Projekt-Einstellungen (Autonomie, Safety, etc.)
+  schedules.yaml               # Cron-Jobs fuer autonome Tasks
+```
 
 ### YAML-basierte Tool-Definitionen
 

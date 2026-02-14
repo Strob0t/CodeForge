@@ -33,6 +33,13 @@ Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
 | AI Workers     | Python 3.12| LLM-Integration, Agent-Ausfuehrung      |
 | Infrastructure | Docker     | Containerisierung, Docker-in-Docker      |
 
+## Konfigurationsformat
+
+- **YAML fuer alle Konfigurationsdateien** — keine Ausnahme
+- Grund: YAML unterstuetzt Kommentare (JSON nicht)
+- Gilt fuer: Modes, Tool-Bundles, Projekt-Settings, Safety-Rules, Autonomie, Schedules
+- JSON nur fuer: API-Responses, Event-Serialisierung, interner Datenaustausch
+
 ## Tooling
 
 - **Python:** Poetry, Ruff (Linting + Formatting), Pytest
@@ -61,6 +68,18 @@ Detaillierte Analyse: docs/research/market-analysis.md
 - **Agent Execution Modes:** Sandbox (isolierter Container), Mount (direkter Dateizugriff), Hybrid
 - **Command Safety Evaluator:** Shell-Befehle pruefen, Tool-Blocklists (YAML)
 - **Agent-Workflow:** Plan → Approve → Execute → Review → Deliver (konfigurierbar)
+- **Autonomie-Spektrum (5 Stufen):**
+  - Level 1 `supervised`: User approved alles
+  - Level 2 `semi-auto`: User approved nur kritische Aktionen
+  - Level 3 `auto-edit`: User approved nur Terminal/Deploy
+  - Level 4 `full-auto`: Safety-Rules ersetzen User (Budget, Tests, Blocklists)
+  - Level 5 `headless`: Komplett autonom, kein UI noetig (CI/CD, Cron-Jobs, API)
+- **Modes System (Agent-Spezialisierung):**
+  - YAML-konfigurierbare Agent-Rollen (architect, coder, reviewer, debugger, etc.)
+  - Jeder Mode: eigene Tools, LLM-Scenario, Autonomie-Level, Prompt-Template
+  - Built-in Modes + Custom Modes (User-definiert in `.codeforge/modes/`)
+  - Mode-Pipelines und DAG-Komposition fuer Multi-Agent-Workflows
+  - Schedule-Support fuer autonome Cron-Jobs (headless)
 - **YAML-basierte Tool-Bundles:** Deklarative Tool-Definitionen, kein Code noetig
 - **History Processors:** Context-Window-Optimierung als Pipeline
 - **Hook-System:** Observer-Pattern fuer Agent/Environment-Lifecycle

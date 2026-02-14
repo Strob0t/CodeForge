@@ -81,13 +81,23 @@
   - 7 neue Backend-Kandidaten: Goose, OpenCode, Plandex, AutoCodeRover, Roo Code, Codex CLI, SERA
   - Backend-Integration-Prioritaeten definiert (Goose, OpenCode, Plandex als Prio 1)
   - Naechster Konkurrent identifiziert: CLI Agent Orchestrator (AWS) — gleiche Vision ohne Web-GUI
+- [x] Architekturentscheidung: YAML als einheitliches Konfigurationsformat (Kommentar-Support)
+- [x] Autonomie-Spektrum definiert: 5 Stufen (supervised → headless)
+  - Safety-Rules ersetzen User bei Level 4-5 (Budget, Tests, Blocklists, Branch-Isolation)
+  - Headless-Modus fuer CI/CD, Cron-Jobs, API-getriebene Pipelines
+  - Schedule-Support fuer automatische naechtliche Reviews, Dependency-Updates
+  - API-Endpoint fuer externe Systeme (GitHub Actions, GitLab CI, Jenkins)
+- [x] Agent-Spezialisierung ausgearbeitet: Modes System (YAML-Configs)
+  - Built-in Modes: architect, coder, reviewer, debugger, tester, lint-fixer, planner, researcher
+  - Custom Modes: User-definierbar in `.codeforge/modes/`
+  - Mode-Pipelines und DAG-Komposition fuer Multi-Agent-Workflows
+  - Jeder Mode: eigene Tools, LLM-Scenario, Autonomie-Level, Prompt-Template
 
 ### Offen
 
 - [ ] Devcontainer erstmalig bauen und testen
 - [ ] Go-Modul initialisieren (go mod init)
 - [ ] Grundlegende Projektstruktur anlegen (Verzeichnisse fuer Go, Python, Frontend)
-- [ ] Agent-Spezialisierung detailliert ausarbeiten (YAML-Configs, GUI-Workflow-Editor)
 
 ## Phase 1: Foundation (naechster Schritt)
 
