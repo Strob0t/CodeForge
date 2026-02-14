@@ -52,9 +52,9 @@ These tasks must be completed before moving to Phase 1.
 
 ### Go Core Service — Scaffold
 
-- [ ] HTTP Router setup (choose: chi, fiber, or echo)
+- [ ] HTTP Router setup (chi v5)
   - See: [features/01-project-dashboard.md](features/01-project-dashboard.md)
-- [ ] WebSocket server setup
+- [ ] WebSocket server setup (coder/websocket)
 - [ ] Health endpoint (`GET /health`)
 - [ ] Graceful shutdown handling
 - [ ] Basic middleware (logging, CORS, recovery)
@@ -148,6 +148,7 @@ See feature specs for detailed breakdown:
 
 > Move items here after completion for context. Periodically archive old items.
 
+- [x] (2026-02-14) Library decisions: chi (router), coder/websocket (WS), git exec wrapper, SolidJS minimal stack
 - [x] (2026-02-14) PostgreSQL 17 chosen as database — [ADR-002](architecture/adr/002-postgresql-database.md)
 - [x] (2026-02-14) NATS JetStream chosen as message queue — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
 - [x] (2026-02-14) Documentation structure created (docs/README.md, docs/todo.md, feature specs)

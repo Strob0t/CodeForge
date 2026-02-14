@@ -101,6 +101,10 @@
   - pgx v5 (Go driver), goose (migrations), psycopg3 (Python driver)
   - Shared instance with LiteLLM via schema separation
   - Simplicity principle: no ORM, no code generator, no extra tooling
+- [x] Library decisions finalized (minimal-dependency principle):
+  - Go: chi v5 (router, 0 deps), coder/websocket (WS, 0 deps), git exec wrapper (0 deps)
+  - Frontend: @solidjs/router, Tailwind CSS (no component lib), @solid-primitives/websocket (728B), native fetch
+  - Rejected: Echo, Fiber, gorilla/websocket, go-git (28 deps), axios, styled-components, Kobalte
 - [x] Documentation consistency audit: all docs synchronized and translated to English
 - [x] Documentation structure created:
   - docs/README.md (documentation index)

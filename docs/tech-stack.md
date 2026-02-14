@@ -72,13 +72,13 @@
 ## Planned Dependencies (not yet installed)
 
 ### Go Core Service
-- HTTP Router (chi, fiber, or echo)
-- WebSocket Library (gorilla/websocket or nhooyr/websocket)
+- HTTP Router (`chi` v5) — zero deps, 100% `net/http` compatible, route groups + middleware chaining
+- WebSocket (`coder/websocket` v1.8+) — zero deps, context-native, concurrent-write-safe
 - PostgreSQL Driver (`pgx` v5 + `pgxpool`) — primary database
 - Database Migrations (`goose`) — SQL-based schema migrations
 - NATS Client (`nats.go` + `nats.go/jetstream`) — message queue to Python Workers
-- Git Bindings (go-git)
-- SVN Bindings (os/exec wrapper for svn CLI)
+- Git Operations (`os/exec` wrapper around `git` CLI) — zero deps, 100% feature coverage, native performance
+- SVN Operations (`os/exec` wrapper around `svn` CLI)
 
 ### Python Workers
 - LiteLLM (client library for OpenAI-compatible API against LiteLLM Proxy)
@@ -111,6 +111,11 @@
 
 ### TypeScript Frontend
 - SolidJS (reactive UI framework)
-- Tailwind CSS
+- `@solidjs/router` — official SolidJS router (nested routes, lazy loading)
+- Tailwind CSS (direct utility classes, no component library)
+- `@solid-primitives/websocket` (728 bytes) — WebSocket with auto-reconnect + heartbeat
+- Native `fetch` API — thin wrapper (~30-50 LOC), no axios/ky
+- SolidJS built-in state management (signals, stores, context) — no external state library
+- `lucide-solid` — icons (optional, tree-shakeable, direct imports)
 - WebSocket Client
 - solid-router (SPA routing)

@@ -165,6 +165,19 @@ Detailed analysis: docs/research/market-analysis.md
   - Python: psycopg3 (sync+async)
   - NATS JetStream KV for ephemeral state (heartbeats, locks)
   - ADR: docs/architecture/adr/002-postgresql-database.md
+- **Go Libraries (zero-dep principle):**
+  - HTTP Router: chi v5 (zero deps, 100% net/http compatible, route groups + middleware)
+  - WebSocket: coder/websocket v1.8+ (zero deps, context-native, concurrent-write-safe)
+  - Git: os/exec wrapper around git CLI (zero deps, 100% feature coverage, native speed)
+  - NOT used: Echo/Fiber (framework coupling), gorilla/websocket (no context, panic on concurrent writes), go-git (28 deps, 4-9x slower)
+- **Frontend Libraries (minimal-stack principle):**
+  - Routing: @solidjs/router (only viable SolidJS router)
+  - Styling: Tailwind CSS directly (no component library, no CSS-in-JS)
+  - WebSocket: @solid-primitives/websocket (728 bytes, auto-reconnect)
+  - HTTP: native fetch API + thin wrapper (~30-50 LOC)
+  - State: SolidJS built-in signals/stores/context (no external state library)
+  - Icons: lucide-solid (tree-shakeable, direct imports)
+  - NOT used: axios, styled-components, Kobalte, shadcn-solid, Socket.IO, Redux/Zustand
 - **LLM Integration (LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI):**
   - **No custom LLM provider interface** — LiteLLM Proxy as Docker sidecar (port 4000)
   - Go Core + Python Workers communicate via OpenAI-compatible API against LiteLLM
@@ -182,6 +195,14 @@ Detailed analysis: docs/research/market-analysis.md
 - Do not reinvent the wheel for individual components
 - Differentiation through integration of all four pillars
 - Performance focus: Go for core, Python only for AI-specific work
+
+## Coding Principles
+
+- **Minimal dependencies**: Use only as many libraries as strictly necessary. Most libraries bring too much overhead. Prefer the standard library when it covers 80%+ of the need.
+- **Readable code is documentation**: Write clean, self-explanatory code. Well-written code documents itself. Add comments only where the "why" is not obvious from the code.
+- **DRY / Reusable**: Extract repeating patterns into reusable functions, types, or packages. Avoid copy-paste code. But: don't abstract prematurely — three similar occurrences justify extraction.
+- **Simple over clever**: Prefer straightforward solutions over clever tricks. The next developer (or LLM agent) must understand the code immediately.
+- **Minimal surface area**: Keep APIs, interfaces, and exported types as small as possible. Start private, export only when needed.
 
 ## Git Workflow
 
