@@ -49,9 +49,9 @@
 - **Setup:** `.devcontainer/setup.sh` (automatic via postCreateCommand)
 
 ### Docker Compose (Dev Services)
-- **litellm-proxy** (Port 4000) — LLM Routing & Multi-Provider Gateway (OpenAI-compatible API)
 - **docs-mcp-server** (Port 6280) — Documentation indexing for LLM context
 - **playwright-mcp** (Port 8001) — Browser automation / web scraping
+- **litellm-proxy** (Port 4000) — LLM Routing & Multi-Provider Gateway *(planned, not yet in docker-compose.yml)*
 
 ### MCP Server
 - Configuration: `.mcp.json`
@@ -73,14 +73,24 @@
 
 ### Go Core Service
 - HTTP Router (chi, fiber, or echo)
-- WebSocket Library
-- NATS/Redis Client
-- Git/SVN Bindings
+- WebSocket Library (gorilla/websocket or nhooyr/websocket)
+- NATS Client (nats.go)
+- Redis Client (go-redis)
+- Git Bindings (go-git)
+- SVN Bindings (os/exec wrapper for svn CLI)
 
 ### Python Workers
-- LiteLLM (Multi-Provider LLM Routing, also as Proxy Sidecar)
+- LiteLLM (client library for OpenAI-compatible API against LiteLLM Proxy)
 - LangGraph (Agent Orchestration)
-- Redis/NATS Client
+- NATS Client (nats-py)
+- Redis Client (redis-py)
+- Jinja2 (Prompt Templates)
+- KeyBERT (Keyword Extraction for Retrieval)
+
+### Agent Backend Integration (Priority 1)
+- Goose (Rust, MCP-native, subprocess integration)
+- OpenCode (Go, Client/Server, LSP-aware)
+- Plandex (Go, Planning-First, Diff Sandbox)
 
 ### Infrastructure Services
 - LiteLLM Proxy (Docker Sidecar, Port 4000) — Central LLM Gateway
@@ -93,3 +103,4 @@
 - SolidJS (reactive UI framework)
 - Tailwind CSS
 - WebSocket Client
+- solid-router (SPA routing)

@@ -90,7 +90,7 @@ The architecture follows a three-layer model with strict language separation by 
 - **Scaling:** Horizontal via Message Queue — any number of worker instances
 - **Core Modules:**
   - LiteLLM Integration (multi-provider routing: OpenAI, Claude, Ollama, etc.)
-  - Agent Execution (Aider, OpenHands, SWE-agent as swappable backends)
+  - Agent Execution (Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex as swappable backends)
   - LangGraph Orchestration (for complex multi-agent workflows)
 
 ## Communication Between Layers
@@ -202,8 +202,7 @@ This pattern follows the Go standard pattern (`database/sql` + `_ "github.com/li
 | Port | Interface | Example Adapters |
 |---|---|---|
 | `gitprovider` | `Provider` | github, gitlab, gitlocal, svn, gitea |
-| `llmprovider` | `Provider` | openai, claude, ollama, lmstudio |
-| `agentbackend` | `Backend` | aider, openhands, sweagent |
+| `agentbackend` | `Backend` | aider, openhands, sweagent, goose, opencode, plandex |
 | `specprovider` | `SpecProvider` | openspec, speckit, autospec |
 | `pmprovider` | `PMProvider` | plane, openproject, github_pm, gitlab_pm |
 | `database` | `Store` | postgres, sqlite |
@@ -250,7 +249,6 @@ internal/
       provider.go        # Interface + capability definitions
       registry.go        # Register(), New(), Available()
       compliance_test.go # Reusable test suite
-    llmprovider/
     agentbackend/
     specprovider/
       provider.go        # SpecProvider Interface (Detect, ReadSpecs, WriteChange, Watch)
@@ -265,10 +263,13 @@ internal/
     gitlab/
     gitlocal/
     svn/
-    openai/
-    ollama/
+    litellm/             # LiteLLM config management adapter
     aider/
     openhands/
+    sweagent/
+    goose/               # Goose agent backend (Priority 1)
+    opencode/            # OpenCode agent backend (Priority 1)
+    plandex/             # Plandex agent backend (Priority 1)
     openspec/            # OpenSpec spec adapter
     speckit/             # GitHub Spec Kit adapter
     autospec/            # Autospec adapter
@@ -328,7 +329,7 @@ The workers supplement missing capabilities depending on the LLM level:
 │  ┌────────────────────────────────────────────────┐  │
 │  │  Execution Layer                               │  │
 │  │  Agent backends: Aider, OpenHands, SWE-agent,  │  │
-│  │  or direct LLM API calls                       │  │
+│  │  Goose, OpenCode, Plandex, or direct LLM API   │  │
 │  └────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
@@ -346,14 +347,14 @@ The less an LLM can do, the more the CodeForge Worker takes over.
 ### Worker Modules in Detail
 
 **Context Layer — GraphRAG**
-- Vector Search (Qdrant/ChromaDB): Semantic search in the codebase index
+- Vector Search (Qdrant or pgvector): Semantic search in the codebase index
 - Graph DB (Neo4j/optional): Relationships between code elements (imports, calls, inheritance)
 - Web Fallback (Tavily/SearXNG): Documentation and Stack Overflow when local info is missing
 - Result: Relevant context is prepended to the LLM prompt
 
 **Quality Layer — Multi-Stage Quality Assurance**
 
-Three strategies, graduated by effort and criticality:
+Four strategies, graduated by effort and criticality:
 
 1. **Action Sampling** (lightweight)
    - Generate multiple independent LLM responses
@@ -369,13 +370,19 @@ Three strategies, graduated by effort and criticality:
    - Best solution is selected
    - For important changes with measurable quality
 
-3. **Multi-Agent Debate** (heavyweight)
+3. **LLM Guardrail Agent** (medium)
+   - A separate LLM evaluates the output of the working agent
+   - Validates format compliance, safety, and correctness
+   - Can reject and trigger retry before delivery
+   - For automated pipelines where human review is unavailable
+
+4. **Multi-Agent Debate** (heavyweight)
    - Pro agent argues for a solution
    - Con agent searches for weaknesses
    - Moderator synthesizes the result
    - For critical architecture decisions and security-relevant changes
 
-All three strategies are optional and configurable per project/task.
+All four strategies are optional and configurable per project/task.
 
 **Routing Layer — Intelligent Model Routing**
 - Task classification: Architecture, code generation, review, docs, tests
@@ -514,7 +521,7 @@ supervised  semi-auto   auto-edit   full-auto    headless
   ▼           ▼           ▼           ▼            ▼
  User       User        User       Safety       Safety
  approves   approves    approves   Rules        Rules
- EVERYTHING critical    Terminal/  replace      replace
+ EVERYTHING destructive Terminal/  replace      replace
             actions     Deploy     User         User
                                                 + no UI
 ```
@@ -554,6 +561,7 @@ autonomy:
     rollback_on_failure: true    # Auto-rollback on test/lint failure
     branch_isolation: true       # Autonomous agents never work on main/master
     max_cost_per_step: 2.00      # USD — single LLM call may cost max X
+    stall_detection: true        # Detect and abort/re-plan on agent loops
 ```
 
 #### Security for Fully Autonomous Execution
@@ -1049,7 +1057,7 @@ workers/
     trajectory/          # Trajectory Recording
       recorder.py        # Step-by-step recording
       replay.py          # Deterministic replay
-    agents/              # Agent backends (Aider, OpenHands, etc.)
+    agents/              # Agent backends (Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex)
     llm/                 # LLM client via LiteLLM
     models/              # Data models
       components.py      # Component System (JSON-serializable configs)
@@ -1274,7 +1282,7 @@ reconstructable without code changes:
 - Schema versioning with migration support
 - Import/export of agent configurations
 
-### Document Pipeline PRD→Design→Code (from MetaGPT)
+### Document Pipeline PRD→Design→Tasks→Code (from MetaGPT)
 
 For complex features: Structured intermediate artifacts instead of direct code generation:
 
@@ -1352,6 +1360,147 @@ Implementations:
 - **EmailProvider** — Approval via email link
 - **CliProvider** — Terminal input for development/debugging
 
+## Coding Agent Insights: Adopted Patterns
+
+From the deep analysis of Cline, Devika, OpenHands, SWE-agent, and Aider, the following
+patterns were adopted for CodeForge. Detailed analysis: docs/research/market-analysis.md
+and docs/research/aider-deep-analysis.md
+
+### Shadow Git Checkpoints (from Cline)
+
+Isolated git repository for safe rollback during agent execution:
+
+- Before each agent action, a checkpoint is created in a shadow git repo
+- On failure or user rejection: instant rollback to last good state
+- Separate from the project's actual git history (no polluting commits)
+- Complementary to the Sandbox mode's container isolation
+- Integrated into the Safety Layer as the Rollback component
+
+### Event-Sourcing Architecture (from OpenHands)
+
+All agent activities are recorded as an append-only event stream:
+
+```
+EventStream: Agent actions, observations, thoughts, tool results
+     │
+     ├── Replay: Reconstruct any point in time
+     ├── Audit: Complete traceability of all actions
+     ├── Debug: Step through failed runs
+     └── Persist: Events stored for trajectory recording
+```
+
+- Central abstraction for agent execution
+- All components communicate through events (not direct calls)
+- Enables the Trajectory Recording system
+- Frontend receives events via WebSocket for live visualization
+
+### Microagents (from OpenHands)
+
+Small, trigger-driven agents defined in YAML+Markdown:
+
+```yaml
+# .codeforge/microagents/fix-imports.yaml
+name: fix-imports
+trigger: "import error"          # Triggered when pattern appears in output
+type: knowledge                  # knowledge | repo | task
+prompt: |
+  When you see import errors in Python, check:
+  1. Is the package in pyproject.toml?
+  2. Is the import path correct?
+  3. Run: poetry install
+```
+
+- Three types: knowledge (factual), repo (project-specific), task (action)
+- Auto-injected into agent context when trigger matches
+- Lightweight alternative to full agent modes for simple patterns
+- User-definable in `.codeforge/microagents/`
+
+### Diff-based File Review (from Cline)
+
+Before applying changes, the user sees a side-by-side diff:
+
+- Agent proposes changes as a unified diff
+- Frontend renders before/after with syntax highlighting
+- User can accept, reject, or edit individual hunks
+- Integrated into the Plan → Approve → Execute workflow
+- At autonomy level 3+, diffs are auto-approved for file edits
+
+### Stateless Agent Design (from Devika)
+
+Agent processes are stateless — all state lives in the Go Core:
+
+- Agent receives full context (task, repo info, history) per invocation
+- No persistent agent processes between tasks
+- State transitions tracked in the core service via database
+- Enables horizontal scaling: any worker can pick up any task
+- Agent State Visualization in frontend reads from core, not from agents
+
+### ACI — Agent-Computer Interface (from SWE-agent)
+
+Shell commands optimized for LLM agents (not for humans):
+
+- `open <file> [line]` instead of complex `vim`/`cat` invocations
+- `edit <start>:<end> <content>` instead of sed/awk
+- `search_dir <pattern> [dir]` instead of `grep -r`
+- `find_file <name> [dir]` instead of `find`
+- Reduces error rate by providing LLM-friendly abstractions
+- Implemented as YAML tool bundles (see Tool Definitions section)
+
+### tree-sitter Repo Map (from Aider)
+
+Semantic code map generated via tree-sitter parsing:
+
+- Extracts class/function/method definitions from all files
+- Ranked by relevance to current task (PageRank on call graph)
+- Provides codebase overview without sending all file contents
+- Reduces token usage while maintaining context quality
+- Part of the Context Layer (GraphRAG): complements vector search
+
+### Architect/Editor Pattern (from Aider)
+
+Separate LLM roles for planning and implementation:
+
+- **Architect model** (strong reasoning, e.g., Claude Opus): analyzes codebase, creates plan
+- **Editor model** (fast coding, e.g., Claude Sonnet): implements the plan
+- Maps directly to CodeForge's Modes System: `architect` → `coder` pipeline
+- Cost optimization: expensive model only for planning, cheaper model for execution
+- Configurable via mode pipelines in task YAML
+
+### Edit Formats (from Aider)
+
+Multiple output formats for different LLM capabilities:
+
+| Format | When | How |
+|---|---|---|
+| **whole-file** | Small files, local models | LLM outputs complete file |
+| **diff** | Standard edits, capable models | Unified diff format |
+| **search/replace** | Precise edits | Search block → Replace block |
+| **udiff** | Complex multi-file edits | Universal diff with context |
+
+- Format selection based on LLM capability level and file size
+- Automatic retry with simpler format on parse failure
+- Integrated into the Execution Layer's tool provisioning
+
+### Skills System (from OpenHands)
+
+Reusable Python snippets automatically injected into agent context:
+
+- Pre-built skills for common operations (file manipulation, git, testing)
+- Skills are Python functions available in the agent's execution environment
+- Automatically included in the prompt based on task context
+- User-extensible: custom skills in `.codeforge/skills/`
+- Complementary to YAML Tool Bundles (skills are code, bundles are declarations)
+
+### Risk Management (from OpenHands)
+
+LLM-based security analysis of agent actions:
+
+- **InvariantAnalyzer**: Validates agent actions against security policies
+- Checks for: path traversal, command injection, credential exposure
+- Runs as a pre-execution filter in the Safety Layer
+- Complements the Command Safety Evaluator with LLM-based reasoning
+- Can be disabled for trusted agents to reduce latency
+
 ## Roadmap/Feature-Map: Auto-Detection & Adaptive Integration
 
 ### Core Principle
@@ -1362,8 +1511,8 @@ roadmap artifacts are used in a project, and offers appropriate integration.
 
 ### Provider Registry for Specs and PM
 
-Same architecture as `gitprovider` and `llmprovider` — new adapters only require
-a new package and a blank import:
+Same architecture as `gitprovider` — new adapters only require a new package and
+a blank import:
 
 ```
 port/

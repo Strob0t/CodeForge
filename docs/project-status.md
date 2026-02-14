@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-02-16
+> Last update: 2026-02-14
 
 ## Phase 0: Project Setup (current)
 
@@ -13,7 +13,7 @@
 - [x] Architecture decision: Go + TypeScript + Python (Three-Layer Hybrid)
 - [x] Devcontainer configured (Go 1.23, Python 3.12, Node.js 22, Docker-in-Docker)
 - [x] Linting/Formatting for all three languages (Ruff, golangci-lint, ESLint/Prettier)
-- [x] Pre-commit Hooks (.pre-commit.yaml)
+- [x] Pre-commit Hooks (.pre-commit-config.yaml)
 - [x] Python package management with Poetry (pyproject.toml)
 - [x] Docker Compose for dev services (docs-mcp, playwright-mcp)
 - [x] MCP Server Integration (.mcp.json)
@@ -24,8 +24,8 @@
 - [x] LLM Capability Levels and Worker Modules defined (GraphRAG, Debate, Routing)
 - [x] Agent Execution Modes defined (Sandbox, Mount, Hybrid)
 - [x] Agent workflow defined (Plan → Approve → Execute → Review → Deliver)
-- [x] Command Safety Evaluator and Tool Provisioning designed
-- [x] Quality Layer extended: Action Sampling, RetryAgent + Reviewer, Debate (3 tiers)
+- [x] Safety Layer designed (8 components: Budget, Command Safety, Branch Isolation, Test/Lint Gate, Max Steps, Rollback, Path Blocklist, Stall Detection)
+- [x] Quality Layer extended: Action Sampling, RetryAgent + Reviewer, LLM Guardrail Agent, Debate (4 tiers)
 - [x] YAML-based Tool Bundles, History Processors, Hook System, Trajectory Recording
 - [x] Cost management designed (budget limits per task/project/user)
 - [x] Competitive analysis deepened: BjornMelin/codeforge, Open SWE, SWE-agent, Devika
@@ -66,7 +66,7 @@
   - Spec-Driven Detectors: OpenSpec, Spec Kit, Autospec, ADR/RFC
   - Platform Detectors: GitHub, GitLab, Plane.so, OpenProject
   - File-Based Detectors: ROADMAP.md, TASKS.md, CHANGELOG.md
-- [x] Provider Registry extended: specprovider + pmprovider (same architecture as Git/LLM)
+- [x] Provider Registry extended: specprovider + pmprovider (same architecture as Git)
 - [x] Architecture decision: No custom PM tool, bidirectional sync with existing tools
   - Adopted patterns: Cursor Pagination, HMAC-SHA256, Label Sync (Plane), Optimistic Locking, Schema Endpoints (OpenProject), Delta Spec Format (OpenSpec), `/ai` Endpoint (Ploi Roadmap)
   - Explicitly NOT adopted: HAL+JSON/HATEOAS, GraphQL, custom PM tool
@@ -92,6 +92,12 @@
   - Custom Modes: User-definable in `.codeforge/modes/`
   - Mode Pipelines and DAG composition for multi-agent workflows
   - Each mode: own tools, LLM scenario, autonomy level, prompt template
+- [x] Coding agent insights integrated into architecture:
+  - Shadow Git Checkpoints, Event-Sourcing, Microagents (OpenHands)
+  - Diff-based File Review, ACI (SWE-agent), Stateless Agent Design (Devika)
+  - tree-sitter Repo Map, Architect/Editor Pattern, Edit Formats (Aider)
+  - Skills System, Risk Management (OpenHands), Plan/Act Mode (Cline)
+- [x] Documentation consistency audit: all docs synchronized and translated to English
 
 ### Open
 
@@ -104,6 +110,7 @@
 - [ ] Go Core Service scaffold (HTTP Server, Router, Health Endpoint)
 - [ ] Python Worker scaffold (Queue Consumer, Health Check)
 - [ ] Frontend scaffold (Empty app with routing)
+- [ ] LiteLLM Proxy setup (Docker Compose service, litellm_config.yaml, health check)
 - [ ] Message Queue setup (NATS or Redis)
 - [ ] Database decision and setup
 - [ ] CI/CD Pipeline (GitHub Actions)

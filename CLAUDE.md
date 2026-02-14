@@ -50,7 +50,7 @@ Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
 - **Python:** Poetry, Ruff (Linting + Formatting), Pytest
 - **Go:** golangci-lint, gofmt, goimports
 - **TypeScript:** ESLint, Prettier
-- **All:** pre-commit hooks (.pre-commit.yaml), Docker Compose
+- **All:** pre-commit hooks (.pre-commit-config.yaml), Docker Compose
 
 ## Market Positioning
 
@@ -65,17 +65,18 @@ Detailed analysis: docs/research/market-analysis.md
 - **Capabilities** instead of mandatory implementation — each provider declares what it can do
 - **Compliance Tests** per interface — new adapters automatically inherit the test suite
 - **LLM Capability Levels** — Workers supplement missing capabilities depending on the LLM:
-  - Full-featured agents (Claude Code, Aider): orchestration only
-  - API with tools (OpenAI, Gemini): + Context Layer (GraphRAG) + Routing
-  - Pure completion (Ollama, local): + everything (Context, Tools, Quality Layer)
-- **Worker Modules:** Context (GraphRAG), Quality (Debate/Reviewer/Sampler),
-  Routing, Safety, Execution, History, Hooks, Trajectory
+  - Full-featured agents (Claude Code, Aider, OpenHands): orchestration only
+  - API with tools (OpenAI, Claude API, Gemini): + Context Layer (GraphRAG) + Routing + Tool Definitions
+  - Pure completion (Ollama, LM Studio): + everything (Context, Tools, Prompt Engineering, Quality Layer)
+- **Worker Modules:** Context (GraphRAG), Quality (Debate/Reviewer/Sampler/Guardrail),
+  Routing, Safety, Execution, Memory, History, Events, Orchestration, Hooks, Trajectory, HITL
 - **Agent Execution Modes:** Sandbox (isolated container), Mount (direct file access), Hybrid
-- **Command Safety Evaluator:** Shell command validation, tool blocklists (YAML)
+- **Safety Layer (8 components):** Budget Limiter, Command Safety Evaluator, Branch Isolation,
+  Test/Lint Gate, Max Steps, Rollback, Path Blocklist, Stall Detection
 - **Agent Workflow:** Plan → Approve → Execute → Review → Deliver (configurable)
 - **Autonomy Spectrum (5 Levels):**
   - Level 1 `supervised`: User approves everything
-  - Level 2 `semi-auto`: User approves only critical actions
+  - Level 2 `semi-auto`: User approves only destructive actions (delete, terminal, deploy)
   - Level 3 `auto-edit`: User approves only terminal/deploy
   - Level 4 `full-auto`: Safety rules replace user (budget, tests, blocklists)
   - Level 5 `headless`: Fully autonomous, no UI needed (CI/CD, cron jobs, API)
@@ -93,7 +94,6 @@ Detailed analysis: docs/research/market-analysis.md
 - **Jinja2 Prompt Templates:** Prompts in separate files, not in code
 - **KeyBERT Keyword Extraction:** Semantic keywords for better retrieval
 - **Real-time State via WebSocket:** Live updates for agent status, logs, costs
-- **Agent Specialization:** YAML-configurable sub-agents (open item, later)
 - **Frontend:** SolidJS + Tailwind CSS
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
   - Composite Memory Scoring (Semantic + Recency + Importance)
@@ -155,7 +155,7 @@ Detailed analysis: docs/research/market-analysis.md
   - **No custom PM tool** — sync with existing tools (Plane, OpenProject, GitHub/GitLab Issues)
   - **Auto-Detection:** Three-tier detection (repo files → platform APIs → file markers)
   - **Multi-Format SDD Support:** OpenSpec (`openspec/`), Spec Kit (`.specify/`), Autospec (`specs/spec.yaml`)
-  - **Provider Registry:** `specprovider` (repo specs) + `pmprovider` (PM platforms), same architecture as Git/LLM
+  - **Provider Registry:** `specprovider` (repo specs) + `pmprovider` (PM platforms), same architecture as Git
   - **Bidirectional Sync:** CodeForge ↔ PM Tool ↔ Repo Specs, Webhook/Poll/Manual
   - **Adopted Patterns:** Plane (Cursor Pagination, HMAC-SHA256, Label Sync), OpenProject (Optimistic Locking, Schema Endpoints), OpenSpec (Delta Spec Format), Ploi Roadmap (`/ai` endpoint)
   - **Gitea/Forgejo:** GitHub adapter works with minimal changes (compatible API)

@@ -31,9 +31,12 @@
    - Python dependencies (poetry install)
    - Node dependencies (npm install, if package.json exists)
    - Pre-commit Hooks
-   - Docker Compose Services (docs-mcp, playwright-mcp)
+   - Docker Compose Services (docs-mcp, playwright-mcp, litellm-proxy planned)
 
-## Project Structure
+## Project Structure (Planned)
+
+> **Note:** This shows the target directory structure. Directories not yet created
+> are marked with `(planned)` comments or will be scaffolded in Phase 1.
 
 ```
 CodeForge/
@@ -58,7 +61,6 @@ CodeForge/
 │   │   └── roadmap/
 │   ├── port/                 # Interfaces + Registries
 │   │   ├── gitprovider/
-│   │   ├── llmprovider/
 │   │   ├── agentbackend/
 │   │   ├── specprovider/    # Spec Detection (OpenSpec, Spec Kit, Autospec)
 │   │   ├── pmprovider/      # PM Sync (Plane, OpenProject, GitHub/GitLab)
@@ -68,8 +70,12 @@ CodeForge/
 │   │   ├── github/
 │   │   ├── gitlab/
 │   │   ├── svn/
+│   │   ├── litellm/         # LiteLLM config management
 │   │   ├── openspec/        # OpenSpec Adapter
 │   │   ├── plane/           # Plane.so Adapter
+│   │   ├── goose/           # Goose agent backend (Priority 1)
+│   │   ├── opencode/        # OpenCode agent backend (Priority 1)
+│   │   ├── plandex/         # Plandex agent backend (Priority 1)
 │   │   ├── postgres/
 │   │   ├── nats/
 │   │   └── ...
@@ -91,7 +97,8 @@ CodeForge/
 │   ├── project-status.md     # Project Status & Roadmap
 │   ├── tech-stack.md         # Tech Stack Details
 │   └── research/
-│       └── market-analysis.md# Market Research & Competitors
+│       ├── market-analysis.md# Market Research & Competitors
+│       └── aider-deep-analysis.md # Aider Architecture Deep-Dive
 ├── .env.example              # Environment Template
 ├── .gitignore
 ├── .golangci.yml             # Go Linter Config

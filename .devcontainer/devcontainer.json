@@ -18,7 +18,7 @@
 
   "runArgs": ["--add-host=host.docker.internal:host-gateway"],
 
-  "forwardPorts": [3000, 5173, 6280, 8001, 8080],
+  "forwardPorts": [3000, 4000, 5173, 6280, 8001, 8080],
 
   "customizations": {
     "vscode": {

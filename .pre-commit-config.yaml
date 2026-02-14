@@ -1,5 +1,5 @@
 repos:
-  # ── Allgemein ──────────────────────────────────────────────
+  # ── General ──────────────────────────────────────────────
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -14,7 +14,7 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.12
     hooks:
-      # 1) Imports sortieren
+      # 1) Sort imports
       - id: ruff-check
         name: ruff (sort imports)
         args: ["--select", "I", "--fix"]
@@ -32,11 +32,11 @@ repos:
     hooks:
       # Format
       - id: go-fmt
-      # Imports sortieren
+      # Sort imports
       - id: go-imports-repo
-      # Vet (statische Analyse)
+      # Vet (static analysis)
       - id: go-vet-repo-mod
-      # golangci-lint (muss installiert sein)
+      # golangci-lint (must be installed)
       - id: golangci-lint-repo-mod
 
   # ── TypeScript / JavaScript (ESLint + Prettier) ────────────
@@ -53,5 +53,5 @@ repos:
         name: prettier
         entry: npx prettier --write --ignore-unknown
         language: system
-        files: \.(ts|tsx|js|jsx|json|css|scss|html|svelte|vue)$
+        files: \.(ts|tsx|js|jsx|json|css|scss|html)$
         types: [file]
