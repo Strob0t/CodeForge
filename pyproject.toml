@@ -20,7 +20,7 @@ pre-commit = "^4.0"
 pytest = "^8.0"
 pytest-asyncio = "^0.25"
 
-# ── Ruff ─────────────────────────────────────────────────────
+# -- Ruff -----------------------------------------------------
 [tool.ruff]
 target-version = "py312"
 line-length = 120
@@ -42,6 +42,7 @@ select = [
 ]
 ignore = [
     "E501",  # line length (handled by formatter)
+    "N802",  # function name should be lowercase (stdlib overrides like do_GET)
 ]
 
 [tool.ruff.lint.isort]
@@ -51,7 +52,7 @@ known-first-party = ["codeforge"]
 quote-style = "double"
 indent-style = "space"
 
-# ── Pytest ───────────────────────────────────────────────────
+# -- Pytest ---------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["workers/tests"]
 asyncio_mode = "auto"

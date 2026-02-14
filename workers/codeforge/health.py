@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 class HealthHandler(BaseHTTPRequestHandler):
     """Minimal HTTP handler for health checks."""
 
-    def do_GET(self) -> None:  # noqa: N802 — required by BaseHTTPRequestHandler
+    def do_GET(self) -> None:
         if self.path == "/health":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
