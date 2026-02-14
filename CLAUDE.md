@@ -183,6 +183,7 @@ Detailed analysis: docs/research/market-analysis.md
 - **Commits only on `staging`** — never directly on `main`, unless the user explicitly instructs otherwise
 - **Branch strategy:** Development on `staging`, merge to `main` only on instruction
 - **All commit messages, documentation, code comments, and configuration descriptions must be in English**
+- **Always push to remote after committing** — run `git push` after every successful commit so the remote stays in sync
 - **Before each commit — checklist:**
   1. Run `pre-commit run --all-files` and fix errors
   2. Update affected documentation:
