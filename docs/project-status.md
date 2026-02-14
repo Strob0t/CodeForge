@@ -1,6 +1,6 @@
 # CodeForge — Projektstatus
 
-> Letztes Update: 2026-02-14
+> Letztes Update: 2026-02-15
 
 ## Phase 0: Projekt-Setup (aktuell)
 
@@ -32,6 +32,20 @@
 - [x] Jinja2-Prompt-Templates, KeyBERT, Real-time WebSocket State konzipiert
 - [x] Frontend-Framework gewaehlt: SolidJS + Tailwind CSS
 - [x] Git-Workflow mit Commit-Checkliste (pre-commit + Doku-Pflege)
+- [x] Orchestrierungs-Frameworks analysiert: LangGraph, CrewAI, AutoGen, MetaGPT
+  - Detaillierter Feature-Vergleich und Architektur-Mapping
+  - Adoptierte Patterns identifiziert und dokumentiert
+- [x] Framework-Insights in Architektur integriert:
+  - Composite Memory Scoring (Semantic + Recency + Importance)
+  - Context-Window-Strategien (Buffered, TokenLimited, HeadAndTail)
+  - Experience Pool (@exp_cache) fuer Caching erfolgreicher Runs
+  - Tool-Recommendation via BM25, Workbench (Tool-Container)
+  - LLM Guardrail Agent, Structured Output / ActionNode
+  - Event-Bus fuer Observability, GraphFlow / DAG-Orchestrierung
+  - Composable Termination Conditions, Component System (deklarativ)
+  - Dokument-Pipeline PRD→Design→Tasks→Code
+  - MagenticOne Planning Loop (Stall Detection + Re-Planning)
+  - HandoffMessage Pattern, Human Feedback Provider Protocol
 
 ### Offen
 

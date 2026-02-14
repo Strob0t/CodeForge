@@ -597,10 +597,13 @@ workers/
     context/             # Context Layer
       graphrag.py        # Vector + Graph + Web Retrieval
       indexer.py         # Codebase-Indexierung
+      keywords.py        # KeyBERT Keyword-Extraction
     quality/             # Quality Layer
       debate.py          # Multi-Agent Debate (Pro/Con/Moderator)
       reviewer.py        # Score/Chooser-basierter Solution-Reviewer
       sampler.py         # Action Sampling (AskColleagues, BinaryComparison)
+      guardrail.py       # LLM Guardrail Agent (von CrewAI)
+      action_node.py     # Structured Output / Schema-Validierung (von MetaGPT)
     routing/             # Routing Layer
       router.py          # Task-basiertes Model-Routing
       cost.py            # Kosten-Tracking und Budgets
@@ -612,20 +615,330 @@ workers/
       sandbox.py         # Docker-Container-Management
       mount.py           # Mount-Modus Logik
       tools.py           # Tool-Provisioning (Shell, File, Git, etc.)
+      workbench.py       # Tool-Container mit shared State (von AutoGen)
+    memory/              # Memory Layer
+      composite.py       # Composite Scoring (Semantic+Recency+Importance)
+      context_window.py  # Context-Window-Strategien (Buffered/TokenLimited/HeadAndTail)
+      experience.py      # Experience Pool (@exp_cache, von MetaGPT)
     history/             # History Management
       processors.py      # Context-Window-Optimierung (Pipeline)
     hooks/               # Hook-System (Observer-Pattern)
       agent_hooks.py     # Agent-Lifecycle-Hooks
       env_hooks.py       # Environment-Lifecycle-Hooks
+    events/              # Event-Bus (von CrewAI)
+      bus.py             # Event-Emitter + Subscriber
+      types.py           # Agent/Task/System Event-Definitionen
+    orchestration/       # Workflow-Orchestrierung
+      graph_flow.py      # DAG-Orchestrierung (von AutoGen)
+      termination.py     # Composable Termination Conditions
+      handoff.py         # HandoffMessage Pattern
+      planning.py        # MagenticOne Planning Loop + Stall Detection
+      pipeline.py        # Dokument-Pipeline PRD→Design→Tasks→Code (von MetaGPT)
     trajectory/          # Trajectory Recording
       recorder.py        # Schritt-fuer-Schritt Aufzeichnung
       replay.py          # Deterministisches Replay
     agents/              # Agent-Backends (Aider, OpenHands, etc.)
     llm/                 # LLM-Client via LiteLLM
     models/              # Datenmodelle
+      components.py      # Component System (JSON-serialisierbare Configs)
     tools/               # YAML-basierte Tool-Bundles
       bundles/           # Tool-Bundle-Verzeichnisse
+      recommender.py     # BM25 Tool-Recommendation (von MetaGPT)
+    templates/           # Jinja2-Prompt-Templates
+    hitl/                # Human-in-the-Loop
+      providers.py       # Human Feedback Provider Protocol (von CrewAI)
 ```
+
+## Framework-Insights: Adoptierte Patterns
+
+Aus der Analyse von LangGraph, CrewAI, AutoGen und MetaGPT wurden folgende
+Patterns fuer CodeForge uebernommen. Detaillierter Vergleich: docs/research/market-analysis.md
+
+### Composite Memory Scoring (von CrewAI)
+
+Einfache semantische Aehnlichkeit reicht nicht fuer Memory-Recall. CodeForge
+verwendet gewichtetes Scoring aus drei Faktoren:
+
+```
+Score = (semantic_weight * cosine_similarity)
+      + (recency_weight  * recency_decay)
+      + (importance_weight * importance_score)
+```
+
+| Faktor | Default-Gewicht | Berechnung |
+|---|---|---|
+| Semantic | 0.5 | Cosine-Similarity der Embeddings |
+| Recency | 0.3 | Exponential Decay (Half-Life konfigurierbar) |
+| Importance | 0.2 | LLM-basierte Bewertung bei Speicherung |
+
+Zwei Recall-Modi:
+- **Shallow:** Direkter Vector-Search mit Composite Scoring
+- **Deep:** LLM destilliert Sub-Queries, sucht parallel, Confidence-basiertes Routing
+
+### Context-Window-Strategien (von AutoGen)
+
+Zusaetzlich zu den History Processors werden verschiedene Strategien fuer
+das Chat-Completion-Context-Management unterstuetzt:
+
+| Strategie | Verhalten |
+|---|---|
+| **Unbounded** | Alle Messages behalten (nur fuer kurze Sessions) |
+| **Buffered** | Letzte N Messages behalten |
+| **TokenLimited** | Auf Token-Budget trimmen |
+| **HeadAndTail** | Erste N + letzte M Messages behalten (System-Prompt + aktueller Kontext) |
+
+Konfigurierbar per Agent-Typ und LLM. Kleine lokale Models bekommen aggressiveres
+Trimming, grosse API-Models behalten mehr Kontext.
+
+### Experience Pool (von MetaGPT)
+
+Erfolgreiche Agent-Runs werden gecacht und bei aehnlichen Tasks wiederverwendet:
+
+```
+@exp_cache(context_builder=build_task_context)
+async def solve_task(task: Task) -> Result:
+    # Wenn aehnlicher Task bereits erfolgreich geloest:
+    # → Cached Result zurueckgeben
+    # Sonst: Normal ausfuehren und Ergebnis cachen
+```
+
+- Cache-Key basiert auf Task-Beschreibung + Codebase-Kontext
+- Similarity-basiertes Retrieval (nicht exakt-match)
+- Konfigurierbare Confidence-Schwelle
+- Spart LLM-Kosten und verbessert Konsistenz
+
+### Tool-Recommendation via BM25 (von MetaGPT)
+
+Statt alle verfuegbaren Tools an das LLM zu uebergeben (Token-Verschwendung),
+werden relevante Tools automatisch ausgewaehlt:
+
+- BM25-basiertes Ranking von Tools gegen den aktuellen Task-Kontext
+- Top-K Tools werden dem LLM als Function Calls angeboten
+- Reduziert Token-Usage und verbessert Tool-Auswahl-Qualitaet
+- Fallback: Alle Tools bei niedrigem Confidence-Score
+
+### Workbench — Tool-Container (von AutoGen)
+
+Zusammengehoerige Tools teilen sich State und Lifecycle:
+
+```python
+class GitWorkbench(Workbench):
+    """Git-Tools mit shared Repository-State."""
+
+    def __init__(self, repo_path: str):
+        self.repo = git.Repo(repo_path)
+
+    def get_tools(self) -> list[Tool]:
+        return [
+            Tool("git_status", self._status),
+            Tool("git_diff", self._diff),
+            Tool("git_commit", self._commit),
+            # Tools teilen self.repo
+        ]
+```
+
+- Shared State zwischen zusammengehoerigen Tools
+- Lifecycle-Management (start/stop/restart)
+- Dynamische Tool-Discovery (Tools koennen sich aendern)
+- Ideal fuer MCP-Integration (McpWorkbench)
+
+### LLM Guardrail Agent (von CrewAI)
+
+Ein dedizierter Agent validiert den Output eines anderen Agents:
+
+```
+Agent A (Coder) → Output → Guardrail Agent → Validiert → Accept / Reject + Feedback
+                                                              ↓ (bei Reject)
+                                                         Agent A wiederholt mit Feedback
+```
+
+Integriert in den Quality Layer als vierte Strategie neben
+Action Sampling, RetryAgent+Reviewer und Multi-Agent Debate:
+
+| Stufe | Aufwand | Mechanismus |
+|---|---|---|
+| 1. Action Sampling | Leicht | N Antworten, beste auswaehlen |
+| 2. RetryAgent + Reviewer | Mittel | Retry + Score/Chooser Bewertung |
+| 3. LLM Guardrail Agent | Mittel | Dedizierter Agent prueft Output |
+| 4. Multi-Agent Debate | Schwer | Pro/Con/Moderator |
+
+### Structured Output / ActionNode (von MetaGPT)
+
+LLM-Outputs werden gegen ein Schema validiert und bei Bedarf automatisch korrigiert:
+
+```python
+class CodeReviewOutput(ActionNode):
+    issues: list[Issue]       # Gefundene Probleme
+    severity: str             # critical / warning / info
+    suggestion: str           # Verbesserungsvorschlag
+    approved: bool            # Review bestanden?
+```
+
+- Schema-Definition als Pydantic-Model
+- LLM fuellt die Felder via constrained generation
+- Automatischer Review/Revise Cycle bei Schema-Verletzung
+- Retry mit Fehler-Feedback an das LLM
+
+### Event-Bus fuer Observability (von CrewAI)
+
+Alle relevanten Ereignisse im System werden ueber einen Event-Bus emittiert:
+
+```
+Agent Events:          Task Events:           System Events:
+  agent_started          task_assigned          budget_warning
+  agent_step_done        task_completed         budget_exceeded
+  agent_tool_called      task_failed            provider_error
+  agent_tool_result      task_retrying          provider_fallback
+  agent_thinking         task_guardrail_fail    queue_backpressure
+  agent_finished         task_human_input       worker_started
+  agent_error            task_delegated         worker_stopped
+```
+
+- Events werden ueber WebSocket an das Frontend gestreamt
+- Dashboard kann Events filtern, aggregieren, visualisieren
+- Monitoring/Alerting auf Event-Basis (z.B. budget_exceeded → Notification)
+- Audit-Trail: Alle Events persistiert fuer Nachvollziehbarkeit
+
+### GraphFlow / DAG-Orchestrierung (von AutoGen)
+
+Fuer komplexe Multi-Agent-Workflows mit konditionalen Pfaden:
+
+```
+                    ┌─── success ──→ [Test Agent]
+[Plan Agent] ──→ [Code Agent] ──┤
+                    └─── failure ──→ [Debug Agent] ──→ [Code Agent]
+                                                          (Cycle)
+```
+
+- Conditional Edges basierend auf Agent-Output
+- Parallel Nodes (activation="any" fuer Race, activation="all" fuer Join)
+- Cycle-Support mit Exit-Conditions (max_iterations, success_condition)
+- DiGraphBuilder API fuer fluent Graph-Konstruktion
+- Visualisierbar im Frontend als interaktiver DAG-Editor
+
+### Termination Conditions (von AutoGen)
+
+Flexible, composable Stop-Bedingungen fuer Agent-Workflows:
+
+```python
+# Composable mit & (AND) und | (OR)
+stop = (MaxSteps(50)
+        | BudgetExceeded(max_cost=5.0)
+        | TextMention("TASK_COMPLETE")
+        | Timeout(minutes=30))
+        & NotCondition(StallDetected())
+```
+
+Verfuegbare Conditions:
+- MaxSteps, MaxMessages, MaxTokens
+- BudgetExceeded (Kosten-Limit)
+- TextMention (bestimmter Text im Output)
+- Timeout (Wanduhr-basiert)
+- StallDetected (keine Fortschritte)
+- FunctionCallResult (bestimmtes Tool-Ergebnis)
+- Custom (beliebige Predicate-Funktion)
+
+### Component System / Deklarative Konfiguration (von AutoGen)
+
+Agents, Tools und Workflows sind als JSON/YAML serialisierbar und
+ohne Code-Aenderung rekonstruierbar:
+
+```json
+{
+  "provider": "codeforge.agents.CodeReviewAgent",
+  "version": 1,
+  "config": {
+    "llm": "claude-sonnet-4-20250514",
+    "tools": ["git_diff", "file_read", "lint"],
+    "guardrail": "code_quality",
+    "max_iterations": 10,
+    "budget_limit": 2.0
+  }
+}
+```
+
+- Essentiell fuer den GUI-Workflow-Editor
+- Agents/Workflows koennen gespeichert, geteilt und versioniert werden
+- Schema-Versionierung mit Migration-Support
+- Import/Export von Agent-Konfigurationen
+
+### Dokument-Pipeline PRD→Design→Code (von MetaGPT)
+
+Fuer komplexe Features: Strukturierte Zwischenartefakte statt direkter Code-Generierung:
+
+```
+1. Requirement → Strukturiertes PRD (JSON)
+     User Stories, Akzeptanzkriterien, Scope
+2. PRD → System Design (JSON + Mermaid)
+     Datenstrukturen, API-Spezifikation, Klassendiagramm
+3. Design → Task-Liste (JSON)
+     Geordnete Liste der zu erstellenden Dateien mit Dependencies
+4. Tasks → Code (pro Datei)
+     Kontext: Design + andere bereits erstellte Dateien
+5. Code → Review + Tests
+     Automatische Validierung gegen Design-Spezifikation
+```
+
+- Jedes Zwischendokument ist schema-validiert (ActionNode)
+- Reduziert Halluzination durch strukturierte Constraints
+- Incremental Development: Bestehender Code wird beruecksichtigt
+- Zwischendokumente sind in der GUI sichtbar und editierbar
+
+### MagenticOne Planning Loop (von AutoGen)
+
+Fuer komplexe, langlebige Tasks: Adaptives Planning mit Stall-Detection:
+
+```
+1. PLAN    → Orchestrator erstellt initialen Plan
+2. EXECUTE → Agent arbeitet naechsten Schritt ab
+3. CHECK   → Fortschritt evaluieren:
+               - Fortschritt? → Weiter mit 2
+               - Stall?      → Re-Planning (zurueck zu 1)
+               - Fertig?     → Ergebnis liefern
+               - Gescheitert?→ Fact-Gathering, dann Re-Planning
+```
+
+- Stall-Detection erkennt wenn Agents sich im Kreis drehen
+- Re-Planning passt den Plan an basierend auf bisherigen Ergebnissen
+- Fact-Gathering sammelt fehlende Informationen vor neuem Plan
+- Progress-Tracking ueber ein Ledger (Fortschritts-Protokoll)
+
+### HandoffMessage Pattern (von AutoGen)
+
+Agents uebergeben Tasks explizit an Spezialisten:
+
+```
+[Planner Agent]
+    → HandoffMessage(target="coder", context="Implement feature X per plan")
+        → [Code Agent]
+            → HandoffMessage(target="reviewer", context="Review changes in src/")
+                → [Review Agent]
+                    → HandoffMessage(target="tester", context="Run test suite")
+                        → [Test Agent]
+```
+
+- Explizite Uebergabe mit Kontext (nicht blind weiterleiten)
+- Agent entscheidet selbst, an wen uebergeben wird
+- Passt zu CodeForge's Agent-Spezialisierung (Planner, Coder, Reviewer, etc.)
+- Funktioniert mit verschiedenen Agent-Backends (Aider→OpenHands→SWE-agent)
+
+### Human Feedback Provider Protocol (von CrewAI)
+
+Erweiterbare HITL-Kanaele ueber ein Provider-Interface:
+
+```python
+class HumanFeedbackProvider(Protocol):
+    async def request_feedback(
+        self, context: dict, options: list[str]
+    ) -> FeedbackResult:
+        ...
+```
+
+Implementierungen:
+- **WebGuiProvider** — Feedback ueber die SolidJS Web-GUI (Default)
+- **SlackProvider** — Approval-Requests als Slack-Messages
+- **EmailProvider** — Approval via Email-Link
+- **CliProvider** — Terminal-Input fuer Entwicklung/Debugging
 
 ### Verzeichnisstruktur Frontend (SolidJS)
 

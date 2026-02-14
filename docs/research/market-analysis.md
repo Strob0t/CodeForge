@@ -1,6 +1,6 @@
 # CodeForge — Marktanalyse & Recherche
 
-> Stand: 2026-02-14
+> Stand: 2026-02-15
 
 ## Projektvision
 
@@ -70,24 +70,99 @@ Kernfunktionen:
 
 ### LangGraph
 - **URL:** https://github.com/langchain-ai/langgraph
-- **Beschreibung:** Graph-basierte Agent-Orchestrierung von LangChain. Conditional Logic, Multi-Team, Hierarchische Kontrolle.
-- **Relevanz:** Potentielles Backend-Framework fuer Agent-Orchestrierung
-- **Hinweis:** Schnellstes Framework mit niedrigster Latenz
+- **Stars:** ~24.700 | **Lizenz:** MIT | **Version:** 1.0.8 (stable)
+- **Beschreibung:** Graph-basierte Agent-Orchestrierung von LangChain. StateGraph mit Pregel-Runtime (Bulk Synchronous Parallel). Channels/Reducers fuer State-Management. 6 Streaming-Modi. Production-grade Checkpointing (Postgres, SQLite).
+- **Kernkonzepte:** StateGraph, Nodes (Funktionen), Edges (fest/konditional), Channels (LastValue/Topic/BinaryOperator), Pregel-Runtime, Checkpointing, interrupt() fuer HITL
+- **Staerken:**
+  - Durable Agent Execution mit Crash Recovery und Time-Travel
+  - `interrupt()` fuer dynamisches Human-in-the-Loop an beliebiger Stelle
+  - 6 Streaming-Modi (values, updates, messages, custom, tasks, debug)
+  - PostgresSaver/PostgresStore fuer Production
+  - Multi-Agent-Patterns: Supervisor, Swarm, Scatter-Gather
+  - Functional API (`@entrypoint`/`@task`) fuer einfache Workflows
+- **Schwaechen:**
+  - `langchain-core` als Hard-Dependency (~20 transitive Packages)
+  - Pregel-Modell mit Channels/Supersteps hat steile Lernkurve
+  - Node-Restart bei Interrupt-Resume (gesamter Node wird neu ausgefuehrt)
+  - Distributed Runtime nur ueber LangGraph Platform (kommerziell)
+  - Kein eingebautes Context-Window-Management
+- **Relevanz fuer CodeForge:** StateGraph als Orchestrierungsschicht in Python Workers. Checkpointing ueber PostgresSaver. interrupt() fuer Plan→Approve-Workflow. Streaming fuer UI.
 
 ### CrewAI
-- **URL:** https://www.crewai.com/open-source
-- **Beschreibung:** Role-based Task Delegation. CrewAI Studio fuer visuelles Bauen. Hunderte Built-in Tools.
-- **Relevanz:** Production-ready Multi-Agent-Framework
+- **URL:** https://github.com/crewAIInc/crewAI
+- **Stars:** ~27.000 | **Lizenz:** MIT | **Version:** 0.114+
+- **Beschreibung:** Role-based Multi-Agent-Framework. Agents mit Role/Goal/Backstory. Tasks mit expected_output und Guardrails. Zwei Orchestrierungssysteme: Crew (Tasks) und Flow (DAG).
+- **Kernkonzepte:** Agent (Role/Goal/Backstory), Task (Description/ExpectedOutput), Crew (Process: sequential/hierarchical), Flow (@start/@listen/@router DAG), Unified Memory (LanceDB), YAML-Config
+- **Staerken:**
+  - Intuitive Agent-Definition mit Persona-System (Role/Goal/Backstory)
+  - YAML-basierte Agent/Task-Konfiguration + Python-Decorators
+  - Unified Memory mit Composite Scoring (Semantic + Recency + Importance)
+  - LLM Guardrail Agent — ein Agent validiert den Output eines anderen
+  - Flow-System mit @start/@listen/@router fuer DAG-Workflows
+  - Event-Bus mit 60+ Event-Typen fuer Observability
+  - Human Feedback Provider Protocol (erweiterbar: Web, Slack, Email)
+  - @tool Decorator fuer saubere Tool-Definition
+  - MCP-Integration nativ
+- **Schwaechen:**
+  - Kein echter Parallelismus in Crew (nur ueber Flow)
+  - Zwei ueberlappende Orchestrierungssysteme (Crew + Flow)
+  - ChromaDB + LanceDB beide als Dependencies (redundant)
+  - Memory braucht LLM (gpt-4o-mini) + Embedder fuer Basis-Operationen
+  - Single-Process, kein Message Queue, keine REST-API
+  - Consensual Process nie implementiert
+- **Relevanz fuer CodeForge:** YAML-Config-Pattern, Composite Memory Scoring, LLM Guardrail, Event-Bus, Human Feedback Provider Protocol.
 
 ### AutoGen (Microsoft)
 - **URL:** https://github.com/microsoft/autogen
-- **Beschreibung:** Multi-Agent-Systems mit Custom Tools, Memory, Human-in-the-loop.
-- **Relevanz:** Gut fuer Prototyping und flexible Agent-Kommunikation
+- **Stars:** ~42.000 | **Lizenz:** MIT | **Version:** 0.7.5 (v0.4+ Architektur)
+- **Beschreibung:** Actor-Model-basiertes Multi-Agent-Framework. Saubere Schichtung: autogen-core (Runtime) → autogen-agentchat (Teams) → autogen-ext (Extensions). Distributed Runtime ueber gRPC. Python + .NET.
+- **Kernkonzepte:** Agent (Protocol), AgentId (type/key), AgentRuntime (Message Routing), Teams (RoundRobin/Selector/Swarm/GraphFlow/MagenticOne), ChatCompletionClient, Workbench (Tool-Container), Component System
+- **Staerken:**
+  - Saubere Package-Struktur: Core → AgentChat → Extensions (a-la-carte Dependencies)
+  - GraphFlow mit DiGraphBuilder: DAG + Conditional Edges + Parallel Nodes
+  - Workbench: Tool-Container mit shared State und dynamischer Tool-Discovery
+  - Termination Conditions composable mit & / | Operatoren (12+ Typen)
+  - Context-Window-Strategien: Buffered, TokenLimited, HeadAndTail
+  - Component System: Agents/Tools/Teams als JSON serialisierbar
+  - MagenticOne Orchestrator: Planning Loop + Stall Detection + Re-Planning
+  - HandoffMessage Pattern fuer Agent-Uebergabe
+  - SocietyOfMindAgent: Team als Agent wrappen (Nested Orchestrierung)
+  - Distributed Runtime ueber gRPC (Cross-Language: Python ↔ .NET)
+  - Minimale Core-Dependencies (Pydantic, Protobuf, OpenTelemetry)
+- **Schwaechen:**
+  - Kein LLM-Routing/Load-Balancing (jeder Provider eigener Client)
+  - SingleThreadedAgentRuntime nicht fuer High-Concurrency geeignet
+  - UserProxyAgent blockiert gesamtes Team
+  - Kein eingebauter Persistent Storage (State als Dict, Caller muss persistieren)
+  - Komplexe Abstraktionsschichten (Core vs AgentChat)
+  - Memory-System noch jung (ListMemory in Core)
+- **Relevanz fuer CodeForge:** Layered Package Structure, GraphFlow, Workbench, Termination Conditions, Component System, MagenticOne Orchestrator, HandoffMessage Pattern.
 
 ### MetaGPT
 - **URL:** https://github.com/geekan/MetaGPT
-- **Beschreibung:** Simuliert Development-Teams (Product Manager, Architect, Engineer). Single-Prompt zu komplexen Software-Artefakten.
-- **Relevanz:** Interessantes Konzept fuer Team-Simulation
+- **Stars:** ~50.000 | **Lizenz:** MIT
+- **Beschreibung:** "Code = SOP(Team)". Simuliert Software-Development-Teams mit spezialisierten Rollen (ProductManager, Architect, Engineer, QA). Dokument-getriebene Pipeline: PRD → Design → Tasks → Code. Strukturierte Zwischenartefakte reduzieren Halluzination.
+- **Kernkonzepte:** Role (Profile/Goal/Actions/Watch), Action (LLM-Call + Processing), Message (Pub-Sub mit cause_by Routing), Environment (Shared Space), Team (Hire + Run), ActionNode (Schema-erzwungene Outputs)
+- **Staerken:**
+  - Dokument-getriebene SOP Pipeline: PRD → Design → Tasks → Code → Test
+  - ActionNode: Schema-Validierung + Review/Revise Cycles auf LLM-Output
+  - Experience Pool (@exp_cache): Erfolgreiche Runs cachen und wiederverwenden
+  - BM25 Tool-Recommendation: Automatisch relevante Tools auswaehlen
+  - Budget-Enforcement (NoMoneyException): Harte Kosten-Limits
+  - Mermaid-Diagramm-Generierung als Design-Artefakt
+  - Incremental Development Mode (bestehenden Code beruecksichtigen)
+  - Multi-Environment (Software, Minecraft, Android, Stanford Town)
+  - Per-Action LLM Override (verschiedene Models fuer verschiedene Tasks)
+  - Message Compression Strategien (pre-cut, post-cut by token/message)
+- **Schwaechen:**
+  - ~90 direkte Dependencies (massiver Footprint)
+  - Single-Process asyncio, kein distributed Runtime
+  - Tension zwischen rigid SOPs und dynamischem RoleZero
+  - Memory simplistisch (Message-Liste, optionale Vector-Search)
+  - Kosten-Management nur global, nicht pro Role/Action
+  - Python 3.9-3.11 only (kein 3.12+)
+  - Kein Web-GUI (nur CLI, MGX kommerziell)
+- **Relevanz fuer CodeForge:** Document Pipeline, ActionNode/Structured Output, Experience Pool, BM25 Tool-Recommendation, Budget-Enforcement, Incremental Development.
 
 ---
 
@@ -194,3 +269,109 @@ Kernfunktionen:
 - Eigenen LLM-Proxy von Grund auf bauen (LiteLLM existiert)
 - Eigenen Coding-Agent von Grund auf bauen (integriere bestehende)
 - Feature-Krieg mit OpenHands auf deren Kerngebiet (einzelne Issues loesen)
+
+---
+
+## 9. Framework-Vergleich: LangGraph vs CrewAI vs AutoGen vs MetaGPT
+
+### Architektur-Vergleich
+
+| Dimension | LangGraph | CrewAI | AutoGen | MetaGPT |
+|---|---|---|---|---|
+| **Metapher** | State Machine / Graph | Crew mit Tasks | Actor Model / Pub-Sub | Software-Firma mit SOPs |
+| **State-Modell** | Zentral (Shared State Dict) | Im Crew-Kontext | Verteilt (jeder Agent eigener State) | Environment + Memory + Documents |
+| **Kommunikation** | State-Mutation (Dict Updates) | Tool-basierte Delegation | Message Passing (typed) | Pub-Sub mit cause_by Routing |
+| **Agent-Identitaet** | Keine (Nodes = Funktionen) | Role/Goal/Backstory | Erste Klasse (AgentId, Lifecycle) | Role/Profile/Actions/Watch |
+| **Orchestrierung** | Graph-Topologie (Edges) | Process (seq/hierarchical) | Teams (5 Typen) | SOP Pipeline + TeamLeader |
+| **Persistenz** | Built-in Checkpointing | Flow Persistence | State Save/Load (manuell) | Serialization + Git Repo |
+| **Distributed** | Nur Platform ($) | Nein | Ja (gRPC nativ) | Nein |
+| **LangChain-Kopplung** | Ja (langchain-core) | Nein (entfernt) | Nein (optional) | Nein |
+| **Dependencies** | Mittel (~20 transitiv) | Schwer (ChromaDB+LanceDB+OTel) | Minimal (Core), modular (Ext) | Sehr schwer (~90 direkt) |
+
+### Feature-Vergleich
+
+| Feature | LangGraph | CrewAI | AutoGen | MetaGPT |
+|---|---|---|---|---|
+| Sequential | Edges | Process.sequential | RoundRobin | SOP Pipeline |
+| Hierarchisch | Subgraphs | Process.hierarchical | SelectorGroupChat | TeamLeader Hub |
+| DAG/Graph | StateGraph | Flow (@start/@listen) | GraphFlow (DiGraph) | Nein |
+| Parallel | Send API | Flow (and_/or_) | GraphFlow (activation) | asyncio.gather |
+| Handoff/Swarm | langgraph-swarm | DelegateWorkTool | Swarm + HandoffMessage | publish_message |
+| Nested Teams | Subgraph als Node | Crew in Flow | SocietyOfMindAgent | Nein |
+| Planning Loop | Custom Nodes | planning=True | MagenticOne | Plan-and-Act Mode |
+| Human-in-Loop | interrupt() | human_input + Provider | UserProxyAgent | HumanProvider + AskReview |
+| Streaming | 6 Modi | Token + Events | 3 Ebenen (Token/Agent/Team) | LLM-Level |
+| Structured Output | Nein (LLM-nativ) | output_json/pydantic | StructuredMessage[T] | ActionNode + Review/Revise |
+| Memory (Short) | Checkpointer | In Crew-Kontext | ChatCompletionContext | Message-Liste |
+| Memory (Long) | BaseStore (KV+Vector) | Unified (LanceDB) | ChromaDB/Redis/Mem0 | Vector (optional) |
+| Tool System | ToolNode (LangChain) | BaseTool + @tool + MCP | Workbench + MCP | ToolRegistry + BM25 |
+| Guardrails | RetryPolicy | LLM Guardrail Agent | Termination Conditions | Budget-Enforcement |
+| YAML Config | Nein | Agents + Tasks | Component System (JSON) | Nein |
+| Event System | Debug Stream | Event-Bus (60+ Types) | Nein | Nein |
+| Experience Cache | Nein | Nein | Nein | Experience Pool |
+| Document Pipeline | Nein | Nein | Nein | PRD→Design→Code |
+| Cost Management | Nein | Nein | Token-basiert | Budget + NoMoneyException |
+
+### Synthese: Was CodeForge uebernimmt
+
+#### Von LangGraph
+
+| Konzept | Umsetzung in CodeForge |
+|---|---|
+| StateGraph + Checkpointing | Orchestrierungsschicht in Python Workers, PostgresSaver |
+| interrupt() fuer HITL | Plan→Approve→Execute Workflow |
+| 6 Streaming-Modi | UI-Feedback (Token, State-Updates, Custom Events, Debug) |
+| PostgresStore | Long-Term Memory Backend |
+| Functional API | Einfachere Workflows via @entrypoint/@task |
+
+#### Von CrewAI
+
+| Konzept | Umsetzung in CodeForge |
+|---|---|
+| YAML Agent/Task Config | Agent-Spezialisierung als YAML, GUI-konfigurierbar |
+| Unified Memory (Composite Scoring) | Recall mit Semantic + Recency + Importance Gewichtung |
+| LLM Guardrail Agent | Quality Layer: Agent validiert Agent-Output |
+| Event-Bus (60+ Events) | Observability fuer Dashboard, Monitoring, WebSocket |
+| Flow DAG (@start/@listen/@router) | Inspiration fuer Workflow-Editor in der GUI |
+| Human Feedback Provider Protocol | Erweiterbare HITL-Kanaele (Web-GUI, Slack, Email) |
+| @tool Decorator | Saubere Tool-Definition fuer eigene Tools |
+
+#### Von AutoGen
+
+| Konzept | Umsetzung in CodeForge |
+|---|---|
+| Layered Package Structure | Core → AgentChat → Extensions, saubere Trennung |
+| GraphFlow (DiGraphBuilder) | DAG + Conditional Edges + Parallel Nodes fuer Agent-Koordination |
+| Workbench (Tool-Container) | Shared State fuer zusammengehoerige Tools, MCP-Integration |
+| Termination Conditions (composable) | Flexible Stop-Bedingungen mit & / \| Operatoren |
+| Context-Window-Strategien | Buffered, TokenLimited, HeadAndTail (kein Context-Overflow) |
+| Component System (deklarativ) | Agents/Tools/Workflows als JSON — essentiell fuer GUI-Editor |
+| MagenticOne Orchestrator | Planning Loop + Stall Detection + Re-Planning |
+| HandoffMessage Pattern | Agent-Uebergabe zwischen Spezialisten (Aider→OpenHands→SWE-agent) |
+| SocietyOfMindAgent | Team als Agent wrappen fuer nested Orchestrierung |
+
+#### Von MetaGPT
+
+| Konzept | Umsetzung in CodeForge |
+|---|---|
+| Dokument-getriebene Pipeline | PRD→Design→Tasks→Code reduziert Halluzination |
+| ActionNode (Schema-Validierung) | Erzwungene Strukturen + Review/Revise Cycles |
+| Experience Pool (@exp_cache) | Erfolgreiche Runs cachen, Kosten sparen |
+| BM25 Tool-Recommendation | Automatisch relevante Tools auswaehlen |
+| Budget-Enforcement | Harte Kosten-Limits pro Task/Projekt/User |
+| Mermaid-Generierung | Automatische Architektur-Visualisierung |
+| Incremental Development | Bestehenden Code beruecksichtigen bei Generierung |
+| Per-Action LLM Override | Verschiedene Models fuer verschiedene Schritte |
+
+#### Explizit NICHT uebernommen
+
+| Konzept | Grund |
+|---|---|
+| LangChain Message Types | Eigenes Message-Format, LLM via LiteLLM |
+| CrewAI's ChromaDB + LanceDB | Zu schwer, PostgresStore + pgvector reicht |
+| AutoGen's per-Provider LLM Clients | LiteLLM routet alles einheitlich |
+| MetaGPT's 90 Dependencies | Schlanke Workers, nur was gebraucht wird |
+| Alle Single-Process Runtimes | Go Core orchestriert, Python Workers fuehren aus |
+| LangGraph Platform / CrewAI Enterprise | Self-hosted by Design |
+| AutoGen's gRPC Runtime | Go Core uebernimmt Agent-Lifecycle via NATS/Redis |
+| MetaGPT's Pydantic-Vererbungsketten | Komposition statt tiefe Vererbung |

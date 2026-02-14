@@ -71,7 +71,24 @@ Detaillierte Analyse: docs/research/market-analysis.md
 - **Real-time State via WebSocket:** Live-Updates fuer Agent-Status, Logs, Kosten
 - **Agent-Spezialisierung:** YAML-konfigurierbare Sub-Agents (offener Punkt, spaeter)
 - **Frontend:** SolidJS + Tailwind CSS
+- **Framework-Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
+  - Composite Memory Scoring (Semantic + Recency + Importance)
+  - Context-Window-Strategien (Buffered, TokenLimited, HeadAndTail)
+  - Experience Pool (@exp_cache) fuer Caching erfolgreicher Runs
+  - Tool-Recommendation via BM25 (automatische Tool-Auswahl)
+  - Workbench (Tool-Container mit shared State, MCP-Integration)
+  - LLM Guardrail Agent (Agent validiert Agent-Output)
+  - Structured Output / ActionNode (Schema-Validierung + Review/Revise)
+  - Event-Bus fuer Observability (Agent/Task/System Events → WebSocket)
+  - GraphFlow / DAG-Orchestrierung (Conditional Edges, Parallel Nodes, Cycles)
+  - Composable Termination Conditions (MaxSteps | Budget | Timeout)
+  - Component System (Agents/Tools/Workflows als JSON serialisierbar, GUI-Editor)
+  - Dokument-Pipeline PRD→Design→Tasks→Code (reduziert Halluzination)
+  - MagenticOne Planning Loop (Stall Detection + Re-Planning)
+  - HandoffMessage Pattern (Agent-Uebergabe zwischen Spezialisten)
+  - Human Feedback Provider Protocol (Web-GUI, Slack, Email erweiterbar)
 - Detaillierte Beschreibung: docs/architecture.md
+- Framework-Vergleich: docs/research/market-analysis.md
 
 ## Strategische Prinzipien
 
