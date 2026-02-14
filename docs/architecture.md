@@ -312,6 +312,117 @@ Je weniger ein LLM kann, desto mehr uebernimmt der CodeForge Worker.
 - Fallback-Ketten: Wenn ein Provider ausfaellt, automatisch naechsten nutzen
 - Routing-Regeln konfigurierbar per Projekt und per User
 
+## Agent Execution: Modes, Safety, Workflow
+
+### Drei Execution Modes
+
+Nicht jeder Anwendungsfall braucht eine Sandbox. CodeForge unterstuetzt drei Modi:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Execution Modes                             │
+│                                                                 │
+│  ┌──────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+│  │   Sandbox    │  │     Mount        │  │     Hybrid       │  │
+│  │              │  │                  │  │                  │  │
+│  │  Isolierter  │  │  Agent arbeitet  │  │  Sandbox mit     │  │
+│  │  Container,  │  │  direkt auf      │  │  gemounteten     │  │
+│  │  Repo-Kopie  │  │  gemountem Pfad  │  │  Volumes         │  │
+│  │  im Container│  │  des Hosts       │  │  (read/write     │  │
+│  │              │  │                  │  │   konfigurierbar)│  │
+│  └──────────────┘  └──────────────────┘  └──────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| Modus | Wann | Sicherheit | Geschwindigkeit |
+|---|---|---|---|
+| **Sandbox** | Untrusted Agents, fremde Models, Batch-Jobs | Hoch — kein Zugriff auf Host | Mittel — Container-Overhead, Repo-Copy |
+| **Mount** | Trusted Agents (Claude Code, Aider), lokale Entwicklung | Niedrig — direkter Dateizugriff | Hoch — kein Overhead |
+| **Hybrid** | Review-Workflows, CI-artige Ausfuehrung | Mittel — kontrollierter Zugriff | Mittel |
+
+**Mount-Modus im Detail:**
+- Agent erhaelt Pfad zum gemounteten Repo (z.B. `/workspace/my-project`)
+- Aenderungen landen direkt im Dateisystem des Hosts
+- Ideal fuer interaktive Nutzung: User sieht Aenderungen sofort in seiner IDE
+- Kein Container noetig — Agent laeuft im Worker-Prozess oder nativem Tool
+
+**Sandbox-Modus im Detail:**
+- Docker-Container pro Task (Docker-in-Docker)
+- Repo wird in den Container kopiert oder als read-only Volume gemountet
+- Agent bekommt alle noetigen Tools im Container bereitgestellt
+- Ergebnis wird als Patch/Diff extrahiert und auf das Original-Repo angewendet
+
+**Hybrid-Modus im Detail:**
+- Container mit gemountem Volume
+- Mount-Rechte konfigurierbar: read-only Source + write Workspace-Copy
+- Agent kann lesen, aber Aenderungen gehen in eine Kopie
+- User reviewed und merged manuell
+
+### Tool-Provisioning fuer Sandbox-Agents
+
+Agents in Sandbox-Containern brauchen die richtigen Tools. CodeForge stellt
+diese automatisch bereit — abhaengig vom Agent-Typ und Execution Mode:
+
+```
+┌─────────────────────────────────────────────────┐
+│            Sandbox Container                     │
+│                                                 │
+│  ┌───────────────────────────────────────────┐  │
+│  │  Base Image (Python/Node/Go)              │  │
+│  └───────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────┐  │
+│  │  CodeForge Tool Layer                     │  │
+│  │  - Shell (mit Safety Evaluator)           │  │
+│  │  - File Read/Write/Patch                  │  │
+│  │  - Grep/Search                            │  │
+│  │  - Git Operations                         │  │
+│  │  - Dependency Installation                │  │
+│  │  - Test Runner                            │  │
+│  └───────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────┐  │
+│  │  Repo (kopiert oder gemountet)            │  │
+│  └───────────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
+```
+
+Tools werden als Pydantic-Schema definiert und dem LLM als Function Calls
+oder Tool-Definitionen uebergeben. Vollwertige Agents (Aider, OpenHands)
+bringen eigene Tools mit und brauchen nur das Repo.
+
+### Command Safety Evaluator
+
+Jeder Shell-Befehl eines Agents durchlaeuft einen Safety-Check:
+
+- **Destruktive Operationen** erkennen (`rm -rf`, `git push --force`, etc.)
+- **Prompt Injection** in Befehlen erkennen
+- **Risiko-Level** bewerten: low / medium / high
+- **Konfigurierbar** per Projekt: Was darf ein Agent, was nicht?
+- Bei Unsicherheit: Befehl blockieren und User fragen (Human-in-the-Loop)
+
+Fuer trusted Agents im Mount-Modus optional. Fuer lokale Models in der
+Sandbox obligatorisch.
+
+### Agent-Workflow: Plan → Execute → Review
+
+Standardisierter Workflow fuer alle nicht-autonomen Agents:
+
+```
+1. PLAN      Agent analysiert Task + Codebase, erstellt strukturierten Plan
+                ↓
+2. APPROVE   Plan wird dem User zur Freigabe vorgelegt (Web-GUI)
+                ↓  (User kann ablehnen, aendern, oder auto-approve setzen)
+3. EXECUTE   Agent arbeitet Plan Punkt fuer Punkt ab
+                ↓
+4. REVIEW    Automatisches Self-Review oder zweiter Agent prueft Ergebnis
+                ↓
+5. DELIVER   Ergebnis als Diff/Patch, PR, oder direkte Dateiaenderung
+```
+
+- Vollwertige Agents (Claude Code) koennen autonom arbeiten — Workflow optional
+- API-basierte LLMs brauchen den strukturierten Workflow
+- Jeder Schritt ist einzeln konfigurierbar (Skip, Auto-Approve, etc.)
+- Human-in-the-Loop an jedem Schritt moeglich ueber die Web-GUI
+
 ### Verzeichnisstruktur Python Workers
 
 ```
@@ -326,6 +437,13 @@ workers/
     routing/             # Routing Layer
       router.py          # Task-basiertes Model-Routing
       cost.py            # Kosten-Tracking und Budgets
+    safety/              # Safety Layer
+      evaluator.py       # Command Safety Evaluator
+      policies.py        # Projekt-spezifische Sicherheitsregeln
+    execution/           # Execution Layer
+      sandbox.py         # Docker-Container-Management
+      mount.py           # Mount-Modus Logik
+      tools.py           # Tool-Provisioning (Shell, File, Git, etc.)
     agents/              # Agent-Backends (Aider, OpenHands, etc.)
     llm/                 # LLM-Client via LiteLLM
     models/              # Datenmodelle

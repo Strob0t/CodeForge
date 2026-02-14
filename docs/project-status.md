@@ -22,6 +22,9 @@
 - [x] Dokumentation (docs/)
 - [x] Software-Architektur definiert: Hexagonal Architecture + Provider Registry Pattern
 - [x] LLM Capability Levels und Worker-Module definiert (GraphRAG, Debate, Routing)
+- [x] Agent Execution Modes definiert (Sandbox, Mount, Hybrid)
+- [x] Agent-Workflow definiert (Plan → Approve → Execute → Review → Deliver)
+- [x] Command Safety Evaluator und Tool-Provisioning konzipiert
 - [x] Git-Workflow mit Commit-Checkliste (pre-commit + Doku-Pflege)
 
 ### Offen
