@@ -15,7 +15,7 @@ Containerisierter Service zur Orchestrierung von AI-Coding-Agents mit Web-GUI.
 Drei-Schichten Hybrid-Stack:
 
 ```
-TypeScript Frontend (React/Svelte)
+TypeScript Frontend (SolidJS)
         |
         v  REST / WebSocket
 Go Core Service (HTTP, WebSocket, Agent Lifecycle, Repo-Verwaltung, Scheduling)
@@ -66,6 +66,11 @@ Detaillierte Analyse: docs/research/market-analysis.md
 - **Hook-System:** Observer-Pattern fuer Agent/Environment-Lifecycle
 - **Trajectory Recording:** Aufzeichnung, Replay, Inspector, Audit-Trail
 - **Kosten-Management:** Budget-Limits pro Task/Projekt/User, Auto-Tracking
+- **Jinja2-Prompt-Templates:** Prompts in separaten Dateien, nicht im Code
+- **KeyBERT Keyword-Extraction:** Semantische Keywords fuer besseres Retrieval
+- **Real-time State via WebSocket:** Live-Updates fuer Agent-Status, Logs, Kosten
+- **Agent-Spezialisierung:** YAML-konfigurierbare Sub-Agents (offener Punkt, spaeter)
+- **Frontend:** SolidJS + Tailwind CSS
 - Detaillierte Beschreibung: docs/architecture.md
 
 ## Strategische Prinzipien

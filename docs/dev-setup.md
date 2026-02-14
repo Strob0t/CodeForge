@@ -76,10 +76,10 @@ CodeForge/
 │       ├── agents/           # Agent-Backends
 │       ├── llm/              # LLM-Client via LiteLLM
 │       └── models/           # Datenmodelle
-├── frontend/                 # TypeScript Web-GUI
+├── frontend/                 # SolidJS Web-GUI
 │   └── src/
 │       ├── features/         # Feature-Module
-│       ├── shared/           # Gemeinsame Komponenten
+│       ├── shared/           # Gemeinsame Komponenten, Primitives
 │       └── api/              # API-Client, WebSocket
 ├── docs/
 │   ├── architecture.md       # Systemarchitektur + Hexagonal + Provider Registry

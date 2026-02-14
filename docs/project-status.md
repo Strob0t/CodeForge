@@ -28,16 +28,17 @@
 - [x] Quality Layer erweitert: Action Sampling, RetryAgent + Reviewer, Debate (3 Stufen)
 - [x] YAML-basierte Tool-Bundles, History Processors, Hook-System, Trajectory Recording
 - [x] Kosten-Management konzipiert (Budget-Limits pro Task/Projekt/User)
-- [x] Konkurrenzanalyse vertieft: BjornMelin/codeforge, Open SWE, SWE-agent
+- [x] Konkurrenzanalyse vertieft: BjornMelin/codeforge, Open SWE, SWE-agent, Devika
+- [x] Jinja2-Prompt-Templates, KeyBERT, Real-time WebSocket State konzipiert
+- [x] Frontend-Framework gewaehlt: SolidJS + Tailwind CSS
 - [x] Git-Workflow mit Commit-Checkliste (pre-commit + Doku-Pflege)
 
 ### Offen
 
 - [ ] Devcontainer erstmalig bauen und testen
-- [ ] Git-Repository sauber committen
-- [ ] Frontend-Framework waehlen (React/Next.js vs. Svelte/SvelteKit)
 - [ ] Go-Modul initialisieren (go mod init)
 - [ ] Grundlegende Projektstruktur anlegen (Verzeichnisse fuer Go, Python, Frontend)
+- [ ] Agent-Spezialisierung detailliert ausarbeiten (YAML-Configs, GUI-Workflow-Editor)
 
 ## Phase 1: Foundation (naechster Schritt)
 

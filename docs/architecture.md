@@ -10,7 +10,7 @@ Die Architektur folgt einem Drei-Schichten-Modell mit strikter Sprachtrennung na
 ```
 ┌─────────────────────────────────────────────────────┐
 │                  TypeScript Frontend                 │
-│              (React / Next.js / Svelte)              │
+│                     (SolidJS)                        │
 │                                                     │
 │  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌────────┐ │
 │  │ Projekt  │  │ Roadmap/ │  │  LLM   │  │ Agent  │ │
@@ -450,6 +450,62 @@ Standardisierter Workflow fuer alle nicht-autonomen Agents:
 - Jeder Schritt ist einzeln konfigurierbar (Skip, Auto-Approve, etc.)
 - Human-in-the-Loop an jedem Schritt moeglich ueber die Web-GUI
 
+### Jinja2-Prompt-Templates
+
+Alle Prompts fuer LLM-Aufrufe werden als Jinja2-Templates in separaten
+Dateien gespeichert, nicht im Python-Code:
+
+```
+workers/codeforge/templates/
+  planner.jinja2          # Planungs-Prompt
+  coder.jinja2            # Code-Generierungs-Prompt
+  reviewer.jinja2         # Review-Prompt
+  researcher.jinja2       # Research-Prompt
+  safety_evaluator.jinja2 # Safety-Check-Prompt
+```
+
+Vorteile:
+- Prompts sind ohne Code-Aenderung anpassbar
+- Contributors koennen Prompts verbessern ohne Python zu kennen
+- Verschiedene Prompt-Sets fuer verschiedene LLMs moeglich
+- Versionierbar und vergleichbar (Git-Diff auf Prompt-Aenderungen)
+
+### Keyword-Extraction (KeyBERT)
+
+Fuer den Context Layer: Semantische Keyword-Extraktion aus Tasks und Code
+mittels SentenceTransformers/BERT:
+
+- Extrahiert relevante Keywords aus User-Anfragen und Codebase
+- Maximal Marginal Relevance (MMR) fuer diverse, nicht-redundante Keywords
+- Keywords verbessern die Retrieval-Qualitaet im GraphRAG-Layer
+- Leichtgewichtig, laeuft lokal ohne externe API
+
+### Real-time State via WebSocket
+
+Jede State-Mutation eines Agents wird sofort ueber WebSocket an das
+Frontend emittiert:
+
+- Agent-Status (aktiv, wartend, fertig)
+- Internal Monologue (was der Agent "denkt")
+- Aktueller Schritt im Workflow
+- Token-Usage und Kosten in Echtzeit
+- Terminal/Browser-Session-Daten
+
+Das Frontend kann so Live-Updates darstellen ohne Polling.
+
+### Agent-Spezialisierung (offener Punkt)
+
+Statt eines General-Purpose-Agents koennen spezialisierte Sub-Agents
+(Planner, Coder, Reviewer, Researcher, etc.) ueber YAML-Configs definiert
+und in der GUI als eigene Workflows konfiguriert werden.
+
+**Dieser Punkt wird zu einem spaeteren Zeitpunkt detailliert ausgearbeitet.**
+
+Geplant:
+- Default-YAML-Configs fuer gaengige Spezialisierungen
+- GUI-Workflow-Editor zur Konfiguration der Agent-Pipeline
+- Konfigurierbare Reihenfolge und Aktivierung von Sub-Agents
+
 ### YAML-basierte Tool-Definitionen
 
 Tools fuer Agents werden deklarativ in YAML definiert, nicht im Code hardcoded.
@@ -571,12 +627,12 @@ workers/
       bundles/           # Tool-Bundle-Verzeichnisse
 ```
 
-### Verzeichnisstruktur Frontend
+### Verzeichnisstruktur Frontend (SolidJS)
 
 ```
 frontend/
   src/
     features/            # Feature-Module (dashboard, roadmap, agents, llm)
-    shared/              # Gemeinsame Komponenten, Hooks, Utils
+    shared/              # Gemeinsame Komponenten, Primitives, Utils
     api/                 # API-Client, WebSocket-Handler
 ```

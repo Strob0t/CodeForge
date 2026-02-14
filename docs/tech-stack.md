@@ -29,8 +29,8 @@
 - **Konfiguration:** (wird mit Frontend-Setup erstellt)
 
 ### Pre-commit Hooks
-- **Konfiguration:** `.pre-commit.yaml`
-- **Aufruf:** `pre-commit run -c .pre-commit.yaml --all-files`
+- **Konfiguration:** `.pre-commit-config.yaml`
+- **Aufruf:** `pre-commit run --all-files`
 - Laeuft automatisch bei jedem `git commit`
 
 ## Paketmanagement
@@ -82,6 +82,6 @@
 - Redis/NATS Client
 
 ### TypeScript Frontend
-- Framework (React/Next.js oder Svelte/SvelteKit)
+- SolidJS (reaktives UI-Framework)
 - Tailwind CSS
 - WebSocket Client
