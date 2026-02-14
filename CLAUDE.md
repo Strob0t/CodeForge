@@ -64,5 +64,12 @@ Detaillierte Analyse: docs/research/market-analysis.md
 ## Git-Workflow
 
 - **Commits nur auf `staging`** — niemals direkt auf `main`, es sei denn der User gibt explizit die Anweisung dazu
-- **Vor jedem Commit:** `pre-commit run --all-files` ausfuehren und Fehler beheben
 - **Branch-Strategie:** Entwicklung auf `staging`, Merge nach `main` nur auf Anweisung
+- **Vor jedem Commit — Checkliste:**
+  1. `pre-commit run --all-files` ausfuehren und Fehler beheben
+  2. Betroffene Dokumentation aktualisieren:
+     - `docs/architecture.md` — bei Architektur- oder Strukturaenderungen
+     - `docs/dev-setup.md` — bei neuen Verzeichnissen, Ports, Tooling, Environment-Variablen
+     - `docs/tech-stack.md` — bei neuen Dependencies, Sprach-/Tool-Versionen
+     - `docs/project-status.md` — erledigte Punkte abhaken, neue Punkte eintragen
+     - `CLAUDE.md` — bei Aenderungen an Kernsaeulen, Architektur, Workflow-Regeln

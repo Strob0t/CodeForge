@@ -20,6 +20,8 @@
 - [x] .gitignore
 - [x] CLAUDE.md (Projektkontext fuer AI-Assistenten)
 - [x] Dokumentation (docs/)
+- [x] Software-Architektur definiert: Hexagonal Architecture + Provider Registry Pattern
+- [x] Git-Workflow mit Commit-Checkliste (pre-commit + Doku-Pflege)
 
 ### Offen
 
