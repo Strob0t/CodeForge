@@ -1,5 +1,7 @@
 """Health check endpoint for Python workers."""
 
+from __future__ import annotations
+
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 

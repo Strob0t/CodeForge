@@ -1,0 +1,71 @@
+"""Tests for the LiteLLM client."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+
+from codeforge.llm import LiteLLMClient
+
+_FAKE_REQUEST = httpx.Request("POST", "http://test:4000/v1/chat/completions")
+
+
+@pytest.fixture
+def client() -> LiteLLMClient:
+    """Create a LiteLLMClient for testing."""
+    return LiteLLMClient(base_url="http://test:4000", api_key="test-key")
+
+
+async def test_completion_parses_response(client: LiteLLMClient) -> None:
+    """completion() should parse a valid OpenAI-format response."""
+    mock_response = httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": "Hello world"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+        request=_FAKE_REQUEST,
+    )
+
+    with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
+        result = await client.completion(prompt="Say hello", model="test-model")
+
+    assert result.content == "Hello world"
+    assert result.tokens_in == 10
+    assert result.tokens_out == 5
+    assert result.model == "test-model"
+
+
+async def test_completion_empty_choices(client: LiteLLMClient) -> None:
+    """completion() should handle empty choices gracefully."""
+    mock_response = httpx.Response(200, json={"choices": [], "usage": {}}, request=_FAKE_REQUEST)
+
+    with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
+        result = await client.completion(prompt="test")
+
+    assert result.content == ""
+    assert result.tokens_in == 0
+    assert result.tokens_out == 0
+
+
+async def test_health_returns_true(client: LiteLLMClient) -> None:
+    """health() should return True when the proxy responds with 200."""
+    mock_response = httpx.Response(200, request=httpx.Request("GET", "http://test:4000/health"))
+
+    with patch.object(client._client, "get", new_callable=AsyncMock, return_value=mock_response):
+        assert await client.health() is True
+
+
+async def test_health_returns_false_on_error(client: LiteLLMClient) -> None:
+    """health() should return False on connection errors."""
+    with patch.object(client._client, "get", new_callable=AsyncMock, side_effect=httpx.ConnectError("refused")):
+        assert await client.health() is False
+
+
+async def test_close_calls_aclose(client: LiteLLMClient) -> None:
+    """close() should properly close the HTTP client."""
+    with patch.object(client._client, "aclose", new_callable=AsyncMock) as mock_close:
+        await client.close()
+        mock_close.assert_called_once()
