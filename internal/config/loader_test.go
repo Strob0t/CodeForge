@@ -156,3 +156,54 @@ func TestValidateDefaults(t *testing.T) {
 		t.Errorf("defaults should validate, got %v", err)
 	}
 }
+
+func TestPolicyDefaults(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Policy.DefaultProfile != "headless-safe-sandbox" {
+		t.Errorf("expected default profile 'headless-safe-sandbox', got %q", cfg.Policy.DefaultProfile)
+	}
+	if cfg.Policy.CustomDir != "" {
+		t.Errorf("expected empty custom dir, got %q", cfg.Policy.CustomDir)
+	}
+}
+
+func TestPolicyYAMLOverride(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "test.yaml")
+	content := `
+policy:
+  default_profile: "plan-readonly"
+  custom_dir: "/etc/codeforge/policies"
+`
+	if err := os.WriteFile(yamlPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Defaults()
+	if err := loadYAML(&cfg, yamlPath); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Policy.DefaultProfile != "plan-readonly" {
+		t.Errorf("expected 'plan-readonly', got %q", cfg.Policy.DefaultProfile)
+	}
+	if cfg.Policy.CustomDir != "/etc/codeforge/policies" {
+		t.Errorf("expected '/etc/codeforge/policies', got %q", cfg.Policy.CustomDir)
+	}
+}
+
+func TestPolicyEnvOverride(t *testing.T) {
+	cfg := Defaults()
+
+	t.Setenv("CODEFORGE_POLICY_DEFAULT", "trusted-mount-autonomous")
+	t.Setenv("CODEFORGE_POLICY_DIR", "/custom/policies")
+
+	loadEnv(&cfg)
+
+	if cfg.Policy.DefaultProfile != "trusted-mount-autonomous" {
+		t.Errorf("expected 'trusted-mount-autonomous', got %q", cfg.Policy.DefaultProfile)
+	}
+	if cfg.Policy.CustomDir != "/custom/policies" {
+		t.Errorf("expected '/custom/policies', got %q", cfg.Policy.CustomDir)
+	}
+}

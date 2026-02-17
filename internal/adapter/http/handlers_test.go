@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -180,6 +181,7 @@ func newTestRouter() chi.Router {
 		Tasks:    service.NewTaskService(store, queue),
 		Agents:   service.NewAgentService(store, queue, bc),
 		LiteLLM:  litellm.NewClient("http://localhost:4000", ""),
+		Policies: service.NewPolicyService("headless-safe-sandbox", nil),
 	}
 
 	r := chi.NewRouter()
@@ -756,6 +758,124 @@ func TestDeleteLLMModelInvalidBody(t *testing.T) {
 	r := newTestRouter()
 
 	req := httptest.NewRequest("POST", "/api/v1/llm/models/delete", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- Policy Endpoints ---
+
+func TestListPolicyProfiles(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/policies", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var result map[string][]string
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	profiles := result["profiles"]
+	if len(profiles) != 4 {
+		t.Fatalf("expected 4 profiles (4 presets), got %d: %v", len(profiles), profiles)
+	}
+}
+
+func TestGetPolicyProfile(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/policies/plan-readonly", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var p policy.PolicyProfile
+	if err := json.NewDecoder(w.Body).Decode(&p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Name != "plan-readonly" {
+		t.Fatalf("expected name 'plan-readonly', got %q", p.Name)
+	}
+}
+
+func TestGetPolicyProfileNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/policies/nonexistent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestEvaluatePolicy(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(policy.ToolCall{Tool: "Read", Path: "src/main.go"})
+	req := httptest.NewRequest("POST", "/api/v1/policies/plan-readonly/evaluate", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result["decision"] != "allow" {
+		t.Fatalf("expected 'allow' for Read in plan-readonly, got %q", result["decision"])
+	}
+}
+
+func TestEvaluatePolicyUnknownProfile(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(policy.ToolCall{Tool: "Read"})
+	req := httptest.NewRequest("POST", "/api/v1/policies/nonexistent/evaluate", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestEvaluatePolicyMissingTool(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{"path": "file.go"})
+	req := httptest.NewRequest("POST", "/api/v1/policies/plan-readonly/evaluate", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestEvaluatePolicyInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/policies/plan-readonly/evaluate", bytes.NewReader([]byte("bad")))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

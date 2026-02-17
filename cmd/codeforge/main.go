@@ -23,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/resilience"
@@ -97,6 +98,21 @@ func run() error {
 	agentSvc := service.NewAgentService(store, queue, hub)
 	agentSvc.SetEventStore(eventStore)
 
+	// --- Policy Service ---
+	var customPolicies []policy.PolicyProfile
+	if cfg.Policy.CustomDir != "" {
+		loaded, err := policy.LoadFromDirectory(cfg.Policy.CustomDir)
+		if err != nil {
+			return fmt.Errorf("policy custom dir: %w", err)
+		}
+		customPolicies = loaded
+	}
+	policySvc := service.NewPolicyService(cfg.Policy.DefaultProfile, customPolicies)
+	slog.Info("policy service initialized",
+		"default_profile", cfg.Policy.DefaultProfile,
+		"profiles", len(policySvc.ListProfiles()),
+	)
+
 	// Start NATS subscribers (process results and streaming output from workers)
 	cancelResults, err := agentSvc.StartResultSubscriber(ctx)
 	if err != nil {
@@ -117,6 +133,7 @@ func run() error {
 		Tasks:    taskSvc,
 		Agents:   agentSvc,
 		LiteLLM:  llmClient,
+		Policies: policySvc,
 	}
 
 	r := chi.NewRouter()

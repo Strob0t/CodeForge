@@ -55,5 +55,10 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// Provider registries
 		r.Get("/providers/git", h.ListGitProviders)
 		r.Get("/providers/agent", h.ListAgentBackends)
+
+		// Policy profiles
+		r.Get("/policies", h.ListPolicyProfiles)
+		r.Get("/policies/{name}", h.GetPolicyProfile)
+		r.Post("/policies/{name}/evaluate", h.EvaluatePolicy)
 	})
 }

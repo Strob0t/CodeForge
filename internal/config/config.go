@@ -13,6 +13,13 @@ type Config struct {
 	Logging  Logging  `yaml:"logging"`
 	Breaker  Breaker  `yaml:"breaker"`
 	Rate     Rate     `yaml:"rate"`
+	Policy   Policy   `yaml:"policy"`
+}
+
+// Policy holds policy engine configuration.
+type Policy struct {
+	DefaultProfile string `yaml:"default_profile"`
+	CustomDir      string `yaml:"custom_dir"`
 }
 
 // Server holds HTTP server configuration.
@@ -92,6 +99,9 @@ func Defaults() Config {
 		Rate: Rate{
 			RequestsPerSecond: 10,
 			Burst:             100,
+		},
+		Policy: Policy{
+			DefaultProfile: "headless-safe-sandbox",
 		},
 	}
 }

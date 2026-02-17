@@ -160,7 +160,7 @@
 - **Frontend:** 13 components, 4 routes (/, /projects, /projects/:id, /models), WebSocket live updates
 - **API:** Git ops (clone/pull/branches/checkout/status), Agent CRUD + dispatch/stop, LLM CRUD + health
 
-## Phase 3: Reliability, Performance & Agent Foundation (IN PROGRESS)
+## Phase 3: Reliability, Performance & Agent Foundation (COMPLETED)
 
 - [x] (2026-02-17) WP1: Configuration Management — hierarchical config (defaults < YAML < ENV), typed Config struct, validation, 6 tests
 - [x] (2026-02-17) WP2: Structured Logging & Request ID — slog factory, structlog, X-Request-ID propagation HTTP→NATS→Python, 6 new tests
@@ -170,3 +170,23 @@
 - [x] (2026-02-17) WP6: Dead Letter Queue & Schema Validation
 - [x] (2026-02-17) WP7: Event Sourcing for Agent Trajectory
 - [x] (2026-02-17) WP8: Health Granularity & Rate Limiting
+
+## Phase 4: Agent Execution Engine (IN PROGRESS)
+
+### 4A. Policy Layer (COMPLETED)
+
+- [x] (2026-02-17) Domain model: PolicyProfile, PermissionRule, ToolSpecifier, ToolCall, QualityGate, TerminationCondition
+- [x] (2026-02-17) Validation: name required, valid mode/decision, non-negative limits
+- [x] (2026-02-17) 4 built-in presets: plan-readonly, headless-safe-sandbox, headless-permissive-sandbox, trusted-mount-autonomous
+- [x] (2026-02-17) YAML loader: LoadFromFile, LoadFromDirectory (custom policies)
+- [x] (2026-02-17) Policy evaluator: first-match-wins rules, glob matching (incl. **), path/command constraints
+- [x] (2026-02-17) Config integration: Policy.DefaultProfile, Policy.CustomDir, ENV overrides
+- [x] (2026-02-17) REST API: GET /policies, GET /policies/{name}, POST /policies/{name}/evaluate
+- [x] (2026-02-17) Composition root wiring in cmd/codeforge/main.go
+- [x] (2026-02-17) 46 test functions: domain (20), service (25), config (3), handlers (7) — all passing
+
+### Phase 4A Key Deliverables
+- **New files:** 8 (policy domain types, validate, presets, loader, service, 3 test files)
+- **Modified files:** 7 (config, loader, handlers, routes, main, config tests, handler tests)
+- **API:** 3 new REST endpoints under /api/v1/policies
+- **Tests:** 46 new test functions, all Go tests pass (153+ total)

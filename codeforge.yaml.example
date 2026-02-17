@@ -32,3 +32,10 @@ breaker:
 rate:
   requests_per_second: 10.0
   burst: 100
+
+# Policy engine for agent permissions and safety
+# Available presets: plan-readonly, headless-safe-sandbox,
+#   headless-permissive-sandbox, trusted-mount-autonomous
+policy:
+  default_profile: "headless-safe-sandbox"
+  custom_dir: ""   # Directory with custom .yaml policy files

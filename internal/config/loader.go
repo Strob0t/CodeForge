@@ -69,6 +69,8 @@ func loadEnv(cfg *Config) {
 	setDuration(&cfg.Breaker.Timeout, "CODEFORGE_BREAKER_TIMEOUT")
 	setFloat64(&cfg.Rate.RequestsPerSecond, "CODEFORGE_RATE_RPS")
 	setInt(&cfg.Rate.Burst, "CODEFORGE_RATE_BURST")
+	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
+	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 }
 
 // validate checks that required fields are set.

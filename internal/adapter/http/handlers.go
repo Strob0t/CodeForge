@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
@@ -25,6 +26,7 @@ type Handlers struct {
 	Tasks    *service.TaskService
 	Agents   *service.AgentService
 	LiteLLM  *litellm.Client
+	Policies *service.PolicyService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -396,6 +398,51 @@ func (h *Handlers) LLMHealth(w http.ResponseWriter, r *http.Request) {
 		status = "unhealthy"
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": status})
+}
+
+// --- Policy Endpoints ---
+
+// ListPolicyProfiles handles GET /api/v1/policies
+func (h *Handlers) ListPolicyProfiles(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string][]string{
+		"profiles": h.Policies.ListProfiles(),
+	})
+}
+
+// GetPolicyProfile handles GET /api/v1/policies/{name}
+func (h *Handlers) GetPolicyProfile(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	p, ok := h.Policies.GetProfile(name)
+	if !ok {
+		writeError(w, http.StatusNotFound, "policy profile not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// EvaluatePolicy handles POST /api/v1/policies/{name}/evaluate
+func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	var call policy.ToolCall
+	if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if call.Tool == "" {
+		writeError(w, http.StatusBadRequest, "tool is required")
+		return
+	}
+
+	decision, err := h.Policies.Evaluate(r.Context(), name, call)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"decision": string(decision),
+	})
 }
 
 // --- Helpers ---

@@ -172,28 +172,39 @@
 
 ### 4A. Policy Layer (Permission + Checkpoint Gate)
 
-- [ ] Design Policy domain model
-  - `internal/domain/policy.go`: PolicyProfile, PermissionRule, ToolSpecifier
+- [x] (2026-02-17) Design Policy domain model
+  - `internal/domain/policy/policy.go`: PolicyProfile, PermissionRule, ToolSpecifier, ToolCall
   - Permission modes: `default`, `acceptEdits`, `plan`, `delegate`
-  - Rule evaluation: deny → ask → allow (first match wins)
-- [ ] Implement Permission Gate middleware
-  - Before every mutating ToolCall: evaluate policy rules
-  - ToolSpecifier patterns: `Read`, `Edit`, `Bash(git status:*)`, `Bash(go test:*)`
-  - Path allow/deny lists (glob patterns)
-  - Command allow/deny lists for Bash
+  - Decisions: `allow`, `deny`, `ask`
+  - Quality gates: `RequireTestsPass`, `RequireLintPass`, `RollbackOnGateFail`
+  - Termination conditions: `MaxSteps`, `TimeoutSeconds`, `MaxCost`, `StallDetection`
+  - Validation: `internal/domain/policy/validate.go`
+- [x] (2026-02-17) Implement Policy Evaluator service
+  - `internal/service/policy.go`: First-match-wins rule evaluation
+  - ToolSpecifier matching: exact tool + optional sub-pattern (glob)
+  - Path allow/deny lists (glob patterns with `**` recursive matching)
+  - Command allow/deny lists (prefix-based matching)
+  - Mode-based fallback: `plan`→deny, `default`→ask, `acceptEdits`→allow, `delegate`→allow
+- [x] (2026-02-17) Policy Presets (4 built-in profiles)
+  - `plan-readonly`: Read-only, deny Edit/Write/Bash, 30 steps, 300s, $1
+  - `headless-safe-sandbox`: Safe Bash (git/test only), path deny for secrets, 50 steps, 600s, $5
+  - `headless-permissive-sandbox`: Broader Bash, deny network cmds, 100 steps, 1800s, $20
+  - `trusted-mount-autonomous`: All tools, deny only secrets paths, 200 steps, 3600s, $50
+- [x] (2026-02-17) YAML-configurable custom policies
+  - `internal/domain/policy/loader.go`: LoadFromFile, LoadFromDirectory
+  - Config: `CODEFORGE_POLICY_DEFAULT`, `CODEFORGE_POLICY_DIR` env vars
+- [x] (2026-02-17) Policy REST API (3 endpoints)
+  - `GET /api/v1/policies` — list all profile names
+  - `GET /api/v1/policies/{name}` — full profile definition
+  - `POST /api/v1/policies/{name}/evaluate` — evaluate a ToolCall
+- [x] (2026-02-17) Policy tests: 46 test functions across 4 files
+  - `internal/domain/policy/policy_test.go` (5), `presets_test.go` (8), `loader_test.go` (7)
+  - `internal/service/policy_test.go` (25)
+  - Config tests (3 in `loader_test.go`), handler tests (7 in `handlers_test.go`)
 - [ ] Implement Checkpoint system
   - Before every `Edit/Write/Replace`: automatic checkpoint
   - On failed Quality Gates (tests/lint): automatic rewind or re-plan
   - Shadow Git approach for Mount mode, Blob snapshots for Sandbox
-- [ ] Quality Gates (Definition of Done)
-  - Configurable per project: `requireTestsPass`, `requireLintPass`
-  - `rollbackOnGateFail`: automatic rewind on gate failure
-  - `maxSteps`, `timeoutSeconds`, `maxCost`, `stallDetection` as termination conditions
-- [ ] Policy Presets (4 built-in profiles)
-  - `plan-readonly`: Debug/Preview, no side-effects, read-only tools only
-  - `headless-safe-sandbox`: Default for autonomous server jobs, safety first
-  - `headless-permissive-sandbox`: Batch/refactor, more freedom, still sandboxed
-  - `trusted-mount-autonomous`: Power-user, direct mount, all local tools allowed
 - [ ] Policy UI in Frontend
   - Policy Editor per project (YAML-style, fits CodeForge config standard)
   - "Effective Permission Preview": show which rule matches and why
@@ -407,7 +418,7 @@
 - [ ] Integration tests for Idempotency (duplicate requests, TTL expiry)
 - [ ] Load tests for Rate Limiting (sustained vs burst, per-user limiters)
 - [ ] Runtime Compliance Tests (Sandbox/Mount/Hybrid feature parity)
-- [ ] Policy Gate tests (deny/ask/allow evaluation, path scoping)
+- [x] (2026-02-17) Policy Gate tests (deny/ask/allow evaluation, path scoping, command matching, preset integration)
 
 ---
 
