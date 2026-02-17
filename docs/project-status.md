@@ -168,5 +168,5 @@
 - [x] (2026-02-17) WP4: Optimistic Locking & DB Pool Tuning
 - [x] (2026-02-17) WP5: Circuit Breaker
 - [x] (2026-02-17) WP6: Dead Letter Queue & Schema Validation
-- [ ] WP7: Event Sourcing for Agent Trajectory
+- [x] (2026-02-17) WP7: Event Sourcing for Agent Trajectory
 - [ ] WP8: Health Granularity & Rate Limiting

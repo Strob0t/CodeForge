@@ -1,6 +1,7 @@
 import type {
   AddModelRequest,
   Agent,
+  AgentEvent,
   ApiError,
   BackendList,
   Branch,
@@ -133,6 +134,9 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+
+    events: (taskId: string) =>
+      request<AgentEvent[]>(`/tasks/${encodeURIComponent(taskId)}/events`),
   },
 
   llm: {

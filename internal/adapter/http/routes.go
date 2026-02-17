@@ -44,6 +44,7 @@ func MountRoutes(r chi.Router, h *Handlers) {
 
 		// Tasks (direct access)
 		r.Get("/tasks/{id}", h.GetTask)
+		r.Get("/tasks/{id}/events", h.ListTaskEvents)
 
 		// LLM management (proxied to LiteLLM)
 		r.Get("/llm/models", h.ListLLMModels)

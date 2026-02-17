@@ -11,6 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
@@ -304,6 +305,20 @@ func (h *Handlers) StopAgentTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+// ListTaskEvents handles GET /api/v1/tasks/{id}/events
+func (h *Handlers) ListTaskEvents(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	events, err := h.Agents.LoadTaskEvents(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "events not found")
+		return
+	}
+	if events == nil {
+		events = []event.AgentEvent{}
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 // ListGitProviders handles GET /api/v1/providers/git

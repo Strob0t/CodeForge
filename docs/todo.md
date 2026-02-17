@@ -94,9 +94,11 @@
 
 ### 3D. Event Sourcing for Agent Trajectory
 
-- [ ] Domain: `internal/domain/event.go` (AgentEvent struct)
-- [ ] Port: `internal/port/eventstore/store.go` (Append, Load, Replay)
-- [ ] Storage: PostgreSQL table `agent_events` (append-only, partitioned by month)
+- [x] (2026-02-17) Domain: `internal/domain/event/event.go` (AgentEvent struct, Type constants)
+- [x] (2026-02-17) Port: `internal/port/eventstore/store.go` (Append, LoadByTask, LoadByAgent)
+- [x] (2026-02-17) Storage: PostgreSQL table `agent_events` (append-only, migration 004, indexed)
+- [x] (2026-02-17) Service: Event recording on dispatch/result/stop, LoadTaskEvents method
+- [x] (2026-02-17) API: `GET /api/v1/tasks/{id}/events` handler + frontend client method
 - [ ] Features: Replay task, trajectory inspector, audit trail
 - [ ] Session Events as Source of Truth (append-only log for Resume/Fork/Rewind)
   - Every user/model/tool action recorded as event

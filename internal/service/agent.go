@@ -8,23 +8,32 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // AgentService handles agent lifecycle and task dispatch.
 type AgentService struct {
-	store database.Store
-	queue messagequeue.Queue
-	hub   broadcast.Broadcaster
+	store  database.Store
+	queue  messagequeue.Queue
+	hub    broadcast.Broadcaster
+	events eventstore.Store
 }
 
 // NewAgentService creates a new AgentService.
 func NewAgentService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster) *AgentService {
 	return &AgentService{store: store, queue: queue, hub: hub}
+}
+
+// SetEventStore attaches an event store for trajectory recording.
+func (s *AgentService) SetEventStore(es eventstore.Store) {
+	s.events = es
 }
 
 // List returns all agents for a project.
@@ -88,6 +97,12 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("dispatch task: %w", err)
 	}
 
+	// Record event
+	s.appendEvent(ctx, event.TypeAgentStarted, agentID, taskID, ag.ProjectID, map[string]string{
+		"backend": ag.Backend,
+		"task":    t.Title,
+	})
+
 	// Broadcast state changes
 	s.hub.BroadcastEvent(ctx, ws.EventAgentStatus, ws.AgentStatusEvent{
 		AgentID:   agentID,
@@ -123,6 +138,11 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 	_ = s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle)
 	_ = s.store.UpdateTaskStatus(ctx, taskID, task.StatusCancelled)
 
+	// Record event
+	s.appendEvent(ctx, event.TypeAgentError, agentID, taskID, ag.ProjectID, map[string]string{
+		"reason": "stopped by user",
+	})
+
 	// Broadcast state changes
 	s.hub.BroadcastEvent(ctx, ws.EventAgentStatus, ws.AgentStatusEvent{
 		AgentID:   agentID,
@@ -146,9 +166,19 @@ func (s *AgentService) HandleResult(ctx context.Context, result task.Result, tas
 	}
 
 	status := string(task.StatusCompleted)
+	evType := event.TypeAgentFinished
 	if result.Error != "" {
 		status = string(task.StatusFailed)
+		evType = event.TypeAgentError
 	}
+
+	// Record event (agentID not available here, use empty string)
+	s.appendEvent(ctx, evType, "", taskID, projectID, map[string]string{
+		"status": status,
+		"cost":   fmt.Sprintf("%.6f", costUSD),
+		"output": truncate(result.Output, 200),
+		"error":  result.Error,
+	})
 
 	s.hub.BroadcastEvent(ctx, ws.EventTaskStatus, ws.TaskStatusEvent{
 		TaskID:    taskID,
@@ -202,4 +232,43 @@ func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func()
 		s.hub.BroadcastEvent(msgCtx, ws.EventTaskOutput, output)
 		return nil
 	})
+}
+
+// LoadTaskEvents returns all events for a task from the event store.
+func (s *AgentService) LoadTaskEvents(ctx context.Context, taskID string) ([]event.AgentEvent, error) {
+	if s.events == nil {
+		return nil, nil
+	}
+	return s.events.LoadByTask(ctx, taskID)
+}
+
+// appendEvent records an event to the event store (best-effort, logs errors).
+func (s *AgentService) appendEvent(ctx context.Context, evType event.Type, agentID, taskID, projectID string, payload map[string]string) {
+	if s.events == nil {
+		return
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("failed to marshal event payload", "error", err)
+		return
+	}
+	ev := event.AgentEvent{
+		AgentID:   agentID,
+		TaskID:    taskID,
+		ProjectID: projectID,
+		Type:      evType,
+		Payload:   payloadJSON,
+		RequestID: logger.RequestID(ctx),
+		Version:   1,
+	}
+	if err := s.events.Append(ctx, &ev); err != nil {
+		slog.Error("failed to append event", "type", evType, "task_id", taskID, "error", err)
+	}
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

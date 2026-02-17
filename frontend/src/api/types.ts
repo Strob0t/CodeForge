@@ -107,6 +107,28 @@ export interface AddModelRequest {
   model_info?: Record<string, unknown>;
 }
 
+/** Agent event type constants matching Go domain/event.Type */
+export type AgentEventType =
+  | "agent.started"
+  | "agent.step_done"
+  | "agent.tool_called"
+  | "agent.tool_result"
+  | "agent.finished"
+  | "agent.error";
+
+/** Matches Go domain/event.AgentEvent */
+export interface AgentEvent {
+  id: string;
+  agent_id: string;
+  task_id: string;
+  project_id: string;
+  type: AgentEventType;
+  payload: Record<string, unknown>;
+  request_id?: string;
+  version: number;
+  created_at: string;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;

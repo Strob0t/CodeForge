@@ -89,9 +89,11 @@ func run() error {
 	// --- Services ---
 	hub := ws.NewHub()
 	store := postgres.NewStore(pool)
+	eventStore := postgres.NewEventStore(pool)
 	projectSvc := service.NewProjectService(store)
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
+	agentSvc.SetEventStore(eventStore)
 
 	// Start NATS subscribers (process results and streaming output from workers)
 	cancelResults, err := agentSvc.StartResultSubscriber(ctx)
