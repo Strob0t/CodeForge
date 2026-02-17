@@ -57,3 +57,4 @@ orchestrator:
   mode: "semi_auto"            # "manual" | "semi_auto" | "full_auto"
   decompose_model: "openai/gpt-4o-mini"  # LLM model for feature decomposition
   decompose_max_tokens: 4096   # Max tokens for decomposition LLM response
+  max_team_size: 5             # Max agents per team (default: 5)

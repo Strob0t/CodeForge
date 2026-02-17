@@ -41,6 +41,13 @@ type Store interface {
 	CompleteRun(ctx context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error
 	ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error)
 
+	// Agent Teams
+	CreateTeam(ctx context.Context, req agent.CreateTeamRequest) (*agent.Team, error)
+	GetTeam(ctx context.Context, id string) (*agent.Team, error)
+	ListTeamsByProject(ctx context.Context, projectID string) ([]agent.Team, error)
+	UpdateTeamStatus(ctx context.Context, id string, status agent.TeamStatus) error
+	DeleteTeam(ctx context.Context, id string) error
+
 	// Execution Plans
 	CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error
 	GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, error)

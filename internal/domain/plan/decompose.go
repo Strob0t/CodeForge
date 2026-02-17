@@ -78,6 +78,28 @@ type SubtaskDefinition struct {
 	AgentHint string `json:"agent_hint"` // optional: preferred backend (e.g. "aider", "openhands")
 }
 
+// PlanFeatureRequest holds the input for context-optimized feature planning.
+// It extends DecomposeRequest with options for automatic team assembly.
+type PlanFeatureRequest struct {
+	ProjectID string `json:"project_id"`
+	Feature   string `json:"feature"`           // High-level feature description
+	Context   string `json:"context,omitempty"` // Optional additional context
+	Model     string `json:"model,omitempty"`   // LLM model override
+	AutoStart bool   `json:"auto_start"`        // Start plan immediately
+	AutoTeam  bool   `json:"auto_team"`         // Auto-assemble team based on strategy
+}
+
+// Validate checks that a PlanFeatureRequest is well-formed.
+func (r *PlanFeatureRequest) Validate() error {
+	if r.ProjectID == "" {
+		return errors.New("project_id is required")
+	}
+	if r.Feature == "" {
+		return errors.New("feature description is required")
+	}
+	return nil
+}
+
 // ValidateResult checks that a DecomposeResult is structurally valid.
 func (r *DecomposeResult) ValidateResult() error {
 	if r.PlanName == "" {

@@ -153,6 +153,13 @@ func run() error {
 		"decompose_model", cfg.Orchestrator.DecomposeModel,
 	)
 
+	// --- Pool Manager + Task Planner (Phase 5C) ---
+	poolManagerSvc := service.NewPoolManagerService(store, hub, &cfg.Orchestrator)
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, &cfg.Orchestrator)
+	slog.Info("pool manager and task planner initialized",
+		"max_team_size", cfg.Orchestrator.MaxTeamSize,
+	)
+
 	handlers := &cfhttp.Handlers{
 		Projects:     projectSvc,
 		Tasks:        taskSvc,
@@ -162,6 +169,8 @@ func run() error {
 		Runtime:      runtimeSvc,
 		Orchestrator: orchSvc,
 		MetaAgent:    metaAgentSvc,
+		PoolManager:  poolManagerSvc,
+		TaskPlanner:  taskPlannerSvc,
 	}
 
 	r := chi.NewRouter()

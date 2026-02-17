@@ -318,6 +318,53 @@ export interface DecomposeRequest {
   auto_start?: boolean;
 }
 
+// --- Agent Team types (Phase 5C) ---
+
+/** Team role enum matching Go domain/agent.TeamRole */
+export type TeamRole = "coder" | "reviewer" | "tester" | "documenter" | "planner";
+
+/** Team status enum matching Go domain/agent.TeamStatus */
+export type TeamStatus = "initializing" | "active" | "completed" | "failed";
+
+/** Matches Go domain/agent.TeamMember */
+export interface TeamMember {
+  id: string;
+  team_id: string;
+  agent_id: string;
+  role: TeamRole;
+}
+
+/** Matches Go domain/agent.Team */
+export interface AgentTeam {
+  id: string;
+  project_id: string;
+  name: string;
+  protocol: string;
+  status: TeamStatus;
+  members: TeamMember[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create team request matching Go domain/agent.CreateTeamRequest */
+export interface CreateTeamRequest {
+  name: string;
+  protocol: string;
+  members: { agent_id: string; role: TeamRole }[];
+}
+
+// --- Context-Optimized Planning types (Phase 5C) ---
+
+/** Plan feature request matching Go domain/plan.PlanFeatureRequest */
+export interface PlanFeatureRequest {
+  feature: string;
+  context?: string;
+  model?: string;
+  auto_start?: boolean;
+  auto_team?: boolean;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;

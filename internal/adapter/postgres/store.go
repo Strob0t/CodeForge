@@ -347,6 +347,142 @@ func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, e
 	return runs, rows.Err()
 }
 
+// --- Agent Teams ---
+
+func (s *Store) CreateTeam(ctx context.Context, req agent.CreateTeamRequest) (*agent.Team, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	var t agent.Team
+	err = tx.QueryRow(ctx,
+		`INSERT INTO agent_teams (project_id, name, protocol)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, project_id, name, protocol, status, version, created_at, updated_at`,
+		req.ProjectID, req.Name, req.Protocol,
+	).Scan(&t.ID, &t.ProjectID, &t.Name, &t.Protocol, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert team: %w", err)
+	}
+
+	for _, m := range req.Members {
+		var member agent.TeamMember
+		err = tx.QueryRow(ctx,
+			`INSERT INTO team_members (team_id, agent_id, role)
+			 VALUES ($1, $2, $3)
+			 RETURNING id, team_id, agent_id, role`,
+			t.ID, m.AgentID, string(m.Role),
+		).Scan(&member.ID, &member.TeamID, &member.AgentID, &member.Role)
+		if err != nil {
+			return nil, fmt.Errorf("insert team member: %w", err)
+		}
+		t.Members = append(t.Members, member)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit team: %w", err)
+	}
+	return &t, nil
+}
+
+func (s *Store) GetTeam(ctx context.Context, id string) (*agent.Team, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, project_id, name, protocol, status, version, created_at, updated_at
+		 FROM agent_teams WHERE id = $1`, id)
+
+	t, err := scanTeam(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get team %s: %w", id, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get team %s: %w", id, err)
+	}
+
+	members, err := s.listTeamMembers(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	t.Members = members
+	return &t, nil
+}
+
+func (s *Store) ListTeamsByProject(ctx context.Context, projectID string) ([]agent.Team, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, project_id, name, protocol, status, version, created_at, updated_at
+		 FROM agent_teams WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list teams: %w", err)
+	}
+	defer rows.Close()
+
+	var teams []agent.Team
+	for rows.Next() {
+		t, err := scanTeam(rows)
+		if err != nil {
+			return nil, err
+		}
+		teams = append(teams, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Load members for each team
+	for i := range teams {
+		members, err := s.listTeamMembers(ctx, teams[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		teams[i].Members = members
+	}
+	return teams, nil
+}
+
+func (s *Store) UpdateTeamStatus(ctx context.Context, id string, status agent.TeamStatus) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE agent_teams SET status = $2 WHERE id = $1`,
+		id, string(status))
+	if err != nil {
+		return fmt.Errorf("update team status %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update team status %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) DeleteTeam(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM agent_teams WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete team %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete team %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) listTeamMembers(ctx context.Context, teamID string) ([]agent.TeamMember, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, team_id, agent_id, role FROM team_members WHERE team_id = $1`, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("list team members: %w", err)
+	}
+	defer rows.Close()
+
+	var members []agent.TeamMember
+	for rows.Next() {
+		var m agent.TeamMember
+		if err := rows.Scan(&m.ID, &m.TeamID, &m.AgentID, &m.Role); err != nil {
+			return nil, fmt.Errorf("scan team member: %w", err)
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
 // --- Execution Plans ---
 
 func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
@@ -354,7 +490,7 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op // rollback after commit is a no-op
 
 	// Insert plan row
 	err = tx.QueryRow(ctx,
@@ -579,6 +715,12 @@ func scanTask(row scannable) (task.Task, error) {
 		t.Result = &r
 	}
 	return t, nil
+}
+
+func scanTeam(row scannable) (agent.Team, error) {
+	var t agent.Team
+	err := row.Scan(&t.ID, &t.ProjectID, &t.Name, &t.Protocol, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt)
+	return t, err
 }
 
 func scanPlan(row scannable) (plan.ExecutionPlan, error) {

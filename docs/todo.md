@@ -317,28 +317,29 @@
 - [x] (2026-02-17) Frontend: Decompose Feature form in PlanPanel with context/model/auto-start options
 - [x] (2026-02-17) Tests: 4 litellm client tests, 5 domain tests, 9 meta-agent service tests — all passing
 
-### 5C. Task Decomposition (Context-Optimized Planning)
+### 5C. Agent Teams + Context-Optimized Planning (COMPLETED)
 
-- [ ] Task Planner Service: `internal/service/task_planner.go`
-  - Feature → context-optimized subtasks
-  - Analyze complexity, identify relevant files
-  - Estimate context size, split if > threshold
-  - Build dependency graph (DAG)
-  - Assign strategies: single/pair/team based on heuristics
-  - LLM-based intelligent splitting (with fallback to file-based)
-
-### 5C. Agent Teams (Collaboration Units)
-
-- [ ] Domain model: `internal/domain/agent_team.go`
-  - AgentTeam: members, protocol, shared context, NATS message bus
+- [x] (2026-02-17) Domain model: `internal/domain/agent/team.go`
+  - AgentTeam: members, protocol, status, version
   - TeamMember: AgentID, Role (coder/reviewer/tester/documenter/planner)
-  - TeamProtocol: `sequential`, `ping_pong`, `consensus`, `parallel`
-  - SharedContext: files (versioned), artifacts, decisions, conversation
-- [ ] Agent Pool Manager: `internal/service/agent_pool_manager.go`
-  - Check resource availability before spawning
-  - Spawn teams for tasks with correct roles
-  - Lifecycle management (initialize → running → completed/failed)
-  - Cleanup: terminate team on failure or completion
+  - TeamProtocol: reuses plan.Protocol (sequential, ping_pong, consensus, parallel)
+  - CreateTeamRequest validation: name, project_id, roles, no duplicates
+  - 8 domain tests in `team_test.go`
+- [x] (2026-02-17) Database: migration 008 (agent_teams + team_members)
+- [x] (2026-02-17) Store interface: 5 new methods + Postgres adapter
+- [x] (2026-02-17) Config: `max_team_size` in Orchestrator (default 5)
+- [x] (2026-02-17) PoolManagerService: `internal/service/pool_manager.go`
+  - CreateTeam, AssembleTeamForStrategy, CleanupTeam, GetTeam, ListTeams, DeleteTeam
+  - Resource availability checks (agent exists, idle, same project)
+  - 8 service tests
+- [x] (2026-02-17) TaskPlannerService: `internal/service/task_planner.go`
+  - PlanFeature: context enrichment (workspace file tree) → LLM decompose → optional auto-team
+  - Complexity heuristic (single/pair/team based on step count)
+  - 3 service tests
+- [x] (2026-02-17) REST API: 5 new endpoints (team CRUD + plan-feature)
+- [x] (2026-02-17) Frontend: team types, API client (teams namespace + planFeature)
+- [ ] SharedContext: files (versioned), artifacts, decisions, conversation (deferred to 5D+)
+- [ ] NATS message bus for inter-team communication (deferred to 5D+)
 
 ### 5D. Context Optimizer
 

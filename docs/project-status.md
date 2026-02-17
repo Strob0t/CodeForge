@@ -290,3 +290,41 @@
 - **Modified files:** 6 Go (client.go, config.go, loader.go, handlers.go, routes.go, main.go), 3 Frontend (types.ts, client.ts, PlanPanel.tsx), 1 Config (codeforge.yaml.example)
 - **API:** 1 new REST endpoint (POST /projects/{id}/decompose)
 - **Tests:** 18 new test functions (4 litellm + 5 domain + 9 service), all Go tests pass
+
+### 5C. Agent Teams + Context-Optimized Planning (COMPLETED)
+
+- [x] (2026-02-17) Agent Team domain model: `internal/domain/agent/team.go`
+  - TeamRole (coder/reviewer/tester/documenter/planner), TeamStatus (initializing/active/completed/failed)
+  - Team, TeamMember, CreateTeamRequest, CreateMemberRequest structs
+  - Validation: name, project_id, at least 1 member, valid roles, no duplicate agents
+  - 8 domain tests in `internal/domain/agent/team_test.go`
+- [x] (2026-02-17) Database: migration 008_create_agent_teams.sql (agent_teams + team_members tables)
+  - FK to projects and agents, unique constraint on (team_id, agent_id)
+- [x] (2026-02-17) Store interface: 5 new methods (CreateTeam, GetTeam, ListTeamsByProject, UpdateTeamStatus, DeleteTeam)
+- [x] (2026-02-17) Postgres adapter: transactional CreateTeam, member batch-loading in GetTeam/ListTeamsByProject
+- [x] (2026-02-17) Config extension: `max_team_size` in Orchestrator (default: 5, ENV: CODEFORGE_ORCH_MAX_TEAM_SIZE)
+- [x] (2026-02-17) PlanFeatureRequest domain type: extends DecomposeRequest with auto_team option
+- [x] (2026-02-17) PoolManagerService: `internal/service/pool_manager.go`
+  - CreateTeam (validates agents exist, idle, belong to project), AssembleTeamForStrategy (auto role assignment)
+  - CleanupTeam (mark status, release agents to idle), GetTeam, ListTeams, DeleteTeam
+  - 8 service tests in `internal/service/pool_manager_test.go`
+- [x] (2026-02-17) TaskPlannerService: `internal/service/task_planner.go`
+  - PlanFeature (enriches context with file listing, delegates to MetaAgentService, optionally assembles team)
+  - gatherProjectContext (workspace file tree, skip hidden, cap at 100 entries)
+  - estimateComplexity heuristic (1=single, 2=pair, 3+=team)
+  - 3 service tests in `internal/service/task_planner_test.go`
+- [x] (2026-02-17) REST API: 5 new endpoints
+  - `POST /api/v1/projects/{id}/teams` — create team
+  - `GET /api/v1/projects/{id}/teams` — list teams
+  - `GET /api/v1/teams/{id}` — get team
+  - `DELETE /api/v1/teams/{id}` — delete team
+  - `POST /api/v1/projects/{id}/plan-feature` — context-optimized planning
+- [x] (2026-02-17) Composition root: PoolManagerService + TaskPlannerService wired in main.go
+- [x] (2026-02-17) Frontend: team types (AgentTeam, TeamMember, CreateTeamRequest), PlanFeatureRequest
+  - API client: teams namespace (list/get/create/delete) + plans.planFeature method
+
+### Phase 5C Key Deliverables
+- **New files:** 7 Go (team.go, team_test.go, 008 migration, pool_manager.go, pool_manager_test.go, task_planner.go, task_planner_test.go)
+- **Modified files:** 9 Go (store.go, postgres/store.go, decompose.go, config.go, loader.go, handlers.go, routes.go, main.go, 4 test files for mock updates), 2 Frontend (types.ts, client.ts), 1 Config (codeforge.yaml.example)
+- **API:** 5 new REST endpoints (team CRUD + plan-feature)
+- **Tests:** 19 new test functions (8 domain + 8 pool manager + 3 task planner), all Go tests pass

@@ -85,6 +85,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Orchestrator.Mode, "CODEFORGE_ORCH_MODE")
 	setString(&cfg.Orchestrator.DecomposeModel, "CODEFORGE_ORCH_DECOMPOSE_MODEL")
 	setInt(&cfg.Orchestrator.DecomposeMaxTokens, "CODEFORGE_ORCH_DECOMPOSE_MAX_TOKENS")
+	setInt(&cfg.Orchestrator.MaxTeamSize, "CODEFORGE_ORCH_MAX_TEAM_SIZE")
 }
 
 // validate checks that required fields are set.

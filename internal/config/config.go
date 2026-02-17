@@ -26,6 +26,7 @@ type Orchestrator struct {
 	Mode               string `yaml:"mode"`                 // "manual" | "semi_auto" | "full_auto" (default: "semi_auto")
 	DecomposeModel     string `yaml:"decompose_model"`      // LLM model for decomposition (default: "openai/gpt-4o-mini")
 	DecomposeMaxTokens int    `yaml:"decompose_max_tokens"` // Max tokens for decomposition response (default: 4096)
+	MaxTeamSize        int    `yaml:"max_team_size"`        // Max agents per team (default: 5)
 }
 
 // Runtime holds agent execution engine configuration.
@@ -140,6 +141,7 @@ func Defaults() Config {
 			Mode:               "semi_auto",
 			DecomposeModel:     "openai/gpt-4o-mini",
 			DecomposeMaxTokens: 4096,
+			MaxTeamSize:        5,
 		},
 	}
 }

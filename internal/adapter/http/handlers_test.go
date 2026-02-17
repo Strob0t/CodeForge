@@ -230,6 +230,22 @@ func (m *mockStore) GetPlanStepByRunID(_ context.Context, _ string) (*plan.Step,
 }
 func (m *mockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
 
+// --- Agent Team stub methods (satisfy database.Store interface) ---
+
+func (m *mockStore) CreateTeam(_ context.Context, _ agent.CreateTeamRequest) (*agent.Team, error) {
+	return nil, nil
+}
+func (m *mockStore) GetTeam(_ context.Context, _ string) (*agent.Team, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListTeamsByProject(_ context.Context, _ string) ([]agent.Team, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateTeamStatus(_ context.Context, _ string, _ agent.TeamStatus) error {
+	return nil
+}
+func (m *mockStore) DeleteTeam(_ context.Context, _ string) error { return nil }
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -270,10 +286,15 @@ func newTestRouter() chi.Router {
 	es := &mockEventStore{}
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	runtimeSvc := service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{})
-	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, &config.Orchestrator{
+	orchCfg := &config.Orchestrator{
 		MaxParallel:       4,
 		PingPongMaxRounds: 3,
-	})
+		MaxTeamSize:       5,
+	}
+	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
+	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
+	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg)
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
 	handlers := &cfhttp.Handlers{
 		Projects:     service.NewProjectService(store),
 		Tasks:        service.NewTaskService(store, queue),
@@ -282,6 +303,9 @@ func newTestRouter() chi.Router {
 		Policies:     policySvc,
 		Runtime:      runtimeSvc,
 		Orchestrator: orchSvc,
+		MetaAgent:    metaAgentSvc,
+		PoolManager:  poolManagerSvc,
+		TaskPlanner:  taskPlannerSvc,
 	}
 
 	r := chi.NewRouter()

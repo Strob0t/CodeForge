@@ -31,6 +31,7 @@ type runtimeMockStore struct {
 	agents   []agent.Agent
 	tasks    []task.Task
 	runs     []run.Run
+	teams    []agent.Team
 }
 
 func (m *runtimeMockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -198,6 +199,78 @@ func (m *runtimeMockStore) GetPlanStepByRunID(_ context.Context, _ string) (*pla
 	return nil, errMockNotFound
 }
 func (m *runtimeMockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
+
+// --- Agent Team methods (satisfy database.Store interface) ---
+
+func (m *runtimeMockStore) CreateTeam(_ context.Context, req agent.CreateTeamRequest) (*agent.Team, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := agent.Team{
+		ID:        fmt.Sprintf("team-%d", len(m.teams)+1),
+		ProjectID: req.ProjectID,
+		Name:      req.Name,
+		Protocol:  req.Protocol,
+		Status:    agent.TeamStatusInitializing,
+		Version:   1,
+	}
+	for i, mr := range req.Members {
+		t.Members = append(t.Members, agent.TeamMember{
+			ID:      fmt.Sprintf("tm-%d-%d", len(m.teams)+1, i),
+			TeamID:  t.ID,
+			AgentID: mr.AgentID,
+			Role:    mr.Role,
+		})
+	}
+	m.teams = append(m.teams, t)
+	return &t, nil
+}
+
+func (m *runtimeMockStore) GetTeam(_ context.Context, id string) (*agent.Team, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.teams {
+		if m.teams[i].ID == id {
+			return &m.teams[i], nil
+		}
+	}
+	return nil, errMockNotFound
+}
+
+func (m *runtimeMockStore) ListTeamsByProject(_ context.Context, projectID string) ([]agent.Team, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []agent.Team
+	for i := range m.teams {
+		if m.teams[i].ProjectID == projectID {
+			result = append(result, m.teams[i])
+		}
+	}
+	return result, nil
+}
+
+func (m *runtimeMockStore) UpdateTeamStatus(_ context.Context, id string, status agent.TeamStatus) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.teams {
+		if m.teams[i].ID == id {
+			m.teams[i].Status = status
+			return nil
+		}
+	}
+	return errMockNotFound
+}
+
+func (m *runtimeMockStore) DeleteTeam(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.teams {
+		if m.teams[i].ID == id {
+			m.teams = append(m.teams[:i], m.teams[i+1:]...)
+			return nil
+		}
+	}
+	return errMockNotFound
+}
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

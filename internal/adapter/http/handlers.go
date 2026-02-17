@@ -32,6 +32,8 @@ type Handlers struct {
 	Runtime      *service.RuntimeService
 	Orchestrator *service.OrchestratorService
 	MetaAgent    *service.MetaAgentService
+	PoolManager  *service.PoolManagerService
+	TaskPlanner  *service.TaskPlannerService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -592,6 +594,83 @@ func (h *Handlers) DecomposeFeature(w http.ResponseWriter, r *http.Request) {
 	req.ProjectID = projectID
 
 	p, err := h.MetaAgent.DecomposeFeature(r.Context(), &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// --- Agent Teams ---
+
+// ListTeams handles GET /api/v1/projects/{id}/teams
+func (h *Handlers) ListTeams(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	teams, err := h.PoolManager.ListTeams(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if teams == nil {
+		teams = []agent.Team{}
+	}
+	writeJSON(w, http.StatusOK, teams)
+}
+
+// CreateTeam handles POST /api/v1/projects/{id}/teams
+func (h *Handlers) CreateTeam(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req agent.CreateTeamRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ProjectID = projectID
+
+	team, err := h.PoolManager.CreateTeam(r.Context(), &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, team)
+}
+
+// GetTeam handles GET /api/v1/teams/{id}
+func (h *Handlers) GetTeam(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	team, err := h.PoolManager.GetTeam(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "team not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, team)
+}
+
+// DeleteTeam handles DELETE /api/v1/teams/{id}
+func (h *Handlers) DeleteTeam(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.PoolManager.DeleteTeam(r.Context(), id); err != nil {
+		writeDomainError(w, err, "team not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Context-Optimized Feature Planning ---
+
+// PlanFeature handles POST /api/v1/projects/{id}/plan-feature
+func (h *Handlers) PlanFeature(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req plan.PlanFeatureRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ProjectID = projectID
+
+	p, err := h.TaskPlanner.PlanFeature(r.Context(), &req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

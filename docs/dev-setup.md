@@ -255,6 +255,7 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 | `orchestrator.mode` | `CODEFORGE_ORCH_MODE` | `semi_auto` | Orchestrator mode (manual/semi_auto/full_auto) |
 | `orchestrator.decompose_model` | `CODEFORGE_ORCH_DECOMPOSE_MODEL` | `openai/gpt-4o-mini` | LLM model for feature decomposition |
 | `orchestrator.decompose_max_tokens` | `CODEFORGE_ORCH_DECOMPOSE_MAX_TOKENS` | `4096` | Max tokens for decomposition response |
+| `orchestrator.max_team_size` | `CODEFORGE_ORCH_MAX_TEAM_SIZE` | `5` | Max agents per team |
 
 ### Python Worker Config (`workers/codeforge/config.py`)
 

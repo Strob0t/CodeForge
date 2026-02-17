@@ -70,6 +70,9 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// Feature Decomposition (Meta-Agent)
 		r.Post("/projects/{id}/decompose", h.DecomposeFeature)
 
+		// Context-Optimized Feature Planning
+		r.Post("/projects/{id}/plan-feature", h.PlanFeature)
+
 		// Execution Plans (nested under projects)
 		r.Post("/projects/{id}/plans", h.CreatePlan)
 		r.Get("/projects/{id}/plans", h.ListPlans)
@@ -78,5 +81,13 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/plans/{id}", h.GetPlan)
 		r.Post("/plans/{id}/start", h.StartPlan)
 		r.Post("/plans/{id}/cancel", h.CancelPlan)
+
+		// Agent Teams (nested under projects)
+		r.Post("/projects/{id}/teams", h.CreateTeam)
+		r.Get("/projects/{id}/teams", h.ListTeams)
+
+		// Agent Teams (direct access)
+		r.Get("/teams/{id}", h.GetTeam)
+		r.Delete("/teams/{id}", h.DeleteTeam)
 	})
 }

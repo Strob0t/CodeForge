@@ -2,6 +2,7 @@ import type {
   AddModelRequest,
   Agent,
   AgentEvent,
+  AgentTeam,
   ApiError,
   BackendList,
   Branch,
@@ -9,11 +10,13 @@ import type {
   CreatePlanRequest,
   CreateProjectRequest,
   CreateTaskRequest,
+  CreateTeamRequest,
   DecomposeRequest,
   ExecutionPlan,
   GitStatus,
   HealthStatus,
   LLMModel,
+  PlanFeatureRequest,
   Project,
   ProviderList,
   Run,
@@ -178,9 +181,30 @@ export const api = {
     listByTask: (taskId: string) => request<Run[]>(`/tasks/${encodeURIComponent(taskId)}/runs`),
   },
 
+  teams: {
+    list: (projectId: string) =>
+      request<AgentTeam[]>(`/projects/${encodeURIComponent(projectId)}/teams`),
+
+    get: (id: string) => request<AgentTeam>(`/teams/${encodeURIComponent(id)}`),
+
+    create: (projectId: string, data: CreateTeamRequest) =>
+      request<AgentTeam>(`/projects/${encodeURIComponent(projectId)}/teams`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) => request<void>(`/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  },
+
   plans: {
     decompose: (projectId: string, data: DecomposeRequest) =>
       request<ExecutionPlan>(`/projects/${encodeURIComponent(projectId)}/decompose`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    planFeature: (projectId: string, data: PlanFeatureRequest) =>
+      request<ExecutionPlan>(`/projects/${encodeURIComponent(projectId)}/plan-feature`, {
         method: "POST",
         body: JSON.stringify(data),
       }),

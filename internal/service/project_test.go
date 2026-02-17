@@ -188,6 +188,22 @@ func (m *mockStore) GetPlanStepByRunID(_ context.Context, _ string) (*plan.Step,
 }
 func (m *mockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
 
+// --- Agent Team stub methods (satisfy database.Store interface) ---
+
+func (m *mockStore) CreateTeam(_ context.Context, _ agent.CreateTeamRequest) (*agent.Team, error) {
+	return nil, nil
+}
+func (m *mockStore) GetTeam(_ context.Context, _ string) (*agent.Team, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) ListTeamsByProject(_ context.Context, _ string) ([]agent.Team, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateTeamStatus(_ context.Context, _ string, _ agent.TeamStatus) error {
+	return nil
+}
+func (m *mockStore) DeleteTeam(_ context.Context, _ string) error { return nil }
+
 // --- ProjectService Tests ---
 
 func TestProjectServiceList(t *testing.T) {
