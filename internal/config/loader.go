@@ -77,6 +77,11 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.DefaultTestCommand, "CODEFORGE_TEST_COMMAND")
 	setString(&cfg.Runtime.DefaultLintCommand, "CODEFORGE_LINT_COMMAND")
 	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
+
+	// Orchestrator
+	setInt(&cfg.Orchestrator.MaxParallel, "CODEFORGE_ORCH_MAX_PARALLEL")
+	setInt(&cfg.Orchestrator.PingPongMaxRounds, "CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS")
+	setInt(&cfg.Orchestrator.ConsensusQuorum, "CODEFORGE_ORCH_CONSENSUS_QUORUM")
 }
 
 // validate checks that required fields are set.

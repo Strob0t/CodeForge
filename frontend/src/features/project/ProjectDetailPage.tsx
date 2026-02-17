@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import { createCodeForgeWS } from "~/api/websocket";
 import type { Branch, GitStatus } from "~/api/types";
 import AgentPanel from "./AgentPanel";
+import PlanPanel from "./PlanPanel";
 import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
 import LiveOutput from "./LiveOutput";
@@ -83,6 +84,20 @@ export default function ProjectDetailPage() {
         const delProjectId = payload.project_id as string;
         if (delProjectId === projectId) {
           // Delivery events are reflected via run.status updates
+        }
+        break;
+      }
+      case "plan.status": {
+        const planProjectId = payload.project_id as string;
+        if (planProjectId === projectId) {
+          // PlanPanel will refetch via its own resource
+        }
+        break;
+      }
+      case "plan.step.status": {
+        const stepProjectId = payload.project_id as string;
+        if (stepProjectId === projectId) {
+          // PlanPanel will refetch via its own resource
         }
         break;
       }
@@ -264,6 +279,16 @@ export default function ProjectDetailPage() {
             {/* Run Management Section */}
             <div class="mb-6">
               <RunPanel
+                projectId={params.id}
+                tasks={tasks() ?? []}
+                agents={agents() ?? []}
+                onError={setError}
+              />
+            </div>
+
+            {/* Execution Plans Section */}
+            <div class="mb-6">
+              <PlanPanel
                 projectId={params.id}
                 tasks={tasks() ?? []}
                 agents={agents() ?? []}

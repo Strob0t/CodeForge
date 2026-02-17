@@ -6,8 +6,10 @@ import type {
   BackendList,
   Branch,
   CreateAgentRequest,
+  CreatePlanRequest,
   CreateProjectRequest,
   CreateTaskRequest,
+  ExecutionPlan,
   GitStatus,
   HealthStatus,
   LLMModel,
@@ -173,6 +175,29 @@ export const api = {
       }),
 
     listByTask: (taskId: string) => request<Run[]>(`/tasks/${encodeURIComponent(taskId)}/runs`),
+  },
+
+  plans: {
+    list: (projectId: string) =>
+      request<ExecutionPlan[]>(`/projects/${encodeURIComponent(projectId)}/plans`),
+
+    get: (id: string) => request<ExecutionPlan>(`/plans/${encodeURIComponent(id)}`),
+
+    create: (projectId: string, data: CreatePlanRequest) =>
+      request<ExecutionPlan>(`/projects/${encodeURIComponent(projectId)}/plans`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    start: (id: string) =>
+      request<ExecutionPlan>(`/plans/${encodeURIComponent(id)}/start`, {
+        method: "POST",
+      }),
+
+    cancel: (id: string) =>
+      request<{ status: string }>(`/plans/${encodeURIComponent(id)}/cancel`, {
+        method: "POST",
+      }),
   },
 
   policies: {

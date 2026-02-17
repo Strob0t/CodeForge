@@ -31,6 +31,7 @@ type RuntimeService struct {
 	events        eventstore.Store
 	policy        *PolicyService
 	deliver       *DeliverService
+	onRunComplete func(ctx context.Context, runID string, status run.Status)
 	runtimeCfg    *config.Runtime
 	stallTrackers sync.Map // map[runID]*run.StallTracker
 }
@@ -57,6 +58,12 @@ func NewRuntimeService(
 // SetDeliverService sets the delivery service for post-run delivery.
 func (s *RuntimeService) SetDeliverService(d *DeliverService) {
 	s.deliver = d
+}
+
+// SetOnRunComplete registers a callback invoked after a run reaches a terminal state.
+// Used by the OrchestratorService to advance execution plans.
+func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.Status)) {
+	s.onRunComplete = fn
 }
 
 // StartRun creates a new run in the database and publishes a start message to NATS.
@@ -518,6 +525,12 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	})
 
 	slog.Info("run finalized", "run_id", r.ID, "status", status, "steps", payload.StepCount)
+
+	// Notify orchestrator (if registered) about run completion
+	if s.onRunComplete != nil {
+		s.onRunComplete(ctx, r.ID, status)
+	}
+
 	return nil
 }
 

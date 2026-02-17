@@ -98,7 +98,7 @@ CodeForge/
 │   └── src/
 │       ├── features/
 │       │   ├── dashboard/   # Project list, ProjectCard
-│       │   ├── project/     # ProjectDetailPage, AgentPanel, TaskPanel, LiveOutput
+│       │   ├── project/     # ProjectDetailPage, AgentPanel, TaskPanel, RunPanel, PlanPanel, LiveOutput
 │       │   └── llm/         # ModelsPage (LLM model management)
 │       └── api/              # API Client, Types, WebSocket
 ├── docs/
@@ -249,6 +249,9 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 | `breaker.timeout` | `CODEFORGE_BREAKER_TIMEOUT` | `30s` | Circuit breaker timeout |
 | `rate.requests_per_second` | `CODEFORGE_RATE_RPS` | `10.0` | Rate limit RPS |
 | `rate.burst` | `CODEFORGE_RATE_BURST` | `100` | Rate limit burst |
+| `orchestrator.max_parallel` | `CODEFORGE_ORCH_MAX_PARALLEL` | `4` | Max parallel plan steps |
+| `orchestrator.ping_pong_max_rounds` | `CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS` | `3` | Ping-pong protocol max rounds |
+| `orchestrator.consensus_quorum` | `CODEFORGE_ORCH_CONSENSUS_QUORUM` | `0` | Consensus quorum (0=majority) |
 
 ### Python Worker Config (`workers/codeforge/config.py`)
 

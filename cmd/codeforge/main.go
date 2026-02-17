@@ -123,6 +123,14 @@ func run() error {
 	}
 	slog.Info("runtime service initialized", "subscribers", len(runtimeCancels))
 
+	// --- Orchestrator Service (Phase 5A) ---
+	orchSvc := service.NewOrchestratorService(store, hub, eventStore, runtimeSvc, &cfg.Orchestrator)
+	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
+	slog.Info("orchestrator service initialized",
+		"max_parallel", cfg.Orchestrator.MaxParallel,
+		"ping_pong_max_rounds", cfg.Orchestrator.PingPongMaxRounds,
+	)
+
 	// Start NATS subscribers (process results and streaming output from workers)
 	cancelResults, err := agentSvc.StartResultSubscriber(ctx)
 	if err != nil {
@@ -139,12 +147,13 @@ func run() error {
 	llmClient.SetBreaker(llmBreaker)
 
 	handlers := &cfhttp.Handlers{
-		Projects: projectSvc,
-		Tasks:    taskSvc,
-		Agents:   agentSvc,
-		LiteLLM:  llmClient,
-		Policies: policySvc,
-		Runtime:  runtimeSvc,
+		Projects:     projectSvc,
+		Tasks:        taskSvc,
+		Agents:       agentSvc,
+		LiteLLM:      llmClient,
+		Policies:     policySvc,
+		Runtime:      runtimeSvc,
+		Orchestrator: orchSvc,
 	}
 
 	r := chi.NewRouter()

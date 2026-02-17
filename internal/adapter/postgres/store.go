@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -346,6 +347,173 @@ func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, e
 	return runs, rows.Err()
 }
 
+// --- Execution Plans ---
+
+func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	// Insert plan row
+	err = tx.QueryRow(ctx,
+		`INSERT INTO execution_plans (project_id, name, description, protocol, status, max_parallel)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, version, created_at, updated_at`,
+		p.ProjectID, p.Name, p.Description, string(p.Protocol), string(p.Status), p.MaxParallel,
+	).Scan(&p.ID, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("insert plan: %w", err)
+	}
+
+	// Insert steps, building index→UUID map for dependency remapping
+	idMap := make(map[int]string, len(p.Steps))
+	for i := range p.Steps {
+		step := &p.Steps[i]
+		step.PlanID = p.ID
+		err = tx.QueryRow(ctx,
+			`INSERT INTO plan_steps (plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			 RETURNING id, created_at, updated_at`,
+			step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
+			step.DependsOn, string(step.Status), step.Round,
+		).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("insert step %d: %w", i, err)
+		}
+		idMap[i] = step.ID
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (s *Store) GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, project_id, name, description, protocol, status, max_parallel, version, created_at, updated_at
+		 FROM execution_plans WHERE id = $1`, id)
+
+	p, err := scanPlan(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get plan %s: %w", id, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get plan %s: %w", id, err)
+	}
+
+	steps, err := s.ListPlanSteps(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	p.Steps = steps
+	return &p, nil
+}
+
+func (s *Store) ListPlansByProject(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, project_id, name, description, protocol, status, max_parallel, version, created_at, updated_at
+		 FROM execution_plans WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list plans: %w", err)
+	}
+	defer rows.Close()
+
+	var plans []plan.ExecutionPlan
+	for rows.Next() {
+		p, err := scanPlan(rows)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, p)
+	}
+	return plans, rows.Err()
+}
+
+func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Status) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE execution_plans SET status = $2 WHERE id = $1`,
+		id, string(status))
+	if err != nil {
+		return fmt.Errorf("update plan status %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update plan status %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {
+	return s.pool.QueryRow(ctx,
+		`INSERT INTO plan_steps (plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id, created_at, updated_at`,
+		step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
+		step.DependsOn, string(step.Status), step.Round,
+	).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
+}
+
+func (s *Store) ListPlanSteps(ctx context.Context, planID string) ([]plan.Step, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
+		 FROM plan_steps WHERE plan_id = $1 ORDER BY created_at ASC`, planID)
+	if err != nil {
+		return nil, fmt.Errorf("list plan steps: %w", err)
+	}
+	defer rows.Close()
+
+	var steps []plan.Step
+	for rows.Next() {
+		st, err := scanPlanStep(rows)
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, st)
+	}
+	return steps, rows.Err()
+}
+
+func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status plan.StepStatus, runID, errMsg string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE plan_steps SET status = $2, run_id = CASE WHEN $3 = '' THEN run_id ELSE $3::uuid END, error = $4
+		 WHERE id = $1`,
+		stepID, string(status), runID, errMsg)
+	if err != nil {
+		return fmt.Errorf("update plan step status %s: %w", stepID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update plan step status %s: %w", stepID, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
+		 FROM plan_steps WHERE run_id = $1`, runID)
+
+	st, err := scanPlanStep(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get plan step by run %s: %w", runID, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get plan step by run %s: %w", runID, err)
+	}
+	return &st, nil
+}
+
+func (s *Store) UpdatePlanStepRound(ctx context.Context, stepID string, round int) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE plan_steps SET round = $2 WHERE id = $1`,
+		stepID, round)
+	if err != nil {
+		return fmt.Errorf("update plan step round %s: %w", stepID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update plan step round %s: %w", stepID, domain.ErrNotFound)
+	}
+	return nil
+}
+
 // --- Scanners ---
 
 type scannable interface {
@@ -411,4 +579,22 @@ func scanTask(row scannable) (task.Task, error) {
 		t.Result = &r
 	}
 	return t, nil
+}
+
+func scanPlan(row scannable) (plan.ExecutionPlan, error) {
+	var p plan.ExecutionPlan
+	err := row.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Protocol, &p.Status,
+		&p.MaxParallel, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+	return p, err
+}
+
+func scanPlanStep(row scannable) (plan.Step, error) {
+	var st plan.Step
+	var runID *string
+	err := row.Scan(&st.ID, &st.PlanID, &st.TaskID, &st.AgentID, &st.PolicyProfile, &st.DeliverMode,
+		&st.DependsOn, &st.Status, &runID, &st.Round, &st.Error, &st.CreatedAt, &st.UpdatedAt)
+	if runID != nil {
+		st.RunID = *runID
+	}
+	return st, err
 }

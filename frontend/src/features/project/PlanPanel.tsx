@@ -1,0 +1,385 @@
+import { createResource, createSignal, For, Show } from "solid-js";
+import { api } from "~/api/client";
+import type {
+  Agent,
+  CreatePlanRequest,
+  CreateStepRequest,
+  PlanProtocol,
+  PlanStatus,
+  PlanStepStatus,
+  Task,
+} from "~/api/types";
+
+interface PlanPanelProps {
+  projectId: string;
+  tasks: Task[];
+  agents: Agent[];
+  onError: (msg: string) => void;
+}
+
+const PROTOCOL_OPTIONS: { value: PlanProtocol; label: string; description: string }[] = [
+  { value: "sequential", label: "Sequential", description: "Steps run one at a time in order" },
+  { value: "parallel", label: "Parallel", description: "All ready steps run concurrently" },
+  {
+    value: "ping_pong",
+    label: "Ping-Pong",
+    description: "Two agents alternate on each other's output",
+  },
+  {
+    value: "consensus",
+    label: "Consensus",
+    description: "Same task to multiple agents, majority vote",
+  },
+];
+
+const PLAN_STATUS_COLORS: Record<PlanStatus, string> = {
+  pending: "bg-gray-100 text-gray-700",
+  running: "bg-blue-100 text-blue-700",
+  completed: "bg-green-100 text-green-700",
+  failed: "bg-red-100 text-red-700",
+  cancelled: "bg-yellow-100 text-yellow-700",
+};
+
+const STEP_STATUS_COLORS: Record<PlanStepStatus, string> = {
+  pending: "bg-gray-100 text-gray-700",
+  running: "bg-blue-100 text-blue-700",
+  completed: "bg-green-100 text-green-700",
+  failed: "bg-red-100 text-red-700",
+  skipped: "bg-gray-100 text-gray-500",
+  cancelled: "bg-yellow-100 text-yellow-700",
+};
+
+export default function PlanPanel(props: PlanPanelProps) {
+  const [plans, { refetch }] = createResource(
+    () => props.projectId,
+    (id) => api.plans.list(id),
+  );
+
+  const [showForm, setShowForm] = createSignal(false);
+  const [selectedPlanId, setSelectedPlanId] = createSignal<string | null>(null);
+  const [selectedPlan] = createResource(
+    () => selectedPlanId(),
+    (id) => api.plans.get(id),
+  );
+
+  // Form state
+  const [name, setName] = createSignal("");
+  const [description, setDescription] = createSignal("");
+  const [protocol, setProtocol] = createSignal<PlanProtocol>("sequential");
+  const [maxParallel, setMaxParallel] = createSignal(4);
+  const [steps, setSteps] = createSignal<CreateStepRequest[]>([
+    { task_id: "", agent_id: "" },
+    { task_id: "", agent_id: "" },
+  ]);
+  const [creating, setCreating] = createSignal(false);
+
+  const addStep = () => {
+    setSteps((prev) => [...prev, { task_id: "", agent_id: "" }]);
+  };
+
+  const removeStep = (index: number) => {
+    setSteps((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateStep = (index: number, field: keyof CreateStepRequest, value: string) => {
+    setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
+  };
+
+  const handleCreate = async () => {
+    if (!name().trim()) {
+      props.onError("Plan name is required");
+      return;
+    }
+    if (steps().some((s) => !s.task_id || !s.agent_id)) {
+      props.onError("All steps must have a task and agent selected");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const req: CreatePlanRequest = {
+        name: name().trim(),
+        description: description().trim(),
+        protocol: protocol(),
+        max_parallel: maxParallel(),
+        steps: steps(),
+      };
+      await api.plans.create(props.projectId, req);
+      refetch();
+      resetForm();
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : "Failed to create plan");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const resetForm = () => {
+    setShowForm(false);
+    setName("");
+    setDescription("");
+    setProtocol("sequential");
+    setMaxParallel(4);
+    setSteps([
+      { task_id: "", agent_id: "" },
+      { task_id: "", agent_id: "" },
+    ]);
+  };
+
+  const handleStart = async (planId: string) => {
+    try {
+      await api.plans.start(planId);
+      refetch();
+      if (selectedPlanId() === planId) {
+        setSelectedPlanId(null);
+        setSelectedPlanId(planId);
+      }
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : "Failed to start plan");
+    }
+  };
+
+  const handleCancel = async (planId: string) => {
+    try {
+      await api.plans.cancel(planId);
+      refetch();
+      if (selectedPlanId() === planId) {
+        setSelectedPlanId(null);
+        setSelectedPlanId(planId);
+      }
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : "Failed to cancel plan");
+    }
+  };
+
+  const taskName = (id: string) => props.tasks.find((t) => t.id === id)?.title ?? id.slice(0, 8);
+  const agentName = (id: string) => props.agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
+
+  return (
+    <div class="rounded-lg border border-gray-200 bg-white p-4">
+      <div class="mb-3 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Execution Plans</h3>
+        <button
+          class="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
+          onClick={() => setShowForm(!showForm())}
+        >
+          {showForm() ? "Cancel" : "New Plan"}
+        </button>
+      </div>
+
+      {/* Create Plan Form */}
+      <Show when={showForm()}>
+        <div class="mb-4 rounded border border-indigo-200 bg-indigo-50 p-4">
+          <div class="mb-3 grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600">Name</label>
+              <input
+                type="text"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={name()}
+                onInput={(e) => setName(e.currentTarget.value)}
+                placeholder="Plan name"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600">Protocol</label>
+              <select
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={protocol()}
+                onChange={(e) => setProtocol(e.currentTarget.value as PlanProtocol)}
+              >
+                <For each={PROTOCOL_OPTIONS}>
+                  {(opt) => <option value={opt.value}>{opt.label}</option>}
+                </For>
+              </select>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Description</label>
+            <input
+              type="text"
+              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+              value={description()}
+              onInput={(e) => setDescription(e.currentTarget.value)}
+              placeholder="Optional description"
+            />
+          </div>
+
+          <Show when={protocol() === "parallel"}>
+            <div class="mb-3">
+              <label class="mb-1 block text-xs font-medium text-gray-600">Max Parallel</label>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                class="w-24 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={maxParallel()}
+                onInput={(e) => setMaxParallel(parseInt(e.currentTarget.value) || 4)}
+              />
+            </div>
+          </Show>
+
+          <p class="mb-2 text-xs text-gray-500">
+            {PROTOCOL_OPTIONS.find((o) => o.value === protocol())?.description}
+          </p>
+
+          {/* Steps */}
+          <div class="mb-3">
+            <div class="mb-2 flex items-center justify-between">
+              <label class="text-xs font-medium text-gray-600">Steps</label>
+              <button
+                class="rounded bg-gray-200 px-2 py-0.5 text-xs hover:bg-gray-300"
+                onClick={addStep}
+              >
+                + Add Step
+              </button>
+            </div>
+            <For each={steps()}>
+              {(step, idx) => (
+                <div class="mb-2 flex items-center gap-2">
+                  <span class="w-6 text-center text-xs text-gray-400">{idx() + 1}</span>
+                  <select
+                    class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+                    value={step.task_id}
+                    onChange={(e) => updateStep(idx(), "task_id", e.currentTarget.value)}
+                  >
+                    <option value="">Select Task</option>
+                    <For each={props.tasks}>{(t) => <option value={t.id}>{t.title}</option>}</For>
+                  </select>
+                  <select
+                    class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+                    value={step.agent_id}
+                    onChange={(e) => updateStep(idx(), "agent_id", e.currentTarget.value)}
+                  >
+                    <option value="">Select Agent</option>
+                    <For each={props.agents}>
+                      {(a) => (
+                        <option value={a.id}>
+                          {a.name} ({a.backend})
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                  <Show when={steps().length > 2}>
+                    <button
+                      class="text-xs text-red-500 hover:text-red-700"
+                      onClick={() => removeStep(idx())}
+                    >
+                      x
+                    </button>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+
+          <button
+            class="rounded bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+            onClick={handleCreate}
+            disabled={creating()}
+          >
+            {creating() ? "Creating..." : "Create Plan"}
+          </button>
+        </div>
+      </Show>
+
+      {/* Plan List */}
+      <Show
+        when={plans() && plans()!.length > 0}
+        fallback={<p class="text-sm text-gray-400">No execution plans yet.</p>}
+      >
+        <div class="space-y-2">
+          <For each={plans()}>
+            {(p) => (
+              <div
+                class={`cursor-pointer rounded border p-3 transition-colors ${
+                  selectedPlanId() === p.id
+                    ? "border-indigo-300 bg-indigo-50"
+                    : "border-gray-200 hover:bg-gray-50"
+                }`}
+                onClick={() => setSelectedPlanId(selectedPlanId() === p.id ? null : p.id)}
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-sm">{p.name}</span>
+                    <span class={`rounded px-1.5 py-0.5 text-xs ${PLAN_STATUS_COLORS[p.status]}`}>
+                      {p.status}
+                    </span>
+                    <span class="rounded bg-gray-50 px-1.5 py-0.5 text-xs text-gray-500">
+                      {p.protocol}
+                    </span>
+                  </div>
+                  <div class="flex gap-1">
+                    <Show when={p.status === "pending"}>
+                      <button
+                        class="rounded bg-green-600 px-2 py-0.5 text-xs text-white hover:bg-green-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStart(p.id);
+                        }}
+                      >
+                        Start
+                      </button>
+                    </Show>
+                    <Show when={p.status === "running"}>
+                      <button
+                        class="rounded bg-red-600 px-2 py-0.5 text-xs text-white hover:bg-red-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCancel(p.id);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </Show>
+                  </div>
+                </div>
+                <Show when={p.description}>
+                  <p class="mt-1 text-xs text-gray-500">{p.description}</p>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      {/* Selected Plan Detail */}
+      <Show when={selectedPlan()}>
+        {(detail) => (
+          <div class="mt-4 rounded border border-indigo-200 bg-indigo-50 p-4">
+            <h4 class="mb-2 text-sm font-semibold">{detail().name} - Steps</h4>
+            <div class="space-y-2">
+              <For each={detail().steps}>
+                {(step, idx) => (
+                  <div class="flex items-center gap-3 rounded bg-white p-2 text-sm">
+                    <span class="w-6 text-center text-xs text-gray-400">{idx() + 1}</span>
+                    <span
+                      class={`rounded px-1.5 py-0.5 text-xs ${STEP_STATUS_COLORS[step.status]}`}
+                    >
+                      {step.status}
+                    </span>
+                    <span class="text-gray-700">
+                      {taskName(step.task_id)} / {agentName(step.agent_id)}
+                    </span>
+                    <Show when={step.run_id}>
+                      <span class="font-mono text-xs text-gray-400">
+                        run: {step.run_id.slice(0, 8)}
+                      </span>
+                    </Show>
+                    <Show when={step.round > 0}>
+                      <span class="text-xs text-gray-400">round {step.round}</span>
+                    </Show>
+                    <Show when={step.error}>
+                      <span class="text-xs text-red-500">{step.error}</span>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        )}
+      </Show>
+    </div>
+  );
+}

@@ -19,6 +19,10 @@ const (
 	// Phase 4C events
 	EventQualityGate = "run.qualitygate"
 	EventDelivery    = "run.delivery"
+
+	// Phase 5A: orchestration plan events
+	EventPlanStatus     = "plan.status"
+	EventPlanStepStatus = "plan.step.status"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -85,6 +89,23 @@ type DeliveryEvent struct {
 	BranchName string `json:"branch_name,omitempty"`
 	PRURL      string `json:"pr_url,omitempty"`
 	Error      string `json:"error,omitempty"`
+}
+
+// PlanStatusEvent is broadcast when an execution plan's status changes.
+type PlanStatusEvent struct {
+	PlanID    string `json:"plan_id"`
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"`
+}
+
+// PlanStepStatusEvent is broadcast when a plan step's status changes.
+type PlanStepStatusEvent struct {
+	PlanID    string `json:"plan_id"`
+	StepID    string `json:"step_id"`
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"`
+	RunID     string `json:"run_id,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

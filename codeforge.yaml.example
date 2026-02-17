@@ -48,3 +48,9 @@ runtime:
   default_test_command: "go test ./..."
   default_lint_command: "golangci-lint run ./..."
   delivery_commit_prefix: "codeforge:"
+
+# Multi-agent orchestrator settings
+orchestrator:
+  max_parallel: 4              # Max concurrent steps in parallel/consensus plans
+  ping_pong_max_rounds: 3      # Max rounds per step in ping_pong protocol
+  consensus_quorum: 0          # Required successes for consensus (0 = majority)

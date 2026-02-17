@@ -6,15 +6,23 @@ import "time"
 
 // Config holds all runtime configuration for the CodeForge core service.
 type Config struct {
-	Server   Server   `yaml:"server"`
-	Postgres Postgres `yaml:"postgres"`
-	NATS     NATS     `yaml:"nats"`
-	LiteLLM  LiteLLM  `yaml:"litellm"`
-	Logging  Logging  `yaml:"logging"`
-	Breaker  Breaker  `yaml:"breaker"`
-	Rate     Rate     `yaml:"rate"`
-	Policy   Policy   `yaml:"policy"`
-	Runtime  Runtime  `yaml:"runtime"`
+	Server       Server       `yaml:"server"`
+	Postgres     Postgres     `yaml:"postgres"`
+	NATS         NATS         `yaml:"nats"`
+	LiteLLM      LiteLLM      `yaml:"litellm"`
+	Logging      Logging      `yaml:"logging"`
+	Breaker      Breaker      `yaml:"breaker"`
+	Rate         Rate         `yaml:"rate"`
+	Policy       Policy       `yaml:"policy"`
+	Runtime      Runtime      `yaml:"runtime"`
+	Orchestrator Orchestrator `yaml:"orchestrator"`
+}
+
+// Orchestrator holds multi-agent execution plan configuration.
+type Orchestrator struct {
+	MaxParallel       int `yaml:"max_parallel"`         // Max concurrent steps (default: 4)
+	PingPongMaxRounds int `yaml:"ping_pong_max_rounds"` // Max rounds per step in ping_pong (default: 3)
+	ConsensusQuorum   int `yaml:"consensus_quorum"`     // Required successes; 0 = majority (default: 0)
 }
 
 // Runtime holds agent execution engine configuration.
@@ -121,6 +129,11 @@ func Defaults() Config {
 			DefaultTestCommand:   "go test ./...",
 			DefaultLintCommand:   "golangci-lint run ./...",
 			DeliveryCommitPrefix: "codeforge:",
+		},
+		Orchestrator: Orchestrator{
+			MaxParallel:       4,
+			PingPongMaxRounds: 3,
+			ConsensusQuorum:   0,
 		},
 	}
 }

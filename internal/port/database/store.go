@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -39,4 +40,15 @@ type Store interface {
 	UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64) error
 	CompleteRun(ctx context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error
 	ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error)
+
+	// Execution Plans
+	CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error
+	GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, error)
+	ListPlansByProject(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error)
+	UpdatePlanStatus(ctx context.Context, id string, status plan.Status) error
+	CreatePlanStep(ctx context.Context, step *plan.Step) error
+	ListPlanSteps(ctx context.Context, planID string) ([]plan.Step, error)
+	UpdatePlanStepStatus(ctx context.Context, stepID string, status plan.StepStatus, runID string, errMsg string) error
+	GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error)
+	UpdatePlanStepRound(ctx context.Context, stepID string, round int) error
 }

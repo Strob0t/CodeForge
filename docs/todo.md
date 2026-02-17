@@ -289,24 +289,31 @@
 
 > Source: Analyse-Dokument Section "Multi-Agent Orchestration Architecture"
 
-### 5A. Orchestrator Agent (Meta-Agent)
+### 5A. Execution Plans — DAG Scheduling with 4 Protocols (COMPLETED)
 
-- [ ] Domain model: `internal/domain/orchestrator.go`
-  - Orchestrator entity (ID, ProjectID, Mode, Strategy, MaxParallel, State)
-  - OrchestratorMode: `manual`, `semi_auto`, `full_auto`
-  - OrchestrationStrategy: TaskDecomposition, TeamFormation, ContextOptimizer
-- [ ] Orchestrator Service
-  - Reads Feature Map / TODO list
-  - Decomposes features into subtasks (context-optimized)
-  - Decides agent strategy (single, pair, team)
-  - Monitors progress, reacts to failures (re-plan, retry)
+- [x] (2026-02-17) Domain model: `internal/domain/plan/` (plan.go, validate.go, dag.go)
+  - ExecutionPlan, Step, Protocol, Status, StepStatus, CreatePlanRequest
+  - DAG cycle detection (Kahn's algorithm), ReadySteps, RunningCount, AllTerminal, AnyFailed
+  - 25 domain tests (16 validation + 8 DAG + 1 compile check)
+- [x] (2026-02-17) Config: `config.Orchestrator` (MaxParallel, PingPongMaxRounds, ConsensusQuorum) + ENV overrides
+- [x] (2026-02-17) Database: migration 007 (execution_plans + plan_steps tables with UUID arrays)
+- [x] (2026-02-17) Store interface: 9 new methods + Postgres adapter (transactional CreatePlan)
+- [x] (2026-02-17) Events: 5 plan event types + 2 WS event types
+- [x] (2026-02-17) RuntimeService callback: SetOnRunComplete + invocation in finalizeRun
+- [x] (2026-02-17) OrchestratorService: 4 protocol handlers (sequential, parallel, ping_pong, consensus)
+  - CreatePlan, StartPlan, GetPlan, ListPlans, CancelPlan, HandleRunCompleted
+- [x] (2026-02-17) REST API: 5 endpoints for plan management
+- [x] (2026-02-17) Frontend: PlanPanel.tsx, plan types/API client, WS integration in ProjectDetailPage
+- [x] (2026-02-17) Tests: 12 orchestrator service tests, all passing
 
-### 5B. Task Decomposition (Execution Plans)
+### 5B. Orchestrator Agent (Meta-Agent)
 
-- [ ] Domain model: `internal/domain/execution_plan.go`
-  - ExecutionPlan: tasks, DAG dependencies, estimated cost, state
-  - PlannedTask: context estimate, files, acceptance criteria, strategy
-  - ContextEstimate: token count, file sizes, split suggestions
+- [ ] Orchestrator Mode: `manual`, `semi_auto`, `full_auto`
+- [ ] Reads Feature Map / TODO list, decomposes features into subtasks
+- [ ] Decides agent strategy (single, pair, team), monitors progress
+
+### 5C. Task Decomposition (Context-Optimized Planning)
+
 - [ ] Task Planner Service: `internal/service/task_planner.go`
   - Feature → context-optimized subtasks
   - Analyze complexity, identify relevant files

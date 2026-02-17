@@ -171,7 +171,7 @@
 - [x] (2026-02-17) WP7: Event Sourcing for Agent Trajectory
 - [x] (2026-02-17) WP8: Health Granularity & Rate Limiting
 
-## Phase 4: Agent Execution Engine (IN PROGRESS)
+## Phase 4: Agent Execution Engine (COMPLETED)
 
 ### 4A. Policy Layer (COMPLETED)
 
@@ -226,3 +226,39 @@
 - **Modified files:** 12 Go (config.go, loader.go, policy.go, presets.go, run.go, validate.go, event.go, events.go, queue.go, schemas.go, runtime.go, runtime_test.go, store.go, handlers_test.go, main.go), 3 Python (runtime.py, models.py, consumer.py), 3 Frontend (types.ts, client.ts, ProjectDetailPage.tsx), 2 Config (.golangci.yml, codeforge.yaml.example)
 - **Tests:** 22+ new test functions (Go: stall 10, deliver 5, runtime 6+; Python: QG 7), all passing
 - **Protocol:** Quality gate NATS subjects (request/result), stall detection, delivery pipeline
+
+## Phase 5: Multi-Agent Orchestration (IN PROGRESS)
+
+### 5A. Execution Plans — DAG Scheduling with 4 Protocols (COMPLETED)
+
+- [x] (2026-02-17) Domain model: `internal/domain/plan/` (plan.go, validate.go, dag.go)
+  - ExecutionPlan, Step, CreatePlanRequest with JSON tags
+  - Protocol (sequential/parallel/ping_pong/consensus), Status, StepStatus with IsTerminal()
+  - Validation: name required, valid protocol, protocol-specific step count rules
+  - DAG cycle detection via Kahn's algorithm (topological sort)
+  - DAG helpers: ReadySteps, RunningCount, AllTerminal, AnyFailed
+- [x] (2026-02-17) Domain tests: 25 tests (16 validation + 8 DAG + 1 compile check)
+- [x] (2026-02-17) Config extension: `config.Orchestrator` (MaxParallel=4, PingPongMaxRounds=3, ConsensusQuorum=0)
+  - ENV overrides: CODEFORGE_ORCH_MAX_PARALLEL, CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS, CODEFORGE_ORCH_CONSENSUS_QUORUM
+- [x] (2026-02-17) Database: migration 007_create_execution_plans.sql (execution_plans + plan_steps tables)
+  - UUID arrays for step dependencies, FK to projects/tasks/agents/runs
+- [x] (2026-02-17) Store interface: 9 new methods (CreatePlan, GetPlan, ListPlansByProject, UpdatePlanStatus, CreatePlanStep, ListPlanSteps, UpdatePlanStepStatus, GetPlanStepByRunID, UpdatePlanStepRound)
+- [x] (2026-02-17) Postgres adapter: transactional CreatePlan, auto-loading steps in GetPlan
+- [x] (2026-02-17) Events: 5 plan event types + 2 WS event types (plan.status, plan.step.status)
+- [x] (2026-02-17) RuntimeService callback: SetOnRunComplete + invocation in finalizeRun
+- [x] (2026-02-17) OrchestratorService: CreatePlan, StartPlan, GetPlan, ListPlans, CancelPlan, HandleRunCompleted
+  - Sequential: one step at a time, failure stops plan
+  - Parallel: all ready steps up to MaxParallel
+  - PingPong: 2 agents alternate for N rounds
+  - Consensus: same task to multiple agents, majority quorum vote
+  - Core scheduling: mutex-protected advancePlan with protocol dispatch
+- [x] (2026-02-17) REST API: 5 new endpoints (POST/GET /projects/{id}/plans, GET /plans/{id}, POST /plans/{id}/start, POST /plans/{id}/cancel)
+- [x] (2026-02-17) Composition root: OrchestratorService wired with onRunComplete callback
+- [x] (2026-02-17) Frontend: PlanPanel component, plan types + API client, WS event integration
+- [x] (2026-02-17) Tests: 12 orchestrator service tests + 25 domain tests, all passing
+
+### Phase 5A Key Deliverables
+- **New files:** 8 Go (plan domain 3, plan tests 2, orchestrator service, orchestrator tests, migration), 1 Frontend (PlanPanel.tsx)
+- **Modified files:** 13 Go (config.go, loader.go, store.go, postgres/store.go, event.go, events.go, runtime.go, handlers.go, routes.go, main.go, handlers_test.go, runtime_test.go, project_test.go), 3 Frontend (types.ts, client.ts, ProjectDetailPage.tsx), 1 Config (codeforge.yaml.example)
+- **API:** 5 new REST endpoints for execution plan management
+- **Tests:** 37 new test functions (25 domain + 12 service), all Go tests pass

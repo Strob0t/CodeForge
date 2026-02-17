@@ -218,6 +218,90 @@ export interface DeliveryEvent {
   error?: string;
 }
 
+// --- Execution Plan types (Phase 5A) ---
+
+/** Plan protocol enum matching Go domain/plan.Protocol */
+export type PlanProtocol = "sequential" | "parallel" | "ping_pong" | "consensus";
+
+/** Plan status enum matching Go domain/plan.Status */
+export type PlanStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+/** Plan step status enum matching Go domain/plan.StepStatus */
+export type PlanStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+/** Matches Go domain/plan.Step */
+export interface PlanStep {
+  id: string;
+  plan_id: string;
+  task_id: string;
+  agent_id: string;
+  policy_profile: string;
+  deliver_mode: string;
+  depends_on: string[];
+  status: PlanStepStatus;
+  run_id: string;
+  round: number;
+  error: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/plan.ExecutionPlan */
+export interface ExecutionPlan {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  protocol: PlanProtocol;
+  status: PlanStatus;
+  max_parallel: number;
+  steps: PlanStep[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/plan.CreateStepRequest */
+export interface CreateStepRequest {
+  task_id: string;
+  agent_id: string;
+  policy_profile?: string;
+  deliver_mode?: string;
+  depends_on?: string[];
+}
+
+/** Matches Go domain/plan.CreatePlanRequest */
+export interface CreatePlanRequest {
+  name: string;
+  description?: string;
+  protocol: PlanProtocol;
+  max_parallel?: number;
+  steps: CreateStepRequest[];
+}
+
+/** WS event: plan status change */
+export interface PlanStatusEvent {
+  plan_id: string;
+  project_id: string;
+  status: PlanStatus;
+}
+
+/** WS event: plan step status change */
+export interface PlanStepStatusEvent {
+  plan_id: string;
+  step_id: string;
+  project_id: string;
+  status: PlanStepStatus;
+  run_id: string;
+  error: string;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;

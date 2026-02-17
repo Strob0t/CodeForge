@@ -33,6 +33,13 @@ const (
 	TypeDeliveryCompleted  Type = "run.delivery.completed"
 	TypeDeliveryFailed     Type = "run.delivery.failed"
 	TypeStallDetected      Type = "run.stall_detected"
+
+	// Phase 5A: orchestration plan events
+	TypePlanCreated   Type = "plan.created"
+	TypePlanStarted   Type = "plan.started"
+	TypePlanCompleted Type = "plan.completed"
+	TypePlanFailed    Type = "plan.failed"
+	TypePlanCancelled Type = "plan.cancelled"
 )
 
 // AgentEvent represents a single immutable event in an agent's execution trajectory.

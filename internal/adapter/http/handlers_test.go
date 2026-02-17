@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -209,6 +210,26 @@ func (m *mockStore) ListRunsByTask(_ context.Context, taskID string) ([]run.Run,
 	return result, nil
 }
 
+// --- Plan stub methods (satisfy database.Store interface) ---
+
+func (m *mockStore) CreatePlan(_ context.Context, _ *plan.ExecutionPlan) error { return nil }
+func (m *mockStore) GetPlan(_ context.Context, _ string) (*plan.ExecutionPlan, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListPlansByProject(_ context.Context, _ string) ([]plan.ExecutionPlan, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdatePlanStatus(_ context.Context, _ string, _ plan.Status) error { return nil }
+func (m *mockStore) CreatePlanStep(_ context.Context, _ *plan.Step) error              { return nil }
+func (m *mockStore) ListPlanSteps(_ context.Context, _ string) ([]plan.Step, error)    { return nil, nil }
+func (m *mockStore) UpdatePlanStepStatus(_ context.Context, _ string, _ plan.StepStatus, _, _ string) error {
+	return nil
+}
+func (m *mockStore) GetPlanStepByRunID(_ context.Context, _ string) (*plan.Step, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -248,13 +269,19 @@ func newTestRouter() chi.Router {
 	bc := &mockBroadcaster{}
 	es := &mockEventStore{}
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	runtimeSvc := service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{})
+	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, &config.Orchestrator{
+		MaxParallel:       4,
+		PingPongMaxRounds: 3,
+	})
 	handlers := &cfhttp.Handlers{
-		Projects: service.NewProjectService(store),
-		Tasks:    service.NewTaskService(store, queue),
-		Agents:   service.NewAgentService(store, queue, bc),
-		LiteLLM:  litellm.NewClient("http://localhost:4000", ""),
-		Policies: policySvc,
-		Runtime:  service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{}),
+		Projects:     service.NewProjectService(store),
+		Tasks:        service.NewTaskService(store, queue),
+		Agents:       service.NewAgentService(store, queue, bc),
+		LiteLLM:      litellm.NewClient("http://localhost:4000", ""),
+		Policies:     policySvc,
+		Runtime:      runtimeSvc,
+		Orchestrator: orchSvc,
 	}
 
 	r := chi.NewRouter()

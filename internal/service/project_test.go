@@ -7,6 +7,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -166,6 +167,26 @@ func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _ str
 	return nil
 }
 func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
+
+// --- Plan stub methods (satisfy database.Store interface) ---
+
+func (m *mockStore) CreatePlan(_ context.Context, _ *plan.ExecutionPlan) error { return nil }
+func (m *mockStore) GetPlan(_ context.Context, _ string) (*plan.ExecutionPlan, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) ListPlansByProject(_ context.Context, _ string) ([]plan.ExecutionPlan, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdatePlanStatus(_ context.Context, _ string, _ plan.Status) error { return nil }
+func (m *mockStore) CreatePlanStep(_ context.Context, _ *plan.Step) error              { return nil }
+func (m *mockStore) ListPlanSteps(_ context.Context, _ string) ([]plan.Step, error)    { return nil, nil }
+func (m *mockStore) UpdatePlanStepStatus(_ context.Context, _ string, _ plan.StepStatus, _, _ string) error {
+	return nil
+}
+func (m *mockStore) GetPlanStepByRunID(_ context.Context, _ string) (*plan.Step, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
 
 // --- ProjectService Tests ---
 

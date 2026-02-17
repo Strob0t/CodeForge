@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -23,12 +24,13 @@ import (
 
 // Handlers holds the HTTP handler dependencies.
 type Handlers struct {
-	Projects *service.ProjectService
-	Tasks    *service.TaskService
-	Agents   *service.AgentService
-	LiteLLM  *litellm.Client
-	Policies *service.PolicyService
-	Runtime  *service.RuntimeService
+	Projects     *service.ProjectService
+	Tasks        *service.TaskService
+	Agents       *service.AgentService
+	LiteLLM      *litellm.Client
+	Policies     *service.PolicyService
+	Runtime      *service.RuntimeService
+	Orchestrator *service.OrchestratorService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -506,6 +508,73 @@ func (h *Handlers) ListTaskRuns(w http.ResponseWriter, r *http.Request) {
 		runs = []run.Run{}
 	}
 	writeJSON(w, http.StatusOK, runs)
+}
+
+// --- Execution Plan Endpoints ---
+
+// CreatePlan handles POST /api/v1/projects/{id}/plans
+func (h *Handlers) CreatePlan(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req plan.CreatePlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ProjectID = projectID
+
+	p, err := h.Orchestrator.CreatePlan(r.Context(), &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// ListPlans handles GET /api/v1/projects/{id}/plans
+func (h *Handlers) ListPlans(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	plans, err := h.Orchestrator.ListPlans(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if plans == nil {
+		plans = []plan.ExecutionPlan{}
+	}
+	writeJSON(w, http.StatusOK, plans)
+}
+
+// GetPlan handles GET /api/v1/plans/{id}
+func (h *Handlers) GetPlan(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := h.Orchestrator.GetPlan(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "plan not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// StartPlan handles POST /api/v1/plans/{id}/start
+func (h *Handlers) StartPlan(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := h.Orchestrator.StartPlan(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// CancelPlan handles POST /api/v1/plans/{id}/cancel
+func (h *Handlers) CancelPlan(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Orchestrator.CancelPlan(r.Context(), id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 // --- Helpers ---

@@ -66,5 +66,14 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/policies", h.ListPolicyProfiles)
 		r.Get("/policies/{name}", h.GetPolicyProfile)
 		r.Post("/policies/{name}/evaluate", h.EvaluatePolicy)
+
+		// Execution Plans (nested under projects)
+		r.Post("/projects/{id}/plans", h.CreatePlan)
+		r.Get("/projects/{id}/plans", h.ListPlans)
+
+		// Execution Plans (direct access)
+		r.Get("/plans/{id}", h.GetPlan)
+		r.Post("/plans/{id}/start", h.StartPlan)
+		r.Post("/plans/{id}/cancel", h.CancelPlan)
 	})
 }
