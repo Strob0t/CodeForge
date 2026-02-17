@@ -371,7 +371,7 @@ export interface PlanFeatureRequest {
 // --- Context types (Phase 5D) ---
 
 /** Context entry kind enum matching Go domain/context.EntryKind */
-export type ContextEntryKind = "file" | "snippet" | "summary" | "shared" | "repomap";
+export type ContextEntryKind = "file" | "snippet" | "summary" | "shared" | "repomap" | "hybrid";
 
 /** Matches Go domain/context.ContextEntry */
 export interface ContextEntry {
@@ -490,6 +490,58 @@ export interface RepoMapStatusEvent {
   token_count?: number;
   file_count?: number;
   symbol_count?: number;
+  error?: string;
+}
+
+// --- Retrieval types (Phase 6B) ---
+
+/** Search hit from hybrid retrieval */
+export interface RetrievalSearchHit {
+  filepath: string;
+  start_line: number;
+  end_line: number;
+  content: string;
+  language: string;
+  symbol_name?: string;
+  score: number;
+  bm25_rank: number;
+  semantic_rank: number;
+}
+
+/** Search result payload */
+export interface RetrievalSearchResult {
+  project_id: string;
+  query: string;
+  request_id: string;
+  results: RetrievalSearchHit[];
+  error?: string;
+}
+
+/** Index status */
+export interface RetrievalIndexStatus {
+  project_id: string;
+  status: "building" | "ready" | "error";
+  file_count: number;
+  chunk_count: number;
+  embedding_model: string;
+  error?: string;
+}
+
+/** Search request body */
+export interface SearchRequest {
+  query: string;
+  top_k?: number;
+  bm25_weight?: number;
+  semantic_weight?: number;
+}
+
+/** WS event: retrieval status change */
+export interface RetrievalStatusEvent {
+  project_id: string;
+  status: "building" | "ready" | "error";
+  file_count?: number;
+  chunk_count?: number;
+  embedding_model?: string;
   error?: string;
 }
 

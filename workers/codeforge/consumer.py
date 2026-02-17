@@ -18,12 +18,18 @@ from codeforge.models import (
     QualityGateResult,
     RepoMapRequest,
     RepoMapResult,
+    RetrievalIndexRequest,
+    RetrievalIndexResult,
+    RetrievalSearchHit,
+    RetrievalSearchRequest,
+    RetrievalSearchResult,
     RunStartMessage,
     TaskMessage,
     TaskResult,
 )
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
+from codeforge.retrieval import HybridRetriever
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
@@ -39,6 +45,10 @@ SUBJECT_QG_REQUEST = "runs.qualitygate.request"
 SUBJECT_QG_RESULT = "runs.qualitygate.result"
 SUBJECT_REPOMAP_REQUEST = "repomap.generate.request"
 SUBJECT_REPOMAP_RESULT = "repomap.generate.result"
+SUBJECT_RETRIEVAL_INDEX_REQUEST = "retrieval.index.request"
+SUBJECT_RETRIEVAL_INDEX_RESULT = "retrieval.index.result"
+SUBJECT_RETRIEVAL_SEARCH_REQUEST = "retrieval.search.request"
+SUBJECT_RETRIEVAL_SEARCH_RESULT = "retrieval.search.result"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -63,6 +73,7 @@ class TaskConsumer:
         self._executor = AgentExecutor(llm=self._llm)
         self._gate_executor = QualityGateExecutor()
         self._repomap_generator = RepoMapGenerator()
+        self._retriever = HybridRetriever(litellm_url=litellm_url, litellm_key=litellm_key)
 
     async def start(self) -> None:
         """Connect to NATS and subscribe to task and run subjects."""
@@ -104,12 +115,30 @@ class TaskConsumer:
         )
         logger.info("subscribed", subject=SUBJECT_REPOMAP_REQUEST)
 
+        # Subscribe to retrieval index requests
+        retrieval_index_sub = await self._js.subscribe(
+            SUBJECT_RETRIEVAL_INDEX_REQUEST,
+            stream=STREAM_NAME,
+            manual_ack=True,
+        )
+        logger.info("subscribed", subject=SUBJECT_RETRIEVAL_INDEX_REQUEST)
+
+        # Subscribe to retrieval search requests
+        retrieval_search_sub = await self._js.subscribe(
+            SUBJECT_RETRIEVAL_SEARCH_REQUEST,
+            stream=STREAM_NAME,
+            manual_ack=True,
+        )
+        logger.info("subscribed", subject=SUBJECT_RETRIEVAL_SEARCH_REQUEST)
+
         # Process all subscriptions concurrently
         await asyncio.gather(
             self._process_task_messages(task_sub),
             self._process_run_messages(run_sub),
             self._process_quality_gate_messages(qg_sub),
             self._process_repomap_messages(repomap_sub),
+            self._process_retrieval_index_messages(retrieval_index_sub),
+            self._process_retrieval_search_messages(retrieval_search_sub),
         )
 
     async def _process_task_messages(self, sub: object) -> None:
@@ -305,6 +334,125 @@ class TaskConsumer:
             logger.exception("failed to process repomap request")
             await msg.nak()
 
+    async def _process_retrieval_index_messages(self, sub: object) -> None:
+        """Message processing loop for retrieval index requests."""
+        while self._running:
+            try:
+                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
+            except TimeoutError:
+                continue
+            except Exception:
+                if self._running:
+                    logger.exception("error receiving retrieval index message")
+                break
+
+            await self._handle_retrieval_index(msg)
+
+    async def _handle_retrieval_index(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a retrieval index request: build index and publish result."""
+        try:
+            request = RetrievalIndexRequest.model_validate_json(msg.data)
+            log = logger.bind(project_id=request.project_id)
+            log.info("received retrieval index request", workspace=request.workspace_path)
+
+            status = await self._retriever.build_index(
+                project_id=request.project_id,
+                workspace_path=request.workspace_path,
+                embedding_model=request.embedding_model,
+                file_extensions=request.file_extensions or None,
+            )
+
+            result = RetrievalIndexResult(
+                project_id=status.project_id,
+                status=status.status,
+                file_count=status.file_count,
+                chunk_count=status.chunk_count,
+                embedding_model=status.embedding_model,
+                error=status.error,
+            )
+
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_RETRIEVAL_INDEX_RESULT,
+                    result.model_dump_json().encode(),
+                )
+
+            await msg.ack()
+            log.info(
+                "retrieval index built",
+                status=result.status,
+                files=result.file_count,
+                chunks=result.chunk_count,
+            )
+
+        except Exception:
+            logger.exception("failed to process retrieval index request")
+            await msg.nak()
+
+    async def _process_retrieval_search_messages(self, sub: object) -> None:
+        """Message processing loop for retrieval search requests."""
+        while self._running:
+            try:
+                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
+            except TimeoutError:
+                continue
+            except Exception:
+                if self._running:
+                    logger.exception("error receiving retrieval search message")
+                break
+
+            await self._handle_retrieval_search(msg)
+
+    async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a retrieval search request: search index and publish result."""
+        try:
+            request = RetrievalSearchRequest.model_validate_json(msg.data)
+            log = logger.bind(project_id=request.project_id, request_id=request.request_id)
+            log.info("received retrieval search request", query=request.query[:80])
+
+            search_results = await self._retriever.search(
+                project_id=request.project_id,
+                query=request.query,
+                top_k=request.top_k,
+                bm25_weight=request.bm25_weight,
+                semantic_weight=request.semantic_weight,
+            )
+
+            hits = [
+                RetrievalSearchHit(
+                    filepath=sr.filepath,
+                    start_line=sr.start_line,
+                    end_line=sr.end_line,
+                    content=sr.content,
+                    language=sr.language,
+                    symbol_name=sr.symbol_name,
+                    score=sr.score,
+                    bm25_rank=sr.bm25_rank,
+                    semantic_rank=sr.semantic_rank,
+                )
+                for sr in search_results
+            ]
+
+            result = RetrievalSearchResult(
+                project_id=request.project_id,
+                query=request.query,
+                request_id=request.request_id,
+                results=hits,
+            )
+
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_RETRIEVAL_SEARCH_RESULT,
+                    result.model_dump_json().encode(),
+                )
+
+            await msg.ack()
+            log.info("retrieval search completed", hits=len(hits))
+
+        except Exception:
+            logger.exception("failed to process retrieval search request")
+            await msg.nak()
+
     @staticmethod
     def _retry_count(msg: nats.aio.msg.Msg) -> int:
         """Extract the Retry-Count header value, defaulting to 0."""
@@ -348,6 +496,7 @@ class TaskConsumer:
         logger.info("stopping consumer")
 
         await self._llm.close()
+        await self._retriever.close()
 
         if self._nc is not None and self._nc.is_connected:
             try:

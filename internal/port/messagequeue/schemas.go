@@ -184,3 +184,55 @@ type RepoMapResultPayload struct {
 	Languages   []string `json:"languages"`
 	Error       string   `json:"error"`
 }
+
+// --- Retrieval payloads (Phase 6B) ---
+
+// RetrievalIndexRequestPayload is the schema for retrieval.index.request messages.
+type RetrievalIndexRequestPayload struct {
+	ProjectID      string   `json:"project_id"`
+	WorkspacePath  string   `json:"workspace_path"`
+	EmbeddingModel string   `json:"embedding_model"`
+	FileExtensions []string `json:"file_extensions,omitempty"`
+}
+
+// RetrievalIndexResultPayload is the schema for retrieval.index.result messages.
+type RetrievalIndexResultPayload struct {
+	ProjectID      string `json:"project_id"`
+	Status         string `json:"status"` // "ready" or "error"
+	FileCount      int    `json:"file_count"`
+	ChunkCount     int    `json:"chunk_count"`
+	EmbeddingModel string `json:"embedding_model"`
+	Error          string `json:"error,omitempty"`
+}
+
+// RetrievalSearchRequestPayload is the schema for retrieval.search.request messages.
+type RetrievalSearchRequestPayload struct {
+	ProjectID      string  `json:"project_id"`
+	Query          string  `json:"query"`
+	RequestID      string  `json:"request_id"`
+	TopK           int     `json:"top_k"`
+	BM25Weight     float64 `json:"bm25_weight"`
+	SemanticWeight float64 `json:"semantic_weight"`
+}
+
+// RetrievalSearchResultPayload is the schema for retrieval.search.result messages.
+type RetrievalSearchResultPayload struct {
+	ProjectID string                      `json:"project_id"`
+	Query     string                      `json:"query"`
+	RequestID string                      `json:"request_id"`
+	Results   []RetrievalSearchHitPayload `json:"results"`
+	Error     string                      `json:"error,omitempty"`
+}
+
+// RetrievalSearchHitPayload represents a single search result hit.
+type RetrievalSearchHitPayload struct {
+	Filepath     string  `json:"filepath"`
+	StartLine    int     `json:"start_line"`
+	EndLine      int     `json:"end_line"`
+	Content      string  `json:"content"`
+	Language     string  `json:"language"`
+	SymbolName   string  `json:"symbol_name,omitempty"`
+	Score        float64 `json:"score"`
+	BM25Rank     int     `json:"bm25_rank"`
+	SemanticRank int     `json:"semantic_rank"`
+}

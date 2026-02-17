@@ -104,5 +104,10 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// RepoMap (nested under projects)
 		r.Get("/projects/{id}/repomap", h.GetRepoMap)
 		r.Post("/projects/{id}/repomap", h.GenerateRepoMap)
+
+		// Retrieval (nested under projects)
+		r.Post("/projects/{id}/search", h.SearchProject)
+		r.Post("/projects/{id}/index", h.IndexProject)
+		r.Get("/projects/{id}/index", h.GetIndexStatus)
 	})
 }

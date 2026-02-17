@@ -41,6 +41,7 @@ type Handlers struct {
 	SharedContext    *service.SharedContextService
 	Modes            *service.ModeService
 	RepoMap          *service.RepoMapService
+	Retrieval        *service.RetrievalService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -829,6 +830,63 @@ func (h *Handlers) GenerateRepoMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "generating"})
+}
+
+// --- Retrieval Endpoints ---
+
+// IndexProject handles POST /api/v1/projects/{id}/index
+func (h *Handlers) IndexProject(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req struct {
+		EmbeddingModel string `json:"embedding_model"`
+	}
+	// Body is optional; empty body is fine.
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if err := h.Retrieval.RequestIndex(r.Context(), projectID, req.EmbeddingModel); err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "building"})
+}
+
+// GetIndexStatus handles GET /api/v1/projects/{id}/index
+func (h *Handlers) GetIndexStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	info := h.Retrieval.GetIndexStatus(projectID)
+	if info == nil {
+		writeError(w, http.StatusNotFound, "no index found for project")
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// SearchProject handles POST /api/v1/projects/{id}/search
+func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req struct {
+		Query          string  `json:"query"`
+		TopK           int     `json:"top_k"`
+		BM25Weight     float64 `json:"bm25_weight"`
+		SemanticWeight float64 `json:"semantic_weight"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Query == "" {
+		writeError(w, http.StatusBadRequest, "query is required")
+		return
+	}
+
+	result, err := h.Retrieval.SearchSync(r.Context(), projectID, req.Query, req.TopK, req.BM25Weight, req.SemanticWeight)
+	if err != nil {
+		writeError(w, http.StatusGatewayTimeout, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // --- Helpers ---

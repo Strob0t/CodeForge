@@ -30,6 +30,9 @@ const (
 
 	// Phase 6A: repo map events
 	EventRepoMapStatus = "repomap.status"
+
+	// Phase 6B: retrieval events
+	EventRetrievalStatus = "retrieval.status"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -139,6 +142,16 @@ type RepoMapStatusEvent struct {
 	FileCount   int    `json:"file_count,omitempty"`
 	SymbolCount int    `json:"symbol_count,omitempty"`
 	Error       string `json:"error,omitempty"`
+}
+
+// RetrievalStatusEvent is broadcast when a retrieval index's status changes.
+type RetrievalStatusEvent struct {
+	ProjectID      string `json:"project_id"`
+	Status         string `json:"status"` // "building", "ready", "error"
+	FileCount      int    `json:"file_count,omitempty"`
+	ChunkCount     int    `json:"chunk_count,omitempty"`
+	EmbeddingModel string `json:"embedding_model,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

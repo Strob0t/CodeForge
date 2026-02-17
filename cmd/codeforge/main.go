@@ -177,6 +177,15 @@ func run() error {
 	}
 	slog.Info("repomap service initialized", "token_budget", cfg.Orchestrator.RepoMapTokenBudget)
 
+	// --- Retrieval Service (Phase 6B) ---
+	retrievalSvc := service.NewRetrievalService(store, queue, hub, &cfg.Orchestrator)
+	retrievalCancels, err := retrievalSvc.StartSubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("retrieval subscribers: %w", err)
+	}
+	contextOptSvc.SetRetrieval(retrievalSvc)
+	slog.Info("retrieval service initialized")
+
 	// --- Wire SharedContext into PoolManager + Orchestrator (Phase 5E) ---
 	poolManagerSvc.SetSharedContext(sharedCtxSvc)
 	orchSvc.SetSharedContext(sharedCtxSvc)
@@ -200,6 +209,7 @@ func run() error {
 		SharedContext:    sharedCtxSvc,
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
+		Retrieval:        retrievalSvc,
 	}
 
 	r := chi.NewRouter()
@@ -269,6 +279,9 @@ func run() error {
 	cancelResults()
 	cancelOutput()
 	repoMapCancel()
+	for _, cancel := range retrievalCancels {
+		cancel()
+	}
 
 	// Phase 3: Drain NATS (flush pending publishes, wait for acks)
 	slog.Info("shutdown phase 3: draining NATS connection")

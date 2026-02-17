@@ -6,6 +6,7 @@ import type { Branch, GitStatus } from "~/api/types";
 import AgentPanel from "./AgentPanel";
 import PlanPanel from "./PlanPanel";
 import RepoMapPanel from "./RepoMapPanel";
+import RetrievalPanel from "./RetrievalPanel";
 import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
 import LiveOutput from "./LiveOutput";
@@ -106,6 +107,13 @@ export default function ProjectDetailPage() {
         const rmProjectId = payload.project_id as string;
         if (rmProjectId === projectId) {
           // RepoMapPanel will refetch via its own resource
+        }
+        break;
+      }
+      case "retrieval.status": {
+        const retProjectId = payload.project_id as string;
+        if (retProjectId === projectId) {
+          // RetrievalPanel handles its own state
         }
         break;
       }
@@ -283,6 +291,9 @@ export default function ProjectDetailPage() {
             <Show when={p().workspace_path}>
               <div class="mb-6">
                 <RepoMapPanel projectId={params.id} />
+              </div>
+              <div class="mb-6">
+                <RetrievalPanel projectId={params.id} />
               </div>
             </Show>
 

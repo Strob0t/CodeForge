@@ -20,6 +20,8 @@ pydantic = "^2.10"
 structlog = "^24.0"
 tree-sitter = "^0.25"
 tree-sitter-language-pack = "^0.13"
+bm25s = "^0.2"
+numpy = "^2.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.0"

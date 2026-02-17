@@ -17,13 +17,19 @@ import (
 // ContextOptimizerService builds context packs for tasks by scoring file relevance,
 // trimming to token budgets, and injecting shared context from team collaboration.
 type ContextOptimizerService struct {
-	store   database.Store
-	orchCfg *config.Orchestrator
+	store     database.Store
+	orchCfg   *config.Orchestrator
+	retrieval *RetrievalService
 }
 
 // NewContextOptimizerService creates a ContextOptimizerService.
 func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrator) *ContextOptimizerService {
 	return &ContextOptimizerService{store: store, orchCfg: orchCfg}
+}
+
+// SetRetrieval wires the retrieval service for hybrid search injection.
+func (s *ContextOptimizerService) SetRetrieval(r *RetrievalService) {
+	s.retrieval = r
 }
 
 // GetPackByTask returns the existing context pack for a task, if any.
@@ -78,6 +84,27 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 			Tokens:   repoMap.TokenCount,
 			Priority: 85,
 		})
+	}
+
+	// Inject hybrid retrieval results if index is ready.
+	if s.retrieval != nil {
+		if info := s.retrieval.GetIndexStatus(projectID); info != nil && info.Status == "ready" {
+			result, err := s.retrieval.SearchSync(ctx, projectID, t.Prompt, 10,
+				s.orchCfg.RetrievalBM25Weight, s.orchCfg.RetrievalSemanticWeight)
+			if err != nil {
+				slog.Warn("retrieval search failed during context build", "project_id", projectID, "error", err)
+			} else {
+				for _, hit := range result.Results {
+					candidates = append(candidates, cfcontext.ContextEntry{
+						Kind:     cfcontext.EntryHybrid,
+						Path:     hit.Filepath,
+						Content:  hit.Content,
+						Tokens:   cfcontext.EstimateTokens(hit.Content),
+						Priority: int(hit.Score * 100),
+					})
+				}
+			}
+		}
 	}
 
 	// Inject shared context if team is specified.

@@ -56,4 +56,10 @@ const (
 	// RepoMap subjects (Phase 6A)
 	SubjectRepoMapRequest = "repomap.generate.request" // Go → Python: request repo map generation
 	SubjectRepoMapResult  = "repomap.generate.result"  // Python → Go: repo map generation result
+
+	// Retrieval subjects (Phase 6B)
+	SubjectRetrievalIndexRequest  = "retrieval.index.request"  // Go → Python: request index build
+	SubjectRetrievalIndexResult   = "retrieval.index.result"   // Python → Go: index build result
+	SubjectRetrievalSearchRequest = "retrieval.search.request" // Go → Python: search request
+	SubjectRetrievalSearchResult  = "retrieval.search.result"  // Python → Go: search results
 )

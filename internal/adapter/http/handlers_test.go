@@ -335,6 +335,7 @@ func newTestRouter() chi.Router {
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
+	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store),
 		Tasks:            service.NewTaskService(store, queue),
@@ -350,6 +351,7 @@ func newTestRouter() chi.Router {
 		SharedContext:    sharedCtxSvc,
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
+		Retrieval:        retrievalSvc,
 	}
 
 	r := chi.NewRouter()
@@ -1174,6 +1176,7 @@ func TestGenerateRepoMap(t *testing.T) {
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
+	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store),
 		Tasks:            service.NewTaskService(store, queue),
@@ -1189,6 +1192,7 @@ func TestGenerateRepoMap(t *testing.T) {
 		SharedContext:    sharedCtxSvc,
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
+		Retrieval:        retrievalSvc,
 	}
 
 	r := chi.NewRouter()
@@ -1200,5 +1204,87 @@ func TestGenerateRepoMap(t *testing.T) {
 
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Retrieval Endpoints ---
+
+func TestIndexProject(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "proj-1", Name: "Test", WorkspacePath: "/tmp/test"}},
+	}
+	queue := &mockQueue{}
+	bc := &mockBroadcaster{}
+	es := &mockEventStore{}
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	runtimeSvc := service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{})
+	orchCfg := &config.Orchestrator{
+		MaxParallel:           4,
+		PingPongMaxRounds:     3,
+		MaxTeamSize:           5,
+		DefaultEmbeddingModel: "text-embedding-3-small",
+	}
+	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
+	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
+	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg)
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
+	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
+	modeSvc := service.NewModeService()
+	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
+	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
+	handlers := &cfhttp.Handlers{
+		Projects:         service.NewProjectService(store),
+		Tasks:            service.NewTaskService(store, queue),
+		Agents:           service.NewAgentService(store, queue, bc),
+		LiteLLM:          litellm.NewClient("http://localhost:4000", ""),
+		Policies:         policySvc,
+		Runtime:          runtimeSvc,
+		Orchestrator:     orchSvc,
+		MetaAgent:        metaAgentSvc,
+		PoolManager:      poolManagerSvc,
+		TaskPlanner:      taskPlannerSvc,
+		ContextOptimizer: contextOptSvc,
+		SharedContext:    sharedCtxSvc,
+		Modes:            modeSvc,
+		RepoMap:          repoMapSvc,
+		Retrieval:        retrievalSvc,
+	}
+
+	r := chi.NewRouter()
+	cfhttp.MountRoutes(r, handlers)
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/index", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSearchProjectMissingQuery(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{})
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/search", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetIndexStatusNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/projects/nonexistent/index", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }

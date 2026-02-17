@@ -384,15 +384,27 @@
   - NATS integration: repomap.generate / repomap.result subjects
   - New dependencies: tree-sitter ^0.24, tree-sitter-language-pack ^0.13, networkx ^3.4
 
-### 6B. Hybrid Retrieval (Phase 4)
+### 6B. Hybrid Retrieval — BM25 + Semantic Search (COMPLETED)
 
-- [ ] Keyword/regex search tools (grep, BM25)
-  - Fast directory search with concise result listing
-  - Strict token budget for search results (avoid context pollution)
-- [ ] Embedding Search for semantic queries
-  - Use docs-mcp or dedicated embedding service
-  - Top-K results as "Context Pack" with token budget
-- [ ] Combine: Hybrid Retrieval = keyword + semantic, ranked
+- [x] (2026-02-17) Python Worker: HybridRetriever with BM25S + LiteLLM embeddings
+  - AST-aware code chunking via tree-sitter (reuse from 6A)
+  - BM25S keyword indexing (500x faster than rank_bm25)
+  - Semantic embeddings via LiteLLM proxy `/v1/embeddings`
+  - Reciprocal Rank Fusion (RRF) with k=60 to combine rankings
+  - In-memory per-project indexes (no vector DB)
+  - Shared constants extracted to `_tree_sitter_common.py`
+- [x] (2026-02-17) Go Backend: RetrievalService with synchronous search
+  - NATS subjects: retrieval.index.{request,result}, retrieval.search.{request,result}
+  - Channel-based waiter pattern with correlation IDs for sync search (30s timeout)
+  - REST API: POST /projects/{id}/index, GET /projects/{id}/index, POST /projects/{id}/search
+  - WS event: retrieval.status (building/ready/error)
+  - Context optimizer auto-injects hybrid results as EntryHybrid
+- [x] (2026-02-17) Frontend: RetrievalPanel component
+  - Index status display (file count, chunk count, embedding model)
+  - Build Index / Search UI with results display
+  - Integrated into ProjectDetailPage with WS event handler
+- [x] (2026-02-17) New dependencies: bm25s ^0.2, numpy ^2.0
+- [x] (2026-02-17) Tests: 11 Python tests (chunking, RRF, cosine similarity, integration), 5 Go tests (service), 3 Go handler tests — all passing
 
 ### 6C. Retrieval Sub-Agent (Phase 5)
 

@@ -146,3 +146,61 @@ class RepoMapResult(BaseModel):
     symbol_count: int
     languages: list[str]
     error: str = ""
+
+
+# --- Retrieval Models (Phase 6B) ---
+
+
+class RetrievalIndexRequest(BaseModel):
+    """Request from Go control plane to build a hybrid retrieval index."""
+
+    project_id: str
+    workspace_path: str
+    embedding_model: str = "text-embedding-3-small"
+    file_extensions: list[str] = Field(default_factory=list)
+
+
+class RetrievalIndexResult(BaseModel):
+    """Result of retrieval index build sent back to Go control plane."""
+
+    project_id: str
+    status: str
+    file_count: int = 0
+    chunk_count: int = 0
+    embedding_model: str = ""
+    error: str = ""
+
+
+class RetrievalSearchRequest(BaseModel):
+    """Request from Go control plane to search a project's retrieval index."""
+
+    project_id: str
+    query: str
+    request_id: str
+    top_k: int = 20
+    bm25_weight: float = 0.5
+    semantic_weight: float = 0.5
+
+
+class RetrievalSearchHit(BaseModel):
+    """A single search result from hybrid retrieval."""
+
+    filepath: str
+    start_line: int
+    end_line: int
+    content: str
+    language: str
+    symbol_name: str = ""
+    score: float = 0.0
+    bm25_rank: int = 0
+    semantic_rank: int = 0
+
+
+class RetrievalSearchResult(BaseModel):
+    """Result of a retrieval search sent back to Go control plane."""
+
+    project_id: str
+    query: str
+    request_id: str
+    results: list[RetrievalSearchHit] = Field(default_factory=list)
+    error: str = ""

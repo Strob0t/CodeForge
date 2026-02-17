@@ -420,7 +420,7 @@
 - **Tests:** 16+ new test functions (8 mode domain + 8 mode service), all Go tests pass
 - **Lint:** golangci-lint 0 issues, frontend lint + build clean
 
-## Phase 6: Code-RAG (Context Engine for Large Codebases)
+## Phase 6: Code-RAG (Context Engine for Large Codebases) (IN PROGRESS)
 
 ### 6A. Repo Map — tree-sitter Based Code Intelligence (COMPLETED)
 
@@ -449,3 +449,33 @@
 - **Go:** Domain model, PostgreSQL store, service, 2 REST endpoints, WS events
 - **Frontend:** RepoMapPanel.tsx, types (RepoMap, RepoMapStatusEvent), API client (repomap namespace)
 - **Dependencies:** tree-sitter ^0.24, tree-sitter-language-pack ^0.13, networkx ^3.4
+
+### 6B. Hybrid Retrieval — BM25 + Semantic Search (COMPLETED)
+
+- [x] (2026-02-17) Python Worker: HybridRetriever with BM25S + LiteLLM embeddings
+  - CodeChunker: AST-aware code splitting via tree-sitter at definition boundaries
+  - HybridRetriever: BM25S keyword indexing + semantic embeddings via LiteLLM
+  - Reciprocal Rank Fusion (RRF, k=60) combining BM25 and semantic rankings
+  - In-memory per-project indexes (ProjectIndex dataclass)
+  - Shared constants extracted to `_tree_sitter_common.py` (reuse from 6A)
+  - Consumer: 4 NATS subjects, 4 handler methods for index + search
+- [x] (2026-02-17) Go Backend: RetrievalService with synchronous search waiter
+  - RetrievalService: RequestIndex, HandleIndexResult, SearchSync, HandleSearchResult
+  - Channel-based waiter pattern with crypto/rand correlation IDs (30s timeout)
+  - NATS: 4 subjects (retrieval.index.{request,result}, retrieval.search.{request,result})
+  - REST API: POST /projects/{id}/index, GET /projects/{id}/index, POST /projects/{id}/search
+  - WS event: retrieval.status (building/ready/error)
+  - Context optimizer: auto-injects hybrid results as EntryHybrid with priority scoring
+  - Config: 4 new fields (DefaultEmbeddingModel, RetrievalTopK, BM25Weight, SemanticWeight)
+- [x] (2026-02-17) Frontend: RetrievalPanel component
+  - Index status display with stats (file count, chunk count, embedding model, status badge)
+  - Build Index button (disabled while building)
+  - Search bar with results list (filepath:lines, symbol name, language badge, score)
+  - Integrated into ProjectDetailPage with retrieval.status WS handler
+
+### Phase 6B Key Deliverables
+- **New files:** 5 (retrieval.py, _tree_sitter_common.py, test_retrieval.py, retrieval.go, retrieval_test.go, RetrievalPanel.tsx)
+- **Modified files:** 19 (consumer.py, models.py, repomap.py, pyproject.toml, queue.go, schemas.go, validator.go, nats.go, pack.go, config.go, context_optimizer.go, events.go, handlers.go, routes.go, main.go, handlers_test.go, types.ts, client.ts, ProjectDetailPage.tsx)
+- **API:** 3 new REST endpoints (index CRUD + search)
+- **Dependencies:** bm25s ^0.2, numpy ^2.0
+- **Tests:** 11 Python tests + 5 Go service tests + 3 Go handler tests, all passing

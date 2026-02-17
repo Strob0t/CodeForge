@@ -16,12 +16,13 @@ const (
 	EntrySummary EntryKind = "summary" // Text summary of a larger body
 	EntryShared  EntryKind = "shared"  // Item from SharedContext
 	EntryRepoMap EntryKind = "repomap" // Repository structure map
+	EntryHybrid  EntryKind = "hybrid"  // Hybrid retrieval result (BM25 + semantic)
 )
 
 // ValidEntryKind reports whether k is a known entry kind.
 func ValidEntryKind(k EntryKind) bool {
 	switch k {
-	case EntryFile, EntrySnippet, EntrySummary, EntryShared, EntryRepoMap:
+	case EntryFile, EntrySnippet, EntrySummary, EntryShared, EntryRepoMap, EntryHybrid:
 		return true
 	}
 	return false

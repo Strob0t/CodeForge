@@ -24,7 +24,10 @@ import type {
   Project,
   ProviderList,
   RepoMap,
+  RetrievalIndexStatus,
+  RetrievalSearchResult,
   Run,
+  SearchRequest,
   SharedContext,
   SharedContextItem,
   StartRunRequest,
@@ -276,6 +279,23 @@ export const api = {
       request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/repomap`, {
         method: "POST",
         body: JSON.stringify({ active_files: activeFiles ?? [] }),
+      }),
+  },
+
+  retrieval: {
+    indexStatus: (projectId: string) =>
+      request<RetrievalIndexStatus>(`/projects/${encodeURIComponent(projectId)}/index`),
+
+    buildIndex: (projectId: string, embeddingModel?: string) =>
+      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/index`, {
+        method: "POST",
+        body: JSON.stringify({ embedding_model: embeddingModel ?? "" }),
+      }),
+
+    search: (projectId: string, data: SearchRequest) =>
+      request<RetrievalSearchResult>(`/projects/${encodeURIComponent(projectId)}/search`, {
+        method: "POST",
+        body: JSON.stringify(data),
       }),
   },
 
