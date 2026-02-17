@@ -13,146 +13,391 @@
 
 ---
 
-## Current Priority: Phase 2 MVP Features
+## Current Priority: Phase 3 — Reliability, Performance & Agent Foundation
 
-> Phase 0 and Phase 1 are complete. See "Recently Completed" below.
+> Phase 0, Phase 1, and Phase 2 are complete. See "Recently Completed" below.
+> Items below are extracted from architecture review + Perplexity analysis (2026-02-16/17).
 
-### Infrastructure
+### 3A. Configuration Management
 
-- [x] (2026-02-14) Build and test devcontainer
-  - Go 1.23.12, Python 3.12.12, Node.js 22.22.0, Docker 29.2.1, pre-commit 4.5.1
-  - Docker-in-Docker verified
-  - Pre-commit hooks pass
+- [ ] Implement hierarchical config system (defaults < YAML < ENV < CLI)
+  - Go: Create `internal/config/loader.go` with merge logic
+  - Python: Extend Pydantic `BaseSettings` with CLI override support (Typer/Click)
+  - Add validation layer (required fields, format checks)
+  - Support config reload via SIGHUP (non-critical settings only)
+  - Document in `docs/dev-setup.md`
 
-### Go Core
+### 3B. Structured Logging & Observability
 
-- [x] (2026-02-14) Initialize Go module (`go mod init github.com/Strob0t/CodeForge`)
-- [x] (2026-02-14) Create directory structure: `cmd/codeforge/`, `internal/domain/`, `internal/port/`, `internal/adapter/`, `internal/service/`, `migrations/`
-- [x] (2026-02-14) Create `cmd/codeforge/main.go` — chi v5 HTTP server, health endpoint, graceful shutdown
-- [x] (2026-02-14) Create `cmd/codeforge/providers.go` (blank imports placeholder)
+- [ ] Structured JSON logging alignment (Go + Python)
+  - Go: slog JSON handler with `service` field in `internal/logger/logger.go`
+  - Python: structlog JSON renderer with `service` field in `workers/codeforge/logger.py`
+  - Common schema: `{time, level, service, msg, request_id, task_id, duration_ms, error, stack}`
+  - PostgreSQL: Configure `log_line_prefix` for structured output
+- [ ] Request ID propagation (Correlation ID)
+  - Middleware: `internal/middleware/request_id.go` (extract/generate X-Request-ID)
+  - Propagate via Context + NATS message headers
+  - Python: Extract from NATS headers, bind to structlog context vars
+  - Document in API spec
+- [ ] Docker Compose logging configuration
+  - Add `x-logging` anchor with `json-file` driver
+  - Options: `max-size: "10m"`, `max-file: "3"`, `compress: "true"`
+  - Labels: `service=<name>`, `tier=<api|worker|database|messaging>`
+  - Apply to all services
+- [ ] Async logging for Go Core
+  - Create `internal/logger/async.go` with AsyncHandler (slog wrapper)
+  - Buffer size: 10,000 records, 4 worker goroutines
+  - Sample strategy for backpressure (keep 10% when queue > 80%)
+  - Flush on shutdown, panic, and ERROR/FATAL logs (sync)
+- [ ] Python async logging with QueueHandler
+  - `workers/codeforge/logger.py` with `QueueHandler` + `QueueListener`
+  - Buffer size: 10,000 records, graceful shutdown with queue drain
+- [ ] Create `scripts/logs.sh` helper script
+  - Commands: `tail`, `errors`, `service <name>`, `request <id>`
+  - Uses `docker compose logs` + `jq` for filtering
 
-### Python Workers
+### 3C. Reliability Patterns
 
-- [x] (2026-02-14) Poetry environment verified (`poetry install`, `poetry run pytest` — 3/3 pass)
-- [x] (2026-02-14) Create `workers/codeforge/` with `__init__.py`, `consumer.py`, `health.py`
-- [x] (2026-02-14) Create `workers/tests/test_health.py` (3 tests)
+- [ ] Circuit Breaker for external services
+  - Create `internal/resilience/breaker.go` (states: open/half-open/closed)
+  - Wrap: LiteLLM client, NATS publisher, PostgreSQL queries
+  - Thresholds: 5 failures → open, 30s timeout → half-open
+- [ ] Graceful shutdown with drain phase
+  - Extend `cmd/codeforge/main.go` run() pattern
+  - HTTP: `srv.Shutdown()` with 30s context timeout
+  - NATS: `Drain()` instead of `Close()` (wait for last ack)
+- [ ] Agent execution timeout & heartbeat
+  - Context with timeout (10min default, configurable)
+  - Heartbeat ticker (30s) for progress tracking
+  - Cancellation channel for user abort
+  - Implement in `internal/service/agent.go`
+- [ ] Idempotency Keys for critical operations
+  - Middleware: `internal/middleware/idempotency.go`
+  - Storage: NATS JetStream KV (24h TTL)
+  - Apply to POST/PUT/DELETE endpoints (task creation, agent start)
+  - Add `Idempotency-Key` header to API spec
+- [ ] Optimistic Locking for concurrent updates
+  - Migration: Add `version INTEGER NOT NULL DEFAULT 1` to `tasks`, `projects` tables
+  - Service layer: Exponential backoff retry (max 3 attempts)
+  - Return `409 Conflict` on version mismatch
+- [ ] Dead Letter Queue (DLQ) for failed messages
+  - NATS consumer: Move to `tasks.dlq` after 3 retries
+  - Header: `Retry-Count` incremented on each Nak
+  - Admin UI: DLQ inspector (manual retry or discard)
+- [ ] Schema validation for NATS messages
+  - Create `internal/port/messagequeue/validator.go` with JSON Schema
+  - Validate on publish and subscribe
 
-### Frontend
+### 3D. Event Sourcing for Agent Trajectory
 
-- [x] (2026-02-14) Initialize SolidJS + TypeScript project in `frontend/`
-- [x] (2026-02-14) Configure Tailwind CSS v4 (via @tailwindcss/vite)
-- [x] (2026-02-14) Configure ESLint 9 (flat config) + Prettier + eslint-plugin-solid
-- [x] (2026-02-14) Create minimal app shell with @solidjs/router, sidebar layout
+- [ ] Domain: `internal/domain/event.go` (AgentEvent struct)
+- [ ] Port: `internal/port/eventstore/store.go` (Append, Load, Replay)
+- [ ] Storage: PostgreSQL table `agent_events` (append-only, partitioned by month)
+- [ ] Features: Replay task, trajectory inspector, audit trail
+- [ ] Session Events as Source of Truth (append-only log for Resume/Fork/Rewind)
+  - Every user/model/tool action recorded as event
+  - Stream events via WebSocket/AG-UI to frontend
+  - Event-schema versioning from day one
+
+### 3E. Performance Optimizations
+
+- [ ] Cache Layer with invalidation
+  - Multi-tier: L1 (ristretto in-memory 100MB), L2 (NATS KV)
+  - Create `internal/cache/cache.go` with Get/Set/Invalidate
+  - Cache keys: `{namespace}:{entityID}:{operation}`
+  - TTL per namespace: git (5m), tasks (1m), agents (10m)
+- [ ] Database connection pool tuning
+  - Formula: `((core_count * 2) + effective_spindle_count)` → ~15 connections
+  - Config in `internal/adapter/postgres/pool.go`: MaxConns=15, MinConns=2
+  - Add: MaxConnLifetime (1h), MaxConnIdleTime (10m), HealthCheckPeriod (1m)
+- [ ] Rate limiting per user/IP
+  - Middleware: `internal/middleware/ratelimit.go` with token bucket
+  - Per-user: 10 req/s sustained, 100 req/s burst
+  - Headers: `X-RateLimit-Remaining`, `X-RateLimit-Reset` (GitHub-style)
+  - Return `429 Too Many Requests` with `Retry-After` header
+- [ ] Go Core: Worker pools for CPU-bound tasks
+  - Git operations (clone, diff parsing) via `errgroup.Group` with `SetLimit(5)`
+  - Context propagation for cancellation
+- [ ] Python Workers: Full asyncio adoption
+  - NATS consumer async, LiteLLM calls async (httpx already async)
+  - DB queries async (psycopg3 async mode)
+
+### 3F. Security & Isolation
+
+- [ ] Agent sandbox resource limits (Docker cgroups v2)
+  - Create `internal/adapter/sandbox/docker.go`
+  - Memory: 512MB, CPUs: 1, PidsLimit: 100
+  - Storage quota: `--storage-opt size=10G`
+  - Network: `none` mode initially, enable on-demand
+  - Time limit: Context timeout (10min default)
+- [ ] Secrets rotation support
+  - Create `internal/secrets/vault.go` with hot reload
+  - SIGHUP handler to trigger reload from ENV or external vault
+  - RWMutex for safe concurrent access
+
+### 3G. API & Health
+
+- [ ] Health check granularity
+  - Extend `/health` with per-service status + latency
+  - Kubernetes: `/health` for liveness, `/health/ready` for readiness
+  - Return `503 Service Unavailable` if any critical service down
+- [ ] API versioning with deprecation
+  - Router: `/api/v1` (deprecated), `/api/v2` (current)
+  - Middleware: `DeprecationWarning()` adds `Deprecation: true`, `Sunset: <date>` headers
+- [ ] Database migrations: Rollback capability
+  - All migrations must have `-- +goose Up` and `-- +goose Down`
+  - Transactional migrations (BEGIN/COMMIT)
+  - Test rollback in CI before merge
+
+### 3H. Multi-Tenancy Preparation (Soft Launch)
+
+- [ ] Add tenant_id to all tables
+  - Migration: `004_add_tenant_id.sql`
+  - Add `tenant_id UUID NOT NULL DEFAULT '00000000-...'`
+  - Indexes: `idx_projects_tenant`, `idx_tasks_tenant`
+  - Service layer: Extract tenant_id from context (single-tenant for now)
 
 ---
 
-## Phase 1 Backlog: Foundation (COMPLETED)
+## Phase 4 — Agent Execution Engine (Approach C: Go Control Plane + Python Runtime)
 
-### Go Core Service — Scaffold
+> Architectural decision: Go-Core as "Control Plane" (State/Policies/Sessions),
+> Python-Worker as "Data/Execution Plane" (Models/Tools/Loop execution).
+> Source: Analyse-Dokument Section 13, Approach C.
 
-- [x] (2026-02-14) HTTP Router setup (chi v5)
-- [x] (2026-02-14) WebSocket server setup (coder/websocket)
-- [x] (2026-02-14) Health endpoint (`GET /health`) with service status
-- [x] (2026-02-14) Graceful shutdown handling (run() pattern)
-- [x] (2026-02-14) Basic middleware (logging, CORS, recovery)
-- [x] (2026-02-14) Provider Registry (`port/gitprovider/registry.go` + tests)
-- [x] (2026-02-14) Agent Backend Registry (`port/agentbackend/registry.go` + tests)
-- [x] (2026-02-14) Domain entities (project, agent, task)
-- [x] (2026-02-14) Database port interface (`port/database/store.go`)
-- [x] (2026-02-14) Message queue port interface (`port/messagequeue/queue.go`)
-- [x] (2026-02-14) PostgreSQL store adapter (CRUD for projects + tasks)
-- [x] (2026-02-14) NATS adapter (JetStream publish/subscribe)
-- [x] (2026-02-14) REST API routes + handlers (projects, tasks, providers)
-- [x] (2026-02-14) Services layer (ProjectService, TaskService)
-- [x] (2026-02-14) HTTP handler tests (5 tests)
+### 4A. Policy Layer (Permission + Checkpoint Gate)
 
-### Python Worker — Scaffold
+- [ ] Design Policy domain model
+  - `internal/domain/policy.go`: PolicyProfile, PermissionRule, ToolSpecifier
+  - Permission modes: `default`, `acceptEdits`, `plan`, `delegate`
+  - Rule evaluation: deny → ask → allow (first match wins)
+- [ ] Implement Permission Gate middleware
+  - Before every mutating ToolCall: evaluate policy rules
+  - ToolSpecifier patterns: `Read`, `Edit`, `Bash(git status:*)`, `Bash(go test:*)`
+  - Path allow/deny lists (glob patterns)
+  - Command allow/deny lists for Bash
+- [ ] Implement Checkpoint system
+  - Before every `Edit/Write/Replace`: automatic checkpoint
+  - On failed Quality Gates (tests/lint): automatic rewind or re-plan
+  - Shadow Git approach for Mount mode, Blob snapshots for Sandbox
+- [ ] Quality Gates (Definition of Done)
+  - Configurable per project: `requireTestsPass`, `requireLintPass`
+  - `rollbackOnGateFail`: automatic rewind on gate failure
+  - `maxSteps`, `timeoutSeconds`, `maxCost`, `stallDetection` as termination conditions
+- [ ] Policy Presets (4 built-in profiles)
+  - `plan-readonly`: Debug/Preview, no side-effects, read-only tools only
+  - `headless-safe-sandbox`: Default for autonomous server jobs, safety first
+  - `headless-permissive-sandbox`: Batch/refactor, more freedom, still sandboxed
+  - `trusted-mount-autonomous`: Power-user, direct mount, all local tools allowed
+- [ ] Policy UI in Frontend
+  - Policy Editor per project (YAML-style, fits CodeForge config standard)
+  - "Effective Permission Preview": show which rule matches and why
+  - Scope levels: global (user) → project → run/session (override)
+  - Preset selection + "Customize" (load preset, edit, save as new profile)
+  - Run overrides: temporarily override policy per run
 
-- [x] (2026-02-14) NATS JetStream queue consumer (real implementation)
-- [x] (2026-02-14) Health check endpoint (NATS + LiteLLM status)
-- [x] (2026-02-14) LiteLLM client integration (httpx async)
-- [x] (2026-02-14) Agent executor stub
-- [x] (2026-02-14) Pydantic models (TaskMessage, TaskResult, TaskStatus)
-- [x] (2026-02-14) Tests: models (5), llm (5), consumer (3) — 16 total
+### 4B. Runtime API (Austauschbare Execution Environments)
 
-### Frontend — Scaffold
+- [ ] Define Runtime Client protocol (Go ↔ Python)
+  - ToolCall/ToolResult schema: exit code, stdout/stderr, diff, touched paths
+  - Typed events: `ToolCallRequest`, `ToolCallResult`, `FileEdit`, `ShellExec`
+  - NATS subjects for runtime communication
+- [ ] Implement Execution Modes
+  - Sandbox: Isolated Docker container with cgroups v2 limits
+  - Mount: Direct file access to host workspace
+  - Hybrid: Read from host, write in sandbox, merge on success
+- [ ] Runtime Compliance Tests
+  - Test suite that validates each Runtime implementation
+  - Feature parity checks across Sandbox/Mount/Hybrid
 
-- [x] (2026-02-14) SolidJS app with @solidjs/router (routes for / and /projects)
-- [x] (2026-02-14) API client module (typed fetch wrapper)
-- [x] (2026-02-14) WebSocket client (@solid-primitives/websocket, auto-reconnect)
-- [x] (2026-02-14) Sidebar with health indicators (WS + API)
-- [x] (2026-02-14) Project Dashboard page with CRUD
+### 4C. Headless Autonomy (Server-First Execution)
 
-### LiteLLM Proxy
+- [ ] Auto-Approval rules per tool category
+  - Read/Grep always allowed
+  - Bash/Edit only in whitelisted paths or in sandbox
+  - Network access configurable (deny by default in headless)
+- [ ] Termination Conditions (replace HITL)
+  - MaxSteps, wall-time timeout, budget/token limits
+  - Stall Detection: no progress for N steps → re-plan or abort
+  - "Definition of Done": tests pass, lint pass, diff under limit
+- [ ] Deliver modes for headless output
+  - `patch`: Generate diff/patch file
+  - `commit-local`: Git commit locally (no push)
+  - `pr`: Create pull request via API
+  - `branch`: Push to feature branch only
+- [ ] API endpoint for external triggers
+  - POST `/api/v1/runs` for GitHub Actions, GitLab CI, Jenkins, cron jobs
+  - Accept policy profile override per run
 
-- [x] (2026-02-14) Add litellm service to `docker-compose.yml`
-- [x] (2026-02-14) Create `litellm_config.yaml` (Ollama, OpenAI, Anthropic)
-- [x] (2026-02-14) Health check integration in /health endpoint
+---
 
-### Message Queue (NATS JetStream)
+## Phase 5 — Multi-Agent Orchestration
 
-- [x] (2026-02-14) Decision: NATS JetStream — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
-- [x] (2026-02-14) Add NATS service to `docker-compose.yml`
-- [x] (2026-02-14) Go producer integration (`nats.go` + JetStream)
-- [x] (2026-02-14) Python consumer integration (`nats-py`)
-- [x] (2026-02-14) Subject hierarchy defined (tasks.agent.*, agents.*)
+> Source: Analyse-Dokument Section "Multi-Agent Orchestration Architecture"
 
-### Database (PostgreSQL)
+### 5A. Orchestrator Agent (Meta-Agent)
 
-- [x] (2026-02-14) Decision: PostgreSQL 17 + pgx + goose — [ADR-002](architecture/adr/002-postgresql-database.md)
-- [x] (2026-02-14) PostgreSQL in `docker-compose.yml`
-- [x] (2026-02-14) Go database client (pgx v5 + pgxpool)
-- [x] (2026-02-14) Migration tool (goose, embedded SQL via go:embed)
-- [x] (2026-02-14) Initial schema: projects, agents, tasks (001_initial_schema.sql)
+- [ ] Domain model: `internal/domain/orchestrator.go`
+  - Orchestrator entity (ID, ProjectID, Mode, Strategy, MaxParallel, State)
+  - OrchestratorMode: `manual`, `semi_auto`, `full_auto`
+  - OrchestrationStrategy: TaskDecomposition, TeamFormation, ContextOptimizer
+- [ ] Orchestrator Service
+  - Reads Feature Map / TODO list
+  - Decomposes features into subtasks (context-optimized)
+  - Decides agent strategy (single, pair, team)
+  - Monitors progress, reacts to failures (re-plan, retry)
 
-### Protocols (Phase 1 Stubs)
+### 5B. Task Decomposition (Execution Plans)
 
-- [x] (2026-02-14) MCP server stub (`internal/adapter/mcp/server.go`)
-- [x] (2026-02-14) MCP client stub (`internal/adapter/mcp/client.go`)
-- [x] (2026-02-14) LSP client stub (`internal/adapter/lsp/client.go`)
-- [x] (2026-02-14) OpenTelemetry stub (`internal/adapter/otel/setup.go`)
+- [ ] Domain model: `internal/domain/execution_plan.go`
+  - ExecutionPlan: tasks, DAG dependencies, estimated cost, state
+  - PlannedTask: context estimate, files, acceptance criteria, strategy
+  - ContextEstimate: token count, file sizes, split suggestions
+- [ ] Task Planner Service: `internal/service/task_planner.go`
+  - Feature → context-optimized subtasks
+  - Analyze complexity, identify relevant files
+  - Estimate context size, split if > threshold
+  - Build dependency graph (DAG)
+  - Assign strategies: single/pair/team based on heuristics
+  - LLM-based intelligent splitting (with fallback to file-based)
+
+### 5C. Agent Teams (Collaboration Units)
+
+- [ ] Domain model: `internal/domain/agent_team.go`
+  - AgentTeam: members, protocol, shared context, NATS message bus
+  - TeamMember: AgentID, Role (coder/reviewer/tester/documenter/planner)
+  - TeamProtocol: `sequential`, `ping_pong`, `consensus`, `parallel`
+  - SharedContext: files (versioned), artifacts, decisions, conversation
+- [ ] Agent Pool Manager: `internal/service/agent_pool_manager.go`
+  - Check resource availability before spawning
+  - Spawn teams for tasks with correct roles
+  - Lifecycle management (initialize → running → completed/failed)
+  - Cleanup: terminate team on failure or completion
+
+### 5D. Context Optimizer
+
+- [ ] Token budget management per task
+  - Estimate tokens needed for each file set
+  - Split tasks that exceed context window
+  - Prioritize most relevant files (by dependency graph)
+- [ ] Context packing as structured artifacts
+  - Store Context Packs in session events (not ad-hoc text)
+  - Reproducible retrieval via schema/artifact
+
+---
+
+## Phase 6 — Code-RAG (Context Engine for Large Codebases)
+
+> Source: Analyse-Dokument Section 14/5, "RAG am Anfang"
+> Three-tier approach: RepoMap → Hybrid Retrieval → GraphRAG (later)
+
+### 6A. Repo Map (High ROI, Phase 3-4)
+
+- [ ] tree-sitter based Repo Map
+  - Parse all project files, extract symbols/signatures
+  - Compact overview: files + key symbols (functions, classes, types)
+  - Python Worker: use tree-sitter bindings
+  - Output as structured data (JSON) for agent context
+  - Inspired by Aider's `repomap.py`
+
+### 6B. Hybrid Retrieval (Phase 4)
+
+- [ ] Keyword/regex search tools (grep, BM25)
+  - Fast directory search with concise result listing
+  - Strict token budget for search results (avoid context pollution)
+- [ ] Embedding Search for semantic queries
+  - Use docs-mcp or dedicated embedding service
+  - Top-K results as "Context Pack" with token budget
+- [ ] Combine: Hybrid Retrieval = keyword + semantic, ranked
+
+### 6C. Retrieval Sub-Agent (Phase 5)
+
+- [ ] Dedicated search agent for context retrieval
+  - Orchestrator delegates "find context" to Retrieval Agent
+  - Parallel tool calls, many searches, compact result
+  - Returns structured Context Pack to requesting agent
+
+### 6D. GraphRAG (Phase 6+)
+
+- [ ] Vector entry points + Graph traversal
+  - Call graph, import graph, ownership relationships
+  - Use where architecture relationships matter
+  - Careful with context explosion (graph expansion)
+- [ ] Graph DB integration (Neo4j or similar)
+
+---
+
+## Phase 7+ — Advanced Features & Vision
+
+### Roadmap/Feature Map
+
+- [ ] Roadmap/Feature Map Editor (Auto-Detection, Multi-Format SDD)
+- [ ] OpenSpec/Spec Kit/Autospec integration
+- [ ] Bidirectional PM sync (Plane.so, OpenProject, GitHub/GitLab Issues)
+
+### Version Control
+
+- [ ] SVN integration (provider registry pattern)
+- [ ] Gitea/Forgejo support (GitHub adapter works with minimal changes)
+
+### Protocols
+
+- [ ] A2A protocol integration (agent discovery, task delegation, Agent Cards)
+- [ ] AG-UI protocol integration (agent ↔ frontend streaming, replace custom WS events)
+
+### Integrations
+
+- [ ] GitHub/GitLab Webhook system for external integrations
+- [ ] Webhook notifications (Slack, Discord)
+
+### Cost & Monitoring
+
+- [ ] Cost tracking dashboard for LLM usage
+- [ ] Real-time budget alerts via WebSocket
+- [ ] Distributed tracing (OpenTelemetry full implementation)
+
+### Operations
+
+- [ ] Backup & disaster recovery strategy
+  - `scripts/backup-postgres.sh` (pg_dump daily at 3 AM UTC)
+  - Retention: 7 daily, 4 weekly, 12 monthly
+- [ ] Blue-Green deployment support (Traefik labels)
+- [ ] Multi-tenancy / user management (full, beyond soft-launch)
 
 ### CI/CD
 
-- [x] (2026-02-14) GitHub Actions workflow: lint + test (Go, Python, TypeScript)
 - [ ] GitHub Actions workflow: build Docker images
 - [ ] Branch protection rules for `main`
 
 ---
 
-## Phase 2 Backlog: MVP Features
+## Documentation TODOs
 
-> High-level items — will be broken down into granular tasks when Phase 1 is complete.
-
-- [ ] Project management (add/remove repos, display status)
-- [ ] Git integration (Clone, Pull, Branch, Diff)
-- [ ] LLM provider management (API keys, model selection)
-- [ ] Simple agent execution (single task to single agent)
-- [ ] Basic Web GUI for all features above
-
-See feature specs for detailed breakdown:
-- [features/01-project-dashboard.md](features/01-project-dashboard.md)
-- [features/03-multi-llm-provider.md](features/03-multi-llm-provider.md)
-- [features/04-agent-orchestration.md](features/04-agent-orchestration.md)
+- [ ] Create ADR for Config Hierarchy (`docs/architecture/adr/003-config-hierarchy.md`)
+- [ ] Create ADR for Async Logging (`docs/architecture/adr/004-async-logging.md`)
+- [ ] Create ADR for Docker-Native Logging (`docs/architecture/adr/005-docker-native-logging.md`)
+- [ ] Create ADR for Agent Execution (Approach C) (`docs/architecture/adr/006-agent-execution-approach-c.md`)
+- [ ] Create ADR for Policy Layer (`docs/architecture/adr/007-policy-layer.md`)
+- [ ] Update `docs/architecture.md` with new patterns
+  - Event Sourcing, Circuit Breaker, Cache Layer, Idempotency, Rate Limiting
+  - Policy Layer, Runtime API, Execution Modes
+- [ ] Update `docs/dev-setup.md` with logging section
+  - Docker Compose log commands, log level config, Request ID, helper script
+- [ ] Update `CLAUDE.md` with new principles
+  - Config hierarchy rule, async-first concurrency
+  - Docker-native logging, no external monitoring tools
+  - Policy Layer, Approach C decision
 
 ---
 
-## Phase 3 Backlog: Advanced Features
+## Testing Requirements
 
-> Long-term items — will be broken down when Phase 2 is complete.
-
-- [ ] Roadmap/Feature Map Editor (Auto-Detection, Multi-Format SDD, bidirectional PM sync)
-- [ ] OpenSpec/Spec Kit/Autospec integration
-- [ ] SVN integration
-- [ ] Multi-agent orchestration (pipelines, DAGs)
-- [ ] A2A protocol integration (agent discovery, task delegation, Agent Cards)
-- [ ] AG-UI protocol integration (agent ↔ frontend streaming, replace custom WS events)
-- [ ] GitHub/GitLab Webhook integration
-- [ ] Cost tracking dashboard for LLM usage
-- [ ] Multi-tenancy / user management
-
-See feature specs for detailed breakdown:
-- [features/02-roadmap-feature-map.md](features/02-roadmap-feature-map.md)
+- [ ] Unit tests for AsyncHandler (buffer overflow, concurrent writes, flush)
+- [ ] Integration tests for Config Loader (precedence, validation, reload)
+- [ ] Integration tests for Idempotency (duplicate requests, TTL expiry)
+- [ ] Load tests for Rate Limiting (sustained vs burst, per-user limiters)
+- [ ] Runtime Compliance Tests (Sandbox/Mount/Hybrid feature parity)
+- [ ] Policy Gate tests (deny/ask/allow evaluation, path scoping)
 
 ---
 
@@ -160,6 +405,18 @@ See feature specs for detailed breakdown:
 
 > Move items here after completion for context. Periodically archive old items.
 
+- [x] (2026-02-14) Phase 2 completed: MVP Features
+  - WP1: Git Local Provider — Clone, Status, Pull, ListBranches, Checkout via git CLI
+  - WP2: Agent Lifecycle — Aider backend, async NATS dispatch, agent CRUD API
+  - WP3: WebSocket Events — Live agent output, task/agent status broadcasting
+  - WP4: LLM Provider Management — LiteLLM admin API client, model CRUD endpoints
+  - WP5: Frontend — Project detail page, git operations UI, task list
+  - WP6: Frontend — Agent monitor panel, live terminal output, task create/expand
+  - WP7: Frontend — LLM models page, add/delete models, health status
+  - WP8: Integration test, documentation update, test fixes
+  - **Go:** 27 tests, gitlocal provider, aider backend, agent service, LiteLLM client, 19 REST endpoints
+  - **Python:** 16 tests, streaming output via NATS, LiteLLM health checks
+  - **Frontend:** 13 components, 4 routes (/, /projects, /projects/:id, /models), WebSocket live updates
 - [x] (2026-02-14) Phase 1 completed: Infrastructure, Go Core, Python Workers, Frontend, CI/CD
   - Docker Compose: PostgreSQL, NATS JetStream, LiteLLM Proxy
   - Go: Hexagonal architecture, REST API, WebSocket, NATS, PostgreSQL
@@ -177,3 +434,15 @@ See feature specs for detailed breakdown:
 - [x] (2026-02-14) Coding agent insights integrated into architecture.md
 
 For full completion history, see [project-status.md](project-status.md).
+
+---
+
+## Notes
+
+- **Priority order**: Phase 3 (Reliability) → Phase 4 (Agent Engine) → Phase 5 (Multi-Agent) → Phase 6 (RAG)
+- **Dependencies**: Structured Logging → Request ID → Docker Logging → Log Script
+- **Dependencies**: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
+- **Dependencies**: Repo Map → Hybrid Retrieval → Retrieval Sub-Agent → GraphRAG
+- **Testing**: Each new pattern requires unit + integration tests before merge
+- **Documentation**: ADRs must be written before implementation (capture decision context)
+- **Source**: Analysis document `docs/Analyse des CodeForge-Projekts (staging-Branch).md`
