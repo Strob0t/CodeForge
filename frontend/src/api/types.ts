@@ -371,7 +371,7 @@ export interface PlanFeatureRequest {
 // --- Context types (Phase 5D) ---
 
 /** Context entry kind enum matching Go domain/context.EntryKind */
-export type ContextEntryKind = "file" | "snippet" | "summary" | "shared";
+export type ContextEntryKind = "file" | "snippet" | "summary" | "shared" | "repomap";
 
 /** Matches Go domain/context.ContextEntry */
 export interface ContextEntry {
@@ -465,6 +465,32 @@ export interface SharedContextUpdateEvent {
   key: string;
   author: string;
   version: number;
+}
+
+// --- RepoMap types (Phase 6A) ---
+
+/** Matches Go domain/context.RepoMap */
+export interface RepoMap {
+  id: string;
+  project_id: string;
+  map_text: string;
+  token_count: number;
+  file_count: number;
+  symbol_count: number;
+  languages: string[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** WS event: repo map status change */
+export interface RepoMapStatusEvent {
+  project_id: string;
+  status: "generating" | "ready" | "failed";
+  token_count?: number;
+  file_count?: number;
+  symbol_count?: number;
+  error?: string;
 }
 
 /** Error response from API */

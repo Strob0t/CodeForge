@@ -68,6 +68,18 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 		candidates = append(candidates, fileEntries...)
 	}
 
+	// Inject repo map if available for this project.
+	repoMap, err := s.store.GetRepoMap(ctx, projectID)
+	if err == nil && repoMap.MapText != "" {
+		candidates = append(candidates, cfcontext.ContextEntry{
+			Kind:     cfcontext.EntryRepoMap,
+			Path:     "repo-map",
+			Content:  repoMap.MapText,
+			Tokens:   repoMap.TokenCount,
+			Priority: 85,
+		})
+	}
+
 	// Inject shared context if team is specified.
 	if teamID != "" {
 		sc, err := s.store.GetSharedContextByTeam(ctx, teamID)

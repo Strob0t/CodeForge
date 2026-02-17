@@ -52,4 +52,8 @@ const (
 	// Context subjects (Phase 5D)
 	SubjectContextPacked = "context.packed"         // Go → Python: context pack ready for run
 	SubjectSharedUpdated = "context.shared.updated" // Go → all: shared context changed
+
+	// RepoMap subjects (Phase 6A)
+	SubjectRepoMapRequest = "repomap.generate.request" // Go → Python: request repo map generation
+	SubjectRepoMapResult  = "repomap.generate.result"  // Python → Go: repo map generation result
 )

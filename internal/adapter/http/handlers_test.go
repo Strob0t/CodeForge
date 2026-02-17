@@ -275,6 +275,13 @@ func (m *mockStore) AddSharedContextItem(_ context.Context, _ cfcontext.AddShare
 }
 func (m *mockStore) DeleteSharedContext(_ context.Context, _ string) error { return nil }
 
+// Repo Map stubs
+func (m *mockStore) UpsertRepoMap(_ context.Context, _ *cfcontext.RepoMap) error { return nil }
+func (m *mockStore) GetRepoMap(_ context.Context, _ string) (*cfcontext.RepoMap, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) DeleteRepoMap(_ context.Context, _ string) error { return nil }
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -327,6 +334,7 @@ func newTestRouter() chi.Router {
 	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
+	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store),
 		Tasks:            service.NewTaskService(store, queue),
@@ -341,6 +349,7 @@ func newTestRouter() chi.Router {
 		ContextOptimizer: contextOptSvc,
 		SharedContext:    sharedCtxSvc,
 		Modes:            modeSvc,
+		RepoMap:          repoMapSvc,
 	}
 
 	r := chi.NewRouter()
@@ -1125,5 +1134,71 @@ func TestCancelRunNotFound(t *testing.T) {
 	// CancelRun calls GetRun which returns not found → 500 (wrapped domain error)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 for cancel of nonexistent run, got %d", w.Code)
+	}
+}
+
+// --- RepoMap Endpoints ---
+
+func TestGetRepoMapNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/projects/some-id/repomap", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestGenerateRepoMap(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "proj-1", Name: "Test", WorkspacePath: "/tmp/test"}},
+	}
+	queue := &mockQueue{}
+	bc := &mockBroadcaster{}
+	es := &mockEventStore{}
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	runtimeSvc := service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{})
+	orchCfg := &config.Orchestrator{
+		MaxParallel:        4,
+		PingPongMaxRounds:  3,
+		MaxTeamSize:        5,
+		RepoMapTokenBudget: 1024,
+	}
+	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
+	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
+	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg)
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
+	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
+	modeSvc := service.NewModeService()
+	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
+	handlers := &cfhttp.Handlers{
+		Projects:         service.NewProjectService(store),
+		Tasks:            service.NewTaskService(store, queue),
+		Agents:           service.NewAgentService(store, queue, bc),
+		LiteLLM:          litellm.NewClient("http://localhost:4000", ""),
+		Policies:         policySvc,
+		Runtime:          runtimeSvc,
+		Orchestrator:     orchSvc,
+		MetaAgent:        metaAgentSvc,
+		PoolManager:      poolManagerSvc,
+		TaskPlanner:      taskPlannerSvc,
+		ContextOptimizer: contextOptSvc,
+		SharedContext:    sharedCtxSvc,
+		Modes:            modeSvc,
+		RepoMap:          repoMapSvc,
+	}
+
+	r := chi.NewRouter()
+	cfhttp.MountRoutes(r, handlers)
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/repomap", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
 }

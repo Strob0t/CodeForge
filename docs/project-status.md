@@ -419,3 +419,33 @@
 - **Events:** 2 new WS event types (team.status, shared.updated)
 - **Tests:** 16+ new test functions (8 mode domain + 8 mode service), all Go tests pass
 - **Lint:** golangci-lint 0 issues, frontend lint + build clean
+
+## Phase 6: Code-RAG (Context Engine for Large Codebases)
+
+### 6A. Repo Map — tree-sitter Based Code Intelligence (COMPLETED)
+
+- [x] (2026-02-17) Python Worker: RepoMapGenerator with tree-sitter parsing
+  - tree-sitter + tree-sitter-language-pack for 16+ language support
+  - Symbol extraction: functions, classes, methods, types, interfaces
+  - File ranking via networkx PageRank (import graph analysis)
+  - Compact map output: files + key symbols with token budget
+  - NATS integration: repomap.generate / repomap.result subjects
+  - Configurable token budget, max files, tag format
+- [x] (2026-02-17) Go Backend: RepoMap domain, store, service, HTTP, WS
+  - Domain model: RepoMap entity with validation
+  - PostgreSQL storage: migration 011_create_repo_maps.sql
+  - RepoMapService: Generate (via NATS to Python), Get, HandleResult
+  - REST API: GET/POST /projects/{id}/repomap
+  - WS event: repomap.status (generating/ready/failed)
+- [x] (2026-02-17) Frontend: RepoMapPanel component
+  - Stats display: file count, symbol count, token count
+  - Language tags, version info, collapsible map text
+  - Generate/regenerate button with loading state
+  - Integrated into ProjectDetailPage (between Git and Agents sections)
+  - WS event handler for repomap.status
+
+### Phase 6A Key Deliverables
+- **Python:** RepoMapGenerator, tree-sitter parsing, NATS consumer extension
+- **Go:** Domain model, PostgreSQL store, service, 2 REST endpoints, WS events
+- **Frontend:** RepoMapPanel.tsx, types (RepoMap, RepoMapStatusEvent), API client (repomap namespace)
+- **Dependencies:** tree-sitter ^0.24, tree-sitter-language-pack ^0.13, networkx ^3.4

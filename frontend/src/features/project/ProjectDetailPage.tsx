@@ -5,6 +5,7 @@ import { createCodeForgeWS } from "~/api/websocket";
 import type { Branch, GitStatus } from "~/api/types";
 import AgentPanel from "./AgentPanel";
 import PlanPanel from "./PlanPanel";
+import RepoMapPanel from "./RepoMapPanel";
 import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
 import LiveOutput from "./LiveOutput";
@@ -98,6 +99,13 @@ export default function ProjectDetailPage() {
         const stepProjectId = payload.project_id as string;
         if (stepProjectId === projectId) {
           // PlanPanel will refetch via its own resource
+        }
+        break;
+      }
+      case "repomap.status": {
+        const rmProjectId = payload.project_id as string;
+        if (rmProjectId === projectId) {
+          // RepoMapPanel will refetch via its own resource
         }
         break;
       }
@@ -270,6 +278,13 @@ export default function ProjectDetailPage() {
                 </Show>
               </Show>
             </div>
+
+            {/* Repo Map Section */}
+            <Show when={p().workspace_path}>
+              <div class="mb-6">
+                <RepoMapPanel projectId={params.id} />
+              </div>
+            </Show>
 
             {/* Agents Section */}
             <div class="mb-6">

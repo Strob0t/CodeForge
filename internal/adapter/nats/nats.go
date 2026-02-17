@@ -47,7 +47,7 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 	// Ensure the stream exists with subjects matching our topic patterns.
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:     streamName,
-		Subjects: []string{"tasks.>", "agents.>"},
+		Subjects: []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>"},
 	})
 	if err != nil {
 		nc.Close()

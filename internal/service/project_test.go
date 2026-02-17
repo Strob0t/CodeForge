@@ -232,6 +232,13 @@ func (m *mockStore) AddSharedContextItem(_ context.Context, _ cfcontext.AddShare
 }
 func (m *mockStore) DeleteSharedContext(_ context.Context, _ string) error { return nil }
 
+// Repo Map stubs
+func (m *mockStore) UpsertRepoMap(_ context.Context, _ *cfcontext.RepoMap) error { return nil }
+func (m *mockStore) GetRepoMap(_ context.Context, _ string) (*cfcontext.RepoMap, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) DeleteRepoMap(_ context.Context, _ string) error { return nil }
+
 // --- ProjectService Tests ---
 
 func TestProjectServiceList(t *testing.T) {

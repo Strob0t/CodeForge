@@ -29,6 +29,7 @@ type Orchestrator struct {
 	MaxTeamSize          int    `yaml:"max_team_size"`          // Max agents per team (default: 5)
 	DefaultContextBudget int    `yaml:"default_context_budget"` // Default token budget per task context (default: 4096)
 	PromptReserve        int    `yaml:"prompt_reserve"`         // Tokens reserved for prompt+output (default: 1024)
+	RepoMapTokenBudget   int    `yaml:"repomap_token_budget"`   // Default token budget for repo map generation (default: 1024)
 }
 
 // Runtime holds agent execution engine configuration.
@@ -146,6 +147,7 @@ func Defaults() Config {
 			MaxTeamSize:          5,
 			DefaultContextBudget: 4096,
 			PromptReserve:        1024,
+			RepoMapTokenBudget:   1024,
 		},
 	}
 }

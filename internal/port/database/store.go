@@ -72,4 +72,9 @@ type Store interface {
 	GetSharedContextByTeam(ctx context.Context, teamID string) (*cfcontext.SharedContext, error)
 	AddSharedContextItem(ctx context.Context, req cfcontext.AddSharedItemRequest) (*cfcontext.SharedContextItem, error)
 	DeleteSharedContext(ctx context.Context, id string) error
+
+	// Repo Maps
+	UpsertRepoMap(ctx context.Context, m *cfcontext.RepoMap) error
+	GetRepoMap(ctx context.Context, projectID string) (*cfcontext.RepoMap, error)
+	DeleteRepoMap(ctx context.Context, projectID string) error
 }

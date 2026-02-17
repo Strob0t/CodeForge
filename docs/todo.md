@@ -373,14 +373,16 @@
 > Source: Analyse-Dokument Section 14/5, "RAG am Anfang"
 > Three-tier approach: RepoMap → Hybrid Retrieval → GraphRAG (later)
 
-### 6A. Repo Map (High ROI, Phase 3-4)
+### 6A. Repo Map (COMPLETED)
 
-- [ ] tree-sitter based Repo Map
-  - Parse all project files, extract symbols/signatures
-  - Compact overview: files + key symbols (functions, classes, types)
-  - Python Worker: use tree-sitter bindings
-  - Output as structured data (JSON) for agent context
-  - Inspired by Aider's `repomap.py`
+- [x] (2026-02-17) tree-sitter based Repo Map
+  - Python Worker: RepoMapGenerator with tree-sitter + tree-sitter-language-pack
+  - Symbol extraction (functions, classes, methods, types, interfaces) for 16+ languages
+  - File ranking via networkx PageRank (import graph analysis)
+  - Go Backend: domain model, PostgreSQL store, RepoMapService, REST API, WS events
+  - Frontend: RepoMapPanel component with stats, language tags, collapsible map text
+  - NATS integration: repomap.generate / repomap.result subjects
+  - New dependencies: tree-sitter ^0.24, tree-sitter-language-pack ^0.13, networkx ^3.4
 
 ### 6B. Hybrid Retrieval (Phase 4)
 

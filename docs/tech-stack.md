@@ -87,6 +87,9 @@
 - NATS Client (`nats-py`) — asyncio-native, message queue to Go Core
 - Jinja2 (Prompt Templates)
 - KeyBERT (Keyword Extraction for Retrieval)
+- tree-sitter ^0.24 — Code parsing into ASTs for repo map generation
+- tree-sitter-language-pack ^0.13 — Pre-built parsers for 16+ languages
+- networkx ^3.4 — Graph algorithms (PageRank for file ranking in repo maps)
 
 ### Protocols & Standards
 - MCP (Model Context Protocol) — Agent ↔ Tool communication, JSON-RPC 2.0 (Anthropic)

@@ -23,6 +23,7 @@ import type {
   PlanFeatureRequest,
   Project,
   ProviderList,
+  RepoMap,
   Run,
   SharedContext,
   SharedContextItem,
@@ -264,6 +265,17 @@ export const api = {
       request<Mode>("/modes", {
         method: "POST",
         body: JSON.stringify(data),
+      }),
+  },
+
+  repomap: {
+    get: (projectId: string) =>
+      request<RepoMap>(`/projects/${encodeURIComponent(projectId)}/repomap`),
+
+    generate: (projectId: string, activeFiles?: string[]) =>
+      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/repomap`, {
+        method: "POST",
+        body: JSON.stringify({ active_files: activeFiles ?? [] }),
       }),
   },
 

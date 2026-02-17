@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -39,6 +40,7 @@ type Handlers struct {
 	ContextOptimizer *service.ContextOptimizerService
 	SharedContext    *service.SharedContextService
 	Modes            *service.ModeService
+	RepoMap          *service.RepoMapService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -152,6 +154,16 @@ func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "clone failed")
 		return
 	}
+
+	// Auto-trigger repo map generation after successful clone.
+	if h.RepoMap != nil {
+		go func() {
+			if err := h.RepoMap.RequestGeneration(context.Background(), id, nil); err != nil {
+				slog.Error("auto repomap generation failed", "project_id", id, "error", err)
+			}
+		}()
+	}
+
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -787,6 +799,36 @@ func (h *Handlers) CreateMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
+}
+
+// --- RepoMap Endpoints ---
+
+// GetRepoMap handles GET /api/v1/projects/{id}/repomap
+func (h *Handlers) GetRepoMap(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	m, err := h.RepoMap.Get(r.Context(), projectID)
+	if err != nil {
+		writeDomainError(w, err, "repo map not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+// GenerateRepoMap handles POST /api/v1/projects/{id}/repomap
+func (h *Handlers) GenerateRepoMap(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req struct {
+		ActiveFiles []string `json:"active_files"`
+	}
+	// Body is optional; empty body is fine.
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if err := h.RepoMap.RequestGeneration(r.Context(), projectID, req.ActiveFiles); err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "generating"})
 }
 
 // --- Helpers ---

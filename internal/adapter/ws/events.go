@@ -27,6 +27,9 @@ const (
 	// Phase 5E: team + shared context events
 	EventTeamStatus          = "team.status"
 	EventSharedContextUpdate = "shared.updated"
+
+	// Phase 6A: repo map events
+	EventRepoMapStatus = "repomap.status"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -126,6 +129,16 @@ type SharedContextUpdateEvent struct {
 	Key     string `json:"key"`
 	Author  string `json:"author"`
 	Version int    `json:"version"`
+}
+
+// RepoMapStatusEvent is broadcast when a repo map's generation status changes.
+type RepoMapStatusEvent struct {
+	ProjectID   string `json:"project_id"`
+	Status      string `json:"status"` // "generating", "ready", "failed"
+	TokenCount  int    `json:"token_count,omitempty"`
+	FileCount   int    `json:"file_count,omitempty"`
+	SymbolCount int    `json:"symbol_count,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

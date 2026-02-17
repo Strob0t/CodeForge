@@ -15,12 +15,13 @@ const (
 	EntrySnippet EntryKind = "snippet" // Partial file / code excerpt
 	EntrySummary EntryKind = "summary" // Text summary of a larger body
 	EntryShared  EntryKind = "shared"  // Item from SharedContext
+	EntryRepoMap EntryKind = "repomap" // Repository structure map
 )
 
 // ValidEntryKind reports whether k is a known entry kind.
 func ValidEntryKind(k EntryKind) bool {
 	switch k {
-	case EntryFile, EntrySnippet, EntrySummary, EntryShared:
+	case EntryFile, EntrySnippet, EntrySummary, EntryShared, EntryRepoMap:
 		return true
 	}
 	return false

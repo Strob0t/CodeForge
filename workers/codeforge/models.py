@@ -122,3 +122,27 @@ class QualityGateResult(BaseModel):
     test_output: str = ""
     lint_output: str = ""
     error: str = ""
+
+
+# --- RepoMap Models (Phase 6A) ---
+
+
+class RepoMapRequest(BaseModel):
+    """Request from Go control plane to generate a repository map."""
+
+    project_id: str
+    workspace_path: str
+    token_budget: int = 1024
+    active_files: list[str] = Field(default_factory=list)
+
+
+class RepoMapResult(BaseModel):
+    """Result of repo map generation sent back to Go control plane."""
+
+    project_id: str
+    map_text: str
+    token_count: int
+    file_count: int
+    symbol_count: int
+    languages: list[str]
+    error: str = ""

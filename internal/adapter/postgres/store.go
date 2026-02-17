@@ -967,6 +967,58 @@ func (s *Store) DeleteSharedContext(ctx context.Context, id string) error {
 	return nil
 }
 
+// --- Repo Maps ---
+
+// UpsertRepoMap inserts or updates a repo map for a project.
+func (s *Store) UpsertRepoMap(ctx context.Context, m *cfcontext.RepoMap) error {
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO repo_maps (project_id, map_text, token_count, file_count, symbol_count, languages, version)
+		 VALUES ($1, $2, $3, $4, $5, $6, 1)
+		 ON CONFLICT (project_id) DO UPDATE SET
+		   map_text = EXCLUDED.map_text,
+		   token_count = EXCLUDED.token_count,
+		   file_count = EXCLUDED.file_count,
+		   symbol_count = EXCLUDED.symbol_count,
+		   languages = EXCLUDED.languages,
+		   version = repo_maps.version + 1,
+		   updated_at = now()
+		 RETURNING id, version, created_at, updated_at`,
+		m.ProjectID, m.MapText, m.TokenCount, m.FileCount, m.SymbolCount, m.Languages,
+	).Scan(&m.ID, &m.Version, &m.CreatedAt, &m.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("upsert repo_map: %w", err)
+	}
+	return nil
+}
+
+// GetRepoMap returns the repo map for a project.
+func (s *Store) GetRepoMap(ctx context.Context, projectID string) (*cfcontext.RepoMap, error) {
+	var m cfcontext.RepoMap
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, project_id, map_text, token_count, file_count, symbol_count, languages, version, created_at, updated_at
+		 FROM repo_maps WHERE project_id = $1`, projectID,
+	).Scan(&m.ID, &m.ProjectID, &m.MapText, &m.TokenCount, &m.FileCount, &m.SymbolCount, &m.Languages, &m.Version, &m.CreatedAt, &m.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get repo_map for project %s: %w", projectID, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get repo_map: %w", err)
+	}
+	return &m, nil
+}
+
+// DeleteRepoMap removes the repo map for a project.
+func (s *Store) DeleteRepoMap(ctx context.Context, projectID string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM repo_maps WHERE project_id = $1`, projectID)
+	if err != nil {
+		return fmt.Errorf("delete repo_map: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete repo_map for project %s: %w", projectID, domain.ErrNotFound)
+	}
+	return nil
+}
+
 // nullIfEmpty returns nil for empty strings (for nullable UUID columns).
 func nullIfEmpty(s string) *string {
 	if s == "" {

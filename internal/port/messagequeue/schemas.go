@@ -163,3 +163,24 @@ type SharedContextUpdatedPayload struct {
 	Author    string `json:"author"`
 	Version   int    `json:"version"`
 }
+
+// --- RepoMap payloads (Phase 6A) ---
+
+// RepoMapRequestPayload is the schema for repomap.generate.request messages.
+type RepoMapRequestPayload struct {
+	ProjectID     string   `json:"project_id"`
+	WorkspacePath string   `json:"workspace_path"`
+	TokenBudget   int      `json:"token_budget"`
+	ActiveFiles   []string `json:"active_files"`
+}
+
+// RepoMapResultPayload is the schema for repomap.generate.result messages.
+type RepoMapResultPayload struct {
+	ProjectID   string   `json:"project_id"`
+	MapText     string   `json:"map_text"`
+	TokenCount  int      `json:"token_count"`
+	FileCount   int      `json:"file_count"`
+	SymbolCount int      `json:"symbol_count"`
+	Languages   []string `json:"languages"`
+	Error       string   `json:"error"`
+}

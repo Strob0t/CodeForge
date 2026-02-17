@@ -398,6 +398,28 @@ func (m *runtimeMockStore) DeleteSharedContext(_ context.Context, id string) err
 	return errMockNotFound
 }
 
+// --- Repo Map mocks ---
+
+func (m *runtimeMockStore) UpsertRepoMap(_ context.Context, rm *cfcontext.RepoMap) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if rm.ID == "" {
+		rm.ID = fmt.Sprintf("rm-%d", time.Now().UnixNano())
+	}
+	rm.Version = 1
+	rm.CreatedAt = time.Now()
+	rm.UpdatedAt = rm.CreatedAt
+	return nil
+}
+
+func (m *runtimeMockStore) GetRepoMap(_ context.Context, _ string) (*cfcontext.RepoMap, error) {
+	return nil, errMockNotFound
+}
+
+func (m *runtimeMockStore) DeleteRepoMap(_ context.Context, _ string) error {
+	return nil
+}
+
 type runtimeMockQueue struct {
 	mu       sync.Mutex
 	messages []publishedMsg

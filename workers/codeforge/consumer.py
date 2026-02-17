@@ -13,8 +13,17 @@ from codeforge.config import WorkerSettings
 from codeforge.executor import AgentExecutor
 from codeforge.llm import LiteLLMClient
 from codeforge.logger import setup_logging
-from codeforge.models import QualityGateRequest, QualityGateResult, RunStartMessage, TaskMessage, TaskResult
+from codeforge.models import (
+    QualityGateRequest,
+    QualityGateResult,
+    RepoMapRequest,
+    RepoMapResult,
+    RunStartMessage,
+    TaskMessage,
+    TaskResult,
+)
 from codeforge.qualitygate import QualityGateExecutor
+from codeforge.repomap import RepoMapGenerator
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
@@ -28,6 +37,8 @@ SUBJECT_OUTPUT = "tasks.output"
 SUBJECT_RUN_START = "runs.start"
 SUBJECT_QG_REQUEST = "runs.qualitygate.request"
 SUBJECT_QG_RESULT = "runs.qualitygate.result"
+SUBJECT_REPOMAP_REQUEST = "repomap.generate.request"
+SUBJECT_REPOMAP_RESULT = "repomap.generate.result"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -51,6 +62,7 @@ class TaskConsumer:
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
         self._executor = AgentExecutor(llm=self._llm)
         self._gate_executor = QualityGateExecutor()
+        self._repomap_generator = RepoMapGenerator()
 
     async def start(self) -> None:
         """Connect to NATS and subscribe to task and run subjects."""
@@ -84,11 +96,20 @@ class TaskConsumer:
         )
         logger.info("subscribed", subject=SUBJECT_QG_REQUEST)
 
+        # Subscribe to repo map generation requests
+        repomap_sub = await self._js.subscribe(
+            SUBJECT_REPOMAP_REQUEST,
+            stream=STREAM_NAME,
+            manual_ack=True,
+        )
+        logger.info("subscribed", subject=SUBJECT_REPOMAP_REQUEST)
+
         # Process all subscriptions concurrently
         await asyncio.gather(
             self._process_task_messages(task_sub),
             self._process_run_messages(run_sub),
             self._process_quality_gate_messages(qg_sub),
+            self._process_repomap_messages(repomap_sub),
         )
 
     async def _process_task_messages(self, sub: object) -> None:
@@ -236,6 +257,52 @@ class TaskConsumer:
 
         except Exception:
             logger.exception("failed to process quality gate request")
+            await msg.nak()
+
+    async def _process_repomap_messages(self, sub: object) -> None:
+        """Message processing loop for repo map generation requests."""
+        while self._running:
+            try:
+                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
+            except TimeoutError:
+                continue
+            except Exception:
+                if self._running:
+                    logger.exception("error receiving repomap message")
+                break
+
+            await self._handle_repomap(msg)
+
+    async def _handle_repomap(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a repo map request: generate map and publish result."""
+        try:
+            request = RepoMapRequest.model_validate_json(msg.data)
+            log = logger.bind(project_id=request.project_id)
+            log.info("received repomap request", workspace=request.workspace_path)
+
+            self._repomap_generator._token_budget = request.token_budget
+            result: RepoMapResult = await self._repomap_generator.generate(
+                workspace_path=request.workspace_path,
+                active_files=request.active_files,
+            )
+            result = result.model_copy(update={"project_id": request.project_id})
+
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_REPOMAP_RESULT,
+                    result.model_dump_json().encode(),
+                )
+
+            await msg.ack()
+            log.info(
+                "repomap generated",
+                files=result.file_count,
+                symbols=result.symbol_count,
+                tokens=result.token_count,
+            )
+
+        except Exception:
+            logger.exception("failed to process repomap request")
             await msg.nak()
 
     @staticmethod
