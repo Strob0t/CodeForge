@@ -115,11 +115,11 @@
 - [x] (2026-02-17) Database connection pool tuning
   - `NewPool` accepts `config.Postgres` with MaxConns=15, MinConns=2, MaxConnLifetime=1h, MaxConnIdleTime=10m, HealthCheckPeriod=1m
   - All pool parameters configurable via YAML/ENV
-- [ ] Rate limiting per user/IP
-  - Middleware: `internal/middleware/ratelimit.go` with token bucket
-  - Per-user: 10 req/s sustained, 100 req/s burst
+- [x] (2026-02-17) Rate limiting per IP
+  - `internal/middleware/ratelimit.go`: token bucket, per-IP, configurable rate/burst
   - Headers: `X-RateLimit-Remaining`, `X-RateLimit-Reset` (GitHub-style)
-  - Return `429 Too Many Requests` with `Retry-After` header
+  - Returns 429 with `Retry-After` header
+  - 4 tests in `internal/middleware/ratelimit_test.go`
 - [ ] Go Core: Worker pools for CPU-bound tasks
   - Git operations (clone, diff parsing) via `errgroup.Group` with `SetLimit(5)`
   - Context propagation for cancellation
@@ -142,10 +142,10 @@
 
 ### 3G. API & Health
 
-- [ ] Health check granularity
-  - Extend `/health` with per-service status + latency
-  - Kubernetes: `/health` for liveness, `/health/ready` for readiness
-  - Return `503 Service Unavailable` if any critical service down
+- [x] (2026-02-17) Health check granularity
+  - `/health` liveness (always 200), `/health/ready` readiness (pings DB, NATS, LiteLLM)
+  - Returns 503 with per-service status + latency if any dependency down
+  - NATS `IsConnected()` added to Queue interface
 - [ ] API versioning with deprecation
   - Router: `/api/v1` (deprecated), `/api/v2` (current)
   - Middleware: `DeprecationWarning()` adds `Deprecation: true`, `Sunset: <date>` headers

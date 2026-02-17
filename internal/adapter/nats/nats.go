@@ -214,3 +214,8 @@ func (q *Queue) Close() error {
 	q.nc.Close()
 	return nil
 }
+
+// IsConnected reports whether the NATS connection is active.
+func (q *Queue) IsConnected() bool {
+	return q.nc.IsConnected()
+}

@@ -14,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
@@ -119,6 +121,9 @@ func run() error {
 
 	r := chi.NewRouter()
 
+	// Rate limiter
+	rateLimiter := middleware.NewRateLimiter(cfg.Rate.RequestsPerSecond, cfg.Rate.Burst)
+
 	// Middleware
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
 	r.Use(middleware.RequestID)
@@ -126,9 +131,13 @@ func run() error {
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
+	r.Use(rateLimiter.Handler)
 
-	// Health endpoint with service status
-	r.Get("/health", healthHandler(cfg))
+	// Liveness (always 200)
+	r.Get("/health", livenessHandler)
+
+	// Readiness (pings DB, checks NATS, checks LiteLLM)
+	r.Get("/health/ready", readinessHandler(pool, queue, llmClient))
 
 	// WebSocket endpoint
 	r.Get("/ws", hub.HandleWS)
@@ -188,24 +197,72 @@ func run() error {
 	return nil
 }
 
-// healthHandler returns an http.HandlerFunc that reports service health.
-func healthHandler(cfg *config.Config) http.HandlerFunc {
-	type healthStatus struct {
-		Status   string `json:"status"`
-		Postgres string `json:"postgres"`
-		NATS     string `json:"nats"`
-		LiteLLM  string `json:"litellm"`
+// livenessHandler always returns 200 (Kubernetes liveness probe).
+func livenessHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+// readinessHandler checks all dependencies and returns 503 if any are down.
+func readinessHandler(pool *pgxpool.Pool, queue *cfnats.Queue, llm *litellm.Client) http.HandlerFunc {
+	type serviceStatus struct {
+		Status  string `json:"status"`
+		Latency string `json:"latency,omitempty"`
 	}
 
-	return func(w http.ResponseWriter, _ *http.Request) {
-		status := healthStatus{
-			Status:   "ok",
-			Postgres: cfg.Postgres.DSN,
-			NATS:     cfg.NATS.URL,
-			LiteLLM:  cfg.LiteLLM.URL,
+	type readiness struct {
+		Status   string        `json:"status"`
+		Postgres serviceStatus `json:"postgres"`
+		NATS     serviceStatus `json:"nats"`
+		LiteLLM  serviceStatus `json:"litellm"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		allOK := true
+		resp := readiness{Status: "ready"}
+
+		// PostgreSQL: ping
+		pgStart := time.Now()
+		if err := pool.Ping(r.Context()); err != nil {
+			resp.Postgres = serviceStatus{Status: "down"}
+			allOK = false
+		} else {
+			resp.Postgres = serviceStatus{
+				Status:  "up",
+				Latency: time.Since(pgStart).String(),
+			}
 		}
+
+		// NATS: connection check
+		if queue.IsConnected() {
+			resp.NATS = serviceStatus{Status: "up"}
+		} else {
+			resp.NATS = serviceStatus{Status: "down"}
+			allOK = false
+		}
+
+		// LiteLLM: health check
+		llmStart := time.Now()
+		healthy, _ := llm.Health(r.Context())
+		if healthy {
+			resp.LiteLLM = serviceStatus{
+				Status:  "up",
+				Latency: time.Since(llmStart).String(),
+			}
+		} else {
+			resp.LiteLLM = serviceStatus{Status: "down"}
+			allOK = false
+		}
+
+		httpStatus := http.StatusOK
+		if !allOK {
+			resp.Status = "not ready"
+			httpStatus = http.StatusServiceUnavailable
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(status)
+		w.WriteHeader(httpStatus)
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }

@@ -1,0 +1,92 @@
+package middleware
+
+import (
+	"fmt"
+	"math"
+	"net/http"
+	"sync"
+	"time"
+)
+
+// RateLimiter is per-IP token bucket rate limiting middleware.
+type RateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	rate    float64 // tokens per second
+	burst   int     // max tokens
+}
+
+type bucket struct {
+	tokens    float64
+	lastSeen  time.Time
+	updatedAt time.Time
+}
+
+// NewRateLimiter creates a rate limiter with the given sustained rate
+// (requests per second) and burst size.
+func NewRateLimiter(rate float64, burst int) *RateLimiter {
+	return &RateLimiter{
+		buckets: make(map[string]*bucket),
+		rate:    rate,
+		burst:   burst,
+	}
+}
+
+// Handler returns HTTP middleware that enforces per-IP rate limiting.
+func (rl *RateLimiter) Handler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := r.RemoteAddr
+
+		remaining, retryAfter, allowed := rl.allow(ip)
+
+		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(time.Second).Unix()))
+
+		if !allowed {
+			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", math.Ceil(retryAfter)))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// allow checks whether a request from the given IP is allowed.
+// Returns remaining tokens, seconds until next token, and whether the request is allowed.
+func (rl *RateLimiter) allow(ip string) (remaining int, retryAfter float64, allowed bool) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	b, exists := rl.buckets[ip]
+	if !exists {
+		b = &bucket{
+			tokens:    float64(rl.burst) - 1, // consume one token for this request
+			updatedAt: now,
+			lastSeen:  now,
+		}
+		rl.buckets[ip] = b
+		return int(b.tokens), 0, true
+	}
+
+	// Refill tokens based on elapsed time
+	elapsed := now.Sub(b.updatedAt).Seconds()
+	b.tokens += elapsed * rl.rate
+	if b.tokens > float64(rl.burst) {
+		b.tokens = float64(rl.burst)
+	}
+	b.updatedAt = now
+	b.lastSeen = now
+
+	if b.tokens < 1 {
+		// Not enough tokens — calculate wait time
+		wait := (1 - b.tokens) / rl.rate
+		return 0, wait, false
+	}
+
+	b.tokens--
+	return int(b.tokens), 0, true
+}

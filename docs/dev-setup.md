@@ -227,6 +227,15 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
 | `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker health port |
 
+## Health Endpoints
+
+| Endpoint | Purpose | Response |
+|---|---|---|
+| `GET /health` | Liveness probe (Kubernetes) | Always `200 {"status":"ok"}` |
+| `GET /health/ready` | Readiness probe | `200` if all services up, `503` if any down |
+
+The readiness endpoint checks PostgreSQL (ping), NATS (connection status), and LiteLLM (health API) with per-service latency reporting.
+
 ## Environment Variables
 
 See `.env.example` for all configurable values.

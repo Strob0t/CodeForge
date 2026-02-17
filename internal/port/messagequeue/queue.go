@@ -22,6 +22,9 @@ type Queue interface {
 
 	// Close shuts down the queue connection immediately.
 	Close() error
+
+	// IsConnected reports whether the queue is currently connected.
+	IsConnected() bool
 }
 
 // Subject constants for NATS subjects used by CodeForge.
