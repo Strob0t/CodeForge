@@ -4,6 +4,7 @@ import type {
   Agent,
   CreatePlanRequest,
   CreateStepRequest,
+  DecomposeRequest,
   PlanProtocol,
   PlanStatus,
   PlanStepStatus,
@@ -62,7 +63,43 @@ export default function PlanPanel(props: PlanPanelProps) {
     (id) => api.plans.get(id),
   );
 
-  // Form state
+  // Decompose form state
+  const [showDecompose, setShowDecompose] = createSignal(false);
+  const [feature, setFeature] = createSignal("");
+  const [decomposeContext, setDecomposeContext] = createSignal("");
+  const [decomposeModel, setDecomposeModel] = createSignal("");
+  const [autoStart, setAutoStart] = createSignal(false);
+  const [decomposing, setDecomposing] = createSignal(false);
+
+  const handleDecompose = async () => {
+    if (!feature().trim()) {
+      props.onError("Feature description is required");
+      return;
+    }
+    setDecomposing(true);
+    try {
+      const req: DecomposeRequest = {
+        feature: feature().trim(),
+      };
+      if (decomposeContext().trim()) req.context = decomposeContext().trim();
+      if (decomposeModel().trim()) req.model = decomposeModel().trim();
+      if (autoStart()) req.auto_start = true;
+
+      await api.plans.decompose(props.projectId, req);
+      refetch();
+      setShowDecompose(false);
+      setFeature("");
+      setDecomposeContext("");
+      setDecomposeModel("");
+      setAutoStart(false);
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : "Decomposition failed");
+    } finally {
+      setDecomposing(false);
+    }
+  };
+
+  // Manual plan form state
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
   const [protocol, setProtocol] = createSignal<PlanProtocol>("sequential");
@@ -159,13 +196,88 @@ export default function PlanPanel(props: PlanPanelProps) {
     <div class="rounded-lg border border-gray-200 bg-white p-4">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Execution Plans</h3>
-        <button
-          class="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
-          onClick={() => setShowForm(!showForm())}
-        >
-          {showForm() ? "Cancel" : "New Plan"}
-        </button>
+        <div class="flex gap-2">
+          <button
+            class="rounded bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"
+            onClick={() => {
+              setShowDecompose(!showDecompose());
+              if (showDecompose()) setShowForm(false);
+            }}
+          >
+            {showDecompose() ? "Cancel" : "Decompose Feature"}
+          </button>
+          <button
+            class="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
+            onClick={() => {
+              setShowForm(!showForm());
+              if (showForm()) setShowDecompose(false);
+            }}
+          >
+            {showForm() ? "Cancel" : "New Plan"}
+          </button>
+        </div>
       </div>
+
+      {/* Decompose Feature Form */}
+      <Show when={showDecompose()}>
+        <div class="mb-4 rounded border border-purple-200 bg-purple-50 p-4">
+          <p class="mb-3 text-xs text-gray-600">
+            Describe a feature and let the meta-agent decompose it into subtasks with an execution
+            plan.
+          </p>
+          <div class="mb-3">
+            <label class="mb-1 block text-xs font-medium text-gray-600">Feature Description</label>
+            <textarea
+              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+              rows={3}
+              value={feature()}
+              onInput={(e) => setFeature(e.currentTarget.value)}
+              placeholder="Describe the feature to implement..."
+            />
+          </div>
+          <div class="mb-3">
+            <label class="mb-1 block text-xs font-medium text-gray-600">
+              Additional Context (optional)
+            </label>
+            <textarea
+              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+              rows={2}
+              value={decomposeContext()}
+              onInput={(e) => setDecomposeContext(e.currentTarget.value)}
+              placeholder="Repository structure, existing patterns, constraints..."
+            />
+          </div>
+          <div class="mb-3 flex items-center gap-4">
+            <div class="flex-1">
+              <label class="mb-1 block text-xs font-medium text-gray-600">
+                Model Override (optional)
+              </label>
+              <input
+                type="text"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={decomposeModel()}
+                onInput={(e) => setDecomposeModel(e.currentTarget.value)}
+                placeholder="e.g. openai/gpt-4o"
+              />
+            </div>
+            <label class="flex items-center gap-1.5 pt-4 text-sm">
+              <input
+                type="checkbox"
+                checked={autoStart()}
+                onChange={(e) => setAutoStart(e.currentTarget.checked)}
+              />
+              Auto-start
+            </label>
+          </div>
+          <button
+            class="rounded bg-purple-600 px-4 py-1.5 text-sm text-white hover:bg-purple-700 disabled:opacity-50"
+            onClick={handleDecompose}
+            disabled={decomposing()}
+          >
+            {decomposing() ? "Decomposing..." : "Decompose"}
+          </button>
+        </div>
+      </Show>
 
       {/* Create Plan Form */}
       <Show when={showForm()}>

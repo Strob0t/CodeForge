@@ -306,11 +306,16 @@
 - [x] (2026-02-17) Frontend: PlanPanel.tsx, plan types/API client, WS integration in ProjectDetailPage
 - [x] (2026-02-17) Tests: 12 orchestrator service tests, all passing
 
-### 5B. Orchestrator Agent (Meta-Agent)
+### 5B. Orchestrator Agent (Meta-Agent) (COMPLETED)
 
-- [ ] Orchestrator Mode: `manual`, `semi_auto`, `full_auto`
-- [ ] Reads Feature Map / TODO list, decomposes features into subtasks
-- [ ] Decides agent strategy (single, pair, team), monitors progress
+- [x] (2026-02-17) Orchestrator Mode: `manual`, `semi_auto`, `full_auto` — config, env overrides, domain types
+- [x] (2026-02-17) LLM-based feature decomposition via LiteLLM ChatCompletion (Go → LiteLLM Proxy)
+- [x] (2026-02-17) MetaAgentService: prompt engineering, JSON parsing, task creation, agent selection
+- [x] (2026-02-17) Agent strategy selection (single, pair, team) with hint-based agent matching
+- [x] (2026-02-17) Auto-start: `full_auto` mode or `auto_start` override starts plan immediately
+- [x] (2026-02-17) REST API: `POST /api/v1/projects/{id}/decompose`
+- [x] (2026-02-17) Frontend: Decompose Feature form in PlanPanel with context/model/auto-start options
+- [x] (2026-02-17) Tests: 4 litellm client tests, 5 domain tests, 9 meta-agent service tests — all passing
 
 ### 5C. Task Decomposition (Context-Optimized Planning)
 

@@ -262,3 +262,31 @@
 - **Modified files:** 13 Go (config.go, loader.go, store.go, postgres/store.go, event.go, events.go, runtime.go, handlers.go, routes.go, main.go, handlers_test.go, runtime_test.go, project_test.go), 3 Frontend (types.ts, client.ts, ProjectDetailPage.tsx), 1 Config (codeforge.yaml.example)
 - **API:** 5 new REST endpoints for execution plan management
 - **Tests:** 37 new test functions (25 domain + 12 service), all Go tests pass
+
+### 5B. Orchestrator Agent — Meta-Agent (COMPLETED)
+
+- [x] (2026-02-17) LiteLLM ChatCompletion client: types + method in `internal/adapter/litellm/client.go`
+- [x] (2026-02-17) Decomposition domain types: `internal/domain/plan/decompose.go`
+  - OrchestratorMode (manual/semi_auto/full_auto), AgentStrategy (single/pair/team)
+  - DecomposeRequest, DecomposeResult, SubtaskDefinition
+  - Validation: request + result validation, dependency index checks, self-reference detection
+  - StrategyToProtocol mapping helper
+- [x] (2026-02-17) Config extension: Mode, DecomposeModel, DecomposeMaxTokens in `config.Orchestrator`
+  - ENV overrides: CODEFORGE_ORCH_MODE, CODEFORGE_ORCH_DECOMPOSE_MODEL, CODEFORGE_ORCH_DECOMPOSE_MAX_TOKENS
+  - Defaults: semi_auto, openai/gpt-4o-mini, 4096
+- [x] (2026-02-17) MetaAgentService: `internal/service/meta_agent.go`
+  - DecomposeFeature: validate → load project/agents/tasks → build prompt → call LLM → parse JSON → create tasks → select agents → create plan → optionally auto-start
+  - buildDecomposePrompt: system + user prompt with feature, context, agent list, existing tasks
+  - selectAgent: hint-based matching (backend exact → name substring → idle fallback)
+  - extractJSON: strips markdown code fences, finds JSON boundaries
+  - Auto-start: full_auto mode or req.AutoStart triggers StartPlan
+- [x] (2026-02-17) REST API: `POST /api/v1/projects/{id}/decompose` handler + route
+- [x] (2026-02-17) Composition root: MetaAgentService wired in `cmd/codeforge/main.go`
+- [x] (2026-02-17) Frontend: DecomposeRequest type, api.plans.decompose method, PlanPanel decompose UI
+- [x] (2026-02-17) Tests: 4 litellm client tests, 5 domain tests (19 cases), 9 meta-agent service tests
+
+### Phase 5B Key Deliverables
+- **New files:** 3 Go (decompose.go, decompose_test.go, meta_agent.go, meta_agent_test.go), extended 1 test file (client_test.go)
+- **Modified files:** 6 Go (client.go, config.go, loader.go, handlers.go, routes.go, main.go), 3 Frontend (types.ts, client.ts, PlanPanel.tsx), 1 Config (codeforge.yaml.example)
+- **API:** 1 new REST endpoint (POST /projects/{id}/decompose)
+- **Tests:** 18 new test functions (4 litellm + 5 domain + 9 service), all Go tests pass

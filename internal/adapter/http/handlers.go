@@ -31,6 +31,7 @@ type Handlers struct {
 	Policies     *service.PolicyService
 	Runtime      *service.RuntimeService
 	Orchestrator *service.OrchestratorService
+	MetaAgent    *service.MetaAgentService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -575,6 +576,27 @@ func (h *Handlers) CancelPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// --- Feature Decomposition (Meta-Agent) ---
+
+// DecomposeFeature handles POST /api/v1/projects/{id}/decompose
+func (h *Handlers) DecomposeFeature(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req plan.DecomposeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ProjectID = projectID
+
+	p, err := h.MetaAgent.DecomposeFeature(r.Context(), &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
 }
 
 // --- Helpers ---

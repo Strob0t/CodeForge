@@ -146,6 +146,13 @@ func run() error {
 	llmClient := litellm.NewClient(cfg.LiteLLM.URL, cfg.LiteLLM.MasterKey)
 	llmClient.SetBreaker(llmBreaker)
 
+	// --- Meta-Agent Service (Phase 5B) ---
+	metaAgentSvc := service.NewMetaAgentService(store, llmClient, orchSvc, &cfg.Orchestrator)
+	slog.Info("meta-agent service initialized",
+		"mode", cfg.Orchestrator.Mode,
+		"decompose_model", cfg.Orchestrator.DecomposeModel,
+	)
+
 	handlers := &cfhttp.Handlers{
 		Projects:     projectSvc,
 		Tasks:        taskSvc,
@@ -154,6 +161,7 @@ func run() error {
 		Policies:     policySvc,
 		Runtime:      runtimeSvc,
 		Orchestrator: orchSvc,
+		MetaAgent:    metaAgentSvc,
 	}
 
 	r := chi.NewRouter()

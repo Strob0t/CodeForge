@@ -1,4 +1,5 @@
-// Package litellm provides an HTTP client for the LiteLLM Proxy admin API.
+// Package litellm provides an HTTP client for the LiteLLM Proxy API,
+// including admin operations and chat completions.
 package litellm
 
 import (
@@ -111,6 +112,72 @@ type AddModelRequest struct {
 	ModelName     string            `json:"model_name"`
 	LiteLLMParams map[string]string `json:"litellm_params"`
 	ModelInfo     map[string]any    `json:"model_info,omitempty"`
+}
+
+// --- Chat Completion (OpenAI-compatible) ---
+
+// ChatMessage represents a single message in a chat completion.
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ChatCompletionRequest is the request body for /v1/chat/completions.
+type ChatCompletionRequest struct {
+	Model       string        `json:"model"`
+	Messages    []ChatMessage `json:"messages"`
+	Temperature float64       `json:"temperature,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+}
+
+// ChatCompletionResponse is the parsed response from a completion call.
+type ChatCompletionResponse struct {
+	Content   string
+	TokensIn  int
+	TokensOut int
+	Model     string
+}
+
+// ChatCompletion sends a chat completion request to the LiteLLM Proxy's
+// OpenAI-compatible /v1/chat/completions endpoint.
+func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal completion request: %w", err)
+	}
+
+	data, err := c.doRequest(ctx, http.MethodPost, "/v1/chat/completions", body)
+	if err != nil {
+		return nil, fmt.Errorf("chat completion: %w", err)
+	}
+
+	var raw struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshal completion response: %w", err)
+	}
+
+	content := ""
+	if len(raw.Choices) > 0 {
+		content = raw.Choices[0].Message.Content
+	}
+
+	return &ChatCompletionResponse{
+		Content:   content,
+		TokensIn:  raw.Usage.PromptTokens,
+		TokensOut: raw.Usage.CompletionTokens,
+		Model:     raw.Model,
+	}, nil
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body []byte) ([]byte, error) {

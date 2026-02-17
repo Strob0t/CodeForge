@@ -9,6 +9,7 @@ import type {
   CreatePlanRequest,
   CreateProjectRequest,
   CreateTaskRequest,
+  DecomposeRequest,
   ExecutionPlan,
   GitStatus,
   HealthStatus,
@@ -178,6 +179,12 @@ export const api = {
   },
 
   plans: {
+    decompose: (projectId: string, data: DecomposeRequest) =>
+      request<ExecutionPlan>(`/projects/${encodeURIComponent(projectId)}/decompose`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
     list: (projectId: string) =>
       request<ExecutionPlan[]>(`/projects/${encodeURIComponent(projectId)}/plans`),
 

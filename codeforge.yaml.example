@@ -54,3 +54,6 @@ orchestrator:
   max_parallel: 4              # Max concurrent steps in parallel/consensus plans
   ping_pong_max_rounds: 3      # Max rounds per step in ping_pong protocol
   consensus_quorum: 0          # Required successes for consensus (0 = majority)
+  mode: "semi_auto"            # "manual" | "semi_auto" | "full_auto"
+  decompose_model: "openai/gpt-4o-mini"  # LLM model for feature decomposition
+  decompose_max_tokens: 4096   # Max tokens for decomposition LLM response

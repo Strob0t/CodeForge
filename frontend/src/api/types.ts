@@ -302,6 +302,22 @@ export interface PlanStepStatusEvent {
   error: string;
 }
 
+// --- Feature Decomposition types (Phase 5B) ---
+
+/** Orchestrator mode enum matching Go domain/plan.OrchestratorMode */
+export type OrchestratorMode = "manual" | "semi_auto" | "full_auto";
+
+/** Agent strategy enum matching Go domain/plan.AgentStrategy */
+export type AgentStrategy = "single" | "pair" | "team";
+
+/** Feature decomposition request matching Go domain/plan.DecomposeRequest */
+export interface DecomposeRequest {
+  feature: string;
+  context?: string;
+  model?: string;
+  auto_start?: boolean;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;
