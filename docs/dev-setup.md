@@ -164,6 +164,45 @@ npm run lint --prefix frontend
 npm run format:check --prefix frontend
 ```
 
+## Running Tests
+
+Use the central test runner script:
+
+```bash
+./scripts/test.sh              # Unit tests (Go + Python + Frontend)
+./scripts/test.sh go           # Go unit tests only
+./scripts/test.sh python       # Python unit tests only
+./scripts/test.sh frontend     # Frontend lint + build
+./scripts/test.sh integration  # Integration tests (requires docker compose services)
+./scripts/test.sh all          # Everything including integration
+```
+
+Or run each suite directly:
+
+```bash
+go test -race -count=1 ./...                              # Go unit tests
+cd workers && poetry run pytest -v                         # Python unit tests
+npm run lint --prefix frontend && npm run build --prefix frontend  # Frontend
+```
+
+### Integration Tests
+
+Integration tests run against real PostgreSQL (not mocked). They live in `tests/integration/` and use the `//go:build integration` build tag, so they are excluded from normal `go test ./...`.
+
+```bash
+# 1. Start required services
+docker compose up -d postgres nats
+
+# 2. Run integration tests
+go test -race -count=1 -tags=integration ./tests/integration/...
+```
+
+The integration tests verify:
+- Health/liveness endpoints
+- Project CRUD lifecycle (create, get, list, delete)
+- Input validation (missing fields return 400)
+- Task CRUD lifecycle (create, get, list within a project)
+
 ## Running the Project
 
 ```bash
@@ -178,11 +217,6 @@ cd workers && poetry run python -m codeforge.consumer
 
 # 4. Frontend Dev Server (port 3000, proxies /api and /ws to Go Core)
 npm run dev --prefix frontend
-
-# Run all tests
-go test ./...                     # Go (27 tests)
-cd workers && poetry run pytest -v  # Python (16 tests)
-npm run build --prefix frontend   # Frontend (type check + build)
 ```
 
 ## Configuration

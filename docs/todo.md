@@ -397,6 +397,11 @@
 
 ## Testing Requirements
 
+- [x] (2026-02-17) Test runner script (`scripts/test.sh`) — unified Go/Python/Frontend/Integration runner
+- [x] (2026-02-17) Integration test infrastructure (`tests/integration/`) — real PostgreSQL, build-tagged
+  - Health/liveness tests, Project CRUD lifecycle, Task CRUD lifecycle, validation tests
+  - Fixed goose migration `$$` blocks (StatementBegin/StatementEnd annotations)
+  - Updated `.claude/commands/test.md` to use test runner script
 - [ ] Unit tests for AsyncHandler (buffer overflow, concurrent writes, flush)
 - [ ] Integration tests for Config Loader (precedence, validation, reload)
 - [ ] Integration tests for Idempotency (duplicate requests, TTL expiry)

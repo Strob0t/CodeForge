@@ -5,6 +5,7 @@ ALTER TABLE agents   ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE tasks    ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
 
 -- Trigger to auto-increment version on each UPDATE
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION increment_version()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -12,6 +13,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 CREATE TRIGGER trg_projects_version
     BEFORE UPDATE ON projects

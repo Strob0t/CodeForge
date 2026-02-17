@@ -48,6 +48,7 @@ CREATE INDEX idx_tasks_status ON tasks (status);
 CREATE INDEX idx_tasks_created_at ON tasks (created_at DESC);
 
 -- Updated-at trigger function
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -55,6 +56,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 CREATE TRIGGER trg_projects_updated_at
     BEFORE UPDATE ON projects
