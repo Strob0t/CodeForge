@@ -16,6 +16,8 @@ type Config struct {
 	Policy       Policy       `yaml:"policy"`
 	Runtime      Runtime      `yaml:"runtime"`
 	Orchestrator Orchestrator `yaml:"orchestrator"`
+	Cache        Cache        `yaml:"cache"`
+	Idempotency  Idempotency  `yaml:"idempotency"`
 }
 
 // Orchestrator holds multi-agent execution plan configuration.
@@ -44,6 +46,24 @@ type Runtime struct {
 	DefaultTestCommand   string        `yaml:"default_test_command"`
 	DefaultLintCommand   string        `yaml:"default_lint_command"`
 	DeliveryCommitPrefix string        `yaml:"delivery_commit_prefix"`
+	Sandbox              SandboxConfig `yaml:"sandbox"`
+}
+
+// SandboxConfig holds Docker sandbox resource defaults.
+type SandboxConfig struct {
+	MemoryMB    int    `yaml:"memory_mb"`
+	CPUQuota    int    `yaml:"cpu_quota"`
+	PidsLimit   int    `yaml:"pids_limit"`
+	StorageGB   int    `yaml:"storage_gb"`
+	NetworkMode string `yaml:"network_mode"`
+	Image       string `yaml:"image"`
+}
+
+// Cache holds tiered cache configuration.
+type Cache struct {
+	L1MaxSizeMB int64         `yaml:"l1_max_size_mb"`
+	L2Bucket    string        `yaml:"l2_bucket"`
+	L2TTL       time.Duration `yaml:"l2_ttl"`
 }
 
 // Policy holds policy engine configuration.
@@ -83,6 +103,7 @@ type LiteLLM struct {
 type Logging struct {
 	Level   string `yaml:"level"`
 	Service string `yaml:"service"`
+	Async   bool   `yaml:"async"`
 }
 
 // Breaker holds circuit breaker configuration.
@@ -95,6 +116,12 @@ type Breaker struct {
 type Rate struct {
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	Burst             int     `yaml:"burst"`
+}
+
+// Idempotency holds idempotency key middleware configuration.
+type Idempotency struct {
+	Bucket string        `yaml:"bucket"`
+	TTL    time.Duration `yaml:"ttl"`
 }
 
 // Defaults returns a Config with sensible default values for local development.
@@ -121,6 +148,7 @@ func Defaults() Config {
 		Logging: Logging{
 			Level:   "info",
 			Service: "codeforge-core",
+			Async:   true,
 		},
 		Breaker: Breaker{
 			MaxFailures: 5,
@@ -140,6 +168,23 @@ func Defaults() Config {
 			DefaultTestCommand:   "go test ./...",
 			DefaultLintCommand:   "golangci-lint run ./...",
 			DeliveryCommitPrefix: "codeforge:",
+			Sandbox: SandboxConfig{
+				MemoryMB:    512,
+				CPUQuota:    1000,
+				PidsLimit:   100,
+				StorageGB:   10,
+				NetworkMode: "none",
+				Image:       "ubuntu:22.04",
+			},
+		},
+		Cache: Cache{
+			L1MaxSizeMB: 100,
+			L2Bucket:    "CACHE",
+			L2TTL:       10 * time.Minute,
+		},
+		Idempotency: Idempotency{
+			Bucket: "IDEMPOTENCY",
+			TTL:    24 * time.Hour,
 		},
 		Orchestrator: Orchestrator{
 			MaxParallel:             4,

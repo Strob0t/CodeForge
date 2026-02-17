@@ -33,6 +33,8 @@ type RuntimeService struct {
 	policy        *PolicyService
 	deliver       *DeliverService
 	contextOpt    *ContextOptimizerService
+	checkpoint    *CheckpointService
+	sandbox       *SandboxService
 	onRunComplete func(ctx context.Context, runID string, status run.Status)
 	runtimeCfg    *config.Runtime
 	stallTrackers sync.Map // map[runID]*run.StallTracker
@@ -71,6 +73,16 @@ func (s *RuntimeService) SetContextOptimizer(co *ContextOptimizerService) {
 // Used by the OrchestratorService to advance execution plans.
 func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.Status)) {
 	s.onRunComplete = fn
+}
+
+// SetCheckpointService sets the checkpoint service for shadow git commits.
+func (s *RuntimeService) SetCheckpointService(cp *CheckpointService) {
+	s.checkpoint = cp
+}
+
+// SetSandboxService sets the sandbox service for containerized execution.
+func (s *RuntimeService) SetSandboxService(sb *SandboxService) {
+	s.sandbox = sb
 }
 
 // StartRun creates a new run in the database and publishes a start message to NATS.
@@ -140,6 +152,22 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// Mark task as running
 	_ = s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning)
+
+	// Start sandbox if execution mode is sandbox
+	if req.ExecMode == run.ExecModeSandbox && s.sandbox != nil {
+		proj, projErr := s.store.GetProject(ctx, req.ProjectID)
+		if projErr != nil {
+			return nil, fmt.Errorf("get project for sandbox: %w", projErr)
+		}
+		if _, sbErr := s.sandbox.Create(ctx, r.ID, proj.WorkspacePath); sbErr != nil {
+			return nil, fmt.Errorf("sandbox create: %w", sbErr)
+		}
+		if sbErr := s.sandbox.Start(ctx, r.ID); sbErr != nil {
+			_ = s.sandbox.Remove(ctx, r.ID)
+			return nil, fmt.Errorf("sandbox start: %w", sbErr)
+		}
+		slog.Info("sandbox started", "run_id", r.ID)
+	}
 
 	// Create stall tracker if policy enables stall detection
 	if profile.Termination.StallDetection {
@@ -272,6 +300,16 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		Decision: string(decision),
 		Phase:    phase,
 	})
+
+	// Create checkpoint for file-modifying tools
+	if s.checkpoint != nil && decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) {
+		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
+		if projErr == nil {
+			if cpErr := s.checkpoint.CreateCheckpoint(ctx, r.ID, proj.WorkspacePath, req.Tool, req.CallID); cpErr != nil {
+				slog.Warn("checkpoint creation failed", "run_id", r.ID, "error", cpErr)
+			}
+		}
+	}
 
 	// Increment step count
 	newSteps := r.StepCount + 1
@@ -473,6 +511,14 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 	if profile.QualityGate.RollbackOnGateFail {
 		finalStatus = run.StatusFailed
 		errMsg = "quality gate failed (rollback)"
+		if s.checkpoint != nil {
+			proj, projErr := s.store.GetProject(ctx, r.ProjectID)
+			if projErr == nil {
+				if rwErr := s.checkpoint.RewindToFirst(ctx, r.ID, proj.WorkspacePath); rwErr != nil {
+					slog.Error("checkpoint rollback failed", "run_id", r.ID, "error", rwErr)
+				}
+			}
+		}
 	}
 
 	s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{
@@ -542,6 +588,28 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		ProjectID: r.ProjectID,
 		Status:    string(agent.StatusIdle),
 	})
+
+	// Clean up checkpoints (remove shadow commits, keep working state)
+	if s.checkpoint != nil {
+		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
+		if projErr == nil {
+			if cpErr := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); cpErr != nil {
+				slog.Warn("checkpoint cleanup failed", "run_id", r.ID, "error", cpErr)
+			}
+		}
+	}
+
+	// Clean up sandbox
+	if s.sandbox != nil {
+		if _, ok := s.sandbox.Get(r.ID); ok {
+			if err := s.sandbox.Stop(ctx, r.ID); err != nil {
+				slog.Warn("sandbox stop failed", "run_id", r.ID, "error", err)
+			}
+			if err := s.sandbox.Remove(ctx, r.ID); err != nil {
+				slog.Warn("sandbox remove failed", "run_id", r.ID, "error", err)
+			}
+		}
+	}
 
 	slog.Info("run finalized", "run_id", r.ID, "status", status, "steps", payload.StepCount)
 
@@ -664,6 +732,28 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 		StepCount: r.StepCount,
 		CostUSD:   r.CostUSD,
 	})
+
+	// Clean up checkpoints
+	if s.checkpoint != nil {
+		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
+		if projErr == nil {
+			if cpErr := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); cpErr != nil {
+				slog.Warn("checkpoint cleanup on cancel failed", "run_id", r.ID, "error", cpErr)
+			}
+		}
+	}
+
+	// Clean up sandbox
+	if s.sandbox != nil {
+		if _, ok := s.sandbox.Get(r.ID); ok {
+			if err := s.sandbox.Stop(ctx, r.ID); err != nil {
+				slog.Warn("sandbox stop on cancel failed", "run_id", r.ID, "error", err)
+			}
+			if err := s.sandbox.Remove(ctx, r.ID); err != nil {
+				slog.Warn("sandbox remove on cancel failed", "run_id", r.ID, "error", err)
+			}
+		}
+	}
 
 	slog.Info("run cancelled", "run_id", runID)
 	return nil
@@ -835,6 +925,15 @@ func toContextEntryPayloads(entries []cfcontext.ContextEntry) []messagequeue.Con
 		}
 	}
 	return out
+}
+
+// isFileModifyingTool returns true for tools that change files on disk.
+func isFileModifyingTool(tool string) bool {
+	switch tool {
+	case "Edit", "Write", "Bash", "execute", "write_file", "edit_file":
+		return true
+	}
+	return false
 }
 
 func cancelAll(fns []func()) {

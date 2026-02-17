@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -91,14 +92,15 @@ func (m *mockStore) GetAgent(_ context.Context, id string) (*agent.Agent, error)
 	return nil, errNotFound
 }
 
-func (m *mockStore) CreateAgent(_ context.Context, projectID, name, backend string, cfg map[string]string) (*agent.Agent, error) {
+func (m *mockStore) CreateAgent(_ context.Context, projectID, name, backend string, cfg map[string]string, limits *resource.Limits) (*agent.Agent, error) {
 	a := agent.Agent{
-		ID:        "agent-id",
-		ProjectID: projectID,
-		Name:      name,
-		Backend:   backend,
-		Status:    agent.StatusIdle,
-		Config:    cfg,
+		ID:             "agent-id",
+		ProjectID:      projectID,
+		Name:           name,
+		Backend:        backend,
+		Status:         agent.StatusIdle,
+		Config:         cfg,
+		ResourceLimits: limits,
 	}
 	m.agents = append(m.agents, a)
 	return &a, nil

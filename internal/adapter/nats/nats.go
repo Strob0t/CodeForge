@@ -209,6 +209,19 @@ func (q *Queue) Drain() error {
 	return nil
 }
 
+// KeyValue returns a JetStream KeyValue store, creating the bucket if needed.
+func (q *Queue) KeyValue(ctx context.Context, bucket string, ttl time.Duration) (jetstream.KeyValue, error) {
+	kv, err := q.js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: bucket,
+		TTL:    ttl,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("nats kv %s: %w", bucket, err)
+	}
+	slog.Info("nats kv bucket ready", "bucket", bucket, "ttl", ttl)
+	return kv, nil
+}
+
 // Close shuts down the NATS connection immediately.
 func (q *Queue) Close() error {
 	q.nc.Close()

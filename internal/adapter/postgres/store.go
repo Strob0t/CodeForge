@@ -14,6 +14,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 )
@@ -118,7 +119,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 
 func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, project_id, name, backend, status, config, version, created_at, updated_at
+		`SELECT id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at
 		 FROM agents WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -138,7 +139,7 @@ func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent
 
 func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, project_id, name, backend, status, config, version, created_at, updated_at
+		`SELECT id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at
 		 FROM agents WHERE id = $1`, id)
 
 	a, err := scanAgent(row)
@@ -151,17 +152,25 @@ func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 	return &a, nil
 }
 
-func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error) {
+func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string, config map[string]string, limits *resource.Limits) (*agent.Agent, error) {
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
 
+	var limitsJSON []byte
+	if limits != nil {
+		limitsJSON, err = json.Marshal(limits)
+		if err != nil {
+			return nil, fmt.Errorf("marshal resource_limits: %w", err)
+		}
+	}
+
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO agents (project_id, name, backend, config)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, project_id, name, backend, status, config, version, created_at, updated_at`,
-		projectID, name, backend, configJSON)
+		`INSERT INTO agents (project_id, name, backend, config, resource_limits)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at`,
+		projectID, name, backend, configJSON, limitsJSON)
 
 	a, err := scanAgent(row)
 	if err != nil {
@@ -660,8 +669,8 @@ type scannable interface {
 
 func scanAgent(row scannable) (agent.Agent, error) {
 	var a agent.Agent
-	var configJSON []byte
-	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.Status, &configJSON, &a.Version, &a.CreatedAt, &a.UpdatedAt)
+	var configJSON, limitsJSON []byte
+	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.Status, &configJSON, &limitsJSON, &a.Version, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return a, err
 	}
@@ -669,6 +678,13 @@ func scanAgent(row scannable) (agent.Agent, error) {
 		if err := json.Unmarshal(configJSON, &a.Config); err != nil {
 			return a, fmt.Errorf("unmarshal agent config: %w", err)
 		}
+	}
+	if limitsJSON != nil {
+		var limits resource.Limits
+		if err := json.Unmarshal(limitsJSON, &limits); err != nil {
+			return a, fmt.Errorf("unmarshal agent resource_limits: %w", err)
+		}
+		a.ResourceLimits = &limits
 	}
 	return a, nil
 }

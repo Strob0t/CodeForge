@@ -9,6 +9,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
@@ -47,13 +48,13 @@ func (s *AgentService) Get(ctx context.Context, id string) (*agent.Agent, error)
 }
 
 // Create creates a new agent for a project.
-func (s *AgentService) Create(ctx context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error) {
+func (s *AgentService) Create(ctx context.Context, projectID, name, backend string, config map[string]string, limits *resource.Limits) (*agent.Agent, error) {
 	// Verify the backend exists
 	if _, err := agentbackend.New(backend, nil); err != nil {
 		return nil, fmt.Errorf("unknown backend %q: %w", backend, err)
 	}
 
-	return s.store.CreateAgent(ctx, projectID, name, backend, config)
+	return s.store.CreateAgent(ctx, projectID, name, backend, config, limits)
 }
 
 // Delete removes an agent.

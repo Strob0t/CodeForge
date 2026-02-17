@@ -420,6 +420,23 @@
 - **Tests:** 16+ new test functions (8 mode domain + 8 mode service), all Go tests pass
 - **Lint:** golangci-lint 0 issues, frontend lint + build clean
 
+## Infrastructure Features (3B, 3C, 3E, 3F, 4A/4C, 4B) (COMPLETED)
+
+> Implemented between Phase 6B and 6C as foundational capabilities for the agent execution pipeline.
+
+- [x] (2026-02-17) **3B: Async Logging** — Go `AsyncHandler` (slog wrapper, 10k buffer, 4 workers, drop policy) + Python `QueueHandler`/`QueueListener`
+- [x] (2026-02-17) **3C: Idempotency Keys** — HTTP middleware for POST/PUT/DELETE dedup via NATS JetStream KV (24h TTL)
+- [x] (2026-02-17) **3E: Cache Layer** — Tiered L1 (ristretto in-process) + L2 (NATS KV) with backfill, port/adapter pattern
+- [x] (2026-02-17) **4A/4C: Checkpoint System** — Shadow Git commits per file-modifying tool call, rewind on quality gate failure, cleanup on finalize
+- [x] (2026-02-17) **4B: Docker Sandbox** — SandboxService with Docker CLI (create/start/exec/stop/remove), resource flags, runtime lifecycle integration
+- [x] (2026-02-17) **3F: Resource Limits** — Shared `resource.Limits` type with `Merge`/`Cap`, agent + policy fields, JSONB storage, migration 012
+
+### Key Deliverables
+- **New files (14):** async.go, async_test.go, idempotency.go, idempotency_test.go, cache port + 3 adapters, cache_test.go, checkpoint.go, checkpoint_test.go, sandbox.go, sandbox_test.go, limits.go, limits_test.go, migration 012
+- **Modified files (14):** logger.go, config.go, loader.go, nats.go, runtime.go, run.go, validate.go, agent.go, policy.go, store.go (port + postgres), handlers.go, agent service, main.go, logger.py, consumer.py
+- **New dependency:** `github.com/dgraph-io/ristretto/v2`
+- **Tests:** 36+ new test functions (Go + Python), all passing
+
 ## Phase 6: Code-RAG (Context Engine for Large Codebases) (IN PROGRESS)
 
 ### 6A. Repo Map — tree-sitter Based Code Intelligence (COMPLETED)

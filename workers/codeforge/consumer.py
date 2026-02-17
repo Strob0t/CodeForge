@@ -12,7 +12,7 @@ import structlog
 from codeforge.config import WorkerSettings
 from codeforge.executor import AgentExecutor
 from codeforge.llm import LiteLLMClient
-from codeforge.logger import setup_logging
+from codeforge.logger import setup_logging, stop_logging
 from codeforge.models import (
     QualityGateRequest,
     QualityGateResult,
@@ -506,6 +506,7 @@ class TaskConsumer:
                 await self._nc.close()
 
         logger.info("consumer stopped")
+        stop_logging()
 
 
 async def main() -> None:

@@ -7,24 +7,37 @@ Log schema aligns with Go Core:
 from __future__ import annotations
 
 import logging
+import queue
 import sys
+from logging.handlers import QueueHandler, QueueListener
 
 import structlog
 
+_listener: QueueListener | None = None
+
 
 def setup_logging(service: str = "codeforge-worker", level: str = "info") -> None:
-    """Configure structlog with JSON output matching the Go Core schema.
+    """Configure structlog with async JSON output matching the Go Core schema.
 
     Must be called once at application startup before any logging.
+    Uses QueueHandler + QueueListener for non-blocking async log output.
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
 
-    # Configure stdlib logging to route through structlog
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=log_level,
-    )
+    # Async logging via QueueHandler + QueueListener
+    log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=10_000)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(log_level)
+
+    global _listener
+    _listener = QueueListener(log_queue, stream_handler, respect_handler_level=True)
+    _listener.start()
+
+    # Root logger uses QueueHandler
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(QueueHandler(log_queue))
+    root.setLevel(log_level)
 
     structlog.configure(
         processors=[
@@ -41,9 +54,17 @@ def setup_logging(service: str = "codeforge-worker", level: str = "info") -> Non
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
+
+
+def stop_logging() -> None:
+    """Flush and stop the async log listener."""
+    global _listener
+    if _listener is not None:
+        _listener.stop()
+        _listener = None
 
 
 def _add_service(service: str) -> structlog.types.Processor:

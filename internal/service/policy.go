@@ -30,8 +30,8 @@ func NewPolicyService(defaultProfile string, custom []policy.PolicyProfile) *Pol
 	}
 
 	// Register custom profiles (override presets if same name).
-	for _, p := range custom {
-		profiles[p.Name] = p
+	for i := range custom {
+		profiles[custom[i].Name] = custom[i]
 	}
 
 	return &PolicyService{

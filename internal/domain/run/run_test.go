@@ -57,7 +57,7 @@ func TestRunValidate_InvalidExecMode(t *testing.T) {
 		TaskID:    "t",
 		AgentID:   "a",
 		ProjectID: "p",
-		ExecMode:  "hybrid",
+		ExecMode:  "invalid-mode",
 	}
 	if err := r.Validate(); err == nil {
 		t.Fatal("expected error for invalid exec_mode")

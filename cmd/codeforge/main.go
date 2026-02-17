@@ -20,7 +20,10 @@ import (
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
+	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
+	ristrettoAdapter "github.com/Strob0t/CodeForge/internal/adapter/ristretto"
+	"github.com/Strob0t/CodeForge/internal/adapter/tiered"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -47,7 +50,9 @@ func run() error {
 	}
 
 	// Replace bootstrap logger with configured one.
-	slog.SetDefault(logger.New(cfg.Logging))
+	log, logCloser := logger.New(cfg.Logging)
+	slog.SetDefault(log)
+	defer logCloser.Close()
 
 	slog.Info("config loaded",
 		"port", cfg.Server.Port,
@@ -80,6 +85,26 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("nats: %w", err)
 	}
+
+	// Idempotency KV store
+	idempotencyKV, err := queue.KeyValue(ctx, cfg.Idempotency.Bucket, cfg.Idempotency.TTL)
+	if err != nil {
+		return fmt.Errorf("idempotency kv: %w", err)
+	}
+
+	// --- Cache Layer ---
+	l1Cache, err := ristrettoAdapter.New(cfg.Cache.L1MaxSizeMB * 1024 * 1024)
+	if err != nil {
+		return fmt.Errorf("ristretto cache: %w", err)
+	}
+	defer l1Cache.Close()
+	cacheKV, err := queue.KeyValue(ctx, cfg.Cache.L2Bucket, cfg.Cache.L2TTL)
+	if err != nil {
+		return fmt.Errorf("cache kv: %w", err)
+	}
+	l2Cache := natskv.New(cacheKV)
+	_ = tiered.New(l1Cache, l2Cache, 5*time.Minute) // appCache available for future service injection
+	slog.Info("cache layer initialized", "l1_max_mb", cfg.Cache.L1MaxSizeMB, "l2_bucket", cfg.Cache.L2Bucket)
 
 	// --- Circuit Breakers ---
 	natsBreaker := resilience.NewBreaker(cfg.Breaker.MaxFailures, cfg.Breaker.Timeout)
@@ -117,6 +142,22 @@ func run() error {
 	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc, &cfg.Runtime)
 	deliverSvc := service.NewDeliverService(store, &cfg.Runtime)
 	runtimeSvc.SetDeliverService(deliverSvc)
+
+	// Checkpoint Service (Phase 4A/4C)
+	checkpointSvc := service.NewCheckpointService()
+	runtimeSvc.SetCheckpointService(checkpointSvc)
+
+	// Sandbox Service (Phase 4B)
+	sandboxSvc := service.NewSandboxService(service.SandboxConfig{
+		MemoryMB:    cfg.Runtime.Sandbox.MemoryMB,
+		CPUQuota:    cfg.Runtime.Sandbox.CPUQuota,
+		PidsLimit:   cfg.Runtime.Sandbox.PidsLimit,
+		StorageGB:   cfg.Runtime.Sandbox.StorageGB,
+		NetworkMode: cfg.Runtime.Sandbox.NetworkMode,
+		Image:       cfg.Runtime.Sandbox.Image,
+	})
+	runtimeSvc.SetSandboxService(sandboxSvc)
+
 	runtimeCancels, err := runtimeSvc.StartSubscribers(ctx)
 	if err != nil {
 		return fmt.Errorf("runtime subscribers: %w", err)
@@ -225,6 +266,7 @@ func run() error {
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))
 	r.Use(rateLimiter.Handler)
+	r.Use(middleware.Idempotency(idempotencyKV))
 
 	// Liveness (always 200)
 	r.Get("/health", livenessHandler)

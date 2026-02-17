@@ -10,6 +10,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -102,8 +103,8 @@ func (m *mockStore) GetAgent(_ context.Context, id string) (*agent.Agent, error)
 	return nil, domain.ErrNotFound
 }
 
-func (m *mockStore) CreateAgent(_ context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error) {
-	a := agent.Agent{ID: "agent-1", ProjectID: projectID, Name: name, Backend: backend, Config: config}
+func (m *mockStore) CreateAgent(_ context.Context, projectID, name, backend string, config map[string]string, limits *resource.Limits) (*agent.Agent, error) {
+	a := agent.Agent{ID: "agent-1", ProjectID: projectID, Name: name, Backend: backend, Config: config, ResourceLimits: limits}
 	m.agents = append(m.agents, a)
 	return &a, nil
 }

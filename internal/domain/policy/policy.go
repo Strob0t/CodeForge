@@ -3,6 +3,8 @@
 // and with what limits (steps, cost, time).
 package policy
 
+import "github.com/Strob0t/CodeForge/internal/domain/resource"
+
 // Decision is the result of evaluating a ToolCall against a PolicyProfile.
 type Decision string
 
@@ -57,12 +59,13 @@ type TerminationCondition struct {
 
 // PolicyProfile is the top-level policy configuration for an agent run.
 type PolicyProfile struct {
-	Name        string               `json:"name" yaml:"name"`
-	Description string               `json:"description,omitempty" yaml:"description,omitempty"`
-	Mode        PermissionMode       `json:"mode" yaml:"mode"`
-	Rules       []PermissionRule     `json:"rules" yaml:"rules"`
-	QualityGate QualityGate          `json:"quality_gate" yaml:"quality_gate"`
-	Termination TerminationCondition `json:"termination" yaml:"termination"`
+	Name           string               `json:"name" yaml:"name"`
+	Description    string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Mode           PermissionMode       `json:"mode" yaml:"mode"`
+	Rules          []PermissionRule     `json:"rules" yaml:"rules"`
+	QualityGate    QualityGate          `json:"quality_gate" yaml:"quality_gate"`
+	Termination    TerminationCondition `json:"termination" yaml:"termination"`
+	ResourceLimits *resource.Limits     `json:"resource_limits,omitempty" yaml:"resource_limits,omitempty"`
 }
 
 // ToolCall represents a request to use a tool, submitted to the policy evaluator.

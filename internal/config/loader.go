@@ -65,6 +65,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.LiteLLM.MasterKey, "LITELLM_MASTER_KEY")
 	setString(&cfg.Logging.Level, "CODEFORGE_LOG_LEVEL")
 	setString(&cfg.Logging.Service, "CODEFORGE_LOG_SERVICE")
+	setBool(&cfg.Logging.Async, "CODEFORGE_LOG_ASYNC")
 	setInt(&cfg.Breaker.MaxFailures, "CODEFORGE_BREAKER_MAX_FAILURES")
 	setDuration(&cfg.Breaker.Timeout, "CODEFORGE_BREAKER_TIMEOUT")
 	setFloat64(&cfg.Rate.RequestsPerSecond, "CODEFORGE_RATE_RPS")
@@ -77,6 +78,23 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.DefaultTestCommand, "CODEFORGE_TEST_COMMAND")
 	setString(&cfg.Runtime.DefaultLintCommand, "CODEFORGE_LINT_COMMAND")
 	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
+
+	// Idempotency
+	setString(&cfg.Idempotency.Bucket, "CODEFORGE_IDEMPOTENCY_BUCKET")
+	setDuration(&cfg.Idempotency.TTL, "CODEFORGE_IDEMPOTENCY_TTL")
+
+	// Sandbox
+	setInt(&cfg.Runtime.Sandbox.MemoryMB, "CODEFORGE_SANDBOX_MEMORY_MB")
+	setInt(&cfg.Runtime.Sandbox.CPUQuota, "CODEFORGE_SANDBOX_CPU_QUOTA")
+	setInt(&cfg.Runtime.Sandbox.PidsLimit, "CODEFORGE_SANDBOX_PIDS_LIMIT")
+	setInt(&cfg.Runtime.Sandbox.StorageGB, "CODEFORGE_SANDBOX_STORAGE_GB")
+	setString(&cfg.Runtime.Sandbox.NetworkMode, "CODEFORGE_SANDBOX_NETWORK")
+	setString(&cfg.Runtime.Sandbox.Image, "CODEFORGE_SANDBOX_IMAGE")
+
+	// Cache
+	setInt64(&cfg.Cache.L1MaxSizeMB, "CODEFORGE_CACHE_L1_SIZE_MB")
+	setString(&cfg.Cache.L2Bucket, "CODEFORGE_CACHE_L2_BUCKET")
+	setDuration(&cfg.Cache.L2TTL, "CODEFORGE_CACHE_L2_TTL")
 
 	// Orchestrator
 	setInt(&cfg.Orchestrator.MaxParallel, "CODEFORGE_ORCH_MAX_PARALLEL")
@@ -139,6 +157,22 @@ func setFloat64(dst *float64, key string) {
 	if v := os.Getenv(key); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			*dst = f
+		}
+	}
+}
+
+func setInt64(dst *int64, key string) {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			*dst = n
+		}
+	}
+}
+
+func setBool(dst *bool, key string) {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			*dst = b
 		}
 	}
 }

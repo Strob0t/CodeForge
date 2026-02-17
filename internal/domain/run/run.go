@@ -22,6 +22,7 @@ type ExecMode string
 const (
 	ExecModeMount   ExecMode = "mount"   // Direct host filesystem access
 	ExecModeSandbox ExecMode = "sandbox" // Isolated container
+	ExecModeHybrid  ExecMode = "hybrid"  // Container with host mount (future)
 )
 
 // DeliverMode defines how the output of a successful run is delivered.

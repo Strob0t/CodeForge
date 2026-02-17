@@ -9,10 +9,20 @@ import (
 
 func TestNew(t *testing.T) {
 	cfg := config.Logging{Level: "debug", Service: "test-svc"}
-	l := New(cfg)
+	l, closer := New(cfg)
+	defer closer.Close()
 	if l == nil {
 		t.Fatal("expected non-nil logger")
 	}
+}
+
+func TestNewAsync(t *testing.T) {
+	cfg := config.Logging{Level: "debug", Service: "test-svc", Async: true}
+	l, closer := New(cfg)
+	if l == nil {
+		t.Fatal("expected non-nil logger")
+	}
+	closer.Close()
 }
 
 func TestParseLevel(t *testing.T) {

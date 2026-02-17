@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
@@ -242,9 +243,10 @@ func (h *Handlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
 	var req struct {
-		Name    string            `json:"name"`
-		Backend string            `json:"backend"`
-		Config  map[string]string `json:"config"`
+		Name           string            `json:"name"`
+		Backend        string            `json:"backend"`
+		Config         map[string]string `json:"config"`
+		ResourceLimits *resource.Limits  `json:"resource_limits,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -259,7 +261,7 @@ func (h *Handlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := h.Agents.Create(r.Context(), projectID, req.Name, req.Backend, req.Config)
+	a, err := h.Agents.Create(r.Context(), projectID, req.Name, req.Backend, req.Config, req.ResourceLimits)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

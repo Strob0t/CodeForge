@@ -45,14 +45,16 @@
 - [x] (2026-02-17) Docker Compose logging configuration
   - `x-logging` anchor with `json-file` driver, `max-size: 10m`, `max-file: 3`
   - Applied to all 5 services
-- [ ] Async logging for Go Core
-  - Create `internal/logger/async.go` with AsyncHandler (slog wrapper)
-  - Buffer size: 10,000 records, 4 worker goroutines
-  - Sample strategy for backpressure (keep 10% when queue > 80%)
-  - Flush on shutdown, panic, and ERROR/FATAL logs (sync)
-- [ ] Python async logging with QueueHandler
-  - `workers/codeforge/logger.py` with `QueueHandler` + `QueueListener`
-  - Buffer size: 10,000 records, graceful shutdown with queue drain
+- [x] (2026-02-17) Async logging for Go Core
+  - `internal/logger/async.go`: AsyncHandler wrapping slog.Handler with buffered channel (10,000) + 4 worker goroutines
+  - Non-blocking drop policy with atomic dropped counter
+  - `Close()` flushes remaining records, `WithAttrs`/`WithGroup` share channel
+  - `logger.go`: `New()` returns `(*slog.Logger, Closer)`, wraps with AsyncHandler when `cfg.Async == true`
+  - 4 tests in `internal/logger/async_test.go`
+- [x] (2026-02-17) Python async logging with QueueHandler
+  - `workers/codeforge/logger.py`: `QueueHandler` + `QueueListener` with 10,000-record buffer
+  - `stop_logging()` for graceful shutdown with queue drain
+  - 2 tests in `workers/tests/test_logger.py`
 - [x] (2026-02-17) Create `scripts/logs.sh` helper script
   - Commands: `tail`, `errors`, `service <name>`, `request <id>`
   - Uses `docker compose logs` for filtering
@@ -72,11 +74,11 @@
   - Heartbeat ticker (30s) for progress tracking
   - Cancellation channel for user abort
   - Implement in `internal/service/agent.go`
-- [ ] Idempotency Keys for critical operations
-  - Middleware: `internal/middleware/idempotency.go`
-  - Storage: NATS JetStream KV (24h TTL)
-  - Apply to POST/PUT/DELETE endpoints (task creation, agent start)
-  - Add `Idempotency-Key` header to API spec
+- [x] (2026-02-17) Idempotency Keys for critical operations
+  - `internal/middleware/idempotency.go`: HTTP middleware for POST/PUT/DELETE deduplication
+  - NATS JetStream KV storage (24h TTL) via `KeyValue()` method in `internal/adapter/nats/nats.go`
+  - `Idempotency-Key` header: KV hit → replay cached response; miss → tee-capture + store
+  - 5 tests in `internal/middleware/idempotency_test.go`
 - [x] (2026-02-17) Optimistic Locking for concurrent updates
   - Migration 003: `version INTEGER NOT NULL DEFAULT 1` on projects, agents, tasks + auto-increment trigger
   - Domain: `ErrNotFound`, `ErrConflict` sentinel errors in `internal/domain/errors.go`
@@ -107,11 +109,14 @@
 
 ### 3E. Performance Optimizations
 
-- [ ] Cache Layer with invalidation
-  - Multi-tier: L1 (ristretto in-memory 100MB), L2 (NATS KV)
-  - Create `internal/cache/cache.go` with Get/Set/Invalidate
-  - Cache keys: `{namespace}:{entityID}:{operation}`
-  - TTL per namespace: git (5m), tasks (1m), agents (10m)
+- [x] (2026-02-17) Cache Layer (tiered L1 + L2)
+  - Port: `internal/port/cache/cache.go` (Get/Set/Delete interface)
+  - L1: `internal/adapter/ristretto/cache.go` (in-process, configurable max cost)
+  - L2: `internal/adapter/natskv/cache.go` (NATS JetStream KV)
+  - Tiered: `internal/adapter/tiered/cache.go` (L1 → L2 with backfill on L2 hit)
+  - Config: `L1MaxSizeMB` (100), `L2Bucket` ("CACHE"), `L2TTL` (10m)
+  - 5 tests in `internal/adapter/tiered/cache_test.go`
+  - Dependency: `github.com/dgraph-io/ristretto/v2`
 - [x] (2026-02-17) Database connection pool tuning
   - `NewPool` accepts `config.Postgres` with MaxConns=15, MinConns=2, MaxConnLifetime=1h, MaxConnIdleTime=10m, HealthCheckPeriod=1m
   - All pool parameters configurable via YAML/ENV
@@ -129,12 +134,14 @@
 
 ### 3F. Security & Isolation
 
-- [ ] Agent sandbox resource limits (Docker cgroups v2)
-  - Create `internal/adapter/sandbox/docker.go`
-  - Memory: 512MB, CPUs: 1, PidsLimit: 100
-  - Storage quota: `--storage-opt size=10G`
-  - Network: `none` mode initially, enable on-demand
-  - Time limit: Context timeout (10min default)
+- [x] (2026-02-17) Agent sandbox resource limits
+  - Shared type: `internal/domain/resource/limits.go` (Limits struct, Merge, Cap)
+  - Agent domain: `ResourceLimits *resource.Limits` field on Agent struct
+  - Policy domain: `ResourceLimits *resource.Limits` field on PolicyProfile struct
+  - Store/handler chain updated: CreateAgent accepts `*resource.Limits`, stored as JSONB
+  - Migration: `012_add_agent_resource_limits.sql`
+  - Sandbox merge logic: global config → policy limits → agent limits → cap at ceiling
+  - 5 tests in `internal/domain/resource/limits_test.go`
 - [ ] Secrets rotation support
   - Create `internal/secrets/vault.go` with hot reload
   - SIGHUP handler to trigger reload from ENV or external vault
@@ -201,10 +208,14 @@
   - `internal/domain/policy/policy_test.go` (5), `presets_test.go` (8), `loader_test.go` (7)
   - `internal/service/policy_test.go` (25)
   - Config tests (3 in `loader_test.go`), handler tests (7 in `handlers_test.go`)
-- [ ] Implement Checkpoint system
-  - Before every `Edit/Write/Replace`: automatic checkpoint
-  - On failed Quality Gates (tests/lint): automatic rewind or re-plan
-  - Shadow Git approach for Mount mode, Blob snapshots for Sandbox
+- [x] (2026-02-17) Implement Checkpoint system
+  - `internal/service/checkpoint.go`: CheckpointService with shadow Git commits
+  - CreateCheckpoint: `git add -A && git commit` for file-modifying tools (Edit, Write, Bash)
+  - RewindToFirst: `git reset --hard {firstHash}^` (restore pre-run state on quality gate failure)
+  - RewindToLast: `git reset --hard {lastHash}^` (undo last change only)
+  - CleanupCheckpoints: `git reset --soft {firstHash}^` (remove shadow commits, keep working state)
+  - Runtime integration: checkpoint on tool call, rewind on rollback, cleanup on finalize/cancel
+  - 5 tests in `internal/service/checkpoint_test.go`
 - [ ] Policy UI in Frontend
   - Policy Editor per project (YAML-style, fits CodeForge config standard)
   - "Effective Permission Preview": show which rule matches and why
@@ -243,10 +254,14 @@
 - [x] (2026-02-17) Tests: 44 new test functions across Go + Python
   - `internal/domain/run/run_test.go` (15), `internal/service/runtime_test.go` (22)
   - `internal/adapter/http/handlers_test.go` (+5), `workers/tests/test_runtime.py` (9)
-- [ ] Implement Execution Modes (actual Docker sandbox, mount, hybrid)
-  - Sandbox: Isolated Docker container with cgroups v2 limits
-  - Mount: Direct file access to host workspace
-  - Hybrid: Read from host, write in sandbox, merge on success
+- [x] (2026-02-17) Implement Execution Modes — Docker Sandbox
+  - `internal/service/sandbox.go`: SandboxService with Docker CLI (os/exec)
+  - Create (docker create with resource flags), Start, Exec, Stop, Remove, Get
+  - Config: `SandboxConfig` in `internal/config/config.go` (memory, cpu, pids, storage, network, image)
+  - Domain: `ExecModeHybrid` constant added to `internal/domain/run/run.go`
+  - Runtime integration: sandbox lifecycle in StartRun, finalizeRun, CancelRun
+  - 5 tests in `internal/service/sandbox_test.go`
+  - Deferred: Mount mode, Hybrid mode implementation
 - [ ] Runtime Compliance Tests
   - Test suite that validates each Runtime implementation
   - Feature parity checks across Sandbox/Mount/Hybrid
@@ -278,10 +293,7 @@
   - API: `runs.start/get/cancel/listByTask`, `policies.list`
 - [x] (2026-02-17) Events: 7 new event types (QG started/passed/failed, delivery started/completed/failed, stall detected)
 - [x] (2026-02-17) WS: `run.qualitygate` and `run.delivery` events with typed structs
-- [ ] Implement Checkpoint system
-  - Before every `Edit/Write/Replace`: automatic checkpoint
-  - On failed Quality Gates (tests/lint): automatic rewind or re-plan
-  - Shadow Git approach for Mount mode, Blob snapshots for Sandbox
+- [x] (2026-02-17) Checkpoint system — see 4A above
 
 ---
 
@@ -493,9 +505,9 @@
   - Health/liveness tests, Project CRUD lifecycle, Task CRUD lifecycle, validation tests
   - Fixed goose migration `$$` blocks (StatementBegin/StatementEnd annotations)
   - Updated `.claude/commands/test.md` to use test runner script
-- [ ] Unit tests for AsyncHandler (buffer overflow, concurrent writes, flush)
+- [x] (2026-02-17) Unit tests for AsyncHandler (buffer overflow, concurrent writes, flush) — 4 tests in `internal/logger/async_test.go`
 - [ ] Integration tests for Config Loader (precedence, validation, reload)
-- [ ] Integration tests for Idempotency (duplicate requests, TTL expiry)
+- [x] (2026-02-17) Unit tests for Idempotency (no header, store, replay, GET ignored, different keys) — 5 tests in `internal/middleware/idempotency_test.go`
 - [ ] Load tests for Rate Limiting (sustained vs burst, per-user limiters)
 - [ ] Runtime Compliance Tests (Sandbox/Mount/Hybrid feature parity)
 - [x] (2026-02-17) Policy Gate tests (deny/ask/allow evaluation, path scoping, command matching, preset integration)

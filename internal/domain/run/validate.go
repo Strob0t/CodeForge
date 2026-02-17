@@ -26,6 +26,7 @@ var validDeliverModes = map[DeliverMode]bool{
 var validExecModes = map[ExecMode]bool{
 	ExecModeMount:   true,
 	ExecModeSandbox: true,
+	ExecModeHybrid:  true,
 }
 
 // Validate checks that a Run has all required fields and valid values.
