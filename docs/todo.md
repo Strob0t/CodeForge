@@ -20,12 +20,13 @@
 
 ### 3A. Configuration Management
 
-- [ ] Implement hierarchical config system (defaults < YAML < ENV < CLI)
-  - Go: Create `internal/config/loader.go` with merge logic
-  - Python: Extend Pydantic `BaseSettings` with CLI override support (Typer/Click)
-  - Add validation layer (required fields, format checks)
-  - Support config reload via SIGHUP (non-critical settings only)
-  - Document in `docs/dev-setup.md`
+- [x] (2026-02-17) Implement hierarchical config system (defaults < YAML < ENV)
+  - Go: `internal/config/config.go` (typed Config struct), `internal/config/loader.go` (Load with merge logic)
+  - Python: `workers/codeforge/config.py` (WorkerSettings from ENV)
+  - Validation layer for required fields and min values
+  - `codeforge.yaml.example` with all fields documented
+  - 6 test functions in `internal/config/loader_test.go`
+  - Deferred: SIGHUP reload, CLI override support
 
 ### 3B. Structured Logging & Observability
 

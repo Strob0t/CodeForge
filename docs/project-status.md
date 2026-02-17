@@ -160,12 +160,13 @@
 - **Frontend:** 13 components, 4 routes (/, /projects, /projects/:id, /models), WebSocket live updates
 - **API:** Git ops (clone/pull/branches/checkout/status), Agent CRUD + dispatch/stop, LLM CRUD + health
 
-## Phase 3: Advanced Features
+## Phase 3: Reliability, Performance & Agent Foundation (IN PROGRESS)
 
-- [ ] Roadmap/Feature Map Editor (Auto-Detection, Multi-Format SDD, bidirectional PM sync)
-- [ ] OpenSpec/Spec Kit/Autospec integration
-- [ ] SVN integration
-- [ ] Multi-agent orchestration
-- [ ] GitHub/GitLab Webhook integration
-- [ ] Cost tracking for LLM usage
-- [ ] Multi-tenancy / user management
+- [x] (2026-02-17) WP1: Configuration Management — hierarchical config (defaults < YAML < ENV), typed Config struct, validation, 6 tests
+- [ ] WP2: Structured Logging & Request ID Propagation
+- [ ] WP3: Graceful Shutdown & Docker Logging
+- [ ] WP4: Optimistic Locking & DB Pool Tuning
+- [ ] WP5: Circuit Breaker
+- [ ] WP6: Dead Letter Queue & Schema Validation
+- [ ] WP7: Event Sourcing for Agent Trajectory
+- [ ] WP8: Health Granularity & Rate Limiting

@@ -185,6 +185,48 @@ cd workers && poetry run pytest -v  # Python (16 tests)
 npm run build --prefix frontend   # Frontend (type check + build)
 ```
 
+## Configuration
+
+CodeForge uses a hierarchical configuration system: **defaults < YAML < environment variables**.
+
+### Config File
+
+Copy the example config and adjust as needed:
+```bash
+cp codeforge.yaml.example codeforge.yaml
+```
+
+The YAML file is optional. If missing, defaults are used. Environment variables always take precedence.
+
+### Go Core Config (`internal/config/`)
+
+| YAML Key | ENV Variable | Default | Description |
+|---|---|---|---|
+| `server.port` | `CODEFORGE_PORT` | `8080` | HTTP server port |
+| `server.cors_origin` | `CODEFORGE_CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin |
+| `postgres.dsn` | `DATABASE_URL` | `postgres://codeforge:...` | PostgreSQL DSN |
+| `postgres.max_conns` | `CODEFORGE_PG_MAX_CONNS` | `15` | Max DB connections |
+| `postgres.min_conns` | `CODEFORGE_PG_MIN_CONNS` | `2` | Min DB connections |
+| `nats.url` | `NATS_URL` | `nats://localhost:4222` | NATS server URL |
+| `litellm.url` | `LITELLM_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
+| `litellm.master_key` | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
+| `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` | Log level |
+| `breaker.max_failures` | `CODEFORGE_BREAKER_MAX_FAILURES` | `5` | Circuit breaker threshold |
+| `breaker.timeout` | `CODEFORGE_BREAKER_TIMEOUT` | `30s` | Circuit breaker timeout |
+| `rate.requests_per_second` | `CODEFORGE_RATE_RPS` | `10.0` | Rate limit RPS |
+| `rate.burst` | `CODEFORGE_RATE_BURST` | `100` | Rate limit burst |
+
+### Python Worker Config (`workers/codeforge/config.py`)
+
+| ENV Variable | Default | Description |
+|---|---|---|
+| `NATS_URL` | `nats://localhost:4222` | NATS server URL |
+| `LITELLM_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
+| `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
+| `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level |
+| `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
+| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker health port |
+
 ## Environment Variables
 
 See `.env.example` for all configurable values.

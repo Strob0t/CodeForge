@@ -20,36 +20,9 @@ import (
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
-
-// config holds all runtime configuration loaded from environment variables.
-type config struct {
-	port             string
-	corsOrigin       string
-	dbDSN            string
-	natsURL          string
-	litellmURL       string
-	litellmMasterKey string
-}
-
-func loadConfig() config {
-	return config{
-		port:             envOr("CODEFORGE_PORT", "8080"),
-		corsOrigin:       envOr("CODEFORGE_CORS_ORIGIN", "http://localhost:3000"),
-		dbDSN:            envOr("DATABASE_URL", "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"),
-		natsURL:          envOr("NATS_URL", "nats://localhost:4222"),
-		litellmURL:       envOr("LITELLM_URL", "http://localhost:4000"),
-		litellmMasterKey: envOr("LITELLM_MASTER_KEY", ""),
-	}
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -62,13 +35,23 @@ func main() {
 }
 
 func run() error {
-	cfg := loadConfig()
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
+	slog.Info("config loaded",
+		"port", cfg.Server.Port,
+		"log_level", cfg.Logging.Level,
+		"pg_max_conns", cfg.Postgres.MaxConns,
+	)
+
 	ctx := context.Background()
 
 	// --- Infrastructure ---
 
 	// PostgreSQL
-	pool, err := postgres.NewPool(ctx, cfg.dbDSN)
+	pool, err := postgres.NewPool(ctx, cfg.Postgres.DSN)
 	if err != nil {
 		return fmt.Errorf("postgres: %w", err)
 	}
@@ -76,13 +59,13 @@ func run() error {
 	slog.Info("postgres connected")
 
 	// Run migrations
-	if err := postgres.RunMigrations(ctx, cfg.dbDSN); err != nil {
+	if err := postgres.RunMigrations(ctx, cfg.Postgres.DSN); err != nil {
 		return fmt.Errorf("migrations: %w", err)
 	}
 	slog.Info("migrations applied")
 
 	// NATS
-	queue, err := cfnats.Connect(ctx, cfg.natsURL)
+	queue, err := cfnats.Connect(ctx, cfg.NATS.URL)
 	if err != nil {
 		return fmt.Errorf("nats: %w", err)
 	}
@@ -112,7 +95,7 @@ func run() error {
 	defer cancelOutput()
 
 	// --- HTTP ---
-	llmClient := litellm.NewClient(cfg.litellmURL, cfg.litellmMasterKey)
+	llmClient := litellm.NewClient(cfg.LiteLLM.URL, cfg.LiteLLM.MasterKey)
 
 	handlers := &cfhttp.Handlers{
 		Projects: projectSvc,
@@ -124,7 +107,7 @@ func run() error {
 	r := chi.NewRouter()
 
 	// Middleware
-	r.Use(cfhttp.CORS(cfg.corsOrigin))
+	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
 	r.Use(cfhttp.Logger)
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -132,7 +115,7 @@ func run() error {
 	r.Use(chimw.Timeout(30 * time.Second))
 
 	// Health endpoint with service status
-	r.Get("/health", healthHandler(&cfg))
+	r.Get("/health", healthHandler(cfg))
 
 	// WebSocket endpoint
 	r.Get("/ws", hub.HandleWS)
@@ -140,7 +123,7 @@ func run() error {
 	// API routes
 	cfhttp.MountRoutes(r, handlers)
 
-	addr := ":" + cfg.port
+	addr := ":" + cfg.Server.Port
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -172,7 +155,7 @@ func run() error {
 }
 
 // healthHandler returns an http.HandlerFunc that reports service health.
-func healthHandler(cfg *config) http.HandlerFunc {
+func healthHandler(cfg *config.Config) http.HandlerFunc {
 	type healthStatus struct {
 		Status   string `json:"status"`
 		Postgres string `json:"postgres"`
@@ -183,9 +166,9 @@ func healthHandler(cfg *config) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		status := healthStatus{
 			Status:   "ok",
-			Postgres: cfg.dbDSN,
-			NATS:     cfg.natsURL,
-			LiteLLM:  cfg.litellmURL,
+			Postgres: cfg.Postgres.DSN,
+			NATS:     cfg.NATS.URL,
+			LiteLLM:  cfg.LiteLLM.URL,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
