@@ -16,6 +16,14 @@ const (
 	TypeToolResult    Type = "agent.tool_result"
 	TypeAgentFinished Type = "agent.finished"
 	TypeAgentError    Type = "agent.error"
+
+	// Run protocol events (Phase 4B)
+	TypeRunStarted        Type = "run.started"
+	TypeRunCompleted      Type = "run.completed"
+	TypeToolCallRequested Type = "run.toolcall.requested"
+	TypeToolCallApproved  Type = "run.toolcall.approved"
+	TypeToolCallDenied    Type = "run.toolcall.denied"
+	TypeToolCallResultEv  Type = "run.toolcall.result"
 )
 
 // AgentEvent represents a single immutable event in an agent's execution trajectory.

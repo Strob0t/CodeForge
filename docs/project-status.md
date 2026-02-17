@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-02-14
+> Last update: 2026-02-17
 
 ## Phase 0: Project Setup (current)
 
@@ -190,3 +190,23 @@
 - **Modified files:** 7 (config, loader, handlers, routes, main, config tests, handler tests)
 - **API:** 3 new REST endpoints under /api/v1/policies
 - **Tests:** 46 new test functions, all Go tests pass (153+ total)
+
+### 4B. Runtime API — Step-by-Step Execution Protocol (COMPLETED)
+
+- [x] (2026-02-17) CI Fix: golangci-lint-action v6→v7, Python working-directory removed
+- [x] (2026-02-17) Domain: Run entity (run.go, validate.go, toolcall.go) + 15 domain tests
+- [x] (2026-02-17) NATS: 7 new subjects (runs.*) + 8 payload types in schemas.go
+- [x] (2026-02-17) Database: migration 005_create_runs.sql, Store interface extended (5 methods)
+- [x] (2026-02-17) Events: 6 new event types + 2 WS event types with structs
+- [x] (2026-02-17) RuntimeService: StartRun, HandleToolCallRequest (with termination + policy eval), HandleToolCallResult, HandleRunComplete, CancelRun, StartSubscribers
+- [x] (2026-02-17) REST API: POST /runs, GET /runs/{id}, POST /runs/{id}/cancel, GET /tasks/{id}/runs
+- [x] (2026-02-17) Composition root: RuntimeService wired in main.go with subscribers + shutdown
+- [x] (2026-02-17) Python: RuntimeClient (runtime.py), RunStartMessage/TerminationConfig/ToolCallDecision models, consumer extended with runs.start, executor with execute_with_runtime()
+- [x] (2026-02-17) 44 new test functions: Go domain (15), Go service (22), Go handlers (+5), Python runtime (9)
+
+### Phase 4B Key Deliverables
+- **New files:** 6 Go (run domain 3, runtime service, runtime tests, migration), 2 Python (runtime.py, test_runtime.py)
+- **Modified files:** 12 Go (queue.go, schemas.go, store.go, event.go, events.go, handlers.go, routes.go, main.go, handlers_test.go, project_test.go), 3 Python (models.py, consumer.py, executor.py), 1 CI (.github/workflows/ci.yml)
+- **API:** 4 new REST endpoints under /api/v1/runs + /api/v1/tasks/{id}/runs
+- **Protocol:** Conversational NATS protocol for per-tool-call policy enforcement
+- **Tests:** 44 new test functions (Go: 42, Python: 9), all passing

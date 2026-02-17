@@ -113,6 +113,14 @@ func run() error {
 		"profiles", len(policySvc.ListProfiles()),
 	)
 
+	// --- Runtime Service (Phase 4B) ---
+	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc)
+	runtimeCancels, err := runtimeSvc.StartSubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("runtime subscribers: %w", err)
+	}
+	slog.Info("runtime service initialized", "subscribers", len(runtimeCancels))
+
 	// Start NATS subscribers (process results and streaming output from workers)
 	cancelResults, err := agentSvc.StartResultSubscriber(ctx)
 	if err != nil {
@@ -134,6 +142,7 @@ func run() error {
 		Agents:   agentSvc,
 		LiteLLM:  llmClient,
 		Policies: policySvc,
+		Runtime:  runtimeSvc,
 	}
 
 	r := chi.NewRouter()
@@ -197,6 +206,9 @@ func run() error {
 
 	// Phase 2: Cancel NATS subscribers (stop processing new messages)
 	slog.Info("shutdown phase 2: cancelling NATS subscribers")
+	for _, cancel := range runtimeCancels {
+		cancel()
+	}
 	cancelResults()
 	cancelOutput()
 

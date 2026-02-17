@@ -1,0 +1,53 @@
+// Package run defines the Run domain entity for agent execution attempts.
+package run
+
+import "time"
+
+// Status represents the current state of a run.
+type Status string
+
+const (
+	StatusPending   Status = "pending"
+	StatusRunning   Status = "running"
+	StatusCompleted Status = "completed"
+	StatusFailed    Status = "failed"
+	StatusCancelled Status = "cancelled"
+	StatusTimeout   Status = "timeout"
+)
+
+// ExecMode defines how the agent accesses the project filesystem.
+type ExecMode string
+
+const (
+	ExecModeMount   ExecMode = "mount"   // Direct host filesystem access
+	ExecModeSandbox ExecMode = "sandbox" // Isolated container
+)
+
+// Run represents a single execution attempt of a task by an agent under a specific policy.
+// One task can have multiple runs (retries, different agents, different policies).
+type Run struct {
+	ID            string     `json:"id"`
+	TaskID        string     `json:"task_id"`
+	AgentID       string     `json:"agent_id"`
+	ProjectID     string     `json:"project_id"`
+	PolicyProfile string     `json:"policy_profile"`
+	ExecMode      ExecMode   `json:"exec_mode"`
+	Status        Status     `json:"status"`
+	StepCount     int        `json:"step_count"`
+	CostUSD       float64    `json:"cost_usd"`
+	Error         string     `json:"error,omitempty"`
+	Version       int        `json:"version"`
+	StartedAt     time.Time  `json:"started_at"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// StartRequest holds the fields needed to start a new run.
+type StartRequest struct {
+	TaskID        string   `json:"task_id"`
+	AgentID       string   `json:"agent_id"`
+	ProjectID     string   `json:"project_id"`
+	PolicyProfile string   `json:"policy_profile,omitempty"`
+	ExecMode      ExecMode `json:"exec_mode,omitempty"`
+}

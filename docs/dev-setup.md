@@ -270,6 +270,33 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 
 The readiness endpoint checks PostgreSQL (ping), NATS (connection status), and LiteLLM (health API) with per-service latency reporting.
 
+## NATS Subjects
+
+The Go Core and Python Workers communicate via NATS JetStream subjects:
+
+### Legacy Task Protocol (fire-and-forget)
+
+| Subject | Direction | Purpose |
+|---------|-----------|---------|
+| `tasks.agent.*` | Go → Python | Dispatch task to agent backend |
+| `tasks.result` | Python → Go | Task result from worker |
+| `tasks.output` | Python → Go | Streaming output line |
+| `agents.status` | Go → Frontend | Agent status update |
+
+### Run Protocol (Phase 4B, step-by-step)
+
+| Subject | Direction | Purpose |
+|---------|-----------|---------|
+| `runs.start` | Go → Python | Start a new run |
+| `runs.toolcall.request` | Python → Go | Request permission for tool call |
+| `runs.toolcall.response` | Go → Python | Permission decision (allow/deny/ask) |
+| `runs.toolcall.result` | Python → Go | Tool execution result |
+| `runs.complete` | Python → Go | Run finished |
+| `runs.cancel` | Go → Python | Cancel a running run |
+| `runs.output` | Python → Go | Streaming output line (run-scoped) |
+
+The run protocol enables per-tool-call policy enforcement. Each tool call is individually approved by the Go control plane's policy engine before the Python worker executes it.
+
 ## Environment Variables
 
 See `.env.example` for all configurable values.

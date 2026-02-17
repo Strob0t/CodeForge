@@ -15,8 +15,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -27,6 +29,7 @@ type mockStore struct {
 	projects []project.Project
 	agents   []agent.Agent
 	tasks    []task.Task
+	runs     []run.Run
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -150,6 +153,61 @@ func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result,
 	return nil
 }
 
+// --- Run methods ---
+
+func (m *mockStore) CreateRun(_ context.Context, r *run.Run) error {
+	if r.ID == "" {
+		r.ID = "run-id"
+	}
+	m.runs = append(m.runs, *r)
+	return nil
+}
+
+func (m *mockStore) GetRun(_ context.Context, id string) (*run.Run, error) {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			return &m.runs[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) UpdateRunStatus(_ context.Context, id string, status run.Status, stepCount int, costUSD float64) error {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			m.runs[i].Status = status
+			m.runs[i].StepCount = stepCount
+			m.runs[i].CostUSD = costUSD
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) CompleteRun(_ context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error {
+	for i := range m.runs {
+		if m.runs[i].ID != id {
+			continue
+		}
+		m.runs[i].Status = status
+		m.runs[i].Error = errMsg
+		m.runs[i].CostUSD = costUSD
+		m.runs[i].StepCount = stepCount
+		return nil
+	}
+	return errNotFound
+}
+
+func (m *mockStore) ListRunsByTask(_ context.Context, taskID string) ([]run.Run, error) {
+	var result []run.Run
+	for i := range m.runs {
+		if m.runs[i].TaskID == taskID {
+			result = append(result, m.runs[i])
+		}
+	}
+	return result, nil
+}
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -170,18 +228,32 @@ type mockBroadcaster struct{}
 
 func (m *mockBroadcaster) BroadcastEvent(_ context.Context, _ string, _ any) {}
 
+// mockEventStore implements eventstore.Store for testing.
+type mockEventStore struct{}
+
+func (m *mockEventStore) Append(_ context.Context, _ *event.AgentEvent) error { return nil }
+func (m *mockEventStore) LoadByTask(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *mockEventStore) LoadByAgent(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+
 var errNotFound = fmt.Errorf("mock: %w", domain.ErrNotFound)
 
 func newTestRouter() chi.Router {
 	store := &mockStore{}
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
+	es := &mockEventStore{}
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	handlers := &cfhttp.Handlers{
 		Projects: service.NewProjectService(store),
 		Tasks:    service.NewTaskService(store, queue),
 		Agents:   service.NewAgentService(store, queue, bc),
 		LiteLLM:  litellm.NewClient("http://localhost:4000", ""),
-		Policies: service.NewPolicyService("headless-safe-sandbox", nil),
+		Policies: policySvc,
+		Runtime:  service.NewRuntimeService(store, queue, bc, es, policySvc),
 	}
 
 	r := chi.NewRouter()
@@ -882,5 +954,89 @@ func TestEvaluatePolicyInvalidBody(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- Run Endpoints ---
+
+func TestStartRunValidation(t *testing.T) {
+	r := newTestRouter()
+
+	// Missing task_id
+	body, _ := json.Marshal(map[string]string{"agent_id": "a1", "project_id": "p1"})
+	req := httptest.NewRequest("POST", "/api/v1/runs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing task_id, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Missing agent_id
+	body, _ = json.Marshal(map[string]string{"task_id": "t1", "project_id": "p1"})
+	req = httptest.NewRequest("POST", "/api/v1/runs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing agent_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStartRunInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/runs", bytes.NewReader([]byte("bad")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetRunNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/runs/nonexistent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestListTaskRunsEmpty(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/tasks/some-task/runs", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var runs []run.Run
+	_ = json.NewDecoder(w.Body).Decode(&runs)
+	if len(runs) != 0 {
+		t.Fatalf("expected empty list, got %d", len(runs))
+	}
+}
+
+func TestCancelRunNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/runs/nonexistent/cancel", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// CancelRun calls GetRun which returns not found → 500 (wrapped domain error)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for cancel of nonexistent run, got %d", w.Code)
 	}
 }

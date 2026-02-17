@@ -35,4 +35,13 @@ const (
 	SubjectTaskOutput  = "tasks.output" // streaming output lines from workers
 	SubjectTaskCancel  = "tasks.cancel" // cancel a running task
 	SubjectAgentStatus = "agents.status"
+
+	// Run protocol subjects (Phase 4B step-by-step execution)
+	SubjectRunStart            = "runs.start"             // Go → Python: start a new run
+	SubjectRunToolCallRequest  = "runs.toolcall.request"  // Python → Go: request permission for tool call
+	SubjectRunToolCallResponse = "runs.toolcall.response" // Go → Python: permission decision
+	SubjectRunToolCallResult   = "runs.toolcall.result"   // Python → Go: tool execution result
+	SubjectRunComplete         = "runs.complete"          // Python → Go: run finished
+	SubjectRunCancel           = "runs.cancel"            // Go → Python: cancel a run
+	SubjectRunOutput           = "runs.output"            // Python → Go: streaming output
 )

@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 )
 
@@ -268,6 +269,83 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 	return nil
 }
 
+// --- Runs ---
+
+func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO runs (task_id, agent_id, project_id, policy_profile, exec_mode, status)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, started_at, created_at, updated_at, version`,
+		r.TaskID, r.AgentID, r.ProjectID, r.PolicyProfile, string(r.ExecMode), string(r.Status))
+
+	return row.Scan(&r.ID, &r.StartedAt, &r.CreatedAt, &r.UpdatedAt, &r.Version)
+}
+
+func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, status,
+		        step_count, cost_usd, error, version, started_at, completed_at, created_at, updated_at
+		 FROM runs WHERE id = $1`, id)
+
+	r, err := scanRun(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get run %s: %w", id, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get run %s: %w", id, err)
+	}
+	return &r, nil
+}
+
+func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE runs SET status = $2, step_count = $3, cost_usd = $4, updated_at = now()
+		 WHERE id = $1`,
+		id, string(status), stepCount, costUSD)
+	if err != nil {
+		return fmt.Errorf("update run status %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update run status %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE runs SET status = $2, error = $3, cost_usd = $4, step_count = $5, completed_at = now(), updated_at = now()
+		 WHERE id = $1`,
+		id, string(status), errMsg, costUSD, stepCount)
+	if err != nil {
+		return fmt.Errorf("complete run %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("complete run %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, status,
+		        step_count, cost_usd, error, version, started_at, completed_at, created_at, updated_at
+		 FROM runs WHERE task_id = $1 ORDER BY created_at DESC`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list runs by task: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []run.Run
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, rows.Err()
+}
+
 // --- Scanners ---
 
 type scannable interface {
@@ -302,6 +380,16 @@ func scanProject(row scannable) (project.Project, error) {
 		}
 	}
 	return p, nil
+}
+
+func scanRun(row scannable) (run.Run, error) {
+	var r run.Run
+	err := row.Scan(
+		&r.ID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.PolicyProfile,
+		&r.ExecMode, &r.Status, &r.StepCount, &r.CostUSD, &r.Error,
+		&r.Version, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
+	)
+	return r, err
 }
 
 func scanTask(row scannable) (task.Task, error) {

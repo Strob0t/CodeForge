@@ -6,6 +6,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 )
 
@@ -31,4 +32,11 @@ type Store interface {
 	CreateTask(ctx context.Context, req task.CreateRequest) (*task.Task, error)
 	UpdateTaskStatus(ctx context.Context, id string, status task.Status) error
 	UpdateTaskResult(ctx context.Context, id string, result task.Result, costUSD float64) error
+
+	// Runs
+	CreateRun(ctx context.Context, r *run.Run) error
+	GetRun(ctx context.Context, id string) (*run.Run, error)
+	UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64) error
+	CompleteRun(ctx context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error
+	ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error)
 }

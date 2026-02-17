@@ -8,6 +8,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -151,6 +152,20 @@ func (m *mockStore) UpdateTaskStatus(_ context.Context, _ string, _ task.Status)
 func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
 	return nil
 }
+
+// --- Run methods (satisfy database.Store interface) ---
+
+func (m *mockStore) CreateRun(_ context.Context, _ *run.Run) error { return nil }
+func (m *mockStore) GetRun(_ context.Context, _ string) (*run.Run, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _ int, _ float64) error {
+	return nil
+}
+func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _ string, _ float64, _ int) error {
+	return nil
+}
+func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
 
 // --- ProjectService Tests ---
 

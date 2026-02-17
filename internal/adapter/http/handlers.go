@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -27,6 +28,7 @@ type Handlers struct {
 	Agents   *service.AgentService
 	LiteLLM  *litellm.Client
 	Policies *service.PolicyService
+	Runtime  *service.RuntimeService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -443,6 +445,67 @@ func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"decision": string(decision),
 	})
+}
+
+// --- Run Endpoints ---
+
+// StartRun handles POST /api/v1/runs
+func (h *Handlers) StartRun(w http.ResponseWriter, r *http.Request) {
+	var req run.StartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.TaskID == "" {
+		writeError(w, http.StatusBadRequest, "task_id is required")
+		return
+	}
+	if req.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "agent_id is required")
+		return
+	}
+
+	result, err := h.Runtime.StartRun(r.Context(), &req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+// GetRun handles GET /api/v1/runs/{id}
+func (h *Handlers) GetRun(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	result, err := h.Runtime.GetRun(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "run not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// CancelRun handles POST /api/v1/runs/{id}/cancel
+func (h *Handlers) CancelRun(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Runtime.CancelRun(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// ListTaskRuns handles GET /api/v1/tasks/{id}/runs
+func (h *Handlers) ListTaskRuns(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+	runs, err := h.Runtime.ListRunsByTask(r.Context(), taskID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if runs == nil {
+		runs = []run.Run{}
+	}
+	writeJSON(w, http.StatusOK, runs)
 }
 
 // --- Helpers ---

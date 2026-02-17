@@ -13,7 +13,8 @@ from codeforge.config import WorkerSettings
 from codeforge.executor import AgentExecutor
 from codeforge.llm import LiteLLMClient
 from codeforge.logger import setup_logging
-from codeforge.models import TaskMessage, TaskResult
+from codeforge.models import RunStartMessage, TaskMessage, TaskResult
+from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
     from nats.aio.client import Client as NATSClient
@@ -23,6 +24,7 @@ STREAM_NAME = "CODEFORGE"
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
+SUBJECT_RUN_START = "runs.start"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -47,7 +49,7 @@ class TaskConsumer:
         self._executor = AgentExecutor(llm=self._llm)
 
     async def start(self) -> None:
-        """Connect to NATS and subscribe to the task assignment subject."""
+        """Connect to NATS and subscribe to task and run subjects."""
         self._nc = await nats.connect(self.nats_url)
         self._js = self._nc.jetstream()
         self._running = True
@@ -55,26 +57,54 @@ class TaskConsumer:
         logger.info("connected to NATS", url=self.nats_url)
 
         # Subscribe to agent task dispatches (tasks.agent.aider, tasks.agent.openhands, etc.)
-        sub = await self._js.subscribe(
+        task_sub = await self._js.subscribe(
             SUBJECT_AGENT,
             stream=STREAM_NAME,
             manual_ack=True,
         )
-
         logger.info("subscribed", subject=SUBJECT_AGENT)
 
-        # Message processing loop
+        # Subscribe to run start messages (step-by-step protocol)
+        run_sub = await self._js.subscribe(
+            SUBJECT_RUN_START,
+            stream=STREAM_NAME,
+            manual_ack=True,
+        )
+        logger.info("subscribed", subject=SUBJECT_RUN_START)
+
+        # Process both subscriptions concurrently
+        await asyncio.gather(
+            self._process_task_messages(task_sub),
+            self._process_run_messages(run_sub),
+        )
+
+    async def _process_task_messages(self, sub: object) -> None:
+        """Message processing loop for legacy fire-and-forget tasks."""
         while self._running:
             try:
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)
+                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
             except TimeoutError:
                 continue
             except Exception:
                 if self._running:
-                    logger.exception("error receiving message")
+                    logger.exception("error receiving task message")
                 break
 
             await self._handle_message(msg)
+
+    async def _process_run_messages(self, sub: object) -> None:
+        """Message processing loop for step-by-step run protocol."""
+        while self._running:
+            try:
+                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
+            except TimeoutError:
+                continue
+            except Exception:
+                if self._running:
+                    logger.exception("error receiving run message")
+                break
+
+            await self._handle_run_start(msg)
 
     async def _handle_message(self, msg: nats.aio.msg.Msg) -> None:
         """Process a single task message: parse, execute, ack/nack."""
@@ -111,6 +141,44 @@ class TaskConsumer:
                 await self._move_to_dlq(msg)
             else:
                 await msg.nak()
+
+    async def _handle_run_start(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a run start message: parse, create RuntimeClient, execute with runtime."""
+        try:
+            run_msg = RunStartMessage.model_validate_json(msg.data)
+            log = logger.bind(run_id=run_msg.run_id, task_id=run_msg.task_id)
+            log.info("received run start", prompt=run_msg.prompt[:80])
+
+            if self._js is None:
+                log.error("JetStream not available")
+                await msg.nak()
+                return
+
+            runtime = RuntimeClient(
+                js=self._js,
+                run_id=run_msg.run_id,
+                task_id=run_msg.task_id,
+                project_id=run_msg.project_id,
+                termination=run_msg.termination,
+            )
+            await runtime.start_cancel_listener()
+
+            # Convert to TaskMessage for executor compatibility
+            task = TaskMessage(
+                id=run_msg.task_id,
+                project_id=run_msg.project_id,
+                title=run_msg.prompt[:80],
+                prompt=run_msg.prompt,
+                config=run_msg.config,
+            )
+
+            await self._executor.execute_with_runtime(task, runtime)
+            await msg.ack()
+            log.info("run processing complete")
+
+        except Exception:
+            logger.exception("failed to process run start message")
+            await msg.nak()
 
     @staticmethod
     def _retry_count(msg: nats.aio.msg.Msg) -> int:

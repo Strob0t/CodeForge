@@ -212,13 +212,38 @@
   - Preset selection + "Customize" (load preset, edit, save as new profile)
   - Run overrides: temporarily override policy per run
 
-### 4B. Runtime API (Austauschbare Execution Environments)
+### 4B. Runtime API (Step-by-Step Execution Protocol)
 
-- [ ] Define Runtime Client protocol (Go ↔ Python)
-  - ToolCall/ToolResult schema: exit code, stdout/stderr, diff, touched paths
-  - Typed events: `ToolCallRequest`, `ToolCallResult`, `FileEdit`, `ShellExec`
-  - NATS subjects for runtime communication
-- [ ] Implement Execution Modes
+- [x] (2026-02-17) Define Runtime Client protocol (Go ↔ Python)
+  - Run entity: `internal/domain/run/run.go` (Run, StartRequest, Status, ExecMode)
+  - ToolCall types: `internal/domain/run/toolcall.go` (ToolCallRequest/Response/Result)
+  - Validation: `internal/domain/run/validate.go` (Run.Validate, StartRequest.Validate)
+  - NATS subjects: `runs.start`, `runs.toolcall.{request,response,result}`, `runs.complete`, `runs.cancel`, `runs.output`
+  - NATS payloads: RunStartPayload, ToolCallRequestPayload, ToolCallResponsePayload, etc.
+  - Event types: `run.started`, `run.completed`, `run.toolcall.{requested,approved,denied,result}`
+  - WS events: `run.status`, `run.toolcall`
+- [x] (2026-02-17) Database: `runs` table (migration 005, FK to tasks/agents/projects, optimistic locking)
+  - Store interface: CreateRun, GetRun, UpdateRunStatus, CompleteRun, ListRunsByTask
+- [x] (2026-02-17) RuntimeService: `internal/service/runtime.go`
+  - StartRun, HandleToolCallRequest, HandleToolCallResult, HandleRunComplete, CancelRun
+  - Termination enforcement: MaxSteps, MaxCost, Timeout checked per tool call
+  - Policy evaluation per tool call (reuses Phase 4A policy layer)
+  - Quality gates logged (enforcement deferred to 4C)
+  - NATS subscribers for 4 subjects, cancel cleanup
+- [x] (2026-02-17) REST API: 4 new endpoints
+  - `POST /api/v1/runs` — start a run
+  - `GET /api/v1/runs/{id}` — get run details
+  - `POST /api/v1/runs/{id}/cancel` — cancel a run
+  - `GET /api/v1/tasks/{id}/runs` — list runs for a task
+- [x] (2026-02-17) Python RuntimeClient: `workers/codeforge/runtime.py`
+  - request_tool_call, report_tool_result, complete_run, send_output
+  - Cancel listener, step/cost tracking
+  - Consumer extended with `runs.start` subscription
+  - Executor extended with `execute_with_runtime()` method
+- [x] (2026-02-17) Tests: 44 new test functions across Go + Python
+  - `internal/domain/run/run_test.go` (15), `internal/service/runtime_test.go` (22)
+  - `internal/adapter/http/handlers_test.go` (+5), `workers/tests/test_runtime.py` (9)
+- [ ] Implement Execution Modes (actual Docker sandbox, mount, hybrid)
   - Sandbox: Isolated Docker container with cgroups v2 limits
   - Mount: Direct file access to host workspace
   - Hybrid: Read from host, write in sandbox, merge on success
