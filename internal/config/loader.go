@@ -71,6 +71,12 @@ func loadEnv(cfg *Config) {
 	setInt(&cfg.Rate.Burst, "CODEFORGE_RATE_BURST")
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
+	setInt(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD")
+	setDuration(&cfg.Runtime.QualityGateTimeout, "CODEFORGE_QG_TIMEOUT")
+	setString(&cfg.Runtime.DefaultDeliverMode, "CODEFORGE_DELIVER_MODE")
+	setString(&cfg.Runtime.DefaultTestCommand, "CODEFORGE_TEST_COMMAND")
+	setString(&cfg.Runtime.DefaultLintCommand, "CODEFORGE_LINT_COMMAND")
+	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
 }
 
 // validate checks that required fields are set.

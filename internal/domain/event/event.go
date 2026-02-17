@@ -24,6 +24,15 @@ const (
 	TypeToolCallApproved  Type = "run.toolcall.approved"
 	TypeToolCallDenied    Type = "run.toolcall.denied"
 	TypeToolCallResultEv  Type = "run.toolcall.result"
+
+	// Phase 4C: quality gate + delivery events
+	TypeQualityGateStarted Type = "run.qualitygate.started"
+	TypeQualityGatePassed  Type = "run.qualitygate.passed"
+	TypeQualityGateFailed  Type = "run.qualitygate.failed"
+	TypeDeliveryStarted    Type = "run.delivery.started"
+	TypeDeliveryCompleted  Type = "run.delivery.completed"
+	TypeDeliveryFailed     Type = "run.delivery.failed"
+	TypeStallDetected      Type = "run.stall_detected"
 )
 
 // AgentEvent represents a single immutable event in an agent's execution trajectory.

@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import { createCodeForgeWS } from "~/api/websocket";
 import type { Branch, GitStatus } from "~/api/types";
 import AgentPanel from "./AgentPanel";
+import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
 import LiveOutput from "./LiveOutput";
 import type { OutputLine } from "./LiveOutput";
@@ -29,6 +30,11 @@ export default function ProjectDetailPage() {
     (id) => (id ? api.projects.branches(id) : null),
   );
 
+  const [agents, { refetch: refetchAgents }] = createResource(
+    () => params.id,
+    (id) => api.agents.list(id),
+  );
+
   const [cloning, setCloning] = createSignal(false);
   const [pulling, setPulling] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -51,7 +57,32 @@ export default function ProjectDetailPage() {
       case "agent.status": {
         const agentProjectId = payload.project_id as string;
         if (agentProjectId === projectId) {
-          // AgentPanel will refetch on its own via its resource
+          refetchAgents();
+        }
+        break;
+      }
+      case "run.status": {
+        const runProjectId = payload.project_id as string;
+        if (runProjectId === projectId) {
+          // RunPanel handles its own state via updateRunStatus
+        }
+        break;
+      }
+      case "run.toolcall": {
+        // Forward to RunPanel via WS
+        break;
+      }
+      case "run.qualitygate": {
+        const qgProjectId = payload.project_id as string;
+        if (qgProjectId === projectId) {
+          // Quality gate events are reflected via run.status updates
+        }
+        break;
+      }
+      case "run.delivery": {
+        const delProjectId = payload.project_id as string;
+        if (delProjectId === projectId) {
+          // Delivery events are reflected via run.status updates
         }
         break;
       }
@@ -228,6 +259,16 @@ export default function ProjectDetailPage() {
             {/* Agents Section */}
             <div class="mb-6">
               <AgentPanel projectId={params.id} tasks={tasks() ?? []} onError={setError} />
+            </div>
+
+            {/* Run Management Section */}
+            <div class="mb-6">
+              <RunPanel
+                projectId={params.id}
+                tasks={tasks() ?? []}
+                agents={agents() ?? []}
+                onError={setError}
+              />
             </div>
 
             {/* Live Output Section */}

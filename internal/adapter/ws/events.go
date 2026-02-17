@@ -15,6 +15,10 @@ const (
 	// Run protocol events (Phase 4B)
 	EventRunStatus      = "run.status"
 	EventToolCallStatus = "run.toolcall"
+
+	// Phase 4C events
+	EventQualityGate = "run.qualitygate"
+	EventDelivery    = "run.delivery"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -56,6 +60,31 @@ type ToolCallStatusEvent struct {
 	Tool     string `json:"tool"`
 	Decision string `json:"decision,omitempty"`
 	Phase    string `json:"phase"` // "requested", "approved", "denied", "result"
+}
+
+// QualityGateEvent is broadcast when a quality gate starts, passes, or fails.
+type QualityGateEvent struct {
+	RunID       string `json:"run_id"`
+	TaskID      string `json:"task_id"`
+	ProjectID   string `json:"project_id"`
+	Status      string `json:"status"` // "started", "passed", "failed"
+	TestsPassed *bool  `json:"tests_passed,omitempty"`
+	LintPassed  *bool  `json:"lint_passed,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// DeliveryEvent is broadcast when output delivery starts, completes, or fails.
+type DeliveryEvent struct {
+	RunID      string `json:"run_id"`
+	TaskID     string `json:"task_id"`
+	ProjectID  string `json:"project_id"`
+	Status     string `json:"status"` // "started", "completed", "failed"
+	Mode       string `json:"mode"`
+	PatchPath  string `json:"patch_path,omitempty"`
+	CommitHash string `json:"commit_hash,omitempty"`
+	BranchName string `json:"branch_name,omitempty"`
+	PRURL      string `json:"pr_url,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

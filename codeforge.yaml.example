@@ -39,3 +39,12 @@ rate:
 policy:
   default_profile: "headless-safe-sandbox"
   custom_dir: ""   # Directory with custom .yaml policy files
+
+# Agent execution engine settings
+runtime:
+  stall_threshold: 5               # consecutive no-progress steps before stall abort
+  quality_gate_timeout: "60s"      # max time for test/lint gate execution
+  default_deliver_mode: ""         # "": none, "patch", "commit-local", "branch", "pr"
+  default_test_command: "go test ./..."
+  default_lint_command: "golangci-lint run ./..."
+  delivery_commit_prefix: "codeforge:"

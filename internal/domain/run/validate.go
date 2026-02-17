@@ -4,12 +4,22 @@ import "fmt"
 
 // validStatuses enumerates all valid run statuses.
 var validStatuses = map[Status]bool{
-	StatusPending:   true,
-	StatusRunning:   true,
-	StatusCompleted: true,
-	StatusFailed:    true,
-	StatusCancelled: true,
-	StatusTimeout:   true,
+	StatusPending:     true,
+	StatusRunning:     true,
+	StatusCompleted:   true,
+	StatusFailed:      true,
+	StatusCancelled:   true,
+	StatusTimeout:     true,
+	StatusQualityGate: true,
+}
+
+// validDeliverModes enumerates all valid delivery modes.
+var validDeliverModes = map[DeliverMode]bool{
+	DeliverModeNone:        true,
+	DeliverModePatch:       true,
+	DeliverModeCommitLocal: true,
+	DeliverModeBranch:      true,
+	DeliverModePR:          true,
 }
 
 // validExecModes enumerates all valid execution modes.
@@ -41,6 +51,9 @@ func (r *Run) Validate() error {
 	if r.CostUSD < 0 {
 		return fmt.Errorf("cost_usd must be non-negative")
 	}
+	if r.DeliverMode != "" && !validDeliverModes[r.DeliverMode] {
+		return fmt.Errorf("invalid deliver_mode %q", r.DeliverMode)
+	}
 	return nil
 }
 
@@ -57,6 +70,9 @@ func (r *StartRequest) Validate() error {
 	}
 	if r.ExecMode != "" && !validExecModes[r.ExecMode] {
 		return fmt.Errorf("invalid exec_mode %q", r.ExecMode)
+	}
+	if r.DeliverMode != "" && !validDeliverModes[r.DeliverMode] {
+		return fmt.Errorf("invalid deliver_mode %q", r.DeliverMode)
 	}
 	return nil
 }

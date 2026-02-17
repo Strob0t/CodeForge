@@ -13,6 +13,7 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -88,14 +89,14 @@ func (m *mockStore) GetAgent(_ context.Context, id string) (*agent.Agent, error)
 	return nil, errNotFound
 }
 
-func (m *mockStore) CreateAgent(_ context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error) {
+func (m *mockStore) CreateAgent(_ context.Context, projectID, name, backend string, cfg map[string]string) (*agent.Agent, error) {
 	a := agent.Agent{
 		ID:        "agent-id",
 		ProjectID: projectID,
 		Name:      name,
 		Backend:   backend,
 		Status:    agent.StatusIdle,
-		Config:    config,
+		Config:    cfg,
 	}
 	m.agents = append(m.agents, a)
 	return &a, nil
@@ -253,7 +254,7 @@ func newTestRouter() chi.Router {
 		Agents:   service.NewAgentService(store, queue, bc),
 		LiteLLM:  litellm.NewClient("http://localhost:4000", ""),
 		Policies: policySvc,
-		Runtime:  service.NewRuntimeService(store, queue, bc, es, policySvc),
+		Runtime:  service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{}),
 	}
 
 	r := chi.NewRouter()

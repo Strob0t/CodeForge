@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -60,8 +62,8 @@ func (m *runtimeMockStore) GetAgent(_ context.Context, id string) (*agent.Agent,
 	}
 	return nil, errMockNotFound
 }
-func (m *runtimeMockStore) CreateAgent(_ context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error) {
-	a := agent.Agent{ID: "agent-id", ProjectID: projectID, Name: name, Backend: backend, Status: agent.StatusIdle, Config: config}
+func (m *runtimeMockStore) CreateAgent(_ context.Context, projectID, name, backend string, cfg map[string]string) (*agent.Agent, error) {
+	a := agent.Agent{ID: "agent-id", ProjectID: projectID, Name: name, Backend: backend, Status: agent.StatusIdle, Config: cfg}
 	m.agents = append(m.agents, a)
 	return &a, nil
 }
@@ -236,6 +238,9 @@ func (m *runtimeMockEventStore) LoadByAgent(_ context.Context, _ string) ([]even
 
 func newRuntimeTestEnv() (*service.RuntimeService, *runtimeMockStore, *runtimeMockQueue, *runtimeMockBroadcaster) {
 	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "test-project", WorkspacePath: "/tmp/test-workspace"},
+		},
 		agents: []agent.Agent{
 			{ID: "agent-1", ProjectID: "proj-1", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
 		},
@@ -247,7 +252,14 @@ func newRuntimeTestEnv() (*service.RuntimeService, *runtimeMockStore, *runtimeMo
 	bc := &runtimeMockBroadcaster{}
 	es := &runtimeMockEventStore{}
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
-	svc := service.NewRuntimeService(store, queue, bc, es, policySvc)
+	runtimeCfg := config.Runtime{
+		StallThreshold:       5,
+		QualityGateTimeout:   60 * time.Second,
+		DefaultTestCommand:   "go test ./...",
+		DefaultLintCommand:   "golangci-lint run ./...",
+		DeliveryCommitPrefix: "codeforge:",
+	}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
 	return svc, store, queue, bc
 }
 
@@ -617,13 +629,14 @@ func TestHandleRunComplete_Success(t *testing.T) {
 	svc, store, _, _ := newRuntimeTestEnv()
 	ctx := context.Background()
 
+	// Use plan-readonly (no quality gates) so run completes directly
 	store.mu.Lock()
 	store.runs = append(store.runs, run.Run{
 		ID:            "run-c1",
 		TaskID:        "task-1",
 		AgentID:       "agent-1",
 		ProjectID:     "proj-1",
-		PolicyProfile: "headless-safe-sandbox",
+		PolicyProfile: "plan-readonly",
 		Status:        run.StatusRunning,
 		StartedAt:     time.Now(),
 	})
@@ -807,6 +820,312 @@ func TestListRunsByTask(t *testing.T) {
 	}
 }
 
+// --- Phase 4C: Stall Detection Tests ---
+
+func TestHandleToolCallResult_StallDetected(t *testing.T) {
+	svc, store, _, bc := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	// headless-safe-sandbox has StallDetection: true, StallThreshold: 5
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-stall",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "headless-safe-sandbox",
+		Status:        run.StatusRunning,
+		StepCount:     10,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	// Start a run to create the stall tracker
+	// The tracker is created in StartRun, but since we manually added the run,
+	// we need to trigger the tracker manually via StartRun or directly test
+	// We'll create a proper run via StartRun first
+	req := run.StartRequest{
+		TaskID:    "task-1",
+		AgentID:   "agent-1",
+		ProjectID: "proj-1",
+	}
+	r, err := svc.StartRun(ctx, &req)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+
+	// Feed 5 non-progress results (Read tool) to trigger stall
+	for i := range 5 {
+		result := messagequeue.ToolCallResultPayload{
+			RunID:   r.ID,
+			CallID:  fmt.Sprintf("call-%d", i),
+			Tool:    "Read",
+			Success: true,
+			Output:  fmt.Sprintf("output-%d", i),
+		}
+		err := svc.HandleToolCallResult(ctx, &result)
+		if err != nil {
+			t.Fatalf("HandleToolCallResult[%d] failed: %v", i, err)
+		}
+	}
+
+	// Run should be terminated as failed
+	stalled, _ := store.GetRun(ctx, r.ID)
+	if stalled.Status != run.StatusFailed {
+		t.Fatalf("expected run status failed after stall, got %s", stalled.Status)
+	}
+
+	// Agent should be set back to idle
+	ag, _ := store.GetAgent(ctx, "agent-1")
+	if ag.Status != agent.StatusIdle {
+		t.Fatalf("expected agent idle after stall, got %s", ag.Status)
+	}
+
+	// WS event should include stall status
+	bc.mu.Lock()
+	found := false
+	for _, ev := range bc.events {
+		if ev.EventType == "run.status" {
+			if statusEv, ok := ev.Data.(ws.RunStatusEvent); ok && statusEv.RunID == r.ID && statusEv.Status == "failed" {
+				found = true
+			}
+		}
+	}
+	bc.mu.Unlock()
+	if !found {
+		t.Fatal("expected run.status WS event with failed status after stall")
+	}
+}
+
+func TestHandleToolCallResult_NoStallWithProgress(t *testing.T) {
+	svc, store, _, _ := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	req := run.StartRequest{
+		TaskID:    "task-1",
+		AgentID:   "agent-1",
+		ProjectID: "proj-1",
+	}
+	r, err := svc.StartRun(ctx, &req)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+
+	// Alternate between non-progress and progress steps
+	for i := range 10 {
+		tool := "Read"
+		if i%2 == 0 {
+			tool = "Edit" // progress tool
+		}
+		result := messagequeue.ToolCallResultPayload{
+			RunID:   r.ID,
+			CallID:  fmt.Sprintf("call-%d", i),
+			Tool:    tool,
+			Success: true,
+			Output:  fmt.Sprintf("unique-output-%d", i),
+		}
+		_ = svc.HandleToolCallResult(ctx, &result)
+	}
+
+	// Run should still be running (no stall because progress interleaved)
+	rr, _ := store.GetRun(ctx, r.ID)
+	if rr.Status == run.StatusFailed {
+		t.Fatal("run should not have stalled with interleaved progress")
+	}
+}
+
+// --- Phase 4C: Quality Gate Tests ---
+
+func TestHandleRunComplete_QualityGateTriggered(t *testing.T) {
+	svc, store, queue, bc := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	// Create a run with headless-safe-sandbox (requires tests + lint)
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-qg",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "headless-safe-sandbox",
+		Status:        run.StatusRunning,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	payload := messagequeue.RunCompletePayload{
+		RunID:     "run-qg",
+		TaskID:    "task-1",
+		ProjectID: "proj-1",
+		Status:    "completed",
+		StepCount: 5,
+		CostUSD:   0.02,
+	}
+	err := svc.HandleRunComplete(ctx, &payload)
+	if err != nil {
+		t.Fatalf("HandleRunComplete failed: %v", err)
+	}
+
+	// Run should be in quality_gate status (not finalized)
+	r, _ := store.GetRun(ctx, "run-qg")
+	if r.Status != run.StatusQualityGate {
+		t.Fatalf("expected run status quality_gate, got %s", r.Status)
+	}
+
+	// Quality gate request should be published to NATS
+	msg, ok := queue.lastMessage(messagequeue.SubjectQualityGateRequest)
+	if !ok {
+		t.Fatal("expected quality gate request to be published")
+	}
+	var gateReq messagequeue.QualityGateRequestPayload
+	_ = json.Unmarshal(msg.Data, &gateReq)
+	if gateReq.RunID != "run-qg" {
+		t.Fatalf("expected run_id 'run-qg' in gate request, got %q", gateReq.RunID)
+	}
+	if !gateReq.RunTests {
+		t.Fatal("expected run_tests=true in gate request")
+	}
+	if !gateReq.RunLint {
+		t.Fatal("expected run_lint=true in gate request")
+	}
+
+	// WS event for quality gate started
+	bc.mu.Lock()
+	foundGate := false
+	for _, ev := range bc.events {
+		if ev.EventType == "run.qualitygate" {
+			foundGate = true
+		}
+	}
+	bc.mu.Unlock()
+	if !foundGate {
+		t.Fatal("expected run.qualitygate WS event")
+	}
+}
+
+func TestHandleQualityGateResult_Pass(t *testing.T) {
+	svc, store, _, _ := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-qgp",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "headless-safe-sandbox",
+		Status:        run.StatusQualityGate,
+		StepCount:     5,
+		CostUSD:       0.02,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	passed := true
+	result := messagequeue.QualityGateResultPayload{
+		RunID:       "run-qgp",
+		TestsPassed: &passed,
+		LintPassed:  &passed,
+	}
+	err := svc.HandleQualityGateResult(ctx, &result)
+	if err != nil {
+		t.Fatalf("HandleQualityGateResult failed: %v", err)
+	}
+
+	// Run should be completed
+	r, _ := store.GetRun(ctx, "run-qgp")
+	if r.Status != run.StatusCompleted {
+		t.Fatalf("expected run status completed after gate pass, got %s", r.Status)
+	}
+
+	// Agent should be idle
+	ag, _ := store.GetAgent(ctx, "agent-1")
+	if ag.Status != agent.StatusIdle {
+		t.Fatalf("expected agent idle after gate pass, got %s", ag.Status)
+	}
+}
+
+func TestHandleQualityGateResult_FailWithRollback(t *testing.T) {
+	svc, store, _, _ := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	// headless-safe-sandbox has RollbackOnGateFail: true
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-qgf",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "headless-safe-sandbox",
+		Status:        run.StatusQualityGate,
+		StepCount:     5,
+		CostUSD:       0.02,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	failed := false
+	passed := true
+	result := messagequeue.QualityGateResultPayload{
+		RunID:       "run-qgf",
+		TestsPassed: &failed,
+		LintPassed:  &passed,
+	}
+	err := svc.HandleQualityGateResult(ctx, &result)
+	if err != nil {
+		t.Fatalf("HandleQualityGateResult failed: %v", err)
+	}
+
+	// Run should be failed (rollback)
+	r, _ := store.GetRun(ctx, "run-qgf")
+	if r.Status != run.StatusFailed {
+		t.Fatalf("expected run status failed after gate fail with rollback, got %s", r.Status)
+	}
+}
+
+func TestHandleRunComplete_NoGateWhenPolicyOff(t *testing.T) {
+	svc, store, queue, _ := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	// plan-readonly has no quality gates
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-nogate",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "plan-readonly",
+		Status:        run.StatusRunning,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	payload := messagequeue.RunCompletePayload{
+		RunID:     "run-nogate",
+		TaskID:    "task-1",
+		ProjectID: "proj-1",
+		Status:    "completed",
+		StepCount: 3,
+		CostUSD:   0.01,
+	}
+	err := svc.HandleRunComplete(ctx, &payload)
+	if err != nil {
+		t.Fatalf("HandleRunComplete failed: %v", err)
+	}
+
+	// Run should be directly completed (no quality_gate intermediate)
+	r, _ := store.GetRun(ctx, "run-nogate")
+	if r.Status != run.StatusCompleted {
+		t.Fatalf("expected run status completed (no gate), got %s", r.Status)
+	}
+
+	// No quality gate request should be published
+	_, ok := queue.lastMessage(messagequeue.SubjectQualityGateRequest)
+	if ok {
+		t.Fatal("expected no quality gate request for plan-readonly profile")
+	}
+}
+
 func TestStartSubscribers(t *testing.T) {
 	svc, _, _, _ := newRuntimeTestEnv()
 	ctx := context.Background()
@@ -815,8 +1134,8 @@ func TestStartSubscribers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSubscribers failed: %v", err)
 	}
-	if len(cancels) != 4 {
-		t.Fatalf("expected 4 cancel functions (4 subscriptions), got %d", len(cancels))
+	if len(cancels) != 5 {
+		t.Fatalf("expected 5 cancel functions (5 subscriptions), got %d", len(cancels))
 	}
 
 	// Call all cancel functions to ensure no panics

@@ -30,14 +30,13 @@ formatters:
 
   settings:
     goimports:
-      local-prefixes: github.com/Strob0t/CodeForge
+      local-prefixes:
+        - github.com/Strob0t/CodeForge
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
 
 output:
   formats:
-    colored-line-number: {}
-  sort-results: true
+    text: {}

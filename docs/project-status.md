@@ -210,3 +210,19 @@
 - **API:** 4 new REST endpoints under /api/v1/runs + /api/v1/tasks/{id}/runs
 - **Protocol:** Conversational NATS protocol for per-tool-call policy enforcement
 - **Tests:** 44 new test functions (Go: 42, Python: 9), all passing
+
+### 4C. Headless Autonomy — Stall Detection, Quality Gates, Delivery (COMPLETED)
+
+- [x] (2026-02-17) CI Fix: golangci-lint v2 config migration (.golangci.yml)
+- [x] (2026-02-17) Config extension: `config.Runtime` struct (6 fields) + ENV overrides + YAML example
+- [x] (2026-02-17) Stall Detection: StallTracker (FNV-64a hash ring buffer), per-run tracking in RuntimeService
+- [x] (2026-02-17) Quality Gate Enforcement: NATS request/result protocol, Python QualityGateExecutor
+- [x] (2026-02-17) Deliver Modes: 5 strategies (none, patch, commit-local, branch, pr) via DeliverService
+- [x] (2026-02-17) Frontend: RunPanel component, Run types/API, WS event integration
+- [x] (2026-02-17) Events: 7 new event types + 2 WS event types (QG + delivery)
+
+### Phase 4C Key Deliverables
+- **New files:** 5 Go (stall.go, stall_test.go, deliver.go, deliver_test.go, migration 006), 2 Python (qualitygate.py, test_qualitygate.py), 1 Frontend (RunPanel.tsx)
+- **Modified files:** 12 Go (config.go, loader.go, policy.go, presets.go, run.go, validate.go, event.go, events.go, queue.go, schemas.go, runtime.go, runtime_test.go, store.go, handlers_test.go, main.go), 3 Python (runtime.py, models.py, consumer.py), 3 Frontend (types.ts, client.ts, ProjectDetailPage.tsx), 2 Config (.golangci.yml, codeforge.yaml.example)
+- **Tests:** 22+ new test functions (Go: stall 10, deliver 5, runtime 6+; Python: QG 7), all passing
+- **Protocol:** Quality gate NATS subjects (request/result), stall detection, delivery pipeline

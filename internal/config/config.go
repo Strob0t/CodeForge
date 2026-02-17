@@ -14,6 +14,17 @@ type Config struct {
 	Breaker  Breaker  `yaml:"breaker"`
 	Rate     Rate     `yaml:"rate"`
 	Policy   Policy   `yaml:"policy"`
+	Runtime  Runtime  `yaml:"runtime"`
+}
+
+// Runtime holds agent execution engine configuration.
+type Runtime struct {
+	StallThreshold       int           `yaml:"stall_threshold"`
+	QualityGateTimeout   time.Duration `yaml:"quality_gate_timeout"`
+	DefaultDeliverMode   string        `yaml:"default_deliver_mode"`
+	DefaultTestCommand   string        `yaml:"default_test_command"`
+	DefaultLintCommand   string        `yaml:"default_lint_command"`
+	DeliveryCommitPrefix string        `yaml:"delivery_commit_prefix"`
 }
 
 // Policy holds policy engine configuration.
@@ -102,6 +113,14 @@ func Defaults() Config {
 		},
 		Policy: Policy{
 			DefaultProfile: "headless-safe-sandbox",
+		},
+		Runtime: Runtime{
+			StallThreshold:       5,
+			QualityGateTimeout:   60 * time.Second,
+			DefaultDeliverMode:   "",
+			DefaultTestCommand:   "go test ./...",
+			DefaultLintCommand:   "golangci-lint run ./...",
+			DeliveryCommitPrefix: "codeforge:",
 		},
 	}
 }

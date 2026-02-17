@@ -13,7 +13,8 @@ from codeforge.config import WorkerSettings
 from codeforge.executor import AgentExecutor
 from codeforge.llm import LiteLLMClient
 from codeforge.logger import setup_logging
-from codeforge.models import RunStartMessage, TaskMessage, TaskResult
+from codeforge.models import QualityGateRequest, QualityGateResult, RunStartMessage, TaskMessage, TaskResult
+from codeforge.qualitygate import QualityGateExecutor
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
@@ -25,6 +26,8 @@ SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
 SUBJECT_RUN_START = "runs.start"
+SUBJECT_QG_REQUEST = "runs.qualitygate.request"
+SUBJECT_QG_RESULT = "runs.qualitygate.result"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -47,6 +50,7 @@ class TaskConsumer:
         self._running = False
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
         self._executor = AgentExecutor(llm=self._llm)
+        self._gate_executor = QualityGateExecutor()
 
     async def start(self) -> None:
         """Connect to NATS and subscribe to task and run subjects."""
@@ -72,10 +76,19 @@ class TaskConsumer:
         )
         logger.info("subscribed", subject=SUBJECT_RUN_START)
 
-        # Process both subscriptions concurrently
+        # Subscribe to quality gate requests
+        qg_sub = await self._js.subscribe(
+            SUBJECT_QG_REQUEST,
+            stream=STREAM_NAME,
+            manual_ack=True,
+        )
+        logger.info("subscribed", subject=SUBJECT_QG_REQUEST)
+
+        # Process all subscriptions concurrently
         await asyncio.gather(
             self._process_task_messages(task_sub),
             self._process_run_messages(run_sub),
+            self._process_quality_gate_messages(qg_sub),
         )
 
     async def _process_task_messages(self, sub: object) -> None:
@@ -178,6 +191,42 @@ class TaskConsumer:
 
         except Exception:
             logger.exception("failed to process run start message")
+            await msg.nak()
+
+    async def _process_quality_gate_messages(self, sub: object) -> None:
+        """Message processing loop for quality gate requests."""
+        while self._running:
+            try:
+                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
+            except TimeoutError:
+                continue
+            except Exception:
+                if self._running:
+                    logger.exception("error receiving quality gate message")
+                break
+
+            await self._handle_quality_gate(msg)
+
+    async def _handle_quality_gate(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a quality gate request: run tests/lint and publish result."""
+        try:
+            request = QualityGateRequest.model_validate_json(msg.data)
+            log = logger.bind(run_id=request.run_id)
+            log.info("received quality gate request")
+
+            result: QualityGateResult = await self._gate_executor.execute(request)
+
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_QG_RESULT,
+                    result.model_dump_json().encode(),
+                )
+
+            await msg.ack()
+            log.info("quality gate completed", tests_passed=result.tests_passed, lint_passed=result.lint_passed)
+
+        except Exception:
+            logger.exception("failed to process quality gate request")
             await msg.nak()
 
     @staticmethod

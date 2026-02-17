@@ -132,6 +132,7 @@ async def test_report_tool_result(runtime: RuntimeClient, mock_js: AsyncMock) ->
     """report_tool_result should publish result and update counters."""
     await runtime.report_tool_result(
         call_id="call-1",
+        tool="Read",
         success=True,
         output="file contents",
         cost_usd=0.005,
@@ -151,9 +152,9 @@ async def test_report_tool_result(runtime: RuntimeClient, mock_js: AsyncMock) ->
 
 async def test_report_tool_result_accumulates(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
     """Multiple report_tool_result calls should accumulate steps and cost."""
-    await runtime.report_tool_result(call_id="c1", success=True, cost_usd=0.01)
-    await runtime.report_tool_result(call_id="c2", success=True, cost_usd=0.02)
-    await runtime.report_tool_result(call_id="c3", success=False, error="oops", cost_usd=0.005)
+    await runtime.report_tool_result(call_id="c1", tool="Edit", success=True, cost_usd=0.01)
+    await runtime.report_tool_result(call_id="c2", tool="Write", success=True, cost_usd=0.02)
+    await runtime.report_tool_result(call_id="c3", tool="Bash", success=False, error="oops", cost_usd=0.005)
 
     assert runtime.step_count == 3
     assert runtime.total_cost == pytest.approx(0.035)

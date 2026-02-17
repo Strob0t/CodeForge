@@ -44,4 +44,8 @@ const (
 	SubjectRunComplete         = "runs.complete"          // Python → Go: run finished
 	SubjectRunCancel           = "runs.cancel"            // Go → Python: cancel a run
 	SubjectRunOutput           = "runs.output"            // Python → Go: streaming output
+
+	// Quality gate subjects (Phase 4C)
+	SubjectQualityGateRequest = "runs.qualitygate.request" // Go → Python: run tests/lint
+	SubjectQualityGateResult  = "runs.qualitygate.result"  // Python → Go: gate outcome
 )

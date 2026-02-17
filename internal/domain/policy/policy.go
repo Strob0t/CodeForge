@@ -52,6 +52,7 @@ type TerminationCondition struct {
 	TimeoutSeconds int     `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
 	MaxCost        float64 `json:"max_cost,omitempty" yaml:"max_cost,omitempty"`
 	StallDetection bool    `json:"stall_detection,omitempty" yaml:"stall_detection,omitempty"`
+	StallThreshold int     `json:"stall_threshold,omitempty" yaml:"stall_threshold,omitempty"`
 }
 
 // PolicyProfile is the top-level policy configuration for an agent run.

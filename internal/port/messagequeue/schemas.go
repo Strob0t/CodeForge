@@ -52,6 +52,7 @@ type RunStartPayload struct {
 	Prompt        string             `json:"prompt"`
 	PolicyProfile string             `json:"policy_profile"`
 	ExecMode      string             `json:"exec_mode"`
+	DeliverMode   string             `json:"deliver_mode,omitempty"`
 	Config        map[string]string  `json:"config"`
 	Termination   TerminationPayload `json:"termination"`
 }
@@ -84,6 +85,7 @@ type ToolCallResponsePayload struct {
 type ToolCallResultPayload struct {
 	RunID   string  `json:"run_id"`
 	CallID  string  `json:"call_id"`
+	Tool    string  `json:"tool"`
 	Success bool    `json:"success"`
 	Output  string  `json:"output"`
 	Error   string  `json:"error"`
@@ -108,4 +110,27 @@ type RunOutputPayload struct {
 	TaskID string `json:"task_id"`
 	Line   string `json:"line"`
 	Stream string `json:"stream"`
+}
+
+// --- Quality Gate payloads (Phase 4C) ---
+
+// QualityGateRequestPayload is published to request test/lint execution.
+type QualityGateRequestPayload struct {
+	RunID         string `json:"run_id"`
+	ProjectID     string `json:"project_id"`
+	WorkspacePath string `json:"workspace_path"`
+	RunTests      bool   `json:"run_tests"`
+	RunLint       bool   `json:"run_lint"`
+	TestCommand   string `json:"test_command,omitempty"`
+	LintCommand   string `json:"lint_command,omitempty"`
+}
+
+// QualityGateResultPayload is published with the outcome of a quality gate execution.
+type QualityGateResultPayload struct {
+	RunID       string `json:"run_id"`
+	TestsPassed *bool  `json:"tests_passed,omitempty"`
+	LintPassed  *bool  `json:"lint_passed,omitempty"`
+	TestOutput  string `json:"test_output,omitempty"`
+	LintOutput  string `json:"lint_output,omitempty"`
+	Error       string `json:"error,omitempty"`
 }

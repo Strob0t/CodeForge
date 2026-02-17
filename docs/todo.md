@@ -251,24 +251,37 @@
   - Test suite that validates each Runtime implementation
   - Feature parity checks across Sandbox/Mount/Hybrid
 
-### 4C. Headless Autonomy (Server-First Execution)
+### 4C. Headless Autonomy (Server-First Execution) (COMPLETED)
 
-- [ ] Auto-Approval rules per tool category
-  - Read/Grep always allowed
-  - Bash/Edit only in whitelisted paths or in sandbox
-  - Network access configurable (deny by default in headless)
-- [ ] Termination Conditions (replace HITL)
-  - MaxSteps, wall-time timeout, budget/token limits
-  - Stall Detection: no progress for N steps → re-plan or abort
-  - "Definition of Done": tests pass, lint pass, diff under limit
-- [ ] Deliver modes for headless output
-  - `patch`: Generate diff/patch file
-  - `commit-local`: Git commit locally (no push)
-  - `pr`: Create pull request via API
-  - `branch`: Push to feature branch only
-- [ ] API endpoint for external triggers
-  - POST `/api/v1/runs` for GitHub Actions, GitLab CI, Jenkins, cron jobs
-  - Accept policy profile override per run
+- [x] (2026-02-17) CI Fix: golangci-lint v2 config migration (local-prefixes array, removed v1 options)
+- [x] (2026-02-17) Config extension: `config.Runtime` struct with 6 fields (StallThreshold, QualityGateTimeout, DefaultDeliverMode, DefaultTestCommand, DefaultLintCommand, DeliveryCommitPrefix) + ENV overrides + YAML example
+- [x] (2026-02-17) Stall Detection: `internal/domain/run/stall.go` (StallTracker with FNV-64a hash ring buffer), 10 domain tests
+  - Progress tools (Edit, Write, Bash with success) reset counter; non-progress tools increment
+  - Repetition detection via output hash ring buffer (size 3)
+  - Configurable threshold from policy `StallThreshold` or `config.Runtime.StallThreshold`
+  - Integrated into `HandleToolCallResult` — terminates run on stall
+- [x] (2026-02-17) Quality Gate Enforcement: NATS request/result protocol (Go → Python → Go)
+  - New status `StatusQualityGate` for transient gate-check state
+  - `HandleRunComplete` triggers gate request when policy has `RequireTestsPass`/`RequireLintPass`
+  - `HandleQualityGateResult` processes outcomes: pass → deliver → finalize; fail + rollback → fail
+  - Python `QualityGateExecutor` runs test/lint commands via `asyncio.create_subprocess_shell` with timeout
+  - Consumer extended with `runs.qualitygate.request` subscription
+  - 7 Python tests for quality gate executor
+- [x] (2026-02-17) Deliver Modes: 5 strategies (none, patch, commit-local, branch, pr)
+  - Domain types: `DeliverMode` in `run.go`, migration `006_add_deliver_mode.sql`
+  - `DeliverService` in `internal/service/deliver.go` using git CLI + `gh` for PRs
+  - Graceful fallback: PR → branch-only if `gh` unavailable; push failure non-fatal
+  - 5 delivery tests (none, patch, commit-local, branch, no-workspace)
+- [x] (2026-02-17) Frontend: RunPanel component, Run types/API client, WS event integration
+  - `RunPanel.tsx`: start form (task/agent/policy/deliver), active run display, run history
+  - `ProjectDetailPage.tsx`: agents resource, RunPanel integration, WS cases for run/QG/delivery events
+  - API: `runs.start/get/cancel/listByTask`, `policies.list`
+- [x] (2026-02-17) Events: 7 new event types (QG started/passed/failed, delivery started/completed/failed, stall detected)
+- [x] (2026-02-17) WS: `run.qualitygate` and `run.delivery` events with typed structs
+- [ ] Implement Checkpoint system
+  - Before every `Edit/Write/Replace`: automatic checkpoint
+  - On failed Quality Gates (tests/lint): automatic rewind or re-plan
+  - Shadow Git approach for Mount mode, Blob snapshots for Sandbox
 
 ---
 

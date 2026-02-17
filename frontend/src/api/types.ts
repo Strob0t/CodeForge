@@ -129,6 +129,95 @@ export interface AgentEvent {
   created_at: string;
 }
 
+// --- Run types (Phase 4C) ---
+
+/** Run status enum matching Go domain/run.Status */
+export type RunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "timeout"
+  | "quality_gate";
+
+/** Deliver mode enum matching Go domain/run.DeliverMode */
+export type DeliverMode = "" | "patch" | "commit-local" | "branch" | "pr";
+
+/** Matches Go domain/run.Run */
+export interface Run {
+  id: string;
+  task_id: string;
+  agent_id: string;
+  project_id: string;
+  policy_profile: string;
+  exec_mode: string;
+  deliver_mode: DeliverMode;
+  status: RunStatus;
+  step_count: number;
+  cost_usd: number;
+  error?: string;
+  version: number;
+  started_at: string;
+  completed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/run.StartRequest */
+export interface StartRunRequest {
+  task_id: string;
+  agent_id: string;
+  project_id: string;
+  policy_profile?: string;
+  exec_mode?: string;
+  deliver_mode?: DeliverMode;
+}
+
+/** WS event: tool call status */
+export interface ToolCallEvent {
+  run_id: string;
+  call_id: string;
+  tool: string;
+  decision?: string;
+  phase: string;
+}
+
+/** WS event: run status change */
+export interface RunStatusEvent {
+  run_id: string;
+  task_id: string;
+  project_id: string;
+  status: RunStatus;
+  step_count: number;
+  cost_usd?: number;
+}
+
+/** WS event: quality gate status */
+export interface QualityGateEvent {
+  run_id: string;
+  task_id: string;
+  project_id: string;
+  status: "started" | "passed" | "failed";
+  tests_passed?: boolean;
+  lint_passed?: boolean;
+  error?: string;
+}
+
+/** WS event: delivery status */
+export interface DeliveryEvent {
+  run_id: string;
+  task_id: string;
+  project_id: string;
+  status: "started" | "completed" | "failed";
+  mode: string;
+  patch_path?: string;
+  commit_hash?: string;
+  branch_name?: string;
+  pr_url?: string;
+  error?: string;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;

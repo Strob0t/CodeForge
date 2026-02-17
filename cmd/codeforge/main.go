@@ -113,8 +113,10 @@ func run() error {
 		"profiles", len(policySvc.ListProfiles()),
 	)
 
-	// --- Runtime Service (Phase 4B) ---
-	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc)
+	// --- Runtime Service (Phase 4B + 4C) ---
+	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc, &cfg.Runtime)
+	deliverSvc := service.NewDeliverService(store, &cfg.Runtime)
+	runtimeSvc.SetDeliverService(deliverSvc)
 	runtimeCancels, err := runtimeSvc.StartSubscribers(ctx)
 	if err != nil {
 		return fmt.Errorf("runtime subscribers: %w", err)

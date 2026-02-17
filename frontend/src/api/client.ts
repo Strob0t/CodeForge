@@ -13,6 +13,8 @@ import type {
   LLMModel,
   Project,
   ProviderList,
+  Run,
+  StartRunRequest,
   Task,
 } from "./types";
 
@@ -154,6 +156,27 @@ export const api = {
       }),
 
     health: () => request<{ status: string }>("/llm/health"),
+  },
+
+  runs: {
+    start: (data: StartRunRequest) =>
+      request<Run>("/runs", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    get: (id: string) => request<Run>(`/runs/${encodeURIComponent(id)}`),
+
+    cancel: (id: string) =>
+      request<{ status: string }>(`/runs/${encodeURIComponent(id)}/cancel`, {
+        method: "POST",
+      }),
+
+    listByTask: (taskId: string) => request<Run[]>(`/tasks/${encodeURIComponent(taskId)}/runs`),
+  },
+
+  policies: {
+    list: () => request<{ profiles: string[] }>("/policies"),
   },
 
   providers: {

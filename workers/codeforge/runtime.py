@@ -156,6 +156,7 @@ class RuntimeClient:
     async def report_tool_result(
         self,
         call_id: str,
+        tool: str,
         success: bool,
         output: str = "",
         error: str = "",
@@ -168,6 +169,7 @@ class RuntimeClient:
         result = {
             "run_id": self.run_id,
             "call_id": call_id,
+            "tool": tool,
             "success": success,
             "output": output,
             "error": error,

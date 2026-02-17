@@ -7,12 +7,13 @@ import "time"
 type Status string
 
 const (
-	StatusPending   Status = "pending"
-	StatusRunning   Status = "running"
-	StatusCompleted Status = "completed"
-	StatusFailed    Status = "failed"
-	StatusCancelled Status = "cancelled"
-	StatusTimeout   Status = "timeout"
+	StatusPending     Status = "pending"
+	StatusRunning     Status = "running"
+	StatusCompleted   Status = "completed"
+	StatusFailed      Status = "failed"
+	StatusCancelled   Status = "cancelled"
+	StatusTimeout     Status = "timeout"
+	StatusQualityGate Status = "quality_gate" // Quality gate check in progress
 )
 
 // ExecMode defines how the agent accesses the project filesystem.
@@ -23,31 +24,44 @@ const (
 	ExecModeSandbox ExecMode = "sandbox" // Isolated container
 )
 
+// DeliverMode defines how the output of a successful run is delivered.
+type DeliverMode string
+
+const (
+	DeliverModeNone        DeliverMode = ""             // No delivery action
+	DeliverModePatch       DeliverMode = "patch"        // Generate diff/patch file
+	DeliverModeCommitLocal DeliverMode = "commit-local" // Git commit locally (no push)
+	DeliverModeBranch      DeliverMode = "branch"       // Push to feature branch
+	DeliverModePR          DeliverMode = "pr"           // Create pull request
+)
+
 // Run represents a single execution attempt of a task by an agent under a specific policy.
 // One task can have multiple runs (retries, different agents, different policies).
 type Run struct {
-	ID            string     `json:"id"`
-	TaskID        string     `json:"task_id"`
-	AgentID       string     `json:"agent_id"`
-	ProjectID     string     `json:"project_id"`
-	PolicyProfile string     `json:"policy_profile"`
-	ExecMode      ExecMode   `json:"exec_mode"`
-	Status        Status     `json:"status"`
-	StepCount     int        `json:"step_count"`
-	CostUSD       float64    `json:"cost_usd"`
-	Error         string     `json:"error,omitempty"`
-	Version       int        `json:"version"`
-	StartedAt     time.Time  `json:"started_at"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID            string      `json:"id"`
+	TaskID        string      `json:"task_id"`
+	AgentID       string      `json:"agent_id"`
+	ProjectID     string      `json:"project_id"`
+	PolicyProfile string      `json:"policy_profile"`
+	ExecMode      ExecMode    `json:"exec_mode"`
+	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`
+	Status        Status      `json:"status"`
+	StepCount     int         `json:"step_count"`
+	CostUSD       float64     `json:"cost_usd"`
+	Error         string      `json:"error,omitempty"`
+	Version       int         `json:"version"`
+	StartedAt     time.Time   `json:"started_at"`
+	CompletedAt   *time.Time  `json:"completed_at,omitempty"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 // StartRequest holds the fields needed to start a new run.
 type StartRequest struct {
-	TaskID        string   `json:"task_id"`
-	AgentID       string   `json:"agent_id"`
-	ProjectID     string   `json:"project_id"`
-	PolicyProfile string   `json:"policy_profile,omitempty"`
-	ExecMode      ExecMode `json:"exec_mode,omitempty"`
+	TaskID        string      `json:"task_id"`
+	AgentID       string      `json:"agent_id"`
+	ProjectID     string      `json:"project_id"`
+	PolicyProfile string      `json:"policy_profile,omitempty"`
+	ExecMode      ExecMode    `json:"exec_mode,omitempty"`
+	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`
 }

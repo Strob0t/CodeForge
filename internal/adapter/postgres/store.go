@@ -273,17 +273,17 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 
 func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO runs (task_id, agent_id, project_id, policy_profile, exec_mode, status)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO runs (task_id, agent_id, project_id, policy_profile, exec_mode, deliver_mode, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, started_at, created_at, updated_at, version`,
-		r.TaskID, r.AgentID, r.ProjectID, r.PolicyProfile, string(r.ExecMode), string(r.Status))
+		r.TaskID, r.AgentID, r.ProjectID, r.PolicyProfile, string(r.ExecMode), string(r.DeliverMode), string(r.Status))
 
 	return row.Scan(&r.ID, &r.StartedAt, &r.CreatedAt, &r.UpdatedAt, &r.Version)
 }
 
 func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, status,
+		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, deliver_mode, status,
 		        step_count, cost_usd, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE id = $1`, id)
 
@@ -327,7 +327,7 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, e
 
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, status,
+		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, deliver_mode, status,
 		        step_count, cost_usd, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE task_id = $1 ORDER BY created_at DESC`, taskID)
 	if err != nil {
@@ -386,7 +386,7 @@ func scanRun(row scannable) (run.Run, error) {
 	var r run.Run
 	err := row.Scan(
 		&r.ID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.PolicyProfile,
-		&r.ExecMode, &r.Status, &r.StepCount, &r.CostUSD, &r.Error,
+		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD, &r.Error,
 		&r.Version, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 	)
 	return r, err

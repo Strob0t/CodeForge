@@ -85,3 +85,29 @@ class RunCompleteMessage(BaseModel):
     error: str = ""
     cost_usd: float = 0.0
     step_count: int = 0
+
+
+# --- Quality Gate Models (Phase 4C) ---
+
+
+class QualityGateRequest(BaseModel):
+    """Request from Go control plane to execute quality gate checks."""
+
+    run_id: str
+    project_id: str
+    workspace_path: str
+    run_tests: bool = False
+    run_lint: bool = False
+    test_command: str = ""
+    lint_command: str = ""
+
+
+class QualityGateResult(BaseModel):
+    """Result of quality gate execution sent back to Go control plane."""
+
+    run_id: str
+    tests_passed: bool | None = None
+    lint_passed: bool | None = None
+    test_output: str = ""
+    lint_output: str = ""
+    error: str = ""

@@ -56,6 +56,7 @@ func PresetHeadlessSafeSandbox() PolicyProfile {
 			TimeoutSeconds: 600,
 			MaxCost:        5.0,
 			StallDetection: true,
+			StallThreshold: 5,
 		},
 	}
 }
@@ -92,6 +93,7 @@ func PresetHeadlessPermissiveSandbox() PolicyProfile {
 			TimeoutSeconds: 1800,
 			MaxCost:        20.0,
 			StallDetection: true,
+			StallThreshold: 5,
 		},
 	}
 }
