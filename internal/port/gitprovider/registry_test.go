@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
@@ -17,6 +18,15 @@ func (p *testProvider) Capabilities() gitprovider.Capabilities {
 }
 func (p *testProvider) CloneURL(_ context.Context, _ string) (string, error) { return "", nil }
 func (p *testProvider) ListRepos(_ context.Context) ([]string, error)        { return nil, nil }
+func (p *testProvider) Clone(_ context.Context, _, _ string) error           { return nil }
+func (p *testProvider) Status(_ context.Context, _ string) (*project.GitStatus, error) {
+	return nil, nil
+}
+func (p *testProvider) Pull(_ context.Context, _ string) error { return nil }
+func (p *testProvider) ListBranches(_ context.Context, _ string) ([]project.Branch, error) {
+	return nil, nil
+}
+func (p *testProvider) Checkout(_ context.Context, _, _ string) error { return nil }
 
 func TestRegisterAndNew(t *testing.T) {
 	gitprovider.Register("test-git", func(_ map[string]string) (gitprovider.Provider, error) {

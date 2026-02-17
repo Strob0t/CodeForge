@@ -72,21 +72,21 @@ CodeForge/
 │   │   ├── agentbackend/
 │   │   ├── specprovider/    # Spec Detection (OpenSpec, Spec Kit, Autospec)
 │   │   ├── pmprovider/      # PM Sync (Plane, OpenProject, GitHub/GitLab)
+│   │   ├── broadcast/       # Broadcaster interface (WS events)
 │   │   ├── database/
 │   │   └── messagequeue/
 │   ├── adapter/              # Concrete Implementations
-│   │   ├── github/
-│   │   ├── gitlab/
-│   │   ├── svn/
-│   │   ├── litellm/         # LiteLLM config management
-│   │   ├── openspec/        # OpenSpec Adapter
-│   │   ├── plane/           # Plane.so Adapter
-│   │   ├── goose/           # Goose agent backend (Priority 1)
-│   │   ├── opencode/        # OpenCode agent backend (Priority 1)
-│   │   ├── plandex/         # Plandex agent backend (Priority 1)
-│   │   ├── postgres/
-│   │   ├── nats/
-│   │   └── ...
+│   │   ├── aider/           # Aider agent backend (async NATS dispatch)
+│   │   ├── gitlocal/        # Local git CLI provider
+│   │   ├── http/            # REST API handlers + routes
+│   │   ├── litellm/         # LiteLLM admin API client
+│   │   ├── lsp/             # LSP client stub
+│   │   ├── mcp/             # MCP server/client stubs
+│   │   ├── nats/            # NATS JetStream adapter
+│   │   ├── otel/            # OpenTelemetry stub
+│   │   ├── postgres/        # PostgreSQL store + migrations
+│   │   ├── ws/              # WebSocket hub + event broadcasting
+│   │   └── ...              # (planned: github, gitlab, svn, goose, etc.)
 │   └── service/              # Use Cases
 ├── workers/                  # Python AI Workers
 │   └── codeforge/
@@ -96,9 +96,11 @@ CodeForge/
 │       └── models/           # Data Models
 ├── frontend/                 # SolidJS Web GUI
 │   └── src/
-│       ├── features/         # Feature Modules
-│       ├── shared/           # Shared Components, Primitives
-│       └── api/              # API Client, WebSocket
+│       ├── features/
+│       │   ├── dashboard/   # Project list, ProjectCard
+│       │   ├── project/     # ProjectDetailPage, AgentPanel, TaskPanel, LiveOutput
+│       │   └── llm/         # ModelsPage (LLM model management)
+│       └── api/              # API Client, Types, WebSocket
 ├── docs/
 │   ├── README.md             # Documentation index (start here)
 │   ├── todo.md               # TODO tracker for LLM agents
@@ -178,7 +180,7 @@ cd workers && poetry run python -m codeforge.consumer
 npm run dev --prefix frontend
 
 # Run all tests
-go test ./...                     # Go (11 tests)
+go test ./...                     # Go (27 tests)
 cd workers && poetry run pytest -v  # Python (16 tests)
 npm run build --prefix frontend   # Frontend (type check + build)
 ```

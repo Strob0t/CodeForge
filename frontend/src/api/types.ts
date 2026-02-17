@@ -6,6 +6,7 @@ export interface Project {
   repo_url: string;
   provider: string;
   config: Record<string, string>;
+  workspace_path?: string;
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +50,61 @@ export interface Task {
 export interface CreateTaskRequest {
   title: string;
   prompt: string;
+}
+
+/** Matches Go domain/project.GitStatus */
+export interface GitStatus {
+  branch: string;
+  commit_hash: string;
+  commit_message: string;
+  dirty: boolean;
+  modified?: string[];
+  untracked?: string[];
+  ahead: number;
+  behind: number;
+}
+
+/** Matches Go domain/project.Branch */
+export interface Branch {
+  name: string;
+  current: boolean;
+}
+
+/** Agent status enum matching Go domain/agent.Status */
+export type AgentStatus = "idle" | "running" | "error" | "stopped";
+
+/** Matches Go domain/agent.Agent */
+export interface Agent {
+  id: string;
+  project_id: string;
+  name: string;
+  backend: string;
+  status: AgentStatus;
+  config: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create agent request */
+export interface CreateAgentRequest {
+  name: string;
+  backend: string;
+  config?: Record<string, string>;
+}
+
+/** LLM Model from LiteLLM */
+export interface LLMModel {
+  model_name: string;
+  litellm_provider?: string;
+  model_id?: string;
+  model_info?: Record<string, unknown>;
+}
+
+/** Add model request for LiteLLM */
+export interface AddModelRequest {
+  model_name: string;
+  litellm_params: Record<string, string>;
+  model_info?: Record<string, unknown>;
 }
 
 /** Error response from API */

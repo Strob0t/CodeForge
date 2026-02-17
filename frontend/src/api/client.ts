@@ -1,9 +1,15 @@
 import type {
+  AddModelRequest,
+  Agent,
   ApiError,
   BackendList,
+  Branch,
+  CreateAgentRequest,
   CreateProjectRequest,
   CreateTaskRequest,
+  GitStatus,
   HealthStatus,
+  LLMModel,
   Project,
   ProviderList,
   Task,
@@ -63,6 +69,57 @@ export const api = {
       request<void>(`/projects/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
+
+    clone: (id: string) =>
+      request<Project>(`/projects/${encodeURIComponent(id)}/clone`, {
+        method: "POST",
+      }),
+
+    gitStatus: (id: string) => request<GitStatus>(`/projects/${encodeURIComponent(id)}/git/status`),
+
+    pull: (id: string) =>
+      request<{ status: string }>(`/projects/${encodeURIComponent(id)}/git/pull`, {
+        method: "POST",
+      }),
+
+    branches: (id: string) => request<Branch[]>(`/projects/${encodeURIComponent(id)}/git/branches`),
+
+    checkout: (id: string, branch: string) =>
+      request<{ status: string; branch: string }>(
+        `/projects/${encodeURIComponent(id)}/git/checkout`,
+        {
+          method: "POST",
+          body: JSON.stringify({ branch }),
+        },
+      ),
+  },
+
+  agents: {
+    list: (projectId: string) =>
+      request<Agent[]>(`/projects/${encodeURIComponent(projectId)}/agents`),
+
+    get: (id: string) => request<Agent>(`/agents/${encodeURIComponent(id)}`),
+
+    create: (projectId: string, data: CreateAgentRequest) =>
+      request<Agent>(`/projects/${encodeURIComponent(projectId)}/agents`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      request<void>(`/agents/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    dispatch: (agentId: string, taskId: string) =>
+      request<{ status: string }>(`/agents/${encodeURIComponent(agentId)}/dispatch`, {
+        method: "POST",
+        body: JSON.stringify({ task_id: taskId }),
+      }),
+
+    stop: (agentId: string, taskId: string) =>
+      request<{ status: string }>(`/agents/${encodeURIComponent(agentId)}/stop`, {
+        method: "POST",
+        body: JSON.stringify({ task_id: taskId }),
+      }),
   },
 
   tasks: {
@@ -76,6 +133,23 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+  },
+
+  llm: {
+    models: () => request<LLMModel[]>("/llm/models"),
+
+    addModel: (data: AddModelRequest) =>
+      request<void>("/llm/models", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    deleteModel: (modelId: string) =>
+      request<void>(`/llm/models/${encodeURIComponent(modelId)}`, {
+        method: "DELETE",
+      }),
+
+    health: () => request<{ status: string }>("/llm/health"),
   },
 
   providers: {

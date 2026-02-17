@@ -1,3 +1,4 @@
+import { A } from "@solidjs/router";
 import type { Project } from "~/api/types";
 
 interface ProjectCardProps {
@@ -19,9 +20,9 @@ export default function ProjectCard(props: ProjectCardProps) {
       <div class="flex items-start justify-between">
         <div>
           <h3 class="text-lg font-semibold text-gray-900">
-            <a href={`/projects/${props.project.id}`} class="hover:text-blue-600">
+            <A href={`/projects/${props.project.id}`} class="hover:text-blue-600">
               {props.project.name}
-            </a>
+            </A>
           </h3>
           {props.project.description && (
             <p class="mt-1 text-sm text-gray-500">{props.project.description}</p>

@@ -137,19 +137,28 @@
 - [x] (2026-02-14) WP6: Protocol stubs (MCP, LSP, OTEL), GitHub Actions CI
 
 ### Phase 1 Key Deliverables
-- **Go:** 1.24, chi v5, pgx v5, goose, coder/websocket, nats.go — 0 lint issues, 11 tests
+- **Go:** 1.24, chi v5, pgx v5, goose, coder/websocket, nats.go — 0 lint issues, 11 tests (expanded to 27 in Phase 2)
 - **Python:** nats-py, httpx, pydantic v2 — 16 tests, ruff clean
 - **Frontend:** SolidJS, @solidjs/router, @solid-primitives/websocket — build + lint + format clean
 - **CI:** 3-job GitHub Actions (Go, Python, Frontend)
 - **API:** 9 REST endpoints, WebSocket, health with service status
 
-## Phase 2: MVP Features
+## Phase 2: MVP Features (COMPLETED)
 
-- [ ] Project management (add/remove repos, display status)
-- [ ] Git integration (Clone, Pull, Branch, Diff)
-- [ ] LLM provider management (API keys, model selection)
-- [ ] Simple agent execution (single task to single agent)
-- [ ] Basic Web GUI for all features above
+- [x] (2026-02-14) WP1: Git Local Provider — Clone, Status, Pull, ListBranches, Checkout via git CLI
+- [x] (2026-02-14) WP2: Agent Lifecycle — Aider backend, async NATS dispatch, agent CRUD API
+- [x] (2026-02-14) WP3: WebSocket Events — Live agent output, task/agent status broadcasting
+- [x] (2026-02-14) WP4: LLM Provider Management — LiteLLM admin API client, model CRUD endpoints
+- [x] (2026-02-14) WP5: Frontend — Project detail page, git operations UI, task list
+- [x] (2026-02-14) WP6: Frontend — Agent monitor panel, live terminal output, task create/expand
+- [x] (2026-02-14) WP7: Frontend — LLM models page, add/delete models, health status
+- [x] (2026-02-14) WP8: Integration test, documentation update, test fixes
+
+### Phase 2 Key Deliverables
+- **Go:** 27 tests, gitlocal provider, aider backend, agent service, LiteLLM client, 19 REST endpoints
+- **Python:** 16 tests, streaming output via NATS, LiteLLM health checks
+- **Frontend:** 13 components, 4 routes (/, /projects, /projects/:id, /models), WebSocket live updates
+- **API:** Git ops (clone/pull/branches/checkout/status), Agent CRUD + dispatch/stop, LLM CRUD + health
 
 ## Phase 3: Advanced Features
 

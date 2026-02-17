@@ -21,8 +21,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STREAM_NAME = "CODEFORGE"
-SUBJECT_ASSIGNED = "tasks.agent.assigned"
+SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
+SUBJECT_OUTPUT = "tasks.output"
 
 
 class TaskConsumer:
@@ -49,14 +50,14 @@ class TaskConsumer:
 
         logger.info("connected to NATS at %s", self.nats_url)
 
-        # Subscribe to task assignments
+        # Subscribe to agent task dispatches (tasks.agent.aider, tasks.agent.openhands, etc.)
         sub = await self._js.subscribe(
-            SUBJECT_ASSIGNED,
+            SUBJECT_AGENT,
             stream=STREAM_NAME,
             manual_ack=True,
         )
 
-        logger.info("subscribed to %s", SUBJECT_ASSIGNED)
+        logger.info("subscribed to %s", SUBJECT_AGENT)
 
         # Message processing loop
         while self._running:
@@ -77,6 +78,9 @@ class TaskConsumer:
             task = TaskMessage.model_validate_json(msg.data)
             logger.info("received task %s: %s", task.id, task.title)
 
+            # Send running status update
+            await self._publish_output(task.id, f"Starting task: {task.title}", "stdout")
+
             result: TaskResult = await self._executor.execute(task)
 
             # Publish result back
@@ -89,6 +93,15 @@ class TaskConsumer:
         except Exception:
             logger.exception("failed to process message")
             await msg.nak()
+
+    async def _publish_output(self, task_id: str, line: str, stream: str = "stdout") -> None:
+        """Publish a streaming output line for a task."""
+        if self._js is None:
+            return
+        import json
+
+        payload = json.dumps({"task_id": task_id, "line": line, "stream": stream})
+        await self._js.publish(SUBJECT_OUTPUT, payload.encode())
 
     async def stop(self) -> None:
         """Gracefully shut down: drain and close."""

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 )
@@ -25,7 +26,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, description, repo_url, provider, config, created_at, updated_at
+		`SELECT id, name, description, repo_url, provider, workspace_path, config, created_at, updated_at
 		 FROM projects ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -45,7 +46,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 
 func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, description, repo_url, provider, config, created_at, updated_at
+		`SELECT id, name, description, repo_url, provider, workspace_path, config, created_at, updated_at
 		 FROM projects WHERE id = $1`, id)
 
 	p, err := scanProject(row)
@@ -64,7 +65,7 @@ func (s *Store) CreateProject(ctx context.Context, req project.CreateRequest) (*
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO projects (name, description, repo_url, provider, config)
 		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, name, description, repo_url, provider, config, created_at, updated_at`,
+		 RETURNING id, name, description, repo_url, provider, workspace_path, config, created_at, updated_at`,
 		req.Name, req.Description, req.RepoURL, req.Provider, configJSON)
 
 	p, err := scanProject(row)
@@ -74,6 +75,24 @@ func (s *Store) CreateProject(ctx context.Context, req project.CreateRequest) (*
 	return &p, nil
 }
 
+func (s *Store) UpdateProject(ctx context.Context, p *project.Project) error {
+	configJSON, err := json.Marshal(p.Config)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE projects SET name = $2, description = $3, repo_url = $4, provider = $5, workspace_path = $6, config = $7
+		 WHERE id = $1`,
+		p.ID, p.Name, p.Description, p.RepoURL, p.Provider, p.WorkspacePath, configJSON)
+	if err != nil {
+		return fmt.Errorf("update project %s: %w", p.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("project %s not found", p.ID)
+	}
+	return nil
+}
+
 func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
 	if err != nil {
@@ -81,6 +100,81 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("project %s not found", id)
+	}
+	return nil
+}
+
+// --- Agents ---
+
+func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, project_id, name, backend, status, config, created_at, updated_at
+		 FROM agents WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []agent.Agent
+	for rows.Next() {
+		a, err := scanAgent(rows)
+		if err != nil {
+			return nil, err
+		}
+		agents = append(agents, a)
+	}
+	return agents, rows.Err()
+}
+
+func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, project_id, name, backend, status, config, created_at, updated_at
+		 FROM agents WHERE id = $1`, id)
+
+	a, err := scanAgent(row)
+	if err != nil {
+		return nil, fmt.Errorf("get agent %s: %w", id, err)
+	}
+	return &a, nil
+}
+
+func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error) {
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config: %w", err)
+	}
+
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO agents (project_id, name, backend, config)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, project_id, name, backend, status, config, created_at, updated_at`,
+		projectID, name, backend, configJSON)
+
+	a, err := scanAgent(row)
+	if err != nil {
+		return nil, fmt.Errorf("create agent: %w", err)
+	}
+	return &a, nil
+}
+
+func (s *Store) UpdateAgentStatus(ctx context.Context, id string, status agent.Status) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE agents SET status = $2 WHERE id = $1`, id, string(status))
+	if err != nil {
+		return fmt.Errorf("update agent status %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent %s not found", id)
+	}
+	return nil
+}
+
+func (s *Store) DeleteAgent(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM agents WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete agent %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent %s not found", id)
 	}
 	return nil
 }
@@ -167,10 +261,25 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
+func scanAgent(row scannable) (agent.Agent, error) {
+	var a agent.Agent
+	var configJSON []byte
+	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.Status, &configJSON, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return a, err
+	}
+	if configJSON != nil {
+		if err := json.Unmarshal(configJSON, &a.Config); err != nil {
+			return a, fmt.Errorf("unmarshal agent config: %w", err)
+		}
+	}
+	return a, nil
+}
+
 func scanProject(row scannable) (project.Project, error) {
 	var p project.Project
 	var configJSON []byte
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.Provider, &configJSON, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.Provider, &p.WorkspacePath, &configJSON, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return p, err
 	}

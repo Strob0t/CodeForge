@@ -43,7 +43,11 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
     await consumer._handle_message(msg)
 
     consumer._executor.execute.assert_called_once()
-    consumer._js.publish.assert_called_once()
+    # Two publishes: one output line ("Starting task: ...") + one result
+    assert consumer._js.publish.call_count == 2
+    subjects = [call.args[0] for call in consumer._js.publish.call_args_list]
+    assert "tasks.output" in subjects
+    assert "tasks.result" in subjects
     msg.ack.assert_called_once()
     msg.nak.assert_not_called()
 

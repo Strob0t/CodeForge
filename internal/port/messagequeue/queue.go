@@ -21,8 +21,10 @@ type Queue interface {
 
 // Subject constants for NATS subjects used by CodeForge.
 const (
-	SubjectTaskCreated  = "tasks.created"
-	SubjectTaskAssigned = "tasks.agent.assigned"
-	SubjectTaskResult   = "tasks.result"
-	SubjectAgentStatus  = "agents.status"
+	SubjectTaskCreated = "tasks.created"
+	SubjectTaskAgent   = "tasks.agent"  // tasks.agent.{backend} — dispatched to specific backend
+	SubjectTaskResult  = "tasks.result" // results from workers
+	SubjectTaskOutput  = "tasks.output" // streaming output lines from workers
+	SubjectTaskCancel  = "tasks.cancel" // cancel a running task
+	SubjectAgentStatus = "agents.status"
 )

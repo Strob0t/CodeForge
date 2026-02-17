@@ -4,6 +4,7 @@ package database
 import (
 	"context"
 
+	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 )
@@ -14,7 +15,15 @@ type Store interface {
 	ListProjects(ctx context.Context) ([]project.Project, error)
 	GetProject(ctx context.Context, id string) (*project.Project, error)
 	CreateProject(ctx context.Context, req project.CreateRequest) (*project.Project, error)
+	UpdateProject(ctx context.Context, p *project.Project) error
 	DeleteProject(ctx context.Context, id string) error
+
+	// Agents
+	ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error)
+	GetAgent(ctx context.Context, id string) (*agent.Agent, error)
+	CreateAgent(ctx context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error)
+	UpdateAgentStatus(ctx context.Context, id string, status agent.Status) error
+	DeleteAgent(ctx context.Context, id string) error
 
 	// Tasks
 	ListTasks(ctx context.Context, projectID string) ([]task.Task, error)

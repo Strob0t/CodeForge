@@ -14,7 +14,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/aider"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
@@ -23,20 +25,22 @@ import (
 
 // config holds all runtime configuration loaded from environment variables.
 type config struct {
-	port       string
-	corsOrigin string
-	dbDSN      string
-	natsURL    string
-	litellmURL string
+	port             string
+	corsOrigin       string
+	dbDSN            string
+	natsURL          string
+	litellmURL       string
+	litellmMasterKey string
 }
 
 func loadConfig() config {
 	return config{
-		port:       envOr("CODEFORGE_PORT", "8080"),
-		corsOrigin: envOr("CODEFORGE_CORS_ORIGIN", "http://localhost:3000"),
-		dbDSN:      envOr("DATABASE_URL", "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"),
-		natsURL:    envOr("NATS_URL", "nats://localhost:4222"),
-		litellmURL: envOr("LITELLM_URL", "http://localhost:4000"),
+		port:             envOr("CODEFORGE_PORT", "8080"),
+		corsOrigin:       envOr("CODEFORGE_CORS_ORIGIN", "http://localhost:3000"),
+		dbDSN:            envOr("DATABASE_URL", "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"),
+		natsURL:          envOr("NATS_URL", "nats://localhost:4222"),
+		litellmURL:       envOr("LITELLM_URL", "http://localhost:4000"),
+		litellmMasterKey: envOr("LITELLM_MASTER_KEY", ""),
 	}
 }
 
@@ -84,16 +88,37 @@ func run() error {
 	}
 	defer func() { _ = queue.Close() }()
 
+	// --- Agent Backends ---
+	aider.Register(queue)
+
 	// --- Services ---
+	hub := ws.NewHub()
 	store := postgres.NewStore(pool)
 	projectSvc := service.NewProjectService(store)
 	taskSvc := service.NewTaskService(store, queue)
+	agentSvc := service.NewAgentService(store, queue, hub)
+
+	// Start NATS subscribers (process results and streaming output from workers)
+	cancelResults, err := agentSvc.StartResultSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("result subscriber: %w", err)
+	}
+	defer cancelResults()
+
+	cancelOutput, err := agentSvc.StartOutputSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("output subscriber: %w", err)
+	}
+	defer cancelOutput()
 
 	// --- HTTP ---
-	hub := ws.NewHub()
+	llmClient := litellm.NewClient(cfg.litellmURL, cfg.litellmMasterKey)
+
 	handlers := &cfhttp.Handlers{
 		Projects: projectSvc,
 		Tasks:    taskSvc,
+		Agents:   agentSvc,
+		LiteLLM:  llmClient,
 	}
 
 	r := chi.NewRouter()

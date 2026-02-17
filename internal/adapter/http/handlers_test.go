@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -20,6 +22,7 @@ import (
 // mockStore implements database.Store for testing.
 type mockStore struct {
 	projects []project.Project
+	agents   []agent.Agent
 	tasks    []task.Task
 }
 
@@ -46,10 +49,66 @@ func (m *mockStore) CreateProject(_ context.Context, req project.CreateRequest) 
 	return &p, nil
 }
 
+func (m *mockStore) UpdateProject(_ context.Context, p *project.Project) error {
+	for i := range m.projects {
+		if m.projects[i].ID == p.ID {
+			m.projects[i] = *p
+			return nil
+		}
+	}
+	return errNotFound
+}
+
 func (m *mockStore) DeleteProject(_ context.Context, id string) error {
 	for i := range m.projects {
 		if m.projects[i].ID == id {
 			m.projects = append(m.projects[:i], m.projects[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) ListAgents(_ context.Context, _ string) ([]agent.Agent, error) {
+	return m.agents, nil
+}
+
+func (m *mockStore) GetAgent(_ context.Context, id string) (*agent.Agent, error) {
+	for i := range m.agents {
+		if m.agents[i].ID == id {
+			return &m.agents[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) CreateAgent(_ context.Context, projectID, name, backend string, config map[string]string) (*agent.Agent, error) {
+	a := agent.Agent{
+		ID:        "agent-id",
+		ProjectID: projectID,
+		Name:      name,
+		Backend:   backend,
+		Status:    agent.StatusIdle,
+		Config:    config,
+	}
+	m.agents = append(m.agents, a)
+	return &a, nil
+}
+
+func (m *mockStore) UpdateAgentStatus(_ context.Context, id string, status agent.Status) error {
+	for i := range m.agents {
+		if m.agents[i].ID == id {
+			m.agents[i].Status = status
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) DeleteAgent(_ context.Context, id string) error {
+	for i := range m.agents {
+		if m.agents[i].ID == id {
+			m.agents = append(m.agents[:i], m.agents[i+1:]...)
 			return nil
 		}
 	}
@@ -101,14 +160,22 @@ func (m *mockQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handle
 
 func (m *mockQueue) Close() error { return nil }
 
+// mockBroadcaster implements broadcast.Broadcaster for testing.
+type mockBroadcaster struct{}
+
+func (m *mockBroadcaster) BroadcastEvent(_ context.Context, _ string, _ any) {}
+
 var errNotFound = http.ErrNoCookie // reuse any error for tests
 
 func newTestRouter() chi.Router {
 	store := &mockStore{}
 	queue := &mockQueue{}
+	bc := &mockBroadcaster{}
 	handlers := &cfhttp.Handlers{
 		Projects: service.NewProjectService(store),
 		Tasks:    service.NewTaskService(store, queue),
+		Agents:   service.NewAgentService(store, queue, bc),
+		LiteLLM:  litellm.NewClient("http://localhost:4000", ""),
 	}
 
 	r := chi.NewRouter()
