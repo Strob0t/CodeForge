@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/resilience"
 )
 
 const (
@@ -20,8 +21,9 @@ const (
 
 // Queue implements messagequeue.Queue using NATS JetStream.
 type Queue struct {
-	nc *nats.Conn
-	js jetstream.JetStream
+	nc      *nats.Conn
+	js      jetstream.JetStream
+	breaker *resilience.Breaker
 }
 
 // Connect establishes a connection to NATS and ensures the JetStream stream exists.
@@ -51,8 +53,14 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 	return &Queue{nc: nc, js: js}, nil
 }
 
+// SetBreaker attaches a circuit breaker to the publish path.
+func (q *Queue) SetBreaker(b *resilience.Breaker) {
+	q.breaker = b
+}
+
 // Publish sends a message to the given subject.
 // If the context carries a request ID, it is injected as a NATS header.
+// If a circuit breaker is attached, the publish is wrapped in it.
 func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error {
 	msg := &nats.Msg{
 		Subject: subject,
@@ -65,11 +73,18 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 		msg.Header.Set(headerRequestID, reqID)
 	}
 
-	_, err := q.js.PublishMsg(ctx, msg)
-	if err != nil {
-		return fmt.Errorf("nats publish %s: %w", subject, err)
+	publish := func() error {
+		_, err := q.js.PublishMsg(ctx, msg)
+		if err != nil {
+			return fmt.Errorf("nats publish %s: %w", subject, err)
+		}
+		return nil
 	}
-	return nil
+
+	if q.breaker != nil {
+		return q.breaker.Execute(publish)
+	}
+	return publish()
 }
 
 // Subscribe registers a handler for messages on the given subject.

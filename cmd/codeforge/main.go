@@ -23,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/resilience"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -77,6 +78,11 @@ func run() error {
 		return fmt.Errorf("nats: %w", err)
 	}
 
+	// --- Circuit Breakers ---
+	natsBreaker := resilience.NewBreaker(cfg.Breaker.MaxFailures, cfg.Breaker.Timeout)
+	llmBreaker := resilience.NewBreaker(cfg.Breaker.MaxFailures, cfg.Breaker.Timeout)
+	queue.SetBreaker(natsBreaker)
+
 	// --- Agent Backends ---
 	aider.Register(queue)
 
@@ -100,6 +106,7 @@ func run() error {
 
 	// --- HTTP ---
 	llmClient := litellm.NewClient(cfg.LiteLLM.URL, cfg.LiteLLM.MasterKey)
+	llmClient.SetBreaker(llmBreaker)
 
 	handlers := &cfhttp.Handlers{
 		Projects: projectSvc,

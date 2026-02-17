@@ -59,10 +59,10 @@
 
 ### 3C. Reliability Patterns
 
-- [ ] Circuit Breaker for external services
-  - Create `internal/resilience/breaker.go` (states: open/half-open/closed)
-  - Wrap: LiteLLM client, NATS publisher, PostgreSQL queries
-  - Thresholds: 5 failures → open, 30s timeout → half-open
+- [x] (2026-02-17) Circuit Breaker for external services
+  - `internal/resilience/breaker.go`: zero-dep, states closed/open/half-open, 5 tests
+  - Wrapped: NATS Publish, LiteLLM doRequest (via SetBreaker injection)
+  - Configurable maxFailures and timeout from config.Breaker
 - [x] (2026-02-17) Graceful shutdown with drain phase
   - 4-phase ordered shutdown: HTTP → cancel subscribers → NATS Drain → DB close
   - NATS: `Drain()` method added to Queue interface and NATS adapter

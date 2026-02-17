@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/resilience"
 )
 
 // Model represents a configured model in LiteLLM.
@@ -37,6 +39,7 @@ type Client struct {
 	baseURL    string
 	masterKey  string
 	httpClient *http.Client
+	breaker    *resilience.Breaker
 }
 
 // NewClient creates a new LiteLLM admin client.
@@ -48,6 +51,11 @@ func NewClient(baseURL, masterKey string) *Client {
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+// SetBreaker attaches a circuit breaker to all outgoing HTTP calls.
+func (c *Client) SetBreaker(b *resilience.Breaker) {
+	c.breaker = b
 }
 
 // ListModels returns all configured models from LiteLLM.
@@ -106,35 +114,51 @@ type AddModelRequest struct {
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body []byte) ([]byte, error) {
-	var bodyReader io.Reader
-	if body != nil {
-		bodyReader = bytes.NewReader(body)
+	var result []byte
+	call := func() error {
+		var bodyReader io.Reader
+		if body != nil {
+			bodyReader = bytes.NewReader(body)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+		if err != nil {
+			return fmt.Errorf("create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		if c.masterKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.masterKey)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("http request: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("read response: %w", err)
+		}
+
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("litellm API error %d: %s", resp.StatusCode, string(data))
+		}
+
+		result = data
+		return nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+	if c.breaker != nil {
+		if err := c.breaker.Execute(call); err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	if c.masterKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.masterKey)
+	if err := call(); err != nil {
+		return nil, err
 	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("litellm API error %d: %s", resp.StatusCode, string(data))
-	}
-
-	return data, nil
+	return result, nil
 }
