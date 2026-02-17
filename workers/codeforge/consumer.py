@@ -24,6 +24,8 @@ SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
 HEADER_REQUEST_ID = "X-Request-ID"
+HEADER_RETRY_COUNT = "Retry-Count"
+MAX_RETRIES = 3
 
 logger = structlog.get_logger()
 
@@ -101,8 +103,37 @@ class TaskConsumer:
             log.info("task completed", status=result.status)
 
         except Exception:
-            log.exception("failed to process message")
-            await msg.nak()
+            retries = self._retry_count(msg)
+            log.exception("failed to process message", retry=retries)
+
+            if retries >= MAX_RETRIES:
+                log.warning("max retries reached, moving to DLQ", retry=retries)
+                await self._move_to_dlq(msg)
+            else:
+                await msg.nak()
+
+    @staticmethod
+    def _retry_count(msg: nats.aio.msg.Msg) -> int:
+        """Extract the Retry-Count header value, defaulting to 0."""
+        if msg.headers and HEADER_RETRY_COUNT in msg.headers:
+            try:
+                return int(msg.headers[HEADER_RETRY_COUNT])
+            except (ValueError, TypeError):
+                return 0
+        return 0
+
+    async def _move_to_dlq(self, msg: nats.aio.msg.Msg) -> None:
+        """Publish message to DLQ subject and ack the original."""
+        if self._js is None:
+            return
+        dlq_subject = msg.subject + ".dlq"
+        headers = dict(msg.headers) if msg.headers else {}
+        try:
+            await self._js.publish(dlq_subject, msg.data, headers=headers or None)
+            logger.warning("message moved to DLQ", dlq_subject=dlq_subject)
+        except Exception:
+            logger.exception("failed to publish to DLQ", dlq_subject=dlq_subject)
+        await msg.ack()
 
     async def _publish_output(self, task_id: str, line: str, stream: str = "stdout", request_id: str = "") -> None:
         """Publish a streaming output line for a task."""

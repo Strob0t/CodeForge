@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -15,8 +17,11 @@ import (
 )
 
 const (
-	streamName      = "CODEFORGE"
-	headerRequestID = "X-Request-ID"
+	streamName       = "CODEFORGE"
+	headerRequestID  = "X-Request-ID"
+	headerRetryCount = "Retry-Count"
+	maxRetries       = 3
+	nakDelay         = 2 * time.Second
 )
 
 // Queue implements messagequeue.Queue using NATS JetStream.
@@ -88,7 +93,8 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 }
 
 // Subscribe registers a handler for messages on the given subject.
-// The request ID from NATS headers is extracted and passed via context.
+// Messages are validated against known schemas before processing.
+// Failed messages are retried up to maxRetries times, then moved to a DLQ.
 func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequeue.Handler) (func(), error) {
 	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		FilterSubject: subject,
@@ -101,19 +107,39 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 	cons, err := consumer.Consume(func(msg jetstream.Msg) {
 		// Extract request ID from NATS headers into context
 		msgCtx := ctx
-		if hdrs := msg.Headers(); hdrs != nil {
+		hdrs := msg.Headers()
+		if hdrs != nil {
 			if reqID := hdrs.Get(headerRequestID); reqID != "" {
 				msgCtx = logger.WithRequestID(msgCtx, reqID)
 			}
 		}
 
-		if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
-			slog.Error("message handler failed",
+		// Schema validation — reject invalid messages immediately to DLQ
+		if err := messagequeue.Validate(msg.Subject(), msg.Data()); err != nil {
+			slog.Error("message validation failed",
 				"subject", msg.Subject(),
 				"request_id", logger.RequestID(msgCtx),
 				"error", err,
 			)
-			if nakErr := msg.Nak(); nakErr != nil {
+			q.moveToDLQ(ctx, msg)
+			return
+		}
+
+		if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
+			retries := retryCount(hdrs)
+			slog.Error("message handler failed",
+				"subject", msg.Subject(),
+				"request_id", logger.RequestID(msgCtx),
+				"retry", retries,
+				"error", err,
+			)
+
+			if retries >= maxRetries {
+				q.moveToDLQ(ctx, msg)
+				return
+			}
+
+			if nakErr := msg.NakWithDelay(nakDelay); nakErr != nil {
 				slog.Error("nats nak failed", "error", nakErr)
 			}
 			return
@@ -127,6 +153,47 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 	}
 
 	return cons.Stop, nil
+}
+
+// moveToDLQ acks the original message and publishes a copy to {subject}.dlq.
+func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
+	dlqSubject := msg.Subject() + ".dlq"
+	dlqMsg := &nats.Msg{
+		Subject: dlqSubject,
+		Data:    msg.Data(),
+	}
+	if hdrs := msg.Headers(); hdrs != nil {
+		dlqMsg.Header = hdrs
+	}
+
+	if _, err := q.js.PublishMsg(ctx, dlqMsg); err != nil {
+		slog.Error("failed to publish to DLQ",
+			"dlq_subject", dlqSubject,
+			"error", err,
+		)
+	} else {
+		slog.Warn("message moved to DLQ",
+			"subject", msg.Subject(),
+			"dlq_subject", dlqSubject,
+		)
+	}
+
+	// Ack the original to remove it from the main stream
+	if ackErr := msg.Ack(); ackErr != nil {
+		slog.Error("nats ack (dlq) failed", "error", ackErr)
+	}
+}
+
+func retryCount(hdrs nats.Header) int {
+	if hdrs == nil {
+		return 0
+	}
+	val := hdrs.Get(headerRetryCount)
+	if val == "" {
+		return 0
+	}
+	n, _ := strconv.Atoi(val)
+	return n
 }
 
 // Drain gracefully drains all subscriptions, waits for pending messages,

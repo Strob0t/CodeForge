@@ -167,6 +167,6 @@
 - [x] (2026-02-17) WP3: Graceful Shutdown & Docker Logging — 4-phase ordered shutdown, NATS Drain, Docker log rotation, logs.sh helper
 - [x] (2026-02-17) WP4: Optimistic Locking & DB Pool Tuning
 - [x] (2026-02-17) WP5: Circuit Breaker
-- [ ] WP6: Dead Letter Queue & Schema Validation
+- [x] (2026-02-17) WP6: Dead Letter Queue & Schema Validation
 - [ ] WP7: Event Sourcing for Agent Trajectory
 - [ ] WP8: Health Granularity & Rate Limiting

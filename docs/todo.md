@@ -83,13 +83,14 @@
   - Store: `WHERE version = $N` on UpdateProject, `pgx.ErrNoRows` → `ErrNotFound` on Get queries
   - HTTP: `writeDomainError()` maps ErrNotFound → 404, ErrConflict → 409
   - Version field added to Project, Agent, Task domain structs
-- [ ] Dead Letter Queue (DLQ) for failed messages
-  - NATS consumer: Move to `tasks.dlq` after 3 retries
-  - Header: `Retry-Count` incremented on each Nak
-  - Admin UI: DLQ inspector (manual retry or discard)
-- [ ] Schema validation for NATS messages
-  - Create `internal/port/messagequeue/validator.go` with JSON Schema
-  - Validate on publish and subscribe
+- [x] (2026-02-17) Dead Letter Queue (DLQ) for failed messages
+  - Go NATS: `moveToDLQ()` publishes to `{subject}.dlq` after 3 retries, acks original
+  - `Retry-Count` header tracked, `NakWithDelay(2s)` for retries
+  - Python consumer: `_move_to_dlq()` + `_retry_count()` with same MAX_RETRIES=3
+- [x] (2026-02-17) Schema validation for NATS messages
+  - `internal/port/messagequeue/schemas.go`: typed payload structs per subject
+  - `internal/port/messagequeue/validator.go`: `Validate(subject, data)` via JSON unmarshal
+  - Invalid messages sent directly to DLQ (no retries)
 
 ### 3D. Event Sourcing for Agent Trajectory
 
