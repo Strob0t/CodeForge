@@ -282,3 +282,485 @@ func TestVersionEndpoint(t *testing.T) {
 		t.Fatalf("expected version 0.1.0, got %q", result["version"])
 	}
 }
+
+// --- Delete Project ---
+
+func TestDeleteProject(t *testing.T) {
+	r := newTestRouter()
+
+	// Create a project first
+	body, _ := json.Marshal(project.CreateRequest{Name: "To Delete", Provider: "local"})
+	req := httptest.NewRequest("POST", "/api/v1/projects", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var p project.Project
+	_ = json.NewDecoder(w.Body).Decode(&p)
+
+	// Delete it
+	req = httptest.NewRequest("DELETE", "/api/v1/projects/"+p.ID, http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+
+	// Verify it's gone
+	req = httptest.NewRequest("GET", "/api/v1/projects/"+p.ID, http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after delete, got %d", w.Code)
+	}
+}
+
+func TestDeleteProjectNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("DELETE", "/api/v1/projects/nonexistent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// --- Task Endpoints ---
+
+func TestCreateAndListTasks(t *testing.T) {
+	r := newTestRouter()
+
+	// Create project
+	projBody, _ := json.Marshal(project.CreateRequest{Name: "Task Project", Provider: "local"})
+	req := httptest.NewRequest("POST", "/api/v1/projects", bytes.NewReader(projBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var p project.Project
+	_ = json.NewDecoder(w.Body).Decode(&p)
+
+	// Create task
+	taskBody, _ := json.Marshal(map[string]string{"title": "Fix bug", "prompt": "Find the null pointer"})
+	req = httptest.NewRequest("POST", "/api/v1/projects/"+p.ID+"/tasks", bytes.NewReader(taskBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create task: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var createdTask task.Task
+	_ = json.NewDecoder(w.Body).Decode(&createdTask)
+
+	if createdTask.Title != "Fix bug" {
+		t.Fatalf("expected title 'Fix bug', got %q", createdTask.Title)
+	}
+
+	// List tasks
+	req = httptest.NewRequest("GET", "/api/v1/projects/"+p.ID+"/tasks", http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("list tasks: expected 200, got %d", w.Code)
+	}
+
+	var tasks []task.Task
+	_ = json.NewDecoder(w.Body).Decode(&tasks)
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+}
+
+func TestCreateTaskMissingTitle(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{"prompt": "no title"})
+	req := httptest.NewRequest("POST", "/api/v1/projects/some-id/tasks", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestCreateTaskInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/some-id/tasks", bytes.NewReader([]byte("not json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetTask(t *testing.T) {
+	r := newTestRouter()
+
+	// Create project + task
+	projBody, _ := json.Marshal(project.CreateRequest{Name: "P", Provider: "local"})
+	req := httptest.NewRequest("POST", "/api/v1/projects", bytes.NewReader(projBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var p project.Project
+	_ = json.NewDecoder(w.Body).Decode(&p)
+
+	taskBody, _ := json.Marshal(map[string]string{"title": "T1"})
+	req = httptest.NewRequest("POST", "/api/v1/projects/"+p.ID+"/tasks", bytes.NewReader(taskBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var createdTask task.Task
+	_ = json.NewDecoder(w.Body).Decode(&createdTask)
+
+	// Get task by ID
+	req = httptest.NewRequest("GET", "/api/v1/tasks/"+createdTask.ID, http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestGetTaskNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/tasks/nonexistent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// --- Agent Endpoints ---
+
+func TestListAgentsEmpty(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/projects/some-id/agents", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var agents []agent.Agent
+	_ = json.NewDecoder(w.Body).Decode(&agents)
+	if len(agents) != 0 {
+		t.Fatalf("expected 0 agents, got %d", len(agents))
+	}
+}
+
+func TestCreateAgentMissingName(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{"backend": "aider"})
+	req := httptest.NewRequest("POST", "/api/v1/projects/p1/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestCreateAgentMissingBackend(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{"name": "my-agent"})
+	req := httptest.NewRequest("POST", "/api/v1/projects/p1/agents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestCreateAgentInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/p1/agents", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetAgentNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/agents/nonexistent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestDeleteAgentNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("DELETE", "/api/v1/agents/nonexistent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// --- Dispatch/Stop Endpoints ---
+
+func TestDispatchTaskMissingTaskID(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{})
+	req := httptest.NewRequest("POST", "/api/v1/agents/a1/dispatch", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestDispatchTaskInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/agents/a1/dispatch", bytes.NewReader([]byte("bad")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestStopAgentTaskMissingTaskID(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{})
+	req := httptest.NewRequest("POST", "/api/v1/agents/a1/stop", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestStopAgentTaskInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/agents/a1/stop", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- Task Events ---
+
+func TestListTaskEventsEmpty(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/tasks/some-task/events", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+// --- Provider Endpoints ---
+
+func TestListGitProviders(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/providers/git", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var result map[string][]string
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result["providers"] == nil {
+		t.Fatal("expected 'providers' key in response")
+	}
+}
+
+func TestListAgentBackends(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/providers/agent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var result map[string][]string
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result["backends"] == nil {
+		t.Fatal("expected 'backends' key in response")
+	}
+}
+
+// --- Checkout Endpoint ---
+
+func TestCheckoutBranchMissingBranch(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{})
+	req := httptest.NewRequest("POST", "/api/v1/projects/p1/git/checkout", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestCheckoutBranchInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/p1/git/checkout", bytes.NewReader([]byte("bad")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- Create Project Invalid Body ---
+
+func TestCreateProjectInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/projects", bytes.NewReader([]byte("not json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// --- LLM Endpoints (require mock server) ---
+
+func TestLLMHealthEndpoint(t *testing.T) {
+	// LiteLLM client points to non-existent server, so health should be "unhealthy"
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/llm/health", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var result map[string]string
+	_ = json.NewDecoder(w.Body).Decode(&result)
+	if result["status"] != "unhealthy" {
+		t.Fatalf("expected 'unhealthy' (no server), got %q", result["status"])
+	}
+}
+
+func TestAddLLMModelMissingName(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{"litellm_params": "{}"})
+	req := httptest.NewRequest("POST", "/api/v1/llm/models", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAddLLMModelInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/llm/models", bytes.NewReader([]byte("bad")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestDeleteLLMModelMissingID(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{})
+	req := httptest.NewRequest("POST", "/api/v1/llm/models/delete", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestDeleteLLMModelInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/llm/models/delete", bytes.NewReader([]byte("{")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
