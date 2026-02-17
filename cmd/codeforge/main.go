@@ -56,11 +56,14 @@ func run() error {
 	// --- Infrastructure ---
 
 	// PostgreSQL
-	pool, err := postgres.NewPool(ctx, cfg.Postgres.DSN)
+	pool, err := postgres.NewPool(ctx, cfg.Postgres)
 	if err != nil {
 		return fmt.Errorf("postgres: %w", err)
 	}
-	slog.Info("postgres connected")
+	slog.Info("postgres connected",
+		"max_conns", cfg.Postgres.MaxConns,
+		"min_conns", cfg.Postgres.MinConns,
+	)
 
 	// Run migrations
 	if err := postgres.RunMigrations(ctx, cfg.Postgres.DSN); err != nil {

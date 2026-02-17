@@ -21,6 +21,7 @@ type Agent struct {
 	Backend   string            `json:"backend"`
 	Status    Status            `json:"status"`
 	Config    map[string]string `json:"config"`
+	Version   int               `json:"version"`
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }

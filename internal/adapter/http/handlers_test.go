@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -166,7 +168,7 @@ type mockBroadcaster struct{}
 
 func (m *mockBroadcaster) BroadcastEvent(_ context.Context, _ string, _ any) {}
 
-var errNotFound = http.ErrNoCookie // reuse any error for tests
+var errNotFound = fmt.Errorf("mock: %w", domain.ErrNotFound)
 
 func newTestRouter() chi.Router {
 	store := &mockStore{}

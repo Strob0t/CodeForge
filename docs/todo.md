@@ -77,10 +77,12 @@
   - Storage: NATS JetStream KV (24h TTL)
   - Apply to POST/PUT/DELETE endpoints (task creation, agent start)
   - Add `Idempotency-Key` header to API spec
-- [ ] Optimistic Locking for concurrent updates
-  - Migration: Add `version INTEGER NOT NULL DEFAULT 1` to `tasks`, `projects` tables
-  - Service layer: Exponential backoff retry (max 3 attempts)
-  - Return `409 Conflict` on version mismatch
+- [x] (2026-02-17) Optimistic Locking for concurrent updates
+  - Migration 003: `version INTEGER NOT NULL DEFAULT 1` on projects, agents, tasks + auto-increment trigger
+  - Domain: `ErrNotFound`, `ErrConflict` sentinel errors in `internal/domain/errors.go`
+  - Store: `WHERE version = $N` on UpdateProject, `pgx.ErrNoRows` → `ErrNotFound` on Get queries
+  - HTTP: `writeDomainError()` maps ErrNotFound → 404, ErrConflict → 409
+  - Version field added to Project, Agent, Task domain structs
 - [ ] Dead Letter Queue (DLQ) for failed messages
   - NATS consumer: Move to `tasks.dlq` after 3 retries
   - Header: `Retry-Count` incremented on each Nak
@@ -107,10 +109,9 @@
   - Create `internal/cache/cache.go` with Get/Set/Invalidate
   - Cache keys: `{namespace}:{entityID}:{operation}`
   - TTL per namespace: git (5m), tasks (1m), agents (10m)
-- [ ] Database connection pool tuning
-  - Formula: `((core_count * 2) + effective_spindle_count)` → ~15 connections
-  - Config in `internal/adapter/postgres/pool.go`: MaxConns=15, MinConns=2
-  - Add: MaxConnLifetime (1h), MaxConnIdleTime (10m), HealthCheckPeriod (1m)
+- [x] (2026-02-17) Database connection pool tuning
+  - `NewPool` accepts `config.Postgres` with MaxConns=15, MinConns=2, MaxConnLifetime=1h, MaxConnIdleTime=10m, HealthCheckPeriod=1m
+  - All pool parameters configurable via YAML/ENV
 - [ ] Rate limiting per user/IP
   - Middleware: `internal/middleware/ratelimit.go` with token bucket
   - Per-user: 10 req/s sustained, 100 req/s burst

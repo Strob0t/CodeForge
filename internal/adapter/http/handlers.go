@@ -2,12 +2,14 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -42,7 +44,7 @@ func (h *Handlers) GetProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	p, err := h.Projects.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -72,7 +74,7 @@ func (h *Handlers) CreateProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Projects.Delete(r.Context(), id); err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -121,7 +123,7 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	t, err := h.Tasks.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeDomainError(w, err, "task not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -132,7 +134,7 @@ func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	p, err := h.Projects.Clone(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeDomainError(w, err, "clone failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -242,7 +244,7 @@ func (h *Handlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	a, err := h.Agents.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		writeDomainError(w, err, "agent not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
@@ -252,7 +254,7 @@ func (h *Handlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Agents.Delete(r.Context(), id); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
+		writeDomainError(w, err, "agent not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -397,4 +399,15 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
+}
+
+func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		writeError(w, http.StatusNotFound, fallbackMsg)
+	case errors.Is(err, domain.ErrConflict):
+		writeError(w, http.StatusConflict, "resource was modified by another request")
+	default:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
 }

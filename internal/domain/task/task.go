@@ -25,6 +25,7 @@ type Task struct {
 	Status    Status    `json:"status"`
 	Result    *Result   `json:"result,omitempty"`
 	CostUSD   float64   `json:"cost_usd"`
+	Version   int       `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

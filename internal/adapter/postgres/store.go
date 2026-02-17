@@ -3,10 +3,13 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -26,7 +29,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, description, repo_url, provider, workspace_path, config, created_at, updated_at
+		`SELECT id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at
 		 FROM projects ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -46,11 +49,14 @@ func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 
 func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, description, repo_url, provider, workspace_path, config, created_at, updated_at
+		`SELECT id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at
 		 FROM projects WHERE id = $1`, id)
 
 	p, err := scanProject(row)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get project %s: %w", id, domain.ErrNotFound)
+		}
 		return nil, fmt.Errorf("get project %s: %w", id, err)
 	}
 	return &p, nil
@@ -65,7 +71,7 @@ func (s *Store) CreateProject(ctx context.Context, req project.CreateRequest) (*
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO projects (name, description, repo_url, provider, config)
 		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, name, description, repo_url, provider, workspace_path, config, created_at, updated_at`,
+		 RETURNING id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at`,
 		req.Name, req.Description, req.RepoURL, req.Provider, configJSON)
 
 	p, err := scanProject(row)
@@ -82,14 +88,15 @@ func (s *Store) UpdateProject(ctx context.Context, p *project.Project) error {
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE projects SET name = $2, description = $3, repo_url = $4, provider = $5, workspace_path = $6, config = $7
-		 WHERE id = $1`,
-		p.ID, p.Name, p.Description, p.RepoURL, p.Provider, p.WorkspacePath, configJSON)
+		 WHERE id = $1 AND version = $8`,
+		p.ID, p.Name, p.Description, p.RepoURL, p.Provider, p.WorkspacePath, configJSON, p.Version)
 	if err != nil {
 		return fmt.Errorf("update project %s: %w", p.ID, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("project %s not found", p.ID)
+		return fmt.Errorf("update project %s: %w", p.ID, domain.ErrConflict)
 	}
+	p.Version++
 	return nil
 }
 
@@ -99,7 +106,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 		return fmt.Errorf("delete project %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("project %s not found", id)
+		return fmt.Errorf("delete project %s: %w", id, domain.ErrNotFound)
 	}
 	return nil
 }
@@ -108,7 +115,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 
 func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, project_id, name, backend, status, config, created_at, updated_at
+		`SELECT id, project_id, name, backend, status, config, version, created_at, updated_at
 		 FROM agents WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -128,11 +135,14 @@ func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent
 
 func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, project_id, name, backend, status, config, created_at, updated_at
+		`SELECT id, project_id, name, backend, status, config, version, created_at, updated_at
 		 FROM agents WHERE id = $1`, id)
 
 	a, err := scanAgent(row)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get agent %s: %w", id, domain.ErrNotFound)
+		}
 		return nil, fmt.Errorf("get agent %s: %w", id, err)
 	}
 	return &a, nil
@@ -147,7 +157,7 @@ func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO agents (project_id, name, backend, config)
 		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, project_id, name, backend, status, config, created_at, updated_at`,
+		 RETURNING id, project_id, name, backend, status, config, version, created_at, updated_at`,
 		projectID, name, backend, configJSON)
 
 	a, err := scanAgent(row)
@@ -163,7 +173,7 @@ func (s *Store) UpdateAgentStatus(ctx context.Context, id string, status agent.S
 		return fmt.Errorf("update agent status %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("agent %s not found", id)
+		return fmt.Errorf("update agent status %s: %w", id, domain.ErrNotFound)
 	}
 	return nil
 }
@@ -174,7 +184,7 @@ func (s *Store) DeleteAgent(ctx context.Context, id string) error {
 		return fmt.Errorf("delete agent %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("agent %s not found", id)
+		return fmt.Errorf("delete agent %s: %w", id, domain.ErrNotFound)
 	}
 	return nil
 }
@@ -183,7 +193,7 @@ func (s *Store) DeleteAgent(ctx context.Context, id string) error {
 
 func (s *Store) ListTasks(ctx context.Context, projectID string) ([]task.Task, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, project_id, agent_id, title, prompt, status, result, cost_usd, created_at, updated_at
+		`SELECT id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at
 		 FROM tasks WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
@@ -203,11 +213,14 @@ func (s *Store) ListTasks(ctx context.Context, projectID string) ([]task.Task, e
 
 func (s *Store) GetTask(ctx context.Context, id string) (*task.Task, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, project_id, agent_id, title, prompt, status, result, cost_usd, created_at, updated_at
+		`SELECT id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at
 		 FROM tasks WHERE id = $1`, id)
 
 	t, err := scanTask(row)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get task %s: %w", id, domain.ErrNotFound)
+		}
 		return nil, fmt.Errorf("get task %s: %w", id, err)
 	}
 	return &t, nil
@@ -217,7 +230,7 @@ func (s *Store) CreateTask(ctx context.Context, req task.CreateRequest) (*task.T
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO tasks (project_id, title, prompt)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, project_id, agent_id, title, prompt, status, result, cost_usd, created_at, updated_at`,
+		 RETURNING id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at`,
 		req.ProjectID, req.Title, req.Prompt)
 
 	t, err := scanTask(row)
@@ -233,7 +246,7 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Sta
 		return fmt.Errorf("update task status %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("task %s not found", id)
+		return fmt.Errorf("update task status %s: %w", id, domain.ErrNotFound)
 	}
 	return nil
 }
@@ -250,7 +263,7 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 		return fmt.Errorf("update task result %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("task %s not found", id)
+		return fmt.Errorf("update task result %s: %w", id, domain.ErrNotFound)
 	}
 	return nil
 }
@@ -264,7 +277,7 @@ type scannable interface {
 func scanAgent(row scannable) (agent.Agent, error) {
 	var a agent.Agent
 	var configJSON []byte
-	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.Status, &configJSON, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.Status, &configJSON, &a.Version, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return a, err
 	}
@@ -279,7 +292,7 @@ func scanAgent(row scannable) (agent.Agent, error) {
 func scanProject(row scannable) (project.Project, error) {
 	var p project.Project
 	var configJSON []byte
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.Provider, &p.WorkspacePath, &configJSON, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.Provider, &p.WorkspacePath, &configJSON, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return p, err
 	}
@@ -295,7 +308,7 @@ func scanTask(row scannable) (task.Task, error) {
 	var t task.Task
 	var agentID *string
 	var resultJSON []byte
-	err := row.Scan(&t.ID, &t.ProjectID, &agentID, &t.Title, &t.Prompt, &t.Status, &resultJSON, &t.CostUSD, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.ProjectID, &agentID, &t.Title, &t.Prompt, &t.Status, &resultJSON, &t.CostUSD, &t.Version, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return t, err
 	}
