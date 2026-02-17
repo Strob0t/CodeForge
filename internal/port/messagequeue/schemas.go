@@ -45,16 +45,17 @@ type AgentStatusPayload struct {
 
 // RunStartPayload is the schema for runs.start messages.
 type RunStartPayload struct {
-	RunID         string             `json:"run_id"`
-	TaskID        string             `json:"task_id"`
-	ProjectID     string             `json:"project_id"`
-	AgentID       string             `json:"agent_id"`
-	Prompt        string             `json:"prompt"`
-	PolicyProfile string             `json:"policy_profile"`
-	ExecMode      string             `json:"exec_mode"`
-	DeliverMode   string             `json:"deliver_mode,omitempty"`
-	Config        map[string]string  `json:"config"`
-	Termination   TerminationPayload `json:"termination"`
+	RunID         string                `json:"run_id"`
+	TaskID        string                `json:"task_id"`
+	ProjectID     string                `json:"project_id"`
+	AgentID       string                `json:"agent_id"`
+	Prompt        string                `json:"prompt"`
+	PolicyProfile string                `json:"policy_profile"`
+	ExecMode      string                `json:"exec_mode"`
+	DeliverMode   string                `json:"deliver_mode,omitempty"`
+	Config        map[string]string     `json:"config"`
+	Termination   TerminationPayload    `json:"termination"`
+	Context       []ContextEntryPayload `json:"context,omitempty"` // Pre-packed context entries (Phase 5D)
 }
 
 // TerminationPayload carries the termination limits for a run.
@@ -133,4 +134,32 @@ type QualityGateResultPayload struct {
 	TestOutput  string `json:"test_output,omitempty"`
 	LintOutput  string `json:"lint_output,omitempty"`
 	Error       string `json:"error,omitempty"`
+}
+
+// --- Context payloads (Phase 5D) ---
+
+// ContextEntryPayload represents a single context entry in a NATS message.
+type ContextEntryPayload struct {
+	Kind     string `json:"kind"`
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Tokens   int    `json:"tokens"`
+	Priority int    `json:"priority"`
+}
+
+// ContextPackedPayload notifies the worker that a context pack is available for a run.
+type ContextPackedPayload struct {
+	RunID     string                `json:"run_id"`
+	TaskID    string                `json:"task_id"`
+	ProjectID string                `json:"project_id"`
+	Entries   []ContextEntryPayload `json:"entries"`
+}
+
+// SharedContextUpdatedPayload notifies that a team's shared context has changed.
+type SharedContextUpdatedPayload struct {
+	TeamID    string `json:"team_id"`
+	ProjectID string `json:"project_id,omitempty"`
+	Key       string `json:"key"`
+	Author    string `json:"author"`
+	Version   int    `json:"version"`
 }

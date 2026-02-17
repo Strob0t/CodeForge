@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -58,4 +59,17 @@ type Store interface {
 	UpdatePlanStepStatus(ctx context.Context, stepID string, status plan.StepStatus, runID string, errMsg string) error
 	GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error)
 	UpdatePlanStepRound(ctx context.Context, stepID string, round int) error
+
+	// Context Packs
+	CreateContextPack(ctx context.Context, pack *cfcontext.ContextPack) error
+	GetContextPack(ctx context.Context, id string) (*cfcontext.ContextPack, error)
+	GetContextPackByTask(ctx context.Context, taskID string) (*cfcontext.ContextPack, error)
+	DeleteContextPack(ctx context.Context, id string) error
+
+	// Shared Context
+	CreateSharedContext(ctx context.Context, sc *cfcontext.SharedContext) error
+	GetSharedContext(ctx context.Context, id string) (*cfcontext.SharedContext, error)
+	GetSharedContextByTeam(ctx context.Context, teamID string) (*cfcontext.SharedContext, error)
+	AddSharedContextItem(ctx context.Context, req cfcontext.AddSharedItemRequest) (*cfcontext.SharedContextItem, error)
+	DeleteSharedContext(ctx context.Context, id string) error
 }

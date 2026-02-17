@@ -7,6 +7,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -203,6 +204,33 @@ func (m *mockStore) UpdateTeamStatus(_ context.Context, _ string, _ agent.TeamSt
 	return nil
 }
 func (m *mockStore) DeleteTeam(_ context.Context, _ string) error { return nil }
+
+// Context Pack stubs
+func (m *mockStore) CreateContextPack(_ context.Context, _ *cfcontext.ContextPack) error {
+	return nil
+}
+func (m *mockStore) GetContextPack(_ context.Context, _ string) (*cfcontext.ContextPack, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) GetContextPackByTask(_ context.Context, _ string) (*cfcontext.ContextPack, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) DeleteContextPack(_ context.Context, _ string) error { return nil }
+
+// Shared Context stubs
+func (m *mockStore) CreateSharedContext(_ context.Context, _ *cfcontext.SharedContext) error {
+	return nil
+}
+func (m *mockStore) GetSharedContext(_ context.Context, _ string) (*cfcontext.SharedContext, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) GetSharedContextByTeam(_ context.Context, _ string) (*cfcontext.SharedContext, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) AddSharedContextItem(_ context.Context, _ cfcontext.AddSharedItemRequest) (*cfcontext.SharedContextItem, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) DeleteSharedContext(_ context.Context, _ string) error { return nil }
 
 // --- ProjectService Tests ---
 

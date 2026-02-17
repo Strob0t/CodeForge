@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -246,6 +247,33 @@ func (m *mockStore) UpdateTeamStatus(_ context.Context, _ string, _ agent.TeamSt
 }
 func (m *mockStore) DeleteTeam(_ context.Context, _ string) error { return nil }
 
+// Context Pack stubs
+func (m *mockStore) CreateContextPack(_ context.Context, _ *cfcontext.ContextPack) error {
+	return nil
+}
+func (m *mockStore) GetContextPack(_ context.Context, _ string) (*cfcontext.ContextPack, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) GetContextPackByTask(_ context.Context, _ string) (*cfcontext.ContextPack, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) DeleteContextPack(_ context.Context, _ string) error { return nil }
+
+// Shared Context stubs
+func (m *mockStore) CreateSharedContext(_ context.Context, _ *cfcontext.SharedContext) error {
+	return nil
+}
+func (m *mockStore) GetSharedContext(_ context.Context, _ string) (*cfcontext.SharedContext, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) GetSharedContextByTeam(_ context.Context, _ string) (*cfcontext.SharedContext, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) AddSharedContextItem(_ context.Context, _ cfcontext.AddSharedItemRequest) (*cfcontext.SharedContextItem, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) DeleteSharedContext(_ context.Context, _ string) error { return nil }
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -295,17 +323,21 @@ func newTestRouter() chi.Router {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg)
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
+	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	handlers := &cfhttp.Handlers{
-		Projects:     service.NewProjectService(store),
-		Tasks:        service.NewTaskService(store, queue),
-		Agents:       service.NewAgentService(store, queue, bc),
-		LiteLLM:      litellm.NewClient("http://localhost:4000", ""),
-		Policies:     policySvc,
-		Runtime:      runtimeSvc,
-		Orchestrator: orchSvc,
-		MetaAgent:    metaAgentSvc,
-		PoolManager:  poolManagerSvc,
-		TaskPlanner:  taskPlannerSvc,
+		Projects:         service.NewProjectService(store),
+		Tasks:            service.NewTaskService(store, queue),
+		Agents:           service.NewAgentService(store, queue, bc),
+		LiteLLM:          litellm.NewClient("http://localhost:4000", ""),
+		Policies:         policySvc,
+		Runtime:          runtimeSvc,
+		Orchestrator:     orchSvc,
+		MetaAgent:        metaAgentSvc,
+		PoolManager:      poolManagerSvc,
+		TaskPlanner:      taskPlannerSvc,
+		ContextOptimizer: contextOptSvc,
+		SharedContext:    sharedCtxSvc,
 	}
 
 	r := chi.NewRouter()

@@ -1,11 +1,13 @@
 import type {
   AddModelRequest,
+  AddSharedItemRequest,
   Agent,
   AgentEvent,
   AgentTeam,
   ApiError,
   BackendList,
   Branch,
+  ContextPack,
   CreateAgentRequest,
   CreatePlanRequest,
   CreateProjectRequest,
@@ -20,6 +22,8 @@ import type {
   Project,
   ProviderList,
   Run,
+  SharedContext,
+  SharedContextItem,
   StartRunRequest,
   Task,
 } from "./types";
@@ -145,6 +149,15 @@ export const api = {
 
     events: (taskId: string) =>
       request<AgentEvent[]>(`/tasks/${encodeURIComponent(taskId)}/events`),
+
+    context: (taskId: string) =>
+      request<ContextPack>(`/tasks/${encodeURIComponent(taskId)}/context`),
+
+    buildContext: (taskId: string, projectId: string, teamId?: string) =>
+      request<ContextPack>(`/tasks/${encodeURIComponent(taskId)}/context`, {
+        method: "POST",
+        body: JSON.stringify({ project_id: projectId, team_id: teamId ?? "" }),
+      }),
   },
 
   llm: {
@@ -194,6 +207,15 @@ export const api = {
       }),
 
     delete: (id: string) => request<void>(`/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    sharedContext: (teamId: string) =>
+      request<SharedContext>(`/teams/${encodeURIComponent(teamId)}/shared-context`),
+
+    addSharedItem: (teamId: string, data: AddSharedItemRequest) =>
+      request<SharedContextItem>(`/teams/${encodeURIComponent(teamId)}/shared-context`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
 
   plans: {

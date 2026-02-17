@@ -52,6 +52,16 @@ class TerminationConfig(BaseModel):
     max_cost: float = 5.0
 
 
+class ContextEntry(BaseModel):
+    """A single context entry delivered with a run start message (Phase 5D)."""
+
+    kind: str = "file"
+    path: str = ""
+    content: str = ""
+    tokens: int = 0
+    priority: int = 50
+
+
 class RunStartMessage(BaseModel):
     """Message received from NATS when a run is started."""
 
@@ -64,6 +74,7 @@ class RunStartMessage(BaseModel):
     exec_mode: str = "mount"
     config: dict[str, str] = Field(default_factory=dict)
     termination: TerminationConfig = Field(default_factory=TerminationConfig)
+    context: list[ContextEntry] = Field(default_factory=list)
 
 
 class ToolCallDecision(BaseModel):

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codeforge.consumer import TaskConsumer
-from codeforge.models import TaskMessage, TaskResult, TaskStatus
+from codeforge.models import ContextEntry, RunStartMessage, TaskMessage, TaskResult, TaskStatus
 
 
 @pytest.fixture
@@ -126,3 +126,66 @@ async def test_handle_message_request_id_propagated(consumer: TaskConsumer) -> N
     # The output publish should include headers with the request ID
     output_call = consumer._js.publish.call_args_list[0]
     assert output_call.kwargs.get("headers") == {"X-Request-ID": "req-propagated-456"}
+
+
+async def test_handle_run_start_with_context(consumer: TaskConsumer) -> None:
+    """_handle_run_start should enrich the prompt with context entries."""
+    run_msg = RunStartMessage(
+        run_id="run-1",
+        task_id="task-1",
+        project_id="proj-1",
+        agent_id="agent-1",
+        prompt="Fix the login bug",
+        context=[
+            ContextEntry(kind="file", path="src/auth.py", content="def login(): pass", tokens=5, priority=80),
+            ContextEntry(kind="shared", path="", content="step-1 completed OK", tokens=5, priority=90),
+        ],
+    )
+    msg = MagicMock()
+    msg.data = run_msg.model_dump_json().encode()
+    msg.headers = None
+    msg.ack = AsyncMock()
+    msg.nak = AsyncMock()
+
+    consumer._js = AsyncMock()
+    consumer._executor = MagicMock()
+    consumer._executor.execute_with_runtime = AsyncMock()
+
+    await consumer._handle_run_start(msg)
+
+    # Verify executor was called with enriched prompt
+    call_args = consumer._executor.execute_with_runtime.call_args
+    task_arg = call_args.args[0]
+    assert "--- Relevant Context ---" in task_arg.prompt
+    assert "src/auth.py" in task_arg.prompt
+    assert "def login(): pass" in task_arg.prompt
+    assert "step-1 completed OK" in task_arg.prompt
+    msg.ack.assert_called_once()
+
+
+async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
+    """_handle_run_start should use raw prompt when no context entries present."""
+    run_msg = RunStartMessage(
+        run_id="run-2",
+        task_id="task-2",
+        project_id="proj-1",
+        agent_id="agent-1",
+        prompt="Refactor utils module",
+    )
+    msg = MagicMock()
+    msg.data = run_msg.model_dump_json().encode()
+    msg.headers = None
+    msg.ack = AsyncMock()
+    msg.nak = AsyncMock()
+
+    consumer._js = AsyncMock()
+    consumer._executor = MagicMock()
+    consumer._executor.execute_with_runtime = AsyncMock()
+
+    await consumer._handle_run_start(msg)
+
+    call_args = consumer._executor.execute_with_runtime.call_args
+    task_arg = call_args.args[0]
+    assert task_arg.prompt == "Refactor utils module"
+    assert "--- Relevant Context ---" not in task_arg.prompt
+    msg.ack.assert_called_once()

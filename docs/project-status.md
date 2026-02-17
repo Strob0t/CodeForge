@@ -328,3 +328,54 @@
 - **Modified files:** 9 Go (store.go, postgres/store.go, decompose.go, config.go, loader.go, handlers.go, routes.go, main.go, 4 test files for mock updates), 2 Frontend (types.ts, client.ts), 1 Config (codeforge.yaml.example)
 - **API:** 5 new REST endpoints (team CRUD + plan-feature)
 - **Tests:** 19 new test functions (8 domain + 8 pool manager + 3 task planner), all Go tests pass
+
+### 5D. Context Optimizer — ContextPack, SharedContext, Token Budget (COMPLETED)
+
+- [x] (2026-02-17) ContextPack domain model: `internal/domain/context/pack.go`
+  - ContextPack, ContextEntry, EntryKind (file/snippet/summary/shared)
+  - Validation: TaskID + ProjectID required, budget > 0, entries non-empty, valid kind
+  - EstimateTokens heuristic: `len(s) / 4` (1 token ≈ 4 chars)
+  - 8 domain tests in `internal/domain/context/pack_test.go`
+- [x] (2026-02-17) SharedContext domain model: `internal/domain/context/shared.go`
+  - SharedContext, SharedContextItem, AddSharedItemRequest
+  - Versioned with optimistic locking, per-team unique shared context
+  - 6 domain tests in `internal/domain/context/shared_test.go`
+- [x] (2026-02-17) Database: migration 009_create_context_packs.sql
+  - 4 tables: context_packs, context_entries, shared_contexts, shared_context_items
+  - Indexes, unique constraints, CASCADE deletes, updated_at trigger
+- [x] (2026-02-17) Config extension: `default_context_budget` (4096), `prompt_reserve` (1024)
+  - ENV overrides: CODEFORGE_ORCH_CONTEXT_BUDGET, CODEFORGE_ORCH_PROMPT_RESERVE
+- [x] (2026-02-17) Store interface: 9 new methods (ContextPack CRUD + SharedContext CRUD)
+- [x] (2026-02-17) Postgres adapter: transactional CreateContextPack, upsert AddSharedContextItem with version bump
+- [x] (2026-02-17) ContextOptimizerService: `internal/service/context_optimizer.go`
+  - BuildContextPack: scan workspace → keyword scoring → shared context injection → budget packing → persist
+  - ScoreFileRelevance: keyword-matching scorer (0-100)
+  - GetPackByTask: retrieve existing pack for HTTP API
+  - 6 service tests in `internal/service/context_optimizer_test.go`
+- [x] (2026-02-17) SharedContextService: `internal/service/shared_context.go`
+  - InitForTeam, AddItem (with NATS notification), Get
+  - 4 service tests in `internal/service/shared_context_test.go`
+- [x] (2026-02-17) NATS: 2 new subjects (context.packed, context.shared.updated)
+  - 3 new payload types: ContextEntryPayload, ContextPackedPayload, SharedContextUpdatedPayload
+  - RunStartPayload extended with Context field for pre-packed context delivery
+- [x] (2026-02-17) RuntimeService integration: context pack auto-built before run start
+  - toContextEntryPayloads helper, non-fatal error handling (run proceeds without context on failure)
+- [x] (2026-02-17) Python worker: ContextEntry model, RunStartMessage.context field
+  - Consumer enriches prompt with context section (--- Relevant Context ---)
+  - 2 new Python tests (with context + without context)
+- [x] (2026-02-17) REST API: 4 new endpoints
+  - `GET /api/v1/tasks/{id}/context` — get context pack for task
+  - `POST /api/v1/tasks/{id}/context` — build context pack
+  - `GET /api/v1/teams/{id}/shared-context` — get team shared context
+  - `POST /api/v1/teams/{id}/shared-context` — add shared context item
+- [x] (2026-02-17) Composition root: ContextOptimizerService + SharedContextService wired in main.go
+  - RuntimeService.SetContextOptimizer injected for automatic context packing
+- [x] (2026-02-17) Frontend: context types (ContextPack, ContextEntry, SharedContext, SharedContextItem)
+  - API client: tasks.context/buildContext + teams.sharedContext/addSharedItem
+
+### Phase 5D Key Deliverables
+- **New files:** 9 Go (pack.go, pack_test.go, shared.go, shared_test.go, 009 migration, context_optimizer.go, context_optimizer_test.go, shared_context.go, shared_context_test.go)
+- **Modified files:** 11 Go (store.go, postgres/store.go, config.go, loader.go, queue.go, schemas.go, runtime.go, handlers.go, routes.go, main.go, 3 test files), 2 Python (models.py, consumer.py), 1 Python test (test_consumer.py), 2 Frontend (types.ts, client.ts)
+- **API:** 4 new REST endpoints (task context + shared context)
+- **Protocol:** Context-enriched RunStartPayload, NATS context subjects
+- **Tests:** 26+ new test functions (14 domain + 10 service + 2 Python), all passing

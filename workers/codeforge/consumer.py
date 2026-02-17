@@ -176,12 +176,21 @@ class TaskConsumer:
             )
             await runtime.start_cancel_listener()
 
+            # Enrich prompt with pre-packed context entries (Phase 5D)
+            enriched_prompt = run_msg.prompt
+            if run_msg.context:
+                context_section = "\n\n--- Relevant Context ---\n"
+                for entry in run_msg.context:
+                    context_section += f"\n### {entry.kind}: {entry.path}\n{entry.content}\n"
+                enriched_prompt = run_msg.prompt + context_section
+                log.info("context injected", entries=len(run_msg.context))
+
             # Convert to TaskMessage for executor compatibility
             task = TaskMessage(
                 id=run_msg.task_id,
                 project_id=run_msg.project_id,
                 title=run_msg.prompt[:80],
-                prompt=run_msg.prompt,
+                prompt=enriched_prompt,
                 config=run_msg.config,
             )
 

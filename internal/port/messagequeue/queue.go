@@ -48,4 +48,8 @@ const (
 	// Quality gate subjects (Phase 4C)
 	SubjectQualityGateRequest = "runs.qualitygate.request" // Go → Python: run tests/lint
 	SubjectQualityGateResult  = "runs.qualitygate.result"  // Python → Go: gate outcome
+
+	// Context subjects (Phase 5D)
+	SubjectContextPacked = "context.packed"         // Go → Python: context pack ready for run
+	SubjectSharedUpdated = "context.shared.updated" // Go → all: shared context changed
 )

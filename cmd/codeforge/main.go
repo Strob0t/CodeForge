@@ -160,17 +160,28 @@ func run() error {
 		"max_team_size", cfg.Orchestrator.MaxTeamSize,
 	)
 
+	// --- Context Optimizer + Shared Context (Phase 5D) ---
+	contextOptSvc := service.NewContextOptimizerService(store, &cfg.Orchestrator)
+	sharedCtxSvc := service.NewSharedContextService(store, hub, queue)
+	runtimeSvc.SetContextOptimizer(contextOptSvc)
+	slog.Info("context optimizer and shared context initialized",
+		"default_budget", cfg.Orchestrator.DefaultContextBudget,
+		"prompt_reserve", cfg.Orchestrator.PromptReserve,
+	)
+
 	handlers := &cfhttp.Handlers{
-		Projects:     projectSvc,
-		Tasks:        taskSvc,
-		Agents:       agentSvc,
-		LiteLLM:      llmClient,
-		Policies:     policySvc,
-		Runtime:      runtimeSvc,
-		Orchestrator: orchSvc,
-		MetaAgent:    metaAgentSvc,
-		PoolManager:  poolManagerSvc,
-		TaskPlanner:  taskPlannerSvc,
+		Projects:         projectSvc,
+		Tasks:            taskSvc,
+		Agents:           agentSvc,
+		LiteLLM:          llmClient,
+		Policies:         policySvc,
+		Runtime:          runtimeSvc,
+		Orchestrator:     orchSvc,
+		MetaAgent:        metaAgentSvc,
+		PoolManager:      poolManagerSvc,
+		TaskPlanner:      taskPlannerSvc,
+		ContextOptimizer: contextOptSvc,
+		SharedContext:    sharedCtxSvc,
 	}
 
 	r := chi.NewRouter()

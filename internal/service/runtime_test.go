@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -26,12 +27,14 @@ import (
 var errMockNotFound = fmt.Errorf("mock: %w", domain.ErrNotFound)
 
 type runtimeMockStore struct {
-	mu       sync.Mutex
-	projects []project.Project
-	agents   []agent.Agent
-	tasks    []task.Task
-	runs     []run.Run
-	teams    []agent.Team
+	mu             sync.Mutex
+	projects       []project.Project
+	agents         []agent.Agent
+	tasks          []task.Task
+	runs           []run.Run
+	teams          []agent.Team
+	contextPacks   []cfcontext.ContextPack
+	sharedContexts []cfcontext.SharedContext
 }
 
 func (m *runtimeMockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -266,6 +269,128 @@ func (m *runtimeMockStore) DeleteTeam(_ context.Context, id string) error {
 	for i := range m.teams {
 		if m.teams[i].ID == id {
 			m.teams = append(m.teams[:i], m.teams[i+1:]...)
+			return nil
+		}
+	}
+	return errMockNotFound
+}
+
+// --- Context Pack mocks ---
+
+func (m *runtimeMockStore) CreateContextPack(_ context.Context, pack *cfcontext.ContextPack) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pack.ID = fmt.Sprintf("cp-%d", len(m.contextPacks)+1)
+	pack.CreatedAt = time.Now()
+	for i := range pack.Entries {
+		pack.Entries[i].ID = fmt.Sprintf("ce-%d-%d", len(m.contextPacks)+1, i)
+		pack.Entries[i].PackID = pack.ID
+	}
+	m.contextPacks = append(m.contextPacks, *pack)
+	return nil
+}
+
+func (m *runtimeMockStore) GetContextPack(_ context.Context, id string) (*cfcontext.ContextPack, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.contextPacks {
+		if m.contextPacks[i].ID == id {
+			cp := m.contextPacks[i]
+			return &cp, nil
+		}
+	}
+	return nil, errMockNotFound
+}
+
+func (m *runtimeMockStore) GetContextPackByTask(_ context.Context, taskID string) (*cfcontext.ContextPack, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := len(m.contextPacks) - 1; i >= 0; i-- {
+		if m.contextPacks[i].TaskID == taskID {
+			cp := m.contextPacks[i]
+			return &cp, nil
+		}
+	}
+	return nil, errMockNotFound
+}
+
+func (m *runtimeMockStore) DeleteContextPack(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.contextPacks {
+		if m.contextPacks[i].ID == id {
+			m.contextPacks = append(m.contextPacks[:i], m.contextPacks[i+1:]...)
+			return nil
+		}
+	}
+	return errMockNotFound
+}
+
+// --- Shared Context mocks ---
+
+func (m *runtimeMockStore) CreateSharedContext(_ context.Context, sc *cfcontext.SharedContext) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sc.ID = fmt.Sprintf("sc-%d", len(m.sharedContexts)+1)
+	sc.Version = 1
+	sc.CreatedAt = time.Now()
+	sc.UpdatedAt = sc.CreatedAt
+	m.sharedContexts = append(m.sharedContexts, *sc)
+	return nil
+}
+
+func (m *runtimeMockStore) GetSharedContext(_ context.Context, id string) (*cfcontext.SharedContext, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sharedContexts {
+		if m.sharedContexts[i].ID == id {
+			sc := m.sharedContexts[i]
+			return &sc, nil
+		}
+	}
+	return nil, errMockNotFound
+}
+
+func (m *runtimeMockStore) GetSharedContextByTeam(_ context.Context, teamID string) (*cfcontext.SharedContext, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sharedContexts {
+		if m.sharedContexts[i].TeamID == teamID {
+			sc := m.sharedContexts[i]
+			return &sc, nil
+		}
+	}
+	return nil, errMockNotFound
+}
+
+func (m *runtimeMockStore) AddSharedContextItem(_ context.Context, req cfcontext.AddSharedItemRequest) (*cfcontext.SharedContextItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sharedContexts {
+		if m.sharedContexts[i].TeamID == req.TeamID {
+			item := cfcontext.SharedContextItem{
+				ID:        fmt.Sprintf("sci-%d-%d", i, len(m.sharedContexts[i].Items)),
+				SharedID:  m.sharedContexts[i].ID,
+				Key:       req.Key,
+				Value:     req.Value,
+				Author:    req.Author,
+				Tokens:    cfcontext.EstimateTokens(req.Value),
+				CreatedAt: time.Now(),
+			}
+			m.sharedContexts[i].Items = append(m.sharedContexts[i].Items, item)
+			m.sharedContexts[i].Version++
+			return &item, nil
+		}
+	}
+	return nil, errMockNotFound
+}
+
+func (m *runtimeMockStore) DeleteSharedContext(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sharedContexts {
+		if m.sharedContexts[i].ID == id {
+			m.sharedContexts = append(m.sharedContexts[:i], m.sharedContexts[i+1:]...)
 			return nil
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -24,16 +25,18 @@ import (
 
 // Handlers holds the HTTP handler dependencies.
 type Handlers struct {
-	Projects     *service.ProjectService
-	Tasks        *service.TaskService
-	Agents       *service.AgentService
-	LiteLLM      *litellm.Client
-	Policies     *service.PolicyService
-	Runtime      *service.RuntimeService
-	Orchestrator *service.OrchestratorService
-	MetaAgent    *service.MetaAgentService
-	PoolManager  *service.PoolManagerService
-	TaskPlanner  *service.TaskPlannerService
+	Projects         *service.ProjectService
+	Tasks            *service.TaskService
+	Agents           *service.AgentService
+	LiteLLM          *litellm.Client
+	Policies         *service.PolicyService
+	Runtime          *service.RuntimeService
+	Orchestrator     *service.OrchestratorService
+	MetaAgent        *service.MetaAgentService
+	PoolManager      *service.PoolManagerService
+	TaskPlanner      *service.TaskPlannerService
+	ContextOptimizer *service.ContextOptimizerService
+	SharedContext    *service.SharedContextService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -676,6 +679,76 @@ func (h *Handlers) PlanFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
+}
+
+// --- Context Pack Endpoints ---
+
+// GetContextPack handles GET /api/v1/tasks/{id}/context
+func (h *Handlers) GetContextPack(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+	pack, err := h.ContextOptimizer.GetPackByTask(r.Context(), taskID)
+	if err != nil {
+		writeDomainError(w, err, "context pack not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, pack)
+}
+
+// BuildContextPack handles POST /api/v1/tasks/{id}/context
+func (h *Handlers) BuildContextPack(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+
+	var req struct {
+		ProjectID string `json:"project_id"`
+		TeamID    string `json:"team_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ProjectID == "" {
+		writeError(w, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	pack, err := h.ContextOptimizer.BuildContextPack(r.Context(), taskID, req.ProjectID, req.TeamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, pack)
+}
+
+// --- Shared Context Endpoints ---
+
+// GetSharedContext handles GET /api/v1/teams/{id}/shared-context
+func (h *Handlers) GetSharedContext(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "id")
+	sc, err := h.SharedContext.Get(r.Context(), teamID)
+	if err != nil {
+		writeDomainError(w, err, "shared context not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, sc)
+}
+
+// AddSharedContextItem handles POST /api/v1/teams/{id}/shared-context
+func (h *Handlers) AddSharedContextItem(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "id")
+
+	var req cfcontext.AddSharedItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.TeamID = teamID
+
+	item, err := h.SharedContext.AddItem(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
 }
 
 // --- Helpers ---

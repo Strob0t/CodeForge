@@ -46,6 +46,8 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/tasks/{id}", h.GetTask)
 		r.Get("/tasks/{id}/events", h.ListTaskEvents)
 		r.Get("/tasks/{id}/runs", h.ListTaskRuns)
+		r.Get("/tasks/{id}/context", h.GetContextPack)
+		r.Post("/tasks/{id}/context", h.BuildContextPack)
 
 		// Runs
 		r.Post("/runs", h.StartRun)
@@ -89,5 +91,9 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// Agent Teams (direct access)
 		r.Get("/teams/{id}", h.GetTeam)
 		r.Delete("/teams/{id}", h.DeleteTeam)
+
+		// Shared Context (nested under teams)
+		r.Get("/teams/{id}/shared-context", h.GetSharedContext)
+		r.Post("/teams/{id}/shared-context", h.AddSharedContextItem)
 	})
 }

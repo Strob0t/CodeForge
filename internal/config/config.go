@@ -20,13 +20,15 @@ type Config struct {
 
 // Orchestrator holds multi-agent execution plan configuration.
 type Orchestrator struct {
-	MaxParallel        int    `yaml:"max_parallel"`         // Max concurrent steps (default: 4)
-	PingPongMaxRounds  int    `yaml:"ping_pong_max_rounds"` // Max rounds per step in ping_pong (default: 3)
-	ConsensusQuorum    int    `yaml:"consensus_quorum"`     // Required successes; 0 = majority (default: 0)
-	Mode               string `yaml:"mode"`                 // "manual" | "semi_auto" | "full_auto" (default: "semi_auto")
-	DecomposeModel     string `yaml:"decompose_model"`      // LLM model for decomposition (default: "openai/gpt-4o-mini")
-	DecomposeMaxTokens int    `yaml:"decompose_max_tokens"` // Max tokens for decomposition response (default: 4096)
-	MaxTeamSize        int    `yaml:"max_team_size"`        // Max agents per team (default: 5)
+	MaxParallel          int    `yaml:"max_parallel"`           // Max concurrent steps (default: 4)
+	PingPongMaxRounds    int    `yaml:"ping_pong_max_rounds"`   // Max rounds per step in ping_pong (default: 3)
+	ConsensusQuorum      int    `yaml:"consensus_quorum"`       // Required successes; 0 = majority (default: 0)
+	Mode                 string `yaml:"mode"`                   // "manual" | "semi_auto" | "full_auto" (default: "semi_auto")
+	DecomposeModel       string `yaml:"decompose_model"`        // LLM model for decomposition (default: "openai/gpt-4o-mini")
+	DecomposeMaxTokens   int    `yaml:"decompose_max_tokens"`   // Max tokens for decomposition response (default: 4096)
+	MaxTeamSize          int    `yaml:"max_team_size"`          // Max agents per team (default: 5)
+	DefaultContextBudget int    `yaml:"default_context_budget"` // Default token budget per task context (default: 4096)
+	PromptReserve        int    `yaml:"prompt_reserve"`         // Tokens reserved for prompt+output (default: 1024)
 }
 
 // Runtime holds agent execution engine configuration.
@@ -135,13 +137,15 @@ func Defaults() Config {
 			DeliveryCommitPrefix: "codeforge:",
 		},
 		Orchestrator: Orchestrator{
-			MaxParallel:        4,
-			PingPongMaxRounds:  3,
-			ConsensusQuorum:    0,
-			Mode:               "semi_auto",
-			DecomposeModel:     "openai/gpt-4o-mini",
-			DecomposeMaxTokens: 4096,
-			MaxTeamSize:        5,
+			MaxParallel:          4,
+			PingPongMaxRounds:    3,
+			ConsensusQuorum:      0,
+			Mode:                 "semi_auto",
+			DecomposeModel:       "openai/gpt-4o-mini",
+			DecomposeMaxTokens:   4096,
+			MaxTeamSize:          5,
+			DefaultContextBudget: 4096,
+			PromptReserve:        1024,
 		},
 	}
 }

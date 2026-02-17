@@ -11,6 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -31,6 +32,7 @@ type RuntimeService struct {
 	events        eventstore.Store
 	policy        *PolicyService
 	deliver       *DeliverService
+	contextOpt    *ContextOptimizerService
 	onRunComplete func(ctx context.Context, runID string, status run.Status)
 	runtimeCfg    *config.Runtime
 	stallTrackers sync.Map // map[runID]*run.StallTracker
@@ -58,6 +60,11 @@ func NewRuntimeService(
 // SetDeliverService sets the delivery service for post-run delivery.
 func (s *RuntimeService) SetDeliverService(d *DeliverService) {
 	s.deliver = d
+}
+
+// SetContextOptimizer sets the context optimizer for building context packs before runs.
+func (s *RuntimeService) SetContextOptimizer(co *ContextOptimizerService) {
+	s.contextOpt = co
 }
 
 // SetOnRunComplete registers a callback invoked after a run reaches a terminal state.
@@ -159,6 +166,17 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 			MaxCost:        profile.Termination.MaxCost,
 		},
 	}
+
+	// Build context pack if context optimizer is available.
+	if s.contextOpt != nil {
+		pack, packErr := s.contextOpt.BuildContextPack(ctx, req.TaskID, req.ProjectID, "")
+		if packErr != nil {
+			slog.Warn("context pack build failed", "run_id", r.ID, "error", packErr)
+		} else if pack != nil && len(pack.Entries) > 0 {
+			payload.Context = toContextEntryPayloads(pack.Entries)
+		}
+	}
+
 	if err := s.publishJSON(ctx, messagequeue.SubjectRunStart, payload); err != nil {
 		return nil, fmt.Errorf("publish run start: %w", err)
 	}
@@ -801,6 +819,21 @@ func (s *RuntimeService) appendRunEvent(ctx context.Context, evType event.Type, 
 	if err := s.events.Append(ctx, &ev); err != nil {
 		slog.Error("failed to append run event", "type", evType, "run_id", r.ID, "error", err)
 	}
+}
+
+// toContextEntryPayloads converts domain context entries to NATS payload entries.
+func toContextEntryPayloads(entries []cfcontext.ContextEntry) []messagequeue.ContextEntryPayload {
+	out := make([]messagequeue.ContextEntryPayload, len(entries))
+	for i, e := range entries {
+		out[i] = messagequeue.ContextEntryPayload{
+			Kind:     string(e.Kind),
+			Path:     e.Path,
+			Content:  e.Content,
+			Tokens:   e.Tokens,
+			Priority: e.Priority,
+		}
+	}
+	return out
 }
 
 func cancelAll(fns []func()) {

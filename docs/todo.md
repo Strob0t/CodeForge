@@ -338,18 +338,21 @@
   - 3 service tests
 - [x] (2026-02-17) REST API: 5 new endpoints (team CRUD + plan-feature)
 - [x] (2026-02-17) Frontend: team types, API client (teams namespace + planFeature)
-- [ ] SharedContext: files (versioned), artifacts, decisions, conversation (deferred to 5D+)
-- [ ] NATS message bus for inter-team communication (deferred to 5D+)
+- [x] (2026-02-17) SharedContext: versioned team-level shared state (done in 5D)
+- [x] (2026-02-17) NATS message bus for context updates (done in 5D)
 
-### 5D. Context Optimizer
+### 5D. Context Optimizer (COMPLETED)
 
-- [ ] Token budget management per task
-  - Estimate tokens needed for each file set
-  - Split tasks that exceed context window
-  - Prioritize most relevant files (by dependency graph)
-- [ ] Context packing as structured artifacts
-  - Store Context Packs in session events (not ad-hoc text)
-  - Reproducible retrieval via schema/artifact
+- [x] (2026-02-17) Token budget management per task
+  - ContextPack domain model with token budget + entries
+  - EstimateTokens heuristic (len/4), ScoreFileRelevance keyword matching
+  - Configurable budget (default_context_budget) and prompt reserve
+- [x] (2026-02-17) Context packing as structured artifacts
+  - ContextOptimizerService: scan workspace → score → pack within budget → persist
+  - SharedContextService: team-level shared state with NATS notifications
+  - Pre-packed context injected into RunStartPayload for Python workers
+  - 4 new REST endpoints (task context CRUD, shared context CRUD)
+  - 26+ new test functions (Go domain + service + Python), all passing
 
 ---
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -739,4 +740,248 @@ func scanPlanStep(row scannable) (plan.Step, error) {
 		st.RunID = *runID
 	}
 	return st, err
+}
+
+// --- Context Packs ---
+
+// CreateContextPack inserts a context pack and its entries in a transaction.
+func (s *Store) CreateContextPack(ctx context.Context, pack *cfcontext.ContextPack) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	err = tx.QueryRow(ctx,
+		`INSERT INTO context_packs (task_id, project_id, token_budget, tokens_used)
+		 VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+		pack.TaskID, pack.ProjectID, pack.TokenBudget, pack.TokensUsed,
+	).Scan(&pack.ID, &pack.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert context_pack: %w", err)
+	}
+
+	for i := range pack.Entries {
+		e := &pack.Entries[i]
+		e.PackID = pack.ID
+		err = tx.QueryRow(ctx,
+			`INSERT INTO context_entries (pack_id, kind, path, content, tokens, priority)
+			 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			e.PackID, e.Kind, e.Path, e.Content, e.Tokens, e.Priority,
+		).Scan(&e.ID)
+		if err != nil {
+			return fmt.Errorf("insert context_entry %d: %w", i, err)
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// GetContextPack returns a context pack by ID with all entries.
+func (s *Store) GetContextPack(ctx context.Context, id string) (*cfcontext.ContextPack, error) {
+	var p cfcontext.ContextPack
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, task_id, project_id, token_budget, tokens_used, created_at
+		 FROM context_packs WHERE id = $1`, id,
+	).Scan(&p.ID, &p.TaskID, &p.ProjectID, &p.TokenBudget, &p.TokensUsed, &p.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get context_pack: %w", err)
+	}
+
+	entries, err := s.loadContextEntries(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	p.Entries = entries
+	return &p, nil
+}
+
+// GetContextPackByTask returns the context pack for a task.
+func (s *Store) GetContextPackByTask(ctx context.Context, taskID string) (*cfcontext.ContextPack, error) {
+	var p cfcontext.ContextPack
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, task_id, project_id, token_budget, tokens_used, created_at
+		 FROM context_packs WHERE task_id = $1 ORDER BY created_at DESC LIMIT 1`, taskID,
+	).Scan(&p.ID, &p.TaskID, &p.ProjectID, &p.TokenBudget, &p.TokensUsed, &p.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get context_pack by task: %w", err)
+	}
+
+	entries, err := s.loadContextEntries(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	p.Entries = entries
+	return &p, nil
+}
+
+// DeleteContextPack removes a context pack and its entries (CASCADE).
+func (s *Store) DeleteContextPack(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM context_packs WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete context_pack: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) loadContextEntries(ctx context.Context, packID string) ([]cfcontext.ContextEntry, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, pack_id, kind, path, content, tokens, priority
+		 FROM context_entries WHERE pack_id = $1 ORDER BY priority DESC`, packID)
+	if err != nil {
+		return nil, fmt.Errorf("load context_entries: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []cfcontext.ContextEntry
+	for rows.Next() {
+		var e cfcontext.ContextEntry
+		if err := rows.Scan(&e.ID, &e.PackID, &e.Kind, &e.Path, &e.Content, &e.Tokens, &e.Priority); err != nil {
+			return nil, fmt.Errorf("scan context_entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// --- Shared Context ---
+
+// CreateSharedContext inserts a new shared context for a team.
+func (s *Store) CreateSharedContext(ctx context.Context, sc *cfcontext.SharedContext) error {
+	return s.pool.QueryRow(ctx,
+		`INSERT INTO shared_contexts (team_id, project_id) VALUES ($1, $2)
+		 RETURNING id, version, created_at, updated_at`,
+		sc.TeamID, sc.ProjectID,
+	).Scan(&sc.ID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
+}
+
+// GetSharedContext returns a shared context by ID with all items.
+func (s *Store) GetSharedContext(ctx context.Context, id string) (*cfcontext.SharedContext, error) {
+	var sc cfcontext.SharedContext
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, team_id, project_id, version, created_at, updated_at
+		 FROM shared_contexts WHERE id = $1`, id,
+	).Scan(&sc.ID, &sc.TeamID, &sc.ProjectID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get shared_context: %w", err)
+	}
+
+	items, err := s.loadSharedContextItems(ctx, sc.ID)
+	if err != nil {
+		return nil, err
+	}
+	sc.Items = items
+	return &sc, nil
+}
+
+// GetSharedContextByTeam returns the shared context for a team.
+func (s *Store) GetSharedContextByTeam(ctx context.Context, teamID string) (*cfcontext.SharedContext, error) {
+	var sc cfcontext.SharedContext
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, team_id, project_id, version, created_at, updated_at
+		 FROM shared_contexts WHERE team_id = $1`, teamID,
+	).Scan(&sc.ID, &sc.TeamID, &sc.ProjectID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get shared_context by team: %w", err)
+	}
+
+	items, err := s.loadSharedContextItems(ctx, sc.ID)
+	if err != nil {
+		return nil, err
+	}
+	sc.Items = items
+	return &sc, nil
+}
+
+// AddSharedContextItem inserts a new item and bumps the shared context version.
+func (s *Store) AddSharedContextItem(ctx context.Context, req cfcontext.AddSharedItemRequest) (*cfcontext.SharedContextItem, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	// Resolve shared context ID from team ID.
+	var sharedID string
+	err = tx.QueryRow(ctx,
+		`SELECT id FROM shared_contexts WHERE team_id = $1`, req.TeamID,
+	).Scan(&sharedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("resolve shared_context: %w", err)
+	}
+
+	tokens := cfcontext.EstimateTokens(req.Value)
+	var item cfcontext.SharedContextItem
+	err = tx.QueryRow(ctx,
+		`INSERT INTO shared_context_items (shared_id, key, value, author, tokens)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (shared_id, key) DO UPDATE SET value = EXCLUDED.value, author = EXCLUDED.author, tokens = EXCLUDED.tokens
+		 RETURNING id, shared_id, key, value, author, tokens, created_at`,
+		sharedID, req.Key, req.Value, req.Author, tokens,
+	).Scan(&item.ID, &item.SharedID, &item.Key, &item.Value, &item.Author, &item.Tokens, &item.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("upsert shared_context_item: %w", err)
+	}
+
+	// Bump version.
+	if _, err := tx.Exec(ctx,
+		`UPDATE shared_contexts SET version = version + 1 WHERE id = $1`, sharedID,
+	); err != nil {
+		return nil, fmt.Errorf("bump shared_context version: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return &item, nil
+}
+
+// DeleteSharedContext removes a shared context and its items (CASCADE).
+func (s *Store) DeleteSharedContext(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM shared_contexts WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete shared_context: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) loadSharedContextItems(ctx context.Context, sharedID string) ([]cfcontext.SharedContextItem, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, shared_id, key, value, author, tokens, created_at
+		 FROM shared_context_items WHERE shared_id = $1 ORDER BY created_at`, sharedID)
+	if err != nil {
+		return nil, fmt.Errorf("load shared_context_items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []cfcontext.SharedContextItem
+	for rows.Next() {
+		var item cfcontext.SharedContextItem
+		if err := rows.Scan(&item.ID, &item.SharedID, &item.Key, &item.Value, &item.Author, &item.Tokens, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan shared_context_item: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }

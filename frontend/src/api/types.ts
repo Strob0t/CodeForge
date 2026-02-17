@@ -365,6 +365,62 @@ export interface PlanFeatureRequest {
   auto_team?: boolean;
 }
 
+// --- Context types (Phase 5D) ---
+
+/** Context entry kind enum matching Go domain/context.EntryKind */
+export type ContextEntryKind = "file" | "snippet" | "summary" | "shared";
+
+/** Matches Go domain/context.ContextEntry */
+export interface ContextEntry {
+  id: string;
+  pack_id: string;
+  kind: ContextEntryKind;
+  path: string;
+  content: string;
+  tokens: number;
+  priority: number;
+}
+
+/** Matches Go domain/context.ContextPack */
+export interface ContextPack {
+  id: string;
+  task_id: string;
+  project_id: string;
+  token_budget: number;
+  tokens_used: number;
+  entries: ContextEntry[];
+  created_at: string;
+}
+
+/** Matches Go domain/context.SharedContextItem */
+export interface SharedContextItem {
+  id: string;
+  shared_id: string;
+  key: string;
+  value: string;
+  author: string;
+  tokens: number;
+  created_at: string;
+}
+
+/** Matches Go domain/context.SharedContext */
+export interface SharedContext {
+  id: string;
+  team_id: string;
+  project_id: string;
+  version: number;
+  items: SharedContextItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/context.AddSharedItemRequest */
+export interface AddSharedItemRequest {
+  key: string;
+  value: string;
+  author: string;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;
