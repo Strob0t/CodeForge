@@ -119,6 +119,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		TaskID:        req.TaskID,
 		AgentID:       req.AgentID,
 		ProjectID:     req.ProjectID,
+		TeamID:        req.TeamID,
 		PolicyProfile: profileName,
 		ExecMode:      req.ExecMode,
 		DeliverMode:   deliverMode,
@@ -169,7 +170,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// Build context pack if context optimizer is available.
 	if s.contextOpt != nil {
-		pack, packErr := s.contextOpt.BuildContextPack(ctx, req.TaskID, req.ProjectID, "")
+		pack, packErr := s.contextOpt.BuildContextPack(ctx, req.TaskID, req.ProjectID, req.TeamID)
 		if packErr != nil {
 			slog.Warn("context pack build failed", "run_id", r.ID, "error", packErr)
 		} else if pack != nil && len(pack.Entries) > 0 {
@@ -221,7 +222,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
 		// Terminate the run
-		_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, reason, r.CostUSD, r.StepCount)
+		_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount)
 		s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 			"status": string(run.StatusTimeout),
 			"reason": reason,
@@ -296,7 +297,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
 			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
-			_ = s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "stall detected: agent not making progress", newCost, r.StepCount)
+			_ = s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount)
 			s.stallTrackers.Delete(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,
@@ -500,7 +501,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 
 // finalizeRun completes the run lifecycle: update DB, task, agent, broadcast events.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
-	if err := s.store.CompleteRun(ctx, r.ID, status, payload.Error, payload.CostUSD, payload.StepCount); err != nil {
+	if err := s.store.CompleteRun(ctx, r.ID, status, payload.Output, payload.Error, payload.CostUSD, payload.StepCount); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 
@@ -634,7 +635,7 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	s.stallTrackers.Delete(runID)
 
 	// Update DB
-	if err := s.store.CompleteRun(ctx, r.ID, run.StatusCancelled, "cancelled by user", r.CostUSD, r.StepCount); err != nil {
+	if err := s.store.CompleteRun(ctx, r.ID, run.StatusCancelled, "", "cancelled by user", r.CostUSD, r.StepCount); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 

@@ -187,12 +187,13 @@ func (m *mockStore) UpdateRunStatus(_ context.Context, id string, status run.Sta
 	return errNotFound
 }
 
-func (m *mockStore) CompleteRun(_ context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error {
+func (m *mockStore) CompleteRun(_ context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error {
 	for i := range m.runs {
 		if m.runs[i].ID != id {
 			continue
 		}
 		m.runs[i].Status = status
+		m.runs[i].Output = output
 		m.runs[i].Error = errMsg
 		m.runs[i].CostUSD = costUSD
 		m.runs[i].StepCount = stepCount
@@ -325,6 +326,7 @@ func newTestRouter() chi.Router {
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
 	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
+	modeSvc := service.NewModeService()
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store),
 		Tasks:            service.NewTaskService(store, queue),
@@ -338,6 +340,7 @@ func newTestRouter() chi.Router {
 		TaskPlanner:      taskPlannerSvc,
 		ContextOptimizer: contextOptSvc,
 		SharedContext:    sharedCtxSvc,
+		Modes:            modeSvc,
 	}
 
 	r := chi.NewRouter()

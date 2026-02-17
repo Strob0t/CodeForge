@@ -95,5 +95,10 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// Shared Context (nested under teams)
 		r.Get("/teams/{id}/shared-context", h.GetSharedContext)
 		r.Post("/teams/{id}/shared-context", h.AddSharedContextItem)
+
+		// Modes
+		r.Get("/modes", h.ListModes)
+		r.Get("/modes/{id}", h.GetMode)
+		r.Post("/modes", h.CreateMode)
 	})
 }

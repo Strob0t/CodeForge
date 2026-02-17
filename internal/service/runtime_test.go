@@ -150,7 +150,7 @@ func (m *runtimeMockStore) UpdateRunStatus(_ context.Context, id string, status 
 	}
 	return errMockNotFound
 }
-func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error {
+func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.runs {
@@ -158,6 +158,7 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.
 			continue
 		}
 		m.runs[i].Status = status
+		m.runs[i].Output = output
 		m.runs[i].Error = errMsg
 		m.runs[i].CostUSD = costUSD
 		m.runs[i].StepCount = stepCount

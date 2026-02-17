@@ -23,6 +23,10 @@ const (
 	// Phase 5A: orchestration plan events
 	EventPlanStatus     = "plan.status"
 	EventPlanStepStatus = "plan.step.status"
+
+	// Phase 5E: team + shared context events
+	EventTeamStatus          = "team.status"
+	EventSharedContextUpdate = "shared.updated"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -106,6 +110,22 @@ type PlanStepStatusEvent struct {
 	Status    string `json:"status"`
 	RunID     string `json:"run_id,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+// TeamStatusEvent is broadcast when a team's status changes.
+type TeamStatusEvent struct {
+	TeamID    string `json:"team_id"`
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"`
+	Name      string `json:"name"`
+}
+
+// SharedContextUpdateEvent is broadcast when a shared context item is added or updated.
+type SharedContextUpdateEvent struct {
+	TeamID  string `json:"team_id"`
+	Key     string `json:"key"`
+	Author  string `json:"author"`
+	Version int    `json:"version"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

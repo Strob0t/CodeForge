@@ -275,18 +275,18 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 
 func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO runs (task_id, agent_id, project_id, policy_profile, exec_mode, deliver_mode, status)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO runs (task_id, agent_id, project_id, team_id, policy_profile, exec_mode, deliver_mode, status, output)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING id, started_at, created_at, updated_at, version`,
-		r.TaskID, r.AgentID, r.ProjectID, r.PolicyProfile, string(r.ExecMode), string(r.DeliverMode), string(r.Status))
+		r.TaskID, r.AgentID, r.ProjectID, nullIfEmpty(r.TeamID), r.PolicyProfile, string(r.ExecMode), string(r.DeliverMode), string(r.Status), r.Output)
 
 	return row.Scan(&r.ID, &r.StartedAt, &r.CreatedAt, &r.UpdatedAt, &r.Version)
 }
 
 func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, error, version, started_at, completed_at, created_at, updated_at
+		`SELECT id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
+		        step_count, cost_usd, output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE id = $1`, id)
 
 	r, err := scanRun(row)
@@ -313,11 +313,12 @@ func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Statu
 	return nil
 }
 
-func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error {
+func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE runs SET status = $2, error = $3, cost_usd = $4, step_count = $5, completed_at = now(), updated_at = now()
+		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6, completed_at = now(), updated_at = now()
 		 WHERE id = $1`,
-		id, string(status), errMsg, costUSD, stepCount)
+		id, string(status), output, errMsg, costUSD, stepCount)
+
 	if err != nil {
 		return fmt.Errorf("complete run %s: %w", id, err)
 	}
@@ -329,8 +330,8 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, e
 
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, task_id, agent_id, project_id, policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, error, version, started_at, completed_at, created_at, updated_at
+		`SELECT id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
+		        step_count, cost_usd, output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE task_id = $1 ORDER BY created_at DESC`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list runs by task: %w", err)
@@ -495,10 +496,10 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 
 	// Insert plan row
 	err = tx.QueryRow(ctx,
-		`INSERT INTO execution_plans (project_id, name, description, protocol, status, max_parallel)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO execution_plans (project_id, team_id, name, description, protocol, status, max_parallel)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, version, created_at, updated_at`,
-		p.ProjectID, p.Name, p.Description, string(p.Protocol), string(p.Status), p.MaxParallel,
+		p.ProjectID, nullIfEmpty(p.TeamID), p.Name, p.Description, string(p.Protocol), string(p.Status), p.MaxParallel,
 	).Scan(&p.ID, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert plan: %w", err)
@@ -527,7 +528,7 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 
 func (s *Store) GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, project_id, name, description, protocol, status, max_parallel, version, created_at, updated_at
+		`SELECT id, project_id, COALESCE(team_id::text, ''), name, description, protocol, status, max_parallel, version, created_at, updated_at
 		 FROM execution_plans WHERE id = $1`, id)
 
 	p, err := scanPlan(row)
@@ -548,7 +549,7 @@ func (s *Store) GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, er
 
 func (s *Store) ListPlansByProject(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, project_id, name, description, protocol, status, max_parallel, version, created_at, updated_at
+		`SELECT id, project_id, COALESCE(team_id::text, ''), name, description, protocol, status, max_parallel, version, created_at, updated_at
 		 FROM execution_plans WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list plans: %w", err)
@@ -690,8 +691,8 @@ func scanProject(row scannable) (project.Project, error) {
 func scanRun(row scannable) (run.Run, error) {
 	var r run.Run
 	err := row.Scan(
-		&r.ID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.PolicyProfile,
-		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD, &r.Error,
+		&r.ID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.TeamID, &r.PolicyProfile,
+		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD, &r.Output, &r.Error,
 		&r.Version, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 	)
 	return r, err
@@ -726,7 +727,7 @@ func scanTeam(row scannable) (agent.Team, error) {
 
 func scanPlan(row scannable) (plan.ExecutionPlan, error) {
 	var p plan.ExecutionPlan
-	err := row.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Description, &p.Protocol, &p.Status,
+	err := row.Scan(&p.ID, &p.ProjectID, &p.TeamID, &p.Name, &p.Description, &p.Protocol, &p.Status,
 		&p.MaxParallel, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	return p, err
 }
@@ -964,6 +965,14 @@ func (s *Store) DeleteSharedContext(ctx context.Context, id string) error {
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// nullIfEmpty returns nil for empty strings (for nullable UUID columns).
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (s *Store) loadSharedContextItems(ctx context.Context, sharedID string) ([]cfcontext.SharedContextItem, error) {

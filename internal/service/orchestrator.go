@@ -9,6 +9,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -19,12 +20,18 @@ import (
 
 // OrchestratorService manages execution plans — multi-agent DAGs with scheduling protocols.
 type OrchestratorService struct {
-	store   database.Store
-	hub     broadcast.Broadcaster
-	events  eventstore.Store
-	runtime *RuntimeService
-	orchCfg *config.Orchestrator
-	mu      sync.Mutex // serializes plan advancement
+	store     database.Store
+	hub       broadcast.Broadcaster
+	events    eventstore.Store
+	runtime   *RuntimeService
+	orchCfg   *config.Orchestrator
+	sharedCtx *SharedContextService
+	mu        sync.Mutex // serializes plan advancement
+}
+
+// SetSharedContext sets the shared context service for auto-populating run outputs.
+func (s *OrchestratorService) SetSharedContext(sc *SharedContextService) {
+	s.sharedCtx = sc
 }
 
 // NewOrchestratorService creates an OrchestratorService with all dependencies.
@@ -57,6 +64,7 @@ func (s *OrchestratorService) CreatePlan(ctx context.Context, req *plan.CreatePl
 
 	p := &plan.ExecutionPlan{
 		ProjectID:   req.ProjectID,
+		TeamID:      req.TeamID,
 		Name:        req.Name,
 		Description: req.Description,
 		Protocol:    req.Protocol,
@@ -187,6 +195,19 @@ func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID stri
 	if err != nil {
 		slog.Error("get plan for advancement", "plan_id", step.PlanID, "error", err)
 		return
+	}
+
+	// Auto-populate SharedContext with run output for downstream agents.
+	if s.sharedCtx != nil && stepStatus == plan.StepStatusCompleted {
+		r, err := s.store.GetRun(ctx, runID)
+		if err == nil && r.TeamID != "" && r.Output != "" {
+			_, _ = s.sharedCtx.AddItem(ctx, cfcontext.AddSharedItemRequest{
+				TeamID: r.TeamID,
+				Key:    "step_output:" + step.ID,
+				Value:  r.Output,
+				Author: r.AgentID,
+			})
+		}
 	}
 
 	s.broadcastStepStatus(ctx, p, step, stepStatus)
@@ -391,6 +412,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		TaskID:        step.TaskID,
 		AgentID:       step.AgentID,
 		ProjectID:     p.ProjectID,
+		TeamID:        p.TeamID,
 		PolicyProfile: step.PolicyProfile,
 		DeliverMode:   run.DeliverMode(step.DeliverMode),
 	}

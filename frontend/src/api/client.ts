@@ -9,6 +9,7 @@ import type {
   Branch,
   ContextPack,
   CreateAgentRequest,
+  CreateModeRequest,
   CreatePlanRequest,
   CreateProjectRequest,
   CreateTaskRequest,
@@ -18,6 +19,7 @@ import type {
   GitStatus,
   HealthStatus,
   LLMModel,
+  Mode,
   PlanFeatureRequest,
   Project,
   ProviderList,
@@ -250,6 +252,18 @@ export const api = {
     cancel: (id: string) =>
       request<{ status: string }>(`/plans/${encodeURIComponent(id)}/cancel`, {
         method: "POST",
+      }),
+  },
+
+  modes: {
+    list: () => request<Mode[]>("/modes"),
+
+    get: (id: string) => request<Mode>(`/modes/${encodeURIComponent(id)}`),
+
+    create: (data: CreateModeRequest) =>
+      request<Mode>("/modes", {
+        method: "POST",
+        body: JSON.stringify(data),
       }),
   },
 

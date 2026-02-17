@@ -49,6 +49,7 @@ func (s StepStatus) IsTerminal() bool {
 type ExecutionPlan struct {
 	ID          string    `json:"id"`
 	ProjectID   string    `json:"project_id"`
+	TeamID      string    `json:"team_id,omitempty"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	Protocol    Protocol  `json:"protocol"`
@@ -82,6 +83,7 @@ type CreatePlanRequest struct {
 	Name        string              `json:"name"`
 	Description string              `json:"description"`
 	ProjectID   string              `json:"project_id"`
+	TeamID      string              `json:"team_id,omitempty"`
 	Protocol    Protocol            `json:"protocol"`
 	MaxParallel int                 `json:"max_parallel"`
 	Steps       []CreateStepRequest `json:"steps"`

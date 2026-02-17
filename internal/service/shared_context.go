@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -69,6 +70,15 @@ func (s *SharedContextService) AddItem(ctx context.Context, req cfcontext.AddSha
 				slog.Warn("failed to publish shared context update", "team_id", req.TeamID, "error", err)
 			}
 		}
+	}
+
+	// Broadcast via WebSocket for real-time frontend updates.
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, ws.EventSharedContextUpdate, ws.SharedContextUpdateEvent{
+			TeamID: req.TeamID,
+			Key:    req.Key,
+			Author: req.Author,
+		})
 	}
 
 	slog.Info("shared context item added", "team_id", req.TeamID, "key", req.Key, "author", req.Author)

@@ -169,6 +169,14 @@ func run() error {
 		"prompt_reserve", cfg.Orchestrator.PromptReserve,
 	)
 
+	// --- Wire SharedContext into PoolManager + Orchestrator (Phase 5E) ---
+	poolManagerSvc.SetSharedContext(sharedCtxSvc)
+	orchSvc.SetSharedContext(sharedCtxSvc)
+
+	// --- Mode Service (Phase 5E) ---
+	modeSvc := service.NewModeService()
+	slog.Info("mode service initialized", "modes", len(modeSvc.List()))
+
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,
 		Tasks:            taskSvc,
@@ -182,6 +190,7 @@ func run() error {
 		TaskPlanner:      taskPlannerSvc,
 		ContextOptimizer: contextOptSvc,
 		SharedContext:    sharedCtxSvc,
+		Modes:            modeSvc,
 	}
 
 	r := chi.NewRouter()

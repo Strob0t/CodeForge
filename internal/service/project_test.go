@@ -164,7 +164,7 @@ func (m *mockStore) GetRun(_ context.Context, _ string) (*run.Run, error) {
 func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _ int, _ float64) error {
 	return nil
 }
-func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _ string, _ float64, _ int) error {
+func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _, _ string, _ float64, _ int) error {
 	return nil
 }
 func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }

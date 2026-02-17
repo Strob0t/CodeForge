@@ -13,6 +13,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -37,6 +38,7 @@ type Handlers struct {
 	TaskPlanner      *service.TaskPlannerService
 	ContextOptimizer *service.ContextOptimizerService
 	SharedContext    *service.SharedContextService
+	Modes            *service.ModeService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -749,6 +751,42 @@ func (h *Handlers) AddSharedContextItem(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
+}
+
+// --- Mode Endpoints ---
+
+// ListModes handles GET /api/v1/modes
+func (h *Handlers) ListModes(w http.ResponseWriter, _ *http.Request) {
+	modes := h.Modes.List()
+	if modes == nil {
+		modes = []mode.Mode{}
+	}
+	writeJSON(w, http.StatusOK, modes)
+}
+
+// GetMode handles GET /api/v1/modes/{id}
+func (h *Handlers) GetMode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	m, err := h.Modes.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mode not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+// CreateMode handles POST /api/v1/modes
+func (h *Handlers) CreateMode(w http.ResponseWriter, r *http.Request) {
+	var m mode.Mode
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.Modes.Register(&m); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, m)
 }
 
 // --- Helpers ---

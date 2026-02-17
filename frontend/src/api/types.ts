@@ -150,12 +150,14 @@ export interface Run {
   task_id: string;
   agent_id: string;
   project_id: string;
+  team_id?: string;
   policy_profile: string;
   exec_mode: string;
   deliver_mode: DeliverMode;
   status: RunStatus;
   step_count: number;
   cost_usd: number;
+  output?: string;
   error?: string;
   version: number;
   started_at: string;
@@ -256,6 +258,7 @@ export interface PlanStep {
 export interface ExecutionPlan {
   id: string;
   project_id: string;
+  team_id?: string;
   name: string;
   description: string;
   protocol: PlanProtocol;
@@ -419,6 +422,49 @@ export interface AddSharedItemRequest {
   key: string;
   value: string;
   author: string;
+}
+
+// --- Mode types (Phase 5E) ---
+
+/** Matches Go domain/mode.Mode */
+export interface Mode {
+  id: string;
+  name: string;
+  description: string;
+  builtin: boolean;
+  tools: string[];
+  llm_scenario: string;
+  autonomy: number;
+  prompt_prefix: string;
+}
+
+/** Create mode request */
+export interface CreateModeRequest {
+  id: string;
+  name: string;
+  description?: string;
+  tools?: string[];
+  llm_scenario?: string;
+  autonomy: number;
+  prompt_prefix?: string;
+}
+
+// --- WS events (Phase 5E) ---
+
+/** WS event: team status change */
+export interface TeamStatusEvent {
+  team_id: string;
+  project_id: string;
+  status: TeamStatus;
+  name: string;
+}
+
+/** WS event: shared context update */
+export interface SharedContextUpdateEvent {
+  team_id: string;
+  key: string;
+  author: string;
+  version: number;
 }
 
 /** Error response from API */

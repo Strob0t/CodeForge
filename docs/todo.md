@@ -354,6 +354,18 @@
   - 4 new REST endpoints (task context CRUD, shared context CRUD)
   - 26+ new test functions (Go domain + service + Python), all passing
 
+### 5E. Integration Fixes, WS Events, Modes System (COMPLETED)
+
+- [x] (2026-02-17) Fix TeamID propagation (Run, ExecutionPlan, StartRequest)
+  - Migration 010: team_id on runs + execution_plans, output on runs
+  - Orchestrator → Runtime → ContextOptimizer TeamID flow fixed
+- [x] (2026-02-17) Auto-init SharedContext on team creation (PoolManager)
+- [x] (2026-02-17) Auto-populate SharedContext from run outputs (Orchestrator)
+- [x] (2026-02-17) WS events: team.status, shared.updated (events.go + broadcasts)
+- [x] (2026-02-17) Modes System: domain model, 8 presets, ModeService, 3 REST endpoints
+- [x] (2026-02-17) Frontend: Mode/CreateModeRequest types, modes API namespace
+- [x] (2026-02-17) Mock stores + test fixes (CompleteRun signature, nil-safe hub)
+
 ---
 
 ## Phase 6 — Code-RAG (Context Engine for Large Codebases)

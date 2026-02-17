@@ -42,12 +42,14 @@ type Run struct {
 	TaskID        string      `json:"task_id"`
 	AgentID       string      `json:"agent_id"`
 	ProjectID     string      `json:"project_id"`
+	TeamID        string      `json:"team_id,omitempty"`
 	PolicyProfile string      `json:"policy_profile"`
 	ExecMode      ExecMode    `json:"exec_mode"`
 	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`
 	Status        Status      `json:"status"`
 	StepCount     int         `json:"step_count"`
 	CostUSD       float64     `json:"cost_usd"`
+	Output        string      `json:"output,omitempty"`
 	Error         string      `json:"error,omitempty"`
 	Version       int         `json:"version"`
 	StartedAt     time.Time   `json:"started_at"`
@@ -61,6 +63,7 @@ type StartRequest struct {
 	TaskID        string      `json:"task_id"`
 	AgentID       string      `json:"agent_id"`
 	ProjectID     string      `json:"project_id"`
+	TeamID        string      `json:"team_id,omitempty"`
 	PolicyProfile string      `json:"policy_profile,omitempty"`
 	ExecMode      ExecMode    `json:"exec_mode,omitempty"`
 	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`

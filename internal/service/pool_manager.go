@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -15,9 +16,15 @@ import (
 
 // PoolManagerService manages agent team lifecycle: creation, assembly, and cleanup.
 type PoolManagerService struct {
-	store   database.Store
-	hub     broadcast.Broadcaster
-	orchCfg *config.Orchestrator
+	store     database.Store
+	hub       broadcast.Broadcaster
+	orchCfg   *config.Orchestrator
+	sharedCtx *SharedContextService
+}
+
+// SetSharedContext sets the shared context service for auto-initializing team contexts.
+func (s *PoolManagerService) SetSharedContext(sc *SharedContextService) {
+	s.sharedCtx = sc
 }
 
 // NewPoolManagerService creates a new PoolManagerService.
@@ -58,6 +65,21 @@ func (s *PoolManagerService) CreateTeam(ctx context.Context, req *agent.CreateTe
 	if err != nil {
 		return nil, fmt.Errorf("create team: %w", err)
 	}
+
+	// Auto-initialize shared context for the team.
+	if s.sharedCtx != nil {
+		if _, err := s.sharedCtx.InitForTeam(ctx, team.ID, req.ProjectID); err != nil {
+			slog.Warn("shared context init failed", "team_id", team.ID, "error", err)
+		}
+	}
+
+	// Broadcast team status via WebSocket.
+	s.hub.BroadcastEvent(ctx, ws.EventTeamStatus, ws.TeamStatusEvent{
+		TeamID:    team.ID,
+		ProjectID: req.ProjectID,
+		Status:    string(team.Status),
+		Name:      team.Name,
+	})
 
 	slog.Info("team created", "team_id", team.ID, "project_id", req.ProjectID, "members", len(req.Members))
 	return team, nil

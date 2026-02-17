@@ -379,3 +379,43 @@
 - **API:** 4 new REST endpoints (task context + shared context)
 - **Protocol:** Context-enriched RunStartPayload, NATS context subjects
 - **Tests:** 26+ new test functions (14 domain + 10 service + 2 Python), all passing
+
+### 5E. Integration Fixes, WS Events, Modes System (COMPLETED)
+
+- [x] (2026-02-17) Fix TeamID propagation: added `TeamID` field to `ExecutionPlan`, `Run`, `StartRequest`
+  - Migration 010: `team_id` column on `execution_plans` and `runs` tables + `output` column on `runs`
+  - Orchestrator passes `p.TeamID` through to `StartRequest` in `startStep()`
+  - Runtime passes `req.TeamID` to `BuildContextPack` (was hardcoded `""`)
+  - Run.Output field for capturing textual output of completed runs (separate from Error)
+- [x] (2026-02-17) Auto-initialize SharedContext on team creation
+  - PoolManagerService.SetSharedContext injection, calls InitForTeam after store.CreateTeam
+- [x] (2026-02-17) Auto-populate SharedContext from run outputs
+  - OrchestratorService.SetSharedContext injection
+  - HandleRunCompleted stores run output as shared context item (`step_output:{stepID}`)
+- [x] (2026-02-17) WS events for teams and shared context
+  - 2 new event types: `team.status`, `shared.updated`
+  - TeamStatusEvent + SharedContextUpdateEvent structs in ws/events.go
+  - PoolManagerService broadcasts team.status on CreateTeam
+  - SharedContextService broadcasts shared.updated on AddItem (nil-safe)
+- [x] (2026-02-17) Modes System — domain model, presets, service, HTTP endpoints
+  - Domain: Mode struct with Validate(), 8 built-in presets (architect, coder, reviewer, debugger, tester, documenter, refactorer, security)
+  - ModeService: List, Get, Register (custom modes, built-in protection)
+  - REST API: GET /modes, GET /modes/{id}, POST /modes
+  - Composition root: ModeService wired in main.go
+- [x] (2026-02-17) Mock store updates + test fixes
+  - CompleteRun signature updated across all mock stores (added `output` param)
+  - SharedContextService nil-safe hub broadcasting
+  - handlers_test.go newTestRouter includes ModeService
+- [x] (2026-02-17) Frontend types + API client
+  - Run type: added team_id, output fields
+  - ExecutionPlan type: added team_id field
+  - New types: Mode, CreateModeRequest, TeamStatusEvent, SharedContextUpdateEvent
+  - API client: modes namespace (list/get/create)
+
+### Phase 5E Key Deliverables
+- **New files:** 3 Go (mode.go domain, presets.go, mode.go service), 2 Go tests (mode_test.go domain, mode_test.go service), 1 migration (010_add_team_id_fields.sql)
+- **Modified files:** 12 Go (plan.go, run.go, store interface, postgres/store.go, orchestrator.go, runtime.go, pool_manager.go, shared_context.go, events.go, handlers.go, routes.go, main.go), 4 Go test files (project_test.go, runtime_test.go, handlers_test.go, mode_test.go), 2 Frontend (types.ts, client.ts)
+- **API:** 3 new REST endpoints (modes CRUD)
+- **Events:** 2 new WS event types (team.status, shared.updated)
+- **Tests:** 16+ new test functions (8 mode domain + 8 mode service), all Go tests pass
+- **Lint:** golangci-lint 0 issues, frontend lint + build clean

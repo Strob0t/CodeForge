@@ -39,7 +39,7 @@ type Store interface {
 	CreateRun(ctx context.Context, r *run.Run) error
 	GetRun(ctx context.Context, id string) (*run.Run, error)
 	UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64) error
-	CompleteRun(ctx context.Context, id string, status run.Status, errMsg string, costUSD float64, stepCount int) error
+	CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error
 	ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error)
 
 	// Agent Teams
