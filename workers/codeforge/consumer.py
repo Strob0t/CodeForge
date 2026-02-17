@@ -119,14 +119,18 @@ class TaskConsumer:
         await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers if headers else None)
 
     async def stop(self) -> None:
-        """Gracefully shut down: drain and close."""
+        """Gracefully shut down: drain with timeout and close."""
         self._running = False
         logger.info("stopping consumer")
 
         await self._llm.close()
 
         if self._nc is not None and self._nc.is_connected:
-            await self._nc.drain()
+            try:
+                await asyncio.wait_for(self._nc.drain(), timeout=10.0)
+            except TimeoutError:
+                logger.warning("NATS drain timed out after 10s, closing connection")
+                await self._nc.close()
 
         logger.info("consumer stopped")
 

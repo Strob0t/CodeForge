@@ -60,7 +60,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("postgres: %w", err)
 	}
-	defer pool.Close()
 	slog.Info("postgres connected")
 
 	// Run migrations
@@ -74,7 +73,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("nats: %w", err)
 	}
-	defer func() { _ = queue.Close() }()
 
 	// --- Agent Backends ---
 	aider.Register(queue)
@@ -91,13 +89,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("result subscriber: %w", err)
 	}
-	defer cancelResults()
 
 	cancelOutput, err := agentSvc.StartOutputSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("output subscriber: %w", err)
 	}
-	defer cancelOutput()
 
 	// --- HTTP ---
 	llmClient := litellm.NewClient(cfg.LiteLLM.URL, cfg.LiteLLM.MasterKey)
@@ -139,7 +135,7 @@ func run() error {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Graceful shutdown
+	// Wait for interrupt signal
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
@@ -151,12 +147,33 @@ func run() error {
 	}()
 
 	<-done
-	slog.Info("shutting down server")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// --- Ordered Graceful Shutdown ---
+	// Phase 1: Stop accepting new HTTP requests
+	slog.Info("shutdown phase 1: stopping HTTP server")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("http shutdown error", "error", err)
+	}
 
-	return srv.Shutdown(shutdownCtx)
+	// Phase 2: Cancel NATS subscribers (stop processing new messages)
+	slog.Info("shutdown phase 2: cancelling NATS subscribers")
+	cancelResults()
+	cancelOutput()
+
+	// Phase 3: Drain NATS (flush pending publishes, wait for acks)
+	slog.Info("shutdown phase 3: draining NATS connection")
+	if err := queue.Drain(); err != nil {
+		slog.Error("nats drain error", "error", err)
+	}
+
+	// Phase 4: Close database (last, so in-flight queries can complete)
+	slog.Info("shutdown phase 4: closing database pool")
+	pool.Close()
+
+	slog.Info("shutdown complete")
+	return nil
 }
 
 // healthHandler returns an http.HandlerFunc that reports service health.

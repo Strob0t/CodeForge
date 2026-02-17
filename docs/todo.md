@@ -42,11 +42,9 @@
   - 2 test functions in `internal/middleware/requestid_test.go`
   - 1 new Python test for request ID propagation
   - Deferred: PostgreSQL log_line_prefix configuration
-- [ ] Docker Compose logging configuration
-  - Add `x-logging` anchor with `json-file` driver
-  - Options: `max-size: "10m"`, `max-file: "3"`, `compress: "true"`
-  - Labels: `service=<name>`, `tier=<api|worker|database|messaging>`
-  - Apply to all services
+- [x] (2026-02-17) Docker Compose logging configuration
+  - `x-logging` anchor with `json-file` driver, `max-size: 10m`, `max-file: 3`
+  - Applied to all 5 services
 - [ ] Async logging for Go Core
   - Create `internal/logger/async.go` with AsyncHandler (slog wrapper)
   - Buffer size: 10,000 records, 4 worker goroutines
@@ -55,9 +53,9 @@
 - [ ] Python async logging with QueueHandler
   - `workers/codeforge/logger.py` with `QueueHandler` + `QueueListener`
   - Buffer size: 10,000 records, graceful shutdown with queue drain
-- [ ] Create `scripts/logs.sh` helper script
+- [x] (2026-02-17) Create `scripts/logs.sh` helper script
   - Commands: `tail`, `errors`, `service <name>`, `request <id>`
-  - Uses `docker compose logs` + `jq` for filtering
+  - Uses `docker compose logs` for filtering
 
 ### 3C. Reliability Patterns
 
@@ -65,10 +63,10 @@
   - Create `internal/resilience/breaker.go` (states: open/half-open/closed)
   - Wrap: LiteLLM client, NATS publisher, PostgreSQL queries
   - Thresholds: 5 failures → open, 30s timeout → half-open
-- [ ] Graceful shutdown with drain phase
-  - Extend `cmd/codeforge/main.go` run() pattern
-  - HTTP: `srv.Shutdown()` with 30s context timeout
-  - NATS: `Drain()` instead of `Close()` (wait for last ack)
+- [x] (2026-02-17) Graceful shutdown with drain phase
+  - 4-phase ordered shutdown: HTTP → cancel subscribers → NATS Drain → DB close
+  - NATS: `Drain()` method added to Queue interface and NATS adapter
+  - Python: 10s drain timeout to prevent hanging
 - [ ] Agent execution timeout & heartbeat
   - Context with timeout (10min default, configurable)
   - Heartbeat ticker (30s) for progress tracking

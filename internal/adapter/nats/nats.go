@@ -114,7 +114,20 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 	return cons.Stop, nil
 }
 
-// Close shuts down the NATS connection.
+// Drain gracefully drains all subscriptions, waits for pending messages,
+// then closes the connection.
+func (q *Queue) Drain() error {
+	if err := q.nc.Drain(); err != nil {
+		return fmt.Errorf("nats drain: %w", err)
+	}
+	// nc.Drain() is async — wait for the connection to actually close.
+	for q.nc.IsConnected() {
+		// Spin briefly; Drain closes the connection after flushing.
+	}
+	return nil
+}
+
+// Close shuts down the NATS connection immediately.
 func (q *Queue) Close() error {
 	q.nc.Close()
 	return nil

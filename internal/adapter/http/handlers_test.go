@@ -158,6 +158,7 @@ func (m *mockQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handle
 	return func() {}, nil
 }
 
+func (m *mockQueue) Drain() error { return nil }
 func (m *mockQueue) Close() error { return nil }
 
 // mockBroadcaster implements broadcast.Broadcaster for testing.

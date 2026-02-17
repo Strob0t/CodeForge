@@ -1,7 +1,14 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   docs-mcp-server:
     image: ghcr.io/arabold/docs-mcp-server:latest
     container_name: codeforge-docs-mcp
+    logging: *default-logging
     ports:
       - "6280:6280"
     volumes:
@@ -21,6 +28,7 @@ services:
   playwright-mcp:
     image: mcr.microsoft.com/playwright:v1.57.0-jammy
     container_name: codeforge-playwright
+    logging: *default-logging
     ipc: host
     shm_size: "1gb"
     volumes:
@@ -43,6 +51,7 @@ services:
   postgres:
     image: postgres:17-alpine
     container_name: codeforge-postgres
+    logging: *default-logging
     ports:
       - "5432:5432"
     environment:
@@ -68,6 +77,7 @@ services:
   nats:
     image: nats:2-alpine
     container_name: codeforge-nats
+    logging: *default-logging
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -85,6 +95,7 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     container_name: codeforge-litellm
+    logging: *default-logging
     ports:
       - "4000:4000"
     environment:

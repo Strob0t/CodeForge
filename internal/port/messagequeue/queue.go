@@ -16,7 +16,11 @@ type Queue interface {
 	// The returned function cancels the subscription.
 	Subscribe(ctx context.Context, subject string, handler Handler) (cancel func(), err error)
 
-	// Close shuts down the queue connection.
+	// Drain gracefully drains all subscriptions before closing.
+	// Pending messages are processed; no new messages are accepted.
+	Drain() error
+
+	// Close shuts down the queue connection immediately.
 	Close() error
 }
 
