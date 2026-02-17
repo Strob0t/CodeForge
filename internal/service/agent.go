@@ -162,7 +162,7 @@ func (s *AgentService) HandleResult(ctx context.Context, result task.Result, tas
 
 // StartResultSubscriber subscribes to task results from NATS and processes them.
 func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func(), err error) {
-	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskResult, func(_ string, data []byte) error {
+	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskResult, func(msgCtx context.Context, _ string, data []byte) error {
 		var result struct {
 			TaskID    string   `json:"task_id"`
 			ProjectID string   `json:"project_id"`
@@ -187,19 +187,19 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 			TokensOut: result.TokensOut,
 		}
 
-		return s.HandleResult(ctx, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
+		return s.HandleResult(msgCtx, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
 	})
 }
 
 // StartOutputSubscriber subscribes to streaming task output and forwards to WebSocket.
 func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func(), err error) {
-	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskOutput, func(_ string, data []byte) error {
+	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskOutput, func(msgCtx context.Context, _ string, data []byte) error {
 		var output ws.TaskOutputEvent
 		if err := json.Unmarshal(data, &output); err != nil {
 			return fmt.Errorf("unmarshal output: %w", err)
 		}
 
-		s.hub.BroadcastEvent(ctx, ws.EventTaskOutput, output)
+		s.hub.BroadcastEvent(msgCtx, ws.EventTaskOutput, output)
 		return nil
 	})
 }

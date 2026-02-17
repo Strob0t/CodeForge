@@ -3,27 +3,29 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-import os
 import signal
 from typing import TYPE_CHECKING
 
 import nats
+import structlog
 
+from codeforge.config import WorkerSettings
 from codeforge.executor import AgentExecutor
 from codeforge.llm import LiteLLMClient
+from codeforge.logger import setup_logging
 from codeforge.models import TaskMessage, TaskResult
 
 if TYPE_CHECKING:
     from nats.aio.client import Client as NATSClient
     from nats.js.client import JetStreamContext
 
-logger = logging.getLogger(__name__)
-
 STREAM_NAME = "CODEFORGE"
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
+HEADER_REQUEST_ID = "X-Request-ID"
+
+logger = structlog.get_logger()
 
 
 class TaskConsumer:
@@ -48,7 +50,7 @@ class TaskConsumer:
         self._js = self._nc.jetstream()
         self._running = True
 
-        logger.info("connected to NATS at %s", self.nats_url)
+        logger.info("connected to NATS", url=self.nats_url)
 
         # Subscribe to agent task dispatches (tasks.agent.aider, tasks.agent.openhands, etc.)
         sub = await self._js.subscribe(
@@ -57,7 +59,7 @@ class TaskConsumer:
             manual_ack=True,
         )
 
-        logger.info("subscribed to %s", SUBJECT_AGENT)
+        logger.info("subscribed", subject=SUBJECT_AGENT)
 
         # Message processing loop
         while self._running:
@@ -74,12 +76,20 @@ class TaskConsumer:
 
     async def _handle_message(self, msg: nats.aio.msg.Msg) -> None:
         """Process a single task message: parse, execute, ack/nack."""
+        # Extract request ID from NATS headers for log correlation
+        request_id = ""
+        if msg.headers and HEADER_REQUEST_ID in msg.headers:
+            request_id = msg.headers[HEADER_REQUEST_ID]
+
+        log = logger.bind(request_id=request_id) if request_id else logger
+
         try:
             task = TaskMessage.model_validate_json(msg.data)
-            logger.info("received task %s: %s", task.id, task.title)
+            log = log.bind(task_id=task.id)
+            log.info("received task", title=task.title)
 
             # Send running status update
-            await self._publish_output(task.id, f"Starting task: {task.title}", "stdout")
+            await self._publish_output(task.id, f"Starting task: {task.title}", "stdout", request_id)
 
             result: TaskResult = await self._executor.execute(task)
 
@@ -88,25 +98,30 @@ class TaskConsumer:
                 await self._js.publish(SUBJECT_RESULT, result.model_dump_json().encode())
 
             await msg.ack()
-            logger.info("task %s completed with status %s", task.id, result.status)
+            log.info("task completed", status=result.status)
 
         except Exception:
-            logger.exception("failed to process message")
+            log.exception("failed to process message")
             await msg.nak()
 
-    async def _publish_output(self, task_id: str, line: str, stream: str = "stdout") -> None:
+    async def _publish_output(self, task_id: str, line: str, stream: str = "stdout", request_id: str = "") -> None:
         """Publish a streaming output line for a task."""
         if self._js is None:
             return
         import json
 
         payload = json.dumps({"task_id": task_id, "line": line, "stream": stream})
-        await self._js.publish(SUBJECT_OUTPUT, payload.encode())
+
+        headers = {}
+        if request_id:
+            headers[HEADER_REQUEST_ID] = request_id
+
+        await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers if headers else None)
 
     async def stop(self) -> None:
         """Gracefully shut down: drain and close."""
         self._running = False
-        logger.info("stopping consumer...")
+        logger.info("stopping consumer")
 
         await self._llm.close()
 
@@ -118,15 +133,13 @@ class TaskConsumer:
 
 async def main() -> None:
     """Entry point for running the consumer."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    settings = WorkerSettings()
+    setup_logging(service=settings.log_service, level=settings.log_level)
 
     consumer = TaskConsumer(
-        nats_url=os.environ.get("NATS_URL", "nats://localhost:4222"),
-        litellm_url=os.environ.get("LITELLM_URL", "http://localhost:4000"),
-        litellm_key=os.environ.get("LITELLM_MASTER_KEY", ""),
+        nats_url=settings.nats_url,
+        litellm_url=settings.litellm_url,
+        litellm_key=settings.litellm_api_key,
     )
 
     loop = asyncio.get_running_loop()

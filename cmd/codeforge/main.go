@@ -21,12 +21,14 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/logger"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
+	// Temporary bootstrap logger until config is loaded.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	if err := run(); err != nil {
 		slog.Error("fatal", "error", err)
@@ -39,6 +41,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
+
+	// Replace bootstrap logger with configured one.
+	slog.SetDefault(logger.New(cfg.Logging))
 
 	slog.Info("config loaded",
 		"port", cfg.Server.Port,
@@ -108,8 +113,8 @@ func run() error {
 
 	// Middleware
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
+	r.Use(middleware.RequestID)
 	r.Use(cfhttp.Logger)
-	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(30 * time.Second))

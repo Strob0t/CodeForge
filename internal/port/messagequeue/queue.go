@@ -4,7 +4,8 @@ package messagequeue
 import "context"
 
 // Handler processes a message received from the queue.
-type Handler func(subject string, data []byte) error
+// The context carries request-scoped values such as the request ID.
+type Handler func(ctx context.Context, subject string, data []byte) error
 
 // Queue is the port interface for publishing and subscribing to messages.
 type Queue interface {

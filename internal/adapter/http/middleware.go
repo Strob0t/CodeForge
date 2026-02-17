@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/logger"
 )
 
 // CORS returns middleware that sets CORS headers for development.
@@ -38,6 +40,7 @@ func Logger(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", rw.status,
 			"duration_ms", time.Since(start).Milliseconds(),
+			"request_id", logger.RequestID(r.Context()),
 		)
 	})
 }

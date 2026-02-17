@@ -163,7 +163,7 @@
 ## Phase 3: Reliability, Performance & Agent Foundation (IN PROGRESS)
 
 - [x] (2026-02-17) WP1: Configuration Management — hierarchical config (defaults < YAML < ENV), typed Config struct, validation, 6 tests
-- [ ] WP2: Structured Logging & Request ID Propagation
+- [x] (2026-02-17) WP2: Structured Logging & Request ID — slog factory, structlog, X-Request-ID propagation HTTP→NATS→Python, 6 new tests
 - [ ] WP3: Graceful Shutdown & Docker Logging
 - [ ] WP4: Optimistic Locking & DB Pool Tuning
 - [ ] WP5: Circuit Breaker

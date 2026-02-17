@@ -9,10 +9,14 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
-const streamName = "CODEFORGE"
+const (
+	streamName      = "CODEFORGE"
+	headerRequestID = "X-Request-ID"
+)
 
 // Queue implements messagequeue.Queue using NATS JetStream.
 type Queue struct {
@@ -48,8 +52,20 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 }
 
 // Publish sends a message to the given subject.
+// If the context carries a request ID, it is injected as a NATS header.
 func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error {
-	_, err := q.js.Publish(ctx, subject, data)
+	msg := &nats.Msg{
+		Subject: subject,
+		Data:    data,
+	}
+
+	// Propagate request ID via NATS message header
+	if reqID := logger.RequestID(ctx); reqID != "" {
+		msg.Header = nats.Header{}
+		msg.Header.Set(headerRequestID, reqID)
+	}
+
+	_, err := q.js.PublishMsg(ctx, msg)
 	if err != nil {
 		return fmt.Errorf("nats publish %s: %w", subject, err)
 	}
@@ -57,6 +73,7 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 }
 
 // Subscribe registers a handler for messages on the given subject.
+// The request ID from NATS headers is extracted and passed via context.
 func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequeue.Handler) (func(), error) {
 	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		FilterSubject: subject,
@@ -67,8 +84,20 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 	}
 
 	cons, err := consumer.Consume(func(msg jetstream.Msg) {
-		if err := handler(msg.Subject(), msg.Data()); err != nil {
-			slog.Error("message handler failed", "subject", msg.Subject(), "error", err)
+		// Extract request ID from NATS headers into context
+		msgCtx := ctx
+		if hdrs := msg.Headers(); hdrs != nil {
+			if reqID := hdrs.Get(headerRequestID); reqID != "" {
+				msgCtx = logger.WithRequestID(msgCtx, reqID)
+			}
+		}
+
+		if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
+			slog.Error("message handler failed",
+				"subject", msg.Subject(),
+				"request_id", logger.RequestID(msgCtx),
+				"error", err,
+			)
 			if nakErr := msg.Nak(); nakErr != nil {
 				slog.Error("nats nak failed", "error", nakErr)
 			}

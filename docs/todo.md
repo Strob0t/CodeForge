@@ -30,16 +30,18 @@
 
 ### 3B. Structured Logging & Observability
 
-- [ ] Structured JSON logging alignment (Go + Python)
-  - Go: slog JSON handler with `service` field in `internal/logger/logger.go`
-  - Python: structlog JSON renderer with `service` field in `workers/codeforge/logger.py`
-  - Common schema: `{time, level, service, msg, request_id, task_id, duration_ms, error, stack}`
-  - PostgreSQL: Configure `log_line_prefix` for structured output
-- [ ] Request ID propagation (Correlation ID)
-  - Middleware: `internal/middleware/request_id.go` (extract/generate X-Request-ID)
-  - Propagate via Context + NATS message headers
-  - Python: Extract from NATS headers, bind to structlog context vars
-  - Document in API spec
+- [x] (2026-02-17) Structured JSON logging alignment (Go + Python)
+  - Go: `internal/logger/logger.go` — slog JSON handler with `service` field, level from config
+  - Python: `workers/codeforge/logger.py` — structlog JSON renderer with `service` field
+  - Common schema: `{time, level, service, msg, request_id, task_id}`
+  - 3 test functions in `internal/logger/logger_test.go`
+- [x] (2026-02-17) Request ID propagation (Correlation ID)
+  - Go: `internal/logger/context.go` (WithRequestID/RequestID), `internal/middleware/requestid.go`
+  - NATS: Headers carry X-Request-ID, extracted in Subscribe, injected in Publish
+  - Python: Extract from NATS headers, bind to structlog context
+  - 2 test functions in `internal/middleware/requestid_test.go`
+  - 1 new Python test for request ID propagation
+  - Deferred: PostgreSQL log_line_prefix configuration
 - [ ] Docker Compose logging configuration
   - Add `x-logging` anchor with `json-file` driver
   - Options: `max-size: "10m"`, `max-file: "3"`, `compress: "true"`
