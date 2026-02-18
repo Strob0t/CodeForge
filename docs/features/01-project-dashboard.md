@@ -1,7 +1,7 @@
 # Feature: Project Dashboard (Pillar 1)
 
-> **Status:** Design phase
-> **Priority:** Phase 2 (MVP)
+> **Status:** Foundation implemented (Phase 1-2) — Git local provider, project CRUD, frontend dashboard
+> **Priority:** Phase 2 (MVP) — completed; Phase 9+ for GitHub/SVN/Forgejo adapters
 > **Architecture reference:** [architecture.md](../architecture.md) — "Core Service (Go)" section
 
 ## Overview
@@ -58,12 +58,13 @@ See [architecture.md — Provider Registry Pattern](../architecture.md#provider-
 - **Capability-based** — SVN doesn't support webhooks/PRs, that's declared behavior not an error
 - **Compliance Tests** — every provider adapter gets the same test suite automatically
 
-## API Endpoints (Planned)
+## API Endpoints (Implemented)
 
 ```
 GET    /api/v1/projects                    # List all projects
 POST   /api/v1/projects                    # Add project (clone/checkout)
 GET    /api/v1/projects/{id}               # Project details
+PUT    /api/v1/projects/{id}               # Update project
 DELETE /api/v1/projects/{id}               # Remove project
 POST   /api/v1/projects/{id}/pull          # Pull/fetch updates
 GET    /api/v1/projects/{id}/status        # Git/SVN status
@@ -71,16 +72,24 @@ GET    /api/v1/projects/{id}/branches      # List branches
 POST   /api/v1/projects/{id}/checkout      # Switch branch
 ```
 
-## TODOs
+## Completed (Phase 1-2)
 
-Tracked in [todo.md](../todo.md) under Phase 1 and Phase 2.
+- [x] `gitprovider.Provider` interface with capability declarations (`internal/port/gitprovider/`)
+- [x] Git local adapter (`internal/adapter/gitlocal/`) — Clone, Status, Pull, ListBranches, Checkout via git CLI
+- [x] HTTP endpoints for project CRUD (REST API)
+- [x] Frontend: Project list component, project detail page
+- [x] Frontend: Add project dialog (URL input)
+- [x] Frontend: Project status card with git operations UI
+- [x] Optimistic locking (version field) on projects
+- [x] Multi-tenancy preparation (tenant_id on projects)
 
-- [ ] Implement `gitprovider.Provider` interface
+## TODOs (Phase 9+)
+
+Tracked in [todo.md](../todo.md) under Phase 9+.
+
 - [ ] Implement GitHub adapter with OAuth
-- [ ] Implement Git local adapter
 - [ ] Implement SVN adapter (CLI wrapper)
 - [ ] Verify GitHub adapter compatibility with Forgejo/Codeberg (base URL override, API differences)
-- [ ] HTTP endpoints for project CRUD
-- [ ] Frontend: Project list component
-- [ ] Frontend: Add project dialog (URL input, auto-detect)
-- [ ] Frontend: Project status card
+- [ ] Auto-detect provider type from URL
+- [ ] Batch operations across selected repos
+- [ ] Cross-repo search

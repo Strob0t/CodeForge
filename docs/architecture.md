@@ -460,9 +460,13 @@ Container lifecycle management for isolated agent execution:
 
 Append-only event stream for agent trajectory recording:
 
-- PostgreSQL table `agent_events` (indexed by task_id, agent_id, timestamp)
-- Event types: tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status
-- API: `GET /api/v1/tasks/{id}/events`
+- PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp)
+- 22+ event types: tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status
+- API: `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`
+- Trajectory API: `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering)
+- Trajectory Export: `GET /api/v1/runs/{id}/trajectory/export` (JSON download)
+- Trajectory Stats: SQL aggregates (total events, duration, tool calls, errors)
+- Frontend: TrajectoryPanel with timeline visualization, event filters, stats summary, export
 - Enables replay, audit trail, and trajectory inspection (deferred: full replay UI)
 
 #### Structured Logging

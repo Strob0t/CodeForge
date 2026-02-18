@@ -1,7 +1,7 @@
 # Feature: Multi-LLM Provider (Pillar 3)
 
-> **Status:** Design phase
-> **Priority:** Phase 1 (Foundation) + Phase 2 (MVP)
+> **Status:** Foundation implemented (Phase 1-2), Cost Transparency (Phase 7)
+> **Priority:** Phase 1 (Foundation) + Phase 2 (MVP) — completed; Phase 7 (Cost) — completed
 > **Architecture reference:** [architecture.md](../architecture.md) — "LLM Integration: LiteLLM Proxy as Sidecar"
 
 ## Overview
@@ -60,9 +60,12 @@ CodeForge does not build its own LLM abstraction layer. LiteLLM Proxy handles:
 | API with Tool Support | OpenAI, Claude API, Gemini | Context Layer + Routing + Tool Definitions |
 | Pure Completion | Ollama, LM Studio | Everything: Context, Tools, Prompts, Quality Layer |
 
-## Docker Compose Configuration (Planned)
+## Docker Compose Configuration
+
+LiteLLM Proxy runs as a Docker sidecar in both dev and production environments.
 
 ```yaml
+# docker-compose.yml (dev)
 services:
   litellm:
     image: docker.litellm.ai/berriai/litellm:main-stable
@@ -73,27 +76,41 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge?schema=litellm
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
 ```
 
-## TODOs
+## Completed (Phase 1)
 
-Tracked in [todo.md](../todo.md) under Phase 1 and Phase 2.
+- [x] LiteLLM service in `docker-compose.yml` with health check, depends_on, shared PostgreSQL
+- [x] Initial `litellm_config.yaml` with provider configuration
+- [x] Health check integration from Go Core (`/health/ready` pings LiteLLM)
+- [x] Basic LLM call through proxy (Python workers via `litellm` client library)
 
-### Phase 1
-- [ ] Add litellm service to `docker-compose.yml`
-- [ ] Create initial `litellm_config.yaml` (at least one provider)
-- [ ] Health check integration from Go Core
-- [ ] Verify basic LLM call through proxy
+## Completed (Phase 2)
 
-### Phase 2
-- [ ] LiteLLM Config Manager (Go Core)
-- [ ] User-Key Mapping (secure storage, virtual keys)
-- [ ] Scenario Router (task → tag mapping)
-- [ ] Local Model Discovery (Ollama, LM Studio)
-- [ ] Copilot Token Exchange
-- [ ] Frontend: Provider configuration UI
-- [ ] Frontend: Cost Dashboard (LiteLLM Spend API)
+- [x] LiteLLM Config Manager via admin API (`internal/adapter/litellm/`)
+- [x] Frontend: Provider configuration UI (ModelsPage — add/delete models, health status)
+
+## Completed (Phase 7 — Cost & Token Transparency)
+
+- [x] Real cost calculation in Python workers (`x-litellm-response-cost` header + fallback pricing table)
+- [x] Token persistence in database (migration 015: `tokens_in`, `tokens_out`, `model` on runs)
+- [x] Cost aggregation API (5 endpoints: global, per-project, per-model, daily, recent runs)
+- [x] WS budget alerts (80% and 90% thresholds with dedup)
+- [x] Frontend: CostDashboardPage (global totals, project breakdown), ProjectCostSection (model/daily/runs)
+- [x] Frontend: RunPanel token + model display in active run and history
+
+## TODOs (Phase 9+)
+
+Tracked in [todo.md](../todo.md) under Phase 9+.
+
+- [ ] User-Key Mapping (secure storage, virtual keys per CodeForge user)
+- [ ] Scenario Router (task type → LiteLLM tag mapping)
+- [ ] Local Model Discovery (Ollama, LM Studio auto-detection)
+- [ ] Copilot Token Exchange (GitHub OAuth → Copilot bearer token)
+- [ ] Distributed tracing (OpenTelemetry full implementation)

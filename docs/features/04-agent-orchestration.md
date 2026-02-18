@@ -1,7 +1,7 @@
 # Feature: Agent Orchestration (Pillar 4)
 
-> **Status:** Design phase
-> **Priority:** Phase 2 (MVP basic) + Phase 3 (Advanced multi-agent)
+> **Status:** Core implemented (Phases 2-6) — agent backends, runtime API, policy layer, multi-agent orchestration, 4-tier Code-RAG
+> **Priority:** Phase 2-6 — completed; Phase 9+ for additional backends and advanced features
 > **Architecture reference:** [architecture.md](../architecture.md) — "Agent Execution", "Worker Modules", "Modes System"
 
 ## Overview
@@ -153,28 +153,59 @@ Go Core (handles result, delivers to waiter or HTTP handler)
 - Streaming results (partial results as queries complete)
 - Cost tracking for sub-agent LLM calls
 
-## TODOs
+## Completed (Phase 1-2)
 
-Tracked in [todo.md](../todo.md) under Phase 1, Phase 2, and Phase 3.
+- [x] `agentbackend.Backend` interface definition (`internal/port/agentbackend/`)
+- [x] Agent backend registry with self-registration via `init()`
+- [x] Basic queue consumer (Python worker) — NATS-based async dispatch
+- [x] Aider backend adapter (`internal/adapter/aider/`)
+- [x] Simple task → single agent execution
+- [x] Mount mode implementation (direct file access)
+- [x] Basic safety evaluator (command blocklist + regex matching)
+- [x] Frontend: Agent Monitor (live logs, status via WebSocket)
+- [x] Frontend: Task submission form, task list, agent CRUD
 
-### Phase 1
-- [ ] `agentbackend.Backend` interface definition
-- [ ] Agent backend registry (`port/agentbackend/registry.go`)
-- [ ] Basic queue consumer (Python worker)
-- [ ] Minimal agent execution framework
+## Completed (Phase 3 — Reliability & Agent Foundation)
 
-### Phase 2
-- [ ] Aider backend adapter
-- [ ] Simple task → single agent execution
-- [ ] Mount mode implementation
-- [ ] Basic safety evaluator
-- [ ] Frontend: Agent Monitor (live logs, status)
-- [ ] Frontend: Task submission form
+- [x] Configuration management (hierarchical: defaults < YAML < ENV)
+- [x] Structured logging (async JSON, Go + Python, request ID propagation)
+- [x] Circuit breaker for NATS + LiteLLM calls
+- [x] Graceful 4-phase shutdown, idempotency middleware, dead letter queue
+- [x] Event sourcing for agent trajectory (`agent_events` table, 22+ event types)
+- [x] Tiered cache (L1 Ristretto + L2 NATS KV), rate limiting, connection pool tuning
 
-### Phase 3
-- [ ] Sandbox mode (Docker-in-Docker)
-- [ ] Multi-agent orchestration (pipelines, DAGs)
-- [ ] Quality Layer implementation
-- [ ] Modes System (YAML config loader)
-- [ ] Trajectory recording and replay
+## Completed (Phase 4 — Agent Execution Engine)
+
+- [x] Policy layer: 4 presets, YAML custom policies, first-match-wins evaluation, REST API + frontend PolicyPanel
+- [x] Runtime API: step-by-step execution protocol (Go ↔ Python via NATS), per-tool-call policy enforcement
+- [x] Checkpoint system: shadow Git commits for safe rollback
+- [x] Docker Sandbox: container lifecycle management with resource limits
+- [x] Stall detection: FNV-64a hash ring buffer, configurable threshold
+- [x] Quality gate enforcement: test/lint gates via NATS request/result protocol
+- [x] 5 deliver modes: none, patch, commit-local, branch, PR
+
+## Completed (Phase 5 — Multi-Agent Orchestration)
+
+- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus)
+- [x] Orchestrator agent (meta-agent): LLM-based feature decomposition, agent strategy selection
+- [x] Agent teams: team CRUD, role-based members, protocol selection
+- [x] Context optimizer: token budget management, workspace scanning, context packing
+- [x] Shared context: team-level versioned state with NATS notifications
+- [x] Modes system: 8 built-in presets, ModeService, REST API
+
+## Completed (Phase 6 — Code-RAG)
+
+- [x] Tier 1 — RepoMap: tree-sitter symbol extraction, PageRank file ranking (16+ languages)
+- [x] Tier 2 — Hybrid Retrieval: BM25S keyword + semantic embeddings, RRF fusion
+- [x] Tier 3 — Retrieval Sub-Agent: LLM multi-query expansion, parallel search, re-ranking
+- [x] Tier 4 — GraphRAG: PostgreSQL adjacency-list graph, BFS with hop-decay scoring
+
+## TODOs (Phase 9+)
+
+Tracked in [todo.md](../todo.md) under Phase 9+.
+
 - [ ] Additional backends (OpenHands, Goose, OpenCode, Plandex)
+- [ ] Trajectory replay UI and audit trail
+- [ ] Session events as source of truth (Resume/Fork/Rewind)
+- [ ] A2A protocol integration (agent discovery, Agent Cards)
+- [ ] AG-UI protocol integration (agent ↔ frontend streaming)

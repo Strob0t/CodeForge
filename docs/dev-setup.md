@@ -38,10 +38,7 @@
    - Node dependencies (npm install)
    - Pre-commit Hooks
 
-## Project Structure (Planned)
-
-> **Note:** This shows the target directory structure. Directories not yet created
-> are marked with `(planned)` comments or will be scaffolded in Phase 1.
+## Project Structure
 
 ```
 CodeForge/
@@ -52,6 +49,10 @@ CodeForge/
 ├── .devcontainer/
 │   ├── devcontainer.json     # Container Definition
 │   └── setup.sh              # Post-Create Setup Script
+├── .github/
+│   └── workflows/
+│       ├── ci.yml            # Go + Python + Frontend CI
+│       └── docker-build.yml  # Docker image builds (ghcr.io)
 ├── data/                     # Persistent data (gitignored, auto-created by docker compose)
 │   ├── docs_mcp/             # Docs MCP Index
 │   ├── litellm/              # LiteLLM Runtime Data
@@ -63,71 +64,96 @@ CodeForge/
 │       ├── main.go           # Entry point, Dependency Injection
 │       └── providers.go      # Blank imports of all active adapters
 ├── internal/
+│   ├── config/               # Hierarchical config system (defaults < YAML < ENV)
 │   ├── domain/               # Core: Entities, Business Rules
-│   │   ├── project/
-│   │   ├── agent/
-│   │   └── roadmap/
+│   │   ├── agent/            # Agent + Team models
+│   │   ├── context/          # Context pack (token budget management)
+│   │   ├── cost/             # Cost aggregation models
+│   │   ├── errors.go         # Sentinel errors (ErrNotFound, ErrConflict)
+│   │   ├── event/            # Agent event types (22+ types)
+│   │   ├── plan/             # Execution plans (DAG scheduling)
+│   │   ├── policy/           # Policy profiles, presets, validation
+│   │   ├── project/          # Project entity
+│   │   ├── resource/         # Resource limits (shared across layers)
+│   │   ├── roadmap/          # Roadmap, Milestone, Feature
+│   │   ├── run/              # Run entity, ToolCall, Stall tracker
+│   │   └── task/             # Task entity
+│   ├── git/                  # Git worker pool (semaphore-bounded)
+│   ├── logger/               # Async slog JSON logging
+│   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
 │   ├── port/                 # Interfaces + Registries
-│   │   ├── gitprovider/
-│   │   ├── agentbackend/
-│   │   ├── specprovider/    # Spec Detection (OpenSpec, Spec Kit, Autospec)
-│   │   ├── pmprovider/      # PM Sync (Plane, OpenProject, GitHub/GitLab)
-│   │   ├── broadcast/       # Broadcaster interface (WS events)
-│   │   ├── database/
-│   │   └── messagequeue/
+│   │   ├── agentbackend/     # Agent backend interface + registry
+│   │   ├── broadcast/        # Broadcaster interface (WS events)
+│   │   ├── cache/            # Cache interface (Get/Set/Delete)
+│   │   ├── database/         # Store interface (80+ methods)
+│   │   ├── eventstore/       # Event store interface + trajectory types
+│   │   ├── gitprovider/      # Git provider interface + registry
+│   │   ├── messagequeue/     # Message queue interface + schemas
+│   │   ├── pmprovider/       # PM provider interface + registry
+│   │   └── specprovider/     # Spec provider interface + registry
 │   ├── adapter/              # Concrete Implementations
-│   │   ├── aider/           # Aider agent backend (async NATS dispatch)
-│   │   ├── gitlocal/        # Local git CLI provider
-│   │   ├── http/            # REST API handlers + routes
-│   │   ├── litellm/         # LiteLLM admin API client
-│   │   ├── lsp/             # LSP client stub
-│   │   ├── mcp/             # MCP server/client stubs
-│   │   ├── nats/            # NATS JetStream adapter
-│   │   ├── otel/            # OpenTelemetry stub
-│   │   ├── postgres/        # PostgreSQL store + migrations
-│   │   ├── ws/              # WebSocket hub + event broadcasting
-│   │   └── ...              # (planned: github, gitlab, svn, goose, etc.)
-│   └── service/              # Use Cases
+│   │   ├── aider/            # Aider agent backend
+│   │   ├── gitlocal/         # Local git CLI provider
+│   │   ├── http/             # REST API handlers + routes (80+ endpoints)
+│   │   ├── litellm/          # LiteLLM admin API client
+│   │   ├── natskv/           # NATS JetStream KV cache adapter (L2)
+│   │   ├── nats/             # NATS JetStream adapter
+│   │   ├── postgres/         # PostgreSQL store + 17 migrations
+│   │   ├── ristretto/        # Ristretto in-process cache adapter (L1)
+│   │   ├── tiered/           # Tiered cache (L1 + L2)
+│   │   └── ws/               # WebSocket hub + event broadcasting
+│   ├── resilience/           # Circuit breaker
+│   ├── secrets/              # Secrets vault with SIGHUP reload
+│   └── service/              # Use Cases (Runtime, Orchestrator, Policy, etc.)
 ├── workers/                  # Python AI Workers
 │   └── codeforge/
-│       ├── consumer/         # Queue Consumer
-│       ├── agents/           # Agent Backends
-│       ├── llm/              # LLM Client via LiteLLM
-│       └── models/           # Data Models
+│       ├── consumer.py       # NATS queue consumer (all subjects)
+│       ├── executor.py       # Agent execution (runtime protocol)
+│       ├── graphrag.py       # GraphRAG code graph builder + searcher
+│       ├── llm.py            # LiteLLM async client (completions, embeddings)
+│       ├── pricing.py        # Fallback model pricing table
+│       ├── quality_gate.py   # Test/lint gate executor
+│       ├── repo_map.py       # tree-sitter repo map generator
+│       ├── retrieval.py      # Hybrid retrieval (BM25 + semantic + sub-agent)
+│       ├── runtime.py        # Runtime client (Go ↔ Python protocol)
+│       └── models.py         # Pydantic data models
 ├── frontend/                 # SolidJS Web GUI
+│   ├── nginx.conf            # Production nginx config (SPA + API proxy)
 │   └── src/
 │       ├── features/
-│       │   ├── dashboard/   # Project list, ProjectCard
-│       │   ├── project/     # ProjectDetailPage, AgentPanel, TaskPanel, RunPanel, PlanPanel, LiveOutput
-│       │   └── llm/         # ModelsPage (LLM model management)
+│       │   ├── dashboard/    # Project list, ProjectCard
+│       │   ├── project/      # ProjectDetailPage, AgentPanel, TaskPanel, RunPanel,
+│       │   │                 # PlanPanel, PolicyPanel, RepoMapPanel, RetrievalPanel,
+│       │   │                 # RoadmapPanel, TrajectoryPanel, CostSection, LiveOutput
+│       │   ├── llm/          # ModelsPage (LLM model management)
+│       │   └── cost/         # CostDashboardPage (global cost overview)
 │       └── api/              # API Client, Types, WebSocket
-├── docs/
-│   ├── README.md             # Documentation index (start here)
-│   ├── todo.md               # TODO tracker for LLM agents
-│   ├── architecture.md       # System Architecture + Hexagonal + Provider Registry
-│   ├── dev-setup.md          # This file
-│   ├── project-status.md     # Project Status & Roadmap
-│   ├── tech-stack.md         # Tech Stack Details
-│   ├── features/             # Feature specifications
-│   │   ├── 01-project-dashboard.md
-│   │   ├── 02-roadmap-feature-map.md
-│   │   ├── 03-multi-llm-provider.md
-│   │   └── 04-agent-orchestration.md
-│   ├── architecture/         # Detailed architecture docs
-│   │   └── adr/              # Architecture Decision Records
-│   └── research/
-│       ├── market-analysis.md# Market Research & Competitors
-│       └── aider-deep-analysis.md # Aider Architecture Deep-Dive
+├── scripts/
+│   ├── test.sh               # Unified test runner (go/python/frontend/integration)
+│   ├── logs.sh               # Docker log viewer helper
+│   ├── backup-postgres.sh    # PostgreSQL backup script
+│   └── restore-postgres.sh   # PostgreSQL restore script
+├── configs/
+│   └── model_pricing.yaml    # Fallback LLM pricing table
+├── tests/
+│   └── integration/          # Integration tests (real PostgreSQL, build-tagged)
+├── docs/                     # Documentation
 ├── litellm/
 │   └── config.yaml           # LiteLLM Proxy Configuration
 ├── .env.example              # Environment Template
-├── .gitignore
-├── .golangci.yml             # Go Linter Config
+├── .dockerignore             # Docker build exclusions
+├── .golangci.yml             # Go Linter Config (v2)
 ├── .mcp.json                 # MCP Server for Claude Code
-├── .pre-commit-config.yaml   # Pre-commit Hooks (Python, Go, TS)
+├── .pre-commit-config.yaml   # Pre-commit Hooks (15 hooks)
 ├── CLAUDE.md                 # Project Context for Claude Code
+├── Dockerfile                # Go Core multi-stage build
+├── Dockerfile.worker         # Python Worker image
+├── Dockerfile.frontend       # Frontend nginx image
+├── codeforge.yaml.example    # Config file template (all fields documented)
 ├── docker-compose.yml        # Dev Services
+├── docker-compose.prod.yml   # Production Services (6 containers)
 ├── LICENSE                   # AGPL-3.0
+├── go.mod / go.sum           # Go module files
 └── pyproject.toml            # Python: Poetry + Ruff + Pytest
 ```
 

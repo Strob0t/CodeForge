@@ -50,9 +50,18 @@
 - **Setup:** `.devcontainer/setup.sh` (automatic via postCreateCommand)
 
 ### Docker Compose (Dev Services)
+- **postgres** (Port 5432) — PostgreSQL 17, shared instance (CodeForge + LiteLLM)
+- **nats** (Port 4222/8222) — NATS JetStream message queue
+- **litellm** (Port 4000) — LLM Routing & Multi-Provider Gateway
 - **docs-mcp-server** (Port 6280) — Documentation indexing for LLM context
 - **playwright-mcp** (Port 8001) — Browser automation / web scraping
-- **litellm-proxy** (Port 4000) — LLM Routing & Multi-Provider Gateway *(planned, not yet in docker-compose.yml)*
+
+### Docker Production
+- **Dockerfile** — Go Core multi-stage build (golang:1.24-alpine → alpine:3.21)
+- **Dockerfile.worker** — Python Workers (python:3.12-slim, poetry, non-root)
+- **Dockerfile.frontend** — Frontend (node:22-alpine build → nginx:alpine serve)
+- **docker-compose.prod.yml** — 6 services (core, worker, frontend, postgres, nats, litellm)
+- **.github/workflows/docker-build.yml** — CI: 3 parallel image builds to ghcr.io
 
 ### MCP Server
 - Configuration: `.mcp.json`
@@ -70,7 +79,7 @@
 | esbenp.prettier-vscode | Prettier Integration |
 | bradlc.vscode-tailwindcss | Tailwind CSS IntelliSense |
 
-## Planned Dependencies (not yet installed)
+## Installed Dependencies
 
 ### Go Core Service
 - HTTP Router (`chi` v5) — zero deps, 100% `net/http` compatible, route groups + middleware chaining
@@ -78,21 +87,27 @@
 - PostgreSQL Driver (`pgx` v5 + `pgxpool`) — primary database
 - Database Migrations (`goose`) — SQL-based schema migrations
 - NATS Client (`nats.go` + `nats.go/jetstream`) — message queue to Python Workers
+- Tiered Cache (`dgraph-io/ristretto` v2) — in-process L1 cache
+- Worker Pool (`golang.org/x/sync/semaphore`) — bounded concurrency for git operations
 - Git Operations (`os/exec` wrapper around `git` CLI) — zero deps, 100% feature coverage, native performance
-- SVN Operations (`os/exec` wrapper around `svn` CLI)
 
 ### Python Workers
 - LiteLLM (client library for OpenAI-compatible API against LiteLLM Proxy)
-- LangGraph (Agent Orchestration)
-- PostgreSQL Driver (`psycopg3`) — read access to task metadata, sync+async
 - NATS Client (`nats-py`) — asyncio-native, message queue to Go Core
 - Jinja2 (Prompt Templates)
-- KeyBERT (Keyword Extraction for Retrieval)
 - tree-sitter ^0.24 — Code parsing into ASTs for repo map generation and code chunking
 - tree-sitter-language-pack ^0.13 — Pre-built parsers for 16+ languages
 - networkx ^3.4 — Graph algorithms (PageRank for file ranking in repo maps)
 - bm25s ^0.2 — Fast BM25 keyword search (500x faster than rank_bm25, numpy+scipy only)
 - numpy ^2.0 — Numerical computing for embedding vectors and cosine similarity
+- psycopg[binary] ^3.2 — PostgreSQL driver for graph storage (sync+async)
+- httpx ^0.28 — Async HTTP client for LiteLLM proxy calls
+
+### Planned Dependencies (not yet installed)
+- SVN Operations (`os/exec` wrapper around `svn` CLI) — Phase 9+
+- KeyBERT (Keyword Extraction for Retrieval) — Phase 9+
+- LangGraph (Agent Orchestration) — Phase 9+
+- OpenTelemetry SDKs (Go + Python) — Phase 9+
 
 ### Protocols & Standards
 - MCP (Model Context Protocol) — Agent ↔ Tool communication, JSON-RPC 2.0 (Anthropic)
@@ -102,12 +117,12 @@
   - Go Core: LSP server lifecycle management per project language
 - OpenTelemetry GenAI — LLM/agent observability, traces + metrics (CNCF)
   - LiteLLM: native OTEL export
-  - Go: `go.opentelemetry.io/otel` SDK
-  - Python: `opentelemetry-api` + `opentelemetry-sdk`
-- A2A (Agent-to-Agent Protocol, Phase 2-3) — Peer-to-peer agent coordination (Linux Foundation)
-- AG-UI (Agent-User Interaction Protocol, Phase 2-3) — Agent ↔ frontend streaming (CopilotKit)
+  - Go: `go.opentelemetry.io/otel` SDK (planned)
+  - Python: `opentelemetry-api` + `opentelemetry-sdk` (planned)
+- A2A (Agent-to-Agent Protocol, Phase 9+) — Peer-to-peer agent coordination (Linux Foundation)
+- AG-UI (Agent-User Interaction Protocol, Phase 9+) — Agent ↔ frontend streaming (CopilotKit)
 
-### Agent Backend Integration (Priority 1)
+### Agent Backend Integration (Phase 9+)
 - Goose (Rust, MCP-native, subprocess integration)
 - OpenCode (Go, Client/Server, LSP-aware)
 - Plandex (Go, Planning-First, Diff Sandbox)
@@ -135,6 +150,4 @@
 - `@solid-primitives/websocket` (728 bytes) — WebSocket with auto-reconnect + heartbeat
 - Native `fetch` API — thin wrapper (~30-50 LOC), no axios/ky
 - SolidJS built-in state management (signals, stores, context) — no external state library
-- `lucide-solid` — icons (optional, tree-shakeable, direct imports)
-- WebSocket Client
-- solid-router (SPA routing)
+- `lucide-solid` — icons (tree-shakeable, direct imports)

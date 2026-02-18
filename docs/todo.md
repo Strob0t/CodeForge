@@ -13,10 +13,12 @@
 
 ---
 
-## Current Priority: Phase 3 — Reliability, Performance & Agent Foundation
+## Phases 0–8: Complete
 
-> Phase 0, Phase 1, and Phase 2 are complete. See "Recently Completed" below.
-> Items below are extracted from architecture review + Perplexity analysis (2026-02-16/17).
+> All phases from 0 through 8 are complete. See sections below for details.
+> **Current priority: Phase 9+ (Advanced Features & Vision)** — see bottom of file.
+
+### Phase 3 — Reliability, Performance & Agent Foundation
 
 ### 3A. Configuration Management
 
@@ -710,7 +712,7 @@ For full completion history, see [project-status.md](project-status.md).
 
 ## Notes
 
-- **Priority order**: Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7 → Phase 8 → Phase 9+
+- **Priority order**: Phases 0-8 complete → Phase 9+ (Advanced Features & Vision)
 - **Dependencies**: Structured Logging → Request ID → Docker Logging → Log Script
 - **Dependencies**: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
 - **Dependencies**: Repo Map → Hybrid Retrieval → Retrieval Sub-Agent → GraphRAG
