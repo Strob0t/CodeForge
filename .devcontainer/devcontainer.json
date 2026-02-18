@@ -15,7 +15,11 @@
     "ghcr.io/devcontainers/features/git:1": {}
   },
   "remoteEnv": {
-    "HOST_PROJECT_PATH": "${localWorkspaceFolder}"
+    "HOST_PROJECT_PATH": "${localWorkspaceFolder}",
+    "DATABASE_URL": "postgres://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge?sslmode=disable",
+    "NATS_URL": "nats://codeforge-nats:4222",
+    "LITELLM_URL": "http://codeforge-litellm:4000",
+    "LITELLM_MASTER_KEY": "sk-codeforge-dev"
   },
   "forwardPorts": [3000, 4000, 4222, 5173, 5432, 6280, 8001, 8080, 8222],
   "portsAttributes": {

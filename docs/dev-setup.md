@@ -25,11 +25,12 @@
    - `Ctrl+Shift+P` → "Dev Containers: Reopen in Container"
    - Wait until `setup.sh` has finished running
 
-4. **Start infrastructure services:**
-   ```bash
-   docker compose up -d
-   ```
-   This starts PostgreSQL, NATS JetStream, LiteLLM Proxy, docs-mcp, and playwright-mcp.
+4. **Infrastructure services start automatically** via `setup.sh`.
+   The devcontainer is connected to the `codeforge` Docker network so the
+   Go backend can reach services by container name (`codeforge-postgres`,
+   `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`,
+   `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured
+   in `devcontainer.json` — no manual setup needed.
 
 5. **Done.** The container automatically installs:
    - Go 1.24, Python 3.12, Node.js 22
@@ -503,10 +504,10 @@ See `.env.example` for all configurable values.
 |---------------------------|------------------------------------------|---------------------------------|
 | CODEFORGE_PORT            | 8080                                     | Go Core Service port            |
 | CODEFORGE_CORS_ORIGIN     | http://localhost:3000                     | Allowed CORS origin             |
-| DATABASE_URL              | postgres://codeforge:...@localhost:5432/codeforge | PostgreSQL connection string |
-| NATS_URL                  | nats://localhost:4222                     | NATS server URL                 |
-| LITELLM_URL               | http://localhost:4000                     | LiteLLM Proxy URL               |
-| LITELLM_MASTER_KEY        | (required)                               | Master Key for LiteLLM Proxy    |
+| DATABASE_URL              | postgres://...@codeforge-postgres:5432/codeforge (devcontainer) | PostgreSQL connection string |
+| NATS_URL                  | nats://codeforge-nats:4222 (devcontainer) | NATS server URL                 |
+| LITELLM_URL               | http://codeforge-litellm:4000 (devcontainer) | LiteLLM Proxy URL               |
+| LITELLM_MASTER_KEY        | sk-codeforge-dev (devcontainer)          | Master Key for LiteLLM Proxy    |
 | DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint          |
 | DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings          |
 | DOCS_MCP_EMBEDDING_MODEL  | text-embedding-qwen3-embedding-8b        | Embedding Model Name            |

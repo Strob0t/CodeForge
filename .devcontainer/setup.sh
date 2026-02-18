@@ -65,6 +65,16 @@ if [ -f docker-compose.yml ]; then
     docker compose up -d
     echo "  Services started:"
     docker compose ps --format "  - {{.Name}}: {{.Status}}"
+
+    # Connect devcontainer to the codeforge network so services
+    # are reachable by container name (codeforge-postgres, etc.)
+    echo ""
+    echo "> Connecting devcontainer to codeforge network..."
+    if docker network connect codeforge "$(hostname)" 2>/dev/null; then
+        echo "  Connected to codeforge network"
+    else
+        echo "  Already connected (or network not available)"
+    fi
 else
     echo "  No docker-compose.yml found, skipping"
 fi
