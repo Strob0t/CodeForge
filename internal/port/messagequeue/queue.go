@@ -69,4 +69,10 @@ const (
 	// Retrieval Sub-Agent subjects (Phase 6C)
 	SubjectSubAgentSearchRequest = "retrieval.subagent.request" // Go → Python: multi-query search
 	SubjectSubAgentSearchResult  = "retrieval.subagent.result"  // Python → Go: multi-query results
+
+	// GraphRAG subjects (Phase 6D)
+	SubjectGraphBuildRequest  = "graph.build.request"  // Go → Python: request graph build
+	SubjectGraphBuildResult   = "graph.build.result"   // Python → Go: graph build result
+	SubjectGraphSearchRequest = "graph.search.request" // Go → Python: graph search request
+	SubjectGraphSearchResult  = "graph.search.result"  // Python → Go: graph search results
 )

@@ -121,6 +121,11 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/projects/{id}/index", h.IndexProject)
 		r.Get("/projects/{id}/index", h.GetIndexStatus)
 
+		// GraphRAG (nested under projects)
+		r.Post("/projects/{id}/graph/build", h.BuildGraph)
+		r.Get("/projects/{id}/graph/status", h.GetGraphStatus)
+		r.Post("/projects/{id}/graph/search", h.SearchGraph)
+
 		// Cost aggregation
 		r.Get("/costs", h.GlobalCostSummary)
 		r.Get("/projects/{id}/costs", h.ProjectCostSummary)

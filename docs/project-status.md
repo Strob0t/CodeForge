@@ -464,7 +464,7 @@
 - **New dependency:** `github.com/dgraph-io/ristretto/v2`
 - **Tests:** 36+ new test functions (Go + Python), all passing
 
-## Phase 6: Code-RAG (Context Engine for Large Codebases) (6A-6C COMPLETED)
+## Phase 6: Code-RAG (Context Engine for Large Codebases) (COMPLETED)
 
 ### 6A. Repo Map — tree-sitter Based Code Intelligence (COMPLETED)
 
@@ -564,6 +564,32 @@
   - **Performance:** Pre-built rank dict for O(1) BM25 lookup, `per_query_k = top_k` fix, percentile-based priority normalization (60-85 range)
   - **Tests:** 5 new tests (error-in-payload Go, parallel-all-fail Python, Pydantic validator bounds, consumer error publish)
   - All 77 Python tests + all Go tests passing, golangci-lint 0 issues
+
+### 6D. GraphRAG — Structural Code Graph Intelligence (COMPLETED)
+
+- [x] (2026-02-18) PostgreSQL adjacency-list graph (no Neo4j — single-DB architecture)
+  - Migration 016: `graph_nodes`, `graph_edges`, `graph_metadata` tables
+  - Nodes: function/class/method/module definitions via tree-sitter
+  - Edges: import edges (Python/Go/TS/JS), call edges (name-matching heuristic)
+- [x] (2026-02-18) Python: CodeGraphBuilder + GraphSearcher (`workers/codeforge/graphrag.py`)
+  - Build pipeline: walk files → tree-sitter parse → extract definitions + imports + calls → batch upsert to PostgreSQL
+  - BFS search with hop-decay scoring (default decay 0.7): hop 0 = 1.0, hop 1 = 0.7, hop 2 = 0.49
+  - Bidirectional traversal (outgoing + incoming edges), edge path tracking for explainability
+- [x] (2026-02-18) Python consumer: 2 new NATS handlers (`graph.build.request`, `graph.search.request`)
+- [x] (2026-02-18) Go: GraphService following RetrievalService pattern (syncWaiter, health tracking, WS broadcasts)
+- [x] (2026-02-18) Go: 4 NATS subjects + 5 payload types, 4 config fields (GraphEnabled, GraphMaxHops, GraphTopK, GraphHopDecay)
+- [x] (2026-02-18) Go: Context optimizer `fetchGraphEntries()` uses retrieval hits as seed symbols
+  - Priority: 70 - (distance * 10) → hop 0 = 70, hop 1 = 60, hop 2 = 50
+- [x] (2026-02-18) Go: 3 HTTP endpoints, EntryGraph domain kind, WS GraphStatusEvent
+- [x] (2026-02-18) Frontend: Graph types, API client (graph namespace), RetrievalPanel graph section
+
+### Phase 6D Key Deliverables
+- **New files:** 4 (016_graph_nodes_edges.sql, graphrag.py, test_graphrag.py, graph.go)
+- **Modified files:** 14 (models.py, consumer.py, queue.go, schemas.go, config.go, loader.go, pack.go, context_optimizer.go, handlers.go, routes.go, events.go, main.go, types.ts, client.ts)
+- **API:** 3 new REST endpoints (POST /graph/build, GET /graph/status, POST /graph/search)
+- **Config:** 4 new env vars (CODEFORGE_ORCH_GRAPH_ENABLED, _MAX_HOPS, _TOP_K, _HOP_DECAY)
+- **Tests:** 19 Python tests, all passing; Go compilation + all existing tests passing
+- **Linting:** golangci-lint 0 issues, ruff 0 issues, ESLint 0 issues, pre-commit all hooks pass
 
 ## Phase 7: Cost & Token Transparency (COMPLETED)
 

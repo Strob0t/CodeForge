@@ -51,6 +51,7 @@ type Handlers struct {
 	Modes            *service.ModeService
 	RepoMap          *service.RepoMapService
 	Retrieval        *service.RetrievalService
+	Graph            *service.GraphService
 	Events           eventstore.Store
 	Cost             *service.CostService
 }
@@ -1033,6 +1034,74 @@ func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.Retrieval.SubAgentSearchSync(r.Context(), projectID, req.Query, topK, maxQueries, model, rerank)
+	if err != nil {
+		writeError(w, http.StatusGatewayTimeout, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// --- GraphRAG Endpoints (Phase 6D) ---
+
+// BuildGraph handles POST /api/v1/projects/{id}/graph/build
+func (h *Handlers) BuildGraph(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	proj, err := h.Projects.Get(r.Context(), projectID)
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+
+	if err := h.Graph.RequestBuild(r.Context(), projectID, proj.WorkspacePath); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "building"})
+}
+
+// GetGraphStatus handles GET /api/v1/projects/{id}/graph/status
+func (h *Handlers) GetGraphStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	info := h.Graph.GetStatus(projectID)
+	if info == nil {
+		writeError(w, http.StatusNotFound, "no graph found for project")
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+// SearchGraph handles POST /api/v1/projects/{id}/graph/search
+func (h *Handlers) SearchGraph(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req struct {
+		SeedSymbols []string `json:"seed_symbols"`
+		MaxHops     int      `json:"max_hops"`
+		TopK        int      `json:"top_k"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.SeedSymbols) == 0 {
+		writeError(w, http.StatusBadRequest, "seed_symbols is required")
+		return
+	}
+
+	maxHops := req.MaxHops
+	if maxHops <= 0 {
+		maxHops = 2
+	} else if maxHops > 10 {
+		maxHops = 10
+	}
+	topK := req.TopK
+	if topK <= 0 {
+		topK = 10
+	} else if topK > 500 {
+		topK = 500
+	}
+
+	result, err := h.Graph.SearchSync(r.Context(), projectID, req.SeedSymbols, maxHops, topK)
 	if err != nil {
 		writeError(w, http.StatusGatewayTimeout, err.Error())
 		return

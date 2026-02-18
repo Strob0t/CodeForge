@@ -1,7 +1,12 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { RetrievalIndexStatus, RetrievalSearchHit, SubAgentSearchResult } from "~/api/types";
+import type {
+  GraphStatus,
+  RetrievalIndexStatus,
+  RetrievalSearchHit,
+  SubAgentSearchResult,
+} from "~/api/types";
 
 interface RetrievalPanelProps {
   projectId: string;
@@ -27,8 +32,20 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
     },
   );
 
+  const [graphStatus, { refetch: refetchGraph }] = createResource<GraphStatus | null>(
+    () => props.projectId,
+    async (id) => {
+      try {
+        return await api.graph.status(id);
+      } catch {
+        return null;
+      }
+    },
+  );
+
   const [expanded, setExpanded] = createSignal<Record<number, boolean>>({});
   const [building, setBuilding] = createSignal(false);
+  const [buildingGraph, setBuildingGraph] = createSignal(false);
   const [searching, setSearching] = createSignal(false);
   const [error, setError] = createSignal("");
   const [query, setQuery] = createSignal("");
@@ -48,6 +65,20 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
       setError(e instanceof Error ? e.message : "Failed to build index");
     } finally {
       setBuilding(false);
+    }
+  };
+
+  const handleBuildGraph = async () => {
+    setBuildingGraph(true);
+    setError("");
+    try {
+      await api.graph.build(props.projectId);
+      props.onStatusUpdate?.("building");
+      setTimeout(() => refetchGraph(), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to build graph");
+    } finally {
+      setBuildingGraph(false);
     }
   };
 
@@ -278,6 +309,92 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
           </div>
         </div>
       </Show>
+
+      {/* Graph Status Section */}
+      <div class="mt-4 border-t border-gray-200 pt-4">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-lg font-semibold">Code Graph</h3>
+          <button
+            class="rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-700 disabled:opacity-50"
+            onClick={handleBuildGraph}
+            disabled={buildingGraph() || graphStatus()?.status === "building"}
+          >
+            {buildingGraph() || graphStatus()?.status === "building"
+              ? "Building..."
+              : graphStatus()?.status === "ready"
+                ? "Rebuild Graph"
+                : "Build Graph"}
+          </button>
+        </div>
+
+        <Show
+          when={!graphStatus.loading}
+          fallback={<p class="text-sm text-gray-400">Loading...</p>}
+        >
+          <Show
+            when={graphStatus()}
+            fallback={
+              <p class="text-sm text-gray-500">
+                No code graph built yet. Click "Build Graph" to analyze symbol relationships.
+              </p>
+            }
+          >
+            {(gs) => (
+              <>
+                <div class="mb-3 grid grid-cols-3 gap-3">
+                  <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center">
+                    <div class="text-lg font-semibold text-gray-800">
+                      {formatNumber(gs().node_count)}
+                    </div>
+                    <div class="text-xs text-gray-500">Nodes</div>
+                  </div>
+                  <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center">
+                    <div class="text-lg font-semibold text-gray-800">
+                      {formatNumber(gs().edge_count)}
+                    </div>
+                    <div class="text-xs text-gray-500">Edges</div>
+                  </div>
+                  <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center">
+                    <span
+                      class={`inline-block rounded px-2 py-0.5 text-xs font-medium ${statusColor(gs().status)}`}
+                    >
+                      {gs().status}
+                    </span>
+                    <div class="text-xs text-gray-500">Status</div>
+                  </div>
+                </div>
+
+                <Show when={gs().languages.length > 0}>
+                  <div class="mb-3">
+                    <span class="mr-2 text-xs text-gray-500">Languages:</span>
+                    <div class="inline-flex flex-wrap gap-1">
+                      <For each={gs().languages}>
+                        {(lang) => (
+                          <span class="rounded bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
+                            {lang}
+                          </span>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+
+                <Show when={gs().built_at}>
+                  <div class="mb-3 text-xs text-gray-400">
+                    Built {new Date(gs().built_at ?? "").toLocaleString()}
+                  </div>
+                </Show>
+
+                <Show when={gs().error}>
+                  <div class="rounded bg-red-50 p-2 text-sm text-red-600">
+                    Graph error: {gs().error}
+                  </div>
+                </Show>
+              </>
+            )}
+          </Show>
+        </Show>
+      </div>
     </div>
   );
 }

@@ -34,6 +34,9 @@ const (
 	// Phase 6B: retrieval events
 	EventRetrievalStatus = "retrieval.status"
 
+	// Phase 6D: graph events
+	EventGraphStatus = "graph.status"
+
 	// Phase 7: cost transparency events
 	EventBudgetAlert = "run.budget_alert"
 )
@@ -148,6 +151,16 @@ type RepoMapStatusEvent struct {
 	FileCount   int    `json:"file_count,omitempty"`
 	SymbolCount int    `json:"symbol_count,omitempty"`
 	Error       string `json:"error,omitempty"`
+}
+
+// GraphStatusEvent is broadcast when a graph's build status changes.
+type GraphStatusEvent struct {
+	ProjectID string   `json:"project_id"`
+	Status    string   `json:"status"` // "building", "ready", "error"
+	NodeCount int      `json:"node_count,omitempty"`
+	EdgeCount int      `json:"edge_count,omitempty"`
+	Languages []string `json:"languages,omitempty"`
+	Error     string   `json:"error,omitempty"`
 }
 
 // RetrievalStatusEvent is broadcast when a retrieval index's status changes.

@@ -22,6 +22,7 @@ type ContextOptimizerService struct {
 	store     database.Store
 	orchCfg   *config.Orchestrator
 	retrieval *RetrievalService
+	graph     *GraphService
 
 	// Guard against redundant builds for the same task (#16).
 	buildMu    sync.Mutex
@@ -40,6 +41,11 @@ func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrat
 // SetRetrieval wires the retrieval service for hybrid search injection.
 func (s *ContextOptimizerService) SetRetrieval(r *RetrievalService) {
 	s.retrieval = r
+}
+
+// SetGraph wires the graph service for GraphRAG injection.
+func (s *ContextOptimizerService) SetGraph(g *GraphService) {
+	s.graph = g
 }
 
 // GetPackByTask returns the existing context pack for a task, if any.
@@ -98,10 +104,15 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 	}
 	type retrievalResult struct {
 		entries []cfcontext.ContextEntry
+		hits    []messagequeue.RetrievalSearchHitPayload
+	}
+	type graphResult struct {
+		entries []cfcontext.ContextEntry
 	}
 
 	scanCh := make(chan scanResult, 1)
 	retrievalCh := make(chan retrievalResult, 1)
+	graphCh := make(chan graphResult, 1)
 
 	// Workspace scan goroutine.
 	go func() {
@@ -129,18 +140,27 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 			retrievalCtx, cancel := context.WithTimeout(ctx, retrievalTimeout)
 			defer cancel()
 
-			retrievalCh <- retrievalResult{entries: s.fetchRetrievalEntries(retrievalCtx, projectID, t.Prompt)}
+			entries, hits := s.fetchRetrievalEntriesWithHits(retrievalCtx, projectID, t.Prompt)
+			retrievalCh <- retrievalResult{entries: entries, hits: hits}
 		} else {
 			retrievalCh <- retrievalResult{}
 		}
 	}()
 
-	// Collect results from both goroutines.
+	// Collect results from scan and retrieval first (graph needs retrieval hits).
 	sr := <-scanCh
 	candidates = append(candidates, sr.entries...)
 
 	rr := <-retrievalCh
 	candidates = append(candidates, rr.entries...)
+
+	// Graph goroutine — uses retrieval hits as seed symbols.
+	go func() {
+		graphCh <- graphResult{entries: s.fetchGraphEntries(ctx, projectID, t.Prompt, rr.hits)}
+	}()
+
+	gr := <-graphCh
+	candidates = append(candidates, gr.entries...)
 
 	// Inject repo map if available for this project.
 	repoMap, err := s.store.GetRepoMap(ctx, projectID)
@@ -216,9 +236,9 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 	return pack, nil
 }
 
-// fetchRetrievalEntries tries the sub-agent first (if enabled), falls back to single-shot search.
-// The provided ctx should carry a shared deadline covering both attempts (#4).
-func (s *ContextOptimizerService) fetchRetrievalEntries(ctx context.Context, projectID, prompt string) []cfcontext.ContextEntry {
+// fetchRetrievalEntriesWithHits tries the sub-agent first (if enabled), falls back to single-shot search.
+// so they can be used as seed symbols for graph search.
+func (s *ContextOptimizerService) fetchRetrievalEntriesWithHits(ctx context.Context, projectID, prompt string) ([]cfcontext.ContextEntry, []messagequeue.RetrievalSearchHitPayload) {
 	// Try sub-agent search first if enabled.
 	if s.orchCfg.SubAgentEnabled {
 		subResult, err := s.retrieval.SubAgentSearchSync(
@@ -230,7 +250,7 @@ func (s *ContextOptimizerService) fetchRetrievalEntries(ctx context.Context, pro
 		)
 		if err == nil {
 			slog.Info("retrieval via sub-agent", "project_id", projectID, "hits", len(subResult.Results), "queries", len(subResult.ExpandedQueries))
-			return hitsToEntries(subResult.Results)
+			return hitsToEntries(subResult.Results), subResult.Results
 		}
 		slog.Warn("sub-agent search failed, falling back to single-shot", "project_id", projectID, "error", err)
 	}
@@ -240,10 +260,10 @@ func (s *ContextOptimizerService) fetchRetrievalEntries(ctx context.Context, pro
 		s.orchCfg.RetrievalBM25Weight, s.orchCfg.RetrievalSemanticWeight)
 	if err != nil {
 		slog.Warn("retrieval search failed during context build", "project_id", projectID, "error", err)
-		return nil
+		return nil, nil
 	}
 
-	return hitsToEntries(result.Results)
+	return hitsToEntries(result.Results), result.Results
 }
 
 // hitsToEntries converts retrieval search hits to context entries.
@@ -290,6 +310,68 @@ func hitsToEntries(hits []messagequeue.RetrievalSearchHitPayload) []cfcontext.Co
 			Priority: priority,
 		})
 	}
+	return entries
+}
+
+// fetchGraphEntries performs a graph search using seed symbols from retrieval hits.
+func (s *ContextOptimizerService) fetchGraphEntries(ctx context.Context, projectID, prompt string, retrievalHits []messagequeue.RetrievalSearchHitPayload) []cfcontext.ContextEntry {
+	if s.graph == nil || !s.orchCfg.GraphEnabled {
+		return nil
+	}
+
+	info := s.graph.GetStatus(projectID)
+	if info == nil || info.Status != "ready" {
+		return nil
+	}
+
+	// Extract seed symbols from retrieval hits.
+	seen := make(map[string]bool)
+	var seedSymbols []string
+	for _, hit := range retrievalHits {
+		if hit.SymbolName != "" && !seen[hit.SymbolName] {
+			seen[hit.SymbolName] = true
+			seedSymbols = append(seedSymbols, hit.SymbolName)
+		}
+	}
+
+	// If no symbols from retrieval, try extracting keywords from the prompt.
+	if len(seedSymbols) == 0 {
+		keywords := extractKeywords(prompt)
+		if len(keywords) > 5 {
+			keywords = keywords[:5]
+		}
+		seedSymbols = keywords
+	}
+
+	if len(seedSymbols) == 0 {
+		return nil
+	}
+
+	result, err := s.graph.SearchSync(ctx, projectID, seedSymbols, s.orchCfg.GraphMaxHops, s.orchCfg.GraphTopK)
+	if err != nil {
+		slog.Warn("graph search failed during context build", "project_id", projectID, "error", err)
+		return nil
+	}
+
+	entries := make([]cfcontext.ContextEntry, 0, len(result.Results))
+	for _, hit := range result.Results {
+		// Priority: 70 - (distance * 10) -- hop 0 = 70, hop 1 = 60, hop 2 = 50
+		priority := 70 - (hit.Distance * 10)
+		if priority < 10 {
+			priority = 10
+		}
+
+		content := fmt.Sprintf("[%s] %s (lines %d-%d)", hit.Kind, hit.SymbolName, hit.StartLine, hit.EndLine)
+		entries = append(entries, cfcontext.ContextEntry{
+			Kind:     cfcontext.EntryGraph,
+			Path:     hit.Filepath,
+			Content:  content,
+			Tokens:   cfcontext.EstimateTokens(content),
+			Priority: priority,
+		})
+	}
+
+	slog.Info("graph context entries", "project_id", projectID, "hits", len(entries), "seeds", len(seedSymbols))
 	return entries
 }
 

@@ -249,3 +249,56 @@ class SubAgentSearchResult(BaseModel):
     expanded_queries: list[str] = Field(default_factory=list)
     total_candidates: int = 0
     error: str = ""
+
+
+# --- GraphRAG Models (Phase 6D) ---
+
+
+class GraphBuildRequest(BaseModel):
+    """Request from Go control plane to build a code graph for a project."""
+
+    project_id: str
+    workspace_path: str
+
+
+class GraphBuildResult(BaseModel):
+    """Result of graph build sent back to Go control plane."""
+
+    project_id: str
+    status: str  # "ready" or "error"
+    node_count: int = 0
+    edge_count: int = 0
+    languages: list[str] = Field(default_factory=list)
+    error: str = ""
+
+
+class GraphSearchRequest(BaseModel):
+    """Request from Go control plane to search the code graph."""
+
+    project_id: str
+    request_id: str
+    seed_symbols: list[str]
+    max_hops: int = 2
+    top_k: int = 10
+
+
+class GraphSearchHit(BaseModel):
+    """A single node returned from graph traversal."""
+
+    filepath: str
+    symbol_name: str
+    kind: str  # "function", "class", "method", "module"
+    start_line: int = 0
+    end_line: int = 0
+    distance: int  # hops from seed
+    score: float
+    edge_path: list[str] = Field(default_factory=list)
+
+
+class GraphSearchResult(BaseModel):
+    """Result of a graph search sent back to Go control plane."""
+
+    project_id: str
+    request_id: str
+    results: list[GraphSearchHit] = Field(default_factory=list)
+    error: str = ""

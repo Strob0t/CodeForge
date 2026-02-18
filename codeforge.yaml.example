@@ -64,3 +64,9 @@ orchestrator:
   decompose_model: "openai/gpt-4o-mini"  # LLM model for feature decomposition
   decompose_max_tokens: 4096   # Max tokens for decomposition LLM response
   max_team_size: 5             # Max agents per team (default: 5)
+
+  # GraphRAG settings (Phase 6D)
+  graph_enabled: false         # Enable GraphRAG code graph (default: false)
+  graph_max_hops: 2            # Max hops for graph traversal (default: 2)
+  graph_top_k: 10              # Top-K results for graph search (default: 10)
+  graph_hop_decay: 0.7         # Score decay per hop (default: 0.7)

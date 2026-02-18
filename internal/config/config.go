@@ -47,6 +47,10 @@ type Orchestrator struct {
 	SubAgentMaxQueries      int           `yaml:"subagent_max_queries"`      // Max expanded queries (default: 5)
 	SubAgentRerank          bool          `yaml:"subagent_rerank"`           // Enable LLM reranking (default: true)
 	SubAgentTimeout         time.Duration `yaml:"subagent_timeout"`          // Timeout for sub-agent search (default: 60s)
+	GraphEnabled            bool          `yaml:"graph_enabled"`             // Enable GraphRAG (default: false)
+	GraphMaxHops            int           `yaml:"graph_max_hops"`            // Max hops for graph traversal (default: 2)
+	GraphTopK               int           `yaml:"graph_top_k"`               // Top-K results for graph search (default: 10)
+	GraphHopDecay           float64       `yaml:"graph_hop_decay"`           // Score decay per hop (default: 0.7)
 }
 
 // Runtime holds agent execution engine configuration.
@@ -228,6 +232,10 @@ func Defaults() Config {
 			SubAgentMaxQueries:      5,
 			SubAgentRerank:          true,
 			SubAgentTimeout:         60 * time.Second,
+			GraphEnabled:            false,
+			GraphMaxHops:            2,
+			GraphTopK:               10,
+			GraphHopDecay:           0.7,
 		},
 	}
 }

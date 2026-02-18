@@ -387,7 +387,14 @@ export interface PlanFeatureRequest {
 // --- Context types (Phase 5D) ---
 
 /** Context entry kind enum matching Go domain/context.EntryKind */
-export type ContextEntryKind = "file" | "snippet" | "summary" | "shared" | "repomap" | "hybrid";
+export type ContextEntryKind =
+  | "file"
+  | "snippet"
+  | "summary"
+  | "shared"
+  | "repomap"
+  | "hybrid"
+  | "graph";
 
 /** Matches Go domain/context.ContextEntry */
 export interface ContextEntry {
@@ -580,6 +587,59 @@ export interface RetrievalStatusEvent {
   file_count?: number;
   chunk_count?: number;
   embedding_model?: string;
+  error?: string;
+}
+
+// --- GraphRAG types (Phase 6D) ---
+
+/** Graph node kind */
+export type GraphNodeKind = "function" | "class" | "method" | "module";
+
+/** Graph build status */
+export interface GraphStatus {
+  project_id: string;
+  status: "pending" | "building" | "ready" | "error";
+  node_count: number;
+  edge_count: number;
+  languages: string[];
+  error?: string;
+  built_at?: string;
+}
+
+/** Graph search hit */
+export interface GraphSearchHit {
+  filepath: string;
+  symbol_name: string;
+  kind: GraphNodeKind;
+  start_line: number;
+  end_line: number;
+  distance: number;
+  score: number;
+  edge_path: string[];
+}
+
+/** Graph search request body */
+export interface GraphSearchRequest {
+  seed_symbols: string[];
+  max_hops?: number;
+  top_k?: number;
+}
+
+/** Graph search result */
+export interface GraphSearchResult {
+  project_id: string;
+  request_id: string;
+  results: GraphSearchHit[];
+  error?: string;
+}
+
+/** WS event: graph status change */
+export interface GraphStatusEvent {
+  project_id: string;
+  status: "building" | "ready" | "error";
+  node_count?: number;
+  edge_count?: number;
+  languages?: string[];
   error?: string;
 }
 

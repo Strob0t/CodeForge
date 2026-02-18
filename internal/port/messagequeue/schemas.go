@@ -274,3 +274,50 @@ type SubAgentSearchResultPayload struct {
 	TotalCandidates int                         `json:"total_candidates"`
 	Error           string                      `json:"error,omitempty"`
 }
+
+// --- GraphRAG payloads (Phase 6D) ---
+
+// GraphBuildRequestPayload is the schema for graph.build.request messages.
+type GraphBuildRequestPayload struct {
+	ProjectID     string `json:"project_id"`
+	WorkspacePath string `json:"workspace_path"`
+}
+
+// GraphBuildResultPayload is the schema for graph.build.result messages.
+type GraphBuildResultPayload struct {
+	ProjectID string   `json:"project_id"`
+	Status    string   `json:"status"` // "ready" or "error"
+	NodeCount int      `json:"node_count"`
+	EdgeCount int      `json:"edge_count"`
+	Languages []string `json:"languages"`
+	Error     string   `json:"error,omitempty"`
+}
+
+// GraphSearchRequestPayload is the schema for graph.search.request messages.
+type GraphSearchRequestPayload struct {
+	ProjectID   string   `json:"project_id"`
+	RequestID   string   `json:"request_id"`
+	SeedSymbols []string `json:"seed_symbols"`
+	MaxHops     int      `json:"max_hops"`
+	TopK        int      `json:"top_k"`
+}
+
+// GraphSearchHitPayload represents a single graph search result hit.
+type GraphSearchHitPayload struct {
+	Filepath   string   `json:"filepath"`
+	SymbolName string   `json:"symbol_name"`
+	Kind       string   `json:"kind"`
+	StartLine  int      `json:"start_line"`
+	EndLine    int      `json:"end_line"`
+	Distance   int      `json:"distance"`
+	Score      float64  `json:"score"`
+	EdgePath   []string `json:"edge_path"`
+}
+
+// GraphSearchResultPayload is the schema for graph.search.result messages.
+type GraphSearchResultPayload struct {
+	ProjectID string                  `json:"project_id"`
+	RequestID string                  `json:"request_id"`
+	Results   []GraphSearchHitPayload `json:"results"`
+	Error     string                  `json:"error,omitempty"`
+}

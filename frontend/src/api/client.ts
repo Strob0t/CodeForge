@@ -19,6 +19,9 @@ import type {
   DecomposeRequest,
   ExecutionPlan,
   GitStatus,
+  GraphSearchRequest,
+  GraphSearchResult,
+  GraphStatus,
   HealthStatus,
   LLMModel,
   Mode,
@@ -310,6 +313,22 @@ export const api = {
 
     agentSearch: (projectId: string, data: SubAgentSearchRequest) =>
       request<SubAgentSearchResult>(`/projects/${encodeURIComponent(projectId)}/search/agent`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
+
+  graph: {
+    status: (projectId: string) =>
+      request<GraphStatus>(`/projects/${encodeURIComponent(projectId)}/graph/status`),
+
+    build: (projectId: string) =>
+      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/graph/build`, {
+        method: "POST",
+      }),
+
+    search: (projectId: string, data: GraphSearchRequest) =>
+      request<GraphSearchResult>(`/projects/${encodeURIComponent(projectId)}/graph/search`, {
         method: "POST",
         body: JSON.stringify(data),
       }),

@@ -23,6 +23,7 @@ tree-sitter = "^0.25"
 tree-sitter-language-pack = "^0.13"
 bm25s = "^0.2"
 numpy = "^2.0"
+psycopg = "^3.2"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.0"
@@ -73,6 +74,7 @@ max-complexity = 12
 
 [tool.ruff.lint.per-file-ignores]
 "workers/tests/**/*.py" = ["S101", "PT011", "S108"]
+"workers/codeforge/test_*.py" = ["S101", "PT011", "S108"]
 
 [tool.ruff.format]
 quote-style = "double"

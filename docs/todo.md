@@ -476,13 +476,31 @@
   - Pre-built rank dict for O(1) BM25 lookup, per_query_k = top_k fix
   - 5 new tests (3 Python, 2 Go) — all 77 Python + all Go tests passing
 
-### 6D. GraphRAG (Phase 6+)
+### 6D. GraphRAG — Structural Code Graph Intelligence (COMPLETED)
 
-- [ ] Vector entry points + Graph traversal
-  - Call graph, import graph, ownership relationships
-  - Use where architecture relationships matter
-  - Careful with context explosion (graph expansion)
-- [ ] Graph DB integration (Neo4j or similar)
+- [x] (2026-02-18) PostgreSQL adjacency-list graph (no Neo4j — single-DB architecture)
+  - Migration 016: `graph_nodes`, `graph_edges`, `graph_metadata` tables
+  - Nodes: function/class/method/module definitions via tree-sitter
+  - Edges: import edges (Python/Go/TS/JS), call edges (name-matching heuristic)
+- [x] (2026-02-18) Python: CodeGraphBuilder + GraphSearcher (`workers/codeforge/graphrag.py`)
+  - Build pipeline: walk files → tree-sitter parse → extract definitions + imports + calls → batch upsert to PostgreSQL
+  - BFS search with hop-decay scoring (default decay 0.7): hop 0 = 1.0, hop 1 = 0.7, hop 2 = 0.49
+  - Bidirectional traversal (outgoing + incoming edges)
+  - Edge path tracking for explainability
+  - 19 tests in `test_graphrag.py` — all passing
+- [x] (2026-02-18) Python consumer: 2 new NATS handlers (`graph.build.request`, `graph.search.request`)
+- [x] (2026-02-18) Go: GraphService (`internal/service/graph.go`)
+  - Follows RetrievalService pattern: syncWaiter, health tracking, WS broadcasts
+  - RequestBuild, HandleBuildResult, SearchSync, HandleSearchResult, GetStatus, StartSubscribers
+- [x] (2026-02-18) Go: 4 NATS subjects + 5 payload types in schemas.go
+- [x] (2026-02-18) Go: 4 config fields (GraphEnabled, GraphMaxHops, GraphTopK, GraphHopDecay)
+- [x] (2026-02-18) Go: Context optimizer integration — `fetchGraphEntries()` uses retrieval hits as seed symbols
+  - Priority: 70 - (distance * 10) → hop 0 = 70, hop 1 = 60, hop 2 = 50
+  - Guarded by GraphEnabled + graph status "ready"
+- [x] (2026-02-18) Go: 3 HTTP endpoints (`POST /graph/build`, `GET /graph/status`, `POST /graph/search`)
+- [x] (2026-02-18) Go: EntryGraph kind in domain context, WS GraphStatusEvent
+- [x] (2026-02-18) Frontend: GraphStatus/GraphSearchHit/GraphSearchResult types, API client, RetrievalPanel graph section
+- [x] (2026-02-18) All linting passes: golangci-lint, ruff, ESLint, prettier, pre-commit
 
 ---
 

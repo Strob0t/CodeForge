@@ -241,6 +241,15 @@ func run() error {
 	contextOptSvc.SetRetrieval(retrievalSvc)
 	slog.Info("retrieval service initialized")
 
+	// --- Graph Service (Phase 6D) ---
+	graphSvc := service.NewGraphService(store, queue, hub, &cfg.Orchestrator)
+	graphCancels, err := graphSvc.StartSubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("graph subscribers: %w", err)
+	}
+	contextOptSvc.SetGraph(graphSvc)
+	slog.Info("graph service initialized", "enabled", cfg.Orchestrator.GraphEnabled)
+
 	// --- Wire SharedContext into PoolManager + Orchestrator (Phase 5E) ---
 	poolManagerSvc.SetSharedContext(sharedCtxSvc)
 	orchSvc.SetSharedContext(sharedCtxSvc)
@@ -268,6 +277,7 @@ func run() error {
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
+		Graph:            graphSvc,
 		Events:           eventStore,
 		Cost:             costSvc,
 	}
@@ -358,6 +368,9 @@ func run() error {
 	cancelOutput()
 	repoMapCancel()
 	for _, cancel := range retrievalCancels {
+		cancel()
+	}
+	for _, cancel := range graphCancels {
 		cancel()
 	}
 
