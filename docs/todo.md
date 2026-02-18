@@ -69,11 +69,11 @@
   - 4-phase ordered shutdown: HTTP → cancel subscribers → NATS Drain → DB close
   - NATS: `Drain()` method added to Queue interface and NATS adapter
   - Python: 10s drain timeout to prevent hanging
-- [ ] Agent execution timeout & heartbeat
-  - Context with timeout (10min default, configurable)
-  - Heartbeat ticker (30s) for progress tracking
-  - Cancellation channel for user abort
-  - Implement in `internal/service/agent.go`
+- [-] Agent execution timeout & heartbeat (partially done)
+  - [x] Timeout enforcement exists: `checkTermination()` in `runtime.go` checks elapsed time per tool call
+  - [x] Cancellation via `POST /api/v1/runs/{id}/cancel` + NATS `runs.cancel` subject
+  - [ ] Heartbeat ticker (30s) for progress tracking during long tool calls
+  - [ ] Context-level timeout (wrapping entire run, not just tool-call boundaries)
 - [x] (2026-02-17) Idempotency Keys for critical operations
   - `internal/middleware/idempotency.go`: HTTP middleware for POST/PUT/DELETE deduplication
   - NATS JetStream KV storage (24h TTL) via `KeyValue()` method in `internal/adapter/nats/nats.go`
@@ -128,9 +128,11 @@
 - [ ] Go Core: Worker pools for CPU-bound tasks
   - Git operations (clone, diff parsing) via `errgroup.Group` with `SetLimit(5)`
   - Context propagation for cancellation
-- [ ] Python Workers: Full asyncio adoption
-  - NATS consumer async, LiteLLM calls async (httpx already async)
-  - DB queries async (psycopg3 async mode)
+- [x] (2026-02-18) Python Workers: Full asyncio adoption
+  - NATS consumer: fully async (`await nats.connect()`, `await js.subscribe()`, `asyncio.gather()`)
+  - LiteLLM calls: async via `httpx.AsyncClient` (completion, health, embeddings)
+  - Quality gate: `asyncio.create_subprocess_shell()` with timeout
+  - DB queries: N/A — Python workers do not access PostgreSQL (by design: Go is control plane)
 
 ### 3F. Security & Isolation
 
@@ -261,10 +263,11 @@
   - Domain: `ExecModeHybrid` constant added to `internal/domain/run/run.go`
   - Runtime integration: sandbox lifecycle in StartRun, finalizeRun, CancelRun
   - 5 tests in `internal/service/sandbox_test.go`
-  - Deferred: Mount mode, Hybrid mode implementation
+  - Mount mode: implicit — Python worker operates directly on host filesystem (no additional Go code needed)
+  - Deferred: Hybrid mode (read from host, write in sandbox, merge on success)
 - [ ] Runtime Compliance Tests
-  - Test suite that validates each Runtime implementation
-  - Feature parity checks across Sandbox/Mount/Hybrid
+  - Test suite that validates Sandbox vs Hybrid execution
+  - Feature parity checks, isolation verification
 
 ### 4C. Headless Autonomy (Server-First Execution) (COMPLETED)
 
