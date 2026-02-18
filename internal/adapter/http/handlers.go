@@ -28,6 +28,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
+const maxQueryLength = 2000
+
 // Handlers holds the HTTP handler dependencies.
 type Handlers struct {
 	Projects         *service.ProjectService
@@ -937,8 +939,77 @@ func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query is required")
 		return
 	}
+	if len(req.Query) > maxQueryLength {
+		writeError(w, http.StatusBadRequest, "query exceeds maximum length of 2000 characters")
+		return
+	}
 
-	result, err := h.Retrieval.SearchSync(r.Context(), projectID, req.Query, req.TopK, req.BM25Weight, req.SemanticWeight)
+	// Clamp top_k to safe bounds.
+	topK := req.TopK
+	if topK <= 0 {
+		topK = 20
+	} else if topK > 500 {
+		topK = 500
+	}
+
+	result, err := h.Retrieval.SearchSync(r.Context(), projectID, req.Query, topK, req.BM25Weight, req.SemanticWeight)
+	if err != nil {
+		writeError(w, http.StatusGatewayTimeout, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// --- Retrieval Sub-Agent Endpoints (Phase 6C) ---
+
+// AgentSearchProject handles POST /api/v1/projects/{id}/search/agent
+func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req struct {
+		Query      string `json:"query"`
+		TopK       int    `json:"top_k"`
+		MaxQueries int    `json:"max_queries"`
+		Model      string `json:"model"`
+		Rerank     *bool  `json:"rerank"` // pointer to distinguish absent (use config default) from explicit false
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Query == "" {
+		writeError(w, http.StatusBadRequest, "query is required")
+		return
+	}
+	if len(req.Query) > maxQueryLength {
+		writeError(w, http.StatusBadRequest, "query exceeds maximum length of 2000 characters")
+		return
+	}
+
+	// Apply defaults from config, clamp to safe bounds.
+	defaultModel, defaultMaxQueries, defaultRerank := h.Retrieval.SubAgentDefaults()
+	topK := req.TopK
+	if topK <= 0 {
+		topK = 20
+	} else if topK > 500 {
+		topK = 500
+	}
+	maxQueries := req.MaxQueries
+	if maxQueries <= 0 {
+		maxQueries = defaultMaxQueries
+	} else if maxQueries > 20 {
+		maxQueries = 20
+	}
+	model := req.Model
+	if model == "" {
+		model = defaultModel
+	}
+	rerank := defaultRerank
+	if req.Rerank != nil {
+		rerank = *req.Rerank
+	}
+
+	result, err := h.Retrieval.SubAgentSearchSync(r.Context(), projectID, req.Query, topK, maxQueries, model, rerank)
 	if err != nil {
 		writeError(w, http.StatusGatewayTimeout, err.Error())
 		return

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -1416,5 +1417,51 @@ func TestDeletePolicyProfileNotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Agent Search Endpoint Tests (Phase 6C) ---
+
+func TestAgentSearchMissingQuery(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{})
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/search/agent", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAgentSearchQueryTooLong(t *testing.T) {
+	r := newTestRouter()
+
+	longQuery := strings.Repeat("x", 2001)
+	body, _ := json.Marshal(map[string]string{"query": longQuery})
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/search/agent", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSearchProjectQueryTooLong(t *testing.T) {
+	r := newTestRouter()
+
+	longQuery := strings.Repeat("x", 2001)
+	body, _ := json.Marshal(map[string]string{"query": longQuery})
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/search", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }

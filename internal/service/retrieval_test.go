@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,5 +154,208 @@ func TestRetrievalService_SearchSync_Timeout(t *testing.T) {
 	_, err := svc.SearchSync(ctx, "proj-1", "test query", 10, 0.5, 0.5)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestRetrievalService_SubAgentSearchSync_Publishes(t *testing.T) {
+	store := &runtimeMockStore{}
+	q := &captureQueue{}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{
+		SubAgentModel:      "openai/gpt-4o-mini",
+		SubAgentMaxQueries: 5,
+		SubAgentRerank:     true,
+	}
+	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+
+	// Use a very short context deadline to trigger timeout quickly.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	_, err := svc.SubAgentSearchSync(ctx, "proj-1", "test query", 10, 5, "openai/gpt-4o-mini", true)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+
+	// Verify the message was published to the correct subject.
+	if q.subject != messagequeue.SubjectSubAgentSearchRequest {
+		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectSubAgentSearchRequest, q.subject)
+	}
+
+	var payload messagequeue.SubAgentSearchRequestPayload
+	if err := json.Unmarshal(q.data, &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if payload.ProjectID != "proj-1" {
+		t.Errorf("expected project_id proj-1, got %s", payload.ProjectID)
+	}
+	if payload.Query != "test query" {
+		t.Errorf("expected query 'test query', got %s", payload.Query)
+	}
+	if payload.TopK != 10 {
+		t.Errorf("expected top_k 10, got %d", payload.TopK)
+	}
+	if payload.MaxQueries != 5 {
+		t.Errorf("expected max_queries 5, got %d", payload.MaxQueries)
+	}
+	if !payload.Rerank {
+		t.Error("expected rerank true")
+	}
+}
+
+func TestRetrievalService_HandleSubAgentSearchResult(t *testing.T) {
+	store := &runtimeMockStore{}
+	q := &captureQueue{}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{}
+	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+
+	// Start a goroutine that calls SubAgentSearchSync.
+	resultCh := make(chan *messagequeue.SubAgentSearchResultPayload, 1)
+	errCh := make(chan error, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() {
+		r, err := svc.SubAgentSearchSync(ctx, "proj-1", "handler", 10, 3, "test-model", false)
+		resultCh <- r
+		errCh <- err
+	}()
+
+	// Wait briefly for the request to be published.
+	time.Sleep(50 * time.Millisecond)
+
+	// Extract the request ID from the published payload.
+	var reqPayload messagequeue.SubAgentSearchRequestPayload
+	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+		t.Fatalf("unmarshal request payload: %v", err)
+	}
+
+	// Deliver a result matching the request ID.
+	svc.HandleSubAgentSearchResult(context.Background(), &messagequeue.SubAgentSearchResultPayload{
+		ProjectID:       "proj-1",
+		Query:           "handler",
+		RequestID:       reqPayload.RequestID,
+		Results:         []messagequeue.RetrievalSearchHitPayload{{Filepath: "a.go", Score: 0.9}},
+		ExpandedQueries: []string{"handler function", "go handler"},
+		TotalCandidates: 15,
+	})
+
+	result := <-resultCh
+	err := <-errCh
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Filepath != "a.go" {
+		t.Errorf("expected filepath a.go, got %s", result.Results[0].Filepath)
+	}
+	if len(result.ExpandedQueries) != 2 {
+		t.Errorf("expected 2 expanded queries, got %d", len(result.ExpandedQueries))
+	}
+	if result.TotalCandidates != 15 {
+		t.Errorf("expected 15 total candidates, got %d", result.TotalCandidates)
+	}
+}
+
+func TestRetrievalService_HandleSubAgentSearchResult_NoWaiter(t *testing.T) {
+	store := &runtimeMockStore{}
+	q := &captureQueue{}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{}
+	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+
+	// Delivering a result with no waiter should not panic.
+	svc.HandleSubAgentSearchResult(context.Background(), &messagequeue.SubAgentSearchResultPayload{
+		ProjectID: "proj-1",
+		RequestID: "orphan-request-id",
+	})
+}
+
+// --- Error-in-payload tests (code review #11) ---
+
+func TestRetrievalService_SearchSync_ErrorInPayload(t *testing.T) {
+	store := &runtimeMockStore{}
+	q := &captureQueue{}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{}
+	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+
+	resultCh := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() {
+		_, err := svc.SearchSync(ctx, "proj-1", "query", 10, 0.5, 0.5)
+		resultCh <- err
+	}()
+
+	// Wait for publish.
+	time.Sleep(50 * time.Millisecond)
+
+	var reqPayload messagequeue.RetrievalSearchRequestPayload
+	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Deliver a result with an error field set.
+	svc.HandleSearchResult(context.Background(), &messagequeue.RetrievalSearchResultPayload{
+		ProjectID: "proj-1",
+		RequestID: reqPayload.RequestID,
+		Error:     "embedding service unavailable",
+	})
+
+	err := <-resultCh
+	if err == nil {
+		t.Fatal("expected error from SearchSync when result contains error field")
+	}
+	if !strings.Contains(err.Error(), "embedding service unavailable") {
+		t.Errorf("expected error to contain 'embedding service unavailable', got: %s", err.Error())
+	}
+}
+
+func TestRetrievalService_SubAgentSearchSync_ErrorInPayload(t *testing.T) {
+	store := &runtimeMockStore{}
+	q := &captureQueue{}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{SubAgentTimeout: 2 * time.Second}
+	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+
+	resultCh := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go func() {
+		_, err := svc.SubAgentSearchSync(ctx, "proj-1", "query", 10, 3, "model", true)
+		resultCh <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	var reqPayload messagequeue.SubAgentSearchRequestPayload
+	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Deliver a result with an error field set.
+	svc.HandleSubAgentSearchResult(context.Background(), &messagequeue.SubAgentSearchResultPayload{
+		ProjectID: "proj-1",
+		RequestID: reqPayload.RequestID,
+		Error:     "LLM quota exceeded",
+	})
+
+	err := <-resultCh
+	if err == nil {
+		t.Fatal("expected error from SubAgentSearchSync when result contains error field")
+	}
+	if !strings.Contains(err.Error(), "LLM quota exceeded") {
+		t.Errorf("expected error to contain 'LLM quota exceeded', got: %s", err.Error())
 	}
 }

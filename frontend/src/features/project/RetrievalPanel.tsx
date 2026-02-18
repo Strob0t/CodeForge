@@ -1,6 +1,6 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
-import type { RetrievalIndexStatus, RetrievalSearchHit } from "~/api/types";
+import type { RetrievalIndexStatus, RetrievalSearchHit, SubAgentSearchResult } from "~/api/types";
 
 interface RetrievalPanelProps {
   projectId: string;
@@ -32,6 +32,9 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
   const [error, setError] = createSignal("");
   const [query, setQuery] = createSignal("");
   const [searchResults, setSearchResults] = createSignal<RetrievalSearchHit[]>([]);
+  const [useAgent, setUseAgent] = createSignal(false);
+  const [expandedQueries, setExpandedQueries] = createSignal<string[]>([]);
+  const [totalCandidates, setTotalCandidates] = createSignal(0);
 
   const handleBuildIndex = async () => {
     setBuilding(true);
@@ -54,12 +57,27 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
     setSearching(true);
     setError("");
     setSearchResults([]);
+    setExpandedQueries([]);
+    setTotalCandidates(0);
     try {
-      const result = await api.retrieval.search(props.projectId, { query: q });
-      if (result.error) {
-        setError(result.error);
+      if (useAgent()) {
+        const result: SubAgentSearchResult = await api.retrieval.agentSearch(props.projectId, {
+          query: q,
+        });
+        if (result.error) {
+          setError(result.error);
+        } else {
+          setSearchResults(result.results);
+          setExpandedQueries(result.expanded_queries);
+          setTotalCandidates(result.total_candidates);
+        }
       } else {
-        setSearchResults(result.results);
+        const result = await api.retrieval.search(props.projectId, { query: q });
+        if (result.error) {
+          setError(result.error);
+        } else {
+          setSearchResults(result.results);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
@@ -154,10 +172,32 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                 <input
                   type="text"
                   class="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  placeholder="Search code..."
+                  placeholder={
+                    useAgent() ? "Describe what you're looking for..." : "Search code..."
+                  }
                   value={query()}
                   onInput={(e) => setQuery(e.currentTarget.value)}
                 />
+                <button
+                  type="button"
+                  class={`rounded px-3 py-1.5 text-sm font-medium ${
+                    useAgent()
+                      ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                  onClick={() => {
+                    setUseAgent((v) => !v);
+                    setExpandedQueries([]);
+                    setTotalCandidates(0);
+                  }}
+                  title={
+                    useAgent()
+                      ? "Agent search: LLM expands queries and re-ranks"
+                      : "Standard hybrid search"
+                  }
+                >
+                  {useAgent() ? "Agent" : "Standard"}
+                </button>
                 <button
                   type="submit"
                   class="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
@@ -166,6 +206,29 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                   {searching() ? "Searching..." : "Search"}
                 </button>
               </form>
+
+              {/* Expanded queries from agent search */}
+              <Show when={expandedQueries().length > 0}>
+                <div class="mb-3">
+                  <div class="mb-1 flex items-center gap-2 text-xs text-gray-500">
+                    <span>Expanded queries</span>
+                    <Show when={totalCandidates() > 0}>
+                      <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+                        {totalCandidates()} candidates
+                      </span>
+                    </Show>
+                  </div>
+                  <div class="flex flex-wrap gap-1">
+                    <For each={expandedQueries()}>
+                      {(eq) => (
+                        <span class="rounded bg-purple-50 px-2 py-0.5 text-xs text-purple-700">
+                          {eq}
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
             </>
           )}
         </Show>

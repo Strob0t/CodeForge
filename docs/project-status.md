@@ -507,6 +507,47 @@
 - **Dependencies:** bm25s ^0.2, numpy ^2.0
 - **Tests:** 11 Python tests + 5 Go service tests + 3 Go handler tests, all passing
 
+### 6C. Retrieval Sub-Agent — LLM-Guided Multi-Query Search (COMPLETED)
+
+- [x] (2026-02-18) Python Worker: RetrievalSubAgent with LLM query expansion + parallel search + reranking
+  - `RetrievalSubAgent` class: composes `HybridRetriever` + `LiteLLMClient`
+  - Query expansion via LLM (task prompt → N focused search queries)
+  - Parallel hybrid search across all expanded queries (`asyncio.gather`)
+  - Deduplication by (filepath, start_line), keeps highest score
+  - LLM re-ranking with score-based fallback on failure
+  - `SubAgentSearchRequest` / `SubAgentSearchResult` Pydantic models
+  - Consumer extended with `retrieval.subagent.request` NATS subscription + handler
+- [x] (2026-02-18) Go Backend: RetrievalService sub-agent extensions
+  - `SubAgentSearchSync()`: correlation-ID-based sync request/response (60s timeout)
+  - `HandleSubAgentSearchResult()`: delivers result to waiting channel
+  - NATS subjects: `retrieval.subagent.request`, `retrieval.subagent.result`
+  - Payload types: `SubAgentSearchRequestPayload`, `SubAgentSearchResultPayload`
+  - Config: `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` + ENV overrides
+  - Context optimizer: `fetchRetrievalEntries()` — sub-agent first, single-shot fallback
+  - HTTP handler: `POST /projects/{id}/search/agent`
+- [x] (2026-02-18) Frontend: Agent search mode in RetrievalPanel
+  - Standard/Agent toggle button next to search input
+  - Agent mode calls `api.retrieval.agentSearch()` endpoint
+  - Expanded queries displayed as purple tags
+  - Total candidates count badge
+  - Types: `SubAgentSearchRequest`, `SubAgentSearchResult`
+
+### Phase 6C Key Deliverables
+- **New files:** 1 (test_retrieval_subagent.py)
+- **Modified files:** 13 (models.py, retrieval.py, consumer.py, queue.go, schemas.go, validator.go, config.go, loader.go, retrieval.go, context_optimizer.go, handlers.go, routes.go, retrieval_test.go, types.ts, client.ts, RetrievalPanel.tsx)
+- **API:** 1 new REST endpoint (POST /projects/{id}/search/agent)
+- **Config:** 3 new env vars (CODEFORGE_ORCH_SUBAGENT_MODEL, CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES, CODEFORGE_ORCH_SUBAGENT_RERANK)
+- **Tests:** 8 Python tests + 3 Go service tests, all passing
+
+### 6C Code Review Refinements (COMPLETED)
+
+- [x] (2026-02-18) 16 code review improvements across architecture, quality, tests, performance
+  - **Architecture:** Generic `syncWaiter[T]` (DRY), health tracking with 30s cooldown fast-fail, shared retrieval deadline, check-before-build guard, parallel workspace scan + retrieval
+  - **Code Quality:** Unified `SearchResult` → `RetrievalSearchHit`, DRY `_publish_error_result()` consumer helper, defense-in-depth validation (Pydantic + Go handler bounds)
+  - **Performance:** Pre-built rank dict for O(1) BM25 lookup, `per_query_k = top_k` fix, percentile-based priority normalization (60-85 range)
+  - **Tests:** 5 new tests (error-in-payload Go, parallel-all-fail Python, Pydantic validator bounds, consumer error publish)
+  - All 77 Python tests + all Go tests passing, golangci-lint 0 issues
+
 ## Documentation Debt (COMPLETED)
 
 - [x] (2026-02-18) **ADR-003:** Config Hierarchy — three-tier (defaults < YAML < env vars), typed Config struct, validation

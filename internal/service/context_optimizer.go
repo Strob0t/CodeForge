@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // ContextOptimizerService builds context packs for tasks by scoring file relevance,
@@ -20,11 +22,19 @@ type ContextOptimizerService struct {
 	store     database.Store
 	orchCfg   *config.Orchestrator
 	retrieval *RetrievalService
+
+	// Guard against redundant builds for the same task (#16).
+	buildMu    sync.Mutex
+	builtTasks map[string]bool
 }
 
 // NewContextOptimizerService creates a ContextOptimizerService.
 func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrator) *ContextOptimizerService {
-	return &ContextOptimizerService{store: store, orchCfg: orchCfg}
+	return &ContextOptimizerService{
+		store:      store,
+		orchCfg:    orchCfg,
+		builtTasks: make(map[string]bool),
+	}
 }
 
 // SetRetrieval wires the retrieval service for hybrid search injection.
@@ -38,11 +48,25 @@ func (s *ContextOptimizerService) GetPackByTask(ctx context.Context, taskID stri
 }
 
 // BuildContextPack creates a context pack for a task by:
-// 1. Scanning workspace files and scoring by keyword relevance
+// 1. Scanning workspace files and scoring by keyword relevance (parallel with retrieval)
 // 2. Injecting shared context items (if teamID is provided)
 // 3. Packing entries within the token budget
 // 4. Persisting the pack in the store
 func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, projectID, teamID string) (*cfcontext.ContextPack, error) {
+	// Check-before-build: skip if already built for this task (#16).
+	s.buildMu.Lock()
+	if s.builtTasks[taskID] {
+		s.buildMu.Unlock()
+		existing, err := s.store.GetContextPackByTask(ctx, taskID)
+		if err == nil && existing != nil {
+			slog.Debug("context pack already built, returning existing", "task_id", taskID)
+			return existing, nil
+		}
+		// If the stored pack is gone, fall through and rebuild.
+	}
+	s.builtTasks[taskID] = true
+	s.buildMu.Unlock()
+
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
@@ -68,11 +92,55 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 
 	var candidates []cfcontext.ContextEntry
 
-	// Scan workspace files if workspace path is set.
-	if proj.WorkspacePath != "" {
-		fileEntries := s.scanWorkspaceFiles(proj.WorkspacePath, t.Prompt)
-		candidates = append(candidates, fileEntries...)
+	// Run workspace scan and retrieval in parallel (#15).
+	type scanResult struct {
+		entries []cfcontext.ContextEntry
 	}
+	type retrievalResult struct {
+		entries []cfcontext.ContextEntry
+	}
+
+	scanCh := make(chan scanResult, 1)
+	retrievalCh := make(chan retrievalResult, 1)
+
+	// Workspace scan goroutine.
+	go func() {
+		if proj.WorkspacePath != "" {
+			scanCh <- scanResult{entries: s.scanWorkspaceFiles(proj.WorkspacePath, t.Prompt)}
+		} else {
+			scanCh <- scanResult{}
+		}
+	}()
+
+	// Retrieval goroutine with shared deadline (#4).
+	go func() {
+		if s.retrieval == nil {
+			retrievalCh <- retrievalResult{}
+			return
+		}
+		if info := s.retrieval.GetIndexStatus(projectID); info != nil && info.Status == "ready" {
+			// Create a shared deadline for the entire retrieval path (sub-agent + fallback).
+			retrievalTimeout := s.orchCfg.SubAgentTimeout
+			if retrievalTimeout <= 0 {
+				retrievalTimeout = defaultSubAgentSearchTimeout
+			}
+			// Add headroom for the single-shot fallback.
+			retrievalTimeout += searchTimeout
+			retrievalCtx, cancel := context.WithTimeout(ctx, retrievalTimeout)
+			defer cancel()
+
+			retrievalCh <- retrievalResult{entries: s.fetchRetrievalEntries(retrievalCtx, projectID, t.Prompt)}
+		} else {
+			retrievalCh <- retrievalResult{}
+		}
+	}()
+
+	// Collect results from both goroutines.
+	sr := <-scanCh
+	candidates = append(candidates, sr.entries...)
+
+	rr := <-retrievalCh
+	candidates = append(candidates, rr.entries...)
 
 	// Inject repo map if available for this project.
 	repoMap, err := s.store.GetRepoMap(ctx, projectID)
@@ -84,27 +152,6 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 			Tokens:   repoMap.TokenCount,
 			Priority: 85,
 		})
-	}
-
-	// Inject hybrid retrieval results if index is ready.
-	if s.retrieval != nil {
-		if info := s.retrieval.GetIndexStatus(projectID); info != nil && info.Status == "ready" {
-			result, err := s.retrieval.SearchSync(ctx, projectID, t.Prompt, 10,
-				s.orchCfg.RetrievalBM25Weight, s.orchCfg.RetrievalSemanticWeight)
-			if err != nil {
-				slog.Warn("retrieval search failed during context build", "project_id", projectID, "error", err)
-			} else {
-				for _, hit := range result.Results {
-					candidates = append(candidates, cfcontext.ContextEntry{
-						Kind:     cfcontext.EntryHybrid,
-						Path:     hit.Filepath,
-						Content:  hit.Content,
-						Tokens:   cfcontext.EstimateTokens(hit.Content),
-						Priority: int(hit.Score * 100),
-					})
-				}
-			}
-		}
 	}
 
 	// Inject shared context if team is specified.
@@ -167,6 +214,83 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 		"budget", budget,
 	)
 	return pack, nil
+}
+
+// fetchRetrievalEntries tries the sub-agent first (if enabled), falls back to single-shot search.
+// The provided ctx should carry a shared deadline covering both attempts (#4).
+func (s *ContextOptimizerService) fetchRetrievalEntries(ctx context.Context, projectID, prompt string) []cfcontext.ContextEntry {
+	// Try sub-agent search first if enabled.
+	if s.orchCfg.SubAgentEnabled {
+		subResult, err := s.retrieval.SubAgentSearchSync(
+			ctx, projectID, prompt,
+			s.orchCfg.RetrievalTopK,
+			s.orchCfg.SubAgentMaxQueries,
+			s.orchCfg.SubAgentModel,
+			s.orchCfg.SubAgentRerank,
+		)
+		if err == nil {
+			slog.Info("retrieval via sub-agent", "project_id", projectID, "hits", len(subResult.Results), "queries", len(subResult.ExpandedQueries))
+			return hitsToEntries(subResult.Results)
+		}
+		slog.Warn("sub-agent search failed, falling back to single-shot", "project_id", projectID, "error", err)
+	}
+
+	// Fallback (or only path when sub-agent is disabled): single-shot search.
+	result, err := s.retrieval.SearchSync(ctx, projectID, prompt, s.orchCfg.RetrievalTopK,
+		s.orchCfg.RetrievalBM25Weight, s.orchCfg.RetrievalSemanticWeight)
+	if err != nil {
+		slog.Warn("retrieval search failed during context build", "project_id", projectID, "error", err)
+		return nil
+	}
+
+	return hitsToEntries(result.Results)
+}
+
+// hitsToEntries converts retrieval search hits to context entries.
+// Uses percentile-based priority normalization (#5): RRF scores are typically 0.001–0.033,
+// so raw int(score*100) yields 0–3. Instead, we normalize to the 60–85 range.
+func hitsToEntries(hits []messagequeue.RetrievalSearchHitPayload) []cfcontext.ContextEntry {
+	if len(hits) == 0 {
+		return nil
+	}
+
+	// Find min/max scores for normalization.
+	minScore, maxScore := hits[0].Score, hits[0].Score
+	for _, h := range hits[1:] {
+		if h.Score < minScore {
+			minScore = h.Score
+		}
+		if h.Score > maxScore {
+			maxScore = h.Score
+		}
+	}
+
+	const (
+		priorityMin = 60
+		priorityMax = 85
+	)
+
+	entries := make([]cfcontext.ContextEntry, 0, len(hits))
+	for _, hit := range hits {
+		// Normalize score to priority range.
+		priority := priorityMin
+		if maxScore > minScore {
+			normalized := (hit.Score - minScore) / (maxScore - minScore) // 0.0 to 1.0
+			priority = priorityMin + int(normalized*float64(priorityMax-priorityMin))
+		} else if len(hits) == 1 {
+			// Single result gets midpoint priority.
+			priority = (priorityMin + priorityMax) / 2
+		}
+
+		entries = append(entries, cfcontext.ContextEntry{
+			Kind:     cfcontext.EntryHybrid,
+			Path:     hit.Filepath,
+			Content:  hit.Content,
+			Tokens:   cfcontext.EstimateTokens(hit.Content),
+			Priority: priority,
+		})
+	}
+	return entries
 }
 
 // scanWorkspaceFiles reads workspace files and scores them against the task prompt.

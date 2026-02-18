@@ -535,6 +535,28 @@ export interface SearchRequest {
   semantic_weight?: number;
 }
 
+// --- Retrieval Sub-Agent types (Phase 6C) ---
+
+/** Sub-agent search request body */
+export interface SubAgentSearchRequest {
+  query: string;
+  top_k?: number;
+  max_queries?: number;
+  model?: string;
+  rerank?: boolean;
+}
+
+/** Sub-agent search result */
+export interface SubAgentSearchResult {
+  project_id: string;
+  query: string;
+  request_id: string;
+  results: RetrievalSearchHit[];
+  expanded_queries: string[];
+  total_candidates: number;
+  error?: string;
+}
+
 /** WS event: retrieval status change */
 export interface RetrievalStatusEvent {
   project_id: string;

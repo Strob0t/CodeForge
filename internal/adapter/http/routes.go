@@ -109,6 +109,7 @@ func MountRoutes(r chi.Router, h *Handlers) {
 
 		// Retrieval (nested under projects)
 		r.Post("/projects/{id}/search", h.SearchProject)
+		r.Post("/projects/{id}/search/agent", h.AgentSearchProject)
 		r.Post("/projects/{id}/index", h.IndexProject)
 		r.Get("/projects/{id}/index", h.GetIndexStatus)
 	})

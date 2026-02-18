@@ -35,6 +35,10 @@ func Validate(subject string, data []byte) error {
 		target = &RetrievalSearchRequestPayload{}
 	case subject == SubjectRetrievalSearchResult:
 		target = &RetrievalSearchResultPayload{}
+	case subject == SubjectSubAgentSearchRequest:
+		target = &SubAgentSearchRequestPayload{}
+	case subject == SubjectSubAgentSearchResult:
+		target = &SubAgentSearchResultPayload{}
 	case strings.HasPrefix(subject, SubjectTaskAgent+"."):
 		// tasks.agent.{backend} — the payload is a Task, not a custom schema.
 		// Accept any valid JSON.

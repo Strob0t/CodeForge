@@ -34,6 +34,8 @@ import type {
   SharedContext,
   SharedContextItem,
   StartRunRequest,
+  SubAgentSearchRequest,
+  SubAgentSearchResult,
   Task,
 } from "./types";
 
@@ -297,6 +299,12 @@ export const api = {
 
     search: (projectId: string, data: SearchRequest) =>
       request<RetrievalSearchResult>(`/projects/${encodeURIComponent(projectId)}/search`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    agentSearch: (projectId: string, data: SubAgentSearchRequest) =>
+      request<SubAgentSearchResult>(`/projects/${encodeURIComponent(projectId)}/search/agent`, {
         method: "POST",
         body: JSON.stringify(data),
       }),

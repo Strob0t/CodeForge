@@ -256,6 +256,9 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 | `orchestrator.decompose_model` | `CODEFORGE_ORCH_DECOMPOSE_MODEL` | `openai/gpt-4o-mini` | LLM model for feature decomposition |
 | `orchestrator.decompose_max_tokens` | `CODEFORGE_ORCH_DECOMPOSE_MAX_TOKENS` | `4096` | Max tokens for decomposition response |
 | `orchestrator.max_team_size` | `CODEFORGE_ORCH_MAX_TEAM_SIZE` | `5` | Max agents per team |
+| `orchestrator.subagent_model` | `CODEFORGE_ORCH_SUBAGENT_MODEL` | `openai/gpt-4o-mini` | LLM model for sub-agent query expansion/rerank |
+| `orchestrator.subagent_max_queries` | `CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES` | `5` | Max expanded queries per sub-agent search |
+| `orchestrator.subagent_rerank` | `CODEFORGE_ORCH_SUBAGENT_RERANK` | `true` | Enable LLM-based result reranking |
 
 ### Python Worker Config (`workers/codeforge/config.py`)
 

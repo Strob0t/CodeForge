@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TaskStatus(StrEnum):
@@ -181,6 +181,11 @@ class RetrievalSearchRequest(BaseModel):
     bm25_weight: float = 0.5
     semantic_weight: float = 0.5
 
+    @field_validator("top_k")
+    @classmethod
+    def _clamp_top_k(cls, v: int) -> int:
+        return max(1, min(v, 500))
+
 
 class RetrievalSearchHit(BaseModel):
     """A single search result from hybrid retrieval."""
@@ -203,4 +208,41 @@ class RetrievalSearchResult(BaseModel):
     query: str
     request_id: str
     results: list[RetrievalSearchHit] = Field(default_factory=list)
+    error: str = ""
+
+
+# --- Retrieval Sub-Agent Models (Phase 6C) ---
+
+
+class SubAgentSearchRequest(BaseModel):
+    """Request for LLM-guided multi-query retrieval."""
+
+    project_id: str
+    query: str
+    request_id: str
+    top_k: int = 20
+    max_queries: int = 5
+    model: str = ""
+    rerank: bool = True
+
+    @field_validator("top_k")
+    @classmethod
+    def _clamp_top_k(cls, v: int) -> int:
+        return max(1, min(v, 500))
+
+    @field_validator("max_queries")
+    @classmethod
+    def _clamp_max_queries(cls, v: int) -> int:
+        return max(1, min(v, 20))
+
+
+class SubAgentSearchResult(BaseModel):
+    """Result from LLM-guided multi-query retrieval."""
+
+    project_id: str
+    query: str
+    request_id: str
+    results: list[RetrievalSearchHit] = Field(default_factory=list)
+    expanded_queries: list[str] = Field(default_factory=list)
+    total_candidates: int = 0
     error: str = ""

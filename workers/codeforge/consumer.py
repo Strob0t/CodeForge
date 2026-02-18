@@ -6,6 +6,9 @@ import asyncio
 import signal
 from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
 import nats
 import structlog
 
@@ -20,16 +23,17 @@ from codeforge.models import (
     RepoMapResult,
     RetrievalIndexRequest,
     RetrievalIndexResult,
-    RetrievalSearchHit,
     RetrievalSearchRequest,
     RetrievalSearchResult,
     RunStartMessage,
+    SubAgentSearchRequest,
+    SubAgentSearchResult,
     TaskMessage,
     TaskResult,
 )
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
-from codeforge.retrieval import HybridRetriever
+from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
@@ -49,6 +53,8 @@ SUBJECT_RETRIEVAL_INDEX_REQUEST = "retrieval.index.request"
 SUBJECT_RETRIEVAL_INDEX_RESULT = "retrieval.index.result"
 SUBJECT_RETRIEVAL_SEARCH_REQUEST = "retrieval.search.request"
 SUBJECT_RETRIEVAL_SEARCH_RESULT = "retrieval.search.result"
+SUBJECT_SUBAGENT_SEARCH_REQUEST = "retrieval.subagent.request"
+SUBJECT_SUBAGENT_SEARCH_RESULT = "retrieval.subagent.result"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -74,6 +80,7 @@ class TaskConsumer:
         self._gate_executor = QualityGateExecutor()
         self._repomap_generator = RepoMapGenerator()
         self._retriever = HybridRetriever(litellm_url=litellm_url, litellm_key=litellm_key)
+        self._subagent = RetrievalSubAgent(retriever=self._retriever, llm=self._llm)
 
     async def start(self) -> None:
         """Connect to NATS and subscribe to task and run subjects."""
@@ -83,66 +90,31 @@ class TaskConsumer:
 
         logger.info("connected to NATS", url=self.nats_url)
 
-        # Subscribe to agent task dispatches (tasks.agent.aider, tasks.agent.openhands, etc.)
-        task_sub = await self._js.subscribe(
-            SUBJECT_AGENT,
-            stream=STREAM_NAME,
-            manual_ack=True,
-        )
-        logger.info("subscribed", subject=SUBJECT_AGENT)
+        subscriptions: list[tuple[str, Callable[[nats.aio.msg.Msg], Awaitable[None]]]] = [
+            (SUBJECT_AGENT, self._handle_message),
+            (SUBJECT_RUN_START, self._handle_run_start),
+            (SUBJECT_QG_REQUEST, self._handle_quality_gate),
+            (SUBJECT_REPOMAP_REQUEST, self._handle_repomap),
+            (SUBJECT_RETRIEVAL_INDEX_REQUEST, self._handle_retrieval_index),
+            (SUBJECT_RETRIEVAL_SEARCH_REQUEST, self._handle_retrieval_search),
+            (SUBJECT_SUBAGENT_SEARCH_REQUEST, self._handle_subagent_search),
+        ]
 
-        # Subscribe to run start messages (step-by-step protocol)
-        run_sub = await self._js.subscribe(
-            SUBJECT_RUN_START,
-            stream=STREAM_NAME,
-            manual_ack=True,
-        )
-        logger.info("subscribed", subject=SUBJECT_RUN_START)
+        loops = []
+        for subject, handler in subscriptions:
+            sub = await self._js.subscribe(subject, stream=STREAM_NAME, manual_ack=True)
+            logger.info("subscribed", subject=subject)
+            loops.append(self._message_loop(sub, handler, subject))
 
-        # Subscribe to quality gate requests
-        qg_sub = await self._js.subscribe(
-            SUBJECT_QG_REQUEST,
-            stream=STREAM_NAME,
-            manual_ack=True,
-        )
-        logger.info("subscribed", subject=SUBJECT_QG_REQUEST)
+        await asyncio.gather(*loops)
 
-        # Subscribe to repo map generation requests
-        repomap_sub = await self._js.subscribe(
-            SUBJECT_REPOMAP_REQUEST,
-            stream=STREAM_NAME,
-            manual_ack=True,
-        )
-        logger.info("subscribed", subject=SUBJECT_REPOMAP_REQUEST)
-
-        # Subscribe to retrieval index requests
-        retrieval_index_sub = await self._js.subscribe(
-            SUBJECT_RETRIEVAL_INDEX_REQUEST,
-            stream=STREAM_NAME,
-            manual_ack=True,
-        )
-        logger.info("subscribed", subject=SUBJECT_RETRIEVAL_INDEX_REQUEST)
-
-        # Subscribe to retrieval search requests
-        retrieval_search_sub = await self._js.subscribe(
-            SUBJECT_RETRIEVAL_SEARCH_REQUEST,
-            stream=STREAM_NAME,
-            manual_ack=True,
-        )
-        logger.info("subscribed", subject=SUBJECT_RETRIEVAL_SEARCH_REQUEST)
-
-        # Process all subscriptions concurrently
-        await asyncio.gather(
-            self._process_task_messages(task_sub),
-            self._process_run_messages(run_sub),
-            self._process_quality_gate_messages(qg_sub),
-            self._process_repomap_messages(repomap_sub),
-            self._process_retrieval_index_messages(retrieval_index_sub),
-            self._process_retrieval_search_messages(retrieval_search_sub),
-        )
-
-    async def _process_task_messages(self, sub: object) -> None:
-        """Message processing loop for legacy fire-and-forget tasks."""
+    async def _message_loop(
+        self,
+        sub: object,
+        handler: Callable[[nats.aio.msg.Msg], Awaitable[None]],
+        label: str,
+    ) -> None:
+        """Generic message processing loop shared by all subscriptions."""
         while self._running:
             try:
                 msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
@@ -150,24 +122,10 @@ class TaskConsumer:
                 continue
             except Exception:
                 if self._running:
-                    logger.exception("error receiving task message")
+                    logger.exception("error receiving message", subject=label)
                 break
 
-            await self._handle_message(msg)
-
-    async def _process_run_messages(self, sub: object) -> None:
-        """Message processing loop for step-by-step run protocol."""
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
-            except TimeoutError:
-                continue
-            except Exception:
-                if self._running:
-                    logger.exception("error receiving run message")
-                break
-
-            await self._handle_run_start(msg)
+            await handler(msg)
 
     async def _handle_message(self, msg: nats.aio.msg.Msg) -> None:
         """Process a single task message: parse, execute, ack/nack."""
@@ -252,20 +210,6 @@ class TaskConsumer:
             logger.exception("failed to process run start message")
             await msg.nak()
 
-    async def _process_quality_gate_messages(self, sub: object) -> None:
-        """Message processing loop for quality gate requests."""
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
-            except TimeoutError:
-                continue
-            except Exception:
-                if self._running:
-                    logger.exception("error receiving quality gate message")
-                break
-
-            await self._handle_quality_gate(msg)
-
     async def _handle_quality_gate(self, msg: nats.aio.msg.Msg) -> None:
         """Process a quality gate request: run tests/lint and publish result."""
         try:
@@ -287,20 +231,6 @@ class TaskConsumer:
         except Exception:
             logger.exception("failed to process quality gate request")
             await msg.nak()
-
-    async def _process_repomap_messages(self, sub: object) -> None:
-        """Message processing loop for repo map generation requests."""
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
-            except TimeoutError:
-                continue
-            except Exception:
-                if self._running:
-                    logger.exception("error receiving repomap message")
-                break
-
-            await self._handle_repomap(msg)
 
     async def _handle_repomap(self, msg: nats.aio.msg.Msg) -> None:
         """Process a repo map request: generate map and publish result."""
@@ -333,20 +263,6 @@ class TaskConsumer:
         except Exception:
             logger.exception("failed to process repomap request")
             await msg.nak()
-
-    async def _process_retrieval_index_messages(self, sub: object) -> None:
-        """Message processing loop for retrieval index requests."""
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
-            except TimeoutError:
-                continue
-            except Exception:
-                if self._running:
-                    logger.exception("error receiving retrieval index message")
-                break
-
-            await self._handle_retrieval_index(msg)
 
     async def _handle_retrieval_index(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval index request: build index and publish result."""
@@ -389,20 +305,6 @@ class TaskConsumer:
             logger.exception("failed to process retrieval index request")
             await msg.nak()
 
-    async def _process_retrieval_search_messages(self, sub: object) -> None:
-        """Message processing loop for retrieval search requests."""
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
-            except TimeoutError:
-                continue
-            except Exception:
-                if self._running:
-                    logger.exception("error receiving retrieval search message")
-                break
-
-            await self._handle_retrieval_search(msg)
-
     async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval search request: search index and publish result."""
         try:
@@ -410,28 +312,13 @@ class TaskConsumer:
             log = logger.bind(project_id=request.project_id, request_id=request.request_id)
             log.info("received retrieval search request", query=request.query[:80])
 
-            search_results = await self._retriever.search(
+            hits = await self._retriever.search(
                 project_id=request.project_id,
                 query=request.query,
                 top_k=request.top_k,
                 bm25_weight=request.bm25_weight,
                 semantic_weight=request.semantic_weight,
             )
-
-            hits = [
-                RetrievalSearchHit(
-                    filepath=sr.filepath,
-                    start_line=sr.start_line,
-                    end_line=sr.end_line,
-                    content=sr.content,
-                    language=sr.language,
-                    symbol_name=sr.symbol_name,
-                    score=sr.score,
-                    bm25_rank=sr.bm25_rank,
-                    semantic_rank=sr.semantic_rank,
-                )
-                for sr in search_results
-            ]
 
             result = RetrievalSearchResult(
                 project_id=request.project_id,
@@ -451,7 +338,82 @@ class TaskConsumer:
 
         except Exception:
             logger.exception("failed to process retrieval search request")
-            await msg.nak()
+            await self._publish_error_result(
+                msg,
+                RetrievalSearchRequest,
+                RetrievalSearchResult,
+                SUBJECT_RETRIEVAL_SEARCH_RESULT,
+            )
+
+    async def _handle_subagent_search(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a sub-agent search request: expand, search, dedup, rerank, publish."""
+        try:
+            request = SubAgentSearchRequest.model_validate_json(msg.data)
+            log = logger.bind(project_id=request.project_id, request_id=request.request_id)
+            log.info("received subagent search request", query=request.query[:80])
+
+            hits, expanded_queries, total_candidates = await self._subagent.search(
+                project_id=request.project_id,
+                query=request.query,
+                top_k=request.top_k,
+                max_queries=request.max_queries,
+                model=request.model,
+                rerank=request.rerank,
+            )
+
+            result = SubAgentSearchResult(
+                project_id=request.project_id,
+                query=request.query,
+                request_id=request.request_id,
+                results=hits,
+                expanded_queries=expanded_queries,
+                total_candidates=total_candidates,
+            )
+
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_SUBAGENT_SEARCH_RESULT,
+                    result.model_dump_json().encode(),
+                )
+
+            await msg.ack()
+            log.info(
+                "subagent search completed",
+                hits=len(hits),
+                queries=len(expanded_queries),
+                candidates=total_candidates,
+            )
+
+        except Exception:
+            logger.exception("failed to process subagent search request")
+            await self._publish_error_result(
+                msg,
+                SubAgentSearchRequest,
+                SubAgentSearchResult,
+                SUBJECT_SUBAGENT_SEARCH_RESULT,
+            )
+
+    async def _publish_error_result(
+        self,
+        msg: nats.aio.msg.Msg,
+        request_model: type,
+        result_model: type,
+        subject: str,
+    ) -> None:
+        """Publish an error result so the Go waiter gets an immediate response, then nak."""
+        try:
+            req = request_model.model_validate_json(msg.data)
+            error_result = result_model(
+                project_id=req.project_id,
+                query=req.query,
+                request_id=req.request_id,
+                error="internal worker error",
+            )
+            if self._js is not None:
+                await self._js.publish(subject, error_result.model_dump_json().encode())
+        except Exception:
+            logger.exception("failed to publish error result", subject=subject)
+        await msg.nak()
 
     @staticmethod
     def _retry_count(msg: nats.aio.msg.Msg) -> int:

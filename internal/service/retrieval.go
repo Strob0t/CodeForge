@@ -19,6 +19,69 @@ import (
 
 const searchTimeout = 30 * time.Second
 
+// defaultSubAgentSearchTimeout is the fallback when config value is zero.
+const defaultSubAgentSearchTimeout = 60 * time.Second
+
+// healthCooldown is the duration after a failure during which requests fast-fail.
+const healthCooldown = 30 * time.Second
+
+// ---------------------------------------------------------------------------
+// syncWaiter — generic correlation-ID-based waiter (#7 DRY)
+// ---------------------------------------------------------------------------
+
+// syncWaiter manages a set of channel-based waiters keyed by correlation ID.
+type syncWaiter[T any] struct {
+	mu      sync.Mutex
+	waiters map[string]chan *T
+	label   string // for logging
+}
+
+func newSyncWaiter[T any](label string) *syncWaiter[T] {
+	return &syncWaiter[T]{
+		waiters: make(map[string]chan *T),
+		label:   label,
+	}
+}
+
+// register creates a buffered channel for the given request ID.
+func (w *syncWaiter[T]) register(requestID string) chan *T {
+	ch := make(chan *T, 1)
+	w.mu.Lock()
+	w.waiters[requestID] = ch
+	w.mu.Unlock()
+	return ch
+}
+
+// unregister removes the waiter for the given request ID.
+func (w *syncWaiter[T]) unregister(requestID string) {
+	w.mu.Lock()
+	delete(w.waiters, requestID)
+	w.mu.Unlock()
+}
+
+// deliver sends a result to the waiting channel and removes the waiter.
+// Returns false if no waiter was registered for the given ID.
+func (w *syncWaiter[T]) deliver(requestID string, payload *T) bool {
+	w.mu.Lock()
+	ch, ok := w.waiters[requestID]
+	if ok {
+		delete(w.waiters, requestID)
+	}
+	w.mu.Unlock()
+
+	if !ok {
+		slog.Warn("no waiter for "+w.label+" result", "request_id", requestID)
+		return false
+	}
+
+	ch <- payload
+	return true
+}
+
+// ---------------------------------------------------------------------------
+// RetrievalService
+// ---------------------------------------------------------------------------
+
 // RetrievalIndexInfo holds the in-memory state of a project's retrieval index.
 type RetrievalIndexInfo struct {
 	ProjectID      string
@@ -39,19 +102,25 @@ type RetrievalService struct {
 	mu      sync.RWMutex
 	indexes map[string]*RetrievalIndexInfo
 
-	searchMu      sync.Mutex
-	searchWaiters map[string]chan *messagequeue.RetrievalSearchResultPayload
+	searchWaiter   *syncWaiter[messagequeue.RetrievalSearchResultPayload]
+	subAgentWaiter *syncWaiter[messagequeue.SubAgentSearchResultPayload]
+
+	// Health tracking: fast-fail when the worker recently failed (#3).
+	healthMu            sync.Mutex
+	lastSearchFailure   time.Time
+	lastSubAgentFailure time.Time
 }
 
 // NewRetrievalService creates a RetrievalService.
 func NewRetrievalService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster, orchCfg *config.Orchestrator) *RetrievalService {
 	return &RetrievalService{
-		store:         store,
-		queue:         queue,
-		hub:           hub,
-		orchCfg:       orchCfg,
-		indexes:       make(map[string]*RetrievalIndexInfo),
-		searchWaiters: make(map[string]chan *messagequeue.RetrievalSearchResultPayload),
+		store:          store,
+		queue:          queue,
+		hub:            hub,
+		orchCfg:        orchCfg,
+		indexes:        make(map[string]*RetrievalIndexInfo),
+		searchWaiter:   newSyncWaiter[messagequeue.RetrievalSearchResultPayload]("search"),
+		subAgentWaiter: newSyncWaiter[messagequeue.SubAgentSearchResultPayload]("subagent"),
 	}
 }
 
@@ -139,24 +208,18 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 
 // SearchSync sends a search request and waits synchronously for the result.
 func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query string, topK int, bm25Weight, semanticWeight float64) (*messagequeue.RetrievalSearchResultPayload, error) {
-	// Generate correlation ID.
-	idBytes := make([]byte, 16)
-	if _, err := rand.Read(idBytes); err != nil {
-		return nil, fmt.Errorf("generate request id: %w", err)
+	// Fast-fail if the worker recently failed (#3).
+	if s.isUnhealthy(&s.lastSearchFailure) {
+		return nil, fmt.Errorf("search skipped: worker recently unhealthy (project %s)", projectID)
 	}
-	requestID := hex.EncodeToString(idBytes)
 
-	// Register waiter.
-	ch := make(chan *messagequeue.RetrievalSearchResultPayload, 1)
-	s.searchMu.Lock()
-	s.searchWaiters[requestID] = ch
-	s.searchMu.Unlock()
+	requestID, err := generateRequestID()
+	if err != nil {
+		return nil, err
+	}
 
-	defer func() {
-		s.searchMu.Lock()
-		delete(s.searchWaiters, requestID)
-		s.searchMu.Unlock()
-	}()
+	ch := s.searchWaiter.register(requestID)
+	defer s.searchWaiter.unregister(requestID)
 
 	// Publish search request.
 	payload := messagequeue.RetrievalSearchRequestPayload{
@@ -183,29 +246,84 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 	select {
 	case result := <-ch:
 		if result.Error != "" {
+			s.recordFailure(&s.lastSearchFailure)
 			return nil, fmt.Errorf("search error: %s", result.Error)
 		}
 		return result, nil
 	case <-timeoutCtx.Done():
+		s.recordFailure(&s.lastSearchFailure)
 		return nil, fmt.Errorf("search timeout for project %s", projectID)
 	}
 }
 
 // HandleSearchResult delivers a search result to the waiting caller.
 func (s *RetrievalService) HandleSearchResult(_ context.Context, payload *messagequeue.RetrievalSearchResultPayload) {
-	s.searchMu.Lock()
-	ch, ok := s.searchWaiters[payload.RequestID]
-	if ok {
-		delete(s.searchWaiters, payload.RequestID)
-	}
-	s.searchMu.Unlock()
+	s.searchWaiter.deliver(payload.RequestID, payload)
+}
 
-	if !ok {
-		slog.Warn("no waiter for search result", "request_id", payload.RequestID)
-		return
+// SubAgentSearchSync sends a sub-agent search request and waits synchronously for the result.
+func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, query string, topK, maxQueries int, model string, rerank bool) (*messagequeue.SubAgentSearchResultPayload, error) {
+	// Fast-fail if the worker recently failed (#3).
+	if s.isUnhealthy(&s.lastSubAgentFailure) {
+		return nil, fmt.Errorf("subagent search skipped: worker recently unhealthy (project %s)", projectID)
 	}
 
-	ch <- payload
+	requestID, err := generateRequestID()
+	if err != nil {
+		return nil, err
+	}
+
+	ch := s.subAgentWaiter.register(requestID)
+	defer s.subAgentWaiter.unregister(requestID)
+
+	// Publish sub-agent search request.
+	payload := messagequeue.SubAgentSearchRequestPayload{
+		ProjectID:  projectID,
+		Query:      query,
+		RequestID:  requestID,
+		TopK:       topK,
+		MaxQueries: maxQueries,
+		Model:      model,
+		Rerank:     rerank,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal subagent search request: %w", err)
+	}
+
+	if err := s.queue.Publish(ctx, messagequeue.SubjectSubAgentSearchRequest, data); err != nil {
+		return nil, fmt.Errorf("publish subagent search request: %w", err)
+	}
+
+	// Wait for result with timeout.
+	timeout := s.orchCfg.SubAgentTimeout
+	if timeout <= 0 {
+		timeout = defaultSubAgentSearchTimeout
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	select {
+	case result := <-ch:
+		if result.Error != "" {
+			s.recordFailure(&s.lastSubAgentFailure)
+			return nil, fmt.Errorf("subagent search error: %s", result.Error)
+		}
+		return result, nil
+	case <-timeoutCtx.Done():
+		s.recordFailure(&s.lastSubAgentFailure)
+		return nil, fmt.Errorf("subagent search timeout for project %s", projectID)
+	}
+}
+
+// HandleSubAgentSearchResult delivers a sub-agent search result to the waiting caller.
+func (s *RetrievalService) HandleSubAgentSearchResult(_ context.Context, payload *messagequeue.SubAgentSearchResultPayload) {
+	s.subAgentWaiter.deliver(payload.RequestID, payload)
+}
+
+// SubAgentDefaults returns the orchestrator's sub-agent configuration defaults.
+func (s *RetrievalService) SubAgentDefaults() (model string, maxQueries int, rerank bool) {
+	return s.orchCfg.SubAgentModel, s.orchCfg.SubAgentMaxQueries, s.orchCfg.SubAgentRerank
 }
 
 // GetIndexStatus returns the in-memory index info for a project, or nil if unknown.
@@ -241,5 +359,49 @@ func (s *RetrievalService) StartSubscribers(ctx context.Context) ([]func(), erro
 		return nil, fmt.Errorf("subscribe retrieval search result: %w", err)
 	}
 
-	return []func(){cancelIndex, cancelSearch}, nil
+	cancelSubAgent, err := s.queue.Subscribe(ctx, messagequeue.SubjectSubAgentSearchResult, func(msgCtx context.Context, _ string, data []byte) error {
+		var payload messagequeue.SubAgentSearchResultPayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return fmt.Errorf("unmarshal subagent search result: %w", err)
+		}
+		s.HandleSubAgentSearchResult(msgCtx, &payload)
+		return nil
+	})
+	if err != nil {
+		cancelIndex()
+		cancelSearch()
+		return nil, fmt.Errorf("subscribe subagent search result: %w", err)
+	}
+
+	return []func(){cancelIndex, cancelSearch, cancelSubAgent}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+// generateRequestID creates a random 16-byte hex correlation ID.
+func generateRequestID() (string, error) {
+	idBytes := make([]byte, 16)
+	if _, err := rand.Read(idBytes); err != nil {
+		return "", fmt.Errorf("generate request id: %w", err)
+	}
+	return hex.EncodeToString(idBytes), nil
+}
+
+// isUnhealthy returns true if the given failure timestamp is within the health cooldown.
+func (s *RetrievalService) isUnhealthy(lastFailure *time.Time) bool {
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	if lastFailure.IsZero() {
+		return false
+	}
+	return time.Since(*lastFailure) < healthCooldown
+}
+
+// recordFailure stores the current time as the last failure for the given path.
+func (s *RetrievalService) recordFailure(lastFailure *time.Time) {
+	s.healthMu.Lock()
+	*lastFailure = time.Now()
+	s.healthMu.Unlock()
 }

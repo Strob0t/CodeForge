@@ -2,14 +2,17 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -191,5 +194,188 @@ func TestScoreFileRelevance(t *testing.T) {
 	scoreZero := service.ScoreFileRelevance(prompt, "readme.txt", "welcome to the project")
 	if scoreZero != 0 {
 		t.Errorf("expected 0 score for unrelated file, got %d", scoreZero)
+	}
+}
+
+// --- fetchRetrievalEntries integration tests (Phase 6C review) ---
+
+// setupRetrievalContextTest creates a context optimizer wired to a real
+// RetrievalService with a captureQueue, ready for BuildContextPack round-trips.
+func setupRetrievalContextTest(t *testing.T, subAgentEnabled bool) (
+	*service.ContextOptimizerService,
+	*service.RetrievalService,
+	*captureQueue,
+) {
+	t.Helper()
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "test", WorkspacePath: ""},
+		},
+		tasks: []task.Task{
+			{ID: "task-1", ProjectID: "proj-1", Prompt: "find handler code"},
+		},
+	}
+	q := &captureQueue{}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{
+		DefaultContextBudget: 8192,
+		PromptReserve:        1024,
+		SubAgentEnabled:      subAgentEnabled,
+		SubAgentModel:        "test-model",
+		SubAgentMaxQueries:   3,
+		SubAgentRerank:       false,
+		SubAgentTimeout:      2 * time.Second,
+		RetrievalTopK:        5,
+	}
+	retrievalSvc := service.NewRetrievalService(store, q, bc, orchCfg)
+
+	// Mark the index as "ready" so fetchRetrievalEntries is triggered.
+	_ = retrievalSvc.HandleIndexResult(context.Background(), &messagequeue.RetrievalIndexResultPayload{
+		ProjectID:      "proj-1",
+		Status:         "ready",
+		FileCount:      10,
+		ChunkCount:     50,
+		EmbeddingModel: "text-embedding-3-small",
+	})
+
+	ctxSvc := service.NewContextOptimizerService(store, orchCfg)
+	ctxSvc.SetRetrieval(retrievalSvc)
+
+	return ctxSvc, retrievalSvc, q
+}
+
+func TestFetchRetrievalEntries_SubAgentSuccess(t *testing.T) {
+	ctxSvc, retrievalSvc, q := setupRetrievalContextTest(t, true)
+
+	type buildResult struct {
+		pack *cfcontext.ContextPack
+		err  error
+	}
+	ch := make(chan buildResult, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go func() {
+		pack, err := ctxSvc.BuildContextPack(ctx, "task-1", "proj-1", "")
+		ch <- buildResult{pack, err}
+	}()
+
+	// Wait for the sub-agent request to be published.
+	time.Sleep(100 * time.Millisecond)
+
+	if q.subject != messagequeue.SubjectSubAgentSearchRequest {
+		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectSubAgentSearchRequest, q.subject)
+	}
+
+	var reqPayload messagequeue.SubAgentSearchRequestPayload
+	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+
+	// Deliver a sub-agent result.
+	retrievalSvc.HandleSubAgentSearchResult(context.Background(), &messagequeue.SubAgentSearchResultPayload{
+		ProjectID:       "proj-1",
+		Query:           "find handler code",
+		RequestID:       reqPayload.RequestID,
+		Results:         []messagequeue.RetrievalSearchHitPayload{{Filepath: "handler.go", Content: "func Handle() {}", Score: 0.95}},
+		ExpandedQueries: []string{"handler function", "request handler"},
+		TotalCandidates: 5,
+	})
+
+	res := <-ch
+	if res.err != nil {
+		t.Fatalf("BuildContextPack failed: %v", res.err)
+	}
+	if res.pack == nil {
+		t.Fatal("expected non-nil pack")
+	}
+
+	foundHybrid := false
+	for _, e := range res.pack.Entries {
+		if e.Kind == cfcontext.EntryHybrid && e.Path == "handler.go" {
+			foundHybrid = true
+		}
+	}
+	if !foundHybrid {
+		t.Error("expected hybrid entry for handler.go from sub-agent search")
+	}
+}
+
+func TestFetchRetrievalEntries_SubAgentDisabled_UsesSingleShot(t *testing.T) {
+	ctxSvc, retrievalSvc, q := setupRetrievalContextTest(t, false)
+
+	type buildResult struct {
+		pack *cfcontext.ContextPack
+		err  error
+	}
+	ch := make(chan buildResult, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	go func() {
+		pack, err := ctxSvc.BuildContextPack(ctx, "task-1", "proj-1", "")
+		ch <- buildResult{pack, err}
+	}()
+
+	// Wait for the single-shot search request to be published.
+	time.Sleep(100 * time.Millisecond)
+
+	if q.subject != messagequeue.SubjectRetrievalSearchRequest {
+		t.Fatalf("expected subject %s (single-shot), got %s", messagequeue.SubjectRetrievalSearchRequest, q.subject)
+	}
+
+	var reqPayload messagequeue.RetrievalSearchRequestPayload
+	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+
+	// Deliver a single-shot result.
+	retrievalSvc.HandleSearchResult(context.Background(), &messagequeue.RetrievalSearchResultPayload{
+		ProjectID: "proj-1",
+		Query:     "find handler code",
+		RequestID: reqPayload.RequestID,
+		Results:   []messagequeue.RetrievalSearchHitPayload{{Filepath: "service.go", Content: "func Serve() {}", Score: 0.80}},
+	})
+
+	res := <-ch
+	if res.err != nil {
+		t.Fatalf("BuildContextPack failed: %v", res.err)
+	}
+	if res.pack == nil {
+		t.Fatal("expected non-nil pack")
+	}
+
+	foundHybrid := false
+	for _, e := range res.pack.Entries {
+		if e.Kind == cfcontext.EntryHybrid && e.Path == "service.go" {
+			foundHybrid = true
+		}
+	}
+	if !foundHybrid {
+		t.Error("expected hybrid entry for service.go from single-shot search")
+	}
+}
+
+func TestFetchRetrievalEntries_BothFail_ReturnsNilPack(t *testing.T) {
+	// Use a very short context so both sub-agent and single-shot timeout quickly.
+	ctxSvc, _, _ := setupRetrievalContextTest(t, true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	pack, err := ctxSvc.BuildContextPack(ctx, "task-1", "proj-1", "")
+	// Workspace is empty, retrieval times out, so no candidates → nil pack.
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pack != nil {
+		// If there are entries, none should be hybrid.
+		for _, e := range pack.Entries {
+			if e.Kind == cfcontext.EntryHybrid {
+				t.Error("expected no hybrid entries when both retrieval paths fail")
+			}
+		}
 	}
 }

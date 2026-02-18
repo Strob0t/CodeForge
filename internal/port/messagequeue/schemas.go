@@ -236,3 +236,27 @@ type RetrievalSearchHitPayload struct {
 	BM25Rank     int     `json:"bm25_rank"`
 	SemanticRank int     `json:"semantic_rank"`
 }
+
+// --- Retrieval Sub-Agent payloads (Phase 6C) ---
+
+// SubAgentSearchRequestPayload is the schema for retrieval.subagent.request messages.
+type SubAgentSearchRequestPayload struct {
+	ProjectID  string `json:"project_id"`
+	Query      string `json:"query"`
+	RequestID  string `json:"request_id"`
+	TopK       int    `json:"top_k"`
+	MaxQueries int    `json:"max_queries"`
+	Model      string `json:"model"`
+	Rerank     bool   `json:"rerank"`
+}
+
+// SubAgentSearchResultPayload is the schema for retrieval.subagent.result messages.
+type SubAgentSearchResultPayload struct {
+	ProjectID       string                      `json:"project_id"`
+	Query           string                      `json:"query"`
+	RequestID       string                      `json:"request_id"`
+	Results         []RetrievalSearchHitPayload `json:"results"`
+	ExpandedQueries []string                    `json:"expanded_queries"`
+	TotalCandidates int                         `json:"total_candidates"`
+	Error           string                      `json:"error,omitempty"`
+}

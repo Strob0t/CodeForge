@@ -113,6 +113,46 @@ The policy layer governs agent permissions, quality gates, and termination condi
 - "Effective Permission Preview" — show which rule matched and why
 - Run-level policy overrides
 
+## Retrieval Sub-Agent (Phase 6C)
+
+LLM-guided multi-query retrieval that improves context quality for agents working on complex tasks.
+
+### Architecture
+
+```
+Go Core (RetrievalService)
+  |
+  | NATS: retrieval.subagent.request
+  v
+Python Worker (RetrievalSubAgent)
+  |-- 1. LLM query expansion (task prompt -> N focused queries)
+  |-- 2. Parallel hybrid searches (existing HybridRetriever.search() x N)
+  |-- 3. Deduplication (by filepath+start_line)
+  |-- 4. LLM re-ranking (top candidates scored for relevance)
+  |-- 5. Return top-K results
+  |
+  | NATS: retrieval.subagent.result
+  v
+Go Core (handles result, delivers to waiter or HTTP handler)
+```
+
+### Backend
+- **Python:** `RetrievalSubAgent` in `workers/codeforge/retrieval.py` — composes `HybridRetriever` + `LiteLLMClient`
+- **Go Service:** `SubAgentSearchSync()` / `HandleSubAgentSearchResult()` in `internal/service/retrieval.go`
+- **Context Optimizer:** `fetchRetrievalEntries()` tries sub-agent first, falls back to single-shot search
+- **REST API:** `POST /api/v1/projects/{id}/search/agent`
+- **Config:** `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` in `config.Orchestrator`
+
+### Frontend (RetrievalPanel)
+- Standard/Agent toggle button next to search bar
+- Agent mode shows expanded queries as tags + total candidates count
+- Component: `frontend/src/features/project/RetrievalPanel.tsx`
+
+### Deferred
+- Configurable expansion prompts per project
+- Streaming results (partial results as queries complete)
+- Cost tracking for sub-agent LLM calls
+
 ## TODOs
 
 Tracked in [todo.md](../todo.md) under Phase 1, Phase 2, and Phase 3.

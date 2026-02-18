@@ -62,4 +62,8 @@ const (
 	SubjectRetrievalIndexResult   = "retrieval.index.result"   // Python → Go: index build result
 	SubjectRetrievalSearchRequest = "retrieval.search.request" // Go → Python: search request
 	SubjectRetrievalSearchResult  = "retrieval.search.result"  // Python → Go: search results
+
+	// Retrieval Sub-Agent subjects (Phase 6C)
+	SubjectSubAgentSearchRequest = "retrieval.subagent.request" // Go → Python: multi-query search
+	SubjectSubAgentSearchResult  = "retrieval.subagent.result"  // Python → Go: multi-query results
 )

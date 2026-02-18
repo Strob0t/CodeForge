@@ -6,6 +6,7 @@ to merge BM25 and cosine-similarity rankings into a single result list.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -23,9 +24,12 @@ from codeforge._tree_sitter_common import (
     _MAX_FILES,
     _SKIP_DIRS,
 )
+from codeforge.models import RetrievalSearchHit
 
 if TYPE_CHECKING:
     from tree_sitter import Parser
+
+    from codeforge.llm import LiteLLMClient
 
 logger = structlog.get_logger()
 
@@ -72,21 +76,6 @@ class IndexStatus:
     chunk_count: int = 0
     embedding_model: str = ""
     error: str = ""
-
-
-@dataclass(frozen=True)
-class SearchResult:
-    """A single search hit with merged ranking information."""
-
-    filepath: str
-    start_line: int
-    end_line: int
-    content: str
-    language: str
-    symbol_name: str
-    score: float
-    bm25_rank: int
-    semantic_rank: int
 
 
 # ---------------------------------------------------------------------------
@@ -417,8 +406,14 @@ class HybridRetriever:
         top_k: int = 20,
         bm25_weight: float = 0.5,
         semantic_weight: float = 0.5,
-    ) -> list[SearchResult]:
-        """Search an indexed project using hybrid BM25 + semantic retrieval."""
+        query_embedding: np.ndarray | None = None,
+    ) -> list[RetrievalSearchHit]:
+        """Search an indexed project using hybrid BM25 + semantic retrieval.
+
+        If *query_embedding* is provided, it is used directly for the semantic
+        branch instead of calling the embedding API.  This allows callers to
+        batch-embed multiple queries in a single request.
+        """
         index = self._indexes.get(project_id)
         if index is None:
             logger.warning("no index for project", project_id=project_id)
@@ -437,22 +432,25 @@ class HybridRetriever:
         bm25_ranking: list[int] = [int(idx) for idx in bm25_results[0]]
 
         # Semantic retrieval
-        query_embedding = await self._embed_texts([query], index.embedding_model)
-        query_vec = query_embedding[0]
+        if query_embedding is None:
+            query_embedding = (await self._embed_texts([query], index.embedding_model))[0]
+        query_vec = query_embedding
         cosine_scores = self._cosine_similarity(query_vec, index.embeddings)
         semantic_ranking: list[int] = list(np.argsort(-cosine_scores))
 
         # RRF fusion
         fused = self._rrf_fuse(bm25_ranking, semantic_ranking)
 
+        # Pre-build rank maps for O(1) lookup (#14)
+        bm25_rank_map = {idx: rank for rank, idx in enumerate(bm25_ranking)}
+        sem_rank_map = {idx: rank for rank, idx in enumerate(semantic_ranking)}
+
         # Build results
-        results: list[SearchResult] = []
+        results: list[RetrievalSearchHit] = []
         for chunk_idx, score in fused[:effective_k]:
             chunk = index.chunks[chunk_idx]
-            bm25_rank = bm25_ranking.index(chunk_idx) + 1 if chunk_idx in bm25_ranking else n_chunks
-            sem_rank = semantic_ranking.index(chunk_idx) + 1
             results.append(
-                SearchResult(
+                RetrievalSearchHit(
                     filepath=chunk.filepath,
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
@@ -460,8 +458,8 @@ class HybridRetriever:
                     language=chunk.language,
                     symbol_name=chunk.symbol_name,
                     score=score,
-                    bm25_rank=bm25_rank,
-                    semantic_rank=sem_rank,
+                    bm25_rank=bm25_rank_map.get(chunk_idx, n_chunks) + 1,
+                    semantic_rank=sem_rank_map.get(chunk_idx, n_chunks) + 1,
                 )
             )
 
@@ -542,3 +540,193 @@ class HybridRetriever:
 
         fused = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         return fused
+
+
+# ---------------------------------------------------------------------------
+# RetrievalSubAgent -- LLM-guided multi-query retrieval (Phase 6C)
+# ---------------------------------------------------------------------------
+
+_EXPAND_SYSTEM = (
+    "You are a code search query expander. Given a task description, generate "
+    "focused search queries that would help find relevant code. Output one query "
+    "per line. Do not number them or add any other text."
+)
+
+_RERANK_SYSTEM = (
+    "You are a code relevance ranker. Given a query and a numbered list of code "
+    "snippets, output the numbers of the most relevant snippets in order of "
+    "relevance, one number per line. Output only numbers, nothing else."
+)
+
+
+class RetrievalSubAgent:
+    """LLM-guided multi-query retrieval agent.
+
+    Composes a HybridRetriever with an LLM client to provide:
+    1. Query expansion (task prompt -> N focused queries)
+    2. Parallel hybrid searches
+    3. Deduplication by (filepath, start_line)
+    4. LLM re-ranking for relevance
+    """
+
+    def __init__(self, retriever: HybridRetriever, llm: LiteLLMClient) -> None:
+        self._retriever = retriever
+        self._llm = llm
+
+    _MAX_RERANK_CANDIDATES = 30
+
+    async def search(
+        self,
+        project_id: str,
+        query: str,
+        top_k: int = 20,
+        max_queries: int = 5,
+        model: str = "",
+        rerank: bool = True,
+    ) -> tuple[list[RetrievalSearchHit], list[str], int]:
+        """Multi-step retrieval: expand -> parallel search -> dedup -> rerank.
+
+        Returns (results, expanded_queries, total_candidates_before_dedup).
+        """
+        # 1. LLM query expansion
+        expanded = await self._expand_queries(query, max_queries, model)
+        if not expanded:
+            expanded = [query]
+
+        # 2. Parallel hybrid searches
+        all_hits = await self._parallel_search(project_id, expanded, top_k)
+        total_candidates = len(all_hits)
+
+        # 3. Deduplicate by (filepath, start_line)
+        deduped = self._deduplicate(all_hits)
+
+        # 4. Optional LLM re-ranking
+        if rerank and len(deduped) > top_k:
+            deduped = await self._rerank(query, deduped, top_k, model)
+        else:
+            deduped = sorted(deduped, key=lambda r: r.score, reverse=True)[:top_k]
+
+        return deduped, expanded, total_candidates
+
+    async def _expand_queries(
+        self,
+        query: str,
+        max_queries: int,
+        model: str,
+    ) -> list[str]:
+        """Use LLM to expand a task prompt into focused search queries."""
+        prompt = f"Expand this task description into {max_queries} focused code search queries:\n\n{query}"
+        try:
+            resp = await self._llm.completion(
+                prompt=prompt,
+                model=model,
+                system=_EXPAND_SYSTEM,
+                temperature=0.3,
+            )
+            lines = [line.strip() for line in resp.content.splitlines() if line.strip()]
+            return lines[:max_queries]
+        except Exception:
+            logger.warning("query expansion failed, using original query", query=query[:80], exc_info=True)
+            return [query]
+
+    async def _parallel_search(
+        self,
+        project_id: str,
+        queries: list[str],
+        top_k: int,
+    ) -> list[RetrievalSearchHit]:
+        """Run hybrid searches in parallel for each expanded query.
+
+        Batch-embeds all queries in a single API call, then passes the
+        pre-computed vectors to each search to avoid N separate embedding
+        round-trips.
+        """
+        # Each query returns at least top_k results for a rich candidate set (#13).
+        per_query_k = top_k
+
+        # Batch-embed all queries in one call if index exists.
+        embeddings: list[np.ndarray | None] = [None] * len(queries)
+        index = self._retriever._indexes.get(project_id)
+        if index is not None:
+            try:
+                all_vecs = await self._retriever._embed_texts(queries, index.embedding_model)
+                embeddings = list(all_vecs)
+            except Exception:
+                logger.warning("batch embedding failed, falling back to per-query embedding", exc_info=True)
+
+        tasks = [
+            self._retriever.search(project_id, q, per_query_k, query_embedding=emb)
+            for q, emb in zip(queries, embeddings, strict=False)
+        ]
+        results_lists = await asyncio.gather(*tasks, return_exceptions=True)
+        all_hits: list[RetrievalSearchHit] = []
+        for result in results_lists:
+            if isinstance(result, list):
+                all_hits.extend(result)
+            elif isinstance(result, Exception):
+                logger.warning("parallel search failed for one query", error=str(result))
+        return all_hits
+
+    @staticmethod
+    def _deduplicate(hits: list[RetrievalSearchHit]) -> list[RetrievalSearchHit]:
+        """Group by (filepath, start_line) and keep the highest-scored hit per group."""
+        best: dict[tuple[str, int], RetrievalSearchHit] = {}
+        for hit in hits:
+            key = (hit.filepath, hit.start_line)
+            if key not in best or hit.score > best[key].score:
+                best[key] = hit
+        return list(best.values())
+
+    async def _rerank(
+        self,
+        query: str,
+        hits: list[RetrievalSearchHit],
+        top_k: int,
+        model: str,
+    ) -> list[RetrievalSearchHit]:
+        """Use LLM to re-rank candidates by relevance to the original query."""
+        # Cap candidates to avoid exceeding context window
+        max_candidates = min(top_k * 2, self._MAX_RERANK_CANDIDATES)
+        candidates = sorted(hits, key=lambda r: r.score, reverse=True)[:max_candidates]
+
+        # Format numbered list for LLM
+        snippets: list[str] = []
+        for i, hit in enumerate(candidates):
+            preview = hit.content[:200].replace("\n", " ")
+            snippets.append(f"{i + 1}. {hit.filepath}:{hit.start_line} — {preview}")
+
+        prompt = f"Query: {query}\n\nRank these code snippets by relevance (most relevant first):\n\n" + "\n".join(
+            snippets
+        )
+
+        try:
+            resp = await self._llm.completion(
+                prompt=prompt,
+                model=model,
+                system=_RERANK_SYSTEM,
+                temperature=0.0,
+            )
+            # Parse ranking: extract numbers from response lines
+            ranked_indices: list[int] = []
+            seen: set[int] = set()
+            for line in resp.content.splitlines():
+                line = line.strip().rstrip(".")
+                try:
+                    idx = int(line) - 1  # Convert 1-based to 0-based
+                    if 0 <= idx < len(candidates) and idx not in seen:
+                        ranked_indices.append(idx)
+                        seen.add(idx)
+                except ValueError:
+                    continue
+
+            if ranked_indices:
+                # Append unranked candidates so we always return up to top_k.
+                for i in range(len(candidates)):
+                    if i not in seen:
+                        ranked_indices.append(i)
+                return [candidates[i] for i in ranked_indices[:top_k]]
+        except Exception:
+            logger.warning("LLM reranking failed, falling back to score-based ranking", exc_info=True)
+
+        # Fallback: score-based sorting
+        return sorted(candidates, key=lambda r: r.score, reverse=True)[:top_k]

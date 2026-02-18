@@ -425,12 +425,31 @@
 - [x] (2026-02-17) New dependencies: bm25s ^0.2, numpy ^2.0
 - [x] (2026-02-17) Tests: 11 Python tests (chunking, RRF, cosine similarity, integration), 5 Go tests (service), 3 Go handler tests — all passing
 
-### 6C. Retrieval Sub-Agent (Phase 5)
+### 6C. Retrieval Sub-Agent (COMPLETED)
 
-- [ ] Dedicated search agent for context retrieval
-  - Orchestrator delegates "find context" to Retrieval Agent
-  - Parallel tool calls, many searches, compact result
-  - Returns structured Context Pack to requesting agent
+- [x] (2026-02-18) LLM-guided multi-query retrieval sub-agent
+  - Python: `RetrievalSubAgent` class — expand queries via LLM, parallel hybrid search, dedup, LLM re-rank
+  - Python: `SubAgentSearchRequest` / `SubAgentSearchResult` Pydantic models
+  - Python: Consumer handler for `retrieval.subagent.request` NATS subject
+  - Go: `SubAgentSearchSync` / `HandleSubAgentSearchResult` on RetrievalService (60s timeout, correlation ID waiter)
+  - Go: NATS subjects `retrieval.subagent.request` / `retrieval.subagent.result` + payload types
+  - Go: Config fields `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` with ENV overrides
+  - Go: Context optimizer `fetchRetrievalEntries()` — sub-agent first, single-shot fallback
+  - Go: HTTP handler `POST /projects/{id}/search/agent`
+  - Frontend: Agent/Standard search toggle in RetrievalPanel, expanded queries display
+  - Tests: 8 Python tests (unit + integration), 3 new Go service tests — all passing
+- [x] (2026-02-18) Code review refinements (16 changes across architecture, quality, tests, performance)
+  - Generic `syncWaiter[T]` replacing duplicate waiter patterns (DRY)
+  - Health tracking with 30s cooldown fast-fail on worker failures
+  - Percentile-based priority normalization (RRF scores mapped to 60-85 range)
+  - Shared retrieval deadline (sub-agent + single-shot fallback under one timeout)
+  - Parallel workspace scan + retrieval in BuildContextPack
+  - Check-before-build guard to prevent redundant context pack builds
+  - Defense-in-depth validation (Pydantic validators + Go handler clamping)
+  - Unified `SearchResult` dataclass into `RetrievalSearchHit` Pydantic model
+  - DRY `_publish_error_result()` helper in consumer error handling
+  - Pre-built rank dict for O(1) BM25 lookup, per_query_k = top_k fix
+  - 5 new tests (3 Python, 2 Go) — all 77 Python + all Go tests passing
 
 ### 6D. GraphRAG (Phase 6+)
 
