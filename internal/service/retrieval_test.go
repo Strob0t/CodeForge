@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,14 +16,26 @@ import (
 
 // captureQueue records the last published subject and data.
 type captureQueue struct {
+	mu      sync.Mutex
 	subject string
 	data    []byte
 }
 
 func (q *captureQueue) Publish(_ context.Context, subject string, data []byte) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	q.subject = subject
-	q.data = data
+	q.data = make([]byte, len(data))
+	copy(q.data, data)
 	return nil
+}
+
+func (q *captureQueue) snapshot() (subject string, data []byte) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	data = make([]byte, len(q.data))
+	copy(data, q.data)
+	return q.subject, data
 }
 func (q *captureQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
 	return func() {}, nil
@@ -47,12 +60,13 @@ func TestRetrievalService_RequestIndex(t *testing.T) {
 		t.Fatalf("RequestIndex failed: %v", err)
 	}
 
-	if q.subject != messagequeue.SubjectRetrievalIndexRequest {
-		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectRetrievalIndexRequest, q.subject)
+	subj, data := q.snapshot()
+	if subj != messagequeue.SubjectRetrievalIndexRequest {
+		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectRetrievalIndexRequest, subj)
 	}
 
 	var payload messagequeue.RetrievalIndexRequestPayload
-	if err := json.Unmarshal(q.data, &payload); err != nil {
+	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 	if payload.ProjectID != "proj-1" {
@@ -178,12 +192,13 @@ func TestRetrievalService_SubAgentSearchSync_Publishes(t *testing.T) {
 	}
 
 	// Verify the message was published to the correct subject.
-	if q.subject != messagequeue.SubjectSubAgentSearchRequest {
-		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectSubAgentSearchRequest, q.subject)
+	subj, data := q.snapshot()
+	if subj != messagequeue.SubjectSubAgentSearchRequest {
+		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectSubAgentSearchRequest, subj)
 	}
 
 	var payload messagequeue.SubAgentSearchRequestPayload
-	if err := json.Unmarshal(q.data, &payload); err != nil {
+	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 	if payload.ProjectID != "proj-1" {
@@ -227,8 +242,9 @@ func TestRetrievalService_HandleSubAgentSearchResult(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Extract the request ID from the published payload.
+	_, data := q.snapshot()
 	var reqPayload messagequeue.SubAgentSearchRequestPayload
-	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+	if err := json.Unmarshal(data, &reqPayload); err != nil {
 		t.Fatalf("unmarshal request payload: %v", err)
 	}
 
@@ -300,8 +316,9 @@ func TestRetrievalService_SearchSync_ErrorInPayload(t *testing.T) {
 	// Wait for publish.
 	time.Sleep(50 * time.Millisecond)
 
+	_, data := q.snapshot()
 	var reqPayload messagequeue.RetrievalSearchRequestPayload
-	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+	if err := json.Unmarshal(data, &reqPayload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -339,8 +356,9 @@ func TestRetrievalService_SubAgentSearchSync_ErrorInPayload(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
+	_, data := q.snapshot()
 	var reqPayload messagequeue.SubAgentSearchRequestPayload
-	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+	if err := json.Unmarshal(data, &reqPayload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 

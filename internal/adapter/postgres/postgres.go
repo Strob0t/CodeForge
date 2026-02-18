@@ -61,3 +61,48 @@ func RunMigrations(ctx context.Context, dsn string) error {
 
 	return nil
 }
+
+// RollbackMigrations rolls back the last N migrations.
+func RollbackMigrations(ctx context.Context, dsn string, steps int) error {
+	goose.SetBaseFS(migrations)
+
+	db, err := goose.OpenDBWithDriver("pgx", dsn)
+	if err != nil {
+		return fmt.Errorf("open db for rollback: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("set dialect: %w", err)
+	}
+
+	for range steps {
+		if err := goose.DownContext(ctx, db, "migrations"); err != nil {
+			return fmt.Errorf("rollback: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// MigrationVersion returns the current migration version.
+func MigrationVersion(ctx context.Context, dsn string) (int64, error) {
+	goose.SetBaseFS(migrations)
+
+	db, err := goose.OpenDBWithDriver("pgx", dsn)
+	if err != nil {
+		return 0, fmt.Errorf("open db for version: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := goose.SetDialect("postgres"); err != nil {
+		return 0, fmt.Errorf("set dialect: %w", err)
+	}
+
+	version, err := goose.GetDBVersionContext(ctx, db)
+	if err != nil {
+		return 0, fmt.Errorf("get version: %w", err)
+	}
+
+	return version, nil
+}

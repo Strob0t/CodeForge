@@ -27,6 +27,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/resilience"
@@ -112,6 +113,10 @@ func run() error {
 	llmBreaker := resilience.NewBreaker(cfg.Breaker.MaxFailures, cfg.Breaker.Timeout)
 	queue.SetBreaker(natsBreaker)
 
+	// --- Git Worker Pool ---
+	gitPool := git.NewPool(cfg.Git.MaxConcurrent)
+	slog.Info("git worker pool initialized", "max_concurrent", cfg.Git.MaxConcurrent)
+
 	// --- Agent Backends ---
 	aider.Register(queue)
 
@@ -141,11 +146,11 @@ func run() error {
 
 	// --- Runtime Service (Phase 4B + 4C) ---
 	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc, &cfg.Runtime)
-	deliverSvc := service.NewDeliverService(store, &cfg.Runtime)
+	deliverSvc := service.NewDeliverService(store, &cfg.Runtime, gitPool)
 	runtimeSvc.SetDeliverService(deliverSvc)
 
 	// Checkpoint Service (Phase 4A/4C)
-	checkpointSvc := service.NewCheckpointService()
+	checkpointSvc := service.NewCheckpointService(gitPool)
 	runtimeSvc.SetCheckpointService(checkpointSvc)
 
 	// Sandbox Service (Phase 4B)
@@ -271,6 +276,8 @@ func run() error {
 
 	// Rate limiter
 	rateLimiter := middleware.NewRateLimiter(cfg.Rate.RequestsPerSecond, cfg.Rate.Burst)
+	rateLimiterCleanup := rateLimiter.StartCleanup(cfg.Rate.CleanupInterval, cfg.Rate.MaxIdleTime)
+	defer rateLimiterCleanup()
 
 	// Middleware
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))

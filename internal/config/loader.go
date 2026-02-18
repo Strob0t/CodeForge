@@ -34,7 +34,7 @@ func Load() (*Config, error) {
 // loadYAML reads the YAML file and unmarshals it over cfg.
 // Returns nil if the file does not exist.
 func loadYAML(cfg *Config, path string) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is validated by caller
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -70,6 +70,9 @@ func loadEnv(cfg *Config) {
 	setDuration(&cfg.Breaker.Timeout, "CODEFORGE_BREAKER_TIMEOUT")
 	setFloat64(&cfg.Rate.RequestsPerSecond, "CODEFORGE_RATE_RPS")
 	setInt(&cfg.Rate.Burst, "CODEFORGE_RATE_BURST")
+	setDuration(&cfg.Rate.CleanupInterval, "CODEFORGE_RATE_CLEANUP_INTERVAL")
+	setDuration(&cfg.Rate.MaxIdleTime, "CODEFORGE_RATE_MAX_IDLE_TIME")
+	setInt(&cfg.Git.MaxConcurrent, "CODEFORGE_GIT_MAX_CONCURRENT")
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setInt(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD")

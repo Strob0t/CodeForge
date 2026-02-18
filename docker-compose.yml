@@ -66,6 +66,9 @@ services:
         -c shared_buffers=128MB
         -c effective_cache_size=384MB
         -c max_connections=100
+        -c wal_level=replica
+        -c archive_mode=on
+        -c archive_command='test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U codeforge"]
       interval: 5s

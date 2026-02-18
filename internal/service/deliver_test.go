@@ -10,6 +10,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -64,7 +65,7 @@ func initDeliverTestRepo(t *testing.T) string {
 }
 
 func TestDeliver_NoneMode(t *testing.T) {
-	svc := service.NewDeliverService(nil, &config.Runtime{})
+	svc := service.NewDeliverService(nil, &config.Runtime{}, git.NewPool(5))
 	r := &run.Run{ID: "run-12345678", DeliverMode: ""}
 
 	result, err := svc.Deliver(context.Background(), r, "task title")
@@ -89,7 +90,7 @@ func TestDeliver_Patch(t *testing.T) {
 	}
 	svc := service.NewDeliverService(store, &config.Runtime{
 		DeliveryCommitPrefix: "test:",
-	})
+	}, git.NewPool(5))
 
 	r := &run.Run{
 		ID:          "run-abcd1234",
@@ -131,7 +132,7 @@ func TestDeliver_CommitLocal(t *testing.T) {
 	}
 	svc := service.NewDeliverService(store, &config.Runtime{
 		DeliveryCommitPrefix: "codeforge:",
-	})
+	}, git.NewPool(5))
 
 	r := &run.Run{
 		ID:          "run-abcd1234",
@@ -176,7 +177,7 @@ func TestDeliver_Branch(t *testing.T) {
 	}
 	svc := service.NewDeliverService(store, &config.Runtime{
 		DeliveryCommitPrefix: "codeforge:",
-	})
+	}, git.NewPool(5))
 
 	r := &run.Run{
 		ID:          "run-abcd1234",
@@ -214,7 +215,7 @@ func TestDeliver_NoWorkspacePath(t *testing.T) {
 	store := &deliverMockStore{
 		proj: &project.Project{ID: "proj-1", WorkspacePath: ""},
 	}
-	svc := service.NewDeliverService(store, &config.Runtime{})
+	svc := service.NewDeliverService(store, &config.Runtime{}, git.NewPool(5))
 
 	r := &run.Run{
 		ID:          "run-abcd1234",

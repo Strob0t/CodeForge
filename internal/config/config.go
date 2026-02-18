@@ -13,11 +13,17 @@ type Config struct {
 	Logging      Logging      `yaml:"logging"`
 	Breaker      Breaker      `yaml:"breaker"`
 	Rate         Rate         `yaml:"rate"`
+	Git          Git          `yaml:"git"`
 	Policy       Policy       `yaml:"policy"`
 	Runtime      Runtime      `yaml:"runtime"`
 	Orchestrator Orchestrator `yaml:"orchestrator"`
 	Cache        Cache        `yaml:"cache"`
 	Idempotency  Idempotency  `yaml:"idempotency"`
+}
+
+// Git holds git operation configuration.
+type Git struct {
+	MaxConcurrent int `yaml:"max_concurrent"` // Max concurrent git CLI operations (default: 5)
 }
 
 // Orchestrator holds multi-agent execution plan configuration.
@@ -121,8 +127,10 @@ type Breaker struct {
 
 // Rate holds rate limiter configuration.
 type Rate struct {
-	RequestsPerSecond float64 `yaml:"requests_per_second"`
-	Burst             int     `yaml:"burst"`
+	RequestsPerSecond float64       `yaml:"requests_per_second"`
+	Burst             int           `yaml:"burst"`
+	CleanupInterval   time.Duration `yaml:"cleanup_interval"` // Stale bucket cleanup interval (default: 5m)
+	MaxIdleTime       time.Duration `yaml:"max_idle_time"`    // Remove buckets idle longer than this (default: 10m)
 }
 
 // Idempotency holds idempotency key middleware configuration.
@@ -164,6 +172,11 @@ func Defaults() Config {
 		Rate: Rate{
 			RequestsPerSecond: 10,
 			Burst:             100,
+			CleanupInterval:   5 * time.Minute,
+			MaxIdleTime:       10 * time.Minute,
+		},
+		Git: Git{
+			MaxConcurrent: 5,
 		},
 		Policy: Policy{
 			DefaultProfile: "headless-safe-sandbox",

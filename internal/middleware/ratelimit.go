@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -89,4 +90,43 @@ func (rl *RateLimiter) allow(ip string) (remaining int, retryAfter float64, allo
 
 	b.tokens--
 	return int(b.tokens), 0, true
+}
+
+// StartCleanup spawns a goroutine that removes stale buckets every interval.
+// A bucket is stale if it has not been seen for longer than maxIdle.
+// Returns a cancel function that stops the cleanup goroutine.
+func (rl *RateLimiter) StartCleanup(interval, maxIdle time.Duration) func() {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				rl.cleanup(maxIdle)
+			}
+		}
+	}()
+	return cancel
+}
+
+// cleanup removes buckets that have been idle longer than maxIdle.
+func (rl *RateLimiter) cleanup(maxIdle time.Duration) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	cutoff := time.Now().Add(-maxIdle)
+	for ip, b := range rl.buckets {
+		if b.lastSeen.Before(cutoff) {
+			delete(rl.buckets, ip)
+		}
+	}
+}
+
+// Len returns the number of tracked IP buckets (for metrics and testing).
+func (rl *RateLimiter) Len() int {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	return len(rl.buckets)
 }

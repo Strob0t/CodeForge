@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/git"
 )
 
 // Checkpoint records a single git shadow commit for rollback.
@@ -23,32 +25,42 @@ type Checkpoint struct {
 type CheckpointService struct {
 	mu          sync.Mutex
 	checkpoints map[string][]Checkpoint // runID -> ordered list
+	pool        *git.Pool
 }
 
-// NewCheckpointService creates a new CheckpointService.
-func NewCheckpointService() *CheckpointService {
+// NewCheckpointService creates a new CheckpointService with a shared git pool.
+func NewCheckpointService(pool *git.Pool) *CheckpointService {
 	return &CheckpointService{
 		checkpoints: make(map[string][]Checkpoint),
+		pool:        pool,
 	}
 }
 
 // CreateCheckpoint stages all changes and creates a shadow git commit.
 func (s *CheckpointService) CreateCheckpoint(ctx context.Context, runID, workspacePath, tool, callID string) error {
-	// Stage all changes
-	if _, err := runCheckpointGit(ctx, workspacePath, "add", "-A"); err != nil {
-		return fmt.Errorf("checkpoint git add: %w", err)
-	}
+	var hash string
+	err := s.pool.Run(ctx, func() error {
+		// Stage all changes
+		if _, err := runCheckpointGit(ctx, workspacePath, "add", "-A"); err != nil {
+			return fmt.Errorf("checkpoint git add: %w", err)
+		}
 
-	// Create shadow commit
-	msg := fmt.Sprintf("codeforge-checkpoint: %s", callID)
-	if _, err := runCheckpointGit(ctx, workspacePath, "commit", "--allow-empty", "-m", msg); err != nil {
-		return fmt.Errorf("checkpoint git commit: %w", err)
-	}
+		// Create shadow commit
+		msg := fmt.Sprintf("codeforge-checkpoint: %s", callID)
+		if _, err := runCheckpointGit(ctx, workspacePath, "commit", "--allow-empty", "-m", msg); err != nil {
+			return fmt.Errorf("checkpoint git commit: %w", err)
+		}
 
-	// Get commit hash
-	hash, err := runCheckpointGit(ctx, workspacePath, "rev-parse", "HEAD")
+		// Get commit hash
+		h, err := runCheckpointGit(ctx, workspacePath, "rev-parse", "HEAD")
+		if err != nil {
+			return fmt.Errorf("checkpoint get hash: %w", err)
+		}
+		hash = h
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("checkpoint get hash: %w", err)
+		return err
 	}
 
 	s.mu.Lock()
@@ -85,10 +97,12 @@ func (s *CheckpointService) RewindToFirst(ctx context.Context, runID, workspaceP
 	}
 
 	target := cps[0].CommitHash + "^"
-	if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--hard", target); err != nil {
-		return fmt.Errorf("rewind to first: %w", err)
-	}
-	return nil
+	return s.pool.Run(ctx, func() error {
+		if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--hard", target); err != nil {
+			return fmt.Errorf("rewind to first: %w", err)
+		}
+		return nil
+	})
 }
 
 // RewindToLast resets the workspace to the state before the last checkpoint.
@@ -102,10 +116,12 @@ func (s *CheckpointService) RewindToLast(ctx context.Context, runID, workspacePa
 	}
 
 	target := cps[len(cps)-1].CommitHash + "^"
-	if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--hard", target); err != nil {
-		return fmt.Errorf("rewind to last: %w", err)
-	}
-	return nil
+	return s.pool.Run(ctx, func() error {
+		if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--hard", target); err != nil {
+			return fmt.Errorf("rewind to last: %w", err)
+		}
+		return nil
+	})
 }
 
 // CleanupCheckpoints removes shadow commits but keeps the current working state.
@@ -120,10 +136,12 @@ func (s *CheckpointService) CleanupCheckpoints(ctx context.Context, runID, works
 	}
 
 	target := cps[0].CommitHash + "^"
-	if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--soft", target); err != nil {
-		return fmt.Errorf("cleanup checkpoints: %w", err)
-	}
-	return nil
+	return s.pool.Run(ctx, func() error {
+		if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--soft", target); err != nil {
+			return fmt.Errorf("cleanup checkpoints: %w", err)
+		}
+		return nil
+	})
 }
 
 // runCheckpointGit executes a git command in the given directory.

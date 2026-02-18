@@ -44,6 +44,9 @@ desktop.ini
 # -- Persistent data (docker volumes, caches) ------
 data/
 
+# -- Backups ----------------------------------------
+backups/
+
 # -- Claude Code ----------------------------------
 .claude/
 

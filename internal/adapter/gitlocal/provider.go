@@ -10,13 +10,21 @@ import (
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
 const providerName = "local"
 
 // Provider interacts with local git repositories via the git CLI.
-type Provider struct{}
+type Provider struct {
+	pool *git.Pool
+}
+
+// NewProvider creates a Provider that limits concurrent git operations via pool.
+func NewProvider(pool *git.Pool) *Provider {
+	return &Provider{pool: pool}
+}
 
 // Name returns "local".
 func (p *Provider) Name() string { return providerName }
@@ -45,109 +53,122 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string) error {
 		return fmt.Errorf("gitlocal: resolve path: %w", err)
 	}
 
-	if _, execErr := runGit(ctx, "", "clone", url, absPath); execErr != nil {
-		return fmt.Errorf("gitlocal: clone: %w", execErr)
-	}
-	return nil
+	return p.pool.Run(ctx, func() error {
+		if _, execErr := runGit(ctx, "", "clone", url, absPath); execErr != nil {
+			return fmt.Errorf("gitlocal: clone: %w", execErr)
+		}
+		return nil
+	})
 }
 
 // Status returns the git status of a local repository.
 func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitStatus, error) {
-	status := &project.GitStatus{}
+	var status *project.GitStatus
+	err := p.pool.Run(ctx, func() error {
+		status = &project.GitStatus{}
 
-	// Current branch
-	branch, err := runGit(ctx, repoPath, "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("gitlocal: get branch: %w", err)
-	}
-	status.Branch = strings.TrimSpace(branch)
-
-	// Latest commit hash and message
-	logOut, err := runGit(ctx, repoPath, "log", "-1", "--format=%H%n%s")
-	if err != nil {
-		return nil, fmt.Errorf("gitlocal: get log: %w", err)
-	}
-	logLines := strings.SplitN(strings.TrimSpace(logOut), "\n", 2)
-	if len(logLines) >= 1 {
-		status.CommitHash = logLines[0]
-	}
-	if len(logLines) >= 2 {
-		status.CommitMessage = logLines[1]
-	}
-
-	// Porcelain status for modified/untracked
-	porcelain, err := runGit(ctx, repoPath, "status", "--porcelain")
-	if err != nil {
-		return nil, fmt.Errorf("gitlocal: porcelain status: %w", err)
-	}
-	for _, line := range strings.Split(porcelain, "\n") {
-		if len(line) < 3 {
-			continue
+		// Current branch
+		branch, err := runGit(ctx, repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+		if err != nil {
+			return fmt.Errorf("gitlocal: get branch: %w", err)
 		}
-		indicator := line[:2]
-		file := strings.TrimSpace(line[3:])
-		if indicator == "??" {
-			status.Untracked = append(status.Untracked, file)
-		} else {
-			status.Modified = append(status.Modified, file)
-		}
-	}
-	status.Dirty = len(status.Modified) > 0 || len(status.Untracked) > 0
+		status.Branch = strings.TrimSpace(branch)
 
-	// Ahead/behind tracking branch
-	revList, _ := runGit(ctx, repoPath, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
-	revList = strings.TrimSpace(revList)
-	if revList != "" {
-		parts := strings.Fields(revList)
-		if len(parts) == 2 {
-			_, _ = fmt.Sscanf(parts[0], "%d", &status.Behind)
-			_, _ = fmt.Sscanf(parts[1], "%d", &status.Ahead)
+		// Latest commit hash and message
+		logOut, err := runGit(ctx, repoPath, "log", "-1", "--format=%H%n%s")
+		if err != nil {
+			return fmt.Errorf("gitlocal: get log: %w", err)
 		}
-	}
+		logLines := strings.SplitN(strings.TrimSpace(logOut), "\n", 2)
+		if len(logLines) >= 1 {
+			status.CommitHash = logLines[0]
+		}
+		if len(logLines) >= 2 {
+			status.CommitMessage = logLines[1]
+		}
 
-	return status, nil
+		// Porcelain status for modified/untracked
+		porcelain, err := runGit(ctx, repoPath, "status", "--porcelain")
+		if err != nil {
+			return fmt.Errorf("gitlocal: porcelain status: %w", err)
+		}
+		for _, line := range strings.Split(porcelain, "\n") {
+			if len(line) < 3 {
+				continue
+			}
+			indicator := line[:2]
+			file := strings.TrimSpace(line[3:])
+			if indicator == "??" {
+				status.Untracked = append(status.Untracked, file)
+			} else {
+				status.Modified = append(status.Modified, file)
+			}
+		}
+		status.Dirty = len(status.Modified) > 0 || len(status.Untracked) > 0
+
+		// Ahead/behind tracking branch
+		revList, _ := runGit(ctx, repoPath, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+		revList = strings.TrimSpace(revList)
+		if revList != "" {
+			parts := strings.Fields(revList)
+			if len(parts) == 2 {
+				_, _ = fmt.Sscanf(parts[0], "%d", &status.Behind)
+				_, _ = fmt.Sscanf(parts[1], "%d", &status.Ahead)
+			}
+		}
+
+		return nil
+	})
+	return status, err
 }
 
 // Pull fetches and merges updates for the given repository.
 func (p *Provider) Pull(ctx context.Context, repoPath string) error {
-	if _, err := runGit(ctx, repoPath, "pull"); err != nil {
-		return fmt.Errorf("gitlocal: pull: %w", err)
-	}
-	return nil
+	return p.pool.Run(ctx, func() error {
+		if _, err := runGit(ctx, repoPath, "pull"); err != nil {
+			return fmt.Errorf("gitlocal: pull: %w", err)
+		}
+		return nil
+	})
 }
 
 // ListBranches returns all branches of a local repository.
 func (p *Provider) ListBranches(ctx context.Context, repoPath string) ([]project.Branch, error) {
-	out, err := runGit(ctx, repoPath, "branch", "--list")
-	if err != nil {
-		return nil, fmt.Errorf("gitlocal: list branches: %w", err)
-	}
-
 	var branches []project.Branch
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	err := p.pool.Run(ctx, func() error {
+		out, err := runGit(ctx, repoPath, "branch", "--list")
+		if err != nil {
+			return fmt.Errorf("gitlocal: list branches: %w", err)
 		}
-		current := false
-		if strings.HasPrefix(line, "* ") {
-			current = true
-			line = strings.TrimPrefix(line, "* ")
+
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			current := false
+			if strings.HasPrefix(line, "* ") {
+				current = true
+				line = strings.TrimPrefix(line, "* ")
+			}
+			branches = append(branches, project.Branch{
+				Name:    strings.TrimSpace(line),
+				Current: current,
+			})
 		}
-		branches = append(branches, project.Branch{
-			Name:    strings.TrimSpace(line),
-			Current: current,
-		})
-	}
-	return branches, nil
+		return nil
+	})
+	return branches, err
 }
 
 // Checkout switches to the specified branch.
 func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error {
-	if _, err := runGit(ctx, repoPath, "checkout", branch); err != nil {
-		return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
-	}
-	return nil
+	return p.pool.Run(ctx, func() error {
+		if _, err := runGit(ctx, repoPath, "checkout", branch); err != nil {
+			return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
+		}
+		return nil
+	})
 }
 
 // runGit executes a git command and returns its combined stdout.

@@ -42,6 +42,7 @@ self-registers via `init()`. Same pattern as git providers.
 | OpenProject | `adapter/openproject/` | REST API v3, Optimistic Locking |
 | GitHub Issues/Projects | `adapter/github_pm/` | REST + GraphQL |
 | GitLab Issues/Boards | `adapter/gitlab_pm/` | REST + GraphQL |
+| Forgejo/Codeberg Issues | `adapter/github_pm/` (compatible) | REST API (GitHub-compatible) |
 
 ## Bidirectional Sync
 
@@ -85,6 +86,7 @@ Tracked in [todo.md](../todo.md) under Phase 3.
 - [ ] OpenSpec adapter (read/write specs)
 - [ ] Plane.so adapter (REST API, webhooks)
 - [ ] GitHub PM adapter (Issues, Projects)
+- [ ] Forgejo/Codeberg PM adapter (Issues — reuse GitHub PM adapter with base URL override)
 - [ ] Auto-Detection Engine (`service/detection.go`)
 - [ ] Bidirectional Sync Service (`service/sync.go`)
 - [ ] Roadmap domain model (`domain/roadmap/`)

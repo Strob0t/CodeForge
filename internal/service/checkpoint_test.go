@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -53,7 +54,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 func TestCheckpoint_CreateCreatesCommit(t *testing.T) {
 	dir := initCheckpointTestRepo(t)
 	ctx := context.Background()
-	svc := service.NewCheckpointService()
+	svc := service.NewCheckpointService(git.NewPool(5))
 
 	// Make a change
 	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("content1"), 0o644); err != nil {
@@ -81,7 +82,7 @@ func TestCheckpoint_CreateCreatesCommit(t *testing.T) {
 func TestCheckpoint_RewindToFirst(t *testing.T) {
 	dir := initCheckpointTestRepo(t)
 	ctx := context.Background()
-	svc := service.NewCheckpointService()
+	svc := service.NewCheckpointService(git.NewPool(5))
 
 	// Create two changes with checkpoints
 	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("v1"), 0o644); err != nil {
@@ -124,7 +125,7 @@ func TestCheckpoint_RewindToFirst(t *testing.T) {
 func TestCheckpoint_RewindToLast(t *testing.T) {
 	dir := initCheckpointTestRepo(t)
 	ctx := context.Background()
-	svc := service.NewCheckpointService()
+	svc := service.NewCheckpointService(git.NewPool(5))
 
 	// Create two changes
 	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("v1"), 0o644); err != nil {
@@ -158,7 +159,7 @@ func TestCheckpoint_RewindToLast(t *testing.T) {
 func TestCheckpoint_CleanupKeepsWorkingState(t *testing.T) {
 	dir := initCheckpointTestRepo(t)
 	ctx := context.Background()
-	svc := service.NewCheckpointService()
+	svc := service.NewCheckpointService(git.NewPool(5))
 
 	// Create changes with checkpoints
 	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("v1"), 0o644); err != nil {
@@ -194,7 +195,7 @@ func TestCheckpoint_CleanupKeepsWorkingState(t *testing.T) {
 func TestCheckpoint_GetCheckpointsOrdered(t *testing.T) {
 	dir := initCheckpointTestRepo(t)
 	ctx := context.Background()
-	svc := service.NewCheckpointService()
+	svc := service.NewCheckpointService(git.NewPool(5))
 
 	for i := 0; i < 3; i++ {
 		fname := fmt.Sprintf("file%d.txt", i)

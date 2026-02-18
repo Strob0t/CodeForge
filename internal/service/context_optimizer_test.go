@@ -264,12 +264,13 @@ func TestFetchRetrievalEntries_SubAgentSuccess(t *testing.T) {
 	// Wait for the sub-agent request to be published.
 	time.Sleep(100 * time.Millisecond)
 
-	if q.subject != messagequeue.SubjectSubAgentSearchRequest {
-		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectSubAgentSearchRequest, q.subject)
+	subj, data := q.snapshot()
+	if subj != messagequeue.SubjectSubAgentSearchRequest {
+		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectSubAgentSearchRequest, subj)
 	}
 
 	var reqPayload messagequeue.SubAgentSearchRequestPayload
-	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+	if err := json.Unmarshal(data, &reqPayload); err != nil {
 		t.Fatalf("unmarshal request: %v", err)
 	}
 
@@ -322,12 +323,13 @@ func TestFetchRetrievalEntries_SubAgentDisabled_UsesSingleShot(t *testing.T) {
 	// Wait for the single-shot search request to be published.
 	time.Sleep(100 * time.Millisecond)
 
-	if q.subject != messagequeue.SubjectRetrievalSearchRequest {
-		t.Fatalf("expected subject %s (single-shot), got %s", messagequeue.SubjectRetrievalSearchRequest, q.subject)
+	subj, data := q.snapshot()
+	if subj != messagequeue.SubjectRetrievalSearchRequest {
+		t.Fatalf("expected subject %s (single-shot), got %s", messagequeue.SubjectRetrievalSearchRequest, subj)
 	}
 
 	var reqPayload messagequeue.RetrievalSearchRequestPayload
-	if err := json.Unmarshal(q.data, &reqPayload); err != nil {
+	if err := json.Unmarshal(data, &reqPayload); err != nil {
 		t.Fatalf("unmarshal request: %v", err)
 	}
 

@@ -32,6 +32,12 @@ breaker:
 rate:
   requests_per_second: 10.0
   burst: 100
+  cleanup_interval: "5m"   # stale bucket cleanup interval
+  max_idle_time: "10m"     # remove IP buckets idle longer than this
+
+# Git worker pool — limits concurrent git CLI operations
+git:
+  max_concurrent: 5
 
 # Policy engine for agent permissions and safety
 # Available presets: plan-readonly, headless-safe-sandbox,

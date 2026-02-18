@@ -12,6 +12,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -28,11 +29,12 @@ type DeliveryResult struct {
 type DeliverService struct {
 	store database.Store
 	cfg   *config.Runtime
+	pool  *git.Pool
 }
 
-// NewDeliverService creates a new DeliverService.
-func NewDeliverService(store database.Store, cfg *config.Runtime) *DeliverService {
-	return &DeliverService{store: store, cfg: cfg}
+// NewDeliverService creates a new DeliverService with a shared git pool.
+func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
+	return &DeliverService{store: store, cfg: cfg, pool: pool}
 }
 
 // Deliver executes the delivery strategy for the given run.
@@ -71,79 +73,103 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 }
 
 func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run, shortID string) (*DeliveryResult, error) {
-	diff, err := runDeliverGit(ctx, dir, "diff", "HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("git diff: %w", err)
-	}
+	var result *DeliveryResult
+	err := s.pool.Run(ctx, func() error {
+		diff, err := runDeliverGit(ctx, dir, "diff", "HEAD")
+		if err != nil {
+			return fmt.Errorf("git diff: %w", err)
+		}
 
-	patchFile := filepath.Join(dir, fmt.Sprintf("%s.patch", shortID))
-	if err := os.WriteFile(patchFile, []byte(diff), 0o644); err != nil {
-		return nil, fmt.Errorf("write patch: %w", err)
-	}
+		patchFile := filepath.Join(dir, fmt.Sprintf("%s.patch", shortID))
+		if err := os.WriteFile(patchFile, []byte(diff), 0o600); err != nil {
+			return fmt.Errorf("write patch: %w", err)
+		}
 
-	slog.Info("patch delivered", "run_id", r.ID, "path", patchFile)
-	return &DeliveryResult{
-		Mode:      run.DeliverModePatch,
-		PatchPath: patchFile,
-	}, nil
+		slog.Info("patch delivered", "run_id", r.ID, "path", patchFile)
+		result = &DeliveryResult{
+			Mode:      run.DeliverModePatch,
+			PatchPath: patchFile,
+		}
+		return nil
+	})
+	return result, err
 }
 
 func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
-	if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
-		return nil, fmt.Errorf("git add: %w", err)
-	}
+	var result *DeliveryResult
+	err := s.pool.Run(ctx, func() error {
+		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
+			return fmt.Errorf("git add: %w", err)
+		}
 
-	msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-	if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
-		return nil, fmt.Errorf("git commit: %w", err)
-	}
+		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
+		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
+			return fmt.Errorf("git commit: %w", err)
+		}
 
-	hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("git rev-parse: %w", err)
-	}
+		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		if err != nil {
+			return fmt.Errorf("git rev-parse: %w", err)
+		}
 
-	slog.Info("commit-local delivered", "run_id", r.ID, "hash", strings.TrimSpace(hash))
-	return &DeliveryResult{
-		Mode:       run.DeliverModeCommitLocal,
-		CommitHash: strings.TrimSpace(hash),
-	}, nil
+		slog.Info("commit-local delivered", "run_id", r.ID, "hash", strings.TrimSpace(hash))
+		result = &DeliveryResult{
+			Mode:       run.DeliverModeCommitLocal,
+			CommitHash: strings.TrimSpace(hash),
+		}
+		return nil
+	})
+	return result, err
 }
 
 func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
-	branchName := fmt.Sprintf("codeforge/%s", shortID)
+	var result *DeliveryResult
+	err := s.pool.Run(ctx, func() error {
+		branchName := fmt.Sprintf("codeforge/%s", shortID)
 
-	if _, err := runDeliverGit(ctx, dir, "checkout", "-b", branchName); err != nil {
-		return nil, fmt.Errorf("git checkout -b: %w", err)
-	}
+		if _, err := runDeliverGit(ctx, dir, "checkout", "-b", branchName); err != nil {
+			return fmt.Errorf("git checkout -b: %w", err)
+		}
 
-	// Commit on the new branch
-	result, err := s.deliverCommitLocal(ctx, dir, r, shortID, taskTitle)
-	if err != nil {
-		return nil, fmt.Errorf("commit on branch: %w", err)
-	}
+		// Commit on the new branch (add, commit, rev-parse)
+		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
+			return fmt.Errorf("git add: %w", err)
+		}
 
-	if _, pushErr := runDeliverGit(ctx, dir, "push", "-u", "origin", branchName); pushErr != nil {
-		slog.Warn("git push failed (branch delivery)", "run_id", r.ID, "error", pushErr)
-		// Return branch result even if push fails — local branch is still created
-	}
+		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
+		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
+			return fmt.Errorf("git commit: %w", err)
+		}
 
-	slog.Info("branch delivered", "run_id", r.ID, "branch", branchName)
-	return &DeliveryResult{
-		Mode:       run.DeliverModeBranch,
-		BranchName: branchName,
-		CommitHash: result.CommitHash,
-	}, nil
+		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		if err != nil {
+			return fmt.Errorf("git rev-parse: %w", err)
+		}
+		commitHash := strings.TrimSpace(hash)
+
+		if _, pushErr := runDeliverGit(ctx, dir, "push", "-u", "origin", branchName); pushErr != nil {
+			slog.Warn("git push failed (branch delivery)", "run_id", r.ID, "error", pushErr)
+		}
+
+		slog.Info("branch delivered", "run_id", r.ID, "branch", branchName)
+		result = &DeliveryResult{
+			Mode:       run.DeliverModeBranch,
+			BranchName: branchName,
+			CommitHash: commitHash,
+		}
+		return nil
+	})
+	return result, err
 }
 
 func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
-	// First create branch
+	// First create branch (already uses pool internally)
 	branchResult, err := s.deliverBranch(ctx, dir, r, shortID, taskTitle)
 	if err != nil {
 		return nil, fmt.Errorf("branch for PR: %w", err)
 	}
 
-	// Try to create PR using gh CLI
+	// Try to create PR using gh CLI (not a git operation, no pool needed)
 	prTitle := fmt.Sprintf("%s %s", s.cfg.DeliveryCommitPrefix, taskTitle)
 	prBody := fmt.Sprintf("Automated delivery from CodeForge run %s", r.ID)
 	prURL, prErr := runDeliverCmd(ctx, dir, "gh", "pr", "create",

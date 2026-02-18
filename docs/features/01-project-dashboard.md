@@ -18,6 +18,7 @@ Users can add, remove, monitor, and interact with repositories from a unified da
 | Git (local) | `adapter/gitlocal/` | Clone, Branch, Diff, Commit |
 | SVN | `adapter/svn/` | Checkout, Update, Diff, Commit |
 | Gitea/Forgejo | `adapter/github/` (compatible) | Same as GitHub with minor adjustments |
+| Codeberg | `adapter/github/` (compatible) | Forgejo instance, same adapter as Gitea/Forgejo |
 
 All providers implement the `gitprovider.Provider` interface with capability declarations.
 See [architecture.md — Provider Registry Pattern](../architecture.md#provider-registry-pattern).
@@ -49,6 +50,7 @@ See [architecture.md — Provider Registry Pattern](../architecture.md#provider-
 3. As a user, I can add a local git directory as a project
 4. As a user, I can add an SVN repository and work with it like a git repo
 5. As a user, I can pull updates for all repos at once
+6. As a user, I can add a Forgejo or Codeberg repo by pasting its URL
 
 ## Design Decisions
 
@@ -77,6 +79,7 @@ Tracked in [todo.md](../todo.md) under Phase 1 and Phase 2.
 - [ ] Implement GitHub adapter with OAuth
 - [ ] Implement Git local adapter
 - [ ] Implement SVN adapter (CLI wrapper)
+- [ ] Verify GitHub adapter compatibility with Forgejo/Codeberg (base URL override, API differences)
 - [ ] HTTP endpoints for project CRUD
 - [ ] Frontend: Project list component
 - [ ] Frontend: Add project dialog (URL input, auto-detect)

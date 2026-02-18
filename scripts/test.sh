@@ -6,6 +6,7 @@
 #   ./scripts/test.sh python       Python unit tests only
 #   ./scripts/test.sh frontend     Frontend lint + build
 #   ./scripts/test.sh integration  Integration tests (requires docker compose services)
+#   ./scripts/test.sh migrations   Migration rollback tests only (requires docker compose services)
 #   ./scripts/test.sh all          Everything including integration tests
 set -euo pipefail
 
@@ -58,6 +59,26 @@ run_frontend() {
   echo ""
 }
 
+run_migrations() {
+  echo -e "${CYAN}=== Migration Rollback Tests ===${NC}"
+
+  if ! (echo > /dev/tcp/localhost/5432) 2>/dev/null; then
+    echo -e "${YELLOW}PostgreSQL not reachable. Start services first:${NC}"
+    echo "  docker compose up -d postgres"
+    RESULTS[migrations]="skip"
+    return
+  fi
+
+  if go test -race -count=1 -tags=integration "$ROOTDIR/tests/integration/..." -run TestMigrationUpDown; then
+    RESULTS[migrations]="pass"
+    echo -e "${GREEN}Migrations: PASS${NC}"
+  else
+    RESULTS[migrations]="fail"
+    echo -e "${RED}Migrations: FAIL${NC}"
+  fi
+  echo ""
+}
+
 run_integration() {
   echo -e "${CYAN}=== Integration Tests ===${NC}"
 
@@ -105,6 +126,9 @@ case "$SUITE" in
     ;;
   integration)
     run_integration
+    ;;
+  migrations)
+    run_migrations
     ;;
   unit)
     run_go
