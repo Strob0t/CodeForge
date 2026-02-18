@@ -1,7 +1,15 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { FeatureStatus, Milestone, Roadmap, RoadmapFeature, RoadmapStatus } from "~/api/types";
+import type {
+  FeatureStatus,
+  ImportResult,
+  Milestone,
+  ProviderInfo,
+  Roadmap,
+  RoadmapFeature,
+  RoadmapStatus,
+} from "~/api/types";
 
 interface RoadmapPanelProps {
   projectId: string;
@@ -42,6 +50,14 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
   // Feature form
   const [featureMilestoneId, setFeatureMilestoneId] = createSignal<string | null>(null);
   const [featureTitle, setFeatureTitle] = createSignal("");
+
+  // Import state
+  const [importing, setImporting] = createSignal(false);
+  const [importResult, setImportResult] = createSignal<ImportResult | null>(null);
+  const [showPMImport, setShowPMImport] = createSignal(false);
+  const [pmProviders] = createResource(() => api.providers.pm().catch(() => [] as ProviderInfo[]));
+  const [selectedPM, setSelectedPM] = createSignal("");
+  const [pmProjectRef, setPmProjectRef] = createSignal("");
 
   const handleCreate = async () => {
     if (!title()) return;
@@ -121,6 +137,40 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
     }
   };
 
+  const handleImportSpecs = async () => {
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const result = await api.roadmap.importSpecs(props.projectId);
+      setImportResult(result);
+      refetch();
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : "Spec import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImportPM = async () => {
+    if (!selectedPM() || !pmProjectRef()) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const result = await api.roadmap.importPMItems(props.projectId, {
+        provider: selectedPM(),
+        project_ref: pmProjectRef(),
+      });
+      setImportResult(result);
+      setShowPMImport(false);
+      setPmProjectRef("");
+      refetch();
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : "PM import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4">
       <h3 class="mb-3 text-lg font-semibold">Roadmap</h3>
@@ -178,6 +228,19 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
               </div>
               <div class="flex gap-2">
                 <button
+                  class="rounded bg-green-100 px-3 py-1 text-xs text-green-700 hover:bg-green-200 disabled:opacity-50"
+                  onClick={handleImportSpecs}
+                  disabled={importing()}
+                >
+                  {importing() ? "Importing..." : "Import Specs"}
+                </button>
+                <button
+                  class="rounded bg-indigo-100 px-3 py-1 text-xs text-indigo-700 hover:bg-indigo-200"
+                  onClick={() => setShowPMImport(!showPMImport())}
+                >
+                  Import from PM
+                </button>
+                <button
                   class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200"
                   onClick={handleAIView}
                 >
@@ -212,6 +275,75 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   {aiPreview()}
                 </pre>
               </div>
+            </Show>
+
+            {/* PM Import Form */}
+            <Show when={showPMImport()}>
+              <div class="mb-4 rounded border border-indigo-200 bg-indigo-50 p-3">
+                <div class="mb-2 text-xs font-medium text-indigo-700">Import from PM Tool</div>
+                <div class="flex flex-col gap-2">
+                  <select
+                    class="rounded border border-gray-300 px-2 py-1 text-xs"
+                    value={selectedPM()}
+                    onChange={(e) => setSelectedPM(e.currentTarget.value)}
+                  >
+                    <option value="">Select provider...</option>
+                    <For each={pmProviders() ?? []}>
+                      {(p: ProviderInfo) => <option value={p.name}>{p.name}</option>}
+                    </For>
+                  </select>
+                  <input
+                    type="text"
+                    class="rounded border border-gray-300 px-2 py-1 text-xs"
+                    placeholder="Project ref (e.g. owner/repo)"
+                    value={pmProjectRef()}
+                    onInput={(e) => setPmProjectRef(e.currentTarget.value)}
+                  />
+                  <div class="flex gap-2">
+                    <button
+                      class="rounded bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700 disabled:opacity-50"
+                      onClick={handleImportPM}
+                      disabled={importing() || !selectedPM() || !pmProjectRef()}
+                    >
+                      {importing() ? "Importing..." : "Import"}
+                    </button>
+                    <button
+                      class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200"
+                      onClick={() => setShowPMImport(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Show>
+
+            {/* Import Result */}
+            <Show when={importResult()}>
+              {(result: () => ImportResult) => (
+                <div class="mb-4 rounded border border-green-200 bg-green-50 p-3">
+                  <div class="mb-1 flex items-center justify-between">
+                    <span class="text-xs font-medium text-green-700">
+                      Import Complete ({result().source})
+                    </span>
+                    <button
+                      class="text-xs text-green-500 hover:text-green-700"
+                      onClick={() => setImportResult(null)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                  <p class="text-xs text-green-600">
+                    {result().milestones_created} milestones, {result().features_created} features
+                    created
+                  </p>
+                  <Show when={(result().errors ?? []).length > 0}>
+                    <div class="mt-1 text-xs text-red-600">
+                      <For each={result().errors ?? []}>{(err) => <p>{err}</p>}</For>
+                    </div>
+                  </Show>
+                </div>
+              )}
             </Show>
 
             {/* Milestones */}

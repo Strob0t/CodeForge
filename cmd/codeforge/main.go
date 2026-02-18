@@ -30,6 +30,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
+	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 	"github.com/Strob0t/CodeForge/internal/resilience"
 	"github.com/Strob0t/CodeForge/internal/secrets"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -258,8 +260,32 @@ func run() error {
 	modeSvc := service.NewModeService()
 	slog.Info("mode service initialized", "modes", len(modeSvc.List()))
 
+	// --- Spec & PM Providers (Phase 9A) ---
+	var specProvs []specprovider.Provider
+	for _, name := range specprovider.Available() {
+		p, err := specprovider.New(name, nil)
+		if err != nil {
+			slog.Warn("failed to create spec provider", "name", name, "error", err)
+			continue
+		}
+		specProvs = append(specProvs, p)
+	}
+	var pmProvs []pmprovider.Provider
+	for _, name := range pmprovider.Available() {
+		p, err := pmprovider.New(name, nil)
+		if err != nil {
+			slog.Warn("failed to create PM provider", "name", name, "error", err)
+			continue
+		}
+		pmProvs = append(pmProvs, p)
+	}
+	slog.Info("spec/pm providers initialized",
+		"spec_providers", len(specProvs),
+		"pm_providers", len(pmProvs),
+	)
+
 	// --- Roadmap Service (Phase 8) ---
-	roadmapSvc := service.NewRoadmapService(store, hub)
+	roadmapSvc := service.NewRoadmapService(store, hub, specProvs, pmProvs)
 	slog.Info("roadmap service initialized")
 
 	// --- Cost Service (Phase 7) ---

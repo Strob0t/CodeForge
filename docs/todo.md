@@ -564,8 +564,17 @@
 
 ### Roadmap/Feature Map (Advanced)
 
-- [ ] OpenSpec/Spec Kit/Autospec concrete adapters (spec providers)
-- [ ] Bidirectional PM sync (Plane.so, OpenProject, GitHub/GitLab Issues)
+- [x] (2026-02-18) OpenSpec adapter (`internal/adapter/openspec/`) — detect, list, read specs from `openspec/` directory
+- [x] (2026-02-18) Markdown spec adapter (`internal/adapter/markdownspec/`) — detect, list, read `ROADMAP.md` / `roadmap.md`
+- [x] (2026-02-18) GitHub Issues PM adapter (`internal/adapter/githubpm/`) — list/get issues via `gh` CLI
+- [x] (2026-02-18) Enhanced AutoDetect — provider-based detection with hardcoded fallback for uncovered formats
+- [x] (2026-02-18) Spec import (`ImportSpecs`) — discover specs via providers, create milestones/features
+- [x] (2026-02-18) PM import (`ImportPMItems`) — import work items from PM providers into roadmap
+- [x] (2026-02-18) 4 new REST endpoints: import specs, import PM items, list spec providers, list PM providers
+- [x] (2026-02-18) Frontend: import UI in RoadmapPanel (Import Specs button, Import from PM form, result display)
+- [ ] Spec Kit adapter (`adapter/speckit/`) — `.specify/` directory
+- [ ] Autospec adapter (`adapter/autospec/`) — `specs/spec.yaml` file
+- [ ] Bidirectional PM sync (Plane.so, OpenProject, GitLab Issues)
 - [ ] Webhook-based real-time sync for PM providers
 
 ### Version Control

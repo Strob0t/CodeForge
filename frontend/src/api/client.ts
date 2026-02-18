@@ -28,16 +28,19 @@ import type {
   GraphSearchResult,
   GraphStatus,
   HealthStatus,
+  ImportResult,
   LLMModel,
   Milestone,
   Mode,
   ModelCostSummary,
   PlanFeatureRequest,
+  PMImportRequest,
   PolicyDecision,
   PolicyProfile,
   PolicyToolCall,
   Project,
   ProjectCostSummary,
+  ProviderInfo,
   ProviderList,
   RepoMap,
   RetrievalIndexStatus,
@@ -441,6 +444,17 @@ export const api = {
 
     deleteFeature: (id: string) =>
       request<undefined>(`/features/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    importSpecs: (projectId: string) =>
+      request<ImportResult>(`/projects/${encodeURIComponent(projectId)}/roadmap/import`, {
+        method: "POST",
+      }),
+
+    importPMItems: (projectId: string, data: PMImportRequest) =>
+      request<ImportResult>(`/projects/${encodeURIComponent(projectId)}/roadmap/import/pm`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
 
   trajectory: {
@@ -462,6 +476,8 @@ export const api = {
   providers: {
     git: () => request<ProviderList>("/providers/git"),
     agent: () => request<BackendList>("/providers/agent"),
+    spec: () => request<ProviderInfo[]>("/providers/spec"),
+    pm: () => request<ProviderInfo[]>("/providers/pm"),
   },
 } as const;
 

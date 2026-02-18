@@ -93,11 +93,14 @@ CodeForge/
 │   │   └── specprovider/     # Spec provider interface + registry
 │   ├── adapter/              # Concrete Implementations
 │   │   ├── aider/            # Aider agent backend
+│   │   ├── githubpm/         # GitHub Issues PM provider (gh CLI)
 │   │   ├── gitlocal/         # Local git CLI provider
 │   │   ├── http/             # REST API handlers + routes (80+ endpoints)
 │   │   ├── litellm/          # LiteLLM admin API client
+│   │   ├── markdownspec/     # Markdown spec provider (ROADMAP.md)
 │   │   ├── natskv/           # NATS JetStream KV cache adapter (L2)
 │   │   ├── nats/             # NATS JetStream adapter
+│   │   ├── openspec/         # OpenSpec spec provider (openspec/ dir)
 │   │   ├── postgres/         # PostgreSQL store + 17 migrations
 │   │   ├── ristretto/        # Ristretto in-process cache adapter (L1)
 │   │   ├── tiered/           # Tiered cache (L1 + L2)

@@ -31,6 +31,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
+	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
+	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -1490,6 +1492,93 @@ func (h *Handlers) DeleteFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Spec/PM Import Endpoints (Phase 9A) ---
+
+// ImportSpecs handles POST /api/v1/projects/{id}/roadmap/import
+func (h *Handlers) ImportSpecs(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	result, err := h.Roadmap.ImportSpecs(r.Context(), projectID)
+	if err != nil {
+		writeDomainError(w, err, "import failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// ImportPMItems handles POST /api/v1/projects/{id}/roadmap/import/pm
+func (h *Handlers) ImportPMItems(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req struct {
+		Provider   string `json:"provider"`
+		ProjectRef string `json:"project_ref"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "" {
+		writeError(w, http.StatusBadRequest, "provider is required")
+		return
+	}
+	if req.ProjectRef == "" {
+		writeError(w, http.StatusBadRequest, "project_ref is required")
+		return
+	}
+
+	result, err := h.Roadmap.ImportPMItems(r.Context(), projectID, req.Provider, req.ProjectRef)
+	if err != nil {
+		writeDomainError(w, err, "PM import failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// ListSpecProviders handles GET /api/v1/providers/spec
+func (h *Handlers) ListSpecProviders(w http.ResponseWriter, _ *http.Request) {
+	names := specprovider.Available()
+	type providerInfo struct {
+		Name         string                    `json:"name"`
+		Capabilities specprovider.Capabilities `json:"capabilities"`
+	}
+
+	providers := make([]providerInfo, 0, len(names))
+	for _, name := range names {
+		p, err := specprovider.New(name, nil)
+		if err != nil {
+			continue
+		}
+		providers = append(providers, providerInfo{
+			Name:         p.Name(),
+			Capabilities: p.Capabilities(),
+		})
+	}
+	writeJSON(w, http.StatusOK, providers)
+}
+
+// ListPMProviders handles GET /api/v1/providers/pm
+func (h *Handlers) ListPMProviders(w http.ResponseWriter, _ *http.Request) {
+	names := pmprovider.Available()
+	type providerInfo struct {
+		Name         string                  `json:"name"`
+		Capabilities pmprovider.Capabilities `json:"capabilities"`
+	}
+
+	providers := make([]providerInfo, 0, len(names))
+	for _, name := range names {
+		p, err := pmprovider.New(name, nil)
+		if err != nil {
+			continue
+		}
+		providers = append(providers, providerInfo{
+			Name:         p.Name(),
+			Capabilities: p.Capabilities(),
+		})
+	}
+	writeJSON(w, http.StatusOK, providers)
 }
 
 // --- Trajectory Endpoints (Phase 8) ---

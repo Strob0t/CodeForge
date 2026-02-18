@@ -683,3 +683,32 @@
 - **New WS event:** `roadmap.status`
 - **Store methods:** 16 roadmap + 2 trajectory
 - **Verification:** go build, golangci-lint 0 issues, go test -race all pass, ESLint clean, npm run build clean, pre-commit 15/15 hooks pass
+
+## Phase 9A: Spec Provider Adapters + Enhanced AutoDetect + Spec Import (COMPLETED)
+
+> Wires real spec/PM adapters into the existing provider framework so AutoDetect and spec import work through the registry system.
+
+- [x] (2026-02-18) **OpenSpec Adapter** (`internal/adapter/openspec/`) — `specprovider.Provider` for `openspec/` directory
+  - Detect, ListSpecs (YAML title extraction), ReadSpec (path traversal protection)
+  - Self-registration via `init()`, 8 unit tests
+- [x] (2026-02-18) **Markdown Spec Adapter** (`internal/adapter/markdownspec/`) — `specprovider.Provider` for ROADMAP.md
+  - Detect `ROADMAP.md`/`roadmap.md`, ListSpecs, ReadSpec
+  - Self-registration via `init()`, 7 unit tests
+- [x] (2026-02-18) **GitHub Issues PM Adapter** (`internal/adapter/githubpm/`) — `pmprovider.Provider` via `gh` CLI
+  - ListItems, GetItem with `owner/repo` validation
+  - Swappable `execCommand` for testing, 9 unit tests
+- [x] (2026-02-18) **Enhanced AutoDetect** — two-phase: spec providers first, hardcoded fileMarkers fallback
+  - Format alias mapping to prevent duplication between providers and fileMarkers
+- [x] (2026-02-18) **ImportSpecs** — discover specs via providers, auto-create roadmap, milestone per format, features per spec
+- [x] (2026-02-18) **ImportPMItems** — find PM provider by name, list items, create milestone + features
+- [x] (2026-02-18) **4 new REST endpoints:** import specs, import PM items, list spec providers, list PM providers
+- [x] (2026-02-18) **Provider wiring** — blank imports in `providers.go`, registry instantiation in `main.go`
+- [x] (2026-02-18) **Frontend** — Import Specs button, Import from PM form (provider dropdown + project ref), import result display
+- [x] (2026-02-18) **Frontend types + API client** — ImportResult, PMImportRequest, ProviderInfo types; importSpecs, importPMItems, providers.spec/pm methods
+
+### Phase 9A Key Deliverables
+- **New files (9):** openspec/ (provider.go, register.go, provider_test.go), markdownspec/ (provider.go, register.go, provider_test.go), githubpm/ (provider.go, register.go, provider_test.go)
+- **Modified files (10):** roadmap.go (domain), roadmap.go (service), handlers.go, routes.go, providers.go, main.go, types.ts, client.ts, RoadmapPanel.tsx
+- **New REST endpoints:** 4 (import specs, import PM, list spec providers, list PM providers)
+- **Tests:** 24 new adapter tests (8 + 7 + 9), all Go tests pass
+- **Verification:** go build, golangci-lint 0 issues, go test -race all pass, ESLint clean, npm run build clean, pre-commit 15/15 hooks pass

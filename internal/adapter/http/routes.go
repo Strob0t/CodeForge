@@ -71,6 +71,8 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// Provider registries
 		r.Get("/providers/git", h.ListGitProviders)
 		r.Get("/providers/agent", h.ListAgentBackends)
+		r.Get("/providers/spec", h.ListSpecProviders)
+		r.Get("/providers/pm", h.ListPMProviders)
 
 		// Policy profiles
 		r.Get("/policies", h.ListPolicyProfiles)
@@ -140,6 +142,8 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Delete("/projects/{id}/roadmap", h.DeleteProjectRoadmap)
 		r.Get("/projects/{id}/roadmap/ai", h.GetRoadmapAI)
 		r.Post("/projects/{id}/roadmap/detect", h.DetectRoadmap)
+		r.Post("/projects/{id}/roadmap/import", h.ImportSpecs)
+		r.Post("/projects/{id}/roadmap/import/pm", h.ImportPMItems)
 		r.Post("/projects/{id}/roadmap/milestones", h.CreateMilestone)
 
 		// Milestones (direct access)

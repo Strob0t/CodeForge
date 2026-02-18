@@ -106,6 +106,14 @@ type DetectionResult struct {
 	Path        string   `json:"path,omitempty"`
 }
 
+// ImportResult summarizes the outcome of a spec or PM import operation.
+type ImportResult struct {
+	Source            string   `json:"source"`
+	MilestonesCreated int      `json:"milestones_created"`
+	FeaturesCreated   int      `json:"features_created"`
+	Errors            []string `json:"errors,omitempty"`
+}
+
 // AIRoadmapView is an LLM-optimized view of a roadmap.
 type AIRoadmapView struct {
 	ProjectID   string          `json:"project_id"`

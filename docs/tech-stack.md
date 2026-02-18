@@ -90,6 +90,8 @@
 - Tiered Cache (`dgraph-io/ristretto` v2) — in-process L1 cache
 - Worker Pool (`golang.org/x/sync/semaphore`) — bounded concurrency for git operations
 - Git Operations (`os/exec` wrapper around `git` CLI) — zero deps, 100% feature coverage, native performance
+- Spec Providers: OpenSpec (`adapter/openspec/`), Markdown (`adapter/markdownspec/`) — self-registering via `init()`
+- PM Providers: GitHub Issues (`adapter/githubpm/`) — `gh` CLI integration, self-registering via `init()`
 
 ### Python Workers
 - LiteLLM (client library for OpenAI-compatible API against LiteLLM Proxy)

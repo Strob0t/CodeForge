@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,17 +14,21 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
+	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 )
 
 // RoadmapService manages roadmaps, milestones, and features.
 type RoadmapService struct {
-	store database.Store
-	hub   broadcast.Broadcaster
+	store     database.Store
+	hub       broadcast.Broadcaster
+	specProvs []specprovider.Provider
+	pmProvs   []pmprovider.Provider
 }
 
 // NewRoadmapService creates a new RoadmapService.
-func NewRoadmapService(store database.Store, hub broadcast.Broadcaster) *RoadmapService {
-	return &RoadmapService{store: store, hub: hub}
+func NewRoadmapService(store database.Store, hub broadcast.Broadcaster, specProvs []specprovider.Provider, pmProvs []pmprovider.Provider) *RoadmapService {
+	return &RoadmapService{store: store, hub: hub, specProvs: specProvs, pmProvs: pmProvs}
 }
 
 // --- Roadmaps ---
@@ -153,6 +158,8 @@ var fileMarkers = map[string][]string{
 }
 
 // AutoDetect scans a workspace for known spec file markers.
+// It first consults registered spec providers, then falls back to hardcoded fileMarkers
+// for formats that do not yet have a provider (e.g., speckit, autospec).
 func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roadmap.DetectionResult, error) {
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
@@ -164,8 +171,28 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 	}
 
 	result := &roadmap.DetectionResult{}
+	coveredFormats := map[string]bool{}
 
+	// Phase 1: Ask registered spec providers.
+	for _, prov := range s.specProvs {
+		detected, err := prov.Detect(ctx, proj.WorkspacePath)
+		if err != nil {
+			slog.Warn("spec provider detect error", "provider", prov.Name(), "error", err)
+			continue
+		}
+		if detected {
+			result.Found = true
+			result.FileMarkers = append(result.FileMarkers, prov.Name())
+			result.Format = prov.Name()
+		}
+		coveredFormats[prov.Name()] = true
+	}
+
+	// Phase 2: Fallback to hardcoded fileMarkers for formats without a provider.
 	for format, markers := range fileMarkers {
+		if coveredFormats[format] || coveredFormats[formatAlias(format)] {
+			continue
+		}
 		for _, marker := range markers {
 			fullPath := filepath.Join(proj.WorkspacePath, marker)
 			info, err := os.Stat(fullPath)
@@ -173,7 +200,6 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 				continue
 			}
 
-			// Directory markers end with /
 			if strings.HasSuffix(marker, "/") && info.IsDir() {
 				result.Found = true
 				result.FileMarkers = append(result.FileMarkers, marker)
@@ -189,6 +215,164 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 	}
 
 	return result, nil
+}
+
+// formatAlias maps fileMarkers keys to provider names for deduplication.
+func formatAlias(format string) string {
+	aliases := map[string]string{
+		"roadmap_md": "markdown",
+		"openspec":   "openspec",
+	}
+	if alias, ok := aliases[format]; ok {
+		return alias
+	}
+	return format
+}
+
+// ImportSpecs discovers specs in the workspace via providers and imports them
+// into the roadmap as milestones and features.
+func (s *RoadmapService) ImportSpecs(ctx context.Context, projectID string) (*roadmap.ImportResult, error) {
+	proj, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	if proj.WorkspacePath == "" {
+		return nil, fmt.Errorf("project has no workspace path")
+	}
+
+	result := &roadmap.ImportResult{Source: "spec-providers"}
+
+	// Ensure a roadmap exists.
+	rm, err := s.getOrCreateRoadmap(ctx, projectID, proj.Name)
+	if err != nil {
+		return nil, fmt.Errorf("get/create roadmap: %w", err)
+	}
+
+	for _, prov := range s.specProvs {
+		detected, err := prov.Detect(ctx, proj.WorkspacePath)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s detect: %v", prov.Name(), err))
+			continue
+		}
+		if !detected {
+			continue
+		}
+
+		specs, err := prov.ListSpecs(ctx, proj.WorkspacePath)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s list: %v", prov.Name(), err))
+			continue
+		}
+		if len(specs) == 0 {
+			continue
+		}
+
+		// Create a milestone per spec format.
+		ms, err := s.store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
+			RoadmapID:   rm.ID,
+			Title:       fmt.Sprintf("Imported from %s", prov.Name()),
+			Description: fmt.Sprintf("Specs discovered by the %s provider", prov.Name()),
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("create milestone for %s: %v", prov.Name(), err))
+			continue
+		}
+		result.MilestonesCreated++
+
+		for _, spec := range specs {
+			_, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
+				MilestoneID: ms.ID,
+				Title:       spec.Title,
+				SpecRef:     spec.Path,
+				Labels:      []string{prov.Name()},
+			})
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("create feature %q: %v", spec.Title, err))
+				continue
+			}
+			result.FeaturesCreated++
+		}
+	}
+
+	return result, nil
+}
+
+// ImportPMItems imports work items from a PM provider into the roadmap.
+func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerName, projectRef string) (*roadmap.ImportResult, error) {
+	proj, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the requested PM provider.
+	var prov pmprovider.Provider
+	for _, p := range s.pmProvs {
+		if p.Name() == providerName {
+			prov = p
+			break
+		}
+	}
+	if prov == nil {
+		return nil, fmt.Errorf("unknown PM provider: %s", providerName)
+	}
+
+	result := &roadmap.ImportResult{Source: providerName}
+
+	items, err := prov.ListItems(ctx, projectRef)
+	if err != nil {
+		return nil, fmt.Errorf("list items from %s: %w", providerName, err)
+	}
+
+	// Ensure a roadmap exists.
+	rm, err := s.getOrCreateRoadmap(ctx, projectID, proj.Name)
+	if err != nil {
+		return nil, fmt.Errorf("get/create roadmap: %w", err)
+	}
+
+	// Create a milestone for this import.
+	ms, err := s.store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
+		RoadmapID:   rm.ID,
+		Title:       fmt.Sprintf("Imported from %s", providerName),
+		Description: fmt.Sprintf("Work items imported from %s (%s)", providerName, projectRef),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create milestone: %w", err)
+	}
+	result.MilestonesCreated++
+
+	for i := range items {
+		item := &items[i]
+		_, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
+			MilestoneID: ms.ID,
+			Title:       item.Title,
+			Description: item.Description,
+			Labels:      item.Labels,
+			ExternalIDs: map[string]string{providerName: item.ExternalID},
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("create feature %q: %v", item.Title, err))
+			continue
+		}
+		result.FeaturesCreated++
+	}
+
+	return result, nil
+}
+
+// getOrCreateRoadmap returns the existing roadmap for a project or creates one.
+func (s *RoadmapService) getOrCreateRoadmap(ctx context.Context, projectID, projectName string) (*roadmap.Roadmap, error) {
+	rm, err := s.store.GetRoadmapByProject(ctx, projectID)
+	if err == nil {
+		return rm, nil
+	}
+
+	// Create a new roadmap.
+	return s.store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+		ProjectID:   projectID,
+		Title:       fmt.Sprintf("%s Roadmap", projectName),
+		Description: "Auto-created during import",
+	})
 }
 
 // --- AI View ---

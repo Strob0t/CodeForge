@@ -837,6 +837,26 @@ export interface AIRoadmapView {
   generated_at: string;
 }
 
+/** Import result from spec or PM import */
+export interface ImportResult {
+  source: string;
+  milestones_created: number;
+  features_created: number;
+  errors?: string[];
+}
+
+/** PM import request body */
+export interface PMImportRequest {
+  provider: string;
+  project_ref: string;
+}
+
+/** Spec/PM provider info */
+export interface ProviderInfo {
+  name: string;
+  capabilities: Record<string, boolean>;
+}
+
 /** WS event: roadmap status change */
 export interface RoadmapStatusEvent {
   roadmap_id: string;
