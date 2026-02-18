@@ -4,7 +4,7 @@
 
 | Language   | Version | Area of Use           |
 |------------|---------|----------------------|
-| Go         | 1.23    | Core Service         |
+| Go         | 1.24    | Core Service         |
 | Python     | 3.12    | AI Workers           |
 | TypeScript | 5.x     | Frontend             |
 | Node.js    | 22 LTS  | Frontend Build/Dev   |

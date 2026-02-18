@@ -270,6 +270,10 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 | `orchestrator.subagent_rerank` | `CODEFORGE_ORCH_SUBAGENT_RERANK` | `true` | Enable LLM-based result reranking |
 | `rate.cleanup_interval` | `CODEFORGE_RATE_CLEANUP_INTERVAL` | `5m` | Stale rate-limit bucket cleanup interval |
 | `rate.max_idle_time` | `CODEFORGE_RATE_MAX_IDLE_TIME` | `10m` | Remove IP buckets idle longer than this |
+| `orchestrator.graph_enabled` | `CODEFORGE_ORCH_GRAPH_ENABLED` | `false` | Enable GraphRAG structural code graph |
+| `orchestrator.graph_max_hops` | `CODEFORGE_ORCH_GRAPH_MAX_HOPS` | `2` | Max BFS hops for graph traversal |
+| `orchestrator.graph_top_k` | `CODEFORGE_ORCH_GRAPH_TOP_K` | `10` | Top-K results for graph search |
+| `orchestrator.graph_hop_decay` | `CODEFORGE_ORCH_GRAPH_HOP_DECAY` | `0.7` | Score decay per hop (0.0-1.0) |
 | `git.max_concurrent` | `CODEFORGE_GIT_MAX_CONCURRENT` | `5` | Max concurrent git CLI operations |
 
 ### Python Worker Config (`workers/codeforge/config.py`)
@@ -318,6 +322,21 @@ The Go Core and Python Workers communicate via NATS JetStream subjects:
 | `runs.output` | Python → Go | Streaming output line (run-scoped) |
 
 The run protocol enables per-tool-call policy enforcement. Each tool call is individually approved by the Go control plane's policy engine before the Python worker executes it.
+
+### Retrieval Protocol (Phase 6B-6D)
+
+| Subject | Direction | Purpose |
+|---------|-----------|---------|
+| `retrieval.build.request` | Go → Python | Build retrieval index (BM25 + embeddings) |
+| `retrieval.build.result` | Python → Go | Index build result |
+| `retrieval.search.request` | Go → Python | Hybrid search query |
+| `retrieval.search.result` | Python → Go | Search results |
+| `retrieval.agent.search.request` | Go → Python | Sub-agent search (LLM query expansion + rerank) |
+| `retrieval.agent.search.result` | Python → Go | Sub-agent search results |
+| `graph.build.request` | Go → Python | Build structural code graph |
+| `graph.build.result` | Python → Go | Graph build result |
+| `graph.search.request` | Go → Python | BFS graph traversal from seed symbols |
+| `graph.search.result` | Python → Go | Graph search results |
 
 ## Logging
 

@@ -544,10 +544,12 @@ The less an LLM can do, the more the CodeForge Worker takes over.
 
 ### Worker Modules in Detail
 
-**Context Layer — GraphRAG**
-- Vector Search (Qdrant or pgvector): Semantic search in the codebase index
-- Graph DB (Neo4j/optional): Relationships between code elements (imports, calls, inheritance)
-- Web Fallback (Tavily/SearXNG): Documentation and Stack Overflow when local info is missing
+**Context Layer — GraphRAG (4-Tier Retrieval)**
+- Tier 1 — RepoMap: File-level dependency graph via PageRank (tree-sitter)
+- Tier 2 — Hybrid Retrieval: BM25 keyword search + semantic embeddings with RRF fusion
+- Tier 3 — Sub-Agent: LLM-guided multi-query expansion + reranking
+- Tier 4 — GraphRAG: PostgreSQL adjacency lists for import/call graph traversal (BFS with hop-decay scoring)
+- All tiers use PostgreSQL (no Neo4j/Qdrant — single-DB architecture)
 - Result: Relevant context is prepended to the LLM prompt
 
 **Quality Layer — Multi-Stage Quality Assurance**
