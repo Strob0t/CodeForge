@@ -47,6 +47,15 @@ if TYPE_CHECKING:
     from nats.js.client import JetStreamContext
 
 STREAM_NAME = "CODEFORGE"
+STREAM_SUBJECTS = [
+    "tasks.>",
+    "agents.>",
+    "runs.>",
+    "context.>",
+    "repomap.>",
+    "retrieval.>",
+    "graph.>",
+]
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
@@ -105,6 +114,16 @@ class TaskConsumer:
         self._running = True
 
         logger.info("connected to NATS", url=self.nats_url)
+
+        # Ensure the stream exists (idempotent — matches Go Core's CreateOrUpdateStream).
+        try:
+            await self._js.find_stream_name_by_subject(STREAM_SUBJECTS[0])
+        except nats.js.errors.NotFoundError:
+            await self._js.add_stream(
+                name=STREAM_NAME,
+                subjects=STREAM_SUBJECTS,
+            )
+            logger.info("created JetStream stream", stream=STREAM_NAME)
 
         subscriptions: list[tuple[str, Callable[[nats.aio.msg.Msg], Awaitable[None]]]] = [
             (SUBJECT_AGENT, self._handle_message),
