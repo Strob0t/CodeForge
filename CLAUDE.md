@@ -209,6 +209,25 @@ Detailed analysis: docs/research/market-analysis.md
 - Differentiation through integration of all four pillars
 - Performance focus: Go for core, Python only for AI-specific work
 
+## Architectural Decisions (ADRs)
+
+- **ADR-001:** NATS JetStream as message queue (docs/architecture/adr/001-nats-jetstream-message-queue.md)
+- **ADR-002:** PostgreSQL 17 as primary database (docs/architecture/adr/002-postgresql-database.md)
+- **ADR-003:** Hierarchical config: defaults < YAML < env vars (docs/architecture/adr/003-config-hierarchy.md)
+- **ADR-004:** Async logging with buffered channel + worker pool (docs/architecture/adr/004-async-logging.md)
+- **ADR-005:** Docker-native logging, no external monitoring stack (docs/architecture/adr/005-docker-native-logging.md)
+- **ADR-006:** Agent execution Approach C: Go control plane + Python runtime (docs/architecture/adr/006-agent-execution-approach-c.md)
+- **ADR-007:** Policy layer: first-match-wins permission rules (docs/architecture/adr/007-policy-layer.md)
+
+## Infrastructure Principles
+
+- **Config hierarchy:** defaults < YAML < env vars. The system must run with zero configuration. Env vars always win.
+- **Async-first concurrency:** Logging, NATS publishing, and LLM calls must never block the hot path. Use buffered channels + worker pools (Go) or QueueHandler + QueueListener (Python).
+- **Docker-native logging:** No external monitoring stack (no ELK, no Loki, no Grafana). All services write structured JSON to stdout. Docker's json-file driver handles rotation. Use `docker compose logs` + `jq` for debugging.
+- **Policy Layer:** Agent tool calls are governed by declarative YAML policies with first-match-wins evaluation. 4 built-in presets cover common security profiles. Custom policies extend without code changes.
+- **Approach C (Go Control Plane + Python Runtime):** Go Core owns state, policies, and sessions. Python Workers own LLM calls, tool execution, and the agent loop. Communication via NATS with per-tool-call policy enforcement.
+- **Resilience patterns:** Circuit breakers on external calls (NATS, LiteLLM). Idempotency keys for mutating HTTP operations. Dead letter queues for failed NATS messages. Graceful 4-phase shutdown.
+
 ## Character Encoding
 
 - **Config files (.env, .yaml, .toml, .json, .sh, .gitignore) must use ASCII only** — no box-drawing characters (─, ═, │, etc.)

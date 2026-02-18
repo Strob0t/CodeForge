@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-02-17
+> Last update: 2026-02-18
 
 ## Phase 0: Project Setup (current)
 
@@ -506,3 +506,14 @@
 - **API:** 3 new REST endpoints (index CRUD + search)
 - **Dependencies:** bm25s ^0.2, numpy ^2.0
 - **Tests:** 11 Python tests + 5 Go service tests + 3 Go handler tests, all passing
+
+## Documentation Debt (COMPLETED)
+
+- [x] (2026-02-18) **ADR-003:** Config Hierarchy — three-tier (defaults < YAML < env vars), typed Config struct, validation
+- [x] (2026-02-18) **ADR-004:** Async Logging — buffered channel (10K) + worker pool (4), non-blocking drops, graceful drain
+- [x] (2026-02-18) **ADR-005:** Docker-Native Logging — json-file driver with rotation, no external monitoring stack, structured JSON + jq
+- [x] (2026-02-18) **ADR-006:** Agent Execution Approach C — Go control plane (state/policies/sessions) + Python runtime (LLM/tools/loop)
+- [x] (2026-02-18) **ADR-007:** Policy Layer — first-match-wins permission rules, 4 presets, quality gates, termination conditions
+- [x] (2026-02-18) **architecture.md** — added Infrastructure Patterns section (reliability, performance, agent execution, observability)
+- [x] (2026-02-18) **dev-setup.md** — added Logging section (log access, helper script, log levels, request ID, log rotation)
+- [x] (2026-02-18) **CLAUDE.md** — added ADR index, Infrastructure Principles section (config, async, logging, policy, approach C, resilience)

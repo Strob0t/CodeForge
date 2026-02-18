@@ -488,20 +488,20 @@
 
 ## Documentation TODOs
 
-- [ ] Create ADR for Config Hierarchy (`docs/architecture/adr/003-config-hierarchy.md`)
-- [ ] Create ADR for Async Logging (`docs/architecture/adr/004-async-logging.md`)
-- [ ] Create ADR for Docker-Native Logging (`docs/architecture/adr/005-docker-native-logging.md`)
-- [ ] Create ADR for Agent Execution (Approach C) (`docs/architecture/adr/006-agent-execution-approach-c.md`)
-- [ ] Create ADR for Policy Layer (`docs/architecture/adr/007-policy-layer.md`)
-- [ ] Update `docs/architecture.md` with new patterns
-  - Event Sourcing, Circuit Breaker, Cache Layer, Idempotency, Rate Limiting
-  - Policy Layer, Runtime API, Execution Modes
-- [ ] Update `docs/dev-setup.md` with logging section
-  - Docker Compose log commands, log level config, Request ID, helper script
-- [ ] Update `CLAUDE.md` with new principles
-  - Config hierarchy rule, async-first concurrency
-  - Docker-native logging, no external monitoring tools
-  - Policy Layer, Approach C decision
+- [x] (2026-02-18) Create ADR for Config Hierarchy (`docs/architecture/adr/003-config-hierarchy.md`)
+- [x] (2026-02-18) Create ADR for Async Logging (`docs/architecture/adr/004-async-logging.md`)
+- [x] (2026-02-18) Create ADR for Docker-Native Logging (`docs/architecture/adr/005-docker-native-logging.md`)
+- [x] (2026-02-18) Create ADR for Agent Execution (Approach C) (`docs/architecture/adr/006-agent-execution-approach-c.md`)
+- [x] (2026-02-18) Create ADR for Policy Layer (`docs/architecture/adr/007-policy-layer.md`)
+- [x] (2026-02-18) Update `docs/architecture.md` with new patterns
+  - Infrastructure Patterns section: Circuit Breaker, Cache Layer, Idempotency, Rate Limiting
+  - Agent Execution section: Policy Layer, Runtime API, Checkpoint System, Docker Sandbox
+  - Observability section: Event Sourcing, Structured Logging, Configuration
+- [x] (2026-02-18) Update `docs/dev-setup.md` with logging section
+  - Docker Compose log commands, log level config, Request ID propagation, helper script, log rotation
+- [x] (2026-02-18) Update `CLAUDE.md` with new principles
+  - ADR index, Infrastructure Principles section
+  - Config hierarchy, async-first concurrency, Docker-native logging, Policy Layer, Approach C, resilience patterns
 
 ---
 

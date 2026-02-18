@@ -304,6 +304,68 @@ The Go Core and Python Workers communicate via NATS JetStream subjects:
 
 The run protocol enables per-tool-call policy enforcement. Each tool call is individually approved by the Go control plane's policy engine before the Python worker executes it.
 
+## Logging
+
+CodeForge uses structured JSON logging across all services with Docker-native log management.
+
+### Log Access
+
+```bash
+# Follow all service logs
+docker compose logs -f
+
+# Single service
+docker compose logs -f codeforge
+
+# Filter by level (requires jq)
+docker compose logs codeforge 2>&1 | jq 'select(.level == "ERROR")'
+
+# Filter by request ID across all services
+docker compose logs 2>&1 | jq 'select(.request_id == "your-request-id")'
+```
+
+### Helper Script
+
+```bash
+./scripts/logs.sh tail              # Follow all logs
+./scripts/logs.sh errors            # Only ERROR level
+./scripts/logs.sh service codeforge # Single service
+./scripts/logs.sh request abc-123   # By request ID across services
+```
+
+### Log Level Configuration
+
+| Service | Config Key | Env Variable | Default |
+|---|---|---|---|
+| Go Core | `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` |
+| Python Workers | — | `CODEFORGE_WORKER_LOG_LEVEL` | `info` |
+
+Valid levels: `debug`, `info`, `warn`, `error`
+
+### Log Format
+
+All services emit structured JSON to stdout:
+
+```json
+{"time":"2026-02-17T14:30:00Z","level":"INFO","service":"codeforge","msg":"request handled","request_id":"abc-123","method":"GET","path":"/api/v1/projects"}
+```
+
+### Request ID Propagation
+
+Every HTTP request gets a UUID (`X-Request-ID` header). This ID propagates through:
+1. Go Core HTTP handler → logger context
+2. NATS message headers (`X-Request-ID`)
+3. Python Worker → structlog context
+4. Back to Go Core via NATS response
+
+Use the request ID to trace a single operation across all services.
+
+### Log Rotation
+
+Docker handles log rotation automatically via the `json-file` driver:
+- Max 10 MB per log file, max 3 files per service (30 MB total per service)
+- Configured in `docker-compose.yml` via `x-logging` anchor
+
 ## Environment Variables
 
 See `.env.example` for all configurable values.

@@ -343,6 +343,145 @@ internal/
   service/               # Use cases (connects domain with ports)
 ```
 
+## Infrastructure Patterns (Implemented)
+
+### Reliability
+
+#### Circuit Breaker (`internal/resilience/breaker.go`)
+
+Zero-dependency circuit breaker for external service calls (NATS Publish, LiteLLM API):
+
+```
+Closed ──(failure count >= maxFailures)──> Open
+Open   ──(timeout elapsed)──────────────> Half-Open
+Half-Open ──(success)───────────────────> Closed
+Half-Open ──(failure)───────────────────> Open
+```
+
+- Configurable `maxFailures` and `timeout` from `config.Breaker`
+- Injected via `SetBreaker()` on NATS and LiteLLM adapters
+- Prevents cascading failures when downstream services are unavailable
+
+#### Idempotency Middleware (`internal/middleware/idempotency.go`)
+
+HTTP middleware for deduplicating mutating requests (POST/PUT/DELETE):
+
+- Client sends `Idempotency-Key` header
+- First request: execute, capture response (status + headers + body), store in NATS JetStream KV (24h TTL)
+- Subsequent requests with same key: replay cached response without re-executing
+- Response body capped at 1 MB; best-effort storage (failures don't error the response)
+- GET/HEAD/OPTIONS bypass the middleware entirely
+
+#### Dead Letter Queue
+
+Failed NATS messages are retried 3 times with `NakWithDelay(2s)`, then moved to `{subject}.dlq`:
+
+- Go: `moveToDLQ()` publishes to DLQ subject, acks original message
+- Python: `_move_to_dlq()` with same retry counting via `Retry-Count` header
+- Invalid schema messages go directly to DLQ (no retries)
+
+#### Graceful Shutdown
+
+4-phase ordered shutdown: HTTP server → cancel NATS subscribers → NATS Drain → PostgreSQL pool close.
+
+### Performance
+
+#### Tiered Cache (L1 + L2)
+
+```
+L1: Ristretto (in-process)     L2: NATS JetStream KV (distributed)
+    100 MB, ~1ns reads              10-minute TTL, shared across instances
+
+Get: L1 hit? → return
+     L2 hit? → backfill L1 → return
+     Miss?   → return not-found
+
+Set: Write L1 + L2 (sequential)
+Delete: Remove L1 + L2 (sequential)
+```
+
+- Port: `internal/port/cache/cache.go` (Get/Set/Delete interface)
+- Adapters: `internal/adapter/ristretto/`, `internal/adapter/natskv/`, `internal/adapter/tiered/`
+- L1 backfill uses shorter TTL (5 min) to prevent stale data
+
+#### Rate Limiting (`internal/middleware/ratelimit.go`)
+
+Token bucket rate limiter per IP address:
+
+- Configurable `requests_per_second` and `burst` from config
+- Response headers: `X-RateLimit-Remaining`, `X-RateLimit-Reset` (GitHub-style)
+- Returns 429 with `Retry-After` header when limit exceeded
+
+### Agent Execution
+
+#### Policy Layer (`internal/service/policy.go`)
+
+First-match-wins permission rules evaluated per tool call:
+
+- 4 built-in presets: `plan-readonly`, `headless-safe-sandbox`, `headless-permissive-sandbox`, `trusted-mount-autonomous`
+- Custom YAML policies loaded from configurable directory
+- Evaluation: tool specifier matching → path constraints (glob) → command constraints (prefix) → mode fallback
+- Quality gates: require tests/lint pass, rollback on failure
+- Termination conditions: max steps, timeout, max cost, stall detection
+- ADR: [007-policy-layer](architecture/adr/007-policy-layer.md)
+
+#### Runtime API (`internal/service/runtime.go`)
+
+Step-by-step execution protocol between Go Control Plane and Python Workers:
+
+- NATS subjects: `runs.start`, `runs.toolcall.{request,response,result}`, `runs.complete`, `runs.cancel`, `runs.output`
+- Per-tool-call policy enforcement: Python requests permission → Go evaluates policy → Go responds allow/deny/ask
+- Termination enforcement: max steps, max cost, timeout, stall detection checked per tool call
+- Quality gate orchestration: Go triggers gate request → Python runs test/lint → Go processes result
+- 5 deliver modes: none, patch, commit-local, branch, PR
+- ADR: [006-agent-execution-approach-c](architecture/adr/006-agent-execution-approach-c.md)
+
+#### Checkpoint System (`internal/service/checkpoint.go`)
+
+Shadow Git commits for safe rollback during agent execution:
+
+- `CreateCheckpoint`: `git add -A && git commit` after each file-modifying tool call
+- `RewindToFirst`: `git reset --hard {first}^` — restore pre-run state on quality gate failure
+- `RewindToLast`: `git reset --hard {last}^` — undo only the last change
+- `CleanupCheckpoints`: `git reset --soft {first}^` — remove shadow commits, keep working tree
+
+#### Docker Sandbox (`internal/service/sandbox.go`)
+
+Container lifecycle management for isolated agent execution:
+
+- Create → Start → Exec → Stop → Remove lifecycle via Docker CLI (`os/exec`)
+- Resource limits: memory, CPU quota, PID limit, network mode (default: `none`)
+- Three-layer limit hierarchy: config defaults → policy limits → agent limits → cap at ceiling
+- Read-only root filesystem with tmpfs `/tmp`
+
+### Observability
+
+#### Event Sourcing (`internal/domain/event/`)
+
+Append-only event stream for agent trajectory recording:
+
+- PostgreSQL table `agent_events` (indexed by task_id, agent_id, timestamp)
+- Event types: tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status
+- API: `GET /api/v1/tasks/{id}/events`
+- Enables replay, audit trail, and trajectory inspection (deferred: full replay UI)
+
+#### Structured Logging
+
+Async JSON logging across all services (ADR: [004-async-logging](architecture/adr/004-async-logging.md)):
+
+- Go: `slog.JSONHandler` wrapped in `AsyncHandler` (10K buffer, 4 workers, non-blocking drops)
+- Python: `structlog.JSONRenderer` via `QueueHandler` (10K buffer, background thread)
+- Common schema: `{time, level, service, msg, request_id}`
+- Docker-native log management (ADR: [005-docker-native-logging](architecture/adr/005-docker-native-logging.md))
+
+#### Configuration
+
+Hierarchical config system (ADR: [003-config-hierarchy](architecture/adr/003-config-hierarchy.md)):
+
+- Three tiers: defaults < YAML (`codeforge.yaml`) < environment variables
+- Typed `Config` struct with validation on startup
+- `CODEFORGE_*` prefix for Go Core, `CODEFORGE_WORKER_*` for Python
+
 ## LLM Capability Levels
 
 Not every LLM brings the same capabilities. CodeForge must fill the gaps
