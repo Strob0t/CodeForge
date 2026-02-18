@@ -3,7 +3,7 @@
   "image": "mcr.microsoft.com/devcontainers/base:bookworm",
   "features": {
     "ghcr.io/devcontainers/features/go:1": {
-      "version": "1.23"
+      "version": "1.24"
     },
     "ghcr.io/devcontainers/features/python:1": {
       "version": "3.12"
@@ -11,10 +11,12 @@
     "ghcr.io/devcontainers/features/node:1": {
       "version": "22"
     },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers/features/git:1": {}
   },
-  "runArgs": ["--add-host=host.docker.internal:host-gateway"],
+  "remoteEnv": {
+    "HOST_PROJECT_PATH": "${localWorkspaceFolder}"
+  },
   "forwardPorts": [3000, 4000, 4222, 5173, 5432, 6280, 8001, 8080, 8222],
   "portsAttributes": {
     "3000": {
