@@ -1,7 +1,6 @@
 {
   "name": "CodeForge Dev",
   "image": "mcr.microsoft.com/devcontainers/base:bookworm",
-
   "features": {
     "ghcr.io/devcontainers/features/go:1": {
       "version": "1.23"
@@ -15,11 +14,30 @@
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/git:1": {}
   },
-
   "runArgs": ["--add-host=host.docker.internal:host-gateway"],
-
   "forwardPorts": [3000, 4000, 4222, 5173, 5432, 6280, 8001, 8080, 8222],
-
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend",
+      "onAutoForward": "notify"
+    },
+    "8080": {
+      "label": "Go Core API",
+      "onAutoForward": "silent"
+    },
+    "4000": {
+      "label": "LiteLLM Proxy",
+      "onAutoForward": "silent"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    },
+    "4222": {
+      "label": "NATS",
+      "onAutoForward": "silent"
+    }
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -27,6 +45,7 @@
         "golang.go",
         "ms-python.python",
         "ms-python.vscode-pylance",
+        "ms-python.debugpy",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "bradlc.vscode-tailwindcss"
@@ -34,15 +53,13 @@
       "settings": {
         "go.gopath": "/go",
         "go.toolsManagement.autoUpdate": true,
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "${workspaceFolder}/workers/.venv/bin/python",
         "editor.formatOnSave": true,
         "dev.containers.mountWaylandSocket": false,
         "dev.containers.dockerCredentialHelper": false
       }
     }
   },
-
   "postCreateCommand": "bash .devcontainer/setup.sh",
-
   "remoteUser": "vscode"
 }

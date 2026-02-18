@@ -1,0 +1,50 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "CodeForge: Launch All (F5)",
+      "preLaunchTask": "prepare-stack",
+      "configurations": ["Go Core", "Python Worker"],
+      "stopAll": true,
+      "presentation": {
+        "order": 1,
+        "group": "codeforge",
+        "hidden": false
+      }
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Go Core",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/codeforge/",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "presentation": { "group": "codeforge", "order": 2 }
+    },
+    {
+      "name": "Python Worker",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "codeforge.consumer",
+      "cwd": "${workspaceFolder}/workers",
+      "python": "${workspaceFolder}/workers/.venv/bin/python",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "presentation": { "group": "codeforge", "order": 3 }
+    },
+    {
+      "name": "Go Core + Infra",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/codeforge/",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "docker-compose-up",
+      "console": "integratedTerminal",
+      "presentation": { "group": "standalone", "order": 4 }
+    }
+  ]
+}
