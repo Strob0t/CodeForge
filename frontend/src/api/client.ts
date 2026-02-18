@@ -94,7 +94,7 @@ export const api = {
       }),
 
     delete: (id: string) =>
-      request<void>(`/projects/${encodeURIComponent(id)}`, {
+      request<undefined>(`/projects/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
 
@@ -135,7 +135,7 @@ export const api = {
       }),
 
     delete: (id: string) =>
-      request<void>(`/agents/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      request<undefined>(`/agents/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
     dispatch: (agentId: string, taskId: string) =>
       request<{ status: string }>(`/agents/${encodeURIComponent(agentId)}/dispatch`, {
@@ -179,13 +179,13 @@ export const api = {
     models: () => request<LLMModel[]>("/llm/models"),
 
     addModel: (data: AddModelRequest) =>
-      request<void>("/llm/models", {
+      request<undefined>("/llm/models", {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     deleteModel: (modelId: string) =>
-      request<void>(`/llm/models/${encodeURIComponent(modelId)}`, {
+      request<undefined>(`/llm/models/${encodeURIComponent(modelId)}`, {
         method: "DELETE",
       }),
 
@@ -221,7 +221,8 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
-    delete: (id: string) => request<void>(`/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    delete: (id: string) =>
+      request<undefined>(`/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
     sharedContext: (teamId: string) =>
       request<SharedContext>(`/teams/${encodeURIComponent(teamId)}/shared-context`),
@@ -326,7 +327,7 @@ export const api = {
       }),
 
     delete: (name: string) =>
-      request<void>(`/policies/${encodeURIComponent(name)}`, {
+      request<undefined>(`/policies/${encodeURIComponent(name)}`, {
         method: "DELETE",
       }),
 

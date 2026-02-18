@@ -1,4 +1,5 @@
 import { createResource, createSignal, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type {
   PermissionMode,
@@ -250,7 +251,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
         </Show>
         <Show when={!profiles.loading && profiles()}>
           <div class="space-y-1">
-            <For each={profiles()!.profiles}>
+            <For each={profiles()?.profiles ?? []}>
               {(name) => (
                 <div class="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50">
                   <button

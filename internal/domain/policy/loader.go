@@ -12,7 +12,7 @@ import (
 
 // LoadFromFile reads a single PolicyProfile from a YAML file.
 func LoadFromFile(path string) (*PolicyProfile, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is validated by caller
 	if err != nil {
 		return nil, fmt.Errorf("read policy file %s: %w", path, err)
 	}
@@ -35,7 +35,7 @@ func SaveToFile(path string, profile *PolicyProfile) error {
 	if err != nil {
 		return fmt.Errorf("marshal policy profile: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write policy file %s: %w", path, err)
 	}
 	return nil

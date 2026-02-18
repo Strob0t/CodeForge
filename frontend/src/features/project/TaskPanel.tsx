@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type { CreateTaskRequest, Task, TaskStatus } from "~/api/types";
 
@@ -142,32 +143,38 @@ export default function TaskPanel(props: TaskPanelProps) {
                       <span class="font-medium">Prompt:</span> {t.prompt}
                     </div>
                     <Show when={t.agent_id}>
-                      <div class="text-xs text-gray-400">Agent: {t.agent_id!.slice(0, 8)}</div>
+                      <div class="text-xs text-gray-400">
+                        Agent: {t.agent_id?.slice(0, 8) ?? ""}
+                      </div>
                     </Show>
                     <Show when={t.result}>
-                      <div class="mt-2">
-                        <Show when={t.result!.output}>
-                          <div class="mb-1">
-                            <span class="text-xs font-medium text-gray-500">Output:</span>
-                            <pre class="mt-1 max-h-40 overflow-auto rounded bg-gray-900 p-2 text-xs text-green-400">
-                              {t.result!.output}
-                            </pre>
-                          </div>
-                        </Show>
-                        <Show when={t.result!.error}>
-                          <div class="mt-1 text-xs text-red-600">Error: {t.result!.error}</div>
-                        </Show>
-                        <Show when={t.result!.tokens_in > 0 || t.result!.tokens_out > 0}>
-                          <div class="mt-1 text-xs text-gray-400">
-                            Tokens: {t.result!.tokens_in} in / {t.result!.tokens_out} out
-                          </div>
-                        </Show>
-                        <Show when={t.result!.files && t.result!.files!.length > 0}>
-                          <div class="mt-1 text-xs text-gray-400">
-                            Files: {t.result!.files!.join(", ")}
-                          </div>
-                        </Show>
-                      </div>
+                      {(result) => (
+                        <div class="mt-2">
+                          <Show when={result().output}>
+                            <div class="mb-1">
+                              <span class="text-xs font-medium text-gray-500">Output:</span>
+                              <pre class="mt-1 max-h-40 overflow-auto rounded bg-gray-900 p-2 text-xs text-green-400">
+                                {result().output}
+                              </pre>
+                            </div>
+                          </Show>
+                          <Show when={result().error}>
+                            <div class="mt-1 text-xs text-red-600">Error: {result().error}</div>
+                          </Show>
+                          <Show
+                            when={(result().tokens_in ?? 0) > 0 || (result().tokens_out ?? 0) > 0}
+                          >
+                            <div class="mt-1 text-xs text-gray-400">
+                              Tokens: {result().tokens_in ?? 0} in / {result().tokens_out ?? 0} out
+                            </div>
+                          </Show>
+                          <Show when={(result().files ?? []).length > 0}>
+                            <div class="mt-1 text-xs text-gray-400">
+                              Files: {(result().files ?? []).join(", ")}
+                            </div>
+                          </Show>
+                        </div>
+                      )}
                     </Show>
                   </div>
                 </Show>

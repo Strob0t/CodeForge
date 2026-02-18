@@ -1,4 +1,5 @@
 import { createResource, createSignal, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type {
   Agent,
@@ -398,7 +399,7 @@ export default function PlanPanel(props: PlanPanelProps) {
 
       {/* Plan List */}
       <Show
-        when={plans() && plans()!.length > 0}
+        when={(plans() ?? []).length > 0}
         fallback={<p class="text-sm text-gray-400">No execution plans yet.</p>}
       >
         <div class="space-y-2">

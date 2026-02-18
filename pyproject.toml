@@ -48,14 +48,31 @@ select = [
     "SIM",   # flake8-simplify
     "TCH",   # flake8-type-checking
     "RUF",   # ruff-specific
+    "S",     # bandit security (hardcoded passwords, shell injection, insecure crypto)
+    "C4",    # unnecessary comprehensions
+    "C90",   # mccabe cyclomatic complexity
+    "PERF",  # performance anti-patterns
+    "PIE",   # misc anti-patterns (unnecessary pass, reimplemented builtins)
+    "RET",   # return issues (unnecessary else/assignment before return)
+    "FURB",  # modernization hints (Path.read_text, in operator, etc.)
+    "LOG",   # logging best practices
+    "T20",   # print statement detection
+    "PT",    # pytest style consistency
 ]
 ignore = [
-    "E501",  # line length (handled by formatter)
-    "N802",  # function name should be lowercase (stdlib overrides like do_GET)
+    "E501",   # line length (handled by formatter)
+    "N802",   # function name should be lowercase (stdlib overrides like do_GET)
+    "RET504", # unnecessary assignment before return (aids debuggability)
 ]
 
 [tool.ruff.lint.isort]
 known-first-party = ["codeforge"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+"workers/tests/**/*.py" = ["S101", "PT011", "S108"]
 
 [tool.ruff.format]
 quote-style = "double"

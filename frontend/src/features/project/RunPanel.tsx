@@ -1,4 +1,5 @@
 import { createResource, createSignal, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, RunStatus, Task, ToolCallEvent } from "~/api/types";
 
@@ -254,11 +255,11 @@ export default function RunPanel(props: RunPanelProps) {
       </Show>
 
       {/* Run History */}
-      <Show when={selectedTaskId() && taskRuns() && taskRuns()!.length > 0}>
+      <Show when={selectedTaskId() && (taskRuns() ?? []).length > 0}>
         <div>
           <h4 class="mb-2 text-sm font-medium text-gray-500">Run History</h4>
           <div class="space-y-1">
-            <For each={taskRuns()!}>
+            <For each={taskRuns() ?? []}>
               {(r) => (
                 <div class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm">
                   <div class="flex items-center gap-2">

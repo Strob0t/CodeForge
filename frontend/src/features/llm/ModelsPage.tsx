@@ -1,4 +1,5 @@
 import { createResource, createSignal, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type { LLMModel } from "~/api/types";
 
@@ -55,12 +56,12 @@ export default function ModelsPage() {
           <Show when={health()}>
             <span
               class={`rounded-full px-2 py-0.5 text-xs ${
-                health()!.status === "healthy"
+                health()?.status === "healthy"
                   ? "bg-green-100 text-green-700"
                   : "bg-red-100 text-red-700"
               }`}
             >
-              LiteLLM: {health()!.status}
+              LiteLLM: {health()?.status ?? "unknown"}
             </span>
           </Show>
         </div>
@@ -149,7 +150,7 @@ export default function ModelsPage() {
           }
         >
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <For each={models()!}>
+            <For each={models() ?? []}>
               {(model) => <ModelCard model={model} onDelete={handleDelete} />}
             </For>
           </div>
@@ -177,7 +178,7 @@ function ModelCard(props: ModelCardProps) {
         <Show when={props.model.model_id}>
           <button
             class="rounded px-2 py-1 text-sm text-red-500 hover:bg-red-50 hover:text-red-700"
-            onClick={() => props.onDelete(props.model.model_id!)}
+            onClick={() => props.onDelete(props.model.model_id ?? "")}
           >
             Delete
           </button>
@@ -191,7 +192,7 @@ function ModelCard(props: ModelCardProps) {
           </span>
         </Show>
         <Show when={props.model.model_info}>
-          <For each={Object.entries(props.model.model_info!)}>
+          <For each={Object.entries(props.model.model_info ?? {})}>
             {([key, value]) => (
               <Show when={typeof value === "string" || typeof value === "number"}>
                 <span class="rounded bg-blue-50 px-2 py-0.5 text-blue-600">

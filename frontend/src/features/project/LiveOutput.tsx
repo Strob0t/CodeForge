@@ -40,7 +40,7 @@ export default function LiveOutput(props: LiveOutputProps) {
       <div class="mb-2 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Live Output</h3>
         <Show when={props.taskId}>
-          <span class="text-xs text-gray-400">Task: {props.taskId!.slice(0, 8)}</span>
+          <span class="text-xs text-gray-400">Task: {props.taskId?.slice(0, 8) ?? ""}</span>
         </Show>
       </div>
 

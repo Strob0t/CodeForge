@@ -1,4 +1,5 @@
 import { createResource, createSignal, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type { AgentStatus, CreateAgentRequest, Task } from "~/api/types";
 
@@ -109,7 +110,7 @@ export default function AgentPanel(props: AgentPanelProps) {
             <div>
               <label class="block text-xs font-medium text-gray-600">Backend</label>
               <Show
-                when={backends()?.backends && backends()!.backends.length > 0}
+                when={backends()?.backends && (backends()?.backends ?? []).length > 0}
                 fallback={
                   <input
                     type="text"
@@ -126,7 +127,9 @@ export default function AgentPanel(props: AgentPanelProps) {
                   class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
                 >
                   <option value="">Select...</option>
-                  <For each={backends()!.backends}>{(b) => <option value={b}>{b}</option>}</For>
+                  <For each={backends()?.backends ?? []}>
+                    {(b) => <option value={b}>{b}</option>}
+                  </For>
                 </select>
               </Show>
             </div>
@@ -143,11 +146,11 @@ export default function AgentPanel(props: AgentPanelProps) {
       </Show>
 
       <Show
-        when={agents() && agents()!.length > 0}
+        when={(agents() ?? []).length > 0}
         fallback={<p class="text-sm text-gray-500">No agents yet.</p>}
       >
         <div class="space-y-3">
-          <For each={agents()!}>
+          <For each={agents() ?? []}>
             {(agent) => (
               <div class="rounded border border-gray-100 p-3">
                 <div class="flex items-center justify-between">

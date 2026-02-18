@@ -157,7 +157,7 @@ func (s *SandboxService) Exec(ctx context.Context, runID string, command []strin
 	containerName := fmt.Sprintf("codeforge-%s", shortID(runID))
 	args := append([]string{"exec", containerName}, command...)
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // G204: docker args are constructed internally, not from user input
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -220,7 +220,7 @@ func shortID(id string) string {
 
 // runDocker executes a docker command and returns stdout.
 func runDocker(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // G204: docker args are constructed internally, not from user input
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

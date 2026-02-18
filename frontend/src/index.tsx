@@ -1,12 +1,14 @@
 /* @refresh reload */
-import { render } from "solid-js/web";
+import "./index.css";
+
 import { Route, Router } from "@solidjs/router";
+import { render } from "solid-js/web";
+
 import App from "./App.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
-import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import ModelsPage from "./features/llm/ModelsPage.tsx";
-import "./index.css";
+import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 
 const root = document.getElementById("root");
 

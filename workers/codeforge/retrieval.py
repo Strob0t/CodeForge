@@ -131,7 +131,7 @@ class CodeChunker:
 
         return chunks
 
-    def chunk_file(self, abs_path: str, rel_path: str, language: str) -> list[CodeChunk]:
+    def chunk_file(self, abs_path: str, rel_path: str, language: str) -> list[CodeChunk]:  # noqa: C901
         """Parse a single file and split at definition boundaries."""
         try:
             with open(abs_path, "rb") as f:
@@ -266,7 +266,7 @@ class CodeChunker:
         return self._parsers[language]
 
     @staticmethod
-    def _extract_name(node: object, language: str) -> str:
+    def _extract_name(node: object, language: str) -> str:  # noqa: C901
         """Extract the symbol name from a definition AST node."""
         name_node = node.child_by_field_name("name")  # type: ignore[union-attr]
         if name_node:
@@ -721,9 +721,7 @@ class RetrievalSubAgent:
 
             if ranked_indices:
                 # Append unranked candidates so we always return up to top_k.
-                for i in range(len(candidates)):
-                    if i not in seen:
-                        ranked_indices.append(i)
+                ranked_indices.extend(i for i in range(len(candidates)) if i not in seen)
                 return [candidates[i] for i in ranked_indices[:top_k]]
         except Exception:
             logger.warning("LLM reranking failed, falling back to score-based ranking", exc_info=True)

@@ -1,5 +1,6 @@
-import { createResource, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
+import { createResource, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type { DailyCost, ModelCostSummary, ProjectCostSummary, Run } from "~/api/types";
 
@@ -58,7 +59,7 @@ export default function CostDashboardPage() {
       <div class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
         <h3 class="mb-3 text-lg font-semibold">Cost by Project</h3>
         <Show
-          when={globalCosts() && globalCosts()!.length > 0}
+          when={(globalCosts() ?? []).length > 0}
           fallback={<p class="text-sm text-gray-400">No cost data yet.</p>}
         >
           <table class="w-full text-sm">
@@ -72,7 +73,7 @@ export default function CostDashboardPage() {
               </tr>
             </thead>
             <tbody>
-              <For each={globalCosts()!}>
+              <For each={globalCosts() ?? []}>
                 {(p: ProjectCostSummary) => (
                   <tr class="border-b border-gray-50">
                     <td class="py-2">
@@ -148,11 +149,11 @@ export function ProjectCostSection(props: { projectId: string }) {
       </Show>
 
       {/* Model Breakdown */}
-      <Show when={byModel() && byModel()!.length > 0}>
+      <Show when={(byModel() ?? []).length > 0}>
         <div class="mb-4">
           <h4 class="mb-2 text-sm font-medium text-gray-500">Cost by Model</h4>
           <div class="space-y-1">
-            <For each={byModel()!}>
+            <For each={byModel() ?? []}>
               {(m: ModelCostSummary) => (
                 <div class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm">
                   <span class="font-mono text-xs">{m.model || "(unknown)"}</span>
@@ -170,11 +171,11 @@ export function ProjectCostSection(props: { projectId: string }) {
       </Show>
 
       {/* Daily Cost Chart (CSS bars) */}
-      <Show when={daily() && daily()!.length > 0}>
+      <Show when={(daily() ?? []).length > 0}>
         <div class="mb-4">
           <h4 class="mb-2 text-sm font-medium text-gray-500">Daily Cost (last 30 days)</h4>
           <div class="flex items-end gap-0.5" style={{ height: "80px" }}>
-            <For each={daily()!}>
+            <For each={daily() ?? []}>
               {(d: DailyCost) => {
                 const pct = () => Math.max((d.cost_usd / maxDailyCost()) * 100, 2);
                 return (
@@ -191,11 +192,11 @@ export function ProjectCostSection(props: { projectId: string }) {
       </Show>
 
       {/* Recent Runs */}
-      <Show when={recentRuns() && recentRuns()!.length > 0}>
+      <Show when={(recentRuns() ?? []).length > 0}>
         <div>
           <h4 class="mb-2 text-sm font-medium text-gray-500">Recent Runs</h4>
           <div class="space-y-1">
-            <For each={recentRuns()!}>
+            <For each={recentRuns() ?? []}>
               {(r: Run) => (
                 <div class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm">
                   <div class="flex items-center gap-2">

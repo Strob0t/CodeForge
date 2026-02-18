@@ -1,4 +1,5 @@
 import { A } from "@solidjs/router";
+
 import type { Project } from "~/api/types";
 
 interface ProjectCardProps {

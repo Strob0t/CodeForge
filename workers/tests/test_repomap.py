@@ -277,17 +277,16 @@ def test_format_map_within_budget(generator: RepoMapGenerator) -> None:
 def test_format_map_over_budget(generator: RepoMapGenerator) -> None:
     """Format should prune files when output exceeds budget."""
     # Create many tags so total exceeds a tiny budget
-    tags = []
-    for i in range(50):
-        tags.append(
-            SymbolTag(
-                rel_path=f"module_{i}/service.py",
-                line=1,
-                name=f"LongFunctionName_{i}",
-                kind="def",
-                scope="public",
-            )
+    tags = [
+        SymbolTag(
+            rel_path=f"module_{i}/service.py",
+            line=1,
+            name=f"LongFunctionName_{i}",
+            kind="def",
+            scope="public",
         )
+        for i in range(50)
+    ]
 
     # Very small budget: only a few files should fit
     result = generator._format_map(tags, token_budget=10)

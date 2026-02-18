@@ -355,7 +355,7 @@ func (s *ContextOptimizerService) readAndScore(absPath, relPath, taskPrompt stri
 		return nil
 	}
 
-	content, err := os.ReadFile(absPath)
+	content, err := os.ReadFile(absPath) //nolint:gosec // G304: path constructed from validated project root
 	if err != nil {
 		return nil
 	}

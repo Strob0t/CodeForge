@@ -1,18 +1,20 @@
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { useParams } from "@solidjs/router";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+
 import { api } from "~/api/client";
-import { createCodeForgeWS } from "~/api/websocket";
 import type { Branch, BudgetAlertEvent, GitStatus } from "~/api/types";
+import { createCodeForgeWS } from "~/api/websocket";
+
 import { ProjectCostSection } from "../costs/CostDashboardPage";
 import AgentPanel from "./AgentPanel";
+import type { OutputLine } from "./LiveOutput";
+import LiveOutput from "./LiveOutput";
 import PlanPanel from "./PlanPanel";
 import PolicyPanel from "./PolicyPanel";
 import RepoMapPanel from "./RepoMapPanel";
 import RetrievalPanel from "./RetrievalPanel";
 import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
-import LiveOutput from "./LiveOutput";
-import type { OutputLine } from "./LiveOutput";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -290,11 +292,11 @@ export default function ProjectDetailPage() {
                 </div>
 
                 {/* Branches */}
-                <Show when={branches() && branches()!.length > 0}>
+                <Show when={(branches() ?? []).length > 0}>
                   <div class="mt-4">
                     <h4 class="mb-2 text-sm font-medium text-gray-500">Branches</h4>
                     <div class="flex flex-wrap gap-2">
-                      <For each={branches()!}>
+                      <For each={branches() ?? []}>
                         {(b) => (
                           <button
                             class={`rounded px-2 py-1 text-xs ${

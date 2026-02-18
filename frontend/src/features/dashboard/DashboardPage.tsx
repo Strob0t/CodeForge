@@ -1,6 +1,8 @@
 import { createResource, createSignal, For, Show } from "solid-js";
+
 import { api } from "~/api/client";
 import type { CreateProjectRequest } from "~/api/types";
+
 import ProjectCard from "./ProjectCard";
 
 const emptyForm: CreateProjectRequest = {

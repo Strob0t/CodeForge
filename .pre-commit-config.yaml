@@ -12,7 +12,7 @@ repos:
 
   # -- Python (Ruff) -----------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.12
+    rev: v0.15.1
     hooks:
       # 1) Sort imports
       - id: ruff-check
@@ -44,14 +44,14 @@ repos:
     hooks:
       - id: eslint
         name: eslint
-        entry: npx eslint --fix
+        entry: frontend/node_modules/.bin/eslint --config frontend/eslint.config.js --fix
         language: system
-        files: \.(ts|tsx|js|jsx)$
+        files: ^frontend/src/.*\.(ts|tsx|js|jsx)$
         types: [file]
 
       - id: prettier
         name: prettier
-        entry: npx prettier --write --ignore-unknown
+        entry: frontend/node_modules/.bin/prettier --write --ignore-unknown
         language: system
         files: \.(ts|tsx|js|jsx|json|css|scss|html)$
         types: [file]

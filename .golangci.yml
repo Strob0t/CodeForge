@@ -15,6 +15,14 @@ linters:
     - misspell
     - unconvert
     - unparam
+    - gosec
+    - bodyclose
+    - noctx
+    - errorlint
+    - revive
+    - fatcontext
+    - dupword
+    - durationcheck
 
   settings:
     gocritic:
@@ -22,6 +30,56 @@ linters:
         - diagnostic
         - style
         - performance
+    gosec:
+      excludes:
+        - G404  # math/rand non-crypto (acceptable for non-security use)
+        - G115  # integer overflow (too noisy)
+    errorlint:
+      errorf: true
+      asserts: false
+      comparison: false
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: superfluous-else
+        - name: unreachable-code
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - noctx
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G306|G204|G301"
+      - path: tests/integration/
+        linters:
+          - noctx
+          - bodyclose
+      - path: internal/config/loader\.go
+        linters:
+          - gosec
+        text: "G304"
+      - path: internal/service/deliver\.go
+        linters:
+          - gosec
+        text: "G306"
 
 formatters:
   enable:

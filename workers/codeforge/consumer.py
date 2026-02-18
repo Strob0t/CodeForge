@@ -450,7 +450,7 @@ class TaskConsumer:
         if request_id:
             headers[HEADER_REQUEST_ID] = request_id
 
-        await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers if headers else None)
+        await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers or None)
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""

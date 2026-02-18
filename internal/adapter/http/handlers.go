@@ -501,7 +501,7 @@ func (h *Handlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Request) {
 
 	if h.PolicyDir != "" {
 		path := filepath.Join(h.PolicyDir, profile.Name+".yaml")
-		if err := os.MkdirAll(h.PolicyDir, 0o755); err != nil {
+		if err := os.MkdirAll(h.PolicyDir, 0o750); err != nil {
 			slog.Error("failed to create policy directory", "error", err)
 		} else if err := policy.SaveToFile(path, &profile); err != nil {
 			slog.Error("failed to persist policy profile", "name", profile.Name, "error", err)

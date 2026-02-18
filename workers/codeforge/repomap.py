@@ -106,7 +106,7 @@ def _pagerank(graph: _DiGraph, damping: float = _PAGERANK_DAMPING) -> dict[str, 
         return {}
 
     # Initialize uniform
-    rank: dict[str, float] = {node: 1.0 / n for node in nodes}
+    rank: dict[str, float] = dict.fromkeys(nodes, 1.0 / n)
 
     # Precompute outgoing weight sums per node
     out_weight: dict[str, float] = {}
@@ -325,7 +325,7 @@ class RepoMapGenerator:
             }:
                 self._walk_definitions(child, rel_path, language, def_types, tags, def_names, depth + 1)
 
-    def _extract_def_name(self, node: Node, language: str) -> str:
+    def _extract_def_name(self, node: Node, language: str) -> str:  # noqa: C901
         """Extract the symbol name from a definition node."""
         # Try 'name' field first (works for most languages)
         name_node = node.child_by_field_name("name")
@@ -390,7 +390,7 @@ class RepoMapGenerator:
         for child in node.children:
             self._walk_references(child, rel_path, def_names, tags)
 
-    def _build_graph(self, tags: list[SymbolTag], active_files: list[str]) -> _DiGraph:
+    def _build_graph(self, tags: list[SymbolTag], active_files: list[str]) -> _DiGraph:  # noqa: C901
         """Build a directed graph where edges point from referencing files to defining files."""
         graph = _DiGraph()
 
@@ -478,7 +478,6 @@ class RepoMapGenerator:
         lines: list[str] = []
         for filepath in files:
             lines.append(filepath)
-            for tag in tags_by_file.get(filepath, []):
-                lines.append(f"    {tag.name}")
+            lines.extend(f"    {tag.name}" for tag in tags_by_file.get(filepath, []))
             lines.append("")
         return "\n".join(lines)

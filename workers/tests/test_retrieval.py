@@ -168,8 +168,7 @@ def test_chunk_large_function_split(tmp_path: object) -> None:
 
     # Generate a 25-line function
     lines = ["def big_function():\n"]
-    for i in range(24):
-        lines.append(f"    x_{i} = {i}\n")
+    lines.extend(f"    x_{i} = {i}\n" for i in range(24))
 
     with open(py_file, "w") as f:
         f.writelines(lines)
