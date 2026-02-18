@@ -410,15 +410,15 @@ func (s *RoadmapService) AIView(ctx context.Context, projectID, format string) (
 
 func renderMarkdown(r *roadmap.Roadmap) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("# %s\n\n", r.Title))
+	fmt.Fprintf(&b, "# %s\n\n", r.Title)
 	if r.Description != "" {
 		b.WriteString(r.Description + "\n\n")
 	}
-	b.WriteString(fmt.Sprintf("Status: %s\n\n", r.Status))
+	fmt.Fprintf(&b, "Status: %s\n\n", r.Status)
 
 	for i := range r.Milestones {
 		m := &r.Milestones[i]
-		b.WriteString(fmt.Sprintf("## %s [%s]\n\n", m.Title, m.Status))
+		fmt.Fprintf(&b, "## %s [%s]\n\n", m.Title, m.Status)
 		if m.Description != "" {
 			b.WriteString(m.Description + "\n\n")
 		}
@@ -428,9 +428,9 @@ func renderMarkdown(r *roadmap.Roadmap) string {
 			if f.Status == roadmap.FeatureDone {
 				checkbox = "[x]"
 			}
-			b.WriteString(fmt.Sprintf("- %s %s [%s]", checkbox, f.Title, f.Status))
+			fmt.Fprintf(&b, "- %s %s [%s]", checkbox, f.Title, f.Status)
 			if len(f.Labels) > 0 {
-				b.WriteString(fmt.Sprintf(" (%s)", strings.Join(f.Labels, ", ")))
+				fmt.Fprintf(&b, " (%s)", strings.Join(f.Labels, ", "))
 			}
 			b.WriteString("\n")
 		}
@@ -442,23 +442,23 @@ func renderMarkdown(r *roadmap.Roadmap) string {
 
 func renderYAML(r *roadmap.Roadmap) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("title: %q\n", r.Title))
-	b.WriteString(fmt.Sprintf("status: %s\n", r.Status))
+	fmt.Fprintf(&b, "title: %q\n", r.Title)
+	fmt.Fprintf(&b, "status: %s\n", r.Status)
 	b.WriteString("milestones:\n")
 
 	for i := range r.Milestones {
 		m := &r.Milestones[i]
-		b.WriteString(fmt.Sprintf("  - title: %q\n", m.Title))
-		b.WriteString(fmt.Sprintf("    status: %s\n", m.Status))
+		fmt.Fprintf(&b, "  - title: %q\n", m.Title)
+		fmt.Fprintf(&b, "    status: %s\n", m.Status)
 		b.WriteString("    features:\n")
 		for j := range m.Features {
 			f := &m.Features[j]
-			b.WriteString(fmt.Sprintf("      - title: %q\n", f.Title))
-			b.WriteString(fmt.Sprintf("        status: %s\n", f.Status))
+			fmt.Fprintf(&b, "      - title: %q\n", f.Title)
+			fmt.Fprintf(&b, "        status: %s\n", f.Status)
 			if len(f.Labels) > 0 {
 				b.WriteString("        labels:\n")
 				for _, l := range f.Labels {
-					b.WriteString(fmt.Sprintf("          - %q\n", l))
+					fmt.Fprintf(&b, "          - %q\n", l)
 				}
 			}
 		}

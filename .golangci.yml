@@ -34,6 +34,7 @@ linters:
       excludes:
         - G404  # math/rand non-crypto (acceptable for non-security use)
         - G115  # integer overflow (too noisy)
+        - G706  # log injection via taint -- slog uses structured kv, not interpolation
     errorlint:
       errorf: true
       asserts: false
@@ -67,7 +68,7 @@ linters:
       - path: _test\.go
         linters:
           - gosec
-        text: "G306|G204|G301"
+        text: "G306|G204|G301|G101"
       - path: tests/integration/
         linters:
           - noctx
@@ -79,7 +80,40 @@ linters:
       - path: internal/service/deliver\.go
         linters:
           - gosec
-        text: "G306"
+        text: "G204|G306"
+      # Git CLI wrapper -- subprocess with variable args is by design
+      - path: internal/adapter/gitlocal/
+        linters:
+          - gosec
+        text: "G204"
+      - path: internal/service/checkpoint\.go
+        linters:
+          - gosec
+        text: "G204"
+      # Dev defaults -- not production credentials
+      - path: internal/config/config\.go
+        linters:
+          - gosec
+        text: "G101"
+      # LiteLLM client -- URL comes from validated config, not user input
+      - path: internal/adapter/litellm/
+        linters:
+          - gosec
+        text: "G704"
+      # HTTP handler -- path comes from validated policy name, not raw user input
+      - path: internal/adapter/http/handlers\.go
+        linters:
+          - gosec
+        text: "G703"
+      # Package naming is an architectural choice (adapter layer mirrors domain)
+      - path: internal/adapter/http/
+        linters:
+          - revive
+        text: "var-naming"
+      - path: internal/domain/context/
+        linters:
+          - revive
+        text: "var-naming"
 
 formatters:
   enable:
