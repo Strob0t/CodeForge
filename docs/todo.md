@@ -507,8 +507,35 @@
 
 ### Cost & Monitoring
 
-- [ ] Cost tracking dashboard for LLM usage
-- [ ] Real-time budget alerts via WebSocket
+- [x] (2026-02-18) Phase 7: Cost & Token Transparency — Full implementation
+  - [x] Feature 1: Real cost calculation in Python workers
+    - LiteLLM `x-litellm-response-cost` header extraction (`workers/codeforge/llm.py`)
+    - Fallback pricing table (`configs/model_pricing.yaml`, `workers/codeforge/pricing.py`)
+    - Real cost passed to runtime (`workers/codeforge/executor.py`)
+    - 7 new Python tests (pricing + LLM cost extraction)
+  - [x] Feature 2: Token persistence in database
+    - Migration 015: `tokens_in`, `tokens_out`, `model` columns on runs table
+    - Domain fields: `TokensIn`, `TokensOut`, `Model` on `run.Run`
+    - Store, NATS payloads, Python models, RuntimeService all updated
+    - Python runtime: token accumulators (`_total_tokens_in`, `_total_tokens_out`, `_model`)
+  - [x] Feature 3: Cost aggregation API (5 endpoints)
+    - Domain: `internal/domain/cost/cost.go` (Summary, ProjectSummary, ModelSummary, DailyCost)
+    - Store: 5 SQL aggregation queries (global, per-project, per-model, time-series, recent runs)
+    - Service: `internal/service/cost.go` (CostService)
+    - HTTP: `GET /costs`, `GET /projects/{id}/costs`, `GET /projects/{id}/costs/by-model`, `GET /projects/{id}/costs/daily`, `GET /projects/{id}/costs/runs`
+  - [x] Feature 4: WS budget alerts + token events
+    - `RunStatusEvent` extended with `tokens_in`, `tokens_out`, `model`
+    - `BudgetAlertEvent` type: fires at 80% and 90% of MaxCost
+    - Dedup via `sync.Map` keyed by `"runID:threshold"`
+    - 3 budget alert tests (80%, 90%, no-duplicate)
+  - [x] Feature 5: Frontend cost dashboard + enhancements
+    - Types: `CostSummary`, `ProjectCostSummary`, `ModelCostSummary`, `DailyCost`, `BudgetAlertEvent`
+    - API client: `api.costs` namespace (5 methods)
+    - `CostDashboardPage`: global totals, project breakdown table
+    - `ProjectCostSection`: per-project cost cards, model breakdown, daily cost bars, recent runs
+    - Route: `/costs` with nav link
+    - RunPanel: tokens + model display in active run and history
+    - ProjectDetailPage: budget alert banner + cost section
 - [ ] Distributed tracing (OpenTelemetry full implementation)
 
 ### Operations

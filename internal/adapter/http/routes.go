@@ -120,5 +120,12 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/projects/{id}/search/agent", h.AgentSearchProject)
 		r.Post("/projects/{id}/index", h.IndexProject)
 		r.Get("/projects/{id}/index", h.GetIndexStatus)
+
+		// Cost aggregation
+		r.Get("/costs", h.GlobalCostSummary)
+		r.Get("/projects/{id}/costs", h.ProjectCostSummary)
+		r.Get("/projects/{id}/costs/by-model", h.ProjectCostByModel)
+		r.Get("/projects/{id}/costs/daily", h.ProjectCostTimeSeries)
+		r.Get("/projects/{id}/costs/runs", h.ProjectRecentRuns)
 	})
 }

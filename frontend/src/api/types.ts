@@ -157,6 +157,9 @@ export interface Run {
   status: RunStatus;
   step_count: number;
   cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  model: string;
   output?: string;
   error?: string;
   version: number;
@@ -193,6 +196,19 @@ export interface RunStatusEvent {
   status: RunStatus;
   step_count: number;
   cost_usd?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  model?: string;
+}
+
+/** WS event: budget alert */
+export interface BudgetAlertEvent {
+  run_id: string;
+  task_id: string;
+  project_id: string;
+  cost_usd: number;
+  max_cost: number;
+  percentage: number;
 }
 
 /** WS event: quality gate status */
@@ -632,6 +648,44 @@ export interface PolicyToolCall {
   tool: string;
   command?: string;
   path?: string;
+}
+
+// --- Cost Aggregation types (Phase 7) ---
+
+/** Matches Go domain/cost.Summary */
+export interface CostSummary {
+  total_cost_usd: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  run_count: number;
+}
+
+/** Matches Go domain/cost.ProjectSummary */
+export interface ProjectCostSummary {
+  project_id: string;
+  project_name: string;
+  total_cost_usd: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  run_count: number;
+}
+
+/** Matches Go domain/cost.ModelSummary */
+export interface ModelCostSummary {
+  model: string;
+  total_cost_usd: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  run_count: number;
+}
+
+/** Matches Go domain/cost.DailyCost */
+export interface DailyCost {
+  date: string;
+  cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  run_count: number;
 }
 
 /** Error response from API */

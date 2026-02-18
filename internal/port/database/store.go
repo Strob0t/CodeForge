@@ -6,6 +6,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -39,8 +40,8 @@ type Store interface {
 	// Runs
 	CreateRun(ctx context.Context, r *run.Run) error
 	GetRun(ctx context.Context, id string) (*run.Run, error)
-	UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64) error
-	CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error
+	UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error
+	CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error
 	ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error)
 
 	// Agent Teams
@@ -78,4 +79,11 @@ type Store interface {
 	UpsertRepoMap(ctx context.Context, m *cfcontext.RepoMap) error
 	GetRepoMap(ctx context.Context, projectID string) (*cfcontext.RepoMap, error)
 	DeleteRepoMap(ctx context.Context, projectID string) error
+
+	// Cost Aggregation
+	CostSummaryGlobal(ctx context.Context) ([]cost.ProjectSummary, error)
+	CostSummaryByProject(ctx context.Context, projectID string) (*cost.Summary, error)
+	CostByModel(ctx context.Context, projectID string) ([]cost.ModelSummary, error)
+	CostTimeSeries(ctx context.Context, projectID string, days int) ([]cost.DailyCost, error)
+	RecentRunsWithCost(ctx context.Context, projectID string, limit int) ([]run.Run, error)
 }

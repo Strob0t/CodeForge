@@ -96,6 +96,9 @@ class RunCompleteMessage(BaseModel):
     error: str = ""
     cost_usd: float = 0.0
     step_count: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    model: str = ""
 
 
 # --- Quality Gate Models (Phase 4C) ---

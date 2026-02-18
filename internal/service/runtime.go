@@ -40,6 +40,7 @@ type RuntimeService struct {
 	stallTrackers sync.Map // map[runID]*run.StallTracker
 	heartbeats    sync.Map // map[runID]time.Time — last heartbeat timestamp
 	runTimeouts   sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
+	budgetAlerts  sync.Map // map["runID:threshold"]bool — dedup budget alerts
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -149,7 +150,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	// Mark run as running
-	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, 0, 0); err != nil {
+	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, 0, 0, 0, 0); err != nil {
 		return nil, fmt.Errorf("update run status: %w", err)
 	}
 	r.Status = run.StatusRunning
@@ -280,7 +281,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
 		// Terminate the run
-		_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount)
+		_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model)
 		s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 			"status": string(run.StatusTimeout),
 			"reason": reason,
@@ -292,6 +293,9 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 			Status:    string(run.StatusTimeout),
 			StepCount: r.StepCount,
 			CostUSD:   r.CostUSD,
+			TokensIn:  r.TokensIn,
+			TokensOut: r.TokensOut,
+			Model:     r.Model,
 		})
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), reason)
 	}
@@ -343,7 +347,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 
 	// Increment step count
 	newSteps := r.StepCount + 1
-	_ = s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD)
+	_ = s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut)
 
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
 }
@@ -355,9 +359,34 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		return fmt.Errorf("get run: %w", err)
 	}
 
-	// Update run cost
+	// Accumulate cost and tokens
 	newCost := r.CostUSD + result.CostUSD
-	_ = s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost)
+	newTokensIn := r.TokensIn + result.TokensIn
+	newTokensOut := r.TokensOut + result.TokensOut
+	_ = s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut)
+
+	// Budget alert checks (80% and 90% thresholds)
+	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
+	if profileOK && profile.Termination.MaxCost > 0 {
+		maxCost := profile.Termination.MaxCost
+		pct := (newCost / maxCost) * 100
+		for _, threshold := range []float64{80, 90} {
+			if pct >= threshold {
+				alertKey := fmt.Sprintf("%s:%d", r.ID, int(threshold))
+				if _, alreadySent := s.budgetAlerts.LoadOrStore(alertKey, true); !alreadySent {
+					s.hub.BroadcastEvent(ctx, ws.EventBudgetAlert, ws.BudgetAlertEvent{
+						RunID:      r.ID,
+						TaskID:     r.TaskID,
+						ProjectID:  r.ProjectID,
+						CostUSD:    newCost,
+						MaxCost:    maxCost,
+						Percentage: pct,
+					})
+					slog.Warn("budget alert", "run_id", r.ID, "cost", newCost, "max_cost", maxCost, "pct", pct)
+				}
+			}
+		}
+	}
 
 	// Check stall detection
 	if tracker, ok := s.stallTrackers.Load(r.ID); ok {
@@ -365,7 +394,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
 			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
-			_ = s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount)
+			_ = s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount, newTokensIn, newTokensOut, r.Model)
 			s.stallTrackers.Delete(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,
@@ -378,6 +407,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				Status:    string(run.StatusFailed),
 				StepCount: r.StepCount,
 				CostUSD:   newCost,
+				TokensIn:  newTokensIn,
+				TokensOut: newTokensOut,
 			})
 			// Set agent idle, task failed
 			_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
@@ -394,7 +425,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		"cost":    fmt.Sprintf("%.6f", result.CostUSD),
 	})
 
-	// Broadcast WS
+	// Broadcast WS with token data
 	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
 		RunID:  r.ID,
 		CallID: result.CallID,
@@ -429,7 +460,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 
 	if hasGates {
 		// Transition to quality_gate status — do not finalize yet
-		if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusQualityGate, payload.StepCount, payload.CostUSD); err != nil {
+		if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusQualityGate, payload.StepCount, payload.CostUSD, payload.TokensIn, payload.TokensOut); err != nil {
 			return fmt.Errorf("update run to quality_gate: %w", err)
 		}
 
@@ -476,6 +507,9 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 				Status:    string(run.StatusQualityGate),
 				StepCount: payload.StepCount,
 				CostUSD:   payload.CostUSD,
+				TokensIn:  payload.TokensIn,
+				TokensOut: payload.TokensOut,
+				Model:     payload.Model,
 			})
 
 			slog.Info("quality gate triggered", "run_id", r.ID)
@@ -593,7 +627,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 
 	s.cleanupRunState(runID)
 
-	if err := s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount); err != nil {
+	if err := s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
@@ -615,6 +649,9 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 		Status:    string(run.StatusTimeout),
 		StepCount: r.StepCount,
 		CostUSD:   r.CostUSD,
+		TokensIn:  r.TokensIn,
+		TokensOut: r.TokensOut,
+		Model:     r.Model,
 	})
 
 	if s.onRunComplete != nil {
@@ -627,7 +664,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
 	s.cleanupRunState(r.ID)
 
-	if err := s.store.CompleteRun(ctx, r.ID, status, payload.Output, payload.Error, payload.CostUSD, payload.StepCount); err != nil {
+	if err := s.store.CompleteRun(ctx, r.ID, status, payload.Output, payload.Error, payload.CostUSD, payload.StepCount, payload.TokensIn, payload.TokensOut, payload.Model); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 
@@ -646,6 +683,10 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	// Set agent back to idle
 	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
 
+	// Clean up budget alerts for this run
+	s.budgetAlerts.Delete(fmt.Sprintf("%s:80", r.ID))
+	s.budgetAlerts.Delete(fmt.Sprintf("%s:90", r.ID))
+
 	// Record event
 	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 		"status":     string(status),
@@ -662,6 +703,9 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		Status:    string(status),
 		StepCount: payload.StepCount,
 		CostUSD:   payload.CostUSD,
+		TokensIn:  payload.TokensIn,
+		TokensOut: payload.TokensOut,
+		Model:     payload.Model,
 	})
 	s.hub.BroadcastEvent(ctx, ws.EventAgentStatus, ws.AgentStatusEvent{
 		AgentID:   r.AgentID,
@@ -783,7 +827,7 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	s.cleanupRunState(runID)
 
 	// Update DB
-	if err := s.store.CompleteRun(ctx, r.ID, run.StatusCancelled, "", "cancelled by user", r.CostUSD, r.StepCount); err != nil {
+	if err := s.store.CompleteRun(ctx, r.ID, run.StatusCancelled, "", "cancelled by user", r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 
@@ -811,6 +855,9 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 		Status:    string(run.StatusCancelled),
 		StepCount: r.StepCount,
 		CostUSD:   r.CostUSD,
+		TokensIn:  r.TokensIn,
+		TokensOut: r.TokensOut,
+		Model:     r.Model,
 	})
 
 	// Clean up checkpoints

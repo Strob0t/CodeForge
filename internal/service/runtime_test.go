@@ -13,6 +13,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -138,20 +139,23 @@ func (m *runtimeMockStore) GetRun(_ context.Context, id string) (*run.Run, error
 	}
 	return nil, errMockNotFound
 }
-func (m *runtimeMockStore) UpdateRunStatus(_ context.Context, id string, status run.Status, stepCount int, costUSD float64) error {
+func (m *runtimeMockStore) UpdateRunStatus(_ context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.runs {
-		if m.runs[i].ID == id {
-			m.runs[i].Status = status
-			m.runs[i].StepCount = stepCount
-			m.runs[i].CostUSD = costUSD
-			return nil
+		if m.runs[i].ID != id {
+			continue
 		}
+		m.runs[i].Status = status
+		m.runs[i].StepCount = stepCount
+		m.runs[i].CostUSD = costUSD
+		m.runs[i].TokensIn = tokensIn
+		m.runs[i].TokensOut = tokensOut
+		return nil
 	}
 	return errMockNotFound
 }
-func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error {
+func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.runs {
@@ -163,6 +167,9 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.
 		m.runs[i].Error = errMsg
 		m.runs[i].CostUSD = costUSD
 		m.runs[i].StepCount = stepCount
+		m.runs[i].TokensIn = tokensIn
+		m.runs[i].TokensOut = tokensOut
+		m.runs[i].Model = model
 		now := time.Now()
 		m.runs[i].CompletedAt = &now
 		return nil
@@ -419,6 +426,24 @@ func (m *runtimeMockStore) GetRepoMap(_ context.Context, _ string) (*cfcontext.R
 
 func (m *runtimeMockStore) DeleteRepoMap(_ context.Context, _ string) error {
 	return nil
+}
+
+// --- Cost Aggregation stubs ---
+
+func (m *runtimeMockStore) CostSummaryGlobal(_ context.Context) ([]cost.ProjectSummary, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) CostSummaryByProject(_ context.Context, _ string) (*cost.Summary, error) {
+	return &cost.Summary{}, nil
+}
+func (m *runtimeMockStore) CostByModel(_ context.Context, _ string) ([]cost.ModelSummary, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) CostTimeSeries(_ context.Context, _ string, _ int) ([]cost.DailyCost, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) RecentRunsWithCost(_ context.Context, _ string, _ int) ([]run.Run, error) {
+	return nil, nil
 }
 
 type runtimeMockQueue struct {
@@ -1546,5 +1571,159 @@ func TestStartSubscribers(t *testing.T) {
 	// Call all cancel functions to ensure no panics
 	for _, cancel := range cancels {
 		cancel()
+	}
+}
+
+// --- Budget Alert Tests ---
+
+func TestHandleToolCallResult_BudgetAlert80Percent(t *testing.T) {
+	svc, store, _, bc := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	// headless-safe-sandbox has MaxCost=5.0 → 80% = 4.0
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-budget80",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "headless-safe-sandbox",
+		Status:        run.StatusRunning,
+		CostUSD:       3.9,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	result := messagequeue.ToolCallResultPayload{
+		RunID:   "run-budget80",
+		CallID:  "call-b1",
+		Success: true,
+		Output:  "ok",
+		CostUSD: 0.2, // 3.9 + 0.2 = 4.1 → 82% → triggers 80% alert
+	}
+	if err := svc.HandleToolCallResult(ctx, &result); err != nil {
+		t.Fatalf("HandleToolCallResult failed: %v", err)
+	}
+
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	var alertCount int
+	for _, ev := range bc.events {
+		if ev.EventType != ws.EventBudgetAlert {
+			continue
+		}
+		alertCount++
+		alert := ev.Data.(ws.BudgetAlertEvent)
+		if alert.RunID != "run-budget80" {
+			t.Fatalf("expected run-budget80, got %s", alert.RunID)
+		}
+		if alert.MaxCost != 5.0 {
+			t.Fatalf("expected max_cost 5.0, got %f", alert.MaxCost)
+		}
+		if alert.Percentage < 80 {
+			t.Fatalf("expected pct >= 80, got %f", alert.Percentage)
+		}
+	}
+	if alertCount != 1 {
+		t.Fatalf("expected 1 budget alert (80%%), got %d", alertCount)
+	}
+}
+
+func TestHandleToolCallResult_BudgetAlert90Percent(t *testing.T) {
+	svc, store, _, bc := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	// headless-safe-sandbox MaxCost=5.0 → 90% = 4.5
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-budget90",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "headless-safe-sandbox",
+		Status:        run.StatusRunning,
+		CostUSD:       4.4,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	result := messagequeue.ToolCallResultPayload{
+		RunID:   "run-budget90",
+		CallID:  "call-b2",
+		Success: true,
+		Output:  "ok",
+		CostUSD: 0.2, // 4.4 + 0.2 = 4.6 → 92% → triggers both 80% and 90%
+	}
+	if err := svc.HandleToolCallResult(ctx, &result); err != nil {
+		t.Fatalf("HandleToolCallResult failed: %v", err)
+	}
+
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	var alertCount int
+	for _, ev := range bc.events {
+		if ev.EventType == ws.EventBudgetAlert {
+			alertCount++
+		}
+	}
+	// Should trigger both 80% and 90% alerts
+	if alertCount != 2 {
+		t.Fatalf("expected 2 budget alerts (80%% + 90%%), got %d", alertCount)
+	}
+}
+
+func TestHandleToolCallResult_BudgetAlertNoDuplicate(t *testing.T) {
+	svc, store, _, bc := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	// headless-safe-sandbox MaxCost=5.0
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID:            "run-nodup",
+		TaskID:        "task-1",
+		AgentID:       "agent-1",
+		ProjectID:     "proj-1",
+		PolicyProfile: "headless-safe-sandbox",
+		Status:        run.StatusRunning,
+		CostUSD:       3.9,
+		StartedAt:     time.Now(),
+	})
+	store.mu.Unlock()
+
+	// First call: 3.9 + 0.2 = 4.1 → 82% → triggers 80% alert
+	result := messagequeue.ToolCallResultPayload{
+		RunID:   "run-nodup",
+		CallID:  "call-d1",
+		Success: true,
+		Output:  "ok",
+		CostUSD: 0.2,
+	}
+	if err := svc.HandleToolCallResult(ctx, &result); err != nil {
+		t.Fatalf("HandleToolCallResult[1] failed: %v", err)
+	}
+
+	// Second call: cost already at 4.1, + 0.1 = 4.2 → still 84% but 80% already sent
+	result2 := messagequeue.ToolCallResultPayload{
+		RunID:   "run-nodup",
+		CallID:  "call-d2",
+		Success: true,
+		Output:  "ok",
+		CostUSD: 0.1,
+	}
+	if err := svc.HandleToolCallResult(ctx, &result2); err != nil {
+		t.Fatalf("HandleToolCallResult[2] failed: %v", err)
+	}
+
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	var alertCount int
+	for _, ev := range bc.events {
+		if ev.EventType == ws.EventBudgetAlert {
+			alertCount++
+		}
+	}
+	// Only 1 alert — the 80% threshold should not fire again
+	if alertCount != 1 {
+		t.Fatalf("expected 1 budget alert (no duplicate), got %d", alertCount)
 	}
 }

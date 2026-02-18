@@ -90,10 +90,21 @@ export default function RunPanel(props: RunPanelProps) {
     status: RunStatus,
     stepCount: number,
     costUsd: number,
+    tokensIn?: number,
+    tokensOut?: number,
+    model?: string,
   ) => {
     const current = activeRun();
     if (current && current.id === runId) {
-      setActiveRun({ ...current, status, step_count: stepCount, cost_usd: costUsd });
+      setActiveRun({
+        ...current,
+        status,
+        step_count: stepCount,
+        cost_usd: costUsd,
+        tokens_in: tokensIn ?? current.tokens_in,
+        tokens_out: tokensOut ?? current.tokens_out,
+        model: model ?? current.model,
+      });
       if (
         status === "completed" ||
         status === "failed" ||
@@ -205,9 +216,18 @@ export default function RunPanel(props: RunPanelProps) {
                 </button>
               </Show>
             </div>
-            <div class="flex gap-4 text-sm text-gray-600">
+            <div class="flex flex-wrap gap-4 text-sm text-gray-600">
               <span>Steps: {run().step_count}</span>
               <span>Cost: ${run().cost_usd.toFixed(4)}</span>
+              <Show when={run().tokens_in > 0 || run().tokens_out > 0}>
+                <span>
+                  Tokens: {run().tokens_in.toLocaleString()} in /{" "}
+                  {run().tokens_out.toLocaleString()} out
+                </span>
+              </Show>
+              <Show when={run().model}>
+                <span>Model: {run().model}</span>
+              </Show>
               <span>Policy: {run().policy_profile}</span>
               <Show when={run().deliver_mode}>
                 <span>Deliver: {run().deliver_mode}</span>
@@ -250,6 +270,14 @@ export default function RunPanel(props: RunPanelProps) {
                   <div class="flex gap-3 text-xs text-gray-500">
                     <span>{r.step_count} steps</span>
                     <span>${r.cost_usd.toFixed(4)}</span>
+                    <Show when={r.tokens_in > 0 || r.tokens_out > 0}>
+                      <span>
+                        {r.tokens_in.toLocaleString()}/{r.tokens_out.toLocaleString()} tok
+                      </span>
+                    </Show>
+                    <Show when={r.model}>
+                      <span class="font-mono">{r.model}</span>
+                    </Show>
                     <Show when={r.deliver_mode}>
                       <span>{r.deliver_mode}</span>
                     </Show>

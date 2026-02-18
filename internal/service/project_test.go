@@ -8,6 +8,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -162,10 +163,10 @@ func (m *mockStore) CreateRun(_ context.Context, _ *run.Run) error { return nil 
 func (m *mockStore) GetRun(_ context.Context, _ string) (*run.Run, error) {
 	return nil, domain.ErrNotFound
 }
-func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _ int, _ float64) error {
+func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _ int, _ float64, _, _ int64) error {
 	return nil
 }
-func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _, _ string, _ float64, _ int) error {
+func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _, _ string, _ float64, _ int, _, _ int64, _ string) error {
 	return nil
 }
 func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
@@ -239,6 +240,23 @@ func (m *mockStore) GetRepoMap(_ context.Context, _ string) (*cfcontext.RepoMap,
 	return nil, domain.ErrNotFound
 }
 func (m *mockStore) DeleteRepoMap(_ context.Context, _ string) error { return nil }
+
+// Cost Aggregation stubs
+func (m *mockStore) CostSummaryGlobal(_ context.Context) ([]cost.ProjectSummary, error) {
+	return nil, nil
+}
+func (m *mockStore) CostSummaryByProject(_ context.Context, _ string) (*cost.Summary, error) {
+	return &cost.Summary{}, nil
+}
+func (m *mockStore) CostByModel(_ context.Context, _ string) ([]cost.ModelSummary, error) {
+	return nil, nil
+}
+func (m *mockStore) CostTimeSeries(_ context.Context, _ string, _ int) ([]cost.DailyCost, error) {
+	return nil, nil
+}
+func (m *mockStore) RecentRunsWithCost(_ context.Context, _ string, _ int) ([]run.Run, error) {
+	return nil, nil
+}
 
 // --- ProjectService Tests ---
 

@@ -33,6 +33,9 @@ const (
 
 	// Phase 6B: retrieval events
 	EventRetrievalStatus = "retrieval.status"
+
+	// Phase 7: cost transparency events
+	EventBudgetAlert = "run.budget_alert"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -65,6 +68,9 @@ type RunStatusEvent struct {
 	Status    string  `json:"status"`
 	StepCount int     `json:"step_count"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
+	TokensIn  int64   `json:"tokens_in,omitempty"`
+	TokensOut int64   `json:"tokens_out,omitempty"`
+	Model     string  `json:"model,omitempty"`
 }
 
 // ToolCallStatusEvent is broadcast for tool call lifecycle events.
@@ -152,6 +158,16 @@ type RetrievalStatusEvent struct {
 	ChunkCount     int    `json:"chunk_count,omitempty"`
 	EmbeddingModel string `json:"embedding_model,omitempty"`
 	Error          string `json:"error,omitempty"`
+}
+
+// BudgetAlertEvent is broadcast when a run's cost reaches a budget threshold (e.g. 80%, 90%).
+type BudgetAlertEvent struct {
+	RunID      string  `json:"run_id"`
+	TaskID     string  `json:"task_id"`
+	ProjectID  string  `json:"project_id"`
+	CostUSD    float64 `json:"cost_usd"`
+	MaxCost    float64 `json:"max_cost"`
+	Percentage float64 `json:"percentage"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

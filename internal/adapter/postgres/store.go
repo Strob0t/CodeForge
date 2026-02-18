@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -295,7 +296,7 @@ func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
 func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, output, error, version, started_at, completed_at, created_at, updated_at
+		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE id = $1`, id)
 
 	r, err := scanRun(row)
@@ -308,11 +309,11 @@ func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	return &r, nil
 }
 
-func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64) error {
+func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE runs SET status = $2, step_count = $3, cost_usd = $4, updated_at = now()
+		`UPDATE runs SET status = $2, step_count = $3, cost_usd = $4, tokens_in = $5, tokens_out = $6, updated_at = now()
 		 WHERE id = $1`,
-		id, string(status), stepCount, costUSD)
+		id, string(status), stepCount, costUSD, tokensIn, tokensOut)
 	if err != nil {
 		return fmt.Errorf("update run status %s: %w", id, err)
 	}
@@ -322,11 +323,12 @@ func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Statu
 	return nil
 }
 
-func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error {
+func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6, completed_at = now(), updated_at = now()
+		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
+		 tokens_in = $7, tokens_out = $8, model = $9, completed_at = now(), updated_at = now()
 		 WHERE id = $1`,
-		id, string(status), output, errMsg, costUSD, stepCount)
+		id, string(status), output, errMsg, costUSD, stepCount, tokensIn, tokensOut, model)
 
 	if err != nil {
 		return fmt.Errorf("complete run %s: %w", id, err)
@@ -340,7 +342,7 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, o
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, output, error, version, started_at, completed_at, created_at, updated_at
+		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE task_id = $1 ORDER BY created_at DESC`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list runs by task: %w", err)
@@ -708,7 +710,9 @@ func scanRun(row scannable) (run.Run, error) {
 	var r run.Run
 	err := row.Scan(
 		&r.ID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.TeamID, &r.PolicyProfile,
-		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD, &r.Output, &r.Error,
+		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD,
+		&r.TokensIn, &r.TokensOut, &r.Model,
+		&r.Output, &r.Error,
 		&r.Version, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 	)
 	return r, err
@@ -1061,4 +1065,113 @@ func (s *Store) loadSharedContextItems(ctx context.Context, sharedID string) ([]
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// --- Cost Aggregation ---
+
+func (s *Store) CostSummaryGlobal(ctx context.Context) ([]cost.ProjectSummary, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT r.project_id, COALESCE(p.name, ''), SUM(r.cost_usd), SUM(r.tokens_in), SUM(r.tokens_out), COUNT(*)
+		 FROM runs r LEFT JOIN projects p ON r.project_id = p.id
+		 GROUP BY r.project_id, p.name
+		 ORDER BY SUM(r.cost_usd) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("cost summary global: %w", err)
+	}
+	defer rows.Close()
+
+	var result []cost.ProjectSummary
+	for rows.Next() {
+		var ps cost.ProjectSummary
+		if err := rows.Scan(&ps.ProjectID, &ps.ProjectName, &ps.TotalCostUSD, &ps.TotalTokensIn, &ps.TotalTokensOut, &ps.RunCount); err != nil {
+			return nil, fmt.Errorf("scan cost summary: %w", err)
+		}
+		result = append(result, ps)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) CostSummaryByProject(ctx context.Context, projectID string) (*cost.Summary, error) {
+	var cs cost.Summary
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(cost_usd), 0), COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0), COUNT(*)
+		 FROM runs WHERE project_id = $1`, projectID).
+		Scan(&cs.TotalCostUSD, &cs.TotalTokensIn, &cs.TotalTokensOut, &cs.RunCount)
+	if err != nil {
+		return nil, fmt.Errorf("cost summary by project: %w", err)
+	}
+	return &cs, nil
+}
+
+func (s *Store) CostByModel(ctx context.Context, projectID string) ([]cost.ModelSummary, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT COALESCE(model, ''), SUM(cost_usd), SUM(tokens_in), SUM(tokens_out), COUNT(*)
+		 FROM runs WHERE project_id = $1
+		 GROUP BY model ORDER BY SUM(cost_usd) DESC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("cost by model: %w", err)
+	}
+	defer rows.Close()
+
+	var result []cost.ModelSummary
+	for rows.Next() {
+		var ms cost.ModelSummary
+		if err := rows.Scan(&ms.Model, &ms.TotalCostUSD, &ms.TotalTokensIn, &ms.TotalTokensOut, &ms.RunCount); err != nil {
+			return nil, fmt.Errorf("scan model summary: %w", err)
+		}
+		result = append(result, ms)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) CostTimeSeries(ctx context.Context, projectID string, days int) ([]cost.DailyCost, error) {
+	if days <= 0 {
+		days = 30
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD'), SUM(cost_usd), SUM(tokens_in), SUM(tokens_out), COUNT(*)
+		 FROM runs
+		 WHERE project_id = $1 AND created_at >= NOW() - ($2 || ' days')::interval
+		 GROUP BY created_at::date
+		 ORDER BY created_at::date`, projectID, fmt.Sprintf("%d", days))
+	if err != nil {
+		return nil, fmt.Errorf("cost time series: %w", err)
+	}
+	defer rows.Close()
+
+	var result []cost.DailyCost
+	for rows.Next() {
+		var dc cost.DailyCost
+		if err := rows.Scan(&dc.Date, &dc.CostUSD, &dc.TokensIn, &dc.TokensOut, &dc.RunCount); err != nil {
+			return nil, fmt.Errorf("scan daily cost: %w", err)
+		}
+		result = append(result, dc)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) RecentRunsWithCost(ctx context.Context, projectID string, limit int) ([]run.Run, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, tenant_id, task_id, agent_id, project_id, team_id, policy_profile,
+		        exec_mode, deliver_mode, status, step_count, cost_usd, tokens_in, tokens_out, model,
+		        output, error, version, started_at, completed_at, created_at, updated_at
+		 FROM runs WHERE project_id = $1
+		 ORDER BY created_at DESC LIMIT $2`, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recent runs with cost: %w", err)
+	}
+	defer rows.Close()
+
+	var result []run.Run
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
 }

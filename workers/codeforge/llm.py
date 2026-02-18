@@ -15,6 +15,7 @@ class CompletionResponse:
     tokens_in: int
     tokens_out: int
     model: str
+    cost_usd: float = 0.0
 
 
 class LiteLLMClient:
@@ -50,9 +51,15 @@ class LiteLLMClient:
         resp.raise_for_status()
         data: dict[str, object] = resp.json()
 
+        # Extract cost from LiteLLM response header (if available).
+        try:
+            litellm_cost = float(resp.headers.get("x-litellm-response-cost", "0"))
+        except (ValueError, TypeError):
+            litellm_cost = 0.0
+
         choices = data.get("choices", [])
         if not isinstance(choices, list) or len(choices) == 0:
-            return CompletionResponse(content="", tokens_in=0, tokens_out=0, model=model)
+            return CompletionResponse(content="", tokens_in=0, tokens_out=0, model=model, cost_usd=litellm_cost)
 
         message = choices[0].get("message", {})
         content = message.get("content", "") if isinstance(message, dict) else ""
@@ -66,6 +73,7 @@ class LiteLLMClient:
             tokens_in=int(tokens_in),
             tokens_out=int(tokens_out),
             model=model,
+            cost_usd=litellm_cost,
         )
 
     async def health(self) -> bool:

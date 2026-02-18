@@ -244,6 +244,9 @@ func run() error {
 	modeSvc := service.NewModeService()
 	slog.Info("mode service initialized", "modes", len(modeSvc.List()))
 
+	// --- Cost Service (Phase 7) ---
+	costSvc := service.NewCostService(store)
+
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,
 		Tasks:            taskSvc,
@@ -261,6 +264,7 @@ func run() error {
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
 		Events:           eventStore,
+		Cost:             costSvc,
 	}
 
 	r := chi.NewRouter()

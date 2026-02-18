@@ -2,7 +2,8 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { api } from "~/api/client";
 import { createCodeForgeWS } from "~/api/websocket";
-import type { Branch, GitStatus } from "~/api/types";
+import type { Branch, BudgetAlertEvent, GitStatus } from "~/api/types";
+import { ProjectCostSection } from "../costs/CostDashboardPage";
 import AgentPanel from "./AgentPanel";
 import PlanPanel from "./PlanPanel";
 import PolicyPanel from "./PolicyPanel";
@@ -44,6 +45,7 @@ export default function ProjectDetailPage() {
   const [error, setError] = createSignal("");
   const [outputLines, setOutputLines] = createSignal<OutputLine[]>([]);
   const [activeTaskId, setActiveTaskId] = createSignal<string | null>(null);
+  const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
 
   // WebSocket event handling
   const cleanup = onMessage((msg) => {
@@ -115,6 +117,13 @@ export default function ProjectDetailPage() {
         const retProjectId = payload.project_id as string;
         if (retProjectId === projectId) {
           // RetrievalPanel handles its own state
+        }
+        break;
+      }
+      case "run.budget_alert": {
+        const alertProjectId = payload.project_id as string;
+        if (alertProjectId === projectId) {
+          setBudgetAlert(payload as unknown as BudgetAlertEvent);
         }
         break;
       }
@@ -192,6 +201,25 @@ export default function ProjectDetailPage() {
 
             <Show when={error()}>
               <div class="mb-4 rounded bg-red-50 p-3 text-sm text-red-600">{error()}</div>
+            </Show>
+
+            {/* Budget Alert Banner */}
+            <Show when={budgetAlert()}>
+              {(alert) => (
+                <div class="mb-4 flex items-center justify-between rounded bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-800">
+                  <span>
+                    Budget alert: run {alert().run_id.slice(0, 8)} has reached{" "}
+                    {alert().percentage.toFixed(0)}% of budget (${alert().cost_usd.toFixed(4)} / $
+                    {alert().max_cost.toFixed(2)})
+                  </span>
+                  <button
+                    class="ml-4 text-yellow-600 hover:text-yellow-800"
+                    onClick={() => setBudgetAlert(null)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
             </Show>
 
             {/* Git Section */}
@@ -334,6 +362,11 @@ export default function ProjectDetailPage() {
                 <LiveOutput taskId={activeTaskId()} lines={outputLines()} />
               </div>
             </Show>
+
+            {/* Cost Section */}
+            <div class="mb-6">
+              <ProjectCostSection projectId={params.id} />
+            </div>
 
             {/* Tasks Section */}
             <TaskPanel

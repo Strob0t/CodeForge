@@ -51,6 +51,9 @@ type Run struct {
 	Status        Status      `json:"status"`
 	StepCount     int         `json:"step_count"`
 	CostUSD       float64     `json:"cost_usd"`
+	TokensIn      int64       `json:"tokens_in"`
+	TokensOut     int64       `json:"tokens_out"`
+	Model         string      `json:"model,omitempty"`
 	Output        string      `json:"output,omitempty"`
 	Error         string      `json:"error,omitempty"`
 	Version       int         `json:"version"`

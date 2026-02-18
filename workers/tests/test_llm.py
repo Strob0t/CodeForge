@@ -36,6 +36,43 @@ async def test_completion_parses_response(client: LiteLLMClient) -> None:
     assert result.tokens_in == 10
     assert result.tokens_out == 5
     assert result.model == "test-model"
+    assert result.cost_usd == 0.0
+
+
+async def test_completion_extracts_cost_from_header(client: LiteLLMClient) -> None:
+    """completion() should extract cost_usd from x-litellm-response-cost header."""
+    mock_response = httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": "Hello"}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+        },
+        headers={"x-litellm-response-cost": "0.00325"},
+        request=_FAKE_REQUEST,
+    )
+
+    with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
+        result = await client.completion(prompt="Say hello", model="gpt-4o")
+
+    assert result.cost_usd == pytest.approx(0.00325)
+
+
+async def test_completion_handles_invalid_cost_header(client: LiteLLMClient) -> None:
+    """completion() should default to 0 when cost header is invalid."""
+    mock_response = httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": "Hello"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+        headers={"x-litellm-response-cost": "not-a-number"},
+        request=_FAKE_REQUEST,
+    )
+
+    with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
+        result = await client.completion(prompt="Say hello", model="gpt-4o")
+
+    assert result.cost_usd == 0.0
 
 
 async def test_completion_empty_choices(client: LiteLLMClient) -> None:
@@ -48,6 +85,7 @@ async def test_completion_empty_choices(client: LiteLLMClient) -> None:
     assert result.content == ""
     assert result.tokens_in == 0
     assert result.tokens_out == 0
+    assert result.cost_usd == 0.0
 
 
 async def test_health_returns_true(client: LiteLLMClient) -> None:

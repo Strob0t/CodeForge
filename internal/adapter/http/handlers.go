@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -50,6 +52,7 @@ type Handlers struct {
 	RepoMap          *service.RepoMapService
 	Retrieval        *service.RetrievalService
 	Events           eventstore.Store
+	Cost             *service.CostService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -1035,6 +1038,86 @@ func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// --- Cost Endpoints ---
+
+// GlobalCostSummary handles GET /api/v1/costs
+func (h *Handlers) GlobalCostSummary(w http.ResponseWriter, r *http.Request) {
+	summaries, err := h.Cost.GlobalSummary(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if summaries == nil {
+		summaries = []cost.ProjectSummary{}
+	}
+	writeJSON(w, http.StatusOK, summaries)
+}
+
+// ProjectCostSummary handles GET /api/v1/projects/{id}/costs
+func (h *Handlers) ProjectCostSummary(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	summary, err := h.Cost.ProjectSummary(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+// ProjectCostByModel handles GET /api/v1/projects/{id}/costs/by-model
+func (h *Handlers) ProjectCostByModel(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	models, err := h.Cost.ByModel(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if models == nil {
+		models = []cost.ModelSummary{}
+	}
+	writeJSON(w, http.StatusOK, models)
+}
+
+// ProjectCostTimeSeries handles GET /api/v1/projects/{id}/costs/daily
+func (h *Handlers) ProjectCostTimeSeries(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
+			days = parsed
+		}
+	}
+	series, err := h.Cost.TimeSeries(r.Context(), projectID, days)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if series == nil {
+		series = []cost.DailyCost{}
+	}
+	writeJSON(w, http.StatusOK, series)
+}
+
+// ProjectRecentRuns handles GET /api/v1/projects/{id}/costs/runs
+func (h *Handlers) ProjectRecentRuns(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	runs, err := h.Cost.RecentRuns(r.Context(), projectID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if runs == nil {
+		runs = []run.Run{}
+	}
+	writeJSON(w, http.StatusOK, runs)
 }
 
 // --- Helpers ---

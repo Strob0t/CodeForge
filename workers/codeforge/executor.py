@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
+from codeforge.pricing import resolve_cost
 
 if TYPE_CHECKING:
     from codeforge.llm import LiteLLMClient
@@ -30,12 +31,19 @@ class AgentExecutor:
                 system=f"You are working on task: {task.title}",
             )
 
+            cost = resolve_cost(
+                response.cost_usd,
+                response.model,
+                response.tokens_in,
+                response.tokens_out,
+            )
             return TaskResult(
                 task_id=task.id,
                 status=TaskStatus.COMPLETED,
                 output=response.content,
                 tokens_in=response.tokens_in,
                 tokens_out=response.tokens_out,
+                cost_usd=cost,
             )
         except Exception as exc:
             logger.exception("task %s failed", task.id)
@@ -82,12 +90,22 @@ class AgentExecutor:
                 system=f"You are working on task: {task.title}",
             )
 
-            # Report result
+            # Report result with real cost and tokens
+            cost = resolve_cost(
+                response.cost_usd,
+                response.model,
+                response.tokens_in,
+                response.tokens_out,
+            )
             await runtime.report_tool_result(
                 call_id=decision.call_id,
+                tool="LLM",
                 success=True,
                 output=response.content[:200],
-                cost_usd=0.0,  # Cost tracking from LLM response (future)
+                cost_usd=cost,
+                tokens_in=response.tokens_in,
+                tokens_out=response.tokens_out,
+                model=response.model,
             )
 
             if runtime.is_cancelled:

@@ -565,6 +565,25 @@
   - **Tests:** 5 new tests (error-in-payload Go, parallel-all-fail Python, Pydantic validator bounds, consumer error publish)
   - All 77 Python tests + all Go tests passing, golangci-lint 0 issues
 
+## Phase 7: Cost & Token Transparency (COMPLETED)
+
+> Priority: "It must always be very obvious what costs/tokens CodeForge causes with the LLMs."
+
+- [x] (2026-02-18) **Feature 1: Real Cost Calculation** — Python workers extract cost from LiteLLM response header + fallback pricing table for local models
+- [x] (2026-02-18) **Feature 2: Token Persistence** — `tokens_in`, `tokens_out`, `model` columns on runs table, Python token accumulators, Go/Python NATS payload updates
+- [x] (2026-02-18) **Feature 3: Cost Aggregation API** — 5 new REST endpoints for cost breakdown by project, model, and time
+- [x] (2026-02-18) **Feature 4: WS Budget Alerts** — `BudgetAlertEvent` at 80%/90% of MaxCost with dedup, token fields on `RunStatusEvent`
+- [x] (2026-02-18) **Feature 5: Frontend Dashboard** — `/costs` page with global totals + project breakdown; per-project cost section with model breakdown, daily bars, recent runs; token/model display in RunPanel; budget alert banner
+
+### Phase 7 Key Deliverables
+
+- **New files:** 4 (cost domain, cost service, pricing table YAML, pricing module, cost dashboard)
+- **Modified files:** ~20 (across Go, Python, TypeScript)
+- **New REST endpoints:** 5 cost aggregation endpoints
+- **New WS event:** `run.budget_alert`
+- **Tests:** 7 Python pricing tests, 3 Go budget alert tests, all existing tests passing
+- **Migration:** 015_add_run_tokens.sql
+
 ## Documentation Debt (COMPLETED)
 
 - [x] (2026-02-18) **ADR-003:** Config Hierarchy — three-tier (defaults < YAML < env vars), typed Config struct, validation

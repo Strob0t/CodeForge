@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -178,19 +179,22 @@ func (m *mockStore) GetRun(_ context.Context, id string) (*run.Run, error) {
 	return nil, errNotFound
 }
 
-func (m *mockStore) UpdateRunStatus(_ context.Context, id string, status run.Status, stepCount int, costUSD float64) error {
+func (m *mockStore) UpdateRunStatus(_ context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error {
 	for i := range m.runs {
-		if m.runs[i].ID == id {
-			m.runs[i].Status = status
-			m.runs[i].StepCount = stepCount
-			m.runs[i].CostUSD = costUSD
-			return nil
+		if m.runs[i].ID != id {
+			continue
 		}
+		m.runs[i].Status = status
+		m.runs[i].StepCount = stepCount
+		m.runs[i].CostUSD = costUSD
+		m.runs[i].TokensIn = tokensIn
+		m.runs[i].TokensOut = tokensOut
+		return nil
 	}
 	return errNotFound
 }
 
-func (m *mockStore) CompleteRun(_ context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int) error {
+func (m *mockStore) CompleteRun(_ context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error {
 	for i := range m.runs {
 		if m.runs[i].ID != id {
 			continue
@@ -200,6 +204,9 @@ func (m *mockStore) CompleteRun(_ context.Context, id string, status run.Status,
 		m.runs[i].Error = errMsg
 		m.runs[i].CostUSD = costUSD
 		m.runs[i].StepCount = stepCount
+		m.runs[i].TokensIn = tokensIn
+		m.runs[i].TokensOut = tokensOut
+		m.runs[i].Model = model
 		return nil
 	}
 	return errNotFound
@@ -285,6 +292,23 @@ func (m *mockStore) GetRepoMap(_ context.Context, _ string) (*cfcontext.RepoMap,
 }
 func (m *mockStore) DeleteRepoMap(_ context.Context, _ string) error { return nil }
 
+// Cost Aggregation stubs
+func (m *mockStore) CostSummaryGlobal(_ context.Context) ([]cost.ProjectSummary, error) {
+	return nil, nil
+}
+func (m *mockStore) CostSummaryByProject(_ context.Context, _ string) (*cost.Summary, error) {
+	return &cost.Summary{}, nil
+}
+func (m *mockStore) CostByModel(_ context.Context, _ string) ([]cost.ModelSummary, error) {
+	return nil, nil
+}
+func (m *mockStore) CostTimeSeries(_ context.Context, _ string, _ int) ([]cost.DailyCost, error) {
+	return nil, nil
+}
+func (m *mockStore) RecentRunsWithCost(_ context.Context, _ string, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -342,6 +366,7 @@ func newTestRouter() chi.Router {
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
 	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
+	costSvc := service.NewCostService(store)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store),
 		Tasks:            service.NewTaskService(store, queue),
@@ -359,6 +384,7 @@ func newTestRouter() chi.Router {
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
 		Events:           es,
+		Cost:             costSvc,
 	}
 
 	r := chi.NewRouter()
@@ -1222,6 +1248,7 @@ func TestGenerateRepoMap(t *testing.T) {
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
+		Cost:             service.NewCostService(store),
 	}
 
 	r := chi.NewRouter()
@@ -1278,6 +1305,7 @@ func TestIndexProject(t *testing.T) {
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
+		Cost:             service.NewCostService(store),
 	}
 
 	r := chi.NewRouter()

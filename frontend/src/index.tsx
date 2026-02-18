@@ -2,6 +2,7 @@
 import { render } from "solid-js/web";
 import { Route, Router } from "@solidjs/router";
 import App from "./App.tsx";
+import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import ModelsPage from "./features/llm/ModelsPage.tsx";
@@ -19,6 +20,7 @@ render(
       <Route path="/" component={DashboardPage} />
       <Route path="/projects" component={DashboardPage} />
       <Route path="/projects/:id" component={ProjectDetailPage} />
+      <Route path="/costs" component={CostDashboardPage} />
       <Route path="/models" component={ModelsPage} />
     </Router>
   ),

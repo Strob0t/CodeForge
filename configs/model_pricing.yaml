@@ -1,0 +1,31 @@
+# Fallback per-token pricing for models where LiteLLM doesn't return cost.
+# Used when x-litellm-response-cost header is missing or zero (e.g., local Ollama).
+# Prices in USD per 1 million tokens.
+models:
+  "openai/gpt-4o":
+    input_per_1m: 2.50
+    output_per_1m: 10.00
+  "openai/gpt-4o-mini":
+    input_per_1m: 0.15
+    output_per_1m: 0.60
+  "openai/gpt-4-turbo":
+    input_per_1m: 10.00
+    output_per_1m: 30.00
+  "openai/gpt-3.5-turbo":
+    input_per_1m: 0.50
+    output_per_1m: 1.50
+  "anthropic/claude-sonnet-4-20250514":
+    input_per_1m: 3.00
+    output_per_1m: 15.00
+  "anthropic/claude-3-5-haiku-20241022":
+    input_per_1m: 1.00
+    output_per_1m: 5.00
+  "anthropic/claude-3-opus-20240229":
+    input_per_1m: 15.00
+    output_per_1m: 75.00
+  "ollama/llama3.2":
+    input_per_1m: 0.0
+    output_per_1m: 0.0
+  "ollama/codellama":
+    input_per_1m: 0.0
+    output_per_1m: 0.0

@@ -58,6 +58,9 @@ class RuntimeClient:
         self.termination = termination
         self._step_count = 0
         self._total_cost = 0.0
+        self._total_tokens_in = 0
+        self._total_tokens_out = 0
+        self._model = ""
         self._cancelled = False
         self._cancel_sub: object | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -192,10 +195,17 @@ class RuntimeClient:
         output: str = "",
         error: str = "",
         cost_usd: float = 0.0,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        model: str = "",
     ) -> None:
         """Report the outcome of an executed tool call back to the control plane."""
         self._step_count += 1
         self._total_cost += cost_usd
+        self._total_tokens_in += tokens_in
+        self._total_tokens_out += tokens_out
+        if model:
+            self._model = model
 
         result = {
             "run_id": self.run_id,
@@ -205,6 +215,9 @@ class RuntimeClient:
             "output": output,
             "error": error,
             "cost_usd": cost_usd,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "model": model,
         }
         await self._js.publish(
             SUBJECT_TOOLCALL_RESULT,
@@ -228,6 +241,9 @@ class RuntimeClient:
             error=error,
             cost_usd=self._total_cost,
             step_count=self._step_count,
+            tokens_in=self._total_tokens_in,
+            tokens_out=self._total_tokens_out,
+            model=self._model,
         )
         await self._js.publish(
             SUBJECT_RUN_COMPLETE,

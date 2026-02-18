@@ -8,23 +8,27 @@ import type {
   BackendList,
   Branch,
   ContextPack,
+  CostSummary,
   CreateAgentRequest,
   CreateModeRequest,
   CreatePlanRequest,
   CreateProjectRequest,
   CreateTaskRequest,
   CreateTeamRequest,
+  DailyCost,
   DecomposeRequest,
   ExecutionPlan,
   GitStatus,
   HealthStatus,
   LLMModel,
   Mode,
+  ModelCostSummary,
   PlanFeatureRequest,
   PolicyDecision,
   PolicyProfile,
   PolicyToolCall,
   Project,
+  ProjectCostSummary,
   ProviderList,
   RepoMap,
   RetrievalIndexStatus,
@@ -331,6 +335,21 @@ export const api = {
         method: "POST",
         body: JSON.stringify(call),
       }),
+  },
+
+  costs: {
+    global: () => request<ProjectCostSummary[]>("/costs"),
+
+    project: (id: string) => request<CostSummary>(`/projects/${encodeURIComponent(id)}/costs`),
+
+    byModel: (id: string) =>
+      request<ModelCostSummary[]>(`/projects/${encodeURIComponent(id)}/costs/by-model`),
+
+    daily: (id: string, days = 30) =>
+      request<DailyCost[]>(`/projects/${encodeURIComponent(id)}/costs/daily?days=${days}`),
+
+    recentRuns: (id: string, limit = 20) =>
+      request<Run[]>(`/projects/${encodeURIComponent(id)}/costs/runs?limit=${limit}`),
   },
 
   providers: {

@@ -137,10 +137,16 @@ async def test_report_tool_result(runtime: RuntimeClient, mock_js: AsyncMock) ->
         success=True,
         output="file contents",
         cost_usd=0.005,
+        tokens_in=100,
+        tokens_out=50,
+        model="gpt-4o",
     )
 
     assert runtime.step_count == 1
     assert runtime.total_cost == pytest.approx(0.005)
+    assert runtime._total_tokens_in == 100
+    assert runtime._total_tokens_out == 50
+    assert runtime._model == "gpt-4o"
 
     mock_js.publish.assert_called_once()
     call_args = mock_js.publish.call_args
@@ -149,22 +155,55 @@ async def test_report_tool_result(runtime: RuntimeClient, mock_js: AsyncMock) ->
     assert result["call_id"] == "call-1"
     assert result["success"] is True
     assert result["cost_usd"] == pytest.approx(0.005)
+    assert result["tokens_in"] == 100
+    assert result["tokens_out"] == 50
+    assert result["model"] == "gpt-4o"
 
 
 async def test_report_tool_result_accumulates(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
-    """Multiple report_tool_result calls should accumulate steps and cost."""
-    await runtime.report_tool_result(call_id="c1", tool="Edit", success=True, cost_usd=0.01)
-    await runtime.report_tool_result(call_id="c2", tool="Write", success=True, cost_usd=0.02)
-    await runtime.report_tool_result(call_id="c3", tool="Bash", success=False, error="oops", cost_usd=0.005)
+    """Multiple report_tool_result calls should accumulate steps, cost, and tokens."""
+    await runtime.report_tool_result(
+        call_id="c1",
+        tool="Edit",
+        success=True,
+        cost_usd=0.01,
+        tokens_in=200,
+        tokens_out=100,
+        model="gpt-4o",
+    )
+    await runtime.report_tool_result(
+        call_id="c2",
+        tool="Write",
+        success=True,
+        cost_usd=0.02,
+        tokens_in=300,
+        tokens_out=150,
+        model="gpt-4o",
+    )
+    await runtime.report_tool_result(
+        call_id="c3",
+        tool="Bash",
+        success=False,
+        error="oops",
+        cost_usd=0.005,
+        tokens_in=50,
+        tokens_out=10,
+    )
 
     assert runtime.step_count == 3
     assert runtime.total_cost == pytest.approx(0.035)
+    assert runtime._total_tokens_in == 550
+    assert runtime._total_tokens_out == 260
+    assert runtime._model == "gpt-4o"
 
 
 async def test_complete_run(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
-    """complete_run should publish a completion message."""
+    """complete_run should publish a completion message with tokens."""
     runtime._step_count = 5
     runtime._total_cost = 0.05
+    runtime._total_tokens_in = 1000
+    runtime._total_tokens_out = 500
+    runtime._model = "gpt-4o"
 
     await runtime.complete_run(status="completed", output="all done")
 
@@ -178,6 +217,9 @@ async def test_complete_run(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
     assert data["output"] == "all done"
     assert data["step_count"] == 5
     assert data["cost_usd"] == pytest.approx(0.05)
+    assert data["tokens_in"] == 1000
+    assert data["tokens_out"] == 500
+    assert data["model"] == "gpt-4o"
 
 
 async def test_send_output(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
