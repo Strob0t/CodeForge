@@ -23,6 +23,7 @@ type AsyncHandler struct {
 	ch      chan slog.Record
 	wg      *sync.WaitGroup
 	dropped *atomic.Int64
+	closed  *atomic.Bool
 }
 
 // NewAsyncHandler creates an AsyncHandler with the given channel capacity and worker count.
@@ -32,6 +33,7 @@ func NewAsyncHandler(inner slog.Handler, chanSize, workers int) *AsyncHandler {
 		ch:      make(chan slog.Record, chanSize),
 		wg:      &sync.WaitGroup{},
 		dropped: &atomic.Int64{},
+		closed:  &atomic.Bool{},
 	}
 	for range workers {
 		h.wg.Add(1)
@@ -52,8 +54,11 @@ func (h *AsyncHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.inner.Enabled(ctx, level)
 }
 
-// Handle enqueues the record. Drops if the channel is full.
+// Handle enqueues the record. Drops if the channel is full or closed.
 func (h *AsyncHandler) Handle(_ context.Context, rec slog.Record) error { //nolint:gocritic // slog.Handler interface requires value receiver
+	if h.closed.Load() {
+		return nil
+	}
 	select {
 	case h.ch <- rec:
 	default:
@@ -69,6 +74,7 @@ func (h *AsyncHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		ch:      h.ch,
 		wg:      h.wg,
 		dropped: h.dropped,
+		closed:  h.closed,
 	}
 }
 
@@ -79,6 +85,7 @@ func (h *AsyncHandler) WithGroup(name string) slog.Handler {
 		ch:      h.ch,
 		wg:      h.wg,
 		dropped: h.dropped,
+		closed:  h.closed,
 	}
 }
 
@@ -89,6 +96,7 @@ func (h *AsyncHandler) DroppedCount() int64 {
 
 // Close closes the channel and waits for all workers to drain.
 func (h *AsyncHandler) Close() {
+	h.closed.Store(true)
 	close(h.ch)
 	h.wg.Wait()
 }

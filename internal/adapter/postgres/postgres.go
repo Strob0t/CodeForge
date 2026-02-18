@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib" // Register pgx driver for database/sql (needed by goose)
 	"github.com/pressly/goose/v3"
 
 	"github.com/Strob0t/CodeForge/internal/config"
