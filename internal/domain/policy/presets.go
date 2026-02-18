@@ -141,6 +141,12 @@ func PresetNames() []string {
 	}
 }
 
+// IsPreset returns true if the given name is a built-in preset.
+func IsPreset(name string) bool {
+	_, ok := PresetByName(name)
+	return ok
+}
+
 // PresetByName returns a preset by name, or false if not found.
 func PresetByName(name string) (PolicyProfile, bool) {
 	switch name {

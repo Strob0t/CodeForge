@@ -65,6 +65,27 @@ func (s *PolicyService) ListProfiles() []string {
 	return names
 }
 
+// SaveProfile adds or replaces a policy profile in the service.
+func (s *PolicyService) SaveProfile(profile *policy.PolicyProfile) error {
+	if err := profile.Validate(); err != nil {
+		return err
+	}
+	s.profiles[profile.Name] = *profile
+	return nil
+}
+
+// DeleteProfile removes a custom policy profile. Built-in presets cannot be deleted.
+func (s *PolicyService) DeleteProfile(name string) error {
+	if policy.IsPreset(name) {
+		return fmt.Errorf("cannot delete built-in preset %q", name)
+	}
+	if _, ok := s.profiles[name]; !ok {
+		return fmt.Errorf("unknown policy profile %q", name)
+	}
+	delete(s.profiles, name)
+	return nil
+}
+
 // DefaultProfile returns the name of the default policy profile.
 func (s *PolicyService) DefaultProfile() string {
 	return s.defaultProfile

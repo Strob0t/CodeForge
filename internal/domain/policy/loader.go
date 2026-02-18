@@ -29,6 +29,18 @@ func LoadFromFile(path string) (*PolicyProfile, error) {
 	return &p, nil
 }
 
+// SaveToFile writes a PolicyProfile to a YAML file.
+func SaveToFile(path string, profile *PolicyProfile) error {
+	data, err := yaml.Marshal(profile)
+	if err != nil {
+		return fmt.Errorf("marshal policy profile: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write policy file %s: %w", path, err)
+	}
+	return nil
+}
+
 // LoadFromDirectory reads all .yaml/.yml files from a directory
 // and returns a slice of PolicyProfiles. Missing directories return
 // an empty slice (not an error), matching the existing config pattern.

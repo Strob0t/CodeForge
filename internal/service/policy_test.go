@@ -412,3 +412,81 @@ func TestEvaluateTrustedMountDeniesSecrets(t *testing.T) {
 		t.Errorf("trusted-mount should deny Edit on secrets/**, got %q", d)
 	}
 }
+
+// --- SaveProfile / DeleteProfile tests ---
+
+func TestSaveProfile(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	profile := policy.PolicyProfile{
+		Name: "my-custom",
+		Mode: policy.ModeDefault,
+	}
+	if err := svc.SaveProfile(&profile); err != nil {
+		t.Fatal(err)
+	}
+
+	p, ok := svc.GetProfile("my-custom")
+	if !ok {
+		t.Fatal("expected to find saved profile")
+	}
+	if p.Name != "my-custom" {
+		t.Errorf("expected name 'my-custom', got %q", p.Name)
+	}
+}
+
+func TestSaveProfileValidation(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	// Empty name should fail validation.
+	err := svc.SaveProfile(&policy.PolicyProfile{Mode: policy.ModeDefault})
+	if err == nil {
+		t.Fatal("expected validation error for empty name")
+	}
+}
+
+func TestSaveProfileOverwrite(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	p1 := policy.PolicyProfile{Name: "test-overwrite", Mode: policy.ModeDefault}
+	p2 := policy.PolicyProfile{Name: "test-overwrite", Mode: policy.ModeAcceptEdits}
+
+	_ = svc.SaveProfile(&p1)
+	_ = svc.SaveProfile(&p2)
+
+	got, ok := svc.GetProfile("test-overwrite")
+	if !ok {
+		t.Fatal("expected profile to exist")
+	}
+	if got.Mode != policy.ModeAcceptEdits {
+		t.Errorf("expected overwritten mode, got %q", got.Mode)
+	}
+}
+
+func TestDeleteProfile(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	_ = svc.SaveProfile(&policy.PolicyProfile{Name: "to-delete", Mode: policy.ModeDefault})
+
+	err := svc.DeleteProfile("to-delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, ok := svc.GetProfile("to-delete")
+	if ok {
+		t.Error("expected profile to be deleted")
+	}
+}
+
+func TestDeleteProfilePresetFails(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	err := svc.DeleteProfile("plan-readonly")
+	if err == nil {
+		t.Fatal("expected error when deleting a preset")
+	}
+}
+
+func TestDeleteProfileNotFound(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	err := svc.DeleteProfile("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for unknown profile")
+	}
+}

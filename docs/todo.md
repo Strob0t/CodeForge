@@ -218,12 +218,16 @@
   - CleanupCheckpoints: `git reset --soft {firstHash}^` (remove shadow commits, keep working state)
   - Runtime integration: checkpoint on tool call, rewind on rollback, cleanup on finalize/cancel
   - 5 tests in `internal/service/checkpoint_test.go`
-- [ ] Policy UI in Frontend
-  - Policy Editor per project (YAML-style, fits CodeForge config standard)
-  - "Effective Permission Preview": show which rule matches and why
-  - Scope levels: global (user) → project → run/session (override)
-  - Preset selection + "Customize" (load preset, edit, save as new profile)
-  - Run overrides: temporarily override policy per run
+- [x] (2026-02-18) Policy UI in Frontend
+  - Backend: CRUD endpoints (POST /policies, DELETE /policies/{name}) with YAML persistence
+  - Backend: SaveProfile, DeleteProfile methods on PolicyService (preset protection)
+  - Backend: SaveToFile in policy loader, IsPreset helper in presets
+  - Frontend: Full type definitions (PolicyProfile, PermissionRule, QualityGate, etc.)
+  - Frontend: Extended API client (get, create, delete, evaluate)
+  - Frontend: PolicyPanel component with 3 views (list, detail with evaluate tester, editor)
+  - Frontend: Integrated into ProjectDetailPage (between agents and run management)
+  - Tests: 6 new service tests, 6 new handler tests — all passing
+  - Deferred: Scope levels (global → project → run), run overrides, "why matched" explanation
 
 ### 4B. Runtime API (Step-by-Step Execution Protocol)
 

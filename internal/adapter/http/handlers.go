@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 
@@ -33,6 +35,7 @@ type Handlers struct {
 	Agents           *service.AgentService
 	LiteLLM          *litellm.Client
 	Policies         *service.PolicyService
+	PolicyDir        string // Custom policy YAML directory (empty = no persistence)
 	Runtime          *service.RuntimeService
 	Orchestrator     *service.OrchestratorService
 	MetaAgent        *service.MetaAgentService
@@ -470,6 +473,58 @@ func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"decision": string(decision),
 	})
+}
+
+// CreatePolicyProfile handles POST /api/v1/policies
+func (h *Handlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Request) {
+	var profile policy.PolicyProfile
+	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if profile.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	if err := h.Policies.SaveProfile(&profile); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if h.PolicyDir != "" {
+		path := filepath.Join(h.PolicyDir, profile.Name+".yaml")
+		if err := os.MkdirAll(h.PolicyDir, 0o755); err != nil {
+			slog.Error("failed to create policy directory", "error", err)
+		} else if err := policy.SaveToFile(path, &profile); err != nil {
+			slog.Error("failed to persist policy profile", "name", profile.Name, "error", err)
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, profile)
+}
+
+// DeletePolicyProfile handles DELETE /api/v1/policies/{name}
+func (h *Handlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	if err := h.Policies.DeleteProfile(name); err != nil {
+		if policy.IsPreset(name) {
+			writeError(w, http.StatusForbidden, err.Error())
+		} else {
+			writeError(w, http.StatusNotFound, err.Error())
+		}
+		return
+	}
+
+	if h.PolicyDir != "" {
+		path := filepath.Join(h.PolicyDir, name+".yaml")
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Error("failed to remove policy file", "name", name, "error", err)
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- Run Endpoints ---

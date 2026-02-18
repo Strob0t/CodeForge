@@ -66,7 +66,9 @@ func MountRoutes(r chi.Router, h *Handlers) {
 
 		// Policy profiles
 		r.Get("/policies", h.ListPolicyProfiles)
+		r.Post("/policies", h.CreatePolicyProfile)
 		r.Get("/policies/{name}", h.GetPolicyProfile)
+		r.Delete("/policies/{name}", h.DeletePolicyProfile)
 		r.Post("/policies/{name}/evaluate", h.EvaluatePolicy)
 
 		// Feature Decomposition (Meta-Agent)

@@ -5,6 +5,7 @@ import { createCodeForgeWS } from "~/api/websocket";
 import type { Branch, GitStatus } from "~/api/types";
 import AgentPanel from "./AgentPanel";
 import PlanPanel from "./PlanPanel";
+import PolicyPanel from "./PolicyPanel";
 import RepoMapPanel from "./RepoMapPanel";
 import RetrievalPanel from "./RetrievalPanel";
 import RunPanel from "./RunPanel";
@@ -300,6 +301,11 @@ export default function ProjectDetailPage() {
             {/* Agents Section */}
             <div class="mb-6">
               <AgentPanel projectId={params.id} tasks={tasks() ?? []} onError={setError} />
+            </div>
+
+            {/* Policy Section */}
+            <div class="mb-6">
+              <PolicyPanel projectId={params.id} onError={setError} />
             </div>
 
             {/* Run Management Section */}

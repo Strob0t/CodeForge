@@ -191,6 +191,16 @@
 - **API:** 3 new REST endpoints under /api/v1/policies
 - **Tests:** 46 new test functions, all Go tests pass (153+ total)
 
+### 4A-UI. Policy UI in Frontend (COMPLETED)
+
+- [x] (2026-02-18) Backend: CRUD endpoints — POST /policies (create), DELETE /policies/{name} (delete custom only)
+- [x] (2026-02-18) Backend: SaveProfile, DeleteProfile on PolicyService; IsPreset helper; SaveToFile in loader
+- [x] (2026-02-18) Frontend: 10 new type definitions (PolicyProfile, PermissionRule, QualityGate, etc.)
+- [x] (2026-02-18) Frontend: Extended API client (get, create, delete, evaluate)
+- [x] (2026-02-18) Frontend: PolicyPanel component with 3 views (list, detail + evaluate tester, editor)
+- [x] (2026-02-18) Frontend: Integrated into ProjectDetailPage between agents and run management
+- [x] (2026-02-18) Tests: 6 new service tests (SaveProfile, DeleteProfile), 6 new handler tests (create/delete endpoints)
+
 ### 4B. Runtime API — Step-by-Step Execution Protocol (COMPLETED)
 
 - [x] (2026-02-17) CI Fix: golangci-lint-action v6→v7, Python working-directory removed

@@ -91,6 +91,28 @@ YAML-configurable agent specializations:
 | Trajectory | Recording, replay, audit trail |
 | HITL | Human feedback provider protocol |
 
+## Policy System
+
+The policy layer governs agent permissions, quality gates, and termination conditions.
+
+### Backend
+- **Domain:** `internal/domain/policy/` — PolicyProfile, PermissionRule, ToolSpecifier, QualityGate, TerminationCondition
+- **Presets (4):** plan-readonly, headless-safe-sandbox, headless-permissive-sandbox, trusted-mount-autonomous
+- **Service:** `internal/service/policy.go` — first-match-wins rule evaluation, CRUD (SaveProfile, DeleteProfile)
+- **Loader:** `internal/domain/policy/loader.go` — YAML file loading + SaveToFile for custom profiles
+- **REST API:** GET/POST /policies, GET/DELETE /policies/{name}, POST /policies/{name}/evaluate
+
+### Frontend (PolicyPanel)
+- **Component:** `frontend/src/features/project/PolicyPanel.tsx`
+- **3 views:** List (presets + custom), Detail (summary + rules table + evaluate tester), Editor (create/clone)
+- **Evaluate tester:** test a tool call against a policy and see the decision (allow/deny/ask)
+- **Types:** `PolicyProfile`, `PermissionRule`, `PolicyQualityGate`, `TerminationCondition`, `ResourceLimits`
+
+### Deferred
+- Scope levels: global (user) → project → run/session (override)
+- "Effective Permission Preview" — show which rule matched and why
+- Run-level policy overrides
+
 ## TODOs
 
 Tracked in [todo.md](../todo.md) under Phase 1, Phase 2, and Phase 3.

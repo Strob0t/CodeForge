@@ -21,6 +21,9 @@ import type {
   LLMModel,
   Mode,
   PlanFeatureRequest,
+  PolicyDecision,
+  PolicyProfile,
+  PolicyToolCall,
   Project,
   ProviderList,
   RepoMap,
@@ -301,6 +304,25 @@ export const api = {
 
   policies: {
     list: () => request<{ profiles: string[] }>("/policies"),
+
+    get: (name: string) => request<PolicyProfile>(`/policies/${encodeURIComponent(name)}`),
+
+    create: (profile: PolicyProfile) =>
+      request<PolicyProfile>("/policies", {
+        method: "POST",
+        body: JSON.stringify(profile),
+      }),
+
+    delete: (name: string) =>
+      request<void>(`/policies/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      }),
+
+    evaluate: (name: string, call: PolicyToolCall) =>
+      request<{ decision: PolicyDecision }>(`/policies/${encodeURIComponent(name)}/evaluate`, {
+        method: "POST",
+        body: JSON.stringify(call),
+      }),
   },
 
   providers: {

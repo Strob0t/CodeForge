@@ -545,6 +545,73 @@ export interface RetrievalStatusEvent {
   error?: string;
 }
 
+// --- Policy types (Phase 4A) ---
+
+/** Policy decision enum matching Go domain/policy.Decision */
+export type PolicyDecision = "allow" | "deny" | "ask";
+
+/** Permission mode enum matching Go domain/policy.PermissionMode */
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "delegate";
+
+/** Matches Go domain/policy.ToolSpecifier */
+export interface ToolSpecifier {
+  tool: string;
+  sub_pattern?: string;
+}
+
+/** Matches Go domain/policy.PermissionRule */
+export interface PermissionRule {
+  specifier: ToolSpecifier;
+  decision: PolicyDecision;
+  path_allow?: string[];
+  path_deny?: string[];
+  command_allow?: string[];
+  command_deny?: string[];
+}
+
+/** Matches Go domain/policy.QualityGate */
+export interface PolicyQualityGate {
+  require_tests_pass: boolean;
+  require_lint_pass: boolean;
+  rollback_on_gate_fail: boolean;
+}
+
+/** Matches Go domain/policy.TerminationCondition */
+export interface TerminationCondition {
+  max_steps?: number;
+  timeout_seconds?: number;
+  max_cost?: number;
+  stall_detection?: boolean;
+  stall_threshold?: number;
+}
+
+/** Matches Go domain/resource.Limits */
+export interface ResourceLimits {
+  memory_mb?: number;
+  cpu_quota?: number;
+  pids_limit?: number;
+  storage_gb?: number;
+  network_mode?: string;
+}
+
+/** Matches Go domain/policy.PolicyProfile */
+export interface PolicyProfile {
+  name: string;
+  description?: string;
+  mode: PermissionMode;
+  rules: PermissionRule[];
+  quality_gate: PolicyQualityGate;
+  termination: TerminationCondition;
+  resource_limits?: ResourceLimits;
+}
+
+/** Matches Go domain/policy.ToolCall */
+export interface PolicyToolCall {
+  tool: string;
+  command?: string;
+  path?: string;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;

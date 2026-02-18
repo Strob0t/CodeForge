@@ -1290,3 +1290,131 @@ func TestGetIndexStatusNotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// --- Create / Delete Policy Endpoints ---
+
+func TestCreatePolicyProfile(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(policy.PolicyProfile{
+		Name: "test-custom",
+		Mode: policy.ModeDefault,
+		Rules: []policy.PermissionRule{
+			{Specifier: policy.ToolSpecifier{Tool: "Read"}, Decision: policy.DecisionAllow},
+		},
+	})
+	req := httptest.NewRequest("POST", "/api/v1/policies", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var p policy.PolicyProfile
+	if err := json.NewDecoder(w.Body).Decode(&p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Name != "test-custom" {
+		t.Fatalf("expected name 'test-custom', got %q", p.Name)
+	}
+
+	// Verify it appears in list
+	req = httptest.NewRequest("GET", "/api/v1/policies", http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var result map[string][]string
+	_ = json.NewDecoder(w.Body).Decode(&result)
+	if len(result["profiles"]) != 5 {
+		t.Fatalf("expected 5 profiles (4 presets + 1 custom), got %d", len(result["profiles"]))
+	}
+}
+
+func TestCreatePolicyProfileMissingName(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(map[string]string{"mode": "default"})
+	req := httptest.NewRequest("POST", "/api/v1/policies", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestCreatePolicyProfileInvalidBody(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/policies", bytes.NewReader([]byte("bad")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestDeletePolicyProfile(t *testing.T) {
+	r := newTestRouter()
+
+	// Create a custom policy first
+	body, _ := json.Marshal(policy.PolicyProfile{
+		Name: "to-delete",
+		Mode: policy.ModeDefault,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/policies", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d", w.Code)
+	}
+
+	// Delete it
+	req = httptest.NewRequest("DELETE", "/api/v1/policies/to-delete", http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify it's gone
+	req = httptest.NewRequest("GET", "/api/v1/policies/to-delete", http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after delete, got %d", w.Code)
+	}
+}
+
+func TestDeletePolicyProfilePresetForbidden(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("DELETE", "/api/v1/policies/plan-readonly", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for preset deletion, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeletePolicyProfileNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("DELETE", "/api/v1/policies/nonexistent", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
