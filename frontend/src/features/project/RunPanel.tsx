@@ -3,6 +3,8 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, RunStatus, Task, ToolCallEvent } from "~/api/types";
 
+import TrajectoryPanel from "./TrajectoryPanel";
+
 interface RunPanelProps {
   projectId: string;
   tasks: Task[];
@@ -36,6 +38,7 @@ export default function RunPanel(props: RunPanelProps) {
   const [starting, setStarting] = createSignal(false);
   const [activeRun, setActiveRun] = createSignal<Run | null>(null);
   const [toolCalls, setToolCalls] = createSignal<ToolCallEvent[]>([]);
+  const [trajectoryRunId, setTrajectoryRunId] = createSignal<string | null>(null);
 
   const [policies] = createResource(() => api.policies.list());
 
@@ -254,6 +257,15 @@ export default function RunPanel(props: RunPanelProps) {
         )}
       </Show>
 
+      {/* Trajectory Panel */}
+      <Show when={trajectoryRunId()}>
+        {(runId) => (
+          <div class="mb-4">
+            <TrajectoryPanel runId={runId()} />
+          </div>
+        )}
+      </Show>
+
       {/* Run History */}
       <Show when={selectedTaskId() && (taskRuns() ?? []).length > 0}>
         <div>
@@ -287,6 +299,15 @@ export default function RunPanel(props: RunPanelProps) {
                         error
                       </span>
                     </Show>
+                    <button
+                      class="text-blue-600 hover:text-blue-800"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTrajectoryRunId((prev) => (prev === r.id ? null : r.id));
+                      }}
+                    >
+                      {trajectoryRunId() === r.id ? "Hide Trajectory" : "Trajectory"}
+                    </button>
                   </div>
                 </div>
               )}

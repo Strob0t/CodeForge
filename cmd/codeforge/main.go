@@ -258,6 +258,10 @@ func run() error {
 	modeSvc := service.NewModeService()
 	slog.Info("mode service initialized", "modes", len(modeSvc.List()))
 
+	// --- Roadmap Service (Phase 8) ---
+	roadmapSvc := service.NewRoadmapService(store, hub)
+	slog.Info("roadmap service initialized")
+
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
 
@@ -280,6 +284,7 @@ func run() error {
 		Graph:            graphSvc,
 		Events:           eventStore,
 		Cost:             costSvc,
+		Roadmap:          roadmapSvc,
 	}
 
 	r := chi.NewRouter()

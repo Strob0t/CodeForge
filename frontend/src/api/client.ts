@@ -4,19 +4,24 @@ import type {
   Agent,
   AgentEvent,
   AgentTeam,
+  AIRoadmapView,
   ApiError,
   BackendList,
   Branch,
   ContextPack,
   CostSummary,
   CreateAgentRequest,
+  CreateFeatureRequest,
+  CreateMilestoneRequest,
   CreateModeRequest,
   CreatePlanRequest,
   CreateProjectRequest,
+  CreateRoadmapRequest,
   CreateTaskRequest,
   CreateTeamRequest,
   DailyCost,
   DecomposeRequest,
+  DetectionResult,
   ExecutionPlan,
   GitStatus,
   GraphSearchRequest,
@@ -24,6 +29,7 @@ import type {
   GraphStatus,
   HealthStatus,
   LLMModel,
+  Milestone,
   Mode,
   ModelCostSummary,
   PlanFeatureRequest,
@@ -36,6 +42,8 @@ import type {
   RepoMap,
   RetrievalIndexStatus,
   RetrievalSearchResult,
+  Roadmap,
+  RoadmapFeature,
   Run,
   SearchRequest,
   SharedContext,
@@ -44,6 +52,7 @@ import type {
   SubAgentSearchRequest,
   SubAgentSearchResult,
   Task,
+  TrajectoryPage,
 } from "./types";
 
 const BASE = "/api/v1";
@@ -370,6 +379,84 @@ export const api = {
 
     recentRuns: (id: string, limit = 20) =>
       request<Run[]>(`/projects/${encodeURIComponent(id)}/costs/runs?limit=${limit}`),
+  },
+
+  roadmap: {
+    get: (projectId: string) =>
+      request<Roadmap>(`/projects/${encodeURIComponent(projectId)}/roadmap`),
+
+    create: (projectId: string, data: CreateRoadmapRequest) =>
+      request<Roadmap>(`/projects/${encodeURIComponent(projectId)}/roadmap`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    update: (projectId: string, data: Partial<Roadmap> & { version: number }) =>
+      request<Roadmap>(`/projects/${encodeURIComponent(projectId)}/roadmap`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (projectId: string) =>
+      request<undefined>(`/projects/${encodeURIComponent(projectId)}/roadmap`, {
+        method: "DELETE",
+      }),
+
+    ai: (projectId: string, format: "json" | "yaml" | "markdown" = "markdown") =>
+      request<AIRoadmapView>(
+        `/projects/${encodeURIComponent(projectId)}/roadmap/ai?format=${format}`,
+      ),
+
+    detect: (projectId: string) =>
+      request<DetectionResult>(`/projects/${encodeURIComponent(projectId)}/roadmap/detect`, {
+        method: "POST",
+      }),
+
+    createMilestone: (projectId: string, data: CreateMilestoneRequest) =>
+      request<Milestone>(`/projects/${encodeURIComponent(projectId)}/roadmap/milestones`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    updateMilestone: (id: string, data: Partial<Milestone> & { version: number }) =>
+      request<Milestone>(`/milestones/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    deleteMilestone: (id: string) =>
+      request<undefined>(`/milestones/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    createFeature: (milestoneId: string, data: CreateFeatureRequest) =>
+      request<RoadmapFeature>(`/milestones/${encodeURIComponent(milestoneId)}/features`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    updateFeature: (id: string, data: Partial<RoadmapFeature> & { version: number }) =>
+      request<RoadmapFeature>(`/features/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    deleteFeature: (id: string) =>
+      request<undefined>(`/features/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  },
+
+  trajectory: {
+    get: (runId: string, opts?: { types?: string; cursor?: string; limit?: number }) => {
+      const params = new URLSearchParams();
+      if (opts?.types) params.set("types", opts.types);
+      if (opts?.cursor) params.set("cursor", opts.cursor);
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      const qs = params.toString();
+      return request<TrajectoryPage>(
+        `/runs/${encodeURIComponent(runId)}/trajectory${qs ? `?${qs}` : ""}`,
+      );
+    },
+
+    exportUrl: (runId: string) =>
+      `${BASE}/runs/${encodeURIComponent(runId)}/trajectory/export?format=json`,
   },
 
   providers: {

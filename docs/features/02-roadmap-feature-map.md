@@ -1,7 +1,7 @@
 # Feature: Roadmap/Feature-Map (Pillar 2)
 
-> **Status:** Design phase
-> **Priority:** Phase 3 (Advanced)
+> **Status:** Foundation implemented (Phase 8A) — domain, store, service, REST API, frontend
+> **Priority:** Phase 8 (Foundation) → Phase 9+ (Advanced integrations)
 > **Architecture reference:** [architecture.md](../architecture.md) — "Roadmap/Feature-Map: Auto-Detection & Adaptive Integration"
 
 ## Overview
@@ -77,19 +77,28 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - OpenSpec: Delta Spec Format (incremental changes)
 - Ploi Roadmap: `/ai` endpoint for LLM consumption
 
-## TODOs
+## Phase 8A: Foundation (COMPLETED)
 
-Tracked in [todo.md](../todo.md) under Phase 3.
+- [x] Domain models: `internal/domain/roadmap/` (Roadmap, Milestone, Feature, statuses, validation, optimistic locking)
+- [x] Migration 017: `roadmaps`, `milestones`, `features` tables with indexes, triggers
+- [x] Port interfaces: `specprovider.SpecProvider` + `pmprovider.PMProvider` (interface + registry)
+- [x] Store: 16 methods on `database.Store` + Postgres adapter
+- [x] RoadmapService: CRUD, AutoDetect (file markers), AIView (json/yaml/markdown)
+- [x] REST API: 12 endpoints (roadmap CRUD, milestones, features, AI view, detect)
+- [x] WS event: `roadmap.status` broadcast on mutations
+- [x] Frontend: RoadmapPanel.tsx (milestone/feature tree, forms, auto-detect, AI view)
+- [x] `/ai` endpoint for LLM consumption (json/yaml/markdown formats)
 
-- [ ] Implement `specprovider.SpecProvider` interface
-- [ ] Implement `pmprovider.PMProvider` interface
+## TODOs (Phase 9+)
+
+Tracked in [todo.md](../todo.md) under Phase 9+.
+
 - [ ] OpenSpec adapter (read/write specs)
+- [ ] Spec Kit adapter
+- [ ] Autospec adapter
 - [ ] Plane.so adapter (REST API, webhooks)
 - [ ] GitHub PM adapter (Issues, Projects)
 - [ ] Forgejo/Codeberg PM adapter (Issues — reuse GitHub PM adapter with base URL override)
-- [ ] Auto-Detection Engine (`service/detection.go`)
+- [ ] Full Auto-Detection Engine (`service/detection.go`) with platform + file detectors
 - [ ] Bidirectional Sync Service (`service/sync.go`)
-- [ ] Roadmap domain model (`domain/roadmap/`)
-- [ ] Frontend: Roadmap visualization component
-- [ ] Frontend: Feature-Map editor
-- [ ] `/ai` endpoint for LLM consumption
+- [ ] Frontend: Feature-Map editor (visual drag-and-drop)

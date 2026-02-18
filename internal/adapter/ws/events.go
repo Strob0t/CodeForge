@@ -39,6 +39,9 @@ const (
 
 	// Phase 7: cost transparency events
 	EventBudgetAlert = "run.budget_alert"
+
+	// Phase 8: roadmap events
+	EventRoadmapStatus = "roadmap.status"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -181,6 +184,14 @@ type BudgetAlertEvent struct {
 	CostUSD    float64 `json:"cost_usd"`
 	MaxCost    float64 `json:"max_cost"`
 	Percentage float64 `json:"percentage"`
+}
+
+// RoadmapStatusEvent is broadcast when a roadmap's status changes.
+type RoadmapStatusEvent struct {
+	RoadmapID string `json:"roadmap_id"`
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"`
+	Title     string `json:"title"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

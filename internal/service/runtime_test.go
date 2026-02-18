@@ -18,8 +18,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -446,6 +448,44 @@ func (m *runtimeMockStore) RecentRunsWithCost(_ context.Context, _ string, _ int
 	return nil, nil
 }
 
+// Roadmap stubs
+func (m *runtimeMockStore) CreateRoadmap(_ context.Context, _ roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error) {
+	return &roadmap.Roadmap{}, nil
+}
+func (m *runtimeMockStore) GetRoadmap(_ context.Context, _ string) (*roadmap.Roadmap, error) {
+	return nil, errMockNotFound
+}
+func (m *runtimeMockStore) GetRoadmapByProject(_ context.Context, _ string) (*roadmap.Roadmap, error) {
+	return nil, errMockNotFound
+}
+func (m *runtimeMockStore) UpdateRoadmap(_ context.Context, _ *roadmap.Roadmap) error { return nil }
+func (m *runtimeMockStore) DeleteRoadmap(_ context.Context, _ string) error           { return nil }
+func (m *runtimeMockStore) CreateMilestone(_ context.Context, _ roadmap.CreateMilestoneRequest) (*roadmap.Milestone, error) {
+	return &roadmap.Milestone{}, nil
+}
+func (m *runtimeMockStore) GetMilestone(_ context.Context, _ string) (*roadmap.Milestone, error) {
+	return nil, errMockNotFound
+}
+func (m *runtimeMockStore) ListMilestones(_ context.Context, _ string) ([]roadmap.Milestone, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateMilestone(_ context.Context, _ *roadmap.Milestone) error { return nil }
+func (m *runtimeMockStore) DeleteMilestone(_ context.Context, _ string) error             { return nil }
+func (m *runtimeMockStore) CreateFeature(_ context.Context, _ *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
+	return &roadmap.Feature{}, nil
+}
+func (m *runtimeMockStore) GetFeature(_ context.Context, _ string) (*roadmap.Feature, error) {
+	return nil, errMockNotFound
+}
+func (m *runtimeMockStore) ListFeatures(_ context.Context, _ string) ([]roadmap.Feature, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([]roadmap.Feature, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
+func (m *runtimeMockStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
+
 type runtimeMockQueue struct {
 	mu       sync.Mutex
 	messages []publishedMsg
@@ -507,6 +547,12 @@ func (m *runtimeMockEventStore) LoadByAgent(_ context.Context, _ string) ([]even
 }
 func (m *runtimeMockEventStore) LoadByRun(_ context.Context, _ string) ([]event.AgentEvent, error) {
 	return nil, nil
+}
+func (m *runtimeMockEventStore) LoadTrajectory(_ context.Context, _ string, _ eventstore.TrajectoryFilter, _ string, _ int) (*eventstore.TrajectoryPage, error) {
+	return &eventstore.TrajectoryPage{}, nil
+}
+func (m *runtimeMockEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
+	return &eventstore.TrajectorySummary{}, nil
 }
 
 // --- Helper ---

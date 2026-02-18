@@ -400,6 +400,47 @@ Docker handles log rotation automatically via the `json-file` driver:
 - Max 10 MB per log file, max 3 files per service (30 MB total per service)
 - Configured in `docker-compose.yml` via `x-logging` anchor
 
+## Docker Production Build
+
+CodeForge ships with multi-stage Dockerfiles for all three services.
+
+### Building Images
+
+```bash
+# Go Core (multi-stage: golang:1.24-alpine -> alpine:3.21)
+docker build -t codeforge-core .
+
+# Python Worker (python:3.12-slim, poetry, non-root user)
+docker build -t codeforge-worker -f Dockerfile.worker .
+
+# Frontend (node:22-alpine build -> nginx:alpine serve)
+docker build -t codeforge-frontend -f Dockerfile.frontend .
+```
+
+### Production Compose
+
+```bash
+# Start all 6 services (core, worker, frontend, postgres, nats, litellm)
+docker compose -f docker-compose.prod.yml up -d
+
+# View logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Stop
+docker compose -f docker-compose.prod.yml down
+```
+
+Production compose differences from dev:
+- Named volumes for data persistence
+- Health checks on all services
+- `restart: unless-stopped` for auto-recovery
+- Tuned PostgreSQL (256MB shared_buffers, optimized WAL settings)
+- No dev-only services (docs-mcp, playwright)
+
+### CI/CD
+
+GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`.
+
 ## Environment Variables
 
 See `.env.example` for all configurable values.

@@ -132,5 +132,29 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/projects/{id}/costs/by-model", h.ProjectCostByModel)
 		r.Get("/projects/{id}/costs/daily", h.ProjectCostTimeSeries)
 		r.Get("/projects/{id}/costs/runs", h.ProjectRecentRuns)
+
+		// Roadmap (nested under projects)
+		r.Get("/projects/{id}/roadmap", h.GetProjectRoadmap)
+		r.Post("/projects/{id}/roadmap", h.CreateProjectRoadmap)
+		r.Put("/projects/{id}/roadmap", h.UpdateProjectRoadmap)
+		r.Delete("/projects/{id}/roadmap", h.DeleteProjectRoadmap)
+		r.Get("/projects/{id}/roadmap/ai", h.GetRoadmapAI)
+		r.Post("/projects/{id}/roadmap/detect", h.DetectRoadmap)
+		r.Post("/projects/{id}/roadmap/milestones", h.CreateMilestone)
+
+		// Milestones (direct access)
+		r.Get("/milestones/{id}", h.GetMilestone)
+		r.Put("/milestones/{id}", h.UpdateMilestone)
+		r.Delete("/milestones/{id}", h.DeleteMilestone)
+
+		// Features (nested under milestones + direct access)
+		r.Post("/milestones/{id}/features", h.CreateFeature)
+		r.Get("/features/{id}", h.GetFeature)
+		r.Put("/features/{id}", h.UpdateFeature)
+		r.Delete("/features/{id}", h.DeleteFeature)
+
+		// Trajectory (nested under runs)
+		r.Get("/runs/{id}/trajectory", h.GetTrajectory)
+		r.Get("/runs/{id}/trajectory/export", h.ExportTrajectory)
 	})
 }

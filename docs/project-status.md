@@ -641,3 +641,45 @@
 - [x] (2026-02-18) **architecture.md** — added Infrastructure Patterns section (reliability, performance, agent execution, observability)
 - [x] (2026-02-18) **dev-setup.md** — added Logging section (log access, helper script, log levels, request ID, log rotation)
 - [x] (2026-02-18) **CLAUDE.md** — added ADR index, Infrastructure Principles section (config, async, logging, policy, approach C, resilience)
+
+## Phase 8: Roadmap Foundation, Event Trajectory, Docker Production (COMPLETED)
+
+### 8A. Roadmap/Feature-Map Foundation — Pillar 2 (COMPLETED)
+
+- [x] (2026-02-18) Domain models: Roadmap, Milestone, Feature with statuses, validation, optimistic locking
+  - 18 domain tests in `internal/domain/roadmap/roadmap_test.go`
+- [x] (2026-02-18) Migration 017: 3 tables (roadmaps, milestones, features) with indexes, triggers, up/down
+- [x] (2026-02-18) Port interfaces: `specprovider/` (SpecProvider + Registry), `pmprovider/` (PMProvider + Registry)
+- [x] (2026-02-18) Store interface: 16 new methods + Postgres adapter implementation
+- [x] (2026-02-18) RoadmapService: CRUD, AutoDetect (file markers), AIView (json/yaml/markdown), WS broadcast
+- [x] (2026-02-18) REST API: 12 roadmap endpoints (CRUD + AI view + detect + milestones + features)
+- [x] (2026-02-18) WS event: `roadmap.status` with RoadmapStatusEvent
+- [x] (2026-02-18) Frontend: RoadmapPanel.tsx (milestone/feature tree, forms, auto-detect, AI view)
+- [x] (2026-02-18) main.go wiring: RoadmapService creation + Handlers integration
+
+### 8B. Event Trajectory API + Frontend (COMPLETED)
+
+- [x] (2026-02-18) Event store extension: TrajectoryFilter, TrajectoryPage, TrajectorySummary
+  - Cursor-paginated LoadTrajectory with type/time filtering
+  - TrajectoryStats via SQL aggregates
+- [x] (2026-02-18) Postgres implementation: dynamic WHERE builder, cursor pagination, aggregate stats
+- [x] (2026-02-18) REST API: 2 endpoints (GET /runs/{id}/trajectory, GET /runs/{id}/trajectory/export)
+- [x] (2026-02-18) Frontend: TrajectoryPanel.tsx (timeline, filters, stats, export)
+
+### 8C. Docker/CI for Production (COMPLETED)
+
+- [x] (2026-02-18) Dockerfile (Go Core): multi-stage golang:1.24-alpine → alpine:3.21
+- [x] (2026-02-18) Dockerfile.worker (Python): python:3.12-slim, poetry, non-root user
+- [x] (2026-02-18) Dockerfile.frontend: node:22-alpine → nginx:alpine with SPA routing
+- [x] (2026-02-18) frontend/nginx.conf: try_files, proxy_pass for /api/ and /ws
+- [x] (2026-02-18) docker-compose.prod.yml: 6 services with health checks, named volumes, tuned PostgreSQL
+- [x] (2026-02-18) .github/workflows/docker-build.yml: 3 parallel jobs → ghcr.io
+- [x] (2026-02-18) .dockerignore: excludes .venv, node_modules, .git, data/, __pycache__
+
+### Phase 8 Key Deliverables
+- **New files (19):** roadmap domain (3), migration 017, specprovider (2), pmprovider (2), roadmap service + tests, RoadmapPanel.tsx, TrajectoryPanel.tsx, Dockerfile (3), nginx.conf, docker-compose.prod.yml, docker-build.yml, .dockerignore
+- **Modified files (16):** store.go (port + postgres), eventstore (port + postgres), handlers.go, routes.go, events.go, main.go, types.ts, client.ts, ProjectDetailPage.tsx, RunPanel.tsx, 4 test files (mock updates)
+- **New REST endpoints:** 14 (12 roadmap + 2 trajectory)
+- **New WS event:** `roadmap.status`
+- **Store methods:** 16 roadmap + 2 trajectory
+- **Verification:** go build, golangci-lint 0 issues, go test -race all pass, ESLint clean, npm run build clean, pre-commit 15/15 hooks pass

@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 )
@@ -1037,6 +1038,310 @@ func (s *Store) DeleteRepoMap(ctx context.Context, projectID string) error {
 		return fmt.Errorf("delete repo_map for project %s: %w", projectID, domain.ErrNotFound)
 	}
 	return nil
+}
+
+// --- Roadmaps ---
+
+func (s *Store) CreateRoadmap(ctx context.Context, req roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO roadmaps (project_id, title, description)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, project_id, tenant_id, title, description, status, version, created_at, updated_at`,
+		req.ProjectID, req.Title, req.Description)
+
+	r, err := scanRoadmap(row)
+	if err != nil {
+		return nil, fmt.Errorf("create roadmap: %w", err)
+	}
+	return &r, nil
+}
+
+func (s *Store) GetRoadmap(ctx context.Context, id string) (*roadmap.Roadmap, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, project_id, tenant_id, title, description, status, version, created_at, updated_at
+		 FROM roadmaps WHERE id = $1`, id)
+
+	r, err := scanRoadmap(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get roadmap %s: %w", id, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get roadmap %s: %w", id, err)
+	}
+	return &r, nil
+}
+
+func (s *Store) GetRoadmapByProject(ctx context.Context, projectID string) (*roadmap.Roadmap, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, project_id, tenant_id, title, description, status, version, created_at, updated_at
+		 FROM roadmaps WHERE project_id = $1`, projectID)
+
+	r, err := scanRoadmap(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get roadmap for project %s: %w", projectID, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get roadmap for project %s: %w", projectID, err)
+	}
+	return &r, nil
+}
+
+func (s *Store) UpdateRoadmap(ctx context.Context, r *roadmap.Roadmap) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE roadmaps SET title = $2, description = $3, status = $4
+		 WHERE id = $1 AND version = $5`,
+		r.ID, r.Title, r.Description, string(r.Status), r.Version)
+	if err != nil {
+		return fmt.Errorf("update roadmap %s: %w", r.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update roadmap %s: %w", r.ID, domain.ErrConflict)
+	}
+	r.Version++
+	return nil
+}
+
+func (s *Store) DeleteRoadmap(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM roadmaps WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete roadmap %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete roadmap %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+// --- Milestones ---
+
+func (s *Store) CreateMilestone(ctx context.Context, req roadmap.CreateMilestoneRequest) (*roadmap.Milestone, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO milestones (roadmap_id, title, description, due_date)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, roadmap_id, title, description, status, sort_order, due_date, version, created_at, updated_at`,
+		req.RoadmapID, req.Title, req.Description, req.DueDate)
+
+	m, err := scanMilestone(row)
+	if err != nil {
+		return nil, fmt.Errorf("create milestone: %w", err)
+	}
+	return &m, nil
+}
+
+func (s *Store) GetMilestone(ctx context.Context, id string) (*roadmap.Milestone, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, roadmap_id, title, description, status, sort_order, due_date, version, created_at, updated_at
+		 FROM milestones WHERE id = $1`, id)
+
+	m, err := scanMilestone(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get milestone %s: %w", id, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get milestone %s: %w", id, err)
+	}
+	return &m, nil
+}
+
+func (s *Store) ListMilestones(ctx context.Context, roadmapID string) ([]roadmap.Milestone, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, roadmap_id, title, description, status, sort_order, due_date, version, created_at, updated_at
+		 FROM milestones WHERE roadmap_id = $1 ORDER BY sort_order ASC, created_at ASC`, roadmapID)
+	if err != nil {
+		return nil, fmt.Errorf("list milestones: %w", err)
+	}
+	defer rows.Close()
+
+	var milestones []roadmap.Milestone
+	for rows.Next() {
+		m, err := scanMilestone(rows)
+		if err != nil {
+			return nil, err
+		}
+		milestones = append(milestones, m)
+	}
+	return milestones, rows.Err()
+}
+
+func (s *Store) UpdateMilestone(ctx context.Context, m *roadmap.Milestone) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE milestones SET title = $2, description = $3, status = $4, sort_order = $5, due_date = $6
+		 WHERE id = $1 AND version = $7`,
+		m.ID, m.Title, m.Description, string(m.Status), m.SortOrder, m.DueDate, m.Version)
+	if err != nil {
+		return fmt.Errorf("update milestone %s: %w", m.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update milestone %s: %w", m.ID, domain.ErrConflict)
+	}
+	m.Version++
+	return nil
+}
+
+func (s *Store) DeleteMilestone(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM milestones WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete milestone %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete milestone %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+// --- Features ---
+
+func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
+	externalIDsJSON, err := json.Marshal(req.ExternalIDs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal external_ids: %w", err)
+	}
+
+	// Resolve roadmap_id from milestone.
+	var roadmapID string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT roadmap_id FROM milestones WHERE id = $1`, req.MilestoneID,
+	).Scan(&roadmapID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("milestone %s: %w", req.MilestoneID, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("resolve roadmap_id: %w", err)
+	}
+
+	labels := req.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO features (milestone_id, roadmap_id, title, description, labels, spec_ref, external_ids)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at`,
+		req.MilestoneID, roadmapID, req.Title, req.Description, labels, req.SpecRef, externalIDsJSON)
+
+	f, err := scanFeature(row)
+	if err != nil {
+		return nil, fmt.Errorf("create feature: %w", err)
+	}
+	return &f, nil
+}
+
+func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		 FROM features WHERE id = $1`, id)
+
+	f, err := scanFeature(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get feature %s: %w", id, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get feature %s: %w", id, err)
+	}
+	return &f, nil
+}
+
+func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap.Feature, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		 FROM features WHERE milestone_id = $1 ORDER BY sort_order ASC, created_at ASC`, milestoneID)
+	if err != nil {
+		return nil, fmt.Errorf("list features: %w", err)
+	}
+	defer rows.Close()
+
+	var features []roadmap.Feature
+	for rows.Next() {
+		f, err := scanFeature(rows)
+		if err != nil {
+			return nil, err
+		}
+		features = append(features, f)
+	}
+	return features, rows.Err()
+}
+
+func (s *Store) ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		 FROM features WHERE roadmap_id = $1 ORDER BY sort_order ASC, created_at ASC`, roadmapID)
+	if err != nil {
+		return nil, fmt.Errorf("list features by roadmap: %w", err)
+	}
+	defer rows.Close()
+
+	var features []roadmap.Feature
+	for rows.Next() {
+		f, err := scanFeature(rows)
+		if err != nil {
+			return nil, err
+		}
+		features = append(features, f)
+	}
+	return features, rows.Err()
+}
+
+func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
+	externalIDsJSON, err := json.Marshal(f.ExternalIDs)
+	if err != nil {
+		return fmt.Errorf("marshal external_ids: %w", err)
+	}
+
+	labels := f.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8
+		 WHERE id = $1 AND version = $9`,
+		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.Version)
+	if err != nil {
+		return fmt.Errorf("update feature %s: %w", f.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update feature %s: %w", f.ID, domain.ErrConflict)
+	}
+	f.Version++
+	return nil
+}
+
+func (s *Store) DeleteFeature(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM features WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete feature %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete feature %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func scanRoadmap(row scannable) (roadmap.Roadmap, error) {
+	var r roadmap.Roadmap
+	err := row.Scan(&r.ID, &r.ProjectID, &r.TenantID, &r.Title, &r.Description, &r.Status, &r.Version, &r.CreatedAt, &r.UpdatedAt)
+	return r, err
+}
+
+func scanMilestone(row scannable) (roadmap.Milestone, error) {
+	var m roadmap.Milestone
+	err := row.Scan(&m.ID, &m.RoadmapID, &m.Title, &m.Description, &m.Status, &m.SortOrder, &m.DueDate, &m.Version, &m.CreatedAt, &m.UpdatedAt)
+	return m, err
+}
+
+func scanFeature(row scannable) (roadmap.Feature, error) {
+	var f roadmap.Feature
+	var externalIDsJSON []byte
+	err := row.Scan(&f.ID, &f.MilestoneID, &f.RoadmapID, &f.Title, &f.Description, &f.Status, &f.Labels, &f.SpecRef, &externalIDsJSON, &f.SortOrder, &f.Version, &f.CreatedAt, &f.UpdatedAt)
+	if err != nil {
+		return f, err
+	}
+	if externalIDsJSON != nil {
+		if err := json.Unmarshal(externalIDsJSON, &f.ExternalIDs); err != nil {
+			return f, fmt.Errorf("unmarshal external_ids: %w", err)
+		}
+	}
+	return f, nil
 }
 
 // nullIfEmpty returns nil for empty strings (for nullable UUID columns).

@@ -77,6 +77,13 @@ func (m *mockEventStore) LoadByRun(_ context.Context, runID string) ([]event.Age
 	return result, nil
 }
 
+func (m *mockEventStore) LoadTrajectory(_ context.Context, _ string, _ eventstore.TrajectoryFilter, _ string, _ int) (*eventstore.TrajectoryPage, error) {
+	return &eventstore.TrajectoryPage{}, nil
+}
+func (m *mockEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
+	return &eventstore.TrajectorySummary{}, nil
+}
+
 // --- AgentService Tests ---
 
 func TestAgentServiceList(t *testing.T) {

@@ -24,8 +24,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -309,6 +311,44 @@ func (m *mockStore) RecentRunsWithCost(_ context.Context, _ string, _ int) ([]ru
 	return nil, nil
 }
 
+// Roadmap stubs
+func (m *mockStore) CreateRoadmap(_ context.Context, _ roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error) {
+	return &roadmap.Roadmap{}, nil
+}
+func (m *mockStore) GetRoadmap(_ context.Context, _ string) (*roadmap.Roadmap, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) GetRoadmapByProject(_ context.Context, _ string) (*roadmap.Roadmap, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) UpdateRoadmap(_ context.Context, _ *roadmap.Roadmap) error { return nil }
+func (m *mockStore) DeleteRoadmap(_ context.Context, _ string) error           { return nil }
+func (m *mockStore) CreateMilestone(_ context.Context, _ roadmap.CreateMilestoneRequest) (*roadmap.Milestone, error) {
+	return &roadmap.Milestone{}, nil
+}
+func (m *mockStore) GetMilestone(_ context.Context, _ string) (*roadmap.Milestone, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListMilestones(_ context.Context, _ string) ([]roadmap.Milestone, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateMilestone(_ context.Context, _ *roadmap.Milestone) error { return nil }
+func (m *mockStore) DeleteMilestone(_ context.Context, _ string) error             { return nil }
+func (m *mockStore) CreateFeature(_ context.Context, _ *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
+	return &roadmap.Feature{}, nil
+}
+func (m *mockStore) GetFeature(_ context.Context, _ string) (*roadmap.Feature, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListFeatures(_ context.Context, _ string) ([]roadmap.Feature, error) {
+	return nil, nil
+}
+func (m *mockStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([]roadmap.Feature, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
+func (m *mockStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -341,6 +381,12 @@ func (m *mockEventStore) LoadByAgent(_ context.Context, _ string) ([]event.Agent
 }
 func (m *mockEventStore) LoadByRun(_ context.Context, _ string) ([]event.AgentEvent, error) {
 	return nil, nil
+}
+func (m *mockEventStore) LoadTrajectory(_ context.Context, _ string, _ eventstore.TrajectoryFilter, _ string, _ int) (*eventstore.TrajectoryPage, error) {
+	return &eventstore.TrajectoryPage{}, nil
+}
+func (m *mockEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
+	return &eventstore.TrajectorySummary{}, nil
 }
 
 var errNotFound = fmt.Errorf("mock: %w", domain.ErrNotFound)

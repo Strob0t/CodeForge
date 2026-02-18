@@ -748,6 +748,123 @@ export interface DailyCost {
   run_count: number;
 }
 
+// --- Roadmap types (Phase 8) ---
+
+/** Roadmap status enum matching Go domain/roadmap.RoadmapStatus */
+export type RoadmapStatus = "draft" | "active" | "complete" | "archived";
+
+/** Feature status enum matching Go domain/roadmap.FeatureStatus */
+export type FeatureStatus = "backlog" | "planned" | "in_progress" | "done" | "cancelled";
+
+/** Matches Go domain/roadmap.Feature */
+export interface RoadmapFeature {
+  id: string;
+  milestone_id: string;
+  roadmap_id: string;
+  title: string;
+  description: string;
+  status: FeatureStatus;
+  sort_order: number;
+  labels: string[];
+  spec_ref: string;
+  external_ids: Record<string, string>;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/roadmap.Milestone */
+export interface Milestone {
+  id: string;
+  roadmap_id: string;
+  title: string;
+  description: string;
+  status: RoadmapStatus;
+  sort_order: number;
+  features: RoadmapFeature[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/roadmap.Roadmap */
+export interface Roadmap {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  status: RoadmapStatus;
+  milestones: Milestone[];
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create roadmap request */
+export interface CreateRoadmapRequest {
+  title: string;
+  description?: string;
+}
+
+/** Create milestone request */
+export interface CreateMilestoneRequest {
+  title: string;
+  description?: string;
+  sort_order?: number;
+}
+
+/** Create feature request */
+export interface CreateFeatureRequest {
+  title: string;
+  description?: string;
+  sort_order?: number;
+  labels?: string[];
+}
+
+/** Detection result from auto-detect */
+export interface DetectionResult {
+  found: boolean;
+  format: string;
+  path: string;
+  file_markers: string[];
+}
+
+/** AI roadmap view */
+export interface AIRoadmapView {
+  project_id: string;
+  format: string;
+  content: string;
+  generated_at: string;
+}
+
+/** WS event: roadmap status change */
+export interface RoadmapStatusEvent {
+  roadmap_id: string;
+  project_id: string;
+  status: string;
+  title: string;
+}
+
+// --- Trajectory types (Phase 8) ---
+
+/** Trajectory page response */
+export interface TrajectoryPage {
+  events: AgentEvent[];
+  cursor: string;
+  has_more: boolean;
+  total: number;
+  stats: TrajectorySummary;
+}
+
+/** Trajectory summary stats */
+export interface TrajectorySummary {
+  total_events: number;
+  event_counts: Record<string, number>;
+  duration_ms: number;
+  tool_call_count: number;
+  error_count: number;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;

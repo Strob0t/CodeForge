@@ -13,6 +13,7 @@ import PlanPanel from "./PlanPanel";
 import PolicyPanel from "./PolicyPanel";
 import RepoMapPanel from "./RepoMapPanel";
 import RetrievalPanel from "./RetrievalPanel";
+import RoadmapPanel from "./RoadmapPanel";
 import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
 
@@ -119,6 +120,13 @@ export default function ProjectDetailPage() {
         const retProjectId = payload.project_id as string;
         if (retProjectId === projectId) {
           // RetrievalPanel handles its own state
+        }
+        break;
+      }
+      case "roadmap.status": {
+        const rmProjectId = payload.project_id as string;
+        if (rmProjectId === projectId) {
+          // RoadmapPanel will refetch via its own resource
         }
         break;
       }
@@ -327,6 +335,11 @@ export default function ProjectDetailPage() {
                 <RetrievalPanel projectId={params.id} />
               </div>
             </Show>
+
+            {/* Roadmap Section */}
+            <div class="mb-6">
+              <RoadmapPanel projectId={params.id} onError={setError} />
+            </div>
 
             {/* Agents Section */}
             <div class="mb-6">

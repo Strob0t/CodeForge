@@ -113,7 +113,8 @@
   - Postgres adapter: `run_id` in INSERT/SELECT for all methods + `LoadByRun`
   - HTTP: `GET /api/v1/runs/{id}/events` handler + route
   - Handlers: `Events eventstore.Store` field wired in main.go
-- [ ] Features: Replay task, trajectory inspector, audit trail
+- [x] (2026-02-18) Trajectory API: cursor-paginated LoadTrajectory, TrajectoryStats, 2 REST endpoints, TrajectoryPanel frontend
+- [ ] Features: Replay task, audit trail
 - [ ] Session Events as Source of Truth (append-only log for Resume/Fork/Rewind)
   - Every user/model/tool action recorded as event
   - Stream events via WebSocket/AG-UI to frontend
@@ -504,13 +505,66 @@
 
 ---
 
-## Phase 7+ — Advanced Features & Vision
+## Phase 8 — Roadmap Foundation, Event Trajectory, Docker Production
 
-### Roadmap/Feature Map
+### 8A. Roadmap/Feature-Map Foundation (Pillar 2)
 
-- [ ] Roadmap/Feature Map Editor (Auto-Detection, Multi-Format SDD)
-- [ ] OpenSpec/Spec Kit/Autospec integration
+- [x] (2026-02-18) Domain models: `internal/domain/roadmap/` (Roadmap, Milestone, Feature, statuses, validation)
+  - Roadmap/Milestone statuses: draft, active, complete, archived
+  - Feature statuses: backlog, planned, in_progress, done, cancelled
+  - Optimistic locking (Version field), tenant_id, labels ([]string), external_ids (map)
+  - 18 domain tests in `roadmap_test.go`
+- [x] (2026-02-18) Migration 017: `roadmaps`, `milestones`, `features` tables
+  - Unique idx on project_id, sort_order indexes, TEXT[] labels, JSONB external_ids
+  - Reuses existing `update_updated_at()` and `increment_version()` trigger functions
+- [x] (2026-02-18) Port interfaces: `specprovider/` (SpecProvider + Registry), `pmprovider/` (PMProvider + Registry)
+  - Follows gitprovider pattern: self-registering via `init()`, capability declarations
+- [x] (2026-02-18) Store interface: 16 new methods on `database.Store` (Roadmap/Milestone/Feature CRUD)
+- [x] (2026-02-18) Postgres adapter: 16 method implementations with optimistic locking
+- [x] (2026-02-18) RoadmapService: CRUD delegation, AutoDetect (file markers), AIView (json/yaml/markdown)
+  - Broadcasts `roadmap.status` WS event on mutations
+- [x] (2026-02-18) REST API: 12 roadmap endpoints
+  - GET/POST/PUT/DELETE /projects/{id}/roadmap
+  - GET /projects/{id}/roadmap/ai, POST /projects/{id}/roadmap/detect
+  - POST /projects/{id}/roadmap/milestones
+  - GET/PUT/DELETE /milestones/{id}
+  - POST /milestones/{id}/features, GET/PUT/DELETE /features/{id}
+- [x] (2026-02-18) WS event: `roadmap.status` with RoadmapStatusEvent struct
+- [x] (2026-02-18) Frontend: RoadmapPanel.tsx — milestone/feature tree, create/edit forms, auto-detect, AI view
+- [x] (2026-02-18) main.go wiring: RoadmapService creation + Handlers struct field
+
+### 8B. Event Trajectory API + Frontend
+
+- [x] (2026-02-18) Event store extension: TrajectoryFilter, TrajectoryPage, TrajectorySummary types
+  - Cursor-paginated LoadTrajectory with type/time filtering
+  - TrajectoryStats with SQL aggregates (event counts, duration, tool calls, errors)
+- [x] (2026-02-18) Postgres implementation: dynamic WHERE clause builder, cursor pagination, aggregate stats
+- [x] (2026-02-18) REST API: 2 trajectory endpoints
+  - GET /runs/{id}/trajectory (?types=...&after=...&before=...&cursor=...&limit=50)
+  - GET /runs/{id}/trajectory/export (?format=json, Content-Disposition: attachment)
+- [x] (2026-02-18) Frontend: TrajectoryPanel.tsx — vertical timeline, event type filters, stats summary, export
+
+### 8C. Docker/CI for Production
+
+- [x] (2026-02-18) Dockerfile (Go Core): multi-stage golang:1.24-alpine → alpine:3.21 with git+ca-certs
+- [x] (2026-02-18) Dockerfile.worker (Python): python:3.12-slim, poetry install --only main, non-root user
+- [x] (2026-02-18) Dockerfile.frontend: node:22-alpine build → nginx:alpine serve with SPA routing + API proxy
+- [x] (2026-02-18) frontend/nginx.conf: try_files for SPA, proxy_pass to core:8080 for /api/ and /ws
+- [x] (2026-02-18) .dockerignore: exclude .venv, node_modules, .git, data/, __pycache__
+- [x] (2026-02-18) docker-compose.prod.yml: 6 services (core, worker, frontend, postgres, nats, litellm)
+  - Named volumes, health checks, restart: unless-stopped, tuned PostgreSQL (256MB shared_buffers)
+- [x] (2026-02-18) .github/workflows/docker-build.yml: 3 parallel jobs (core, worker, frontend)
+  - ghcr.io push, branch/semver/sha tags, Docker layer cache
+
+---
+
+## Phase 9+ — Advanced Features & Vision
+
+### Roadmap/Feature Map (Advanced)
+
+- [ ] OpenSpec/Spec Kit/Autospec concrete adapters (spec providers)
 - [ ] Bidirectional PM sync (Plane.so, OpenProject, GitHub/GitLab Issues)
+- [ ] Webhook-based real-time sync for PM providers
 
 ### Version Control
 
@@ -578,7 +632,7 @@
   - TypeScript: strict + stylistic ESLint configs, eslint-plugin-simple-import-sort
   - Pre-commit: ruff-pre-commit bumped to v0.15.1, ESLint hook fixed for local binary
   - All violations fixed across 31 files
-- [ ] GitHub Actions workflow: build Docker images
+- [x] (2026-02-18) GitHub Actions workflow: build Docker images (3 parallel jobs, ghcr.io, layer cache)
 - [ ] Branch protection rules for `main`
 
 ---
@@ -656,10 +710,11 @@ For full completion history, see [project-status.md](project-status.md).
 
 ## Notes
 
-- **Priority order**: Phase 3 (Reliability) → Phase 4 (Agent Engine) → Phase 5 (Multi-Agent) → Phase 6 (RAG)
+- **Priority order**: Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7 → Phase 8 → Phase 9+
 - **Dependencies**: Structured Logging → Request ID → Docker Logging → Log Script
 - **Dependencies**: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
 - **Dependencies**: Repo Map → Hybrid Retrieval → Retrieval Sub-Agent → GraphRAG
+- **Dependencies**: Roadmap Domain → Store → Service → Handlers → Frontend
 - **Testing**: Each new pattern requires unit + integration tests before merge
 - **Documentation**: ADRs must be written before implementation (capture decision context)
 - **Source**: Analysis document `docs/Analyse des CodeForge-Projekts (staging-Branch).md`
