@@ -712,3 +712,19 @@
 - **New REST endpoints:** 4 (import specs, import PM, list spec providers, list PM providers)
 - **Tests:** 24 new adapter tests (8 + 7 + 9), all Go tests pass
 - **Verification:** go build, golangci-lint 0 issues, go test -race all pass, ESLint clean, npm run build clean, pre-commit 15/15 hooks pass
+
+## E2E Test Infrastructure — Playwright (COMPLETED)
+
+- [x] (2026-02-18) Playwright-based E2E browser tests for the frontend
+  - `frontend/playwright.config.ts` — single Chromium project, workers: 1, baseURL localhost:3000
+  - `frontend/e2e/fixtures.ts` — shared API helper (createProject, deleteProject, deleteAllProjects) with auto-cleanup
+  - 5 test files, 17 tests total:
+    - `health.spec.ts` (3) — frontend loads, API ok status, backend health endpoint
+    - `navigation.spec.ts` (4) — sidebar links (Dashboard, Costs, Models, back)
+    - `projects.spec.ts` (5) — empty state, create via form, detail page, delete, validation
+    - `costs.spec.ts` (2) — heading, empty state message
+    - `models.spec.ts` (3) — heading, Add Model form toggle, LiteLLM status
+  - Vite proxy fix: `/health` route added to `vite.config.ts`
+  - `scripts/test.sh e2e` command with port checks (8080 + 3000)
+  - `@playwright/test` devDependency, tsconfig/eslint updated for `e2e/` directory
+  - `.gitignore` updated for Playwright artifacts (e2e-results/, e2e-report/, test-results/)

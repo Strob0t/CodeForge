@@ -669,6 +669,11 @@
 
 ## Testing Requirements
 
+- [x] (2026-02-18) E2E test infrastructure (Playwright)
+  - Playwright config, 5 test files (17 tests), fixtures with API helper
+  - Tests: health checks, sidebar navigation, project CRUD, costs, models
+  - Vite dev proxy fix (`/health` not proxied), `scripts/test.sh e2e` command
+  - ESLint/tsconfig updated to include `e2e/`, `.gitignore` updated for artifacts
 - [x] (2026-02-17) Test runner script (`scripts/test.sh`) — unified Go/Python/Frontend/Integration runner
 - [x] (2026-02-17) Integration test infrastructure (`tests/integration/`) — real PostgreSQL, build-tagged
   - Health/liveness tests, Project CRUD lifecycle, Task CRUD lifecycle, validation tests

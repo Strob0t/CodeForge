@@ -24,6 +24,9 @@ __pycache__/
 
 # -- Frontend ------------------------------------
 # node_modules/ and dist/ covered above
+e2e-results/
+e2e-report/
+test-results/
 
 # -- IDE ------------------------------------------
 .idea/

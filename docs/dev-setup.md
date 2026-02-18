@@ -121,7 +121,9 @@ CodeForge/
 │       ├── runtime.py        # Runtime client (Go ↔ Python protocol)
 │       └── models.py         # Pydantic data models
 ├── frontend/                 # SolidJS Web GUI
+│   ├── e2e/                  # Playwright E2E tests (5 spec files)
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
+│   ├── playwright.config.ts  # Playwright configuration
 │   └── src/
 │       ├── features/
 │       │   ├── dashboard/    # Project list, ProjectCard
@@ -132,7 +134,7 @@ CodeForge/
 │       │   └── cost/         # CostDashboardPage (global cost overview)
 │       └── api/              # API Client, Types, WebSocket
 ├── scripts/
-│   ├── test.sh               # Unified test runner (go/python/frontend/integration)
+│   ├── test.sh               # Unified test runner (go/python/frontend/integration/e2e)
 │   ├── logs.sh               # Docker log viewer helper
 │   ├── backup-postgres.sh    # PostgreSQL backup script
 │   └── restore-postgres.sh   # PostgreSQL restore script
@@ -212,7 +214,8 @@ Use the central test runner script:
 ./scripts/test.sh frontend     # Frontend lint + build
 ./scripts/test.sh integration  # Integration tests (requires docker compose services)
 ./scripts/test.sh migrations   # Migration rollback tests only (requires docker compose services)
-./scripts/test.sh all          # Everything including integration
+./scripts/test.sh e2e          # E2E browser tests (requires full stack running)
+./scripts/test.sh all          # Everything including integration and E2E
 ```
 
 Or run each suite directly:
@@ -222,6 +225,28 @@ go test -race -count=1 ./...                              # Go unit tests
 cd workers && poetry run pytest -v                         # Python unit tests
 npm run lint --prefix frontend && npm run build --prefix frontend  # Frontend
 ```
+
+### E2E Browser Tests
+
+E2E tests use Playwright and require the full stack to be running (Go backend + frontend dev server + infrastructure).
+
+```bash
+# One-time setup
+cd frontend && npm install && npx playwright install --with-deps chromium
+
+# Prerequisites: full stack running
+docker compose up -d
+go run ./cmd/codeforge/ &
+cd frontend && npm run dev &
+
+# Run tests
+./scripts/test.sh e2e                           # Via test runner
+cd frontend && npm run test:e2e                  # Directly
+cd frontend && npm run test:e2e:headed           # See browser
+cd frontend && npm run test:e2e:report           # View HTML report
+```
+
+Tests cover: health checks (3), sidebar navigation (4), project CRUD (5), cost dashboard (2), models page (3) — 17 tests total.
 
 ### Integration Tests
 

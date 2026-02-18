@@ -7,7 +7,8 @@
 #   ./scripts/test.sh frontend     Frontend lint + build
 #   ./scripts/test.sh integration  Integration tests (requires docker compose services)
 #   ./scripts/test.sh migrations   Migration rollback tests only (requires docker compose services)
-#   ./scripts/test.sh all          Everything including integration tests
+#   ./scripts/test.sh e2e          E2E browser tests (requires full stack running)
+#   ./scripts/test.sh all          Everything including integration and E2E tests
 set -euo pipefail
 
 # --- Colors ---
@@ -79,6 +80,35 @@ run_migrations() {
   echo ""
 }
 
+run_e2e() {
+  echo -e "${CYAN}=== E2E Browser Tests ===${NC}"
+
+  # Check if Go backend is reachable on port 8080
+  if ! (echo > /dev/tcp/localhost/8080) 2>/dev/null; then
+    echo -e "${YELLOW}Go backend not reachable on port 8080. Start it first:${NC}"
+    echo "  go run ./cmd/codeforge/"
+    RESULTS[e2e]="skip"
+    return
+  fi
+
+  # Check if frontend dev server is reachable on port 3000
+  if ! (echo > /dev/tcp/localhost/3000) 2>/dev/null; then
+    echo -e "${YELLOW}Frontend dev server not reachable on port 3000. Start it first:${NC}"
+    echo "  cd frontend && npm run dev"
+    RESULTS[e2e]="skip"
+    return
+  fi
+
+  if npm run test:e2e --prefix "$ROOTDIR/frontend"; then
+    RESULTS[e2e]="pass"
+    echo -e "${GREEN}E2E: PASS${NC}"
+  else
+    RESULTS[e2e]="fail"
+    echo -e "${RED}E2E: FAIL${NC}"
+  fi
+  echo ""
+}
+
 run_integration() {
   echo -e "${CYAN}=== Integration Tests ===${NC}"
 
@@ -127,6 +157,9 @@ case "$SUITE" in
   integration)
     run_integration
     ;;
+  e2e)
+    run_e2e
+    ;;
   migrations)
     run_migrations
     ;;
@@ -140,6 +173,7 @@ case "$SUITE" in
     run_python
     run_frontend
     run_integration
+    run_e2e
     ;;
   *)
     echo "CodeForge Test Runner"
@@ -150,7 +184,8 @@ case "$SUITE" in
     echo "  $0 python       Python unit tests only"
     echo "  $0 frontend     Frontend lint + build"
     echo "  $0 integration  Integration tests (requires docker compose)"
-    echo "  $0 all          Everything including integration"
+    echo "  $0 e2e          E2E browser tests (requires full stack)"
+    echo "  $0 all          Everything including integration and E2E"
     exit 1
     ;;
 esac
