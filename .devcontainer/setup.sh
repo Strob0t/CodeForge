@@ -11,23 +11,23 @@ echo "> Installing Poetry..."
 pipx install poetry
 poetry config virtualenvs.in-project true
 
-# -- Go: golangci-lint ----------------------------
+# -- Go: golangci-lint v2 --------------------------
 echo ""
 echo "> Installing golangci-lint..."
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" latest
 
 # -- Go: goimports --------------------------------
 echo ""
 echo "> Installing goimports..."
 go install golang.org/x/tools/cmd/goimports@latest
 
-# -- Claude Code (native CLI) --------------------
+# -- Claude Code (native installer) ---------------
 echo ""
 echo "> Installing Claude Code CLI..."
 if command -v claude &>/dev/null; then
     echo "  Claude Code already installed: $(claude --version)"
 else
-    npm install -g @anthropic-ai/claude-code
+    curl -fsSL https://claude.ai/install.sh | bash -s -- -y
 fi
 
 # -- Python Dependencies -------------------------
