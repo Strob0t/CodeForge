@@ -12,21 +12,22 @@
 ## Linting & Formatting
 
 ### Python
-- **Linter/Formatter:** [Ruff](https://docs.astral.sh/ruff/) (replaces flake8, isort, black)
+- **Linter/Formatter:** [Ruff](https://docs.astral.sh/ruff/) v0.15.1 (replaces flake8, isort, black, bandit)
 - **Configuration:** `pyproject.toml` under `[tool.ruff]`
-- **Rules:** pyflakes, pycodestyle, isort, pep8-naming, pyupgrade, bugbear, simplify
+- **Rules:** pyflakes (F), pycodestyle (E/W), isort (I), pep8-naming (N), pyupgrade (UP), bugbear (B), simplify (SIM), bandit security (S), unnecessary comprehensions (C4), mccabe complexity (C90, threshold 12), performance (PERF), anti-patterns (PIE), return issues (RET), modernization (FURB), logging (LOG), print detection (T20), pytest style (PT)
 - **Line Length:** 120
 
 ### Go
-- **Linter:** [golangci-lint](https://golangci-lint.run/) (Aggregator)
-- **Configuration:** `.golangci.yml`
-- **Active Linters:** errcheck, govet, staticcheck, unused, gosimple, gocritic, gofmt, goimports, misspell, prealloc, unconvert, unparam
+- **Linter:** [golangci-lint](https://golangci-lint.run/) v2 (Aggregator)
+- **Configuration:** `.golangci.yml` (v2 format)
+- **Active Linters:** errcheck, govet, staticcheck, unused, ineffassign, gocritic, misspell, unconvert, unparam, gosec (security), bodyclose (HTTP response body), noctx (context-less HTTP), errorlint (error wrapping), revive (18 curated rules), fatcontext (loop context leak), dupword (comment typos), durationcheck (duration bugs)
 - **Formatter:** gofmt + goimports
 
 ### TypeScript
-- **Linter:** ESLint
+- **Linter:** ESLint 9 (flat config) with typescript-eslint strict + stylistic configs
+- **Import Sorting:** eslint-plugin-simple-import-sort
 - **Formatter:** Prettier
-- **Configuration:** (will be created with frontend setup)
+- **Configuration:** `frontend/eslint.config.js` (flat config format)
 
 ### Pre-commit Hooks
 - **Configuration:** `.pre-commit-config.yaml`

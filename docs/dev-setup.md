@@ -148,21 +148,29 @@ CodeForge/
 ## Running Linting Manually
 
 ```bash
-# All languages via pre-commit
+# All languages via pre-commit (15 hooks)
 pre-commit run --all-files
 
-# Python only
+# Python only (ruff with 17 rule groups including security, complexity, performance)
 ruff check workers/
 ruff format workers/
 
-# Go only
+# Go only (golangci-lint v2 with 17 linters including gosec, revive, errorlint)
 go build ./cmd/codeforge/
 golangci-lint run ./...
 
-# TypeScript only
+# TypeScript only (ESLint strict + stylistic + import sorting)
 npm run lint --prefix frontend
 npm run format:check --prefix frontend
 ```
+
+### Linter Rule Summary
+
+**Python (ruff):** F, E, W, I, N, UP, B, SIM, S (bandit security), C4, C90 (complexity 12), PERF, PIE, RET, FURB, LOG, T20, PT
+
+**Go (golangci-lint):** errcheck, govet, staticcheck, unused, ineffassign, gocritic, misspell, unconvert, unparam, gosec, bodyclose, noctx, errorlint, revive (18 rules), fatcontext, dupword, durationcheck
+
+**TypeScript (ESLint):** typescript-eslint strict + stylistic configs, simple-import-sort for imports/exports
 
 ## Running Tests
 
@@ -174,6 +182,7 @@ Use the central test runner script:
 ./scripts/test.sh python       # Python unit tests only
 ./scripts/test.sh frontend     # Frontend lint + build
 ./scripts/test.sh integration  # Integration tests (requires docker compose services)
+./scripts/test.sh migrations   # Migration rollback tests only (requires docker compose services)
 ./scripts/test.sh all          # Everything including integration
 ```
 
@@ -259,6 +268,9 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 | `orchestrator.subagent_model` | `CODEFORGE_ORCH_SUBAGENT_MODEL` | `openai/gpt-4o-mini` | LLM model for sub-agent query expansion/rerank |
 | `orchestrator.subagent_max_queries` | `CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES` | `5` | Max expanded queries per sub-agent search |
 | `orchestrator.subagent_rerank` | `CODEFORGE_ORCH_SUBAGENT_RERANK` | `true` | Enable LLM-based result reranking |
+| `rate.cleanup_interval` | `CODEFORGE_RATE_CLEANUP_INTERVAL` | `5m` | Stale rate-limit bucket cleanup interval |
+| `rate.max_idle_time` | `CODEFORGE_RATE_MAX_IDLE_TIME` | `10m` | Remove IP buckets idle longer than this |
+| `git.max_concurrent` | `CODEFORGE_GIT_MAX_CONCURRENT` | `5` | Max concurrent git CLI operations |
 
 ### Python Worker Config (`workers/codeforge/config.py`)
 
@@ -390,3 +402,50 @@ See `.env.example` for all configurable values.
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
 | OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |
+
+## Backup & Restore
+
+### Manual Backup
+
+```bash
+# Set connection variables (or use .env)
+export PGHOST=localhost PGPORT=5432 PGUSER=codeforge PGPASSWORD=codeforge_dev PGDATABASE=codeforge
+
+# Run backup
+./scripts/backup-postgres.sh
+
+# Run backup with retention cleanup (removes backups older than 7 days)
+./scripts/backup-postgres.sh --cleanup
+```
+
+Backups are stored in `./backups/postgres/` (gitignored) as compressed `pg_dump --format=custom` files.
+
+### Restore from Backup
+
+```bash
+# Restore from a specific file
+./scripts/restore-postgres.sh ./backups/postgres/codeforge_20260218_120000.sql.gz
+
+# Restore the most recent backup
+./scripts/restore-postgres.sh latest
+```
+
+The restore script drops and recreates the database. Active connections are terminated automatically.
+
+### Scheduled Backups (cron)
+
+```bash
+# Daily backup at 3 AM UTC with 7-day retention
+0 3 * * * cd /path/to/CodeForge && PGHOST=localhost PGUSER=codeforge PGPASSWORD=... ./scripts/backup-postgres.sh --cleanup >> /var/log/codeforge-backup.log 2>&1
+```
+
+### WAL Archiving
+
+The Docker Compose postgres service is configured with `wal_level=replica` and `archive_mode=on` for future Point-in-Time Recovery (PITR) support. WAL files are archived to `/var/lib/postgresql/data/archive/` inside the container.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKUP_DIR` | `./backups/postgres` | Directory for backup files |
+| `BACKUP_RETAIN_DAYS` | `7` | Days to retain backups before cleanup |

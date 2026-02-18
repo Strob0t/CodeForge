@@ -137,9 +137,12 @@
   - Headers: `X-RateLimit-Remaining`, `X-RateLimit-Reset` (GitHub-style)
   - Returns 429 with `Retry-After` header
   - 4 tests in `internal/middleware/ratelimit_test.go`
-- [ ] Go Core: Worker pools for CPU-bound tasks
-  - Git operations (clone, diff parsing) via `errgroup.Group` with `SetLimit(5)`
-  - Context propagation for cancellation
+- [x] (2026-02-18) Go Core: Worker pools for CPU-bound tasks
+  - Git operations wrapped via `golang.org/x/sync/semaphore` with configurable limit (default: 5)
+  - Context propagation for cancellation via `semaphore.Acquire(ctx, 1)`
+  - `internal/git/pool.go`: Pool struct with nil-safe `Run()` method
+  - Injected into gitlocal.Provider, CheckpointService, DeliverService
+  - 4 tests in `internal/git/pool_test.go`
 - [x] (2026-02-18) Python Workers: Full asyncio adoption
   - NATS consumer: fully async (`await nats.connect()`, `await js.subscribe()`, `asyncio.gather()`)
   - LiteLLM calls: async via `httpx.AsyncClient` (completion, health, embeddings)
@@ -174,10 +177,11 @@
   - `Deprecation: true` + `Sunset: <HTTP-date>` headers on deprecated routes
   - 3 tests in `internal/middleware/deprecation_test.go`
   - Ready for use when `/api/v2` is introduced (no sunset date set yet)
-- [ ] Database migrations: Rollback capability
-  - All migrations must have `-- +goose Up` and `-- +goose Down`
-  - Transactional migrations (BEGIN/COMMIT)
-  - Test rollback in CI before merge
+- [x] (2026-02-18) Database migrations: Rollback capability
+  - All 15 migrations have `-- +goose Up` and `-- +goose Down` sections
+  - `RollbackMigrations()` and `MigrationVersion()` exposed in `internal/adapter/postgres/postgres.go`
+  - Integration test `TestMigrationUpDown` in `tests/integration/migration_test.go`
+  - `./scripts/test.sh migrations` sub-command for CI rollback verification
 
 ### 3H. Multi-Tenancy Preparation (Soft Launch)
 
@@ -540,14 +544,22 @@
 
 ### Operations
 
-- [ ] Backup & disaster recovery strategy
-  - `scripts/backup-postgres.sh` (pg_dump daily at 3 AM UTC)
-  - Retention: 7 daily, 4 weekly, 12 monthly
+- [x] (2026-02-18) Backup & disaster recovery strategy
+  - `scripts/backup-postgres.sh` — pg_dump with custom format, compression, retention cleanup
+  - `scripts/restore-postgres.sh` — restore from file or latest, drop-and-recreate
+  - Docker Compose WAL config (`wal_level=replica`, `archive_mode=on`) for future PITR
+  - Documented in `docs/dev-setup.md` (backup, restore, cron, WAL archiving)
 - [ ] Blue-Green deployment support (Traefik labels)
 - [ ] Multi-tenancy / user management (full, beyond soft-launch)
 
-### CI/CD
+### CI/CD & Tooling
 
+- [x] (2026-02-18) Pre-commit & linting hardening — security analysis, anti-pattern detection, import sorting
+  - Python: 10 ruff rule groups (S, C4, C90, PERF, PIE, RET, FURB, LOG, T20, PT), mccabe threshold 12
+  - Go: 8 new golangci-lint linters (gosec, bodyclose, noctx, errorlint, revive, fatcontext, dupword, durationcheck)
+  - TypeScript: strict + stylistic ESLint configs, eslint-plugin-simple-import-sort
+  - Pre-commit: ruff-pre-commit bumped to v0.15.1, ESLint hook fixed for local binary
+  - All violations fixed across 31 files
 - [ ] GitHub Actions workflow: build Docker images
 - [ ] Branch protection rules for `main`
 

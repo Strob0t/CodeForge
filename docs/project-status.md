@@ -584,6 +584,27 @@
 - **Tests:** 7 Python pricing tests, 3 Go budget alert tests, all existing tests passing
 - **Migration:** 015_add_run_tokens.sql
 
+## Production Readiness: Worker Pools, Migration Rollback, Rate Limiter Hardening, Backup/DR (COMPLETED)
+
+- [x] (2026-02-18) **Git Worker Pool** — `internal/git/pool.go` using `golang.org/x/sync/semaphore`, nil-safe Run(), injected into gitlocal.Provider, CheckpointService, DeliverService; config `git.max_concurrent` (default 5); 4 tests
+- [x] (2026-02-18) **Migration Rollback Verification** — `RollbackMigrations()` + `MigrationVersion()` in postgres.go; integration test `TestMigrationUpDown` (up 15, down 15, re-up 15); `./scripts/test.sh migrations` sub-command
+- [x] (2026-02-18) **Rate Limiter Hardening** — `StartCleanup()` background goroutine for stale bucket eviction; `Len()` for metrics; config `rate.cleanup_interval` (5m), `rate.max_idle_time` (10m); cleanup + len + timing tests; 2 benchmarks
+- [x] (2026-02-18) **Backup & Disaster Recovery** — `scripts/backup-postgres.sh` (pg_dump custom format, retention cleanup), `scripts/restore-postgres.sh` (drop-recreate, latest mode); Docker Compose WAL config (wal_level=replica, archive_mode=on); documented in dev-setup.md
+
+### Key Deliverables
+- **New files (6):** pool.go, pool_test.go, migration_test.go, backup-postgres.sh, restore-postgres.sh
+- **Modified files (~14):** config.go, loader.go, provider.go, checkpoint.go, deliver.go, main.go, ratelimit.go, ratelimit_test.go, postgres.go, test.sh, docker-compose.yml, .gitignore, codeforge.yaml.example, dev-setup.md
+- **Tests:** 4 pool tests + 3 ratelimit tests + 2 benchmarks + 1 integration test
+
+## Pre-Commit & Linting Hardening (COMPLETED)
+
+- [x] (2026-02-18) Security analysis, anti-pattern detection, import sorting across all three languages
+  - **Python (pyproject.toml):** Added 10 ruff rule groups — S (bandit security), C4 (unnecessary comprehensions), C90 (mccabe complexity, threshold 12), PERF (performance anti-patterns), PIE (misc anti-patterns), RET (return issues), FURB (modernization), LOG (logging best practices), T20 (print detection), PT (pytest style). Added RET504 to ignore, per-file-ignores for tests (S101, PT011, S108). Fixed C901 noqa, PERF401 list.extend, FURB110 ternary.
+  - **Go (.golangci.yml):** Added 8 linters — gosec (security), bodyclose (HTTP response body), noctx (context-less HTTP), errorlint (error wrapping), revive (18 curated rules), fatcontext (loop context leak), dupword (comment typos), durationcheck (duration multiplication). Settings: gosec excludes G404/G115, errorlint errorf-only, file-specific exclusions for loader.go (G304) and deliver.go (G306). Test exclusions for noctx, gosec G306/G204/G301, bodyclose. Fixed permissions (0o644→0o600, 0o755→0o750), added nolint annotations.
+  - **TypeScript (frontend/eslint.config.js):** Replaced `recommended` with `strict` + `stylistic` configs from typescript-eslint. Added `eslint-plugin-simple-import-sort` for import/export ordering. Fixed void→undefined in generic types, replaced non-null assertions with optional chaining and nullish coalescing.
+  - **Pre-commit (.pre-commit-config.yaml):** Bumped ruff-pre-commit v0.11.12→v0.15.1. Fixed ESLint hook to use local binary (`frontend/node_modules/.bin/eslint`) with explicit config path and `^frontend/src/` file filter.
+  - **31 files changed**, all 15 pre-commit hooks pass, 89 Python tests pass, all Go tests pass
+
 ## Documentation Debt (COMPLETED)
 
 - [x] (2026-02-18) **ADR-003:** Config Hierarchy — three-tier (defaults < YAML < env vars), typed Config struct, validation
