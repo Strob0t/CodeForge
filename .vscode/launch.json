@@ -30,7 +30,7 @@
       "request": "launch",
       "module": "codeforge.consumer",
       "cwd": "${workspaceFolder}/workers",
-      "python": "${workspaceFolder}/workers/.venv/bin/python",
+      "python": "${workspaceFolder}/.venv/bin/python",
       "console": "integratedTerminal",
       "justMyCode": true,
       "presentation": { "group": "codeforge", "order": 3 }
