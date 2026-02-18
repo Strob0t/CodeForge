@@ -1,12 +1,12 @@
 {
   "mcpServers": {
     "docs-mcp-server": {
-      "type": "http",
-      "url": "http://localhost:6280/mcp"
+      "type": "sse",
+      "url": "http://host.docker.internal:6280/sse"
     },
     "playwright-mcp": {
-      "type": "http",
-      "url": "http://localhost:8001/mcp"
+      "type": "sse",
+      "url": "http://localhost:8001/sse"
     }
   }
 }

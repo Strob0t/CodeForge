@@ -13,7 +13,7 @@ services:
       - "6280:6280"
     volumes:
       - ${HOST_PROJECT_PATH:-.}:/docs:ro
-      - docs_mcp_data:/data
+      - ${HOST_PROJECT_PATH:-.}/data/docs_mcp:/data
     environment:
       - OPENAI_API_BASE=${DOCS_MCP_API_BASE:-http://192.168.88.21:1234/v1}
       - OPENAI_API_KEY=${DOCS_MCP_API_KEY:-lmstudio}
@@ -29,15 +29,19 @@ services:
     logging: *default-logging
     ipc: host
     shm_size: "1gb"
+    volumes:
+      - ${HOST_PROJECT_PATH:-.}/data/playwright:/config
     command:
       - sh
       - -c
       - |
         npx playwright install --with-deps chromium &&
         exec npx @playwright/mcp@latest \
+          --config /config/playwright-mcp.json \
           --headless \
           --no-sandbox \
           --isolated \
+          --allowed-hosts '*' \
           --port 8001
     ports:
       - "8001:8001"
@@ -55,7 +59,7 @@ services:
       POSTGRES_USER: codeforge
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeforge_dev}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ${HOST_PROJECT_PATH:-.}/data/pgdata:/var/lib/postgresql/data
     shm_size: 256mb
     command: >
       postgres
@@ -82,7 +86,7 @@ services:
       - "8222:8222"
     command: ["--jetstream", "--store_dir", "/data", "-m", "8222"]
     volumes:
-      - nats_data:/data
+      - ${HOST_PROJECT_PATH:-.}/data/nats:/data
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
       interval: 5s
@@ -104,14 +108,13 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
-      - ${HOST_PROJECT_PATH:-.}/litellm/config.yaml:/app/config.yaml:ro
-      - litellm_data:/app/data
+      - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4000/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
       interval: 10s
       timeout: 5s
       retries: 5
