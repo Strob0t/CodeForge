@@ -20,6 +20,7 @@ const (
 // Agent represents an AI coding agent instance.
 type Agent struct {
 	ID             string            `json:"id"`
+	TenantID       string            `json:"tenant_id,omitempty"`
 	ProjectID      string            `json:"project_id"`
 	Name           string            `json:"name"`
 	Backend        string            `json:"backend"`

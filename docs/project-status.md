@@ -237,6 +237,23 @@
 - **Tests:** 22+ new test functions (Go: stall 10, deliver 5, runtime 6+; Python: QG 7), all passing
 - **Protocol:** Quality gate NATS subjects (request/result), stall detection, delivery pipeline
 
+## Phase 3 & 4 Completion: Six Missing Features (COMPLETED)
+
+> Implemented after Phase 6C to fill gaps from Phases 3 and 4.
+
+- [x] (2026-02-18) **3G: Deprecation Middleware** — RFC 8594 `Deprecation` + `Sunset` headers, 3 tests
+- [x] (2026-02-18) **3F: Secrets Vault with SIGHUP Hot Reload** — RWMutex vault, EnvLoader, SIGHUP handler, LiteLLM integration, 4 tests
+- [x] (2026-02-18) **3C: Heartbeat Ticker + Context-Level Timeout** — Go heartbeat subscriber/timeout tracking (sync.Map), Python heartbeat ticker, config fields + ENV overrides, goroutine-based run timeout
+- [x] (2026-02-18) **3D: Event Store Enhancements** — RunID on events (migration 013), LoadByRun query, GET /runs/{id}/events endpoint
+- [x] (2026-02-18) **3H: Multi-Tenancy Preparation** — tenant_id on 7 tables (migration 014), TenantID middleware, context helpers, domain struct fields, 3 tests
+- [x] (2026-02-18) **4B: Runtime Compliance Tests** — 8 sub-tests × 2 exec modes (Mount, Sandbox), 16 test cases passing
+
+### Key Deliverables
+- **New files (11):** deprecation.go/test, vault.go, env_loader.go, vault_test.go, tenant.go/test, migrations 013/014, runtime_compliance_test.go
+- **Modified files (~15):** config.go, loader.go, runtime.go, event.go, eventstore interface, postgres/eventstore.go, handlers.go, routes.go, main.go, domain structs (Project/Task/Agent/Run), runtime.py, test_runtime.py
+- **Tests:** 30+ new test functions (Go + Python), all passing
+- **Verification:** golangci-lint 0 issues, 79/79 Python tests, frontend clean, pre-commit all hooks pass
+
 ## Phase 5: Multi-Agent Orchestration (IN PROGRESS)
 
 ### 5A. Execution Plans — DAG Scheduling with 4 Protocols (COMPLETED)
@@ -447,7 +464,7 @@
 - **New dependency:** `github.com/dgraph-io/ristretto/v2`
 - **Tests:** 36+ new test functions (Go + Python), all passing
 
-## Phase 6: Code-RAG (Context Engine for Large Codebases) (IN PROGRESS)
+## Phase 6: Code-RAG (Context Engine for Large Codebases) (6A-6C COMPLETED)
 
 ### 6A. Repo Map — tree-sitter Based Code Intelligence (COMPLETED)
 

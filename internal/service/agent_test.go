@@ -67,6 +67,16 @@ func (m *mockEventStore) LoadByAgent(_ context.Context, agentID string) ([]event
 	return result, nil
 }
 
+func (m *mockEventStore) LoadByRun(_ context.Context, runID string) ([]event.AgentEvent, error) {
+	var result []event.AgentEvent
+	for i := range m.events {
+		if m.events[i].RunID == runID {
+			result = append(result, m.events[i])
+		}
+	}
+	return result, nil
+}
+
 // --- AgentService Tests ---
 
 func TestAgentServiceList(t *testing.T) {

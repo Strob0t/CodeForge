@@ -7,6 +7,13 @@ import (
 )
 
 // MountRoutes registers all API routes on the given chi router.
+//
+// When /api/v2 is introduced, apply the Deprecation middleware to the v1 group:
+//
+//	r.Route("/api/v1", func(r chi.Router) {
+//	    r.Use(middleware.Deprecation(sunsetDate))
+//	    // ... existing v1 routes ...
+//	})
 func MountRoutes(r chi.Router, h *Handlers) {
 	r.Route("/api/v1", func(r chi.Router) {
 		// Version
@@ -53,6 +60,7 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/runs", h.StartRun)
 		r.Get("/runs/{id}", h.GetRun)
 		r.Post("/runs/{id}/cancel", h.CancelRun)
+		r.Get("/runs/{id}/events", h.ListRunEvents)
 
 		// LLM management (proxied to LiteLLM)
 		r.Get("/llm/models", h.ListLLMModels)

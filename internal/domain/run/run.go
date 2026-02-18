@@ -40,6 +40,7 @@ const (
 // One task can have multiple runs (retries, different agents, different policies).
 type Run struct {
 	ID            string      `json:"id"`
+	TenantID      string      `json:"tenant_id,omitempty"`
 	TaskID        string      `json:"task_id"`
 	AgentID       string      `json:"agent_id"`
 	ProjectID     string      `json:"project_id"`

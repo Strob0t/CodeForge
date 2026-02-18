@@ -6,6 +6,7 @@ import "time"
 // Project represents a code repository managed by CodeForge.
 type Project struct {
 	ID            string            `json:"id"`
+	TenantID      string            `json:"tenant_id,omitempty"`
 	Name          string            `json:"name"`
 	Description   string            `json:"description"`
 	RepoURL       string            `json:"repo_url"`

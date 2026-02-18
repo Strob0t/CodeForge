@@ -30,6 +30,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/resilience"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -183,9 +184,17 @@ func run() error {
 		return fmt.Errorf("output subscriber: %w", err)
 	}
 
+	// --- Secrets Vault ---
+	vault, err := secrets.NewVault(secrets.EnvLoader("LITELLM_MASTER_KEY"))
+	if err != nil {
+		return fmt.Errorf("secrets vault: %w", err)
+	}
+	slog.Info("secrets vault initialized")
+
 	// --- HTTP ---
 	llmClient := litellm.NewClient(cfg.LiteLLM.URL, cfg.LiteLLM.MasterKey)
 	llmClient.SetBreaker(llmBreaker)
+	llmClient.SetVault(vault)
 
 	// --- Meta-Agent Service (Phase 5B) ---
 	metaAgentSvc := service.NewMetaAgentService(store, llmClient, orchSvc, &cfg.Orchestrator)
@@ -251,6 +260,7 @@ func run() error {
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
+		Events:           eventStore,
 	}
 
 	r := chi.NewRouter()
@@ -261,6 +271,7 @@ func run() error {
 	// Middleware
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
 	r.Use(middleware.RequestID)
+	r.Use(middleware.TenantID)
 	r.Use(cfhttp.Logger)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
@@ -294,6 +305,20 @@ func run() error {
 	// Wait for interrupt signal
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
+
+	// SIGHUP triggers hot reload of secrets vault
+	sighup := make(chan os.Signal, 1)
+	signal.Notify(sighup, syscall.SIGHUP)
+	go func() {
+		for range sighup {
+			slog.Info("SIGHUP received, reloading secrets")
+			if err := vault.Reload(); err != nil {
+				slog.Error("secrets reload failed", "error", err)
+			} else {
+				slog.Info("secrets reloaded successfully")
+			}
+		}
+	}()
 
 	go func() {
 		slog.Info("starting server", "addr", addr)

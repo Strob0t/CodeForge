@@ -8,6 +8,7 @@ tool call is individually approved by the control plane's policy engine.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from typing import TYPE_CHECKING
@@ -28,6 +29,7 @@ SUBJECT_TOOLCALL_RESULT = "runs.toolcall.result"
 SUBJECT_RUN_COMPLETE = "runs.complete"
 SUBJECT_RUN_OUTPUT = "runs.output"
 SUBJECT_RUN_CANCEL = "runs.cancel"
+SUBJECT_RUN_HEARTBEAT = "runs.heartbeat"
 
 RESPONSE_TIMEOUT_SECONDS = 30
 
@@ -58,6 +60,7 @@ class RuntimeClient:
         self._total_cost = 0.0
         self._cancelled = False
         self._cancel_sub: object | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
         self._log = logger.bind(run_id=run_id, task_id=task_id)
 
     async def start_cancel_listener(self) -> None:
@@ -79,6 +82,34 @@ class RuntimeClient:
                     break
 
         self._cancel_task = asyncio.create_task(_listen())
+
+    async def start_heartbeat(self, interval: float = 30.0) -> None:
+        """Start periodic heartbeat to the control plane."""
+
+        async def _beat() -> None:
+            while not self._cancelled:
+                payload = {
+                    "run_id": self.run_id,
+                    "timestamp": asyncio.get_event_loop().time(),
+                }
+                try:
+                    await self._js.publish(
+                        SUBJECT_RUN_HEARTBEAT,
+                        json.dumps(payload).encode(),
+                    )
+                except Exception:
+                    self._log.warning("heartbeat publish failed")
+                await asyncio.sleep(interval)
+
+        self._heartbeat_task = asyncio.create_task(_beat())
+
+    async def stop_heartbeat(self) -> None:
+        """Stop the heartbeat ticker."""
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._heartbeat_task
+            self._heartbeat_task = None
 
     @property
     def is_cancelled(self) -> bool:
@@ -187,6 +218,7 @@ class RuntimeClient:
         error: str = "",
     ) -> None:
         """Signal that the run has finished."""
+        await self.stop_heartbeat()
         msg = RunCompleteMessage(
             run_id=self.run_id,
             task_id=self.task_id,

@@ -14,6 +14,7 @@ from codeforge.models import (
 )
 from codeforge.runtime import (
     SUBJECT_RUN_COMPLETE,
+    SUBJECT_RUN_HEARTBEAT,
     SUBJECT_RUN_OUTPUT,
     SUBJECT_TOOLCALL_REQUEST,
     SUBJECT_TOOLCALL_RESULT,
@@ -215,6 +216,33 @@ def test_run_start_message_parsing() -> None:
     assert msg.termination.max_steps == 100
     assert msg.termination.max_cost == pytest.approx(10.0)
     assert msg.config["model"] == "gpt-4"
+
+
+async def test_heartbeat_sends_messages(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
+    """start_heartbeat should publish periodic heartbeat messages."""
+    import asyncio
+
+    await runtime.start_heartbeat(interval=0.05)
+
+    # Let a few heartbeats fire
+    await asyncio.sleep(0.18)
+
+    await runtime.stop_heartbeat()
+
+    # Should have published at least 2 heartbeats
+    calls = [c for c in mock_js.publish.call_args_list if c.args[0] == SUBJECT_RUN_HEARTBEAT]
+    assert len(calls) >= 2
+
+    # Verify payload structure
+    data = json.loads(calls[0].args[1])
+    assert data["run_id"] == "run-1"
+    assert "timestamp" in data
+
+
+async def test_heartbeat_stop_is_idempotent(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
+    """stop_heartbeat should be safe to call when no heartbeat is running."""
+    # Should not raise
+    await runtime.stop_heartbeat()
 
 
 def test_tool_call_decision_parsing() -> None:

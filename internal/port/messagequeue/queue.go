@@ -45,6 +45,9 @@ const (
 	SubjectRunCancel           = "runs.cancel"            // Go → Python: cancel a run
 	SubjectRunOutput           = "runs.output"            // Python → Go: streaming output
 
+	// Heartbeat subject (Phase 3C)
+	SubjectRunHeartbeat = "runs.heartbeat" // Python → Go: periodic heartbeat
+
 	// Quality gate subjects (Phase 4C)
 	SubjectQualityGateRequest = "runs.qualitygate.request" // Go → Python: run tests/lint
 	SubjectQualityGateResult  = "runs.qualitygate.result"  // Python → Go: gate outcome

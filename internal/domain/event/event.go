@@ -48,6 +48,7 @@ type AgentEvent struct {
 	AgentID   string          `json:"agent_id"`
 	TaskID    string          `json:"task_id"`
 	ProjectID string          `json:"project_id"`
+	RunID     string          `json:"run_id,omitempty"`
 	Type      Type            `json:"type"`
 	Payload   json.RawMessage `json:"payload"`
 	RequestID string          `json:"request_id,omitempty"`

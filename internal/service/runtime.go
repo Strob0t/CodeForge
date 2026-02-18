@@ -38,6 +38,8 @@ type RuntimeService struct {
 	onRunComplete func(ctx context.Context, runID string, status run.Status)
 	runtimeCfg    *config.Runtime
 	stallTrackers sync.Map // map[runID]*run.StallTracker
+	heartbeats    sync.Map // map[runID]time.Time — last heartbeat timestamp
+	runTimeouts   sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -83,6 +85,11 @@ func (s *RuntimeService) SetCheckpointService(cp *CheckpointService) {
 // SetSandboxService sets the sandbox service for containerized execution.
 func (s *RuntimeService) SetSandboxService(sb *SandboxService) {
 	s.sandbox = sb
+}
+
+// SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
+func (s *RuntimeService) SetHeartbeat(runID string, t time.Time) {
+	s.heartbeats.Store(runID, t)
 }
 
 // StartRun creates a new run in the database and publishes a start message to NATS.
@@ -224,6 +231,29 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		ProjectID: r.ProjectID,
 		Status:    string(r.Status),
 	})
+
+	// Start context-level timeout goroutine
+	if profile.Termination.TimeoutSeconds > 0 {
+		timeoutDur := time.Duration(profile.Termination.TimeoutSeconds) * time.Second
+		timeoutCtx, timeoutCancel := context.WithCancel(context.Background())
+		s.runTimeouts.Store(r.ID, timeoutCancel)
+		go func(runID string, timeout time.Duration) {
+			timer := time.NewTimer(timeout)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				// Check if run is still active before cancelling
+				rr, err := s.store.GetRun(context.Background(), runID)
+				if err != nil || rr.Status != run.StatusRunning {
+					return
+				}
+				slog.Warn("context-level timeout, cancelling run", "run_id", runID, "timeout", timeout)
+				_ = s.cancelRunWithReason(context.Background(), runID, "context-level timeout")
+			case <-timeoutCtx.Done():
+				return
+			}
+		}(r.ID, timeoutDur)
+	}
 
 	slog.Info("run started", "run_id", r.ID, "task_id", r.TaskID, "policy", profileName)
 	return r, nil
@@ -381,9 +411,6 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
-
-	// Clean up stall tracker
-	s.stallTrackers.Delete(r.ID)
 
 	// Determine final status
 	status := run.Status(payload.Status)
@@ -545,8 +572,61 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 	})
 }
 
+// cleanupRunState removes heartbeat, stall tracker, and timeout goroutine for a run.
+func (s *RuntimeService) cleanupRunState(runID string) {
+	s.heartbeats.Delete(runID)
+	s.stallTrackers.Delete(runID)
+	if cancel, ok := s.runTimeouts.LoadAndDelete(runID); ok {
+		cancel.(context.CancelFunc)()
+	}
+}
+
+// cancelRunWithReason cancels a run with a specific reason message (used by timeout goroutine).
+func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason string) error {
+	r, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("get run: %w", err)
+	}
+	if r.Status != run.StatusRunning && r.Status != run.StatusPending {
+		return nil // already completed
+	}
+
+	s.cleanupRunState(runID)
+
+	if err := s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount); err != nil {
+		return fmt.Errorf("complete run: %w", err)
+	}
+	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
+	_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+
+	cancelPayload := struct {
+		RunID string `json:"run_id"`
+	}{RunID: runID}
+	_ = s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload)
+
+	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
+		"status": string(run.StatusTimeout),
+		"reason": reason,
+	})
+	s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+		RunID:     r.ID,
+		TaskID:    r.TaskID,
+		ProjectID: r.ProjectID,
+		Status:    string(run.StatusTimeout),
+		StepCount: r.StepCount,
+		CostUSD:   r.CostUSD,
+	})
+
+	if s.onRunComplete != nil {
+		s.onRunComplete(ctx, r.ID, run.StatusTimeout)
+	}
+	return nil
+}
+
 // finalizeRun completes the run lifecycle: update DB, task, agent, broadcast events.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
+	s.cleanupRunState(r.ID)
+
 	if err := s.store.CompleteRun(ctx, r.ID, status, payload.Output, payload.Error, payload.CostUSD, payload.StepCount); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
@@ -699,8 +779,8 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 		return fmt.Errorf("run %s is not active (status: %s)", runID, r.Status)
 	}
 
-	// Clean up stall tracker
-	s.stallTrackers.Delete(runID)
+	// Clean up all run-associated state
+	s.cleanupRunState(runID)
 
 	// Update DB
 	if err := s.store.CompleteRun(ctx, r.ID, run.StatusCancelled, "", "cancelled by user", r.CostUSD, r.StepCount); err != nil {
@@ -829,6 +909,21 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 	}
 	cancels = append(cancels, cancel)
 
+	// Heartbeat from workers (Phase 3C)
+	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectRunHeartbeat, func(_ context.Context, _ string, data []byte) error {
+		var hb messagequeue.RunHeartbeatPayload
+		if err := json.Unmarshal(data, &hb); err != nil {
+			return fmt.Errorf("unmarshal heartbeat: %w", err)
+		}
+		s.heartbeats.Store(hb.RunID, time.Now())
+		return nil
+	})
+	if err != nil {
+		cancelAll(cancels)
+		return nil, fmt.Errorf("subscribe heartbeat: %w", err)
+	}
+	cancels = append(cancels, cancel)
+
 	// Streaming output from workers
 	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectRunOutput, func(msgCtx context.Context, _ string, data []byte) error {
 		var output messagequeue.RunOutputPayload
@@ -868,6 +963,16 @@ func (s *RuntimeService) checkTermination(r *run.Run, profile *policy.PolicyProf
 			return fmt.Sprintf("timeout reached (%s/%ds)", elapsed.Truncate(time.Second), tc.TimeoutSeconds)
 		}
 	}
+
+	// Check heartbeat timeout
+	if s.runtimeCfg.HeartbeatTimeout > 0 {
+		if lastHB, ok := s.heartbeats.Load(r.ID); ok {
+			if time.Since(lastHB.(time.Time)) > s.runtimeCfg.HeartbeatTimeout {
+				return "heartbeat timeout (worker unresponsive)"
+			}
+		}
+	}
+
 	return ""
 }
 
@@ -902,6 +1007,7 @@ func (s *RuntimeService) appendRunEvent(ctx context.Context, evType event.Type, 
 		AgentID:   r.AgentID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
+		RunID:     r.ID,
 		Type:      evType,
 		Payload:   payloadJSON,
 		RequestID: logger.RequestID(ctx),

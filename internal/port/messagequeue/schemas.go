@@ -113,6 +113,14 @@ type RunOutputPayload struct {
 	Stream string `json:"stream"`
 }
 
+// --- Heartbeat payload (Phase 3C) ---
+
+// RunHeartbeatPayload is the schema for runs.heartbeat messages.
+type RunHeartbeatPayload struct {
+	RunID     string `json:"run_id"`
+	Timestamp string `json:"timestamp"`
+}
+
 // --- Quality Gate payloads (Phase 4C) ---
 
 // QualityGateRequestPayload is published to request test/lint execution.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/resilience"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // Model represents a configured model in LiteLLM.
@@ -39,6 +40,7 @@ type ModelHealth struct {
 type Client struct {
 	baseURL    string
 	masterKey  string
+	vault      *secrets.Vault
 	httpClient *http.Client
 	breaker    *resilience.Breaker
 }
@@ -57,6 +59,23 @@ func NewClient(baseURL, masterKey string) *Client {
 // SetBreaker attaches a circuit breaker to all outgoing HTTP calls.
 func (c *Client) SetBreaker(b *resilience.Breaker) {
 	c.breaker = b
+}
+
+// SetVault attaches a secrets vault. When set, the master key is read from
+// the vault on each request, enabling hot reload via SIGHUP.
+func (c *Client) SetVault(v *secrets.Vault) {
+	c.vault = v
+}
+
+// activeMasterKey returns the master key from the vault (if set and non-empty),
+// falling back to the static masterKey field.
+func (c *Client) activeMasterKey() string {
+	if c.vault != nil {
+		if k := c.vault.Get("LITELLM_MASTER_KEY"); k != "" {
+			return k
+		}
+	}
+	return c.masterKey
 }
 
 // ListModels returns all configured models from LiteLLM.
@@ -194,8 +213,8 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		if c.masterKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.masterKey)
+		if key := c.activeMasterKey(); key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
 		}
 
 		resp, err := c.httpClient.Do(req)

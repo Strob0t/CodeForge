@@ -22,9 +22,9 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 // Append inserts a new event into the agent_events table.
 func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO agent_events (agent_id, task_id, project_id, event_type, payload, request_id, version)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		ev.AgentID, ev.TaskID, ev.ProjectID, string(ev.Type), ev.Payload, ev.RequestID, ev.Version)
+		`INSERT INTO agent_events (agent_id, task_id, project_id, run_id, event_type, payload, request_id, version)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		ev.AgentID, ev.TaskID, ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
@@ -34,7 +34,7 @@ func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 // LoadByTask returns all events for the given task, ordered by version ascending.
 func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.AgentEvent, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, agent_id, task_id, project_id, event_type, payload, request_id, version, created_at
+		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
 		 FROM agent_events WHERE task_id = $1 ORDER BY version ASC`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("load events by task %s: %w", taskID, err)
@@ -44,7 +44,7 @@ func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.Age
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		events = append(events, ev)
@@ -55,7 +55,7 @@ func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.Age
 // LoadByAgent returns all events for the given agent, ordered by version ascending.
 func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.AgentEvent, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, agent_id, task_id, project_id, event_type, payload, request_id, version, created_at
+		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
 		 FROM agent_events WHERE agent_id = $1 ORDER BY version ASC`, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("load events by agent %s: %w", agentID, err)
@@ -65,7 +65,28 @@ func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.A
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan event: %w", err)
+		}
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}
+
+// LoadByRun returns all events for the given run, ordered by version ascending.
+func (s *EventStore) LoadByRun(ctx context.Context, runID string) ([]event.AgentEvent, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
+		 FROM agent_events WHERE run_id = $1 ORDER BY version ASC`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("load events by run %s: %w", runID, err)
+	}
+	defer rows.Close()
+
+	var events []event.AgentEvent
+	for rows.Next() {
+		var ev event.AgentEvent
+		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		events = append(events, ev)

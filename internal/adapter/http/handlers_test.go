@@ -315,6 +315,9 @@ func (m *mockEventStore) LoadByTask(_ context.Context, _ string) ([]event.AgentE
 func (m *mockEventStore) LoadByAgent(_ context.Context, _ string) ([]event.AgentEvent, error) {
 	return nil, nil
 }
+func (m *mockEventStore) LoadByRun(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
 
 var errNotFound = fmt.Errorf("mock: %w", domain.ErrNotFound)
 
@@ -355,6 +358,7 @@ func newTestRouter() chi.Router {
 		Modes:            modeSvc,
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
+		Events:           es,
 	}
 
 	r := chi.NewRouter()
@@ -776,6 +780,28 @@ func TestListTaskEventsEmpty(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+// --- Run Events ---
+
+func TestListRunEventsEmpty(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/runs/some-run/events", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var events []event.AgentEvent
+	if err := json.NewDecoder(w.Body).Decode(&events); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected empty list, got %d", len(events))
 	}
 }
 

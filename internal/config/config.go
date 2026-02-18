@@ -51,6 +51,8 @@ type Runtime struct {
 	DefaultTestCommand   string        `yaml:"default_test_command"`
 	DefaultLintCommand   string        `yaml:"default_lint_command"`
 	DeliveryCommitPrefix string        `yaml:"delivery_commit_prefix"`
+	HeartbeatInterval    time.Duration `yaml:"heartbeat_interval"` // Worker heartbeat send interval (default: 30s)
+	HeartbeatTimeout     time.Duration `yaml:"heartbeat_timeout"`  // Max time without heartbeat before kill (default: 120s)
 	Sandbox              SandboxConfig `yaml:"sandbox"`
 }
 
@@ -173,6 +175,8 @@ func Defaults() Config {
 			DefaultTestCommand:   "go test ./...",
 			DefaultLintCommand:   "golangci-lint run ./...",
 			DeliveryCommitPrefix: "codeforge:",
+			HeartbeatInterval:    30 * time.Second,
+			HeartbeatTimeout:     120 * time.Second,
 			Sandbox: SandboxConfig{
 				MemoryMB:    512,
 				CPUQuota:    1000,

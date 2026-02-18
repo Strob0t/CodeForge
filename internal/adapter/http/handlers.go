@@ -24,6 +24,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
+	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -48,6 +49,7 @@ type Handlers struct {
 	Modes            *service.ModeService
 	RepoMap          *service.RepoMapService
 	Retrieval        *service.RetrievalService
+	Events           eventstore.Store
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -588,6 +590,24 @@ func (h *Handlers) ListTaskRuns(w http.ResponseWriter, r *http.Request) {
 		runs = []run.Run{}
 	}
 	writeJSON(w, http.StatusOK, runs)
+}
+
+// ListRunEvents handles GET /api/v1/runs/{id}/events
+func (h *Handlers) ListRunEvents(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "id")
+	if h.Events == nil {
+		writeError(w, http.StatusInternalServerError, "event store not configured")
+		return
+	}
+	events, err := h.Events.LoadByRun(r.Context(), runID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if events == nil {
+		events = []event.AgentEvent{}
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 // --- Execution Plan Endpoints ---

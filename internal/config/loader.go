@@ -78,6 +78,8 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.DefaultTestCommand, "CODEFORGE_TEST_COMMAND")
 	setString(&cfg.Runtime.DefaultLintCommand, "CODEFORGE_LINT_COMMAND")
 	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
+	setDuration(&cfg.Runtime.HeartbeatInterval, "CODEFORGE_HEARTBEAT_INTERVAL")
+	setDuration(&cfg.Runtime.HeartbeatTimeout, "CODEFORGE_HEARTBEAT_TIMEOUT")
 
 	// Idempotency
 	setString(&cfg.Idempotency.Bucket, "CODEFORGE_IDEMPOTENCY_BUCKET")

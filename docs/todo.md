@@ -69,11 +69,16 @@
   - 4-phase ordered shutdown: HTTP → cancel subscribers → NATS Drain → DB close
   - NATS: `Drain()` method added to Queue interface and NATS adapter
   - Python: 10s drain timeout to prevent hanging
-- [-] Agent execution timeout & heartbeat (partially done)
+- [x] (2026-02-18) Agent execution timeout & heartbeat
   - [x] Timeout enforcement exists: `checkTermination()` in `runtime.go` checks elapsed time per tool call
   - [x] Cancellation via `POST /api/v1/runs/{id}/cancel` + NATS `runs.cancel` subject
-  - [ ] Heartbeat ticker (30s) for progress tracking during long tool calls
-  - [ ] Context-level timeout (wrapping entire run, not just tool-call boundaries)
+  - [x] (2026-02-18) Heartbeat ticker (30s) for progress tracking during long tool calls
+    - Go: `heartbeats` sync.Map, heartbeat subscriber in StartSubscribers, timeout check in checkTermination
+    - Python: `start_heartbeat()`/`stop_heartbeat()` on RuntimeClient, called from executor
+    - Config: `HeartbeatInterval` (30s), `HeartbeatTimeout` (120s) with ENV overrides
+  - [x] (2026-02-18) Context-level timeout (wrapping entire run, not just tool-call boundaries)
+    - Goroutine-based timer per run, tracked via `runTimeouts` sync.Map of context.CancelFunc
+    - Auto-cancels run when TerminationConfig.TimeoutSeconds expires
 - [x] (2026-02-17) Idempotency Keys for critical operations
   - `internal/middleware/idempotency.go`: HTTP middleware for POST/PUT/DELETE deduplication
   - NATS JetStream KV storage (24h TTL) via `KeyValue()` method in `internal/adapter/nats/nats.go`
@@ -101,6 +106,13 @@
 - [x] (2026-02-17) Storage: PostgreSQL table `agent_events` (append-only, migration 004, indexed)
 - [x] (2026-02-17) Service: Event recording on dispatch/result/stop, LoadTaskEvents method
 - [x] (2026-02-17) API: `GET /api/v1/tasks/{id}/events` handler + frontend client method
+- [x] (2026-02-18) Event store enhancements: RunID association + LoadByRun query
+  - Migration 013: `run_id UUID` column + index on `agent_events`
+  - Domain: `RunID` field on `AgentEvent`, set in `appendRunEvent`
+  - Port: `LoadByRun` method on `eventstore.Store` interface
+  - Postgres adapter: `run_id` in INSERT/SELECT for all methods + `LoadByRun`
+  - HTTP: `GET /api/v1/runs/{id}/events` handler + route
+  - Handlers: `Events eventstore.Store` field wired in main.go
 - [ ] Features: Replay task, trajectory inspector, audit trail
 - [ ] Session Events as Source of Truth (append-only log for Resume/Fork/Rewind)
   - Every user/model/tool action recorded as event
@@ -144,10 +156,12 @@
   - Migration: `012_add_agent_resource_limits.sql`
   - Sandbox merge logic: global config → policy limits → agent limits → cap at ceiling
   - 5 tests in `internal/domain/resource/limits_test.go`
-- [ ] Secrets rotation support
-  - Create `internal/secrets/vault.go` with hot reload
-  - SIGHUP handler to trigger reload from ENV or external vault
-  - RWMutex for safe concurrent access
+- [x] (2026-02-18) Secrets vault with SIGHUP hot reload
+  - `internal/secrets/vault.go`: Vault struct with RWMutex, Get/Reload methods
+  - `internal/secrets/env_loader.go`: EnvLoader factory for env-var-based secrets
+  - SIGHUP handler in `cmd/codeforge/main.go` triggers `vault.Reload()`
+  - LiteLLM client: `SetVault()` injection, `masterKey()` reads from vault
+  - 4 tests in `internal/secrets/vault_test.go`
 
 ### 3G. API & Health
 
@@ -155,9 +169,11 @@
   - `/health` liveness (always 200), `/health/ready` readiness (pings DB, NATS, LiteLLM)
   - Returns 503 with per-service status + latency if any dependency down
   - NATS `IsConnected()` added to Queue interface
-- [ ] API versioning with deprecation
-  - Router: `/api/v1` (deprecated), `/api/v2` (current)
-  - Middleware: `DeprecationWarning()` adds `Deprecation: true`, `Sunset: <date>` headers
+- [x] (2026-02-18) API deprecation middleware
+  - `internal/middleware/deprecation.go`: `Deprecation(sunset)` adds RFC 8594 headers
+  - `Deprecation: true` + `Sunset: <HTTP-date>` headers on deprecated routes
+  - 3 tests in `internal/middleware/deprecation_test.go`
+  - Ready for use when `/api/v2` is introduced (no sunset date set yet)
 - [ ] Database migrations: Rollback capability
   - All migrations must have `-- +goose Up` and `-- +goose Down`
   - Transactional migrations (BEGIN/COMMIT)
@@ -165,11 +181,15 @@
 
 ### 3H. Multi-Tenancy Preparation (Soft Launch)
 
-- [ ] Add tenant_id to all tables
-  - Migration: `004_add_tenant_id.sql`
-  - Add `tenant_id UUID NOT NULL DEFAULT '00000000-...'`
-  - Indexes: `idx_projects_tenant`, `idx_tasks_tenant`
-  - Service layer: Extract tenant_id from context (single-tenant for now)
+- [x] (2026-02-18) Add tenant_id to all tables
+  - Migration 014: `tenant_id UUID NOT NULL DEFAULT '00000000-...'` on 7 tables
+  - Indexes on projects, tasks, agents, runs
+  - `internal/middleware/tenant.go`: TenantID middleware (X-Tenant-ID header, default fallback)
+  - Context helpers: `TenantIDFromContext()`, `WithTenantID()`
+  - Domain structs: `TenantID` field added to Project, Task, Agent, Run
+  - Middleware chain: `r.Use(middleware.TenantID)` after RequestID
+  - 3 tests in `internal/middleware/tenant_test.go`
+  - Deferred: full WHERE tenant_id clauses in queries (single-tenant for now)
 
 ---
 
@@ -269,9 +289,10 @@
   - 5 tests in `internal/service/sandbox_test.go`
   - Mount mode: implicit — Python worker operates directly on host filesystem (no additional Go code needed)
   - Deferred: Hybrid mode (read from host, write in sandbox, merge on success)
-- [ ] Runtime Compliance Tests
-  - Test suite that validates Sandbox vs Hybrid execution
-  - Feature parity checks, isolation verification
+- [x] (2026-02-18) Runtime Compliance Tests
+  - `internal/service/runtime_compliance_test.go`: 8 sub-tests × 2 modes (Mount, Sandbox)
+  - Sub-tests: StartRun, ToolCallFlow, PolicyEnforcement, Termination_MaxSteps, Termination_MaxCost, CancelRun, Completion, StallDetection
+  - All 16 compliance test cases passing
 
 ### 4C. Headless Autonomy (Server-First Execution) (COMPLETED)
 
@@ -535,7 +556,7 @@
 - [ ] Integration tests for Config Loader (precedence, validation, reload)
 - [x] (2026-02-17) Unit tests for Idempotency (no header, store, replay, GET ignored, different keys) — 5 tests in `internal/middleware/idempotency_test.go`
 - [ ] Load tests for Rate Limiting (sustained vs burst, per-user limiters)
-- [ ] Runtime Compliance Tests (Sandbox/Mount/Hybrid feature parity)
+- [x] (2026-02-18) Runtime Compliance Tests (Sandbox/Mount feature parity) — 16 sub-tests passing
 - [x] (2026-02-17) Policy Gate tests (deny/ask/allow evaluation, path scoping, command matching, preset integration)
 
 ---

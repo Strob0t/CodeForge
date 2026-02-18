@@ -17,4 +17,7 @@ type Store interface {
 
 	// LoadByAgent returns all events for the given agent, ordered by version.
 	LoadByAgent(ctx context.Context, agentID string) ([]event.AgentEvent, error)
+
+	// LoadByRun returns all events for the given run, ordered by version.
+	LoadByRun(ctx context.Context, runID string) ([]event.AgentEvent, error)
 }

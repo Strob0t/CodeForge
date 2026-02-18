@@ -18,6 +18,7 @@ const (
 // Task represents a unit of work assigned to an agent.
 type Task struct {
 	ID        string    `json:"id"`
+	TenantID  string    `json:"tenant_id,omitempty"`
 	ProjectID string    `json:"project_id"`
 	AgentID   string    `json:"agent_id,omitempty"`
 	Title     string    `json:"title"`
