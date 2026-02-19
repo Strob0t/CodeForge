@@ -648,6 +648,131 @@
 
 ---
 
+## Phase 10 — Frontend Foundations (Cross-Cutting)
+
+> These foundations must be built BEFORE adding more feature UIs.
+> They affect every component and are cheaper to retrofit now than later.
+
+### 10A. Theme System (Dark/Light Mode Toggle)
+
+- [ ] Define CSS custom properties for color tokens (bg-primary, bg-surface, text-primary, border, etc.)
+- [ ] Implement Tailwind `dark:` variants on all existing components (~15 files in `frontend/src/features/`)
+- [ ] Theme toggle component in Sidebar or TopBar
+- [ ] localStorage persistence for user preference
+- [ ] System preference detection via `prefers-color-scheme` media query
+- [ ] Formalize 4-color agent status schema as design tokens:
+  - Green: running/healthy, Yellow: waiting/needs-input, Red: error/blocked, Blue: planning/thinking
+- [ ] Customization hooks for branding (CSS custom property overrides)
+
+### 10B. i18n (Internationalization)
+
+- [ ] Evaluate i18n approach: `@solid-primitives/i18n` vs. custom JSON bundles + SolidJS Context
+- [ ] Extract all hardcoded UI strings from ~15 components into key-based bundles
+- [ ] Language bundles: English (default) + German
+- [ ] Language switcher in Sidebar/Settings
+- [ ] Locale-aware date/number formatting (Intl.DateTimeFormat, Intl.NumberFormat)
+- [ ] Pluralization support for counts (e.g. "1 agent" vs. "3 agents")
+
+### 10C. Authentication & Authorization
+
+- [ ] Decide auth strategy: Session-based (cookie) vs. JWT vs. OAuth2/OIDC
+- [ ] Go Core: Auth middleware (after RequestID, before TenantID in chain)
+- [ ] User domain model (`internal/domain/user/`): id, email, name, role, tenant_id
+- [ ] Database migration: `users` table with password hash (bcrypt/argon2)
+- [ ] Role-Based Access Control: admin, editor, viewer
+- [ ] API Key support for headless/CI access (`X-API-Key` header)
+- [ ] Frontend: Auth Context provider, protected route guard
+- [ ] Frontend: Login page, logout flow, session refresh
+- [ ] Frontend: Show current user in Sidebar, role-based UI element visibility
+- [ ] Connects to existing Multi-Tenancy soft-launch (Phase 3H tenant_id)
+
+### 10D. WCAG 2.2 Conformance (Level AA)
+
+- [ ] Audit all existing components against WCAG 2.2 AA criteria
+- [ ] `aria-label` / `aria-labelledby` on all interactive elements (buttons, inputs, selects)
+- [ ] Focus management: visible focus rings (`:focus-visible`), focus trap in modals/dialogs
+- [ ] Keyboard navigation: correct Tab order, Enter/Space for buttons, Escape for close
+- [ ] Color contrast: minimum 4.5:1 ratio for all text/background combinations (depends on 10A Theme)
+- [ ] Screen reader support: landmark regions (`<main>`, `<nav>`, `<aside>`), `aria-live` for real-time updates
+- [ ] Skip-to-content link as first focusable element
+- [ ] Form accessibility: explicit `<label>` associations, error announcements, required field indicators
+- [ ] Motion: `prefers-reduced-motion` media query for animations
+- [ ] Test with axe-core / Playwright accessibility audit in E2E tests
+
+### 10E. Keyboard Shortcuts (Command Palette)
+
+- [ ] Global hotkey handler: Ctrl+K / Cmd+K for Command Palette overlay
+- [ ] Navigation shortcuts: Ctrl+1 Dashboard, Ctrl+2 Costs, Ctrl+3 Models
+- [ ] Action shortcuts: Ctrl+Enter submit forms, Escape cancel/close
+- [ ] Shortcut help overlay (? or Ctrl+/ to show)
+- [ ] Zero external dependencies — SolidJS `onMount`/`onCleanup` + native KeyboardEvent
+- [ ] Files: `App.tsx` (global handler), new `frontend/src/components/CommandPalette.tsx`
+- [ ] WCAG: shortcuts must not conflict with screen reader keys
+
+### 10F. Toast/Notification System
+
+- [ ] Global toast container (top-right, max 3 simultaneous, stacked)
+- [ ] Toast types: success (green), error (red), warning (yellow), info (blue)
+- [ ] Auto-dismiss (5s default), manually closable
+- [ ] Zero external dependencies — SolidJS `createSignal` + `Portal`
+- [ ] Integration points: API errors, WebSocket events (budget alerts, run complete, agent status)
+- [ ] WCAG: `aria-live="polite"` for info/success, `role="alert"` for errors
+- [ ] Files: new `frontend/src/components/Toast.tsx`, `App.tsx` (provider), all API-calling panels
+
+### 10G. Error Boundary + Offline Detection
+
+- [ ] SolidJS `ErrorBoundary` around App root with fallback UI + retry button
+- [ ] Online/Offline detection: `navigator.onLine` + WebSocket connection status
+- [ ] Visible reconnect banner when connection lost (WebSocket already has auto-reconnect)
+- [ ] API client: retry logic with exponential backoff (max 3 retries, 1s/2s/4s)
+- [ ] Graceful degradation: show cached data when offline, queue actions for retry
+- [ ] Files: `App.tsx`, `api/client.ts`, `api/websocket.ts`, new `frontend/src/components/OfflineBanner.tsx`
+
+### Dependencies
+
+```
+10C Auth ──────────────────────┐
+10A Theme ─── 10D WCAG ────────┤
+10B i18n  ─────────────────────┤──> All further feature UIs
+10F Toast ─── 10G Error ───────┤
+10E Keyboard ──────────────────┘
+```
+
+---
+
+## Phase 11+ — Future GUI Enhancements
+
+> Items from the "Glass Cockpit" GUI design review.
+> These are valuable but too early for the current project phase.
+> Prerequisites: Phase 10 foundations + working multi-agent orchestration.
+
+### Visual Enhancements (requires graph rendering library)
+
+- [ ] Architecture graph / pulsating project blueprint visualization
+- [ ] Agent network visualization (nodes + edges, message flow animation)
+- [ ] Step-progress indicators replacing time estimates (steps completed / total)
+
+### Advanced Layouts
+
+- [ ] Split-screen feature planning (chat input left + generated spec right)
+- [ ] ProjectDetailPage tab navigation (Overview | Agent & Runs | Planning | Context | Settings)
+- [ ] Multi-terminal view with tiles per agent (relevant when agent teams work)
+- [ ] Global activity/notification stream (cross-project, not just per-project)
+
+### Developer Tools
+
+- [ ] Vector search simulator / "What does the agent know?" debug tool
+- [ ] Diff-review / code preview for agent output (before/after comparison)
+- [ ] Trajectory replay / inspector with step-by-step playback
+
+### Missing UI for Existing Backend Features
+
+- [ ] Settings/Configuration page (LiteLLM config, API keys, provider setup)
+- [ ] Mode selection UI (architect, coder, reviewer, debugger, etc.) — backend ready via `api.modes`
+- [ ] Team/Multi-Agent management UI — backend ready via `api.teams`
+
+---
+
 ## Documentation TODOs
 
 - [x] (2026-02-18) Create ADR for Config Hierarchy (`docs/architecture/adr/003-config-hierarchy.md`)
@@ -726,11 +851,12 @@ For full completion history, see [project-status.md](project-status.md).
 
 ## Notes
 
-- **Priority order**: Phases 0-8 complete → Phase 9+ (Advanced Features & Vision)
+- **Priority order**: Phases 0-8 complete → Phase 9 (Advanced) → Phase 10 (Frontend Foundations) → Phase 11+ (Future GUI)
 - **Dependencies**: Structured Logging → Request ID → Docker Logging → Log Script
 - **Dependencies**: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
 - **Dependencies**: Repo Map → Hybrid Retrieval → Retrieval Sub-Agent → GraphRAG
 - **Dependencies**: Roadmap Domain → Store → Service → Handlers → Frontend
+- **Dependencies**: Auth → Multi-Tenancy full rollout; Theme → WCAG audit
 - **Testing**: Each new pattern requires unit + integration tests before merge
 - **Documentation**: ADRs must be written before implementation (capture decision context)
 - **Source**: Analysis document `docs/Analyse des CodeForge-Projekts (staging-Branch).md`
