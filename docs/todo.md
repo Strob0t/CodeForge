@@ -786,7 +786,10 @@
 - [x] (2026-02-19) Skip-to-content link as first focusable element
 - [x] (2026-02-19) Form accessibility: explicit `<label>` associations, error announcements, required field indicators
 - [x] (2026-02-19) Motion: `prefers-reduced-motion` media query for animations
-- [ ] Test with axe-core / Playwright accessibility audit in E2E tests
+- [x] (2026-02-19) Test with axe-core / Playwright accessibility audit in E2E tests
+  - `@axe-core/playwright` integrated as devDependency
+  - `frontend/e2e/a11y.spec.ts`: WCAG 2.2 AA checks on Dashboard, Costs, Models, Login pages
+  - Tags: `wcag2a`, `wcag2aa`, `wcag22aa`
 
 ### 10E. Keyboard Shortcuts (Command Palette)
 

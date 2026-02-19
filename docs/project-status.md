@@ -977,6 +977,10 @@
 - [x] (2026-02-19) CommandPalette: focus trap (Tab key prevented from escaping), `role="dialog"` + `aria-modal`, combobox/listbox/option pattern
 - [x] (2026-02-19) Color contrast: Tailwind dark mode classes ensure 4.5:1+ ratio for all text/background pairs
 - Files changed: index.css, App.tsx, CommandPalette.tsx, OfflineBanner.tsx, DashboardPage.tsx, ProjectCard.tsx, CostDashboardPage.tsx, ModelsPage.tsx, AgentPanel.tsx, LiveOutput.tsx, PlanPanel.tsx, PolicyPanel.tsx, ProjectDetailPage.tsx, RepoMapPanel.tsx, RetrievalPanel.tsx, RoadmapPanel.tsx, RunPanel.tsx, TaskPanel.tsx, TrajectoryPanel.tsx
+- [x] (2026-02-19) axe-core Playwright accessibility audit in E2E tests
+  - `@axe-core/playwright` devDependency
+  - `frontend/e2e/a11y.spec.ts`: automated WCAG 2.2 AA checks on Dashboard, Costs, Models, Login pages
+  - Tags: `wcag2a`, `wcag2aa`, `wcag22aa`
 
 ### 10G. Error Boundary + Offline Detection (COMPLETED)
 

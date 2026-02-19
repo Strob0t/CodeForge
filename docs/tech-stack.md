@@ -153,3 +153,4 @@
 - Native `fetch` API — thin wrapper (~30-50 LOC), no axios/ky
 - SolidJS built-in state management (signals, stores, context) — no external state library
 - `lucide-solid` — icons (tree-shakeable, direct imports)
+- `@axe-core/playwright` (devDependency) — automated WCAG accessibility auditing in E2E tests
