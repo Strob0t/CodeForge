@@ -475,6 +475,11 @@ const de: Translations = {
   "detail.toast.planCompleted": "Plan abgeschlossen",
   "detail.toast.planFailed": "Plan fehlgeschlagen",
   "detail.toast.budgetAlert": "Budgetalarm: {{pct}}% des Limits erreicht",
+  "detail.tab.overview": "Übersicht",
+  "detail.tab.tasks": "Aufgaben & Roadmap",
+  "detail.tab.agents": "Agenten & Läufe",
+  "detail.tab.context": "Kontext",
+  "detail.tab.costs": "Kosten",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live-Ausgabe",

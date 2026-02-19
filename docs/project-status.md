@@ -996,3 +996,17 @@
   - `frontend/src/api/cache.ts`: response cache (5min TTL), mutation queue with auto-drain
   - `frontend/src/api/client.ts`: cache on GET success, serve stale on network fail; queue mutations when offline, auto-retry on `window.online` event
   - `.gitignore` updated for Playwright artifacts (e2e-results/, e2e-report/, test-results/)
+
+## Phase 11 — Future GUI Enhancements (IN PROGRESS)
+
+### 11A. ProjectDetailPage Tab Navigation (COMPLETED)
+
+- [x] (2026-02-19) Tab-based layout replacing vertical panel stack
+  - 5 tabs: Overview, Tasks & Roadmap, Agents & Runs, Context, Costs
+  - Tab bar with `role="tablist"`, `aria-selected`, `aria-controls` for WCAG compliance
+  - i18n keys: `detail.tab.*` (EN + DE)
+  - Overview: Git status, branches, clone/pull actions
+  - Tasks & Roadmap: TaskPanel + RoadmapPanel
+  - Agents & Runs: AgentPanel + PolicyPanel + RunPanel + PlanPanel + LiveOutput
+  - Context: RepoMapPanel + RetrievalPanel (requires workspace)
+  - Costs: ProjectCostSection

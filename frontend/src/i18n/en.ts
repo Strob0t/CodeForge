@@ -472,6 +472,11 @@ const en = {
   "detail.toast.planCompleted": "Plan completed",
   "detail.toast.planFailed": "Plan failed",
   "detail.toast.budgetAlert": "Budget alert: {{pct}}% of limit reached",
+  "detail.tab.overview": "Overview",
+  "detail.tab.tasks": "Tasks & Roadmap",
+  "detail.tab.agents": "Agents & Runs",
+  "detail.tab.context": "Context",
+  "detail.tab.costs": "Costs",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live Output",

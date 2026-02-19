@@ -1,5 +1,5 @@
 import { useParams } from "@solidjs/router";
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createResource, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Branch, BudgetAlertEvent, GitStatus } from "~/api/types";
@@ -18,6 +18,10 @@ import RetrievalPanel from "./RetrievalPanel";
 import RoadmapPanel from "./RoadmapPanel";
 import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
+
+type Tab = "overview" | "tasks" | "agents" | "context" | "costs";
+
+const TABS: readonly Tab[] = ["overview", "tasks", "agents", "context", "costs"];
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
@@ -53,6 +57,7 @@ export default function ProjectDetailPage() {
   const [outputLines, setOutputLines] = createSignal<OutputLine[]>([]);
   const [activeTaskId, setActiveTaskId] = createSignal<string | null>(null);
   const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
+  const [activeTab, setActiveTab] = createSignal<Tab>("overview");
 
   // WebSocket event handling
   const cleanup = onMessage((msg) => {
@@ -220,6 +225,189 @@ export default function ProjectDetailPage() {
     }
   };
 
+  function tabLabel(tab: Tab): string {
+    return t(`detail.tab.${tab}` as Parameters<typeof t>[0]);
+  }
+
+  function renderTabContent(p: () => NonNullable<ReturnType<typeof project>>): JSX.Element {
+    return (
+      <>
+        <Show when={activeTab() === "overview"}>
+          {/* Git Section */}
+          <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+            <h3 class="mb-3 text-lg font-semibold">{t("detail.git")}</h3>
+
+            <Show
+              when={p().workspace_path}
+              fallback={
+                <div>
+                  <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">
+                    {t("detail.notCloned")}
+                  </p>
+                  <Show when={p().repo_url}>
+                    <button
+                      type="button"
+                      class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                      onClick={handleClone}
+                      disabled={cloning()}
+                      aria-label={t("detail.cloneAria")}
+                    >
+                      {cloning() ? t("detail.cloning") : t("detail.cloneRepo")}
+                    </button>
+                  </Show>
+                </div>
+              }
+            >
+              {/* Git Status */}
+              <Show when={gitStatus()}>
+                {(gs) => (
+                  <div class="mb-4 grid grid-cols-2 gap-4 text-sm" aria-live="polite">
+                    <div>
+                      <span class="text-gray-500 dark:text-gray-400">{t("detail.branch")}</span>{" "}
+                      <span class="font-mono font-medium">{gs().branch}</span>
+                    </div>
+                    <div>
+                      <span class="text-gray-500 dark:text-gray-400">{t("common.status")}</span>{" "}
+                      <span
+                        class={
+                          gs().dirty
+                            ? "text-yellow-600 dark:text-yellow-400"
+                            : "text-green-600 dark:text-green-400"
+                        }
+                      >
+                        {gs().dirty ? t("detail.dirty") : t("detail.clean")}
+                      </span>
+                    </div>
+                    <div class="col-span-2">
+                      <span class="text-gray-500 dark:text-gray-400">{t("detail.lastCommit")}</span>{" "}
+                      <span class="font-mono text-xs">{gs().commit_hash.slice(0, 8)}</span>{" "}
+                      {gs().commit_message}
+                    </div>
+                    <Show when={gs().ahead > 0 || gs().behind > 0}>
+                      <div>
+                        <span class="text-gray-500 dark:text-gray-400">{t("detail.ahead")}</span>{" "}
+                        {gs().ahead}{" "}
+                        <span class="text-gray-500 dark:text-gray-400">{t("detail.behind")}</span>{" "}
+                        {gs().behind}
+                      </div>
+                    </Show>
+                  </div>
+                )}
+              </Show>
+
+              {/* Git Actions */}
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                  onClick={handlePull}
+                  disabled={pulling()}
+                  aria-label={t("detail.pullAria")}
+                >
+                  {pulling() ? t("detail.pulling") : t("detail.pull")}
+                </button>
+                <button
+                  type="button"
+                  class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600"
+                  onClick={() => refetchGitStatus()}
+                  aria-label={t("detail.refreshAria")}
+                >
+                  {t("detail.refresh")}
+                </button>
+              </div>
+
+              {/* Branches */}
+              <Show when={(branches() ?? []).length > 0}>
+                <div class="mt-4">
+                  <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+                    {t("detail.branches")}
+                  </h4>
+                  <div class="flex flex-wrap gap-2">
+                    <For each={branches() ?? []}>
+                      {(b) => (
+                        <button
+                          type="button"
+                          class={`rounded px-2 py-1 text-xs ${
+                            b.current
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"
+                          }`}
+                          onClick={() => !b.current && handleCheckout(b.name)}
+                          disabled={b.current}
+                          aria-label={
+                            b.current
+                              ? t("detail.currentBranchAria", { name: b.name })
+                              : t("detail.switchBranchAria", { name: b.name })
+                          }
+                          aria-current={b.current ? "true" : undefined}
+                        >
+                          {b.name}
+                          {b.current ? ` ${t("detail.current")}` : ""}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={activeTab() === "tasks"}>
+          <div class="space-y-6">
+            <TaskPanel
+              projectId={params.id}
+              tasks={tasks() ?? []}
+              onRefetch={() => refetchTasks()}
+              onError={setError}
+            />
+            <RoadmapPanel projectId={params.id} onError={setError} />
+          </div>
+        </Show>
+
+        <Show when={activeTab() === "agents"}>
+          <div class="space-y-6">
+            <AgentPanel projectId={params.id} tasks={tasks() ?? []} onError={setError} />
+            <PolicyPanel projectId={params.id} onError={setError} />
+            <RunPanel
+              projectId={params.id}
+              tasks={tasks() ?? []}
+              agents={agents() ?? []}
+              onError={setError}
+            />
+            <PlanPanel
+              projectId={params.id}
+              tasks={tasks() ?? []}
+              agents={agents() ?? []}
+              onError={setError}
+            />
+            <Show when={outputLines().length > 0 || activeTaskId()}>
+              <LiveOutput taskId={activeTaskId()} lines={outputLines()} />
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={activeTab() === "context"}>
+          <Show
+            when={p().workspace_path}
+            fallback={
+              <p class="text-sm text-gray-500 dark:text-gray-400">{t("detail.notCloned")}</p>
+            }
+          >
+            <div class="space-y-6">
+              <RepoMapPanel projectId={params.id} />
+              <RetrievalPanel projectId={params.id} />
+            </div>
+          </Show>
+        </Show>
+
+        <Show when={activeTab() === "costs"}>
+          <ProjectCostSection projectId={params.id} />
+        </Show>
+      </>
+    );
+  }
+
   return (
     <div>
       <Show
@@ -228,6 +416,7 @@ export default function ProjectDetailPage() {
       >
         {(p) => (
           <>
+            {/* Header */}
             <div class="mb-6">
               <h2 class="text-2xl font-bold">{p().name}</h2>
               <p class="mt-1 text-gray-500 dark:text-gray-400">
@@ -245,6 +434,7 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
+            {/* Error Banner */}
             <Show when={error()}>
               <div
                 class="mb-4 rounded bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400"
@@ -282,191 +472,36 @@ export default function ProjectDetailPage() {
               )}
             </Show>
 
-            {/* Git Section */}
-            <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-              <h3 class="mb-3 text-lg font-semibold">{t("detail.git")}</h3>
-
-              <Show
-                when={p().workspace_path}
-                fallback={
-                  <div>
-                    <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">
-                      {t("detail.notCloned")}
-                    </p>
-                    <Show when={p().repo_url}>
-                      <button
-                        type="button"
-                        class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                        onClick={handleClone}
-                        disabled={cloning()}
-                        aria-label={t("detail.cloneAria")}
-                      >
-                        {cloning() ? t("detail.cloning") : t("detail.cloneRepo")}
-                      </button>
-                    </Show>
-                  </div>
-                }
-              >
-                {/* Git Status */}
-                <Show when={gitStatus()}>
-                  {(gs) => (
-                    <div class="mb-4 grid grid-cols-2 gap-4 text-sm" aria-live="polite">
-                      <div>
-                        <span class="text-gray-500 dark:text-gray-400">{t("detail.branch")}</span>{" "}
-                        <span class="font-mono font-medium">{gs().branch}</span>
-                      </div>
-                      <div>
-                        <span class="text-gray-500 dark:text-gray-400">{t("common.status")}</span>{" "}
-                        <span
-                          class={
-                            gs().dirty
-                              ? "text-yellow-600 dark:text-yellow-400"
-                              : "text-green-600 dark:text-green-400"
-                          }
-                        >
-                          {gs().dirty ? t("detail.dirty") : t("detail.clean")}
-                        </span>
-                      </div>
-                      <div class="col-span-2">
-                        <span class="text-gray-500 dark:text-gray-400">
-                          {t("detail.lastCommit")}
-                        </span>{" "}
-                        <span class="font-mono text-xs">{gs().commit_hash.slice(0, 8)}</span>{" "}
-                        {gs().commit_message}
-                      </div>
-                      <Show when={gs().ahead > 0 || gs().behind > 0}>
-                        <div>
-                          <span class="text-gray-500 dark:text-gray-400">{t("detail.ahead")}</span>{" "}
-                          {gs().ahead}{" "}
-                          <span class="text-gray-500 dark:text-gray-400">{t("detail.behind")}</span>{" "}
-                          {gs().behind}
-                        </div>
-                      </Show>
-                    </div>
-                  )}
-                </Show>
-
-                {/* Git Actions */}
-                <div class="flex gap-2">
+            {/* Tab Bar */}
+            <nav
+              class="mb-6 flex gap-1 border-b border-gray-200 dark:border-gray-700"
+              role="tablist"
+              aria-label="Project sections"
+            >
+              <For each={TABS}>
+                {(tab) => (
                   <button
                     type="button"
-                    class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
-                    onClick={handlePull}
-                    disabled={pulling()}
-                    aria-label={t("detail.pullAria")}
+                    role="tab"
+                    aria-selected={activeTab() === tab}
+                    aria-controls={`panel-${tab}`}
+                    class={`px-4 py-2 text-sm font-medium transition-colors ${
+                      activeTab() === tab
+                        ? "border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+                        : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    }`}
+                    onClick={() => setActiveTab(tab)}
                   >
-                    {pulling() ? t("detail.pulling") : t("detail.pull")}
+                    {tabLabel(tab)}
                   </button>
-                  <button
-                    type="button"
-                    class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600"
-                    onClick={() => refetchGitStatus()}
-                    aria-label={t("detail.refreshAria")}
-                  >
-                    {t("detail.refresh")}
-                  </button>
-                </div>
+                )}
+              </For>
+            </nav>
 
-                {/* Branches */}
-                <Show when={(branches() ?? []).length > 0}>
-                  <div class="mt-4">
-                    <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-                      {t("detail.branches")}
-                    </h4>
-                    <div class="flex flex-wrap gap-2">
-                      <For each={branches() ?? []}>
-                        {(b) => (
-                          <button
-                            type="button"
-                            class={`rounded px-2 py-1 text-xs ${
-                              b.current
-                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"
-                            }`}
-                            onClick={() => !b.current && handleCheckout(b.name)}
-                            disabled={b.current}
-                            aria-label={
-                              b.current
-                                ? t("detail.currentBranchAria", { name: b.name })
-                                : t("detail.switchBranchAria", { name: b.name })
-                            }
-                            aria-current={b.current ? "true" : undefined}
-                          >
-                            {b.name}
-                            {b.current ? ` ${t("detail.current")}` : ""}
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </div>
-                </Show>
-              </Show>
+            {/* Tab Content */}
+            <div id={`panel-${activeTab()}`} role="tabpanel">
+              {renderTabContent(p)}
             </div>
-
-            {/* Repo Map Section */}
-            <Show when={p().workspace_path}>
-              <div class="mb-6">
-                <RepoMapPanel projectId={params.id} />
-              </div>
-              <div class="mb-6">
-                <RetrievalPanel projectId={params.id} />
-              </div>
-            </Show>
-
-            {/* Roadmap Section */}
-            <div class="mb-6">
-              <RoadmapPanel projectId={params.id} onError={setError} />
-            </div>
-
-            {/* Agents Section */}
-            <div class="mb-6">
-              <AgentPanel projectId={params.id} tasks={tasks() ?? []} onError={setError} />
-            </div>
-
-            {/* Policy Section */}
-            <div class="mb-6">
-              <PolicyPanel projectId={params.id} onError={setError} />
-            </div>
-
-            {/* Run Management Section */}
-            <div class="mb-6">
-              <RunPanel
-                projectId={params.id}
-                tasks={tasks() ?? []}
-                agents={agents() ?? []}
-                onError={setError}
-              />
-            </div>
-
-            {/* Execution Plans Section */}
-            <div class="mb-6">
-              <PlanPanel
-                projectId={params.id}
-                tasks={tasks() ?? []}
-                agents={agents() ?? []}
-                onError={setError}
-              />
-            </div>
-
-            {/* Live Output Section */}
-            <Show when={outputLines().length > 0 || activeTaskId()}>
-              <div class="mb-6">
-                <LiveOutput taskId={activeTaskId()} lines={outputLines()} />
-              </div>
-            </Show>
-
-            {/* Cost Section */}
-            <div class="mb-6">
-              <ProjectCostSection projectId={params.id} />
-            </div>
-
-            {/* Tasks Section */}
-            <TaskPanel
-              projectId={params.id}
-              tasks={tasks() ?? []}
-              onRefetch={() => refetchTasks()}
-              onError={setError}
-            />
           </>
         )}
       </Show>

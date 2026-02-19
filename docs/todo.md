@@ -865,7 +865,15 @@
 ### Advanced Layouts
 
 - [ ] Split-screen feature planning (chat input left + generated spec right)
-- [ ] ProjectDetailPage tab navigation (Overview | Agent & Runs | Planning | Context | Settings)
+- [x] (2026-02-19) ProjectDetailPage tab navigation (Overview | Tasks & Roadmap | Agents & Runs | Context | Costs)
+  - 5 tabs replace vertically stacked layout
+  - Tab bar with `role="tablist"`, `aria-selected`, `aria-controls` for a11y
+  - i18n keys: `detail.tab.overview`, `.tasks`, `.agents`, `.context`, `.costs` (EN + DE)
+  - Overview: Git status, branches, clone/pull actions
+  - Tasks & Roadmap: TaskPanel + RoadmapPanel
+  - Agents & Runs: AgentPanel + PolicyPanel + RunPanel + PlanPanel + LiveOutput
+  - Context: RepoMapPanel + RetrievalPanel (requires workspace)
+  - Costs: ProjectCostSection
 - [ ] Multi-terminal view with tiles per agent (relevant when agent teams work)
 - [ ] Global activity/notification stream (cross-project, not just per-project)
 
