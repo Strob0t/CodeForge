@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, RunStatus, Task, ToolCallEvent } from "~/api/types";
+import { useToast } from "~/components/Toast";
 
 import TrajectoryPanel from "./TrajectoryPanel";
 
@@ -31,6 +32,7 @@ const DELIVER_MODES: { value: DeliverMode; label: string }[] = [
 ];
 
 export default function RunPanel(props: RunPanelProps) {
+  const { show: toast } = useToast();
   const [selectedTaskId, setSelectedTaskId] = createSignal("");
   const [selectedAgentId, setSelectedAgentId] = createSignal("");
   const [selectedPolicy, setSelectedPolicy] = createSignal("");
@@ -69,8 +71,11 @@ export default function RunPanel(props: RunPanelProps) {
       setActiveRun(run);
       setToolCalls([]);
       refetchRuns();
+      toast("success", "Run started");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to start run");
+      const msg = e instanceof Error ? e.message : "Failed to start run";
+      props.onError(msg);
+      toast("error", msg);
     } finally {
       setStarting(false);
     }
@@ -83,8 +88,11 @@ export default function RunPanel(props: RunPanelProps) {
       await api.runs.cancel(run.id);
       setActiveRun(null);
       refetchRuns();
+      toast("success", "Run cancelled");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to cancel run");
+      const msg = e instanceof Error ? e.message : "Failed to cancel run";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 

@@ -890,7 +890,10 @@
   - Auto-dismiss (5s default), max 3 simultaneous, oldest eviction
   - Zero dependencies: SolidJS `createSignal` + `Portal`
   - WCAG: `aria-live="polite"`, `role="alert"` for errors, `role="status"` for others
-- Remaining: Wire toasts into API-calling panels
+- [x] (2026-02-19) Toasts wired into all 7 API-calling panels
+  - DashboardPage: project create/delete
+  - ProjectDetailPage: budget alerts, run/plan completion, git operations
+  - RunPanel, AgentPanel, RoadmapPanel, TaskPanel, ModelsPage: all CRUD operations
 
 ### 10G. Error Boundary + Offline Detection (COMPLETED)
 

@@ -749,10 +749,17 @@
 - [x] (2026-02-19) Toast types: success (green), error (red), warning (yellow), info (blue)
 - [x] (2026-02-19) Auto-dismiss (5s default), manually closable
 - [x] (2026-02-19) Zero external dependencies — SolidJS `createSignal` + `Portal`
-- [ ] Integration points: API errors, WebSocket events (budget alerts, run complete, agent status)
+- [x] (2026-02-19) Integration points: API errors, WebSocket events (budget alerts, run complete, agent status)
 - [x] (2026-02-19) WCAG: `aria-live="polite"` for info/success, `role="alert"` for errors
 - [x] (2026-02-19) Files: new `frontend/src/components/Toast.tsx`, `App.tsx` (provider)
-- [ ] Wire toasts into all API-calling panels (RunPanel, AgentPanel, RoadmapPanel, etc.)
+- [x] (2026-02-19) Wire toasts into all 7 API-calling panels
+  - DashboardPage: project create/delete success/error
+  - ProjectDetailPage: budget alerts (warning), run/plan completion (info), git operations (success/error)
+  - RunPanel: run start/cancel success/error
+  - AgentPanel: agent create/delete/dispatch/stop success/error
+  - RoadmapPanel: roadmap create/delete, import specs/PM, milestone/feature create success/error
+  - TaskPanel: task create success/error
+  - ModelsPage: model add/delete success/error
 
 ### 10G. Error Boundary + Offline Detection
 

@@ -10,6 +10,7 @@ import type {
   RoadmapFeature,
   RoadmapStatus,
 } from "~/api/types";
+import { useToast } from "~/components/Toast";
 
 interface RoadmapPanelProps {
   projectId: string;
@@ -32,6 +33,7 @@ const FEATURE_COLORS: Record<FeatureStatus, string> = {
 };
 
 export default function RoadmapPanel(props: RoadmapPanelProps) {
+  const { show: toast } = useToast();
   const [roadmap, { refetch }] = createResource(
     () => props.projectId,
     (id) => api.roadmap.get(id).catch(() => null),
@@ -70,8 +72,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setTitle("");
       setDescription("");
       refetch();
+      toast("success", "Roadmap created");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to create roadmap");
+      const msg = e instanceof Error ? e.message : "Failed to create roadmap";
+      props.onError(msg);
+      toast("error", msg);
     } finally {
       setCreating(false);
     }
@@ -83,12 +88,15 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       const result = await api.roadmap.detect(props.projectId);
       if (result.found) {
         props.onError("");
-        alert(`Detected ${result.format} at ${result.path}`);
+        toast("success", `Detected ${result.format} at ${result.path}`);
       } else {
         props.onError("No spec files detected in workspace");
+        toast("warning", "No spec files detected");
       }
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Detection failed");
+      const msg = e instanceof Error ? e.message : "Detection failed";
+      props.onError(msg);
+      toast("error", msg);
     } finally {
       setDetecting(false);
     }
@@ -110,8 +118,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setMilestoneTitle("");
       setShowMilestoneForm(false);
       refetch();
+      toast("success", "Milestone created");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to create milestone");
+      const msg = e instanceof Error ? e.message : "Failed to create milestone";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 
@@ -122,8 +133,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setFeatureTitle("");
       setFeatureMilestoneId(null);
       refetch();
+      toast("success", "Feature created");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to create feature");
+      const msg = e instanceof Error ? e.message : "Failed to create feature";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 
@@ -132,8 +146,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
     try {
       await api.roadmap.delete(props.projectId);
       refetch();
+      toast("success", "Roadmap deleted");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to delete roadmap");
+      const msg = e instanceof Error ? e.message : "Failed to delete roadmap";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 
@@ -144,8 +161,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       const result = await api.roadmap.importSpecs(props.projectId);
       setImportResult(result);
       refetch();
+      toast("success", "Specs imported successfully");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Spec import failed");
+      const msg = e instanceof Error ? e.message : "Spec import failed";
+      props.onError(msg);
+      toast("error", msg);
     } finally {
       setImporting(false);
     }
@@ -164,8 +184,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setShowPMImport(false);
       setPmProjectRef("");
       refetch();
+      toast("success", "PM items imported successfully");
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "PM import failed");
+      const msg = e instanceof Error ? e.message : "PM import failed";
+      props.onError(msg);
+      toast("error", msg);
     } finally {
       setImporting(false);
     }

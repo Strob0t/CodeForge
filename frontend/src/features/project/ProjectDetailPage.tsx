@@ -4,6 +4,7 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { Branch, BudgetAlertEvent, GitStatus } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
+import { useToast } from "~/components/Toast";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
 import AgentPanel from "./AgentPanel";
@@ -18,6 +19,7 @@ import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
 
 export default function ProjectDetailPage() {
+  const { show: toast } = useToast();
   const params = useParams<{ id: string }>();
   const { onMessage } = createCodeForgeWS();
 
@@ -73,7 +75,14 @@ export default function ProjectDetailPage() {
       case "run.status": {
         const runProjectId = payload.project_id as string;
         if (runProjectId === projectId) {
-          // RunPanel handles its own state via updateRunStatus
+          const status = payload.status as string;
+          if (status === "completed") {
+            toast("info", "Run completed successfully");
+          } else if (status === "failed") {
+            toast("error", "Run failed");
+          } else if (status === "cancelled") {
+            toast("info", "Run cancelled");
+          }
         }
         break;
       }
@@ -98,7 +107,12 @@ export default function ProjectDetailPage() {
       case "plan.status": {
         const planProjectId = payload.project_id as string;
         if (planProjectId === projectId) {
-          // PlanPanel will refetch via its own resource
+          const status = payload.status as string;
+          if (status === "completed") {
+            toast("info", "Plan completed");
+          } else if (status === "failed") {
+            toast("error", "Plan failed");
+          }
         }
         break;
       }
@@ -134,6 +148,8 @@ export default function ProjectDetailPage() {
         const alertProjectId = payload.project_id as string;
         if (alertProjectId === projectId) {
           setBudgetAlert(payload as unknown as BudgetAlertEvent);
+          const pct = (payload as unknown as BudgetAlertEvent).percentage;
+          toast("warning", `Budget alert: ${pct.toFixed(0)}% of limit reached`);
         }
         break;
       }
@@ -162,8 +178,11 @@ export default function ProjectDetailPage() {
       refetchProject();
       refetchGitStatus();
       refetchBranches();
+      toast("success", "Repository cloned");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Clone failed");
+      const msg = e instanceof Error ? e.message : "Clone failed";
+      setError(msg);
+      toast("error", msg);
     } finally {
       setCloning(false);
     }
@@ -175,8 +194,11 @@ export default function ProjectDetailPage() {
     try {
       await api.projects.pull(params.id);
       refetchGitStatus();
+      toast("success", "Pull completed");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Pull failed");
+      const msg = e instanceof Error ? e.message : "Pull failed";
+      setError(msg);
+      toast("error", msg);
     } finally {
       setPulling(false);
     }
@@ -188,8 +210,11 @@ export default function ProjectDetailPage() {
       await api.projects.checkout(params.id, branch);
       refetchGitStatus();
       refetchBranches();
+      toast("success", `Switched to branch ${branch}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Checkout failed");
+      const msg = e instanceof Error ? e.message : "Checkout failed";
+      setError(msg);
+      toast("error", msg);
     }
   };
 

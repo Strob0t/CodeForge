@@ -2,8 +2,10 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { LLMModel } from "~/api/types";
+import { useToast } from "~/components/Toast";
 
 export default function ModelsPage() {
+  const { show: toast } = useToast();
   const [models, { refetch }] = createResource(() => api.llm.models());
   const [health] = createResource(() => api.llm.health());
   const [showForm, setShowForm] = createSignal(false);
@@ -33,8 +35,11 @@ export default function ModelsPage() {
       setApiKey("");
       setShowForm(false);
       refetch();
+      toast("success", "Model added");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add model");
+      const msg = err instanceof Error ? err.message : "Failed to add model";
+      setError(msg);
+      toast("error", msg);
     }
   };
 
@@ -43,8 +48,11 @@ export default function ModelsPage() {
     try {
       await api.llm.deleteModel(modelId);
       refetch();
+      toast("success", "Model deleted");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete model");
+      const msg = err instanceof Error ? err.message : "Failed to delete model";
+      setError(msg);
+      toast("error", msg);
     }
   };
 

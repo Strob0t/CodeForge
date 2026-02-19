@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateTaskRequest, Task, TaskStatus } from "~/api/types";
+import { useToast } from "~/components/Toast";
 
 interface TaskPanelProps {
   projectId: string;
@@ -34,6 +35,7 @@ function formatCost(usd: number): string {
 }
 
 export default function TaskPanel(props: TaskPanelProps) {
+  const { show: toast } = useToast();
   const [showForm, setShowForm] = createSignal(false);
   const [title, setTitle] = createSignal("");
   const [prompt, setPrompt] = createSignal("");
@@ -50,8 +52,11 @@ export default function TaskPanel(props: TaskPanelProps) {
       setPrompt("");
       setShowForm(false);
       props.onRefetch();
+      toast("success", "Task created");
     } catch (err) {
-      props.onError(err instanceof Error ? err.message : "Failed to create task");
+      const msg = err instanceof Error ? err.message : "Failed to create task";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 

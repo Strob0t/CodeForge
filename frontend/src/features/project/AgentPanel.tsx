@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AgentStatus, CreateAgentRequest, Task } from "~/api/types";
+import { useToast } from "~/components/Toast";
 
 interface AgentPanelProps {
   projectId: string;
@@ -23,6 +24,7 @@ function agentStatusColor(status: AgentStatus): string {
 }
 
 export default function AgentPanel(props: AgentPanelProps) {
+  const { show: toast } = useToast();
   const [agents, { refetch }] = createResource(
     () => props.projectId,
     (id) => api.agents.list(id),
@@ -44,8 +46,11 @@ export default function AgentPanel(props: AgentPanelProps) {
       setBackend("");
       setShowForm(false);
       refetch();
+      toast("success", "Agent created");
     } catch (err) {
-      props.onError(err instanceof Error ? err.message : "Failed to create agent");
+      const msg = err instanceof Error ? err.message : "Failed to create agent";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 
@@ -53,8 +58,11 @@ export default function AgentPanel(props: AgentPanelProps) {
     try {
       await api.agents.delete(id);
       refetch();
+      toast("success", "Agent deleted");
     } catch (err) {
-      props.onError(err instanceof Error ? err.message : "Failed to delete agent");
+      const msg = err instanceof Error ? err.message : "Failed to delete agent";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 
@@ -63,8 +71,11 @@ export default function AgentPanel(props: AgentPanelProps) {
     try {
       await api.agents.dispatch(agentId, taskId);
       refetch();
+      toast("success", "Task dispatched to agent");
     } catch (err) {
-      props.onError(err instanceof Error ? err.message : "Dispatch failed");
+      const msg = err instanceof Error ? err.message : "Dispatch failed";
+      props.onError(msg);
+      toast("error", msg);
     } finally {
       setDispatching(null);
     }
@@ -74,8 +85,11 @@ export default function AgentPanel(props: AgentPanelProps) {
     try {
       await api.agents.stop(agentId, taskId);
       refetch();
+      toast("success", "Agent stopped");
     } catch (err) {
-      props.onError(err instanceof Error ? err.message : "Stop failed");
+      const msg = err instanceof Error ? err.message : "Stop failed";
+      props.onError(msg);
+      toast("error", msg);
     }
   };
 

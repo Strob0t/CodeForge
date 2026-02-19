@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateProjectRequest } from "~/api/types";
+import { useToast } from "~/components/Toast";
 
 import ProjectCard from "./ProjectCard";
 
@@ -14,6 +15,7 @@ const emptyForm: CreateProjectRequest = {
 };
 
 export default function DashboardPage() {
+  const { show: toast } = useToast();
   const [projects, { refetch }] = createResource(() => api.projects.list());
   const [showForm, setShowForm] = createSignal(false);
   const [form, setForm] = createSignal<CreateProjectRequest>({ ...emptyForm });
@@ -34,8 +36,11 @@ export default function DashboardPage() {
       setForm({ ...emptyForm });
       setShowForm(false);
       await refetch();
+      toast("success", "Project created");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create project");
+      const msg = err instanceof Error ? err.message : "Failed to create project";
+      setError(msg);
+      toast("error", msg);
     }
   }
 
@@ -43,8 +48,11 @@ export default function DashboardPage() {
     try {
       await api.projects.delete(id);
       await refetch();
+      toast("success", "Project deleted");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete project");
+      const msg = err instanceof Error ? err.message : "Failed to delete project";
+      setError(msg);
+      toast("error", msg);
     }
   }
 
