@@ -813,7 +813,10 @@
 - [x] (2026-02-19) Integration tests for Config Loader (precedence, validation, reload)
   - `internal/config/loader_integration_test.go`: 10 tests covering full hierarchy, partial override, invalid env, missing YAML, malformed YAML, validation, orchestrator overrides, reload, reload validation failure, reload env override
 - [x] (2026-02-17) Unit tests for Idempotency (no header, store, replay, GET ignored, different keys) — 5 tests in `internal/middleware/idempotency_test.go`
-- [ ] Load tests for Rate Limiting (sustained vs burst, per-user limiters)
+- [x] (2026-02-19) Load tests for Rate Limiting (sustained vs burst, per-user limiters)
+  - `tests/load/ratelimit_test.go` (build tag `//go:build load`)
+  - 6 tests: sustained load, burst absorption, per-IP isolation, concurrent bucket creation, headers, cleanup under load
+  - Run with: `go test -tags load -count=1 ./tests/load/`
 - [x] (2026-02-18) Runtime Compliance Tests (Sandbox/Mount feature parity) — 16 sub-tests passing
 - [x] (2026-02-17) Policy Gate tests (deny/ask/allow evaluation, path scoping, command matching, preset integration)
 
