@@ -207,3 +207,144 @@ func TestPolicyEnvOverride(t *testing.T) {
 		t.Errorf("expected '/custom/policies', got %q", cfg.Policy.CustomDir)
 	}
 }
+
+func TestParseFlags(t *testing.T) {
+	flags, err := ParseFlags([]string{"--port", "9090", "--log-level", "debug"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if flags.Port == nil || *flags.Port != "9090" {
+		t.Errorf("expected port 9090, got %v", flags.Port)
+	}
+	if flags.LogLevel == nil || *flags.LogLevel != "debug" {
+		t.Errorf("expected log-level debug, got %v", flags.LogLevel)
+	}
+	// Unset flags remain nil
+	if flags.DSN != nil {
+		t.Errorf("expected nil DSN, got %v", *flags.DSN)
+	}
+	if flags.NatsURL != nil {
+		t.Errorf("expected nil NatsURL, got %v", *flags.NatsURL)
+	}
+	if flags.ConfigPath != nil {
+		t.Errorf("expected nil ConfigPath, got %v", *flags.ConfigPath)
+	}
+}
+
+func TestParseFlagsShorthand(t *testing.T) {
+	flags, err := ParseFlags([]string{"-p", "7070", "-c", "custom.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if flags.Port == nil || *flags.Port != "7070" {
+		t.Errorf("expected port 7070, got %v", flags.Port)
+	}
+	if flags.ConfigPath == nil || *flags.ConfigPath != "custom.yaml" {
+		t.Errorf("expected config custom.yaml, got %v", flags.ConfigPath)
+	}
+}
+
+func TestParseFlagsInvalid(t *testing.T) {
+	_, err := ParseFlags([]string{"--unknown-flag"})
+	if err == nil {
+		t.Error("expected error for unknown flag, got nil")
+	}
+}
+
+func TestApplyCLI(t *testing.T) {
+	cfg := Defaults()
+
+	port := "3333"
+	logLevel := "error"
+	dsn := "postgres://cli:cli@localhost/cli"
+	natsURL := "nats://cli:4222"
+
+	applyCLI(&cfg, CLIFlags{
+		Port:     &port,
+		LogLevel: &logLevel,
+		DSN:      &dsn,
+		NatsURL:  &natsURL,
+	})
+
+	if cfg.Server.Port != "3333" {
+		t.Errorf("expected port 3333, got %s", cfg.Server.Port)
+	}
+	if cfg.Logging.Level != "error" {
+		t.Errorf("expected log level error, got %s", cfg.Logging.Level)
+	}
+	if cfg.Postgres.DSN != "postgres://cli:cli@localhost/cli" {
+		t.Errorf("expected CLI DSN, got %s", cfg.Postgres.DSN)
+	}
+	if cfg.NATS.URL != "nats://cli:4222" {
+		t.Errorf("expected CLI NATS URL, got %s", cfg.NATS.URL)
+	}
+}
+
+func TestApplyCLINilFlags(t *testing.T) {
+	cfg := Defaults()
+	original := cfg
+
+	// All-nil flags should change nothing.
+	applyCLI(&cfg, CLIFlags{})
+
+	if cfg.Server.Port != original.Server.Port {
+		t.Errorf("port changed from %s to %s", original.Server.Port, cfg.Server.Port)
+	}
+	if cfg.Logging.Level != original.Logging.Level {
+		t.Errorf("log level changed from %s to %s", original.Logging.Level, cfg.Logging.Level)
+	}
+}
+
+func TestCLIOverridesEnv(t *testing.T) {
+	// CLI flags must win over ENV.
+	t.Setenv("CODEFORGE_PORT", "7070")
+	t.Setenv("CODEFORGE_LOG_LEVEL", "warn")
+
+	flags, err := ParseFlags([]string{"--port", "3333", "--log-level", "error"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := LoadWithCLI(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Server.Port != "3333" {
+		t.Errorf("expected CLI port 3333 to override ENV 7070, got %s", cfg.Server.Port)
+	}
+	if cfg.Logging.Level != "error" {
+		t.Errorf("expected CLI log-level error to override ENV warn, got %s", cfg.Logging.Level)
+	}
+}
+
+func TestLoadWithCLICustomConfig(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "custom.yaml")
+	content := `
+server:
+  port: "5555"
+`
+	if err := os.WriteFile(yamlPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	flags, err := ParseFlags([]string{"--config", yamlPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, resolvedPath, err := LoadWithCLI(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resolvedPath != yamlPath {
+		t.Errorf("expected resolved path %s, got %s", yamlPath, resolvedPath)
+	}
+	if cfg.Server.Port != "5555" {
+		t.Errorf("expected port 5555 from custom YAML, got %s", cfg.Server.Port)
+	}
+}

@@ -53,7 +53,12 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.Load()
+	flags, err := config.ParseFlags(os.Args[1:])
+	if err != nil {
+		return fmt.Errorf("flags: %w", err)
+	}
+
+	cfg, yamlPath, err := config.LoadWithCLI(flags)
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
@@ -448,7 +453,7 @@ func run() error {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	// ConfigHolder for hot reload support.
-	cfgHolder := config.NewHolder(cfg, config.DefaultConfigFile)
+	cfgHolder := config.NewHolder(cfg, yamlPath)
 
 	// SIGHUP triggers hot reload of config and secrets vault
 	sighup := make(chan os.Signal, 1)

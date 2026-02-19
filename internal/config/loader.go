@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,10 +14,82 @@ import (
 // DefaultConfigFile is the path checked for YAML configuration.
 const DefaultConfigFile = "codeforge.yaml"
 
+// CLIFlags holds command-line flag values. Nil pointers indicate unset flags
+// that should not override the config. Use ParseFlags to populate this struct.
+type CLIFlags struct {
+	ConfigPath *string
+	Port       *string
+	LogLevel   *string
+	DSN        *string
+	NatsURL    *string
+}
+
+// ParseFlags parses command-line arguments into CLIFlags.
+// Call this before Load/LoadWithCLI. Passing nil args parses os.Args[1:].
+func ParseFlags(args []string) (CLIFlags, error) {
+	var flags CLIFlags
+
+	fs := flag.NewFlagSet("codeforge", flag.ContinueOnError)
+	configPath := fs.String("config", "", "path to YAML config file")
+	fs.StringVar(configPath, "c", "", "path to YAML config file (shorthand)")
+	port := fs.String("port", "", "HTTP server port")
+	fs.StringVar(port, "p", "", "HTTP server port (shorthand)")
+	logLevel := fs.String("log-level", "", "logging level (debug, info, warn, error)")
+	dsn := fs.String("dsn", "", "PostgreSQL connection string")
+	natsURL := fs.String("nats-url", "", "NATS server URL")
+
+	if err := fs.Parse(args); err != nil {
+		return flags, fmt.Errorf("parse flags: %w", err)
+	}
+
+	// Only set pointers for flags that were explicitly provided.
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "config", "c":
+			flags.ConfigPath = configPath
+		case "port", "p":
+			flags.Port = port
+		case "log-level":
+			flags.LogLevel = logLevel
+		case "dsn":
+			flags.DSN = dsn
+		case "nats-url":
+			flags.NatsURL = natsURL
+		}
+	})
+
+	return flags, nil
+}
+
 // Load returns a Config using the hierarchy: defaults < YAML < ENV.
 // YAML file is optional; missing file is not an error.
 func Load() (*Config, error) {
 	return LoadFrom(DefaultConfigFile)
+}
+
+// LoadWithCLI returns a Config using the full hierarchy:
+// defaults < YAML < ENV < CLI flags. The YAML path can be overridden
+// via CLIFlags.ConfigPath.
+func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
+	yamlPath := DefaultConfigFile
+	if flags.ConfigPath != nil {
+		yamlPath = *flags.ConfigPath
+	}
+
+	cfg := Defaults()
+
+	if err := loadYAML(&cfg, yamlPath); err != nil {
+		return nil, "", fmt.Errorf("config yaml: %w", err)
+	}
+
+	loadEnv(&cfg)
+	applyCLI(&cfg, flags)
+
+	if err := validate(&cfg); err != nil {
+		return nil, "", fmt.Errorf("config validate: %w", err)
+	}
+
+	return &cfg, yamlPath, nil
 }
 
 // LoadFrom returns a Config loaded from the given YAML path using the
@@ -35,6 +108,22 @@ func LoadFrom(yamlPath string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// applyCLI overlays CLI flag values onto cfg. Only non-nil flags override.
+func applyCLI(cfg *Config, flags CLIFlags) {
+	if flags.Port != nil {
+		cfg.Server.Port = *flags.Port
+	}
+	if flags.LogLevel != nil {
+		cfg.Logging.Level = *flags.LogLevel
+	}
+	if flags.DSN != nil {
+		cfg.Postgres.DSN = *flags.DSN
+	}
+	if flags.NatsURL != nil {
+		cfg.NATS.URL = *flags.NatsURL
+	}
 }
 
 // loadYAML reads the YAML file and unmarshals it over cfg.

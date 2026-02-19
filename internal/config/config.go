@@ -1,5 +1,5 @@
 // Package config provides hierarchical configuration loading for CodeForge.
-// Precedence: defaults < YAML file < environment variables.
+// Precedence: defaults < YAML file < environment variables < CLI flags.
 package config
 
 import (

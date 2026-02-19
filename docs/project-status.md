@@ -162,7 +162,8 @@
 
 ## Phase 3: Reliability, Performance & Agent Foundation (COMPLETED)
 
-- [x] (2026-02-17) WP1: Configuration Management — hierarchical config (defaults < YAML < ENV), typed Config struct, validation, 6 tests
+- [x] (2026-02-17) WP1: Configuration Management — hierarchical config (defaults < YAML < ENV < CLI), typed Config struct, validation, 6 tests
+  - [x] (2026-02-19) CLI override support — `ParseFlags`, `LoadWithCLI`, `--config/-c`, `--port/-p`, `--log-level`, `--dsn`, `--nats-url`, 8 tests
 - [x] (2026-02-17) WP2: Structured Logging & Request ID — slog factory, structlog, X-Request-ID propagation HTTP→NATS→Python, 6 new tests
 - [x] (2026-02-17) WP3: Graceful Shutdown & Docker Logging — 4-phase ordered shutdown, NATS Drain, Docker log rotation, logs.sh helper
 - [x] (2026-02-17) WP4: Optimistic Locking & DB Pool Tuning

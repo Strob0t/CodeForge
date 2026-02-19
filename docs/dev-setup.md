@@ -65,7 +65,7 @@ CodeForge/
 │       ├── main.go           # Entry point, Dependency Injection
 │       └── providers.go      # Blank imports of all active adapters
 ├── internal/
-│   ├── config/               # Hierarchical config system (defaults < YAML < ENV)
+│   ├── config/               # Hierarchical config system (defaults < YAML < ENV < CLI)
 │   ├── domain/               # Core: Entities, Business Rules
 │   │   ├── agent/            # Agent + Team models
 │   │   ├── context/          # Context pack (token budget management)
@@ -285,7 +285,7 @@ npm run dev --prefix frontend
 
 ## Configuration
 
-CodeForge uses a hierarchical configuration system: **defaults < YAML < environment variables**.
+CodeForge uses a hierarchical configuration system: **defaults < YAML < environment variables < CLI flags**.
 
 ### Config File
 
@@ -294,7 +294,25 @@ Copy the example config and adjust as needed:
 cp codeforge.yaml.example codeforge.yaml
 ```
 
-The YAML file is optional. If missing, defaults are used. Environment variables always take precedence.
+The YAML file is optional. If missing, defaults are used. Environment variables override YAML,
+and CLI flags override everything.
+
+### CLI Flags
+
+The Go Core binary accepts the following command-line flags (highest precedence):
+
+| Flag | Shorthand | Description |
+|---|---|---|
+| `--config` | `-c` | Path to YAML config file (default: `codeforge.yaml`) |
+| `--port` | `-p` | HTTP server port |
+| `--log-level` | | Logging level (`debug`, `info`, `warn`, `error`) |
+| `--dsn` | | PostgreSQL connection string |
+| `--nats-url` | | NATS server URL |
+
+Example:
+```bash
+./codeforge --port 9090 --log-level debug -c /etc/codeforge/config.yaml
+```
 
 ### Go Core Config (`internal/config/`)
 

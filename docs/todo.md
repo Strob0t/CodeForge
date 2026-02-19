@@ -33,7 +33,13 @@
   - `internal/config/loader.go`: `LoadFrom(yamlPath)` for explicit YAML path loading
   - `cmd/codeforge/main.go`: SIGHUP handler now reloads both config and secrets vault
   - Warns about non-hot-reloadable fields (port, DSN, NATS URL)
-- [ ] CLI override support
+- [x] (2026-02-19) CLI override support
+  - `internal/config/loader.go`: `CLIFlags` struct with `*string` pointer fields (nil = unset)
+  - `ParseFlags(args)`: stdlib `flag.FlagSet` parser, supports `--config/-c`, `--port/-p`, `--log-level`, `--dsn`, `--nats-url`
+  - `LoadWithCLI(flags)`: full hierarchy defaults < YAML < ENV < CLI, returns resolved YAML path
+  - `applyCLI()`: applies non-nil flag overrides after ENV
+  - `cmd/codeforge/main.go`: parses `os.Args[1:]`, passes resolved YAML path to `ConfigHolder`
+  - 8 new tests in `internal/config/loader_test.go` (parse, shorthand, invalid, apply, nil, override, custom config)
 
 ### 3B. Structured Logging & Observability
 
