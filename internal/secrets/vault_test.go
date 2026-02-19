@@ -2,6 +2,7 @@ package secrets_test
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -103,6 +104,89 @@ func TestVault_ConcurrentAccess(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestVault_Redacted(t *testing.T) {
+	v, _ := secrets.NewVault(func() (map[string]string, error) {
+		return map[string]string{
+			"API_KEY": "sk-abcdef123456",
+			"SHORT":   "ab",
+		}, nil
+	})
+
+	// Long secret: shows first 2 chars + ****
+	got := v.Redacted("API_KEY")
+	if got != "sk****" {
+		t.Errorf("expected 'sk****', got %q", got)
+	}
+
+	// Short secret (<=4 chars): fully masked
+	got = v.Redacted("SHORT")
+	if got != "****" {
+		t.Errorf("expected '****', got %q", got)
+	}
+
+	// Missing key: empty string
+	got = v.Redacted("MISSING")
+	if got != "" {
+		t.Errorf("expected empty string for missing key, got %q", got)
+	}
+}
+
+func TestVault_RedactString(t *testing.T) {
+	v, _ := secrets.NewVault(func() (map[string]string, error) {
+		return map[string]string{
+			"DB_PASSWORD":  "supersecret123",
+			"API_TOKEN":    "tok_live_abcdef",
+			"SHORT_SECRET": "ab", // too short to redact (< 4 chars)
+		}, nil
+	})
+
+	input := "Connected to DB with password supersecret123 and token tok_live_abcdef"
+	got := v.RedactString(input)
+
+	if strings.Contains(got, "supersecret123") {
+		t.Errorf("DB password was not redacted in %q", got)
+	}
+	if strings.Contains(got, "tok_live_abcdef") {
+		t.Errorf("API token was not redacted in %q", got)
+	}
+	if !strings.Contains(got, "su****") {
+		t.Errorf("expected masked DB password, got %q", got)
+	}
+	if !strings.Contains(got, "to****") {
+		t.Errorf("expected masked API token, got %q", got)
+	}
+}
+
+func TestVault_RedactStringNoSecrets(t *testing.T) {
+	v, _ := secrets.NewVault(func() (map[string]string, error) {
+		return map[string]string{"KEY": "value123"}, nil
+	})
+
+	input := "This string has no secrets"
+	got := v.RedactString(input)
+	if got != input {
+		t.Errorf("expected unchanged string, got %q", got)
+	}
+}
+
+func TestVault_Keys(t *testing.T) {
+	v, _ := secrets.NewVault(func() (map[string]string, error) {
+		return map[string]string{"A": "1", "B": "2"}, nil
+	})
+
+	keys := v.Keys()
+	if len(keys) != 2 {
+		t.Fatalf("expected 2 keys, got %d", len(keys))
+	}
+	keySet := map[string]bool{}
+	for _, k := range keys {
+		keySet[k] = true
+	}
+	if !keySet["A"] || !keySet["B"] {
+		t.Errorf("expected keys A and B, got %v", keys)
+	}
 }
 
 func TestEnvLoader(t *testing.T) {

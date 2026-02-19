@@ -273,6 +273,9 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		}(r.ID, timeoutDur)
 	}
 
+	// Audit trail
+	s.appendAudit(ctx, r, "run.started", fmt.Sprintf("Run started with policy %s, exec_mode %s, agent %s", profileName, req.ExecMode, ag.Name))
+
 	slog.Info("run started", "run_id", r.ID, "task_id", r.TaskID, "policy", profileName)
 	return r, nil
 }
@@ -343,6 +346,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	evType := event.TypeToolCallApproved
 	if decision != policy.DecisionAllow {
 		evType = event.TypeToolCallDenied
+		s.appendAudit(ctx, r, "policy.denied", fmt.Sprintf("Tool %q denied by policy %s (scope: %s, reason: %s)", req.Tool, result.Profile, result.Scope, result.Reason))
 	}
 	s.appendRunEvent(ctx, evType, r, map[string]string{
 		"call_id":  req.CallID,
@@ -394,11 +398,43 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	newTokensOut := r.TokensOut + result.TokensOut
 	_ = s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut)
 
-	// Budget alert checks (80% and 90% thresholds)
+	// Budget alert checks (80% and 90% thresholds) + post-execution budget enforcement
 	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
 	if profileOK && profile.Termination.MaxCost > 0 {
 		maxCost := profile.Termination.MaxCost
 		pct := (newCost / maxCost) * 100
+
+		// Post-execution budget enforcement: terminate immediately if cost exceeds limit.
+		// This catches the case where a single expensive tool call pushes cost over the
+		// budget, rather than waiting for the next HandleToolCallRequest check.
+		if newCost >= maxCost {
+			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
+			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
+			_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, newCost, r.StepCount, newTokensIn, newTokensOut, r.Model)
+			s.cleanupRunState(r.ID)
+			s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
+				"status": string(run.StatusTimeout),
+				"reason": reason,
+			})
+			s.appendAudit(ctx, r, "budget.exceeded", reason)
+			s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+				RunID:     r.ID,
+				TaskID:    r.TaskID,
+				ProjectID: r.ProjectID,
+				Status:    string(run.StatusTimeout),
+				StepCount: r.StepCount,
+				CostUSD:   newCost,
+				TokensIn:  newTokensIn,
+				TokensOut: newTokensOut,
+			})
+			_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
+			_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+			if s.onRunComplete != nil {
+				s.onRunComplete(ctx, r.ID, run.StatusTimeout)
+			}
+			return nil
+		}
+
 		for _, threshold := range []float64{80, 90} {
 			if pct >= threshold {
 				alertKey := fmt.Sprintf("%s:%d", r.ID, int(threshold))
@@ -515,38 +551,51 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			LintCommand:   lintCmd,
 		}
 		if err := s.publishJSON(ctx, messagequeue.SubjectQualityGateRequest, gateReq); err != nil {
-			slog.Error("failed to publish quality gate request", "run_id", r.ID, "error", err)
-			// Fall through to normal completion on publish failure
-		} else {
-			// Record event and broadcast
-			s.appendRunEvent(ctx, event.TypeQualityGateStarted, r, map[string]string{
-				"run_tests": fmt.Sprintf("%t", profile.QualityGate.RequireTestsPass),
-				"run_lint":  fmt.Sprintf("%t", profile.QualityGate.RequireLintPass),
-			})
-			s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+			slog.Error("failed to publish quality gate request, failing run (fail-closed)", "run_id", r.ID, "error", err)
+			s.appendAudit(ctx, r, "qualitygate.error", fmt.Sprintf("Failed to publish quality gate request: %s", err.Error()))
+			// Fail-closed: if we can't run quality gates, don't silently pass.
+			return s.finalizeRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
 				RunID:     r.ID,
 				TaskID:    r.TaskID,
 				ProjectID: r.ProjectID,
-				Status:    "started",
-			})
-			s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
-				RunID:     r.ID,
-				TaskID:    r.TaskID,
-				ProjectID: r.ProjectID,
-				Status:    string(run.StatusQualityGate),
-				StepCount: payload.StepCount,
+				Status:    string(run.StatusFailed),
+				Error:     "quality gate unavailable: " + err.Error(),
 				CostUSD:   payload.CostUSD,
+				StepCount: payload.StepCount,
 				TokensIn:  payload.TokensIn,
 				TokensOut: payload.TokensOut,
 				Model:     payload.Model,
 			})
-
-			slog.Info("quality gate triggered", "run_id", r.ID)
-			return nil // Wait for quality gate result
 		}
+
+		// Record event and broadcast
+		s.appendRunEvent(ctx, event.TypeQualityGateStarted, r, map[string]string{
+			"run_tests": fmt.Sprintf("%t", profile.QualityGate.RequireTestsPass),
+			"run_lint":  fmt.Sprintf("%t", profile.QualityGate.RequireLintPass),
+		})
+		s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+			RunID:     r.ID,
+			TaskID:    r.TaskID,
+			ProjectID: r.ProjectID,
+			Status:    "started",
+		})
+		s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+			RunID:     r.ID,
+			TaskID:    r.TaskID,
+			ProjectID: r.ProjectID,
+			Status:    string(run.StatusQualityGate),
+			StepCount: payload.StepCount,
+			CostUSD:   payload.CostUSD,
+			TokensIn:  payload.TokensIn,
+			TokensOut: payload.TokensOut,
+			Model:     payload.Model,
+		})
+
+		slog.Info("quality gate triggered", "run_id", r.ID)
+		return nil // Wait for quality gate result
 	}
 
-	// No gates or publish failed — finalize immediately
+	// No quality gates configured — finalize immediately
 	return s.finalizeRun(ctx, r, status, payload)
 }
 
@@ -570,6 +619,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		(result.LintPassed == nil || *result.LintPassed)
 
 	if allPassed {
+		s.appendAudit(ctx, r, "qualitygate.passed", "Quality gate passed")
 		s.appendRunEvent(ctx, event.TypeQualityGatePassed, r, map[string]string{})
 		s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
 			RunID:       r.ID,
@@ -611,6 +661,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		}
 	}
 
+	s.appendAudit(ctx, r, "qualitygate.failed", fmt.Sprintf("Quality gate failed: %s", errMsg))
 	s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{
 		"error": errMsg,
 	})
@@ -764,6 +815,9 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		}
 	}
 
+	// Audit trail
+	s.appendAudit(ctx, r, "run.completed", fmt.Sprintf("Run finalized with status %s, %d steps, cost $%.4f", status, payload.StepCount, payload.CostUSD))
+
 	slog.Info("run finalized", "run_id", r.ID, "status", status, "steps", payload.StepCount)
 
 	// Notify orchestrator (if registered) about run completion
@@ -803,8 +857,9 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		Mode:      string(r.DeliverMode),
 	})
 
-	result, deliverErr := s.deliver.Deliver(ctx, r, taskTitle)
+	deliverResult, deliverErr := s.deliver.Deliver(ctx, r, taskTitle)
 	if deliverErr != nil {
+		s.appendAudit(ctx, r, "delivery.failed", fmt.Sprintf("Delivery mode %s failed: %s", r.DeliverMode, deliverErr.Error()))
 		slog.Error("delivery failed", "run_id", r.ID, "mode", r.DeliverMode, "error", deliverErr)
 		s.appendRunEvent(ctx, event.TypeDeliveryFailed, r, map[string]string{
 			"mode":  string(r.DeliverMode),
@@ -821,23 +876,24 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		return
 	}
 
+	s.appendAudit(ctx, r, "delivery.completed", fmt.Sprintf("Delivery mode %s completed (branch: %s, PR: %s)", deliverResult.Mode, deliverResult.BranchName, deliverResult.PRURL))
 	s.appendRunEvent(ctx, event.TypeDeliveryCompleted, r, map[string]string{
-		"mode":        string(result.Mode),
-		"patch_path":  result.PatchPath,
-		"commit_hash": result.CommitHash,
-		"branch_name": result.BranchName,
-		"pr_url":      result.PRURL,
+		"mode":        string(deliverResult.Mode),
+		"patch_path":  deliverResult.PatchPath,
+		"commit_hash": deliverResult.CommitHash,
+		"branch_name": deliverResult.BranchName,
+		"pr_url":      deliverResult.PRURL,
 	})
 	s.hub.BroadcastEvent(ctx, ws.EventDelivery, ws.DeliveryEvent{
 		RunID:      r.ID,
 		TaskID:     r.TaskID,
 		ProjectID:  r.ProjectID,
 		Status:     "completed",
-		Mode:       string(result.Mode),
-		PatchPath:  result.PatchPath,
-		CommitHash: result.CommitHash,
-		BranchName: result.BranchName,
-		PRURL:      result.PRURL,
+		Mode:       string(deliverResult.Mode),
+		PatchPath:  deliverResult.PatchPath,
+		CommitHash: deliverResult.CommitHash,
+		BranchName: deliverResult.BranchName,
+		PRURL:      deliverResult.PRURL,
 	})
 }
 
@@ -910,6 +966,9 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 			}
 		}
 	}
+
+	// Audit trail
+	s.appendAudit(ctx, r, "run.cancelled", fmt.Sprintf("Run cancelled by user, %d steps completed, cost $%.4f", r.StepCount, r.CostUSD))
 
 	slog.Info("run cancelled", "run_id", runID)
 	return nil
@@ -1104,6 +1163,25 @@ func (s *RuntimeService) appendRunEvent(ctx context.Context, evType event.Type, 
 	}
 	if err := s.events.Append(ctx, &ev); err != nil {
 		slog.Error("failed to append run event", "type", evType, "run_id", r.ID, "error", err)
+	}
+}
+
+// appendAudit records an entry in the audit trail table for compliance and debugging.
+// This is separate from agent_events — the audit trail captures high-level lifecycle
+// actions (run start/complete, policy denials, quality gate outcomes, delivery, cancel).
+func (s *RuntimeService) appendAudit(ctx context.Context, r *run.Run, action, details string) {
+	if s.events == nil {
+		return
+	}
+	entry := &event.AuditEntry{
+		ProjectID: r.ProjectID,
+		RunID:     r.ID,
+		AgentID:   r.AgentID,
+		Action:    action,
+		Details:   details,
+	}
+	if err := s.events.AppendAudit(ctx, entry); err != nil {
+		slog.Error("failed to append audit entry", "action", action, "run_id", r.ID, "error", err)
 	}
 }
 

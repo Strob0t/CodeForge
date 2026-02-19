@@ -1144,3 +1144,13 @@
   - Agent status tracking from `agent.status` WS events
   - Team selector buttons with status badges, role legend, message flow log (last 20)
   - 11 new i18n keys (EN + DE) in `agentNetwork.*` namespace
+
+## Post-Phase 11: Security Hardening (COMPLETED)
+
+> P0 critical findings from documentation audit, fixed 2026-02-19.
+
+- [x] (2026-02-19) **P0-1: Prompt Injection Defense** — `sanitizePromptInput()` in `meta_agent.go`: strips control chars, neutralizes role markers (system:/assistant:/[system]/etc.), truncates at 10k chars, data-boundary instruction in system prompt. 6 tests in `sanitize_test.go`.
+- [x] (2026-02-19) **P0-2: Secret Redaction Utilities** — `Vault.Redacted()` (masked value for logs), `Vault.RedactString()` (scrub secrets from arbitrary strings), `Vault.Keys()` (key names only), `maskValue()` helper. 4 new tests in `vault_test.go`.
+- [x] (2026-02-19) **P0-3: Audit Trail in RuntimeService** — `appendAudit()` helper wired into 8 lifecycle points: run.started, run.completed, run.cancelled, policy.denied, qualitygate.passed, qualitygate.failed, qualitygate.error, delivery.completed, delivery.failed, budget.exceeded.
+- [x] (2026-02-19) **P0-4: Quality Gate Fail-Closed** — NATS publish failure for quality gate request now fails the run instead of silently passing. Audit entry recorded.
+- [x] (2026-02-19) **P0-5: Post-Execution Budget Enforcement** — Immediate budget check in `HandleToolCallResult` after cost accumulation. Single expensive tool call that exceeds budget triggers immediate run termination with StatusTimeout.

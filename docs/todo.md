@@ -1039,6 +1039,27 @@ For full completion history, see [project-status.md](project-status.md).
 
 ---
 
+## Post-Phase 11: Security Hardening (P0 Audit Fixes)
+
+- [x] (2026-02-19) P0-1: Prompt injection defense in MetaAgent decomposition
+  - `sanitizePromptInput()` strips control chars, role markers, enforces length limit
+  - Data-boundary instruction added to system prompt
+  - 6 unit tests in `internal/service/sanitize_test.go`
+- [x] (2026-02-19) P0-2: Secret redaction utilities for safe logging
+  - `Vault.Redacted()` masks secret values (first 2 chars + "****")
+  - `Vault.RedactString()` scrubs secrets from arbitrary strings
+  - `Vault.Keys()` returns key names without values
+  - 4 new tests in `internal/secrets/vault_test.go`
+- [x] (2026-02-19) P0-3: Wire audit trail into RuntimeService lifecycle
+  - `appendAudit()` helper wired into 8 lifecycle points (start, complete, cancel, policy deny, quality gate pass/fail/error, delivery success/fail, budget exceeded)
+- [x] (2026-02-19) P0-4: Quality gate fail-closed on NATS publish failure
+  - NATS publish failure now finalizes run as failed instead of silently passing
+- [x] (2026-02-19) P0-5: Post-execution budget enforcement
+  - Immediate budget check in `HandleToolCallResult` after cost accumulation
+  - Prevents budget overrun from single expensive tool calls
+
+---
+
 ## Notes
 
 - **Priority order**: Phases 0-11 complete. All phases implemented.
