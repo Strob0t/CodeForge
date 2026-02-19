@@ -1052,3 +1052,16 @@
   - Project links via projectId, ARIA role="log" + aria-live="polite"
   - Route `/activity`, sidebar nav link between Modes and Settings
   - 12 i18n keys (EN + DE)
+
+### 11F. Team/Multi-Agent Management UI (COMPLETED)
+
+- [x] (2026-02-19) Team management page for multi-agent coordination
+  - `TeamsPage` at `/teams` with project selector dropdown
+  - Create team form: name, protocol (round-robin/pipeline/parallel/consensus/ping-pong), member assignment
+  - Member assignment: select agent + role (coder/reviewer/tester/documenter/planner) with add/remove
+  - Team cards: status badge (initializing/active/completed/failed), protocol, member count, creation date
+  - Expandable detail: member list with role-colored badges, agent name resolution
+  - Shared context viewer: key/value items with author, token count, version number
+  - TEAM_STATUS_COLORS and ROLE_COLORS for visual differentiation
+  - Route `/teams`, sidebar nav link between Activity and Settings
+  - ~30 i18n keys (EN + DE)

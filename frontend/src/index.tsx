@@ -13,6 +13,7 @@ import ModelsPage from "./features/llm/ModelsPage.tsx";
 import ModesPage from "./features/modes/ModesPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import SettingsPage from "./features/settings/SettingsPage.tsx";
+import TeamsPage from "./features/teams/TeamsPage.tsx";
 
 const root = document.getElementById("root");
 
@@ -31,6 +32,7 @@ render(
       <Route path="/models" component={ModelsPage} />
       <Route path="/modes" component={ModesPage} />
       <Route path="/activity" component={ActivityPage} />
+      <Route path="/teams" component={TeamsPage} />
       <Route path="/settings" component={SettingsPage} />
     </Router>
   ),

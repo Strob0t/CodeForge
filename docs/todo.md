@@ -910,7 +910,13 @@
   - Mode cards: tool badges, LLM scenario, autonomy level with color coding, expandable prompt
   - Built-in modes protected from overwrite, sorted before custom
   - ~35 i18n keys (EN + DE), sidebar nav link, route wired
-- [ ] Team/Multi-Agent management UI — backend ready via `api.teams`
+- [x] (2026-02-19) Team/Multi-Agent management UI — backend ready via `api.teams`
+  - TeamsPage at `/teams` with project selector, team creation form, and team list
+  - Create team: name, protocol (round-robin/pipeline/parallel/consensus/ping-pong), member assignment (agent + role)
+  - Team cards: status badge, protocol badge, member count, expandable detail with member list and shared context
+  - Shared context viewer: key/value items with author and token count
+  - 5 team roles: coder, reviewer, tester, documenter, planner (color-coded badges)
+  - ~30 i18n keys (EN + DE), sidebar nav link, route wired
 
 ---
 
