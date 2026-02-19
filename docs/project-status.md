@@ -140,7 +140,7 @@
 - **Go:** 1.24, chi v5, pgx v5, goose, coder/websocket, nats.go — 0 lint issues, 11 tests (expanded to 27 in Phase 2)
 - **Python:** nats-py, httpx, pydantic v2 — 16 tests, ruff clean
 - **Frontend:** SolidJS, @solidjs/router, @solid-primitives/websocket — build + lint + format clean
-- **CI:** 3-job GitHub Actions (Go, Python, Frontend)
+- **CI:** 3-job GitHub Actions (Go, Python, Frontend), branch protection script for `main`
 - **API:** 9 REST endpoints, WebSocket, health with service status
 
 ## Phase 2: MVP Features (COMPLETED)

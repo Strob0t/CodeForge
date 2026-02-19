@@ -673,7 +673,12 @@
   - Pre-commit: ruff-pre-commit bumped to v0.15.1, ESLint hook fixed for local binary
   - All violations fixed across 31 files
 - [x] (2026-02-18) GitHub Actions workflow: build Docker images (3 parallel jobs, ghcr.io, layer cache)
-- [ ] Branch protection rules for `main` (GitHub)
+- [x] (2026-02-19) Branch protection rules for `main` (GitHub)
+  - `scripts/setup-branch-protection.sh`: Configurable via `gh` CLI
+  - Requires PR with 1 approving review, dismiss stale reviews
+  - Required status checks: Go, Python, Frontend (CI jobs)
+  - Require up-to-date branches, linear history, conversation resolution
+  - No force pushes or branch deletion
 - [x] (2026-02-19) Branch protection rules (domain feature) — ProtectionRule model with glob pattern matching, EvaluatePush/EvaluateMerge/EvaluateDelete, CRUD REST API, migration 020, tenant-aware store methods, optimistic locking
 
 ---

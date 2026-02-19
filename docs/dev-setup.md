@@ -137,8 +137,9 @@ CodeForge/
 ├── scripts/
 │   ├── test.sh               # Unified test runner (go/python/frontend/integration/e2e)
 │   ├── logs.sh               # Docker log viewer helper
-│   ├── backup-postgres.sh    # PostgreSQL backup script
-│   └── restore-postgres.sh   # PostgreSQL restore script
+│   ├── backup-postgres.sh          # PostgreSQL backup script
+│   ├── restore-postgres.sh         # PostgreSQL restore script
+│   └── setup-branch-protection.sh  # GitHub branch protection for main
 ├── configs/
 │   └── model_pricing.yaml    # Fallback LLM pricing table
 ├── tests/
