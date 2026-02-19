@@ -111,7 +111,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    command: ["--config", "/app/data/config.yaml", "--port", "4000"]
     depends_on:
       postgres:
         condition: service_healthy
