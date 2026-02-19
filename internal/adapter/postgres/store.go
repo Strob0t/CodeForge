@@ -36,7 +36,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at
-		 FROM projects ORDER BY created_at DESC`)
+		 FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -56,7 +56,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at
-		 FROM projects WHERE id = $1`, id)
+		 FROM projects WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	p, err := scanProject(row)
 	if err != nil {
@@ -75,10 +75,10 @@ func (s *Store) CreateProject(ctx context.Context, req project.CreateRequest) (*
 	}
 
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO projects (name, description, repo_url, provider, config)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO projects (tenant_id, name, description, repo_url, provider, config)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at`,
-		req.Name, req.Description, req.RepoURL, req.Provider, configJSON)
+		tenantFromCtx(ctx), req.Name, req.Description, req.RepoURL, req.Provider, configJSON)
 
 	p, err := scanProject(row)
 	if err != nil {
@@ -94,8 +94,8 @@ func (s *Store) UpdateProject(ctx context.Context, p *project.Project) error {
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE projects SET name = $2, description = $3, repo_url = $4, provider = $5, workspace_path = $6, config = $7
-		 WHERE id = $1 AND version = $8`,
-		p.ID, p.Name, p.Description, p.RepoURL, p.Provider, p.WorkspacePath, configJSON, p.Version)
+		 WHERE id = $1 AND version = $8 AND tenant_id = $9`,
+		p.ID, p.Name, p.Description, p.RepoURL, p.Provider, p.WorkspacePath, configJSON, p.Version, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update project %s: %w", p.ID, err)
 	}
@@ -107,7 +107,7 @@ func (s *Store) UpdateProject(ctx context.Context, p *project.Project) error {
 }
 
 func (s *Store) DeleteProject(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete project %s: %w", id, err)
 	}
@@ -122,7 +122,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at
-		 FROM agents WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+		 FROM agents WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
@@ -142,7 +142,7 @@ func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent
 func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at
-		 FROM agents WHERE id = $1`, id)
+		 FROM agents WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	a, err := scanAgent(row)
 	if err != nil {
@@ -169,10 +169,10 @@ func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string
 	}
 
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO agents (project_id, name, backend, config, resource_limits)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO agents (tenant_id, project_id, name, backend, config, resource_limits)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at`,
-		projectID, name, backend, configJSON, limitsJSON)
+		tenantFromCtx(ctx), projectID, name, backend, configJSON, limitsJSON)
 
 	a, err := scanAgent(row)
 	if err != nil {
@@ -182,7 +182,7 @@ func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string
 }
 
 func (s *Store) UpdateAgentStatus(ctx context.Context, id string, status agent.Status) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE agents SET status = $2 WHERE id = $1`, id, string(status))
+	tag, err := s.pool.Exec(ctx, `UPDATE agents SET status = $2 WHERE id = $1 AND tenant_id = $3`, id, string(status), tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update agent status %s: %w", id, err)
 	}
@@ -193,7 +193,7 @@ func (s *Store) UpdateAgentStatus(ctx context.Context, id string, status agent.S
 }
 
 func (s *Store) DeleteAgent(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM agents WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM agents WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete agent %s: %w", id, err)
 	}
@@ -208,7 +208,7 @@ func (s *Store) DeleteAgent(ctx context.Context, id string) error {
 func (s *Store) ListTasks(ctx context.Context, projectID string) ([]task.Task, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at
-		 FROM tasks WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+		 FROM tasks WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -228,7 +228,7 @@ func (s *Store) ListTasks(ctx context.Context, projectID string) ([]task.Task, e
 func (s *Store) GetTask(ctx context.Context, id string) (*task.Task, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at
-		 FROM tasks WHERE id = $1`, id)
+		 FROM tasks WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	t, err := scanTask(row)
 	if err != nil {
@@ -242,10 +242,10 @@ func (s *Store) GetTask(ctx context.Context, id string) (*task.Task, error) {
 
 func (s *Store) CreateTask(ctx context.Context, req task.CreateRequest) (*task.Task, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO tasks (project_id, title, prompt)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO tasks (tenant_id, project_id, title, prompt)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at`,
-		req.ProjectID, req.Title, req.Prompt)
+		tenantFromCtx(ctx), req.ProjectID, req.Title, req.Prompt)
 
 	t, err := scanTask(row)
 	if err != nil {
@@ -255,7 +255,7 @@ func (s *Store) CreateTask(ctx context.Context, req task.CreateRequest) (*task.T
 }
 
 func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Status) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE tasks SET status = $2 WHERE id = $1`, id, string(status))
+	tag, err := s.pool.Exec(ctx, `UPDATE tasks SET status = $2 WHERE id = $1 AND tenant_id = $3`, id, string(status), tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update task status %s: %w", id, err)
 	}
@@ -271,8 +271,8 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 		return fmt.Errorf("marshal result: %w", err)
 	}
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE tasks SET result = $2, cost_usd = $3, status = $4 WHERE id = $1`,
-		id, resultJSON, costUSD, string(task.StatusCompleted))
+		`UPDATE tasks SET result = $2, cost_usd = $3, status = $4 WHERE id = $1 AND tenant_id = $5`,
+		id, resultJSON, costUSD, string(task.StatusCompleted), tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update task result %s: %w", id, err)
 	}
@@ -286,19 +286,19 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 
 func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO runs (task_id, agent_id, project_id, team_id, policy_profile, exec_mode, deliver_mode, status, output)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO runs (tenant_id, task_id, agent_id, project_id, team_id, policy_profile, exec_mode, deliver_mode, status, output)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING id, started_at, created_at, updated_at, version`,
-		r.TaskID, r.AgentID, r.ProjectID, nullIfEmpty(r.TeamID), r.PolicyProfile, string(r.ExecMode), string(r.DeliverMode), string(r.Status), r.Output)
+		tenantFromCtx(ctx), r.TaskID, r.AgentID, r.ProjectID, nullIfEmpty(r.TeamID), r.PolicyProfile, string(r.ExecMode), string(r.DeliverMode), string(r.Status), r.Output)
 
 	return row.Scan(&r.ID, &r.StartedAt, &r.CreatedAt, &r.UpdatedAt, &r.Version)
 }
 
 func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
+		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
 		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
-		 FROM runs WHERE id = $1`, id)
+		 FROM runs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	r, err := scanRun(row)
 	if err != nil {
@@ -313,8 +313,8 @@ func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET status = $2, step_count = $3, cost_usd = $4, tokens_in = $5, tokens_out = $6, updated_at = now()
-		 WHERE id = $1`,
-		id, string(status), stepCount, costUSD, tokensIn, tokensOut)
+		 WHERE id = $1 AND tenant_id = $7`,
+		id, string(status), stepCount, costUSD, tokensIn, tokensOut, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update run status %s: %w", id, err)
 	}
@@ -328,8 +328,8 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, o
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
 		 tokens_in = $7, tokens_out = $8, model = $9, completed_at = now(), updated_at = now()
-		 WHERE id = $1`,
-		id, string(status), output, errMsg, costUSD, stepCount, tokensIn, tokensOut, model)
+		 WHERE id = $1 AND tenant_id = $10`,
+		id, string(status), output, errMsg, costUSD, stepCount, tokensIn, tokensOut, model, tenantFromCtx(ctx))
 
 	if err != nil {
 		return fmt.Errorf("complete run %s: %w", id, err)
@@ -342,9 +342,9 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, o
 
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
+		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
 		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
-		 FROM runs WHERE task_id = $1 ORDER BY created_at DESC`, taskID)
+		 FROM runs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, taskID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list runs by task: %w", err)
 	}
@@ -370,12 +370,14 @@ func (s *Store) CreateTeam(ctx context.Context, req agent.CreateTeamRequest) (*a
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
 
+	tid := tenantFromCtx(ctx)
+
 	var t agent.Team
 	err = tx.QueryRow(ctx,
-		`INSERT INTO agent_teams (project_id, name, protocol)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO agent_teams (tenant_id, project_id, name, protocol)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, project_id, name, protocol, status, version, created_at, updated_at`,
-		req.ProjectID, req.Name, req.Protocol,
+		tid, req.ProjectID, req.Name, req.Protocol,
 	).Scan(&t.ID, &t.ProjectID, &t.Name, &t.Protocol, &t.Status, &t.Version, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert team: %w", err)
@@ -384,10 +386,10 @@ func (s *Store) CreateTeam(ctx context.Context, req agent.CreateTeamRequest) (*a
 	for _, m := range req.Members {
 		var member agent.TeamMember
 		err = tx.QueryRow(ctx,
-			`INSERT INTO team_members (team_id, agent_id, role)
-			 VALUES ($1, $2, $3)
+			`INSERT INTO team_members (tenant_id, team_id, agent_id, role)
+			 VALUES ($1, $2, $3, $4)
 			 RETURNING id, team_id, agent_id, role`,
-			t.ID, m.AgentID, string(m.Role),
+			tid, t.ID, m.AgentID, string(m.Role),
 		).Scan(&member.ID, &member.TeamID, &member.AgentID, &member.Role)
 		if err != nil {
 			return nil, fmt.Errorf("insert team member: %w", err)
@@ -404,7 +406,7 @@ func (s *Store) CreateTeam(ctx context.Context, req agent.CreateTeamRequest) (*a
 func (s *Store) GetTeam(ctx context.Context, id string) (*agent.Team, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, project_id, name, protocol, status, version, created_at, updated_at
-		 FROM agent_teams WHERE id = $1`, id)
+		 FROM agent_teams WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	t, err := scanTeam(row)
 	if err != nil {
@@ -425,7 +427,7 @@ func (s *Store) GetTeam(ctx context.Context, id string) (*agent.Team, error) {
 func (s *Store) ListTeamsByProject(ctx context.Context, projectID string) ([]agent.Team, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, project_id, name, protocol, status, version, created_at, updated_at
-		 FROM agent_teams WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+		 FROM agent_teams WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list teams: %w", err)
 	}
@@ -456,8 +458,8 @@ func (s *Store) ListTeamsByProject(ctx context.Context, projectID string) ([]age
 
 func (s *Store) UpdateTeamStatus(ctx context.Context, id string, status agent.TeamStatus) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_teams SET status = $2 WHERE id = $1`,
-		id, string(status))
+		`UPDATE agent_teams SET status = $2 WHERE id = $1 AND tenant_id = $3`,
+		id, string(status), tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update team status %s: %w", id, err)
 	}
@@ -468,7 +470,7 @@ func (s *Store) UpdateTeamStatus(ctx context.Context, id string, status agent.Te
 }
 
 func (s *Store) DeleteTeam(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM agent_teams WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM agent_teams WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete team %s: %w", id, err)
 	}
@@ -480,7 +482,7 @@ func (s *Store) DeleteTeam(ctx context.Context, id string) error {
 
 func (s *Store) listTeamMembers(ctx context.Context, teamID string) ([]agent.TeamMember, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, team_id, agent_id, role FROM team_members WHERE team_id = $1`, teamID)
+		`SELECT id, team_id, agent_id, role FROM team_members WHERE team_id = $1 AND tenant_id = $2`, teamID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list team members: %w", err)
 	}
@@ -504,29 +506,31 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op // rollback after commit is a no-op
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	tid := tenantFromCtx(ctx)
 
 	// Insert plan row
 	err = tx.QueryRow(ctx,
-		`INSERT INTO execution_plans (project_id, team_id, name, description, protocol, status, max_parallel)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO execution_plans (tenant_id, project_id, team_id, name, description, protocol, status, max_parallel)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id, version, created_at, updated_at`,
-		p.ProjectID, nullIfEmpty(p.TeamID), p.Name, p.Description, string(p.Protocol), string(p.Status), p.MaxParallel,
+		tid, p.ProjectID, nullIfEmpty(p.TeamID), p.Name, p.Description, string(p.Protocol), string(p.Status), p.MaxParallel,
 	).Scan(&p.ID, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert plan: %w", err)
 	}
 
-	// Insert steps, building index→UUID map for dependency remapping
+	// Insert steps, building index->UUID map for dependency remapping
 	idMap := make(map[int]string, len(p.Steps))
 	for i := range p.Steps {
 		step := &p.Steps[i]
 		step.PlanID = p.ID
 		err = tx.QueryRow(ctx,
-			`INSERT INTO plan_steps (plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			 RETURNING id, created_at, updated_at`,
-			step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
+			tid, step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
 			step.DependsOn, string(step.Status), step.Round,
 		).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
 		if err != nil {
@@ -541,7 +545,7 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 func (s *Store) GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, project_id, COALESCE(team_id::text, ''), name, description, protocol, status, max_parallel, version, created_at, updated_at
-		 FROM execution_plans WHERE id = $1`, id)
+		 FROM execution_plans WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	p, err := scanPlan(row)
 	if err != nil {
@@ -562,7 +566,7 @@ func (s *Store) GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, er
 func (s *Store) ListPlansByProject(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, project_id, COALESCE(team_id::text, ''), name, description, protocol, status, max_parallel, version, created_at, updated_at
-		 FROM execution_plans WHERE project_id = $1 ORDER BY created_at DESC`, projectID)
+		 FROM execution_plans WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list plans: %w", err)
 	}
@@ -581,8 +585,8 @@ func (s *Store) ListPlansByProject(ctx context.Context, projectID string) ([]pla
 
 func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Status) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE execution_plans SET status = $2 WHERE id = $1`,
-		id, string(status))
+		`UPDATE execution_plans SET status = $2 WHERE id = $1 AND tenant_id = $3`,
+		id, string(status), tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update plan status %s: %w", id, err)
 	}
@@ -594,10 +598,10 @@ func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Sta
 
 func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {
 	return s.pool.QueryRow(ctx,
-		`INSERT INTO plan_steps (plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING id, created_at, updated_at`,
-		step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
+		tenantFromCtx(ctx), step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
 		step.DependsOn, string(step.Status), step.Round,
 	).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
 }
@@ -605,7 +609,7 @@ func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {
 func (s *Store) ListPlanSteps(ctx context.Context, planID string) ([]plan.Step, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
-		 FROM plan_steps WHERE plan_id = $1 ORDER BY created_at ASC`, planID)
+		 FROM plan_steps WHERE plan_id = $1 AND tenant_id = $2 ORDER BY created_at ASC`, planID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list plan steps: %w", err)
 	}
@@ -625,8 +629,8 @@ func (s *Store) ListPlanSteps(ctx context.Context, planID string) ([]plan.Step, 
 func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status plan.StepStatus, runID, errMsg string) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE plan_steps SET status = $2, run_id = CASE WHEN $3 = '' THEN run_id ELSE $3::uuid END, error = $4
-		 WHERE id = $1`,
-		stepID, string(status), runID, errMsg)
+		 WHERE id = $1 AND tenant_id = $5`,
+		stepID, string(status), runID, errMsg, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update plan step status %s: %w", stepID, err)
 	}
@@ -639,7 +643,7 @@ func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status 
 func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
-		 FROM plan_steps WHERE run_id = $1`, runID)
+		 FROM plan_steps WHERE run_id = $1 AND tenant_id = $2`, runID, tenantFromCtx(ctx))
 
 	st, err := scanPlanStep(row)
 	if err != nil {
@@ -653,8 +657,8 @@ func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Ste
 
 func (s *Store) UpdatePlanStepRound(ctx context.Context, stepID string, round int) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE plan_steps SET round = $2 WHERE id = $1`,
-		stepID, round)
+		`UPDATE plan_steps SET round = $2 WHERE id = $1 AND tenant_id = $3`,
+		stepID, round, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update plan step round %s: %w", stepID, err)
 	}
@@ -710,7 +714,7 @@ func scanProject(row scannable) (project.Project, error) {
 func scanRun(row scannable) (run.Run, error) {
 	var r run.Run
 	err := row.Scan(
-		&r.ID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.TeamID, &r.PolicyProfile,
+		&r.ID, &r.TenantID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.TeamID, &r.PolicyProfile,
 		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD,
 		&r.TokensIn, &r.TokensOut, &r.Model,
 		&r.Output, &r.Error,
@@ -774,10 +778,12 @@ func (s *Store) CreateContextPack(ctx context.Context, pack *cfcontext.ContextPa
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
 
+	tid := tenantFromCtx(ctx)
+
 	err = tx.QueryRow(ctx,
-		`INSERT INTO context_packs (task_id, project_id, token_budget, tokens_used)
-		 VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-		pack.TaskID, pack.ProjectID, pack.TokenBudget, pack.TokensUsed,
+		`INSERT INTO context_packs (tenant_id, task_id, project_id, token_budget, tokens_used)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+		tid, pack.TaskID, pack.ProjectID, pack.TokenBudget, pack.TokensUsed,
 	).Scan(&pack.ID, &pack.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert context_pack: %w", err)
@@ -787,9 +793,9 @@ func (s *Store) CreateContextPack(ctx context.Context, pack *cfcontext.ContextPa
 		e := &pack.Entries[i]
 		e.PackID = pack.ID
 		err = tx.QueryRow(ctx,
-			`INSERT INTO context_entries (pack_id, kind, path, content, tokens, priority)
-			 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-			e.PackID, e.Kind, e.Path, e.Content, e.Tokens, e.Priority,
+			`INSERT INTO context_entries (tenant_id, pack_id, kind, path, content, tokens, priority)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+			tid, e.PackID, e.Kind, e.Path, e.Content, e.Tokens, e.Priority,
 		).Scan(&e.ID)
 		if err != nil {
 			return fmt.Errorf("insert context_entry %d: %w", i, err)
@@ -804,7 +810,7 @@ func (s *Store) GetContextPack(ctx context.Context, id string) (*cfcontext.Conte
 	var p cfcontext.ContextPack
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, task_id, project_id, token_budget, tokens_used, created_at
-		 FROM context_packs WHERE id = $1`, id,
+		 FROM context_packs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx),
 	).Scan(&p.ID, &p.TaskID, &p.ProjectID, &p.TokenBudget, &p.TokensUsed, &p.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -826,7 +832,7 @@ func (s *Store) GetContextPackByTask(ctx context.Context, taskID string) (*cfcon
 	var p cfcontext.ContextPack
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, task_id, project_id, token_budget, tokens_used, created_at
-		 FROM context_packs WHERE task_id = $1 ORDER BY created_at DESC LIMIT 1`, taskID,
+		 FROM context_packs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 1`, taskID, tenantFromCtx(ctx),
 	).Scan(&p.ID, &p.TaskID, &p.ProjectID, &p.TokenBudget, &p.TokensUsed, &p.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -845,7 +851,7 @@ func (s *Store) GetContextPackByTask(ctx context.Context, taskID string) (*cfcon
 
 // DeleteContextPack removes a context pack and its entries (CASCADE).
 func (s *Store) DeleteContextPack(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM context_packs WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM context_packs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete context_pack: %w", err)
 	}
@@ -858,7 +864,7 @@ func (s *Store) DeleteContextPack(ctx context.Context, id string) error {
 func (s *Store) loadContextEntries(ctx context.Context, packID string) ([]cfcontext.ContextEntry, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, pack_id, kind, path, content, tokens, priority
-		 FROM context_entries WHERE pack_id = $1 ORDER BY priority DESC`, packID)
+		 FROM context_entries WHERE pack_id = $1 AND tenant_id = $2 ORDER BY priority DESC`, packID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("load context_entries: %w", err)
 	}
@@ -880,9 +886,9 @@ func (s *Store) loadContextEntries(ctx context.Context, packID string) ([]cfcont
 // CreateSharedContext inserts a new shared context for a team.
 func (s *Store) CreateSharedContext(ctx context.Context, sc *cfcontext.SharedContext) error {
 	return s.pool.QueryRow(ctx,
-		`INSERT INTO shared_contexts (team_id, project_id) VALUES ($1, $2)
+		`INSERT INTO shared_contexts (tenant_id, team_id, project_id) VALUES ($1, $2, $3)
 		 RETURNING id, version, created_at, updated_at`,
-		sc.TeamID, sc.ProjectID,
+		tenantFromCtx(ctx), sc.TeamID, sc.ProjectID,
 	).Scan(&sc.ID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
 }
 
@@ -891,7 +897,7 @@ func (s *Store) GetSharedContext(ctx context.Context, id string) (*cfcontext.Sha
 	var sc cfcontext.SharedContext
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, team_id, project_id, version, created_at, updated_at
-		 FROM shared_contexts WHERE id = $1`, id,
+		 FROM shared_contexts WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx),
 	).Scan(&sc.ID, &sc.TeamID, &sc.ProjectID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -913,7 +919,7 @@ func (s *Store) GetSharedContextByTeam(ctx context.Context, teamID string) (*cfc
 	var sc cfcontext.SharedContext
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, team_id, project_id, version, created_at, updated_at
-		 FROM shared_contexts WHERE team_id = $1`, teamID,
+		 FROM shared_contexts WHERE team_id = $1 AND tenant_id = $2`, teamID, tenantFromCtx(ctx),
 	).Scan(&sc.ID, &sc.TeamID, &sc.ProjectID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -938,10 +944,12 @@ func (s *Store) AddSharedContextItem(ctx context.Context, req cfcontext.AddShare
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
 
+	tid := tenantFromCtx(ctx)
+
 	// Resolve shared context ID from team ID.
 	var sharedID string
 	err = tx.QueryRow(ctx,
-		`SELECT id FROM shared_contexts WHERE team_id = $1`, req.TeamID,
+		`SELECT id FROM shared_contexts WHERE team_id = $1 AND tenant_id = $2`, req.TeamID, tid,
 	).Scan(&sharedID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -953,11 +961,11 @@ func (s *Store) AddSharedContextItem(ctx context.Context, req cfcontext.AddShare
 	tokens := cfcontext.EstimateTokens(req.Value)
 	var item cfcontext.SharedContextItem
 	err = tx.QueryRow(ctx,
-		`INSERT INTO shared_context_items (shared_id, key, value, author, tokens)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO shared_context_items (tenant_id, shared_id, key, value, author, tokens)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (shared_id, key) DO UPDATE SET value = EXCLUDED.value, author = EXCLUDED.author, tokens = EXCLUDED.tokens
 		 RETURNING id, shared_id, key, value, author, tokens, created_at`,
-		sharedID, req.Key, req.Value, req.Author, tokens,
+		tid, sharedID, req.Key, req.Value, req.Author, tokens,
 	).Scan(&item.ID, &item.SharedID, &item.Key, &item.Value, &item.Author, &item.Tokens, &item.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("upsert shared_context_item: %w", err)
@@ -965,7 +973,7 @@ func (s *Store) AddSharedContextItem(ctx context.Context, req cfcontext.AddShare
 
 	// Bump version.
 	if _, err := tx.Exec(ctx,
-		`UPDATE shared_contexts SET version = version + 1 WHERE id = $1`, sharedID,
+		`UPDATE shared_contexts SET version = version + 1 WHERE id = $1 AND tenant_id = $2`, sharedID, tid,
 	); err != nil {
 		return nil, fmt.Errorf("bump shared_context version: %w", err)
 	}
@@ -978,7 +986,7 @@ func (s *Store) AddSharedContextItem(ctx context.Context, req cfcontext.AddShare
 
 // DeleteSharedContext removes a shared context and its items (CASCADE).
 func (s *Store) DeleteSharedContext(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM shared_contexts WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM shared_contexts WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete shared_context: %w", err)
 	}
@@ -993,8 +1001,8 @@ func (s *Store) DeleteSharedContext(ctx context.Context, id string) error {
 // UpsertRepoMap inserts or updates a repo map for a project.
 func (s *Store) UpsertRepoMap(ctx context.Context, m *cfcontext.RepoMap) error {
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO repo_maps (project_id, map_text, token_count, file_count, symbol_count, languages, version)
-		 VALUES ($1, $2, $3, $4, $5, $6, 1)
+		`INSERT INTO repo_maps (tenant_id, project_id, map_text, token_count, file_count, symbol_count, languages, version)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
 		 ON CONFLICT (project_id) DO UPDATE SET
 		   map_text = EXCLUDED.map_text,
 		   token_count = EXCLUDED.token_count,
@@ -1004,7 +1012,7 @@ func (s *Store) UpsertRepoMap(ctx context.Context, m *cfcontext.RepoMap) error {
 		   version = repo_maps.version + 1,
 		   updated_at = now()
 		 RETURNING id, version, created_at, updated_at`,
-		m.ProjectID, m.MapText, m.TokenCount, m.FileCount, m.SymbolCount, m.Languages,
+		tenantFromCtx(ctx), m.ProjectID, m.MapText, m.TokenCount, m.FileCount, m.SymbolCount, m.Languages,
 	).Scan(&m.ID, &m.Version, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert repo_map: %w", err)
@@ -1017,7 +1025,7 @@ func (s *Store) GetRepoMap(ctx context.Context, projectID string) (*cfcontext.Re
 	var m cfcontext.RepoMap
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, project_id, map_text, token_count, file_count, symbol_count, languages, version, created_at, updated_at
-		 FROM repo_maps WHERE project_id = $1`, projectID,
+		 FROM repo_maps WHERE project_id = $1 AND tenant_id = $2`, projectID, tenantFromCtx(ctx),
 	).Scan(&m.ID, &m.ProjectID, &m.MapText, &m.TokenCount, &m.FileCount, &m.SymbolCount, &m.Languages, &m.Version, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1030,7 +1038,7 @@ func (s *Store) GetRepoMap(ctx context.Context, projectID string) (*cfcontext.Re
 
 // DeleteRepoMap removes the repo map for a project.
 func (s *Store) DeleteRepoMap(ctx context.Context, projectID string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM repo_maps WHERE project_id = $1`, projectID)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM repo_maps WHERE project_id = $1 AND tenant_id = $2`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete repo_map: %w", err)
 	}
@@ -1044,10 +1052,10 @@ func (s *Store) DeleteRepoMap(ctx context.Context, projectID string) error {
 
 func (s *Store) CreateRoadmap(ctx context.Context, req roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO roadmaps (project_id, title, description)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO roadmaps (tenant_id, project_id, title, description)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, project_id, tenant_id, title, description, status, version, created_at, updated_at`,
-		req.ProjectID, req.Title, req.Description)
+		tenantFromCtx(ctx), req.ProjectID, req.Title, req.Description)
 
 	r, err := scanRoadmap(row)
 	if err != nil {
@@ -1059,7 +1067,7 @@ func (s *Store) CreateRoadmap(ctx context.Context, req roadmap.CreateRoadmapRequ
 func (s *Store) GetRoadmap(ctx context.Context, id string) (*roadmap.Roadmap, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, project_id, tenant_id, title, description, status, version, created_at, updated_at
-		 FROM roadmaps WHERE id = $1`, id)
+		 FROM roadmaps WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	r, err := scanRoadmap(row)
 	if err != nil {
@@ -1074,7 +1082,7 @@ func (s *Store) GetRoadmap(ctx context.Context, id string) (*roadmap.Roadmap, er
 func (s *Store) GetRoadmapByProject(ctx context.Context, projectID string) (*roadmap.Roadmap, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, project_id, tenant_id, title, description, status, version, created_at, updated_at
-		 FROM roadmaps WHERE project_id = $1`, projectID)
+		 FROM roadmaps WHERE project_id = $1 AND tenant_id = $2`, projectID, tenantFromCtx(ctx))
 
 	r, err := scanRoadmap(row)
 	if err != nil {
@@ -1089,8 +1097,8 @@ func (s *Store) GetRoadmapByProject(ctx context.Context, projectID string) (*roa
 func (s *Store) UpdateRoadmap(ctx context.Context, r *roadmap.Roadmap) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE roadmaps SET title = $2, description = $3, status = $4
-		 WHERE id = $1 AND version = $5`,
-		r.ID, r.Title, r.Description, string(r.Status), r.Version)
+		 WHERE id = $1 AND version = $5 AND tenant_id = $6`,
+		r.ID, r.Title, r.Description, string(r.Status), r.Version, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update roadmap %s: %w", r.ID, err)
 	}
@@ -1102,7 +1110,7 @@ func (s *Store) UpdateRoadmap(ctx context.Context, r *roadmap.Roadmap) error {
 }
 
 func (s *Store) DeleteRoadmap(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM roadmaps WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM roadmaps WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete roadmap %s: %w", id, err)
 	}
@@ -1116,10 +1124,10 @@ func (s *Store) DeleteRoadmap(ctx context.Context, id string) error {
 
 func (s *Store) CreateMilestone(ctx context.Context, req roadmap.CreateMilestoneRequest) (*roadmap.Milestone, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO milestones (roadmap_id, title, description, due_date)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO milestones (tenant_id, roadmap_id, title, description, due_date)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id, roadmap_id, title, description, status, sort_order, due_date, version, created_at, updated_at`,
-		req.RoadmapID, req.Title, req.Description, req.DueDate)
+		tenantFromCtx(ctx), req.RoadmapID, req.Title, req.Description, req.DueDate)
 
 	m, err := scanMilestone(row)
 	if err != nil {
@@ -1131,7 +1139,7 @@ func (s *Store) CreateMilestone(ctx context.Context, req roadmap.CreateMilestone
 func (s *Store) GetMilestone(ctx context.Context, id string) (*roadmap.Milestone, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, roadmap_id, title, description, status, sort_order, due_date, version, created_at, updated_at
-		 FROM milestones WHERE id = $1`, id)
+		 FROM milestones WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	m, err := scanMilestone(row)
 	if err != nil {
@@ -1146,7 +1154,7 @@ func (s *Store) GetMilestone(ctx context.Context, id string) (*roadmap.Milestone
 func (s *Store) ListMilestones(ctx context.Context, roadmapID string) ([]roadmap.Milestone, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, roadmap_id, title, description, status, sort_order, due_date, version, created_at, updated_at
-		 FROM milestones WHERE roadmap_id = $1 ORDER BY sort_order ASC, created_at ASC`, roadmapID)
+		 FROM milestones WHERE roadmap_id = $1 AND tenant_id = $2 ORDER BY sort_order ASC, created_at ASC`, roadmapID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list milestones: %w", err)
 	}
@@ -1166,8 +1174,8 @@ func (s *Store) ListMilestones(ctx context.Context, roadmapID string) ([]roadmap
 func (s *Store) UpdateMilestone(ctx context.Context, m *roadmap.Milestone) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE milestones SET title = $2, description = $3, status = $4, sort_order = $5, due_date = $6
-		 WHERE id = $1 AND version = $7`,
-		m.ID, m.Title, m.Description, string(m.Status), m.SortOrder, m.DueDate, m.Version)
+		 WHERE id = $1 AND version = $7 AND tenant_id = $8`,
+		m.ID, m.Title, m.Description, string(m.Status), m.SortOrder, m.DueDate, m.Version, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update milestone %s: %w", m.ID, err)
 	}
@@ -1179,7 +1187,7 @@ func (s *Store) UpdateMilestone(ctx context.Context, m *roadmap.Milestone) error
 }
 
 func (s *Store) DeleteMilestone(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM milestones WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM milestones WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete milestone %s: %w", id, err)
 	}
@@ -1197,10 +1205,12 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 		return nil, fmt.Errorf("marshal external_ids: %w", err)
 	}
 
+	tid := tenantFromCtx(ctx)
+
 	// Resolve roadmap_id from milestone.
 	var roadmapID string
 	if err := s.pool.QueryRow(ctx,
-		`SELECT roadmap_id FROM milestones WHERE id = $1`, req.MilestoneID,
+		`SELECT roadmap_id FROM milestones WHERE id = $1 AND tenant_id = $2`, req.MilestoneID, tid,
 	).Scan(&roadmapID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("milestone %s: %w", req.MilestoneID, domain.ErrNotFound)
@@ -1214,10 +1224,10 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 	}
 
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO features (milestone_id, roadmap_id, title, description, labels, spec_ref, external_ids)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO features (tenant_id, milestone_id, roadmap_id, title, description, labels, spec_ref, external_ids)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at`,
-		req.MilestoneID, roadmapID, req.Title, req.Description, labels, req.SpecRef, externalIDsJSON)
+		tid, req.MilestoneID, roadmapID, req.Title, req.Description, labels, req.SpecRef, externalIDsJSON)
 
 	f, err := scanFeature(row)
 	if err != nil {
@@ -1229,7 +1239,7 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
-		 FROM features WHERE id = $1`, id)
+		 FROM features WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	f, err := scanFeature(row)
 	if err != nil {
@@ -1244,7 +1254,7 @@ func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, er
 func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap.Feature, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
-		 FROM features WHERE milestone_id = $1 ORDER BY sort_order ASC, created_at ASC`, milestoneID)
+		 FROM features WHERE milestone_id = $1 AND tenant_id = $2 ORDER BY sort_order ASC, created_at ASC`, milestoneID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list features: %w", err)
 	}
@@ -1264,7 +1274,7 @@ func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap
 func (s *Store) ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
-		 FROM features WHERE roadmap_id = $1 ORDER BY sort_order ASC, created_at ASC`, roadmapID)
+		 FROM features WHERE roadmap_id = $1 AND tenant_id = $2 ORDER BY sort_order ASC, created_at ASC`, roadmapID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list features by roadmap: %w", err)
 	}
@@ -1294,8 +1304,8 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8
-		 WHERE id = $1 AND version = $9`,
-		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.Version)
+		 WHERE id = $1 AND version = $9 AND tenant_id = $10`,
+		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.Version, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update feature %s: %w", f.ID, err)
 	}
@@ -1307,7 +1317,7 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 }
 
 func (s *Store) DeleteFeature(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM features WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM features WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete feature %s: %w", id, err)
 	}
@@ -1355,7 +1365,7 @@ func nullIfEmpty(s string) *string {
 func (s *Store) loadSharedContextItems(ctx context.Context, sharedID string) ([]cfcontext.SharedContextItem, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, shared_id, key, value, author, tokens, created_at
-		 FROM shared_context_items WHERE shared_id = $1 ORDER BY created_at`, sharedID)
+		 FROM shared_context_items WHERE shared_id = $1 AND tenant_id = $2 ORDER BY created_at`, sharedID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("load shared_context_items: %w", err)
 	}
@@ -1378,8 +1388,9 @@ func (s *Store) CostSummaryGlobal(ctx context.Context) ([]cost.ProjectSummary, e
 	rows, err := s.pool.Query(ctx,
 		`SELECT r.project_id, COALESCE(p.name, ''), SUM(r.cost_usd), SUM(r.tokens_in), SUM(r.tokens_out), COUNT(*)
 		 FROM runs r LEFT JOIN projects p ON r.project_id = p.id
+		 WHERE r.tenant_id = $1
 		 GROUP BY r.project_id, p.name
-		 ORDER BY SUM(r.cost_usd) DESC`)
+		 ORDER BY SUM(r.cost_usd) DESC`, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("cost summary global: %w", err)
 	}
@@ -1400,7 +1411,7 @@ func (s *Store) CostSummaryByProject(ctx context.Context, projectID string) (*co
 	var cs cost.Summary
 	err := s.pool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(cost_usd), 0), COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0), COUNT(*)
-		 FROM runs WHERE project_id = $1`, projectID).
+		 FROM runs WHERE project_id = $1 AND tenant_id = $2`, projectID, tenantFromCtx(ctx)).
 		Scan(&cs.TotalCostUSD, &cs.TotalTokensIn, &cs.TotalTokensOut, &cs.RunCount)
 	if err != nil {
 		return nil, fmt.Errorf("cost summary by project: %w", err)
@@ -1411,8 +1422,8 @@ func (s *Store) CostSummaryByProject(ctx context.Context, projectID string) (*co
 func (s *Store) CostByModel(ctx context.Context, projectID string) ([]cost.ModelSummary, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT COALESCE(model, ''), SUM(cost_usd), SUM(tokens_in), SUM(tokens_out), COUNT(*)
-		 FROM runs WHERE project_id = $1
-		 GROUP BY model ORDER BY SUM(cost_usd) DESC`, projectID)
+		 FROM runs WHERE project_id = $1 AND tenant_id = $2
+		 GROUP BY model ORDER BY SUM(cost_usd) DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("cost by model: %w", err)
 	}
@@ -1436,9 +1447,9 @@ func (s *Store) CostTimeSeries(ctx context.Context, projectID string, days int) 
 	rows, err := s.pool.Query(ctx,
 		`SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD'), SUM(cost_usd), SUM(tokens_in), SUM(tokens_out), COUNT(*)
 		 FROM runs
-		 WHERE project_id = $1 AND created_at >= NOW() - ($2 || ' days')::interval
+		 WHERE project_id = $1 AND tenant_id = $2 AND created_at >= NOW() - ($3 || ' days')::interval
 		 GROUP BY created_at::date
-		 ORDER BY created_at::date`, projectID, fmt.Sprintf("%d", days))
+		 ORDER BY created_at::date`, projectID, tenantFromCtx(ctx), fmt.Sprintf("%d", days))
 	if err != nil {
 		return nil, fmt.Errorf("cost time series: %w", err)
 	}
@@ -1460,11 +1471,11 @@ func (s *Store) RecentRunsWithCost(ctx context.Context, projectID string, limit 
 		limit = 20
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, task_id, agent_id, project_id, team_id, policy_profile,
+		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile,
 		        exec_mode, deliver_mode, status, step_count, cost_usd, tokens_in, tokens_out, model,
 		        output, error, version, started_at, completed_at, created_at, updated_at
-		 FROM runs WHERE project_id = $1
-		 ORDER BY created_at DESC LIMIT $2`, projectID, limit)
+		 FROM runs WHERE project_id = $1 AND tenant_id = $2
+		 ORDER BY created_at DESC LIMIT $3`, projectID, tenantFromCtx(ctx), limit)
 	if err != nil {
 		return nil, fmt.Errorf("recent runs with cost: %w", err)
 	}

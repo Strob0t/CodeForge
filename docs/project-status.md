@@ -246,6 +246,7 @@
 - [x] (2026-02-18) **3C: Heartbeat Ticker + Context-Level Timeout** — Go heartbeat subscriber/timeout tracking (sync.Map), Python heartbeat ticker, config fields + ENV overrides, goroutine-based run timeout
 - [x] (2026-02-18) **3D: Event Store Enhancements** — RunID on events (migration 013), LoadByRun query, GET /runs/{id}/events endpoint
 - [x] (2026-02-18) **3H: Multi-Tenancy Preparation** — tenant_id on 7 tables (migration 014), TenantID middleware, context helpers, domain struct fields, 3 tests
+- [x] (2026-02-19) **3H: Full Multi-Tenancy** — tenants table (migration 018), tenant_id on all 18 tables, WHERE clauses in ~60 store methods + 6 eventstore methods, TenantService CRUD, REST API endpoints
 - [x] (2026-02-18) **4B: Runtime Compliance Tests** — 8 sub-tests × 2 exec modes (Mount, Sandbox), 16 test cases passing
 
 ### Key Deliverables

@@ -160,5 +160,11 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// Trajectory (nested under runs)
 		r.Get("/runs/{id}/trajectory", h.GetTrajectory)
 		r.Get("/runs/{id}/trajectory/export", h.ExportTrajectory)
+
+		// Tenants
+		r.Get("/tenants", h.ListTenants)
+		r.Post("/tenants", h.CreateTenant)
+		r.Get("/tenants/{id}", h.GetTenant)
+		r.Put("/tenants/{id}", h.UpdateTenant)
 	})
 }

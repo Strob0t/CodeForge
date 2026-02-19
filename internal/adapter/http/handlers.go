@@ -28,6 +28,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -60,6 +61,7 @@ type Handlers struct {
 	Events           eventstore.Store
 	Cost             *service.CostService
 	Roadmap          *service.RoadmapService
+	Tenants          *service.TenantService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -1675,6 +1677,66 @@ func (h *Handlers) GetFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, f)
+}
+
+// --- Tenant Endpoints ---
+
+// ListTenants handles GET /api/v1/tenants
+func (h *Handlers) ListTenants(w http.ResponseWriter, r *http.Request) {
+	tenants, err := h.Tenants.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if tenants == nil {
+		tenants = []tenant.Tenant{}
+	}
+	writeJSON(w, http.StatusOK, tenants)
+}
+
+// CreateTenant handles POST /api/v1/tenants
+func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
+	var req tenant.CreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	t, err := h.Tenants.Create(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+// GetTenant handles GET /api/v1/tenants/{id}
+func (h *Handlers) GetTenant(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	t, err := h.Tenants.Get(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "tenant not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+// UpdateTenant handles PUT /api/v1/tenants/{id}
+func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req tenant.UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	t, err := h.Tenants.Update(r.Context(), id, req)
+	if err != nil {
+		writeDomainError(w, err, "tenant not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 // --- Helpers ---

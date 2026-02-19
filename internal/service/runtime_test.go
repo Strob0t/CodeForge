@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -485,6 +486,16 @@ func (m *runtimeMockStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([
 }
 func (m *runtimeMockStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
 func (m *runtimeMockStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
+
+// Tenant stubs
+func (m *runtimeMockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
+func (m *runtimeMockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

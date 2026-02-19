@@ -290,6 +290,10 @@ func run() error {
 	roadmapSvc := service.NewRoadmapService(store, hub, specProvs, pmProvs)
 	slog.Info("roadmap service initialized")
 
+	// --- Tenant Service ---
+	tenantSvc := service.NewTenantService(store)
+	slog.Info("tenant service initialized")
+
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
 
@@ -313,6 +317,7 @@ func run() error {
 		Events:           eventStore,
 		Cost:             costSvc,
 		Roadmap:          roadmapSvc,
+		Tenants:          tenantSvc,
 	}
 
 	r := chi.NewRouter()

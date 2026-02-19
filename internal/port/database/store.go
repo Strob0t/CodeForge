@@ -13,6 +13,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 )
 
 // Store is the port interface for database operations.
@@ -109,4 +110,10 @@ type Store interface {
 	ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error)
 	UpdateFeature(ctx context.Context, f *roadmap.Feature) error
 	DeleteFeature(ctx context.Context, id string) error
+
+	// Tenants
+	CreateTenant(ctx context.Context, req tenant.CreateRequest) (*tenant.Tenant, error)
+	GetTenant(ctx context.Context, id string) (*tenant.Tenant, error)
+	ListTenants(ctx context.Context) ([]tenant.Tenant, error)
+	UpdateTenant(ctx context.Context, t *tenant.Tenant) error
 }

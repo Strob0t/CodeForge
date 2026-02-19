@@ -27,6 +27,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -348,6 +349,16 @@ func (m *mockStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([]roadma
 }
 func (m *mockStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
 func (m *mockStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
+
+// Tenant stubs
+func (m *mockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {
+	return nil, nil
+}
+func (m *mockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) {
+	return nil, nil
+}
+func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
+func (m *mockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
 
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}

@@ -201,7 +201,15 @@
   - Domain structs: `TenantID` field added to Project, Task, Agent, Run
   - Middleware chain: `r.Use(middleware.TenantID)` after RequestID
   - 3 tests in `internal/middleware/tenant_test.go`
-- [ ] Full WHERE tenant_id clauses in all queries (currently single-tenant default)
+- [x] (2026-02-19) Full WHERE tenant_id clauses in all queries + tenant CRUD
+  - Migration 018: `tenants` table, `tenant_id UUID` on 11 remaining tables
+  - `internal/domain/tenant/tenant.go`: Tenant struct, CreateRequest, UpdateRequest
+  - `internal/service/tenant.go`: TenantService (CRUD + ValidateExists)
+  - `internal/adapter/postgres/store_tenant.go`: tenant CRUD + `tenantFromCtx()` helper
+  - `internal/adapter/postgres/store.go`: ALL ~60 methods updated with `AND tenant_id = $N`
+  - `internal/adapter/postgres/eventstore.go`: all 6 methods updated with tenant_id filtering
+  - REST API: `POST/GET /api/v1/tenants`, `GET/PUT /api/v1/tenants/{id}`
+  - `cmd/codeforge/main.go`: TenantService wired into handlers
 
 ---
 
@@ -638,7 +646,7 @@
   - Docker Compose WAL config (`wal_level=replica`, `archive_mode=on`) for future PITR
   - Documented in `docs/dev-setup.md` (backup, restore, cron, WAL archiving)
 - [ ] Blue-Green deployment support (Traefik labels)
-- [ ] Multi-tenancy / user management (full, beyond soft-launch)
+- [x] (2026-02-19) Multi-tenancy (full, beyond soft-launch) — see 3H for details
 
 ### CI/CD & Tooling
 
