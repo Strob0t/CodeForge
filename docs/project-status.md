@@ -898,12 +898,18 @@
   - Variable shadowing fix: loop variables renamed from `t` to `task`/`evType` where needed
   - Constant-to-function pattern: translatable arrays (DELIVER_MODES, PROTOCOL_OPTIONS, MODES, commands) moved inside components as reactive functions
 
+- [x] (2026-02-19) Pluralization support via `tp()` function using `Intl.PluralRules`
+  - `tp(key, count, params?)` resolves `key_one`, `key_other` etc. based on CLDR plural rules
+  - `Intl.PluralRules` instances cached per locale for performance
+  - 12 plural keys added to en.ts + de.ts (costs.runs, costs.steps, run.steps, trajectory.events/toolCalls/errors)
+  - Updated CostDashboardPage, RunPanel, TrajectoryPanel to use `tp()` instead of `{count} {t(key)}`
+
 #### Phase 10B Key Deliverables
-- **New files (5):** en.ts (translations), locales/de.ts (German), context.tsx (provider), index.ts (re-exports), LocaleSwitcher.tsx
-- **Modified files (20):** App.tsx + 4 shell components + 15 feature components
-- **Translation keys:** ~480 across 21 namespaces
-- **Bundle size:** German chunk = 19.04 kB (code-split by Vite)
-- **Verification:** Vite build clean (56 modules, 3.23s), no new TypeScript errors introduced
+- **New files (6):** en.ts (translations), locales/de.ts (German), context.tsx (provider), index.ts (re-exports), LocaleSwitcher.tsx, formatters.ts
+- **Modified files (20+):** App.tsx + 4 shell components + 15 feature components + 3 updated for tp()
+- **Translation keys:** ~492 across 21 namespaces (incl. 12 plural keys)
+- **Bundle size:** German chunk = 20.64 kB (code-split by Vite)
+- **Verification:** Vite build clean (58 modules, 3.42s), no new TypeScript errors introduced
 
 ### 10A. Theme System — Dark/Light Mode Toggle (COMPLETED)
 

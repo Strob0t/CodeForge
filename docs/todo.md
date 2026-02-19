@@ -725,7 +725,13 @@
   - `frontend/src/i18n/context.tsx`: `fmt` object on I18nContextValue, reactive locale binding
   - Replaced inline formatters in 8 components: ProjectCard, CostDashboardPage, TaskPanel, RunPanel, RepoMapPanel, RetrievalPanel, TrajectoryPanel, ProjectDetailPage
   - Removed 4 duplicate local formatters (formatDate, formatNumber x2, formatCost x2, formatTokens)
-- [ ] Pluralization support for counts (e.g. "1 agent" vs. "3 agents")
+- [x] (2026-02-19) Pluralization support via `tp()` function using `Intl.PluralRules`
+  - `tp(key, count, params?)` resolves `key_one`, `key_other` etc. based on CLDR plural rules
+  - `Intl.PluralRules` instances cached per locale for performance
+  - Count automatically injected as `{{count}}` parameter
+  - 12 plural keys added to en.ts: costs.runs, costs.steps, run.steps, trajectory.events/toolCalls/errors (_one/_other)
+  - 12 plural keys added to de.ts (matching)
+  - Updated 3 components: CostDashboardPage (2 locations), RunPanel (2 locations), TrajectoryPanel (3 locations)
 
 ### 10C. Authentication & Authorization
 

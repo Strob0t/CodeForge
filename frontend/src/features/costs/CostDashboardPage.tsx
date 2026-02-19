@@ -109,7 +109,7 @@ export default function CostDashboardPage() {
 
 /** Reusable cost section for a specific project */
 export function ProjectCostSection(props: { projectId: string }) {
-  const { t, fmt } = useI18n();
+  const { t, tp, fmt } = useI18n();
   const [summary] = createResource(
     () => props.projectId,
     (id) => api.costs.project(id),
@@ -179,9 +179,7 @@ export function ProjectCostSection(props: { projectId: string }) {
                     <span>
                       {fmt.compact(m.total_tokens_out)} {t("costs.out")}
                     </span>
-                    <span>
-                      {m.run_count} {t("costs.runs")}
-                    </span>
+                    <span>{tp("costs.runs", m.run_count)}</span>
                   </div>
                 </div>
               )}
@@ -242,9 +240,7 @@ export function ProjectCostSection(props: { projectId: string }) {
                     <span>
                       {fmt.compact(r.tokens_out)} {t("costs.out")}
                     </span>
-                    <span>
-                      {r.step_count} {t("costs.steps")}
-                    </span>
+                    <span>{tp("costs.steps", r.step_count)}</span>
                   </div>
                 </div>
               )}

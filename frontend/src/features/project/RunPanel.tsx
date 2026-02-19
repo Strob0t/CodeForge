@@ -25,7 +25,7 @@ const STATUS_COLORS: Record<RunStatus, string> = {
 };
 
 export default function RunPanel(props: RunPanelProps) {
-  const { t, fmt } = useI18n();
+  const { t, tp, fmt } = useI18n();
   const { show: toast } = useToast();
 
   const DELIVER_MODES = (): { value: DeliverMode; label: string }[] => [
@@ -242,9 +242,7 @@ export default function RunPanel(props: RunPanelProps) {
               </Show>
             </div>
             <div class="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
-              <span>
-                {t("run.steps")} {run().step_count}
-              </span>
+              <span>{tp("run.steps", run().step_count)}</span>
               <span>
                 {t("run.cost")} {fmt.currency(run().cost_usd)}
               </span>
@@ -322,7 +320,7 @@ export default function RunPanel(props: RunPanelProps) {
                     </span>
                   </div>
                   <div class="flex gap-3 text-xs text-gray-500 dark:text-gray-400">
-                    <span>{r.step_count} steps</span>
+                    <span>{tp("run.steps", r.step_count)}</span>
                     <span>{fmt.currency(r.cost_usd)}</span>
                     <Show when={r.tokens_in > 0 || r.tokens_out > 0}>
                       <span>

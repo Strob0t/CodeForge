@@ -18,7 +18,7 @@ const EVENT_COLORS: Record<string, string> = {
 };
 
 export default function TrajectoryPanel(props: TrajectoryPanelProps) {
-  const { t, fmt } = useI18n();
+  const { t, tp, fmt } = useI18n();
   const [typeFilter, setTypeFilter] = createSignal("");
   const [cursor, setCursor] = createSignal("");
 
@@ -81,23 +81,14 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       <Show when={stats()}>
         {(s) => (
           <div class="mb-4 flex flex-wrap gap-4 rounded bg-gray-50 p-3 text-sm dark:bg-gray-700">
-            <span>
-              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.events")}</span>{" "}
-              {s().total_events}
-            </span>
+            <span>{tp("trajectory.events", s().total_events)}</span>
             <span>
               <span class="text-gray-500 dark:text-gray-400">{t("trajectory.duration")}</span>{" "}
               {fmt.duration(s().duration_ms)}
             </span>
-            <span>
-              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.toolCalls")}</span>{" "}
-              {s().tool_call_count}
-            </span>
-            <span>
-              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.errors")}</span>{" "}
-              <span class={s().error_count > 0 ? "text-red-600 dark:text-red-400" : ""}>
-                {s().error_count}
-              </span>
+            <span>{tp("trajectory.toolCalls", s().tool_call_count)}</span>
+            <span class={s().error_count > 0 ? "text-red-600 dark:text-red-400" : ""}>
+              {tp("trajectory.errors", s().error_count)}
             </span>
           </div>
         )}

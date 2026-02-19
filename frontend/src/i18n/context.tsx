@@ -67,6 +67,12 @@ interface I18nContextValue {
   setLocale: (l: Locale) => void;
   /** Translate a key with optional interpolation params. */
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+  /**
+   * Translate with pluralization. Looks up `key_one`, `key_other` (etc.)
+   * based on Intl.PluralRules for the current locale. Count is automatically
+   * available as `{{count}}` in the translation string.
+   */
+  tp: (key: string, count: number, params?: Record<string, string | number>) => string;
   /** Locale-aware formatters (date, number, currency, etc.). */
   fmt: I18nFormatters;
   /** All available locales. */
@@ -153,6 +159,34 @@ export function I18nProvider(props: ParentProps): JSX.Element {
     return text;
   }
 
+  /** Plural rules cache, keyed by locale. */
+  const pluralRulesCache = new Map<string, Intl.PluralRules>();
+
+  function tp(key: string, count: number, params?: Record<string, string | number>): string {
+    const loc = locale();
+    let rules = pluralRulesCache.get(loc);
+    if (!rules) {
+      rules = new Intl.PluralRules(loc);
+      pluralRulesCache.set(loc, rules);
+    }
+
+    const bundle = translations();
+    const category = rules.select(count); // "zero"|"one"|"two"|"few"|"many"|"other"
+
+    // Try exact match first (e.g. key_one), then fall back to key_other, then key.
+    const pluralKey = `${key}_${category}` as TranslationKey;
+    const otherKey = `${key}_other` as TranslationKey;
+    const text = bundle[pluralKey] ?? en[pluralKey] ?? bundle[otherKey] ?? en[otherKey] ?? key;
+
+    // Inject count + any extra params.
+    const allParams = { count, ...params };
+    let result = text;
+    for (const [k, v] of Object.entries(allParams)) {
+      result = result.replaceAll(`{{${k}}}`, String(v));
+    }
+    return result;
+  }
+
   function localeLabel(l: Locale): string {
     return LOCALE_REGISTRY[l]?.label ?? l;
   }
@@ -174,6 +208,7 @@ export function I18nProvider(props: ParentProps): JSX.Element {
     locale,
     setLocale,
     t,
+    tp,
     fmt: fmtObj,
     availableLocales: AVAILABLE_LOCALES,
     localeLabel,
