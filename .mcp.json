@@ -5,8 +5,8 @@
       "url": "http://codeforge-docs-mcp:6280/sse"
     },
     "playwright-mcp": {
-      "type": "sse",
-      "url": "http://codeforge-playwright:8001/sse"
+      "type": "streamable-http",
+      "url": "http://codeforge-playwright:8001/mcp"
     }
   }
 }
