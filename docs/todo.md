@@ -858,8 +858,19 @@
 
 ### Visual Enhancements (requires graph rendering library)
 
-- [ ] Architecture graph / pulsating project blueprint visualization
-- [ ] Agent network visualization (nodes + edges, message flow animation)
+- [x] (2026-02-19) Architecture graph / pulsating project blueprint visualization
+  - `ArchitectureGraph` SVG component on Context tab, queries GraphRAG search API
+  - Force-directed layout with repulsion, attraction, center gravity, animated convergence
+  - Nodes colored by kind (module/class/function/method), sized by importance
+  - Hover highlights connected edges, labels appear, non-connected nodes dim
+  - Seed symbol input, configurable hop depth, raw results collapsible
+  - 18 new i18n keys (EN + DE)
+- [x] (2026-02-19) Agent network visualization (nodes + edges, message flow animation)
+  - `AgentNetwork` SVG component on Agents tab, circle layout from team members
+  - Nodes colored by role (coder/reviewer/tester/documenter/planner) with status ring
+  - WS event listener animates message flow between agents (pulse + arrow)
+  - Team selector, role legend, message flow log
+  - 11 new i18n keys (EN + DE)
 - [x] (2026-02-19) Step-progress indicators replacing time estimates
   - `StepProgress` reusable component: progress bar + fraction label (current/max)
   - Color coding: blue (<70%), yellow (70-90%), red (>90%), indeterminate when max unknown

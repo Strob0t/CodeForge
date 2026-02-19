@@ -536,6 +536,37 @@ const en = {
   "simulator.graphResults": "GraphRAG Results",
   "simulator.graphPath": "Graph traversal path",
 
+  // -- Architecture Graph ---------------------------------------------------
+  "archGraph.title": "Architecture Graph",
+  "archGraph.description":
+    "Explore the code structure graph. Enter symbol names to visualize their connections.",
+  "archGraph.nodes": "nodes",
+  "archGraph.edges": "edges",
+  "archGraph.seedPlaceholder": "Symbol names (comma-separated)",
+  "archGraph.seedLabel": "Seed symbols",
+  "archGraph.hops": "Hops",
+  "archGraph.explore": "Explore",
+  "archGraph.searching": "Searching...",
+  "archGraph.error": "Graph search failed",
+  "archGraph.enterSeeds": "Enter symbol names to explore the graph.",
+  "archGraph.buildFirst": "Build the code graph first.",
+  "archGraph.rawResults": "Raw search results",
+  "archGraph.kind.module": "Module",
+  "archGraph.kind.class": "Class",
+  "archGraph.kind.function": "Function",
+  "archGraph.kind.method": "Method",
+
+  // -- Agent Network --------------------------------------------------------
+  "agentNetwork.title": "Agent Network",
+  "agentNetwork.description": "Visualize agent team communication and collaboration in real-time.",
+  "agentNetwork.noTeams": "No teams configured for this project.",
+  "agentNetwork.messageLog": "Message Flow",
+  "agentNetwork.role.coder": "Coder",
+  "agentNetwork.role.reviewer": "Reviewer",
+  "agentNetwork.role.tester": "Tester",
+  "agentNetwork.role.documenter": "Documenter",
+  "agentNetwork.role.planner": "Planner",
+
   // -- Auth -----------------------------------------------------------------
   "auth.title": "Sign in to CodeForge",
   "auth.email": "Email",

@@ -1121,3 +1121,26 @@
   - Results color-coded green/red based on budget fit, BM25 rank + semantic rank columns
   - Agent mode toggle enables query expansion, GraphRAG toggle adds graph results
   - 28 new i18n keys (EN + DE) in `simulator.*` namespace
+
+### 11L. Architecture Graph Visualization (COMPLETED)
+
+- [x] (2026-02-19) SVG-based code architecture graph explorer
+  - `ArchitectureGraph` component on Context tab, queries GraphRAG search API
+  - Force-directed layout: repulsion between all nodes, attraction along edges, center gravity
+  - Animated convergence (120 frames), nodes colored by kind (module/class/function/method)
+  - Node size varies by kind (module=12, class=10, function=6, method=5)
+  - Hover interaction: highlight connected edges, show labels, dim unconnected nodes
+  - Seed symbol input (comma-separated), configurable max hops, graph status display
+  - Raw search results in collapsible `<details>` section
+  - 18 new i18n keys (EN + DE) in `archGraph.*` namespace
+
+### 11M. Agent Network Visualization (COMPLETED)
+
+- [x] (2026-02-19) Real-time agent team communication graph
+  - `AgentNetwork` component on Agents tab, visualizes team members as SVG network
+  - Circle layout for team members, nodes colored by role with status ring (idle/active/error)
+  - WS event listener for `team.message` and `shared_context.update` — animates message flow
+  - Active edges pulse with arrowhead markers, reset after 1.5s animation
+  - Agent status tracking from `agent.status` WS events
+  - Team selector buttons with status badges, role legend, message flow log (last 20)
+  - 11 new i18n keys (EN + DE) in `agentNetwork.*` namespace

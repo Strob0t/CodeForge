@@ -539,6 +539,38 @@ const de: Translations = {
   "simulator.graphResults": "GraphRAG-Ergebnisse",
   "simulator.graphPath": "Graph-Traversierungspfad",
 
+  // -- Architecture Graph ---------------------------------------------------
+  "archGraph.title": "Architektur-Graph",
+  "archGraph.description":
+    "Erkunden Sie die Code-Struktur. Geben Sie Symbolnamen ein, um deren Verbindungen zu visualisieren.",
+  "archGraph.nodes": "Knoten",
+  "archGraph.edges": "Kanten",
+  "archGraph.seedPlaceholder": "Symbolnamen (kommagetrennt)",
+  "archGraph.seedLabel": "Start-Symbole",
+  "archGraph.hops": "Hops",
+  "archGraph.explore": "Erkunden",
+  "archGraph.searching": "Suche l\u00e4uft\u2026",
+  "archGraph.error": "Graph-Suche fehlgeschlagen",
+  "archGraph.enterSeeds": "Geben Sie Symbolnamen ein, um den Graphen zu erkunden.",
+  "archGraph.buildFirst": "Erstellen Sie zuerst den Code-Graphen.",
+  "archGraph.rawResults": "Rohe Suchergebnisse",
+  "archGraph.kind.module": "Modul",
+  "archGraph.kind.class": "Klasse",
+  "archGraph.kind.function": "Funktion",
+  "archGraph.kind.method": "Methode",
+
+  // -- Agent Network --------------------------------------------------------
+  "agentNetwork.title": "Agenten-Netzwerk",
+  "agentNetwork.description":
+    "Visualisieren Sie die Kommunikation und Zusammenarbeit des Agenten-Teams in Echtzeit.",
+  "agentNetwork.noTeams": "Keine Teams f\u00fcr dieses Projekt konfiguriert.",
+  "agentNetwork.messageLog": "Nachrichtenfluss",
+  "agentNetwork.role.coder": "Entwickler",
+  "agentNetwork.role.reviewer": "Pr\u00fcfer",
+  "agentNetwork.role.tester": "Tester",
+  "agentNetwork.role.documenter": "Dokumentierer",
+  "agentNetwork.role.planner": "Planer",
+
   // -- Auth -----------------------------------------------------------------
   "auth.title": "Bei CodeForge anmelden",
   "auth.email": "E-Mail",

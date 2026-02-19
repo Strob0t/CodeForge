@@ -8,7 +8,9 @@ import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
+import AgentNetwork from "./AgentNetwork";
 import AgentPanel from "./AgentPanel";
+import ArchitectureGraph from "./ArchitectureGraph";
 import type { OutputLine } from "./LiveOutput";
 import LiveOutput from "./LiveOutput";
 import type { AgentTerminal, TerminalLine } from "./MultiTerminal";
@@ -390,6 +392,7 @@ export default function ProjectDetailPage() {
               agents={agents() ?? []}
               onError={setError}
             />
+            <AgentNetwork projectId={params.id} />
             <Show when={outputLines().length > 0 || activeTaskId()}>
               <Show
                 when={Object.keys(agentTerminals()).length > 1}
@@ -420,6 +423,7 @@ export default function ProjectDetailPage() {
               <RepoMapPanel projectId={params.id} />
               <RetrievalPanel projectId={params.id} />
               <SearchSimulator projectId={params.id} />
+              <ArchitectureGraph projectId={params.id} />
             </div>
           </Show>
         </Show>
