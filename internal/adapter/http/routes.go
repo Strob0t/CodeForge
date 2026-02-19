@@ -191,6 +191,11 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/webhooks/vcs/github", h.HandleGitHubWebhook)
 		r.Post("/webhooks/vcs/gitlab", h.HandleGitLabWebhook)
 
+		// PM Webhooks
+		r.Post("/webhooks/pm/github", h.HandleGitHubIssueWebhook)
+		r.Post("/webhooks/pm/gitlab", h.HandleGitLabIssueWebhook)
+		r.Post("/webhooks/pm/plane", h.HandlePlaneWebhook)
+
 		// Bidirectional Sync (nested under projects)
 		r.Post("/projects/{id}/roadmap/sync", h.SyncRoadmap)
 	})

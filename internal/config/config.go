@@ -85,12 +85,21 @@ type Config struct {
 	Cache        Cache        `yaml:"cache"`
 	Idempotency  Idempotency  `yaml:"idempotency"`
 	Webhook      Webhook      `yaml:"webhook"`
+	Notification Notification `yaml:"notification"`
 }
 
 // Webhook holds VCS/PM webhook verification configuration.
 type Webhook struct {
 	GitHubSecret string `yaml:"github_secret"` // HMAC-SHA256 secret for GitHub webhooks
 	GitLabToken  string `yaml:"gitlab_token"`  // Static token for GitLab webhooks
+	PlaneSecret  string `yaml:"plane_secret"`  // HMAC secret for Plane.so webhooks
+}
+
+// Notification holds notification provider configuration.
+type Notification struct {
+	SlackWebhookURL   string   `yaml:"slack_webhook_url"`   // Slack incoming webhook URL
+	DiscordWebhookURL string   `yaml:"discord_webhook_url"` // Discord webhook URL
+	EnabledEvents     []string `yaml:"enabled_events"`      // Event filter (empty = all events)
 }
 
 // Git holds git operation configuration.
@@ -322,6 +331,7 @@ func Defaults() Config {
 			GraphTopK:               10,
 			GraphHopDecay:           0.7,
 		},
-		Webhook: Webhook{},
+		Webhook:      Webhook{},
+		Notification: Notification{},
 	}
 }

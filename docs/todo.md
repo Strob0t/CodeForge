@@ -612,7 +612,8 @@
 ### Integrations
 
 - [x] (2026-02-19) GitHub/GitLab VCS Webhook system — VCSWebhookService processes push/PR events, broadcasts via WebSocket, HMAC-SHA256 signature verification
-- [ ] Webhook notifications (Slack, Discord)
+- [x] (2026-02-19) Webhook notifications (Slack, Discord) — NotificationService fan-out, Slack Block Kit adapter, Discord embed adapter, self-registering via notifier registry
+- [x] (2026-02-19) PM Webhook Sync — PMWebhookService for GitHub Issues, GitLab Issues, Plane.so webhook events, normalized to PMWebhookEvent
 
 ### Cost & Monitoring
 

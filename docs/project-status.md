@@ -768,6 +768,43 @@
 - **Tests:** 15+ new test functions (5 SVN + 6 Gitea + 4 VCS webhook), all Go tests pass
 - **Verification:** go build, golangci-lint 0 issues, go test all pass, pre-commit 15/15 hooks pass
 
+## Phase 9C: PM Webhook Sync + Slack/Discord Notifications (COMPLETED)
+
+> Adds PM webhook event processing and notification adapter infrastructure.
+
+- [x] (2026-02-19) **PM Webhook Service** (`internal/service/pm_webhook.go`)
+  - HandleGitHubIssueWebhook, HandleGitLabIssueWebhook, HandlePlaneWebhook
+  - JSON payload parsing, normalized PMWebhookEvent output
+  - WebSocket broadcast + SyncService integration for auto-sync on webhook
+- [x] (2026-02-19) **PM Webhook Domain** (`internal/domain/webhook/webhook.go`)
+  - PMWebhookEvent (Provider, Action, ItemID, ProjectRef)
+  - PMWebhookConfig (Provider, Secret, Enabled)
+- [x] (2026-02-19) **Notifier Port** (`internal/port/notifier/`)
+  - Notifier interface: Name(), Capabilities(), Send()
+  - Standard registry pattern: Factory, Register, New, Available
+- [x] (2026-02-19) **Slack Adapter** (`internal/adapter/slack/`)
+  - HTTP POST with Block Kit JSON (header + section + context blocks)
+  - Level-based prefix tags, self-registration via init(), 5 tests
+- [x] (2026-02-19) **Discord Adapter** (`internal/adapter/discord/`)
+  - HTTP POST with embed JSON, color-coded levels (green/red/orange/blue)
+  - 204 success handling, self-registration via init(), 5 tests
+- [x] (2026-02-19) **NotificationService** (`internal/service/notification.go`)
+  - Fan-out to all registered notifiers, event filtering, error logging
+  - 4 tests (fan-out, filtering, error continues, count)
+- [x] (2026-02-19) **REST endpoints:** 3 PM webhook routes
+  - `POST /api/v1/webhooks/pm/github` — GitHub Issues webhook
+  - `POST /api/v1/webhooks/pm/gitlab` — GitLab Issues webhook
+  - `POST /api/v1/webhooks/pm/plane` — Plane.so webhook
+- [x] (2026-02-19) **Config:** Notification struct (SlackWebhookURL, DiscordWebhookURL, EnabledEvents), PlaneSecret
+- [x] (2026-02-19) **Provider wiring:** blank imports for slack + discord in providers.go
+
+### Phase 9C Key Deliverables
+- **New files (11):** notifier port (2), slack adapter (3), discord adapter (3), notification service + test, pm_webhook service, webhook domain
+- **Modified files (6):** config.go, loader.go, providers.go, handlers.go, routes.go, main.go
+- **New REST endpoints:** 3 (PM webhooks for GitHub, GitLab, Plane)
+- **Tests:** 14 new test functions (5 Slack + 5 Discord + 4 notification service), all Go tests pass
+- **Verification:** go build, golangci-lint 0 issues, go test all pass, pre-commit 15/15 hooks pass
+
 ## Phase 10 — Frontend Foundations (IN PROGRESS)
 
 ### 10F. Toast/Notification System (COMPLETED)

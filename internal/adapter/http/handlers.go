@@ -69,6 +69,8 @@ type Handlers struct {
 	Sessions         *service.SessionService
 	VCSWebhook       *service.VCSWebhookService
 	Sync             *service.SyncService
+	PMWebhook        *service.PMWebhookService
+	Notification     *service.NotificationService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -2058,6 +2060,68 @@ func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// --- PM Webhooks ---
+
+// HandleGitHubIssueWebhook handles POST /api/v1/webhooks/pm/github
+func (h *Handlers) HandleGitHubIssueWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	eventType := r.Header.Get("X-GitHub-Event")
+	if eventType != "issues" {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
+		return
+	}
+
+	ev, err := h.PMWebhook.HandleGitHubIssueWebhook(r.Context(), body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ev)
+}
+
+// HandleGitLabIssueWebhook handles POST /api/v1/webhooks/pm/gitlab
+func (h *Handlers) HandleGitLabIssueWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	eventType := r.Header.Get("X-Gitlab-Event")
+	if eventType != "Issue Hook" {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
+		return
+	}
+
+	ev, err := h.PMWebhook.HandleGitLabIssueWebhook(r.Context(), body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ev)
+}
+
+// HandlePlaneWebhook handles POST /api/v1/webhooks/pm/plane
+func (h *Handlers) HandlePlaneWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	ev, err := h.PMWebhook.HandlePlaneWebhook(r.Context(), body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ev)
 }
 
 // --- Helpers ---

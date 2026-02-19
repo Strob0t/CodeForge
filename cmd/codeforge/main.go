@@ -30,6 +30,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 	"github.com/Strob0t/CodeForge/internal/resilience"
@@ -306,7 +307,28 @@ func run() error {
 	// --- VCS Webhook & Sync Services ---
 	vcsWebhookSvc := service.NewVCSWebhookService(hub)
 	syncSvc := service.NewSyncService(store)
-	slog.Info("vcs webhook and sync services initialized")
+	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc)
+	slog.Info("vcs webhook, pm webhook, and sync services initialized")
+
+	// --- Notification Service ---
+	var notifiers []notifier.Notifier
+	for _, name := range notifier.Available() {
+		cfgMap := map[string]string{}
+		switch name {
+		case "slack":
+			cfgMap["webhook_url"] = cfg.Notification.SlackWebhookURL
+		case "discord":
+			cfgMap["webhook_url"] = cfg.Notification.DiscordWebhookURL
+		}
+		n, err := notifier.New(name, cfgMap)
+		if err != nil {
+			slog.Warn("failed to create notifier", "name", name, "error", err)
+			continue
+		}
+		notifiers = append(notifiers, n)
+	}
+	notificationSvc := service.NewNotificationService(notifiers, cfg.Notification.EnabledEvents)
+	slog.Info("notification service initialized", "notifiers", notificationSvc.NotifierCount())
 
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
@@ -337,6 +359,8 @@ func run() error {
 		Sessions:         sessionSvc,
 		VCSWebhook:       vcsWebhookSvc,
 		Sync:             syncSvc,
+		PMWebhook:        pmWebhookSvc,
+		Notification:     notificationSvc,
 	}
 
 	r := chi.NewRouter()
