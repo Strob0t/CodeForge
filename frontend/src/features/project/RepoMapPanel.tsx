@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { RepoMap } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 interface RepoMapPanelProps {
   projectId: string;
@@ -16,6 +17,7 @@ function formatNumber(n: number): string {
 }
 
 export default function RepoMapPanel(props: RepoMapPanelProps) {
+  const { t } = useI18n();
   const [repoMap, { refetch }] = createResource<RepoMap | null>(
     () => props.projectId,
     async (id) => {
@@ -40,7 +42,7 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
       // Refetch after a short delay to pick up the result
       setTimeout(() => refetch(), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate repo map");
+      setError(e instanceof Error ? e.message : t("repomap.toast.generateFailed"));
     } finally {
       setGenerating(false);
     }
@@ -49,13 +51,17 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Repo Map</h3>
+        <h3 class="text-lg font-semibold">{t("repomap.title")}</h3>
         <button
           class="rounded bg-teal-600 px-3 py-1.5 text-sm text-white hover:bg-teal-700 disabled:opacity-50"
           onClick={handleGenerate}
           disabled={generating()}
         >
-          {generating() ? "Generating..." : repoMap() ? "Regenerate" : "Generate"}
+          {generating()
+            ? t("repomap.generating")
+            : repoMap()
+              ? t("repomap.regenerate")
+              : t("repomap.generate")}
         </button>
       </div>
 
@@ -67,15 +73,11 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
 
       <Show
         when={!repoMap.loading}
-        fallback={<p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>}
+        fallback={<p class="text-sm text-gray-400 dark:text-gray-500">{t("common.loading")}</p>}
       >
         <Show
           when={repoMap()}
-          fallback={
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              No repo map generated yet. Click "Generate" to create one.
-            </p>
-          }
+          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("repomap.empty")}</p>}
         >
           {(rm) => (
             <>
@@ -85,26 +87,28 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(rm().file_count)}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Files</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{t("repomap.files")}</div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(rm().symbol_count)}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Symbols</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{t("repomap.symbols")}</div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(rm().token_count)}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Tokens</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{t("repomap.tokens")}</div>
                 </div>
               </div>
 
               {/* Languages */}
               <Show when={rm().languages.length > 0}>
                 <div class="mb-3">
-                  <span class="mr-2 text-xs text-gray-500 dark:text-gray-400">Languages:</span>
+                  <span class="mr-2 text-xs text-gray-500 dark:text-gray-400">
+                    {t("repomap.languages")}
+                  </span>
                   <div class="inline-flex flex-wrap gap-1">
                     <For each={rm().languages}>
                       {(lang) => (
@@ -119,7 +123,10 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
 
               {/* Version and timestamp */}
               <div class="mb-3 text-xs text-gray-400 dark:text-gray-500">
-                Version {rm().version} — updated {new Date(rm().updated_at).toLocaleString()}
+                {t("repomap.version", {
+                  version: rm().version,
+                  date: new Date(rm().updated_at).toLocaleString(),
+                })}
               </div>
 
               {/* Collapsible map text */}
@@ -129,12 +136,12 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
                   class="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
                   onClick={() => setExpanded((v) => !v)}
                   aria-expanded={expanded()}
-                  aria-label={expanded() ? "Hide repository map" : "Show repository map"}
+                  aria-label={expanded() ? t("repomap.hideMapAria") : t("repomap.showMapAria")}
                 >
                   <span class="font-mono text-xs" aria-hidden="true">
                     {expanded() ? "v" : ">"}
                   </span>
-                  {expanded() ? "Hide map" : "Show map"}
+                  {expanded() ? t("repomap.hideMap") : t("repomap.showMap")}
                 </button>
                 <Show when={expanded()}>
                   <pre class="mt-2 max-h-96 overflow-auto rounded border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300">

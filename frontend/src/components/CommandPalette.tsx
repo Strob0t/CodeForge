@@ -2,6 +2,7 @@ import { useNavigate } from "@solidjs/router";
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 
 import { useTheme } from "~/components/ThemeProvider";
+import { useI18n } from "~/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,7 @@ function formatShortcut(shortcut: string): string {
 export function CommandPalette(): JSX.Element {
   const navigate = useNavigate();
   const { toggle } = useTheme();
+  const { t } = useI18n();
 
   const [open, setOpen] = createSignal(false);
   const [query, setQuery] = createSignal("");
@@ -42,37 +44,37 @@ export function CommandPalette(): JSX.Element {
 
   // ---- Commands -----------------------------------------------------------
 
-  const commands: Command[] = [
+  const commands = (): Command[] => [
     {
       id: "nav-dashboard",
-      label: "Go to Dashboard",
+      label: t("palette.cmd.dashboard"),
       shortcut: "Mod+1",
       section: "navigation",
       action: () => navigate("/"),
     },
     {
       id: "nav-costs",
-      label: "Go to Costs",
+      label: t("palette.cmd.costs"),
       shortcut: "Mod+2",
       section: "navigation",
       action: () => navigate("/costs"),
     },
     {
       id: "nav-models",
-      label: "Go to Models",
+      label: t("palette.cmd.models"),
       shortcut: "Mod+3",
       section: "navigation",
       action: () => navigate("/models"),
     },
     {
       id: "theme-toggle",
-      label: "Toggle Theme",
+      label: t("palette.cmd.toggleTheme"),
       section: "theme",
       action: () => toggle(),
     },
     {
       id: "shortcut-help",
-      label: "Show Keyboard Shortcuts",
+      label: t("palette.cmd.shortcuts"),
       shortcut: "Mod+/",
       section: "actions",
       action: () => {
@@ -85,8 +87,8 @@ export function CommandPalette(): JSX.Element {
 
   const filtered = (): Command[] => {
     const q = query().toLowerCase().trim();
-    if (!q) return commands;
-    return commands.filter((c) => c.label.toLowerCase().includes(q));
+    if (!q) return commands();
+    return commands().filter((c) => c.label.toLowerCase().includes(q));
   };
 
   // Reset selection when filter changes
@@ -154,7 +156,7 @@ export function CommandPalette(): JSX.Element {
     // Mod+1/2/3 — direct navigation (only when palette is closed)
     if (mod && !open() && e.key >= "1" && e.key <= "3") {
       const idx = parseInt(e.key) - 1;
-      const navCommands = commands.filter((c) => c.section === "navigation");
+      const navCommands = commands().filter((c) => c.section === "navigation");
       if (navCommands[idx]) {
         e.preventDefault();
         navCommands[idx].action();
@@ -201,10 +203,10 @@ export function CommandPalette(): JSX.Element {
 
   // ---- Section labels -----------------------------------------------------
 
-  const SECTION_LABELS: Record<string, string> = {
-    navigation: "Navigation",
-    actions: "Actions",
-    theme: "Theme",
+  const SECTION_LABELS: Record<string, () => string> = {
+    navigation: () => t("palette.section.navigation"),
+    actions: () => t("palette.section.actions"),
+    theme: () => t("palette.section.theme"),
   };
 
   // Group filtered commands by section for display
@@ -247,7 +249,7 @@ export function CommandPalette(): JSX.Element {
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handlePaletteKeydown}
           role="dialog"
-          aria-label="Command palette"
+          aria-label={t("palette.title")}
           aria-modal="true"
         >
           {/* Search input */}
@@ -259,10 +261,10 @@ export function CommandPalette(): JSX.Element {
               ref={inputRef}
               type="text"
               class="w-full bg-transparent py-3 text-sm text-gray-900 placeholder-gray-400 outline-none dark:text-gray-100 dark:placeholder-gray-500"
-              placeholder="Type a command..."
+              placeholder={t("palette.placeholder")}
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}
-              aria-label="Search commands"
+              aria-label={t("palette.searchLabel")}
               aria-activedescendant={
                 filtered()[selectedIndex()] ? `cmd-${filtered()[selectedIndex()].id}` : undefined
               }
@@ -282,7 +284,7 @@ export function CommandPalette(): JSX.Element {
               when={filtered().length > 0}
               fallback={
                 <p class="px-3 py-4 text-center text-sm text-gray-400 dark:text-gray-500">
-                  No matching commands
+                  {t("palette.noResults")}
                 </p>
               }
             >
@@ -290,7 +292,7 @@ export function CommandPalette(): JSX.Element {
                 {(group) => (
                   <>
                     <div class="mb-1 mt-2 px-3 text-xs font-medium text-gray-400 first:mt-0 dark:text-gray-500">
-                      {SECTION_LABELS[group.section] ?? group.section}
+                      {SECTION_LABELS[group.section]?.() ?? group.section}
                     </div>
                     <For each={group.items}>
                       {(cmd) => {
@@ -333,17 +335,17 @@ export function CommandPalette(): JSX.Element {
               <kbd class="rounded border border-gray-300 px-1 py-0.5 dark:border-gray-600">
                 &uarr;&darr;
               </kbd>{" "}
-              navigate
+              {t("palette.navigate")}
             </span>
             <span>
               <kbd class="rounded border border-gray-300 px-1 py-0.5 dark:border-gray-600">
                 &crarr;
               </kbd>{" "}
-              select
+              {t("palette.select")}
             </span>
             <span>
               <kbd class="rounded border border-gray-300 px-1 py-0.5 dark:border-gray-600">esc</kbd>{" "}
-              close
+              {t("palette.close")}
             </span>
           </div>
         </div>

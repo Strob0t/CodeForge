@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AgentEvent, AgentEventType, TrajectorySummary } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 interface TrajectoryPanelProps {
   runId: string;
@@ -17,6 +18,7 @@ const EVENT_COLORS: Record<string, string> = {
 };
 
 export default function TrajectoryPanel(props: TrajectoryPanelProps) {
+  const { t } = useI18n();
   const [typeFilter, setTypeFilter] = createSignal("");
   const [cursor, setCursor] = createSignal("");
 
@@ -66,12 +68,12 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Event Trajectory</h3>
+        <h3 class="text-lg font-semibold">{t("trajectory.title")}</h3>
         <button
           class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
           onClick={handleExport}
         >
-          Export JSON
+          {t("trajectory.exportJson")}
         </button>
       </div>
 
@@ -80,18 +82,19 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
         {(s) => (
           <div class="mb-4 flex flex-wrap gap-4 rounded bg-gray-50 p-3 text-sm dark:bg-gray-700">
             <span>
-              <span class="text-gray-500 dark:text-gray-400">Events:</span> {s().total_events}
+              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.events")}</span>{" "}
+              {s().total_events}
             </span>
             <span>
-              <span class="text-gray-500 dark:text-gray-400">Duration:</span>{" "}
+              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.duration")}</span>{" "}
               {(s().duration_ms / 1000).toFixed(1)}s
             </span>
             <span>
-              <span class="text-gray-500 dark:text-gray-400">Tool Calls:</span>{" "}
+              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.toolCalls")}</span>{" "}
               {s().tool_call_count}
             </span>
             <span>
-              <span class="text-gray-500 dark:text-gray-400">Errors:</span>{" "}
+              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.errors")}</span>{" "}
               <span class={s().error_count > 0 ? "text-red-600 dark:text-red-400" : ""}>
                 {s().error_count}
               </span>
@@ -110,23 +113,23 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
             setCursor("");
           }}
           aria-pressed={!typeFilter()}
-          aria-label="Filter: All event types"
+          aria-label={t("trajectory.filterAllAria")}
         >
-          All
+          {t("trajectory.filterAll")}
         </button>
         <For each={EVENT_TYPES}>
-          {(t) => (
+          {(evType) => (
             <button
               type="button"
-              class={`rounded px-2 py-1 text-xs ${typeFilter() === t ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
+              class={`rounded px-2 py-1 text-xs ${typeFilter() === evType ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
               onClick={() => {
-                setTypeFilter(t);
+                setTypeFilter(evType);
                 setCursor("");
               }}
-              aria-pressed={typeFilter() === t}
-              aria-label={`Filter: ${t.replace("agent.", "")} events`}
+              aria-pressed={typeFilter() === evType}
+              aria-label={t("trajectory.filterAria", { type: evType.replace("agent.", "") })}
             >
-              {t.replace("agent.", "")}
+              {evType.replace("agent.", "")}
             </button>
           )}
         </For>
@@ -135,7 +138,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       {/* Timeline */}
       <Show
         when={trajectory()}
-        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>}
+        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("common.loading")}</p>}
       >
         <div class="space-y-1">
           <For each={trajectory()?.events ?? []}>
@@ -182,7 +185,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
         {/* Pagination */}
         <div class="mt-3 flex items-center justify-between text-sm">
           <span class="text-xs text-gray-500 dark:text-gray-400">
-            Total: {trajectory()?.total ?? 0} events
+            {t("trajectory.total", { n: trajectory()?.total ?? 0 })}
           </span>
           <div class="flex gap-2">
             <Show when={cursor()}>
@@ -190,7 +193,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
                 class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={handlePrevPage}
               >
-                First
+                {t("trajectory.first")}
               </button>
             </Show>
             <Show when={trajectory()?.has_more}>
@@ -198,7 +201,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
                 class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={handleNextPage}
               >
-                Next
+                {t("trajectory.next")}
               </button>
             </Show>
           </div>

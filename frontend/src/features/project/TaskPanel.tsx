@@ -3,6 +3,7 @@ import { createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateTaskRequest, Task, TaskStatus } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
 
 interface TaskPanelProps {
   projectId: string;
@@ -35,6 +36,7 @@ function formatCost(usd: number): string {
 }
 
 export default function TaskPanel(props: TaskPanelProps) {
+  const { t } = useI18n();
   const { show: toast } = useToast();
   const [showForm, setShowForm] = createSignal(false);
   const [title, setTitle] = createSignal("");
@@ -52,24 +54,24 @@ export default function TaskPanel(props: TaskPanelProps) {
       setPrompt("");
       setShowForm(false);
       props.onRefetch();
-      toast("success", "Task created");
+      toast("success", t("task.toast.created"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to create task";
+      const msg = err instanceof Error ? err.message : t("task.toast.createFailed");
       props.onError(msg);
       toast("error", msg);
     }
   };
 
-  const totalCost = () => props.tasks.reduce((sum, t) => sum + t.cost_usd, 0);
+  const totalCost = () => props.tasks.reduce((sum, task) => sum + task.cost_usd, 0);
 
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <h3 class="text-lg font-semibold">Tasks</h3>
+          <h3 class="text-lg font-semibold">{t("task.title")}</h3>
           <Show when={totalCost() > 0}>
             <span class="rounded bg-purple-100 px-2 py-0.5 text-xs text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-              Total: {formatCost(totalCost())}
+              {t("task.total")} {formatCost(totalCost())}
             </span>
           </Show>
         </div>
@@ -78,7 +80,7 @@ export default function TaskPanel(props: TaskPanelProps) {
           class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
           onClick={() => setShowForm((v) => !v)}
         >
-          {showForm() ? "Cancel" : "New Task"}
+          {showForm() ? t("common.cancel") : t("task.newTask")}
         </button>
       </div>
 
@@ -93,7 +95,7 @@ export default function TaskPanel(props: TaskPanelProps) {
                 for="task-title"
                 class="block text-xs font-medium text-gray-600 dark:text-gray-400"
               >
-                Title <span aria-hidden="true">*</span>
+                {t("task.form.title")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <input
@@ -102,7 +104,7 @@ export default function TaskPanel(props: TaskPanelProps) {
                 value={title()}
                 onInput={(e) => setTitle(e.currentTarget.value)}
                 class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
-                placeholder="Fix login bug"
+                placeholder={t("task.form.titlePlaceholder")}
                 aria-required="true"
               />
             </div>
@@ -111,7 +113,7 @@ export default function TaskPanel(props: TaskPanelProps) {
                 for="task-prompt"
                 class="block text-xs font-medium text-gray-600 dark:text-gray-400"
               >
-                Prompt <span aria-hidden="true">*</span>
+                {t("task.form.prompt")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <textarea
@@ -120,7 +122,7 @@ export default function TaskPanel(props: TaskPanelProps) {
                 onInput={(e) => setPrompt(e.currentTarget.value)}
                 class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
                 rows={3}
-                placeholder="Describe the task for the agent..."
+                placeholder={t("task.form.promptPlaceholder")}
                 aria-required="true"
               />
             </div>
@@ -130,7 +132,7 @@ export default function TaskPanel(props: TaskPanelProps) {
               type="submit"
               class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
             >
-              Create Task
+              {t("task.form.create")}
             </button>
           </div>
         </form>
@@ -138,57 +140,59 @@ export default function TaskPanel(props: TaskPanelProps) {
 
       <Show
         when={props.tasks.length > 0}
-        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">No tasks yet.</p>}
+        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("task.empty")}</p>}
       >
         <div class="space-y-2">
           <For each={props.tasks}>
-            {(t) => (
+            {(task) => (
               <div class="rounded border border-gray-100 dark:border-gray-700">
                 <div
                   class="flex cursor-pointer items-center justify-between p-3"
                   role="button"
                   tabIndex={0}
-                  aria-expanded={expanded() === t.id}
-                  aria-label={`Task: ${t.title}, status: ${t.status}`}
-                  onClick={() => setExpanded((prev) => (prev === t.id ? null : t.id))}
+                  aria-expanded={expanded() === task.id}
+                  aria-label={`Task: ${task.title}, status: ${task.status}`}
+                  onClick={() => setExpanded((prev) => (prev === task.id ? null : task.id))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      setExpanded((prev) => (prev === t.id ? null : t.id));
+                      setExpanded((prev) => (prev === task.id ? null : task.id));
                     }
                   }}
                 >
                   <div class="flex items-center gap-2">
-                    <span class="font-medium">{t.title}</span>
-                    <span class="text-xs text-gray-400 dark:text-gray-500">{t.id.slice(0, 8)}</span>
-                    <Show when={t.cost_usd > 0}>
+                    <span class="font-medium">{task.title}</span>
+                    <span class="text-xs text-gray-400 dark:text-gray-500">
+                      {task.id.slice(0, 8)}
+                    </span>
+                    <Show when={task.cost_usd > 0}>
                       <span class="rounded bg-purple-50 px-1.5 py-0.5 text-xs text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                        {formatCost(t.cost_usd)}
+                        {formatCost(task.cost_usd)}
                       </span>
                     </Show>
                   </div>
-                  <span class={`rounded-full px-2 py-0.5 text-xs ${statusColor(t.status)}`}>
-                    {t.status}
+                  <span class={`rounded-full px-2 py-0.5 text-xs ${statusColor(task.status)}`}>
+                    {task.status}
                   </span>
                 </div>
 
-                <Show when={expanded() === t.id}>
+                <Show when={expanded() === task.id}>
                   <div class="border-t border-gray-100 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-900">
                     <div class="mb-2 text-gray-500 dark:text-gray-400">
-                      <span class="font-medium">Prompt:</span> {t.prompt}
+                      <span class="font-medium">{t("task.prompt")}</span> {task.prompt}
                     </div>
-                    <Show when={t.agent_id}>
+                    <Show when={task.agent_id}>
                       <div class="text-xs text-gray-400 dark:text-gray-500">
-                        Agent: {t.agent_id?.slice(0, 8) ?? ""}
+                        {t("task.agent")} {task.agent_id?.slice(0, 8) ?? ""}
                       </div>
                     </Show>
-                    <Show when={t.result}>
+                    <Show when={task.result}>
                       {(result) => (
                         <div class="mt-2">
                           <Show when={result().output}>
                             <div class="mb-1">
                               <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                                Output:
+                                {t("task.output")}
                               </span>
                               <pre class="mt-1 max-h-40 overflow-auto rounded bg-gray-900 p-2 text-xs text-green-400">
                                 {result().output}
@@ -197,19 +201,20 @@ export default function TaskPanel(props: TaskPanelProps) {
                           </Show>
                           <Show when={result().error}>
                             <div class="mt-1 text-xs text-red-600 dark:text-red-400">
-                              Error: {result().error}
+                              {t("task.errorLabel")} {result().error}
                             </div>
                           </Show>
                           <Show
                             when={(result().tokens_in ?? 0) > 0 || (result().tokens_out ?? 0) > 0}
                           >
                             <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                              Tokens: {result().tokens_in ?? 0} in / {result().tokens_out ?? 0} out
+                              {t("task.tokens")} {result().tokens_in ?? 0} in /{" "}
+                              {result().tokens_out ?? 0} out
                             </div>
                           </Show>
                           <Show when={(result().files ?? []).length > 0}>
                             <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">
-                              Files: {(result().files ?? []).join(", ")}
+                              {t("task.files")} {(result().files ?? []).join(", ")}
                             </div>
                           </Show>
                         </div>

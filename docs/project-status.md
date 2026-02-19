@@ -840,6 +840,31 @@
 
 ## Phase 10 — Frontend Foundations (IN PROGRESS)
 
+### 10B. i18n — Internationalization (COMPLETED)
+
+- [x] (2026-02-19) Custom signal-based i18n context provider (zero external dependencies)
+  - `I18nProvider` with `createContext`/`useContext`, `createSignal` for locale + translations
+  - Flat dot-separated keys (`TranslationKey = keyof typeof en`), type-safe at compile time
+  - `{{variable}}` interpolation via `String.replaceAll()`
+  - Lazy bundle loading via dynamic `import()` — Vite auto code-splits non-English bundles (German = 19 kB chunk)
+  - `localStorage` persistence (key: `codeforge-locale`), browser language auto-detection from `navigator.language`
+  - Provider nesting: ErrorBoundary > I18nProvider > ThemeProvider > ToastProvider > AppShell
+- [x] (2026-02-19) ~480 translation keys across ~20 component files
+  - English (default): `frontend/src/i18n/en.ts` — source of truth, all keys
+  - German: `frontend/src/i18n/locales/de.ts` — full translation, lazy-loaded
+  - Keys organized by namespace: `app.*`, `dashboard.*`, `project.*`, `cost.*`, `model.*`, `agent.*`, `task.*`, `run.*`, `plan.*`, `policy.*`, `repomap.*`, `retrieval.*`, `roadmap.*`, `trajectory.*`, `output.*`, `detail.*`, `common.*`, `theme.*`, `offline.*`, `toast.*`, `cmd.*`
+- [x] (2026-02-19) LocaleSwitcher component in sidebar (cycles EN/DE)
+- [x] (2026-02-19) All ~20 component files updated with `t()` calls replacing hardcoded strings
+  - Variable shadowing fix: loop variables renamed from `t` to `task`/`evType` where needed
+  - Constant-to-function pattern: translatable arrays (DELIVER_MODES, PROTOCOL_OPTIONS, MODES, commands) moved inside components as reactive functions
+
+#### Phase 10B Key Deliverables
+- **New files (5):** en.ts (translations), locales/de.ts (German), context.tsx (provider), index.ts (re-exports), LocaleSwitcher.tsx
+- **Modified files (20):** App.tsx + 4 shell components + 15 feature components
+- **Translation keys:** ~480 across 21 namespaces
+- **Bundle size:** German chunk = 19.04 kB (code-split by Vite)
+- **Verification:** Vite build clean (56 modules, 3.23s), no new TypeScript errors introduced
+
 ### 10A. Theme System — Dark/Light Mode Toggle (COMPLETED)
 
 - [x] (2026-02-19) CSS Design Tokens in `frontend/src/index.css`

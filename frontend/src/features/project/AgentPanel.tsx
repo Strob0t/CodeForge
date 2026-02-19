@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { AgentStatus, CreateAgentRequest, Task } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
 
 interface AgentPanelProps {
   projectId: string;
@@ -24,6 +25,7 @@ function agentStatusColor(status: AgentStatus): string {
 }
 
 export default function AgentPanel(props: AgentPanelProps) {
+  const { t } = useI18n();
   const { show: toast } = useToast();
   const [agents, { refetch }] = createResource(
     () => props.projectId,
@@ -46,9 +48,9 @@ export default function AgentPanel(props: AgentPanelProps) {
       setBackend("");
       setShowForm(false);
       refetch();
-      toast("success", "Agent created");
+      toast("success", t("agent.toast.created"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to create agent";
+      const msg = err instanceof Error ? err.message : t("agent.toast.createFailed");
       props.onError(msg);
       toast("error", msg);
     }
@@ -58,9 +60,9 @@ export default function AgentPanel(props: AgentPanelProps) {
     try {
       await api.agents.delete(id);
       refetch();
-      toast("success", "Agent deleted");
+      toast("success", t("agent.toast.deleted"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to delete agent";
+      const msg = err instanceof Error ? err.message : t("agent.toast.deleteFailed");
       props.onError(msg);
       toast("error", msg);
     }
@@ -71,9 +73,9 @@ export default function AgentPanel(props: AgentPanelProps) {
     try {
       await api.agents.dispatch(agentId, taskId);
       refetch();
-      toast("success", "Task dispatched to agent");
+      toast("success", t("agent.toast.dispatched"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Dispatch failed";
+      const msg = err instanceof Error ? err.message : t("agent.toast.dispatchFailed");
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -85,27 +87,27 @@ export default function AgentPanel(props: AgentPanelProps) {
     try {
       await api.agents.stop(agentId, taskId);
       refetch();
-      toast("success", "Agent stopped");
+      toast("success", t("agent.toast.stopped"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Stop failed";
+      const msg = err instanceof Error ? err.message : t("agent.toast.stopFailed");
       props.onError(msg);
       toast("error", msg);
     }
   };
 
   const pendingTasks = () =>
-    props.tasks.filter((t) => t.status === "pending" || t.status === "queued");
+    props.tasks.filter((task) => task.status === "pending" || task.status === "queued");
 
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Agents</h3>
+        <h3 class="text-lg font-semibold">{t("agent.title")}</h3>
         <button
           type="button"
           class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
           onClick={() => setShowForm((v) => !v)}
         >
-          {showForm() ? "Cancel" : "Add Agent"}
+          {showForm() ? t("common.cancel") : t("agent.addAgent")}
         </button>
       </div>
 
@@ -120,7 +122,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                 for="agent-name"
                 class="block text-xs font-medium text-gray-600 dark:text-gray-400"
               >
-                Name <span aria-hidden="true">*</span>
+                {t("agent.form.name")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <input
@@ -129,7 +131,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                 value={name()}
                 onInput={(e) => setName(e.currentTarget.value)}
                 class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
-                placeholder="my-agent"
+                placeholder={t("agent.form.namePlaceholder")}
                 aria-required="true"
               />
             </div>
@@ -138,7 +140,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                 for="agent-backend"
                 class="block text-xs font-medium text-gray-600 dark:text-gray-400"
               >
-                Backend <span aria-hidden="true">*</span>
+                {t("agent.form.backend")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <Show
@@ -162,7 +164,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                   class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
                   aria-required="true"
                 >
-                  <option value="">Select...</option>
+                  <option value="">{t("agent.form.backendPlaceholder")}</option>
                   <For each={backends()?.backends ?? []}>
                     {(b) => <option value={b}>{b}</option>}
                   </For>
@@ -175,7 +177,7 @@ export default function AgentPanel(props: AgentPanelProps) {
               type="submit"
               class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
             >
-              Create
+              {t("agent.form.create")}
             </button>
           </div>
         </form>
@@ -183,7 +185,7 @@ export default function AgentPanel(props: AgentPanelProps) {
 
       <Show
         when={(agents() ?? []).length > 0}
-        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">No agents yet.</p>}
+        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("agent.empty")}</p>}
       >
         <div class="space-y-3">
           <For each={agents() ?? []}>
@@ -214,12 +216,14 @@ export default function AgentPanel(props: AgentPanelProps) {
                         disabled={dispatching() === agent.id}
                       >
                         <option value="">
-                          {dispatching() === agent.id ? "Dispatching..." : "Dispatch task..."}
+                          {dispatching() === agent.id
+                            ? t("agent.dispatching")
+                            : t("agent.dispatchTask")}
                         </option>
                         <For each={pendingTasks()}>
-                          {(t) => (
-                            <option value={t.id}>
-                              {t.title} ({t.id.slice(0, 8)})
+                          {(task) => (
+                            <option value={task.id}>
+                              {task.title} ({task.id.slice(0, 8)})
                             </option>
                           )}
                         </For>
@@ -231,13 +235,13 @@ export default function AgentPanel(props: AgentPanelProps) {
                         class="rounded bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-800"
                         onClick={() => {
                           const runningTask = props.tasks.find(
-                            (t) => t.agent_id === agent.id && t.status === "running",
+                            (task) => task.agent_id === agent.id && task.status === "running",
                           );
                           if (runningTask) handleStop(agent.id, runningTask.id);
                         }}
                         aria-label={`Stop agent ${agent.name}`}
                       >
-                        Stop
+                        {t("agent.stop")}
                       </button>
                     </Show>
                     <button
@@ -246,7 +250,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                       onClick={() => handleDelete(agent.id)}
                       aria-label={`Delete agent ${agent.name}`}
                     >
-                      Delete
+                      {t("common.delete")}
                     </button>
                   </div>
                 </div>

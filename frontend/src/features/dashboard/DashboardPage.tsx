@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateProjectRequest } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
 
 import ProjectCard from "./ProjectCard";
 
@@ -15,6 +16,7 @@ const emptyForm: CreateProjectRequest = {
 };
 
 export default function DashboardPage() {
+  const { t } = useI18n();
   const { show: toast } = useToast();
   const [projects, { refetch }] = createResource(() => api.projects.list());
   const [showForm, setShowForm] = createSignal(false);
@@ -27,7 +29,7 @@ export default function DashboardPage() {
 
     const data = form();
     if (!data.name.trim()) {
-      setError("Project name is required.");
+      setError(t("dashboard.toast.nameRequired"));
       return;
     }
 
@@ -36,9 +38,9 @@ export default function DashboardPage() {
       setForm({ ...emptyForm });
       setShowForm(false);
       await refetch();
-      toast("success", "Project created");
+      toast("success", t("dashboard.toast.created"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to create project";
+      const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
       setError(msg);
       toast("error", msg);
     }
@@ -48,9 +50,9 @@ export default function DashboardPage() {
     try {
       await api.projects.delete(id);
       await refetch();
-      toast("success", "Project deleted");
+      toast("success", t("dashboard.toast.deleted"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to delete project";
+      const msg = err instanceof Error ? err.message : t("dashboard.toast.deleteFailed");
       setError(msg);
       toast("error", msg);
     }
@@ -66,13 +68,13 @@ export default function DashboardPage() {
   return (
     <div>
       <div class="mb-6 flex items-center justify-between">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Projects</h2>
+        <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.title")}</h2>
         <button
           type="button"
           class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           onClick={() => setShowForm((v) => !v)}
         >
-          {showForm() ? "Cancel" : "Add Project"}
+          {showForm() ? t("common.cancel") : t("dashboard.addProject")}
         </button>
       </div>
 
@@ -93,7 +95,7 @@ export default function DashboardPage() {
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Name <span aria-hidden="true">*</span>
+                {t("dashboard.form.name")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <input
@@ -102,7 +104,7 @@ export default function DashboardPage() {
                 value={form().name}
                 onInput={(e) => updateField("name", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="My Project"
+                placeholder={t("dashboard.form.namePlaceholder")}
                 aria-required="true"
               />
             </div>
@@ -112,7 +114,7 @@ export default function DashboardPage() {
                 for="provider"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Provider
+                {t("dashboard.form.provider")}
               </label>
               <input
                 id="provider"
@@ -120,7 +122,7 @@ export default function DashboardPage() {
                 value={form().provider}
                 onInput={(e) => updateField("provider", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="github"
+                placeholder={t("dashboard.form.providerPlaceholder")}
               />
             </div>
 
@@ -129,7 +131,7 @@ export default function DashboardPage() {
                 for="repo_url"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Repository URL
+                {t("dashboard.form.repoUrl")}
               </label>
               <input
                 id="repo_url"
@@ -137,7 +139,7 @@ export default function DashboardPage() {
                 value={form().repo_url}
                 onInput={(e) => updateField("repo_url", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="https://github.com/user/repo"
+                placeholder={t("dashboard.form.repoUrlPlaceholder")}
               />
             </div>
 
@@ -146,7 +148,7 @@ export default function DashboardPage() {
                 for="description"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Description
+                {t("dashboard.form.description")}
               </label>
               <textarea
                 id="description"
@@ -154,7 +156,7 @@ export default function DashboardPage() {
                 onInput={(e) => updateField("description", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 rows={2}
-                placeholder="A brief description of the project"
+                placeholder={t("dashboard.form.descriptionPlaceholder")}
               />
             </div>
           </div>
@@ -164,28 +166,24 @@ export default function DashboardPage() {
               type="submit"
               class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              Create Project
+              {t("dashboard.form.create")}
             </button>
           </div>
         </form>
       </Show>
 
       <Show when={projects.loading}>
-        <p class="text-sm text-gray-500 dark:text-gray-400">Loading projects...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{t("dashboard.loading")}</p>
       </Show>
 
       <Show when={projects.error}>
-        <p class="text-sm text-red-500 dark:text-red-400">Failed to load projects.</p>
+        <p class="text-sm text-red-500 dark:text-red-400">{t("dashboard.loadError")}</p>
       </Show>
 
       <Show when={!projects.loading && !projects.error}>
         <Show
           when={projects()?.length}
-          fallback={
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              No projects yet. Click "Add Project" to get started.
-            </p>
-          }
+          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("dashboard.empty")}</p>}
         >
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <For each={projects()}>

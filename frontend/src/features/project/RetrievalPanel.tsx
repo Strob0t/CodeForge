@@ -7,6 +7,7 @@ import type {
   RetrievalSearchHit,
   SubAgentSearchResult,
 } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 interface RetrievalPanelProps {
   projectId: string;
@@ -21,6 +22,7 @@ function formatNumber(n: number): string {
 }
 
 export default function RetrievalPanel(props: RetrievalPanelProps) {
+  const { t } = useI18n();
   const [indexStatus, { refetch }] = createResource<RetrievalIndexStatus | null>(
     () => props.projectId,
     async (id) => {
@@ -62,7 +64,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
       props.onStatusUpdate?.("building");
       setTimeout(() => refetch(), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to build index");
+      setError(e instanceof Error ? e.message : t("retrieval.toast.buildFailed"));
     } finally {
       setBuilding(false);
     }
@@ -76,7 +78,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
       props.onStatusUpdate?.("building");
       setTimeout(() => refetchGraph(), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to build graph");
+      setError(e instanceof Error ? e.message : t("retrieval.toast.graphFailed"));
     } finally {
       setBuildingGraph(false);
     }
@@ -112,7 +114,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
+      setError(err instanceof Error ? err.message : t("retrieval.toast.searchFailed"));
     } finally {
       setSearching(false);
     }
@@ -138,13 +140,17 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Hybrid Retrieval</h3>
+        <h3 class="text-lg font-semibold">{t("retrieval.title")}</h3>
         <button
           class="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
           onClick={handleBuildIndex}
           disabled={building()}
         >
-          {building() ? "Building..." : indexStatus() ? "Rebuild Index" : "Build Index"}
+          {building()
+            ? t("retrieval.building")
+            : indexStatus()
+              ? t("retrieval.rebuildIndex")
+              : t("retrieval.buildIndex")}
         </button>
       </div>
 
@@ -156,15 +162,11 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
 
       <Show
         when={!indexStatus.loading}
-        fallback={<p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>}
+        fallback={<p class="text-sm text-gray-400 dark:text-gray-500">{t("common.loading")}</p>}
       >
         <Show
           when={indexStatus()}
-          fallback={
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              No retrieval index built yet. Click "Build Index" to create one.
-            </p>
-          }
+          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("retrieval.empty")}</p>}
         >
           {(status) => (
             <>
@@ -174,19 +176,21 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(status().file_count)}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Files</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{t("retrieval.files")}</div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(status().chunk_count)}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Chunks</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {t("retrieval.chunks")}
+                  </div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-xs font-medium text-gray-800 dark:text-gray-200">
                     {status().embedding_model || "\u2014"}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Model</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{t("retrieval.model")}</div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <span
@@ -194,13 +198,13 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                   >
                     {status().status}
                   </span>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Status</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{t("common.status")}</div>
                 </div>
               </div>
 
               <Show when={status().error}>
                 <div class="mb-3 rounded bg-red-50 p-2 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">
-                  Index error: {status().error}
+                  {t("retrieval.indexError")} {status().error}
                 </div>
               </Show>
 
@@ -210,11 +214,13 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                   type="text"
                   class="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                   placeholder={
-                    useAgent() ? "Describe what you're looking for..." : "Search code..."
+                    useAgent()
+                      ? t("retrieval.agentSearchPlaceholder")
+                      : t("retrieval.searchPlaceholder")
                   }
                   value={query()}
                   onInput={(e) => setQuery(e.currentTarget.value)}
-                  aria-label="Search code in retrieval index"
+                  aria-label={t("retrieval.searchAria")}
                 />
                 <button
                   type="button"
@@ -228,22 +234,20 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                     setExpandedQueries([]);
                     setTotalCandidates(0);
                   }}
-                  title={
-                    useAgent()
-                      ? "Agent search: LLM expands queries and re-ranks"
-                      : "Standard hybrid search"
+                  title={useAgent() ? t("retrieval.agentTitle") : t("retrieval.standardTitle")}
+                  aria-label={
+                    useAgent() ? t("retrieval.agentSwitchAria") : t("retrieval.standardSwitchAria")
                   }
-                  aria-label={useAgent() ? "Switch to standard search" : "Switch to agent search"}
                   aria-pressed={useAgent()}
                 >
-                  {useAgent() ? "Agent" : "Standard"}
+                  {useAgent() ? t("retrieval.agentToggle") : t("retrieval.standardToggle")}
                 </button>
                 <button
                   type="submit"
                   class="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
                   disabled={searching() || status().status !== "ready" || !query().trim()}
                 >
-                  {searching() ? "Searching..." : "Search"}
+                  {searching() ? t("retrieval.searching") : t("retrieval.search")}
                 </button>
               </form>
 
@@ -251,10 +255,10 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
               <Show when={expandedQueries().length > 0}>
                 <div class="mb-3">
                   <div class="mb-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                    <span>Expanded queries</span>
+                    <span>{t("retrieval.expandedQueries")}</span>
                     <Show when={totalCandidates() > 0}>
                       <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                        {totalCandidates()} candidates
+                        {t("retrieval.candidates", { n: totalCandidates() })}
                       </span>
                     </Show>
                   </div>
@@ -278,7 +282,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
       <Show when={searchResults().length > 0}>
         <div class="mt-3">
           <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-            Results ({searchResults().length})
+            {t("retrieval.results", { n: searchResults().length })}
           </h4>
           <div class="space-y-2">
             <For each={searchResults()}>
@@ -331,30 +335,28 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
       {/* Graph Status Section */}
       <div class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
         <div class="mb-3 flex items-center justify-between">
-          <h3 class="text-lg font-semibold">Code Graph</h3>
+          <h3 class="text-lg font-semibold">{t("retrieval.graph.title")}</h3>
           <button
             class="rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-700 disabled:opacity-50"
             onClick={handleBuildGraph}
             disabled={buildingGraph() || graphStatus()?.status === "building"}
           >
             {buildingGraph() || graphStatus()?.status === "building"
-              ? "Building..."
+              ? t("retrieval.graph.rebuilding")
               : graphStatus()?.status === "ready"
-                ? "Rebuild Graph"
-                : "Build Graph"}
+                ? t("retrieval.graph.rebuild")
+                : t("retrieval.graph.build")}
           </button>
         </div>
 
         <Show
           when={!graphStatus.loading}
-          fallback={<p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>}
+          fallback={<p class="text-sm text-gray-400 dark:text-gray-500">{t("common.loading")}</p>}
         >
           <Show
             when={graphStatus()}
             fallback={
-              <p class="text-sm text-gray-500 dark:text-gray-400">
-                No code graph built yet. Click "Build Graph" to analyze symbol relationships.
-              </p>
+              <p class="text-sm text-gray-500 dark:text-gray-400">{t("retrieval.graph.empty")}</p>
             }
           >
             {(gs) => (
@@ -364,13 +366,17 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                     <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                       {formatNumber(gs().node_count)}
                     </div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">Nodes</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                      {t("retrieval.graph.nodes")}
+                    </div>
                   </div>
                   <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                     <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                       {formatNumber(gs().edge_count)}
                     </div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">Edges</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                      {t("retrieval.graph.edges")}
+                    </div>
                   </div>
                   <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                     <span
@@ -378,13 +384,15 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                     >
                       {gs().status}
                     </span>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">Status</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{t("common.status")}</div>
                   </div>
                 </div>
 
                 <Show when={gs().languages.length > 0}>
                   <div class="mb-3">
-                    <span class="mr-2 text-xs text-gray-500 dark:text-gray-400">Languages:</span>
+                    <span class="mr-2 text-xs text-gray-500 dark:text-gray-400">
+                      {t("retrieval.graph.languages")}
+                    </span>
                     <div class="inline-flex flex-wrap gap-1">
                       <For each={gs().languages}>
                         {(lang) => (
@@ -399,13 +407,15 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
 
                 <Show when={gs().built_at}>
                   <div class="mb-3 text-xs text-gray-400 dark:text-gray-500">
-                    Built {new Date(gs().built_at ?? "").toLocaleString()}
+                    {t("retrieval.graph.built", {
+                      date: new Date(gs().built_at ?? "").toLocaleString(),
+                    })}
                   </div>
                 </Show>
 
                 <Show when={gs().error}>
                   <div class="rounded bg-red-50 p-2 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">
-                    Graph error: {gs().error}
+                    {t("retrieval.graph.error")} {gs().error}
                   </div>
                 </Show>
               </>

@@ -9,6 +9,9 @@ import {
   useContext,
 } from "solid-js";
 
+import type { TranslationKey } from "~/i18n";
+import { useI18n } from "~/i18n";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -128,25 +131,26 @@ const ICONS: Record<Theme, string> = {
   system: "\u2699", // gear
 };
 
-const LABELS: Record<Theme, string> = {
-  light: "Light",
-  dark: "Dark",
-  system: "System",
-};
-
 export function ThemeToggle(): JSX.Element {
   const { theme, toggle } = useTheme();
+  const { t } = useI18n();
+
+  const THEME_KEYS: Record<Theme, TranslationKey> = {
+    light: "theme.light",
+    dark: "theme.dark",
+    system: "theme.system",
+  };
 
   return (
     <button
       type="button"
       class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
       onClick={toggle}
-      aria-label={`Theme: ${LABELS[theme()]}. Click to change.`}
-      title={`Theme: ${LABELS[theme()]}`}
+      aria-label={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}
+      title={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}
     >
       <span aria-hidden="true">{ICONS[theme()]}</span>
-      <span>{LABELS[theme()]}</span>
+      <span>{t(THEME_KEYS[theme()])}</span>
     </button>
   );
 }

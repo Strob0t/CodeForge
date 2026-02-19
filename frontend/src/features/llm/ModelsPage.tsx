@@ -3,8 +3,10 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { LLMModel } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
 
 export default function ModelsPage() {
+  const { t } = useI18n();
   const { show: toast } = useToast();
   const [models, { refetch }] = createResource(() => api.llm.models());
   const [health] = createResource(() => api.llm.health());
@@ -35,9 +37,9 @@ export default function ModelsPage() {
       setApiKey("");
       setShowForm(false);
       refetch();
-      toast("success", "Model added");
+      toast("success", t("models.toast.added"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to add model";
+      const msg = err instanceof Error ? err.message : t("models.toast.addFailed");
       setError(msg);
       toast("error", msg);
     }
@@ -48,9 +50,9 @@ export default function ModelsPage() {
     try {
       await api.llm.deleteModel(modelId);
       refetch();
-      toast("success", "Model deleted");
+      toast("success", t("models.toast.deleted"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to delete model";
+      const msg = err instanceof Error ? err.message : t("models.toast.deleteFailed");
       setError(msg);
       toast("error", msg);
     }
@@ -60,7 +62,7 @@ export default function ModelsPage() {
     <div>
       <div class="mb-6 flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">LLM Models</h2>
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("models.title")}</h2>
           <Show when={health()}>
             <span
               class={`rounded-full px-2 py-0.5 text-xs ${
@@ -80,7 +82,7 @@ export default function ModelsPage() {
           class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           onClick={() => setShowForm((v) => !v)}
         >
-          {showForm() ? "Cancel" : "Add Model"}
+          {showForm() ? t("common.cancel") : t("models.addModel")}
         </button>
       </div>
 
@@ -105,7 +107,7 @@ export default function ModelsPage() {
                 for="model-display-name"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Display Name <span aria-hidden="true">*</span>
+                {t("models.form.displayName")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <input
@@ -114,7 +116,7 @@ export default function ModelsPage() {
                 value={modelName()}
                 onInput={(e) => setModelName(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="gpt-4o"
+                placeholder={t("models.form.namePlaceholder")}
                 aria-required="true"
               />
             </div>
@@ -123,7 +125,7 @@ export default function ModelsPage() {
                 for="model-litellm-id"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                LiteLLM Model <span aria-hidden="true">*</span>
+                {t("models.form.litellmModel")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <input
@@ -132,7 +134,7 @@ export default function ModelsPage() {
                 value={litellmModel()}
                 onInput={(e) => setLitellmModel(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="openai/gpt-4o"
+                placeholder={t("models.form.modelPlaceholder")}
                 aria-required="true"
               />
             </div>
@@ -141,7 +143,7 @@ export default function ModelsPage() {
                 for="model-api-base"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                API Base (optional)
+                {t("models.form.apiBase")}
               </label>
               <input
                 id="model-api-base"
@@ -149,7 +151,7 @@ export default function ModelsPage() {
                 value={apiBase()}
                 onInput={(e) => setApiBase(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="https://api.openai.com/v1"
+                placeholder={t("models.form.apiBasePlaceholder")}
               />
             </div>
             <div>
@@ -157,7 +159,7 @@ export default function ModelsPage() {
                 for="model-api-key"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                API Key (optional)
+                {t("models.form.apiKey")}
               </label>
               <input
                 id="model-api-key"
@@ -165,7 +167,7 @@ export default function ModelsPage() {
                 value={apiKey()}
                 onInput={(e) => setApiKey(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="sk-..."
+                placeholder={t("models.form.apiKeyPlaceholder")}
               />
             </div>
           </div>
@@ -174,28 +176,24 @@ export default function ModelsPage() {
               type="submit"
               class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              Add Model
+              {t("models.form.add")}
             </button>
           </div>
         </form>
       </Show>
 
       <Show when={models.loading}>
-        <p class="text-sm text-gray-500 dark:text-gray-400">Loading models...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{t("models.loading")}</p>
       </Show>
 
       <Show when={models.error}>
-        <p class="text-sm text-red-500 dark:text-red-400">Failed to load models.</p>
+        <p class="text-sm text-red-500 dark:text-red-400">{t("models.loadError")}</p>
       </Show>
 
       <Show when={!models.loading && !models.error}>
         <Show
           when={models()?.length}
-          fallback={
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              No models configured. Click "Add Model" to get started.
-            </p>
-          }
+          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("models.empty")}</p>}
         >
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <For each={models() ?? []}>
@@ -214,6 +212,7 @@ interface ModelCardProps {
 }
 
 function ModelCard(props: ModelCardProps) {
+  const { t } = useI18n();
   return (
     <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm dark:shadow-gray-900/30 transition-shadow hover:shadow-md dark:hover:shadow-gray-900/30">
       <div class="flex items-start justify-between">
@@ -232,9 +231,9 @@ function ModelCard(props: ModelCardProps) {
             type="button"
             class="rounded px-2 py-1 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400"
             onClick={() => props.onDelete(props.model.model_id ?? "")}
-            aria-label={`Delete model ${props.model.model_name}`}
+            aria-label={t("models.deleteAria", { name: props.model.model_name })}
           >
-            Delete
+            {t("common.delete")}
           </button>
         </Show>
       </div>

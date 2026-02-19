@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, RunStatus, Task, ToolCallEvent } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
 
 import TrajectoryPanel from "./TrajectoryPanel";
 
@@ -23,16 +24,17 @@ const STATUS_COLORS: Record<RunStatus, string> = {
   quality_gate: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
 };
 
-const DELIVER_MODES: { value: DeliverMode; label: string }[] = [
-  { value: "", label: "None" },
-  { value: "patch", label: "Patch" },
-  { value: "commit-local", label: "Commit (local)" },
-  { value: "branch", label: "Branch" },
-  { value: "pr", label: "Pull Request" },
-];
-
 export default function RunPanel(props: RunPanelProps) {
+  const { t } = useI18n();
   const { show: toast } = useToast();
+
+  const DELIVER_MODES = (): { value: DeliverMode; label: string }[] => [
+    { value: "", label: t("run.deliver.none") },
+    { value: "patch", label: t("run.deliver.patch") },
+    { value: "commit-local", label: t("run.deliver.commitLocal") },
+    { value: "branch", label: t("run.deliver.branch") },
+    { value: "pr", label: t("run.deliver.pr") },
+  ];
   const [selectedTaskId, setSelectedTaskId] = createSignal("");
   const [selectedAgentId, setSelectedAgentId] = createSignal("");
   const [selectedPolicy, setSelectedPolicy] = createSignal("");
@@ -50,7 +52,7 @@ export default function RunPanel(props: RunPanelProps) {
   );
 
   const pendingTasks = () =>
-    props.tasks.filter((t) => t.status === "pending" || t.status === "queued");
+    props.tasks.filter((task) => task.status === "pending" || task.status === "queued");
   const idleAgents = () => props.agents.filter((a) => a.status === "idle");
 
   const handleStart = async () => {
@@ -71,9 +73,9 @@ export default function RunPanel(props: RunPanelProps) {
       setActiveRun(run);
       setToolCalls([]);
       refetchRuns();
-      toast("success", "Run started");
+      toast("success", t("run.toast.started"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to start run";
+      const msg = e instanceof Error ? e.message : t("run.toast.startFailed");
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -88,9 +90,9 @@ export default function RunPanel(props: RunPanelProps) {
       await api.runs.cancel(run.id);
       setActiveRun(null);
       refetchRuns();
-      toast("success", "Run cancelled");
+      toast("success", t("run.toast.cancelled"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to cancel run";
+      const msg = e instanceof Error ? e.message : t("run.toast.cancelFailed");
       props.onError(msg);
       toast("error", msg);
     }
@@ -142,7 +144,7 @@ export default function RunPanel(props: RunPanelProps) {
 
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-      <h3 class="mb-3 text-lg font-semibold">Run Management</h3>
+      <h3 class="mb-3 text-lg font-semibold">{t("run.title")}</h3>
 
       {/* Start Run Form */}
       <div class="mb-4 flex flex-wrap gap-2">
@@ -155,12 +157,12 @@ export default function RunPanel(props: RunPanelProps) {
             refetchRuns();
           }}
         >
-          <option value="">Select task...</option>
+          <option value="">{t("run.selectTask")}</option>
           <For each={pendingTasks()}>
-            {(t) => (
-              <option value={t.id}>
-                {t.title.slice(0, 40)}
-                {t.title.length > 40 ? "..." : ""}
+            {(task) => (
+              <option value={task.id}>
+                {task.title.slice(0, 40)}
+                {task.title.length > 40 ? "..." : ""}
               </option>
             )}
           </For>
@@ -172,7 +174,7 @@ export default function RunPanel(props: RunPanelProps) {
           aria-label="Select agent for run"
           onChange={(e) => setSelectedAgentId(e.currentTarget.value)}
         >
-          <option value="">Select agent...</option>
+          <option value="">{t("run.selectAgent")}</option>
           <For each={idleAgents()}>
             {(a) => (
               <option value={a.id}>
@@ -188,7 +190,7 @@ export default function RunPanel(props: RunPanelProps) {
           aria-label="Select policy profile"
           onChange={(e) => setSelectedPolicy(e.currentTarget.value)}
         >
-          <option value="">Default policy</option>
+          <option value="">{t("run.defaultPolicy")}</option>
           <For each={policies()?.profiles ?? []}>{(p) => <option value={p}>{p}</option>}</For>
         </select>
 
@@ -198,7 +200,7 @@ export default function RunPanel(props: RunPanelProps) {
           aria-label="Select delivery mode"
           onChange={(e) => setSelectedDeliverMode(e.currentTarget.value as DeliverMode)}
         >
-          <For each={DELIVER_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+          <For each={DELIVER_MODES()}>{(m) => <option value={m.value}>{m.label}</option>}</For>
         </select>
 
         <button
@@ -206,7 +208,7 @@ export default function RunPanel(props: RunPanelProps) {
           onClick={handleStart}
           disabled={starting() || !selectedTaskId() || !selectedAgentId()}
         >
-          {starting() ? "Starting..." : "Start Run"}
+          {starting() ? t("run.starting") : t("run.startRun")}
         </button>
       </div>
 
@@ -225,7 +227,7 @@ export default function RunPanel(props: RunPanelProps) {
                   {run().status}
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">
-                  Run: {run().id.slice(0, 8)}
+                  {t("run.runLabel")} {run().id.slice(0, 8)}
                 </span>
               </div>
               <Show when={run().status === "running" || run().status === "quality_gate"}>
@@ -233,27 +235,37 @@ export default function RunPanel(props: RunPanelProps) {
                   type="button"
                   class="rounded bg-red-500 px-3 py-1 text-xs text-white hover:bg-red-600"
                   onClick={handleCancel}
-                  aria-label="Cancel active run"
+                  aria-label={t("run.cancelAria")}
                 >
-                  Cancel
+                  {t("run.cancel")}
                 </button>
               </Show>
             </div>
             <div class="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
-              <span>Steps: {run().step_count}</span>
-              <span>Cost: ${run().cost_usd.toFixed(4)}</span>
+              <span>
+                {t("run.steps")} {run().step_count}
+              </span>
+              <span>
+                {t("run.cost")} ${run().cost_usd.toFixed(4)}
+              </span>
               <Show when={run().tokens_in > 0 || run().tokens_out > 0}>
                 <span>
-                  Tokens: {run().tokens_in.toLocaleString()} in /{" "}
+                  {t("run.tokens")} {run().tokens_in.toLocaleString()} in /{" "}
                   {run().tokens_out.toLocaleString()} out
                 </span>
               </Show>
               <Show when={run().model}>
-                <span>Model: {run().model}</span>
+                <span>
+                  {t("run.model")} {run().model}
+                </span>
               </Show>
-              <span>Policy: {run().policy_profile}</span>
+              <span>
+                {t("run.policy")} {run().policy_profile}
+              </span>
               <Show when={run().deliver_mode}>
-                <span>Deliver: {run().deliver_mode}</span>
+                <span>
+                  {t("run.deliver")} {run().deliver_mode}
+                </span>
               </Show>
             </div>
 
@@ -294,7 +306,9 @@ export default function RunPanel(props: RunPanelProps) {
       {/* Run History */}
       <Show when={selectedTaskId() && (taskRuns() ?? []).length > 0}>
         <div>
-          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">Run History</h4>
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+            {t("run.history")}
+          </h4>
           <div class="space-y-1">
             <For each={taskRuns() ?? []}>
               {(r) => (
@@ -323,7 +337,7 @@ export default function RunPanel(props: RunPanelProps) {
                     </Show>
                     <Show when={r.error}>
                       <span class="text-red-500 dark:text-red-400" title={r.error}>
-                        error
+                        {t("common.error")}
                       </span>
                     </Show>
                     <button
@@ -334,11 +348,15 @@ export default function RunPanel(props: RunPanelProps) {
                         setTrajectoryRunId((prev) => (prev === r.id ? null : r.id));
                       }}
                       aria-label={
-                        trajectoryRunId() === r.id ? "Hide trajectory" : "Show trajectory"
+                        trajectoryRunId() === r.id
+                          ? t("run.hideTrajectoryAria")
+                          : t("run.showTrajectoryAria")
                       }
                       aria-expanded={trajectoryRunId() === r.id}
                     >
-                      {trajectoryRunId() === r.id ? "Hide Trajectory" : "Trajectory"}
+                      {trajectoryRunId() === r.id
+                        ? t("run.hideTrajectory")
+                        : t("run.showTrajectory")}
                     </button>
                   </div>
                 </div>

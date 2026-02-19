@@ -697,10 +697,23 @@
 
 ### 10B. i18n (Internationalization)
 
-- [ ] Evaluate i18n approach: `@solid-primitives/i18n` vs. custom JSON bundles + SolidJS Context
-- [ ] Extract all hardcoded UI strings from ~15 components into key-based bundles
-- [ ] Language bundles: English (default) + German
-- [ ] Language switcher in Sidebar/Settings
+- [x] (2026-02-19) Evaluate i18n approach: custom signal-based context provider (no external dependency)
+  - `I18nProvider` with `createContext`/`useContext`, `createSignal` for locale + translations
+  - Flat dot-separated keys (`TranslationKey = keyof typeof en`), type-safe at compile time
+  - `{{variable}}` interpolation via `String.replaceAll()`
+  - Lazy bundle loading via dynamic `import()` — Vite auto code-splits non-English bundles
+  - `localStorage` persistence (key: `codeforge-locale`), browser language auto-detection
+- [x] (2026-02-19) Extract all hardcoded UI strings from ~20 components into key-based bundles (~480 keys)
+  - Shell components: App.tsx, ThemeProvider, OfflineBanner, CommandPalette, Toast
+  - Dashboard: DashboardPage, ProjectCard
+  - Costs: CostDashboardPage
+  - Models: ModelsPage
+  - Project panels: AgentPanel, TaskPanel, RunPanel, PlanPanel, LiveOutput, TrajectoryPanel
+  - Project detail: ProjectDetailPage, PolicyPanel, RepoMapPanel, RetrievalPanel, RoadmapPanel
+- [x] (2026-02-19) Language bundles: English (default) + German (code-split, 19 kB chunk)
+  - `frontend/src/i18n/en.ts` — ~480 translation keys, source of truth
+  - `frontend/src/i18n/locales/de.ts` — full German translation
+- [x] (2026-02-19) Language switcher in Sidebar (LocaleSwitcher component, cycles EN/DE)
 - [ ] Locale-aware date/number formatting (Intl.DateTimeFormat, Intl.NumberFormat)
 - [ ] Pluralization support for counts (e.g. "1 agent" vs. "3 agents")
 

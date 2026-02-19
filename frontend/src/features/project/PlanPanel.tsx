@@ -11,6 +11,7 @@ import type {
   PlanStepStatus,
   Task,
 } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 interface PlanPanelProps {
   projectId: string;
@@ -18,21 +19,6 @@ interface PlanPanelProps {
   agents: Agent[];
   onError: (msg: string) => void;
 }
-
-const PROTOCOL_OPTIONS: { value: PlanProtocol; label: string; description: string }[] = [
-  { value: "sequential", label: "Sequential", description: "Steps run one at a time in order" },
-  { value: "parallel", label: "Parallel", description: "All ready steps run concurrently" },
-  {
-    value: "ping_pong",
-    label: "Ping-Pong",
-    description: "Two agents alternate on each other's output",
-  },
-  {
-    value: "consensus",
-    label: "Consensus",
-    description: "Same task to multiple agents, majority vote",
-  },
-];
 
 const PLAN_STATUS_COLORS: Record<PlanStatus, string> = {
   pending: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
@@ -52,6 +38,31 @@ const STEP_STATUS_COLORS: Record<PlanStepStatus, string> = {
 };
 
 export default function PlanPanel(props: PlanPanelProps) {
+  const { t } = useI18n();
+
+  const PROTOCOL_OPTIONS = (): { value: PlanProtocol; label: string; description: string }[] => [
+    {
+      value: "sequential",
+      label: t("plan.protocol.sequential"),
+      description: t("plan.protocol.sequentialDesc"),
+    },
+    {
+      value: "parallel",
+      label: t("plan.protocol.parallel"),
+      description: t("plan.protocol.parallelDesc"),
+    },
+    {
+      value: "ping_pong",
+      label: t("plan.protocol.pingPong"),
+      description: t("plan.protocol.pingPongDesc"),
+    },
+    {
+      value: "consensus",
+      label: t("plan.protocol.consensus"),
+      description: t("plan.protocol.consensusDesc"),
+    },
+  ];
+
   const [plans, { refetch }] = createResource(
     () => props.projectId,
     (id) => api.plans.list(id),
@@ -74,7 +85,7 @@ export default function PlanPanel(props: PlanPanelProps) {
 
   const handleDecompose = async () => {
     if (!feature().trim()) {
-      props.onError("Feature description is required");
+      props.onError(t("plan.toast.featureRequired"));
       return;
     }
     setDecomposing(true);
@@ -94,7 +105,7 @@ export default function PlanPanel(props: PlanPanelProps) {
       setDecomposeModel("");
       setAutoStart(false);
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Decomposition failed");
+      props.onError(e instanceof Error ? e.message : t("plan.toast.decomposeFailed"));
     } finally {
       setDecomposing(false);
     }
@@ -125,11 +136,11 @@ export default function PlanPanel(props: PlanPanelProps) {
 
   const handleCreate = async () => {
     if (!name().trim()) {
-      props.onError("Plan name is required");
+      props.onError(t("plan.toast.nameRequired"));
       return;
     }
     if (steps().some((s) => !s.task_id || !s.agent_id)) {
-      props.onError("All steps must have a task and agent selected");
+      props.onError(t("plan.toast.stepsIncomplete"));
       return;
     }
 
@@ -146,7 +157,7 @@ export default function PlanPanel(props: PlanPanelProps) {
       refetch();
       resetForm();
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to create plan");
+      props.onError(e instanceof Error ? e.message : t("plan.toast.createFailed"));
     } finally {
       setCreating(false);
     }
@@ -173,7 +184,7 @@ export default function PlanPanel(props: PlanPanelProps) {
         setSelectedPlanId(planId);
       }
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to start plan");
+      props.onError(e instanceof Error ? e.message : t("plan.toast.startFailed"));
     }
   };
 
@@ -186,17 +197,18 @@ export default function PlanPanel(props: PlanPanelProps) {
         setSelectedPlanId(planId);
       }
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to cancel plan");
+      props.onError(e instanceof Error ? e.message : t("plan.toast.cancelFailed"));
     }
   };
 
-  const taskName = (id: string) => props.tasks.find((t) => t.id === id)?.title ?? id.slice(0, 8);
+  const taskName = (id: string) =>
+    props.tasks.find((task) => task.id === id)?.title ?? id.slice(0, 8);
   const agentName = (id: string) => props.agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
 
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Execution Plans</h3>
+        <h3 class="text-lg font-semibold">{t("plan.title")}</h3>
         <div class="flex gap-2">
           <button
             class="rounded bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"
@@ -205,7 +217,7 @@ export default function PlanPanel(props: PlanPanelProps) {
               if (showDecompose()) setShowForm(false);
             }}
           >
-            {showDecompose() ? "Cancel" : "Decompose Feature"}
+            {showDecompose() ? t("common.cancel") : t("plan.decompose")}
           </button>
           <button
             class="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
@@ -214,7 +226,7 @@ export default function PlanPanel(props: PlanPanelProps) {
               if (showForm()) setShowDecompose(false);
             }}
           >
-            {showForm() ? "Cancel" : "New Plan"}
+            {showForm() ? t("common.cancel") : t("plan.newPlan")}
           </button>
         </div>
       </div>
@@ -222,16 +234,13 @@ export default function PlanPanel(props: PlanPanelProps) {
       {/* Decompose Feature Form */}
       <Show when={showDecompose()}>
         <div class="mb-4 rounded border border-purple-200 bg-purple-50 p-4 dark:border-purple-700 dark:bg-purple-900/20">
-          <p class="mb-3 text-xs text-gray-600 dark:text-gray-400">
-            Describe a feature and let the meta-agent decompose it into subtasks with an execution
-            plan.
-          </p>
+          <p class="mb-3 text-xs text-gray-600 dark:text-gray-400">{t("plan.form.featureHint")}</p>
           <div class="mb-3">
             <label
               for="decompose-feature"
               class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
             >
-              Feature Description <span aria-hidden="true">*</span>
+              {t("plan.form.featureDesc")} <span aria-hidden="true">*</span>
               <span class="sr-only">(required)</span>
             </label>
             <textarea
@@ -246,7 +255,7 @@ export default function PlanPanel(props: PlanPanelProps) {
           </div>
           <div class="mb-3">
             <label for="decompose-context" class="mb-1 block text-xs font-medium text-gray-600">
-              Additional Context (optional)
+              {t("plan.form.context")}
             </label>
             <textarea
               id="decompose-context"
@@ -260,7 +269,7 @@ export default function PlanPanel(props: PlanPanelProps) {
           <div class="mb-3 flex items-center gap-4">
             <div class="flex-1">
               <label for="decompose-model" class="mb-1 block text-xs font-medium text-gray-600">
-                Model Override (optional)
+                {t("plan.form.modelOverride")}
               </label>
               <input
                 id="decompose-model"
@@ -277,7 +286,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                 checked={autoStart()}
                 onChange={(e) => setAutoStart(e.currentTarget.checked)}
               />
-              Auto-start
+              {t("plan.form.autoStart")}
             </label>
           </div>
           <button
@@ -285,7 +294,7 @@ export default function PlanPanel(props: PlanPanelProps) {
             onClick={handleDecompose}
             disabled={decomposing()}
           >
-            {decomposing() ? "Decomposing..." : "Decompose"}
+            {decomposing() ? t("plan.form.decomposing") : t("plan.form.decomposeBtn")}
           </button>
         </div>
       </Show>
@@ -296,7 +305,7 @@ export default function PlanPanel(props: PlanPanelProps) {
           <div class="mb-3 grid grid-cols-2 gap-3">
             <div>
               <label for="plan-name" class="mb-1 block text-xs font-medium text-gray-600">
-                Name <span aria-hidden="true">*</span>
+                {t("plan.form.name")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <input
@@ -311,7 +320,7 @@ export default function PlanPanel(props: PlanPanelProps) {
             </div>
             <div>
               <label for="plan-protocol" class="mb-1 block text-xs font-medium text-gray-600">
-                Protocol
+                {t("plan.form.protocol")}
               </label>
               <select
                 id="plan-protocol"
@@ -319,7 +328,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                 value={protocol()}
                 onChange={(e) => setProtocol(e.currentTarget.value as PlanProtocol)}
               >
-                <For each={PROTOCOL_OPTIONS}>
+                <For each={PROTOCOL_OPTIONS()}>
                   {(opt) => <option value={opt.value}>{opt.label}</option>}
                 </For>
               </select>
@@ -328,7 +337,7 @@ export default function PlanPanel(props: PlanPanelProps) {
 
           <div class="mb-3">
             <label for="plan-description" class="mb-1 block text-xs font-medium text-gray-600">
-              Description
+              {t("plan.form.description")}
             </label>
             <input
               id="plan-description"
@@ -343,7 +352,7 @@ export default function PlanPanel(props: PlanPanelProps) {
           <Show when={protocol() === "parallel"}>
             <div class="mb-3">
               <label for="plan-max-parallel" class="mb-1 block text-xs font-medium text-gray-600">
-                Max Parallel
+                {t("plan.form.maxParallel")}
               </label>
               <input
                 id="plan-max-parallel"
@@ -358,18 +367,18 @@ export default function PlanPanel(props: PlanPanelProps) {
           </Show>
 
           <p class="mb-2 text-xs text-gray-500">
-            {PROTOCOL_OPTIONS.find((o) => o.value === protocol())?.description}
+            {PROTOCOL_OPTIONS().find((o) => o.value === protocol())?.description}
           </p>
 
           {/* Steps */}
           <div class="mb-3">
             <div class="mb-2 flex items-center justify-between">
-              <label class="text-xs font-medium text-gray-600">Steps</label>
+              <label class="text-xs font-medium text-gray-600">{t("plan.form.steps")}</label>
               <button
                 class="rounded bg-gray-200 px-2 py-0.5 text-xs hover:bg-gray-300"
                 onClick={addStep}
               >
-                + Add Step
+                {t("plan.form.addStep")}
               </button>
             </div>
             <For each={steps()}>
@@ -382,8 +391,10 @@ export default function PlanPanel(props: PlanPanelProps) {
                     onChange={(e) => updateStep(idx(), "task_id", e.currentTarget.value)}
                     aria-label={`Step ${idx() + 1} task`}
                   >
-                    <option value="">Select Task</option>
-                    <For each={props.tasks}>{(t) => <option value={t.id}>{t.title}</option>}</For>
+                    <option value="">{t("plan.form.selectTask")}</option>
+                    <For each={props.tasks}>
+                      {(task) => <option value={task.id}>{task.title}</option>}
+                    </For>
                   </select>
                   <select
                     class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
@@ -391,7 +402,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                     onChange={(e) => updateStep(idx(), "agent_id", e.currentTarget.value)}
                     aria-label={`Step ${idx() + 1} agent`}
                   >
-                    <option value="">Select Agent</option>
+                    <option value="">{t("plan.form.selectAgent")}</option>
                     <For each={props.agents}>
                       {(a) => (
                         <option value={a.id}>
@@ -420,7 +431,7 @@ export default function PlanPanel(props: PlanPanelProps) {
             onClick={handleCreate}
             disabled={creating()}
           >
-            {creating() ? "Creating..." : "Create Plan"}
+            {creating() ? t("plan.form.creating") : t("plan.form.createPlan")}
           </button>
         </div>
       </Show>
@@ -428,7 +439,7 @@ export default function PlanPanel(props: PlanPanelProps) {
       {/* Plan List */}
       <Show
         when={(plans() ?? []).length > 0}
-        fallback={<p class="text-sm text-gray-400">No execution plans yet.</p>}
+        fallback={<p class="text-sm text-gray-400">{t("plan.empty")}</p>}
       >
         <div class="space-y-2">
           <For each={plans()}>
@@ -472,7 +483,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                         }}
                         aria-label={`Start plan ${p.name}`}
                       >
-                        Start
+                        {t("plan.start")}
                       </button>
                     </Show>
                     <Show when={p.status === "running"}>
@@ -485,7 +496,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                         }}
                         aria-label={`Cancel plan ${p.name}`}
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                     </Show>
                   </div>

@@ -1,10 +1,13 @@
 import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 
+import { useI18n } from "~/i18n";
+
 /**
  * Displays a banner when the browser is offline or the WebSocket is disconnected.
  * Uses `navigator.onLine` + event listeners for detection.
  */
 export function OfflineBanner(props: { wsConnected: () => boolean }): JSX.Element {
+  const { t } = useI18n();
   const [online, setOnline] = createSignal(navigator.onLine);
 
   onMount(() => {
@@ -23,8 +26,8 @@ export function OfflineBanner(props: { wsConnected: () => boolean }): JSX.Elemen
   const showBanner = () => !online() || !props.wsConnected();
 
   const label = () => {
-    if (!online()) return "You are offline. Reconnecting when network is available\u2026";
-    if (!props.wsConnected()) return "WebSocket disconnected. Reconnecting\u2026";
+    if (!online()) return t("offline.network");
+    if (!props.wsConnected()) return t("offline.websocket");
     return "";
   };
 

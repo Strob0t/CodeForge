@@ -3,6 +3,7 @@ import { createResource, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { DailyCost, ModelCostSummary, ProjectCostSummary, Run } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 function formatCost(usd: number): string {
   return usd < 0.01 && usd > 0 ? `$${usd.toFixed(6)}` : `$${usd.toFixed(4)}`;
@@ -15,6 +16,7 @@ function formatTokens(n: number): string {
 }
 
 export default function CostDashboardPage() {
+  const { t } = useI18n();
   const [globalCosts] = createResource(() => api.costs.global());
 
   // Compute totals from global summary
@@ -33,58 +35,58 @@ export default function CostDashboardPage() {
 
   return (
     <div>
-      <h2 class="mb-6 text-2xl font-bold">Cost Dashboard</h2>
+      <h2 class="mb-6 text-2xl font-bold">{t("costs.title")}</h2>
 
       {/* Global Totals */}
       <div class="mb-6 grid grid-cols-4 gap-4">
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">Total Cost</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.totalCost")}</p>
           <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
             {formatCost(totals().cost)}
           </p>
         </div>
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">Tokens In</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.tokensIn")}</p>
           <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
             {formatTokens(totals().tokensIn)}
           </p>
         </div>
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">Tokens Out</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.tokensOut")}</p>
           <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
             {formatTokens(totals().tokensOut)}
           </p>
         </div>
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">Total Runs</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.totalRuns")}</p>
           <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">{totals().runs}</p>
         </div>
       </div>
 
       {/* Project Breakdown */}
       <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        <h3 class="mb-3 text-lg font-semibold">Cost by Project</h3>
+        <h3 class="mb-3 text-lg font-semibold">{t("costs.byProject")}</h3>
         <Show
           when={(globalCosts() ?? []).length > 0}
-          fallback={<p class="text-sm text-gray-400 dark:text-gray-500">No cost data yet.</p>}
+          fallback={<p class="text-sm text-gray-400 dark:text-gray-500">{t("costs.empty")}</p>}
         >
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-gray-100 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400">
                 <th scope="col" class="pb-2 font-medium">
-                  Project
+                  {t("costs.table.project")}
                 </th>
                 <th scope="col" class="pb-2 text-right font-medium">
-                  Cost
+                  {t("costs.table.cost")}
                 </th>
                 <th scope="col" class="pb-2 text-right font-medium">
-                  Tokens In
+                  {t("costs.table.tokensIn")}
                 </th>
                 <th scope="col" class="pb-2 text-right font-medium">
-                  Tokens Out
+                  {t("costs.table.tokensOut")}
                 </th>
                 <th scope="col" class="pb-2 text-right font-medium">
-                  Runs
+                  {t("costs.table.runs")}
                 </th>
               </tr>
             </thead>
@@ -117,6 +119,7 @@ export default function CostDashboardPage() {
 
 /** Reusable cost section for a specific project */
 export function ProjectCostSection(props: { projectId: string }) {
+  const { t } = useI18n();
   const [summary] = createResource(
     () => props.projectId,
     (id) => api.costs.project(id),
@@ -141,26 +144,26 @@ export function ProjectCostSection(props: { projectId: string }) {
 
   return (
     <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-      <h3 class="mb-3 text-lg font-semibold">Cost Overview</h3>
+      <h3 class="mb-3 text-lg font-semibold">{t("costs.overview")}</h3>
 
       {/* Summary Cards */}
       <Show when={summary()}>
         {(s) => (
           <div class="mb-4 grid grid-cols-4 gap-3">
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">Total Cost</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.totalCost")}</p>
               <p class="text-lg font-bold">{formatCost(s().total_cost_usd)}</p>
             </div>
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">Tokens In</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.tokensIn")}</p>
               <p class="text-lg font-bold">{formatTokens(s().total_tokens_in)}</p>
             </div>
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">Tokens Out</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.tokensOut")}</p>
               <p class="text-lg font-bold">{formatTokens(s().total_tokens_out)}</p>
             </div>
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">Runs</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.table.runs")}</p>
               <p class="text-lg font-bold">{s().run_count}</p>
             </div>
           </div>
@@ -170,17 +173,25 @@ export function ProjectCostSection(props: { projectId: string }) {
       {/* Model Breakdown */}
       <Show when={(byModel() ?? []).length > 0}>
         <div class="mb-4">
-          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">Cost by Model</h4>
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+            {t("costs.byModel")}
+          </h4>
           <div class="space-y-1">
             <For each={byModel() ?? []}>
               {(m: ModelCostSummary) => (
                 <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
-                  <span class="font-mono text-xs">{m.model || "(unknown)"}</span>
+                  <span class="font-mono text-xs">{m.model || t("costs.unknown")}</span>
                   <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
                     <span>{formatCost(m.total_cost_usd)}</span>
-                    <span>{formatTokens(m.total_tokens_in)} in</span>
-                    <span>{formatTokens(m.total_tokens_out)} out</span>
-                    <span>{m.run_count} runs</span>
+                    <span>
+                      {formatTokens(m.total_tokens_in)} {t("costs.in")}
+                    </span>
+                    <span>
+                      {formatTokens(m.total_tokens_out)} {t("costs.out")}
+                    </span>
+                    <span>
+                      {m.run_count} {t("costs.runs")}
+                    </span>
                   </div>
                 </div>
               )}
@@ -193,13 +204,13 @@ export function ProjectCostSection(props: { projectId: string }) {
       <Show when={(daily() ?? []).length > 0}>
         <div class="mb-4">
           <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-            Daily Cost (last 30 days)
+            {t("costs.dailyChart")}
           </h4>
           <div
             class="flex items-end gap-0.5"
             style={{ height: "80px" }}
             role="img"
-            aria-label="Daily cost bar chart for the last 30 days"
+            aria-label={t("costs.dailyChartAria")}
           >
             <For each={daily() ?? []}>
               {(d: DailyCost) => {
@@ -220,7 +231,9 @@ export function ProjectCostSection(props: { projectId: string }) {
       {/* Recent Runs */}
       <Show when={(recentRuns() ?? []).length > 0}>
         <div>
-          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">Recent Runs</h4>
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+            {t("costs.recentRuns")}
+          </h4>
           <div class="space-y-1">
             <For each={recentRuns() ?? []}>
               {(r: Run) => (
@@ -233,9 +246,15 @@ export function ProjectCostSection(props: { projectId: string }) {
                   </div>
                   <div class="flex gap-3 text-xs text-gray-500 dark:text-gray-400">
                     <span>{formatCost(r.cost_usd)}</span>
-                    <span>{formatTokens(r.tokens_in)} in</span>
-                    <span>{formatTokens(r.tokens_out)} out</span>
-                    <span>{r.step_count} steps</span>
+                    <span>
+                      {formatTokens(r.tokens_in)} {t("costs.in")}
+                    </span>
+                    <span>
+                      {formatTokens(r.tokens_out)} {t("costs.out")}
+                    </span>
+                    <span>
+                      {r.step_count} {t("costs.steps")}
+                    </span>
                   </div>
                 </div>
               )}

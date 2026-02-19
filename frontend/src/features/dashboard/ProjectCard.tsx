@@ -1,6 +1,7 @@
 import { A } from "@solidjs/router";
 
 import type { Project } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 interface ProjectCardProps {
   project: Project;
@@ -16,6 +17,7 @@ function formatDate(iso: string): string {
 }
 
 export default function ProjectCard(props: ProjectCardProps) {
+  const { t } = useI18n();
   return (
     <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm dark:shadow-gray-900/30 transition-shadow hover:shadow-md dark:hover:shadow-gray-900/30">
       <div class="flex items-start justify-between">
@@ -37,9 +39,9 @@ export default function ProjectCard(props: ProjectCardProps) {
           type="button"
           class="rounded px-2 py-1 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400"
           onClick={() => props.onDelete(props.project.id)}
-          aria-label={`Delete project ${props.project.name}`}
+          aria-label={t("project.deleteAria", { name: props.project.name })}
         >
-          Delete
+          {t("project.delete")}
         </button>
       </div>
 
@@ -54,7 +56,7 @@ export default function ProjectCard(props: ProjectCardProps) {
             {props.project.repo_url}
           </span>
         )}
-        <span>Created {formatDate(props.project.created_at)}</span>
+        <span>{t("project.created", { date: formatDate(props.project.created_at) })}</span>
       </div>
     </div>
   );

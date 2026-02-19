@@ -11,6 +11,7 @@ import type {
   RoadmapStatus,
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
 
 interface RoadmapPanelProps {
   projectId: string;
@@ -33,6 +34,7 @@ const FEATURE_COLORS: Record<FeatureStatus, string> = {
 };
 
 export default function RoadmapPanel(props: RoadmapPanelProps) {
+  const { t } = useI18n();
   const { show: toast } = useToast();
   const [roadmap, { refetch }] = createResource(
     () => props.projectId,
@@ -72,9 +74,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setTitle("");
       setDescription("");
       refetch();
-      toast("success", "Roadmap created");
+      toast("success", t("roadmap.toast.created"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to create roadmap";
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.createFailed");
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -88,13 +90,13 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       const result = await api.roadmap.detect(props.projectId);
       if (result.found) {
         props.onError("");
-        toast("success", `Detected ${result.format} at ${result.path}`);
+        toast("success", t("roadmap.toast.detected", { format: result.format, path: result.path }));
       } else {
-        props.onError("No spec files detected in workspace");
-        toast("warning", "No spec files detected");
+        props.onError(t("roadmap.toast.notDetected"));
+        toast("warning", t("roadmap.toast.notDetected"));
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Detection failed";
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.detectFailed");
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -107,7 +109,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       const view = await api.roadmap.ai(props.projectId, "markdown");
       setAiPreview(view.content);
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to load AI view");
+      props.onError(e instanceof Error ? e.message : t("roadmap.toast.aiFailed"));
     }
   };
 
@@ -118,9 +120,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setMilestoneTitle("");
       setShowMilestoneForm(false);
       refetch();
-      toast("success", "Milestone created");
+      toast("success", t("roadmap.toast.milestoneCreated"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to create milestone";
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.milestoneFailed");
       props.onError(msg);
       toast("error", msg);
     }
@@ -133,22 +135,22 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setFeatureTitle("");
       setFeatureMilestoneId(null);
       refetch();
-      toast("success", "Feature created");
+      toast("success", t("roadmap.toast.featureCreated"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to create feature";
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.featureFailed");
       props.onError(msg);
       toast("error", msg);
     }
   };
 
   const handleDeleteRoadmap = async () => {
-    if (!confirm("Delete this roadmap and all milestones/features?")) return;
+    if (!confirm(t("roadmap.confirmDelete"))) return;
     try {
       await api.roadmap.delete(props.projectId);
       refetch();
-      toast("success", "Roadmap deleted");
+      toast("success", t("roadmap.toast.deleted"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to delete roadmap";
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.deleteFailed");
       props.onError(msg);
       toast("error", msg);
     }
@@ -161,9 +163,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       const result = await api.roadmap.importSpecs(props.projectId);
       setImportResult(result);
       refetch();
-      toast("success", "Specs imported successfully");
+      toast("success", t("roadmap.toast.specsImported"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Spec import failed";
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.importSpecsFailed");
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -184,9 +186,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       setShowPMImport(false);
       setPmProjectRef("");
       refetch();
-      toast("success", "PM items imported successfully");
+      toast("success", t("roadmap.toast.pmImported"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "PM import failed";
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.importPMFailed");
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -196,23 +198,23 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
 
   return (
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-      <h3 class="mb-3 text-lg font-semibold">Roadmap</h3>
+      <h3 class="mb-3 text-lg font-semibold">{t("roadmap.title")}</h3>
 
       <Show
         when={roadmap() !== null && roadmap() !== undefined}
         fallback={
           <div>
-            <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">No roadmap yet.</p>
+            <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">{t("roadmap.empty")}</p>
             <div class="flex flex-col gap-2">
               <div>
                 <label for="roadmap-title" class="sr-only">
-                  Roadmap title (required)
+                  {t("roadmap.titleLabel")}
                 </label>
                 <input
                   id="roadmap-title"
                   type="text"
                   class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                  placeholder="Roadmap title"
+                  placeholder={t("roadmap.form.titlePlaceholder")}
                   value={title()}
                   onInput={(e) => setTitle(e.currentTarget.value)}
                   aria-required="true"
@@ -220,13 +222,13 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
               </div>
               <div>
                 <label for="roadmap-description" class="sr-only">
-                  Roadmap description
+                  {t("roadmap.descriptionLabel")}
                 </label>
                 <input
                   id="roadmap-description"
                   type="text"
                   class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                  placeholder="Description (optional)"
+                  placeholder={t("roadmap.form.descriptionPlaceholder")}
                   value={description()}
                   onInput={(e) => setDescription(e.currentTarget.value)}
                 />
@@ -237,14 +239,14 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   onClick={handleCreate}
                   disabled={creating() || !title()}
                 >
-                  {creating() ? "Creating..." : "Create Roadmap"}
+                  {creating() ? t("common.creating") : t("roadmap.createRoadmap")}
                 </button>
                 <button
                   class="rounded bg-gray-100 px-4 py-1.5 text-sm hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:hover:bg-gray-600"
                   onClick={handleDetect}
                   disabled={detecting()}
                 >
-                  {detecting() ? "Detecting..." : "Auto-Detect"}
+                  {detecting() ? t("roadmap.detecting") : t("roadmap.autoDetect")}
                 </button>
               </div>
             </div>
@@ -268,27 +270,27 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   onClick={handleImportSpecs}
                   disabled={importing()}
                 >
-                  {importing() ? "Importing..." : "Import Specs"}
+                  {importing() ? t("common.importing") : t("roadmap.importSpecs")}
                 </button>
                 <button
                   class="rounded bg-indigo-100 px-3 py-1 text-xs text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
                   onClick={() => setShowPMImport(!showPMImport())}
                 >
-                  Import from PM
+                  {t("roadmap.importPM")}
                 </button>
                 <button
                   class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                   onClick={handleAIView}
                 >
-                  AI View
+                  {t("roadmap.aiView")}
                 </button>
                 <button
                   type="button"
                   class="rounded bg-red-50 px-3 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
                   onClick={handleDeleteRoadmap}
-                  aria-label="Delete roadmap"
+                  aria-label={t("roadmap.deleteAria")}
                 >
-                  Delete
+                  {t("common.delete")}
                 </button>
               </div>
             </div>
@@ -302,13 +304,13 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
               <div class="mb-4 rounded border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/30">
                 <div class="mb-2 flex items-center justify-between">
                   <span class="text-xs font-medium text-purple-700 dark:text-purple-400">
-                    AI View (Markdown)
+                    {t("roadmap.aiViewMarkdown")}
                   </span>
                   <button
                     class="text-xs text-purple-500 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
                     onClick={() => setAiPreview(null)}
                   >
-                    Close
+                    {t("common.close")}
                   </button>
                 </div>
                 <pre class="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">
@@ -321,16 +323,16 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
             <Show when={showPMImport()}>
               <div class="mb-4 rounded border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-900/30">
                 <div class="mb-2 text-xs font-medium text-indigo-700 dark:text-indigo-400">
-                  Import from PM Tool
+                  {t("roadmap.importPMTool")}
                 </div>
                 <div class="flex flex-col gap-2">
                   <select
                     class="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                     value={selectedPM()}
                     onChange={(e) => setSelectedPM(e.currentTarget.value)}
-                    aria-label="Select PM provider"
+                    aria-label={t("roadmap.pmProviderLabel")}
                   >
-                    <option value="">Select provider...</option>
+                    <option value="">{t("roadmap.selectProvider")}</option>
                     <For each={pmProviders() ?? []}>
                       {(p: ProviderInfo) => <option value={p.name}>{p.name}</option>}
                     </For>
@@ -338,10 +340,10 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   <input
                     type="text"
                     class="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                    placeholder="Project ref (e.g. owner/repo)"
+                    placeholder={t("roadmap.projectRefPlaceholder")}
                     value={pmProjectRef()}
                     onInput={(e) => setPmProjectRef(e.currentTarget.value)}
-                    aria-label="PM project reference"
+                    aria-label={t("roadmap.pmProjectRefLabel")}
                   />
                   <div class="flex gap-2">
                     <button
@@ -349,13 +351,13 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                       onClick={handleImportPM}
                       disabled={importing() || !selectedPM() || !pmProjectRef()}
                     >
-                      {importing() ? "Importing..." : "Import"}
+                      {importing() ? t("common.importing") : t("common.import")}
                     </button>
                     <button
                       class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                       onClick={() => setShowPMImport(false)}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </button>
                   </div>
                 </div>
@@ -368,18 +370,20 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                 <div class="mb-4 rounded border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/30">
                   <div class="mb-1 flex items-center justify-between">
                     <span class="text-xs font-medium text-green-700 dark:text-green-400">
-                      Import Complete ({result().source})
+                      {t("roadmap.importComplete", { source: result().source })}
                     </span>
                     <button
                       class="text-xs text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
                       onClick={() => setImportResult(null)}
                     >
-                      Dismiss
+                      {t("common.dismiss")}
                     </button>
                   </div>
                   <p class="text-xs text-green-600 dark:text-green-400">
-                    {result().milestones_created} milestones, {result().features_created} features
-                    created
+                    {t("roadmap.importStats", {
+                      milestones: result().milestones_created,
+                      features: result().features_created,
+                    })}
                   </p>
                   <Show when={(result().errors ?? []).length > 0}>
                     <div class="mt-1 text-xs text-red-600 dark:text-red-400">
@@ -442,7 +446,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                         class="mt-2 text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                         onClick={() => setFeatureMilestoneId(m.id)}
                       >
-                        + Add Feature
+                        {t("roadmap.addFeature")}
                       </button>
                     }
                   >
@@ -450,16 +454,16 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                       <input
                         type="text"
                         class="flex-1 rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                        placeholder="Feature title"
+                        placeholder={t("roadmap.featurePlaceholder")}
                         value={featureTitle()}
                         onInput={(e) => setFeatureTitle(e.currentTarget.value)}
-                        aria-label="New feature title"
+                        aria-label={t("roadmap.featureLabel")}
                       />
                       <button
                         class="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
                         onClick={() => handleAddFeature(m.id)}
                       >
-                        Add
+                        {t("common.add")}
                       </button>
                       <button
                         class="rounded bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500"
@@ -468,7 +472,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                           setFeatureTitle("");
                         }}
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                     </div>
                   </Show>
@@ -484,7 +488,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   class="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                   onClick={() => setShowMilestoneForm(true)}
                 >
-                  + Add Milestone
+                  {t("roadmap.addMilestone")}
                 </button>
               }
             >
@@ -492,16 +496,16 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                 <input
                   type="text"
                   class="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                  placeholder="Milestone title"
+                  placeholder={t("roadmap.milestonePlaceholder")}
                   value={milestoneTitle()}
                   onInput={(e) => setMilestoneTitle(e.currentTarget.value)}
-                  aria-label="New milestone title"
+                  aria-label={t("roadmap.milestoneLabel")}
                 />
                 <button
                   class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
                   onClick={handleAddMilestone}
                 >
-                  Add
+                  {t("common.add")}
                 </button>
                 <button
                   class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
@@ -510,7 +514,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     setMilestoneTitle("");
                   }}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </Show>

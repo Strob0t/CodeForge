@@ -9,6 +9,8 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { useI18n } from "~/i18n";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -137,6 +139,7 @@ const levelStyles: Record<ToastLevel, { bg: string; icon: string }> = {
 };
 
 function ToastItem(props: { toast: Toast; onDismiss: () => void }): JSX.Element {
+  const { t } = useI18n();
   const style = () => levelStyles[props.toast.level];
 
   return (
@@ -152,7 +155,7 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }): JSX.Element 
         type="button"
         class="ml-2 text-sm opacity-60 hover:opacity-100"
         onClick={() => props.onDismiss()}
-        aria-label="Dismiss"
+        aria-label={t("toast.dismiss")}
       >
         &times;
       </button>

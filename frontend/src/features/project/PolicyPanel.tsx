@@ -10,6 +10,7 @@ import type {
   PolicyToolCall,
   TerminationCondition,
 } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 interface PolicyPanelProps {
   projectId: string;
@@ -24,13 +25,6 @@ const PRESET_NAMES = new Set([
   "headless-permissive-sandbox",
   "trusted-mount-autonomous",
 ]);
-
-const MODES: { value: PermissionMode; label: string }[] = [
-  { value: "default", label: "Default (ask)" },
-  { value: "acceptEdits", label: "Accept Edits" },
-  { value: "plan", label: "Plan (deny)" },
-  { value: "delegate", label: "Delegate (allow)" },
-];
 
 const DECISION_COLORS: Record<PolicyDecision, string> = {
   allow: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
@@ -61,6 +55,7 @@ function emptyRule(): PermissionRule {
 }
 
 export default function PolicyPanel(props: PolicyPanelProps) {
+  const { t } = useI18n();
   const [view, setView] = createSignal<View>("list");
   const [selectedName, setSelectedName] = createSignal<string | null>(null);
   const [profiles, { refetch: refetchProfiles }] = createResource(() => api.policies.list());
@@ -68,6 +63,13 @@ export default function PolicyPanel(props: PolicyPanelProps) {
     () => selectedName(),
     (name) => (name ? api.policies.get(name) : null),
   );
+
+  const MODES = (): { value: PermissionMode; label: string }[] => [
+    { value: "default", label: t("policy.mode.default") },
+    { value: "acceptEdits", label: t("policy.mode.acceptEdits") },
+    { value: "plan", label: t("policy.mode.plan") },
+    { value: "delegate", label: t("policy.mode.delegate") },
+  ];
 
   // Editor state
   const [editProfile, setEditProfile] = createSignal<PolicyProfile>(emptyProfile());
@@ -102,7 +104,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
   const handleSave = async () => {
     const profile = editProfile();
     if (!profile.name) {
-      props.onError("Policy name is required");
+      props.onError(t("policy.toast.nameRequired"));
       return;
     }
     setSaving(true);
@@ -114,7 +116,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
       setView("detail");
       refetchProfile();
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to save policy");
+      props.onError(e instanceof Error ? e.message : t("policy.toast.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -130,7 +132,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
         setView("list");
       }
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Failed to delete policy");
+      props.onError(e instanceof Error ? e.message : t("policy.toast.deleteFailed"));
     }
   };
 
@@ -148,7 +150,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
       const res = await api.policies.evaluate(name, call);
       setEvalResult(res.decision);
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : "Evaluate failed");
+      props.onError(e instanceof Error ? e.message : t("policy.toast.evalFailed"));
     } finally {
       setEvaluating(false);
     }
@@ -220,7 +222,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
     <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       {/* Header */}
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Policies</h3>
+        <h3 class="text-lg font-semibold">{t("policy.title")}</h3>
         <div class="flex gap-2">
           <Show when={view() !== "list"}>
             <button
@@ -230,7 +232,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 setSelectedName(null);
               }}
             >
-              Back to List
+              {t("policy.backToList")}
             </button>
           </Show>
           <Show when={view() === "list"}>
@@ -238,7 +240,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
               onClick={handleNewPolicy}
             >
-              New Policy
+              {t("policy.newPolicy")}
             </button>
           </Show>
         </div>
@@ -247,7 +249,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
       {/* List View */}
       <Show when={view() === "list"}>
         <Show when={profiles.loading}>
-          <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{t("common.loading")}</p>
         </Show>
         <Show when={!profiles.loading && profiles()}>
           <div class="space-y-1">
@@ -266,7 +268,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                           : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
                       }`}
                     >
-                      {PRESET_NAMES.has(name) ? "preset" : "custom"}
+                      {PRESET_NAMES.has(name) ? t("policy.preset") : t("policy.custom")}
                     </span>
                   </button>
                   <Show when={!PRESET_NAMES.has(name)}>
@@ -274,9 +276,9 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       type="button"
                       class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                       onClick={() => handleDelete(name)}
-                      aria-label={`Delete policy ${name}`}
+                      aria-label={t("policy.deleteAria", { name })}
                     >
-                      Delete
+                      {t("common.delete")}
                     </button>
                   </Show>
                 </div>
@@ -300,30 +302,30 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             {/* Summary */}
             <div class="mb-4 grid grid-cols-3 gap-3 text-sm">
               <div>
-                <span class="text-gray-500 dark:text-gray-400">Mode:</span>{" "}
+                <span class="text-gray-500 dark:text-gray-400">{t("policy.mode")}</span>{" "}
                 <span class="font-medium">{p().mode}</span>
               </div>
               <Show when={p().termination.max_steps}>
                 <div>
-                  <span class="text-gray-500 dark:text-gray-400">Steps:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">{t("policy.steps")}</span>{" "}
                   <span class="font-medium">{p().termination.max_steps}</span>
                 </div>
               </Show>
               <Show when={p().termination.timeout_seconds}>
                 <div>
-                  <span class="text-gray-500 dark:text-gray-400">Timeout:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">{t("policy.timeout")}</span>{" "}
                   <span class="font-medium">{p().termination.timeout_seconds}s</span>
                 </div>
               </Show>
               <Show when={p().termination.max_cost}>
                 <div>
-                  <span class="text-gray-500 dark:text-gray-400">Cost:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">{t("policy.cost")}</span>{" "}
                   <span class="font-medium">${p().termination.max_cost}</span>
                 </div>
               </Show>
               <Show when={p().termination.stall_detection}>
                 <div>
-                  <span class="text-gray-500 dark:text-gray-400">Stall:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">{t("policy.stall")}</span>{" "}
                   <span class="font-medium">{p().termination.stall_threshold}</span>
                 </div>
               </Show>
@@ -332,7 +334,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             {/* Quality Gate */}
             <div class="mb-4">
               <h5 class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">
-                Quality Gate
+                {t("policy.qualityGate")}
               </h5>
               <div class="flex gap-3 text-sm">
                 <span
@@ -342,7 +344,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       : "text-gray-400 dark:text-gray-500"
                   }
                 >
-                  {p().quality_gate.require_tests_pass ? "\u2713" : "\u2717"} Tests
+                  {p().quality_gate.require_tests_pass ? "\u2713" : "\u2717"} {t("policy.tests")}
                 </span>
                 <span
                   class={
@@ -351,7 +353,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       : "text-gray-400 dark:text-gray-500"
                   }
                 >
-                  {p().quality_gate.require_lint_pass ? "\u2713" : "\u2717"} Lint
+                  {p().quality_gate.require_lint_pass ? "\u2713" : "\u2717"} {t("policy.lint")}
                 </span>
                 <span
                   class={
@@ -360,7 +362,8 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       : "text-gray-400 dark:text-gray-500"
                   }
                 >
-                  {p().quality_gate.rollback_on_gate_fail ? "\u2713" : "\u2717"} Rollback
+                  {p().quality_gate.rollback_on_gate_fail ? "\u2713" : "\u2717"}{" "}
+                  {t("policy.rollback")}
                 </span>
               </div>
             </div>
@@ -368,15 +371,17 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             {/* Rules Table */}
             <Show when={p().rules.length > 0}>
               <div class="mb-4">
-                <h5 class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">Rules</h5>
+                <h5 class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">
+                  {t("policy.rules")}
+                </h5>
                 <div class="overflow-x-auto">
                   <table class="w-full text-sm">
                     <thead>
                       <tr class="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                        <th class="pb-1 pr-3">Tool</th>
-                        <th class="pb-1 pr-3">Pattern</th>
-                        <th class="pb-1 pr-3">Decision</th>
-                        <th class="pb-1">Constraints</th>
+                        <th class="pb-1 pr-3">{t("policy.table.tool")}</th>
+                        <th class="pb-1 pr-3">{t("policy.table.pattern")}</th>
+                        <th class="pb-1 pr-3">{t("policy.table.decision")}</th>
+                        <th class="pb-1">{t("policy.table.constraints")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -424,23 +429,33 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               {(rl) => (
                 <div class="mb-4">
                   <h5 class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">
-                    Resource Limits
+                    {t("policy.resourceLimits")}
                   </h5>
                   <div class="flex flex-wrap gap-3 text-sm">
                     <Show when={rl().memory_mb}>
-                      <span>Memory: {rl().memory_mb}MB</span>
+                      <span>
+                        {t("policy.memory")} {rl().memory_mb}MB
+                      </span>
                     </Show>
                     <Show when={rl().cpu_quota}>
-                      <span>CPU: {rl().cpu_quota}</span>
+                      <span>
+                        {t("policy.cpu")} {rl().cpu_quota}
+                      </span>
                     </Show>
                     <Show when={rl().pids_limit}>
-                      <span>PIDs: {rl().pids_limit}</span>
+                      <span>
+                        {t("policy.pids")} {rl().pids_limit}
+                      </span>
                     </Show>
                     <Show when={rl().storage_gb}>
-                      <span>Storage: {rl().storage_gb}GB</span>
+                      <span>
+                        {t("policy.storage")} {rl().storage_gb}GB
+                      </span>
                     </Show>
                     <Show when={rl().network_mode}>
-                      <span>Network: {rl().network_mode}</span>
+                      <span>
+                        {t("policy.network")} {rl().network_mode}
+                      </span>
                     </Show>
                   </div>
                 </div>
@@ -450,26 +465,26 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             {/* Test Evaluation */}
             <div class="mb-4 rounded border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-700">
               <h5 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-                Test Evaluation
+                {t("policy.testEval")}
               </h5>
               <div class="flex flex-wrap gap-2">
                 <input
                   class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
-                  placeholder="Tool (e.g. Bash)"
+                  placeholder={t("policy.toolPlaceholder")}
                   value={evalTool()}
                   onInput={(e) => setEvalTool(e.currentTarget.value)}
                   aria-label="Tool name for evaluation"
                 />
                 <input
                   class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
-                  placeholder="Command (optional)"
+                  placeholder={t("policy.commandPlaceholder")}
                   value={evalCommand()}
                   onInput={(e) => setEvalCommand(e.currentTarget.value)}
                   aria-label="Command for evaluation"
                 />
                 <input
                   class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
-                  placeholder="Path (optional)"
+                  placeholder={t("policy.pathPlaceholder")}
                   value={evalPath()}
                   onInput={(e) => setEvalPath(e.currentTarget.value)}
                   aria-label="Path for evaluation"
@@ -479,7 +494,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   onClick={handleEvaluate}
                   disabled={evaluating() || !evalTool()}
                 >
-                  {evaluating() ? "..." : "Evaluate"}
+                  {evaluating() ? "..." : t("policy.evaluate")}
                 </button>
                 <Show when={evalResult()}>
                   {(decision) => (
@@ -499,7 +514,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={handleClone}
               >
-                Clone & Edit
+                {t("policy.cloneEdit")}
               </button>
             </div>
           </div>
@@ -516,7 +531,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 for="policy-name"
                 class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
               >
-                Name <span aria-hidden="true">*</span>
+                {t("policy.editor.name")} <span aria-hidden="true">*</span>
                 <span class="sr-only">(required)</span>
               </label>
               <input
@@ -524,7 +539,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
                 value={editProfile().name}
                 onInput={(e) => updateEditField("name", e.currentTarget.value)}
-                placeholder="my-custom-policy"
+                placeholder={t("policy.editor.namePlaceholder")}
                 aria-required="true"
               />
             </div>
@@ -533,7 +548,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 for="policy-mode"
                 class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
               >
-                Mode
+                {t("policy.editor.mode")}
               </label>
               <select
                 id="policy-mode"
@@ -541,7 +556,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 value={editProfile().mode}
                 onChange={(e) => updateEditField("mode", e.currentTarget.value as PermissionMode)}
               >
-                <For each={MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+                <For each={MODES()}>{(m) => <option value={m.value}>{m.label}</option>}</For>
               </select>
             </div>
           </div>
@@ -550,21 +565,21 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               for="policy-description"
               class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
             >
-              Description
+              {t("policy.editor.description")}
             </label>
             <input
               id="policy-description"
               class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
               value={editProfile().description || ""}
               onInput={(e) => updateEditField("description", e.currentTarget.value)}
-              placeholder="Optional description"
+              placeholder={t("policy.editor.descriptionPlaceholder")}
             />
           </div>
 
           {/* Quality Gate */}
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-              Quality Gate
+              {t("policy.qualityGate")}
             </label>
             <div class="flex gap-4 text-sm">
               <label class="flex items-center gap-1">
@@ -573,7 +588,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   checked={editProfile().quality_gate.require_tests_pass}
                   onChange={(e) => updateQualityGate("require_tests_pass", e.currentTarget.checked)}
                 />
-                Tests
+                {t("policy.tests")}
               </label>
               <label class="flex items-center gap-1">
                 <input
@@ -581,7 +596,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   checked={editProfile().quality_gate.require_lint_pass}
                   onChange={(e) => updateQualityGate("require_lint_pass", e.currentTarget.checked)}
                 />
-                Lint
+                {t("policy.lint")}
               </label>
               <label class="flex items-center gap-1">
                 <input
@@ -591,7 +606,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                     updateQualityGate("rollback_on_gate_fail", e.currentTarget.checked)
                   }
                 />
-                Rollback
+                {t("policy.rollback")}
               </label>
             </div>
           </div>
@@ -599,11 +614,13 @@ export default function PolicyPanel(props: PolicyPanelProps) {
           {/* Termination */}
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-              Termination
+              {t("policy.editor.termination")}
             </label>
             <div class="grid grid-cols-3 gap-3">
               <div>
-                <label class="text-xs text-gray-400 dark:text-gray-500">Max Steps</label>
+                <label class="text-xs text-gray-400 dark:text-gray-500">
+                  {t("policy.editor.maxSteps")}
+                </label>
                 <input
                   type="number"
                   class="w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
@@ -614,7 +631,9 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 />
               </div>
               <div>
-                <label class="text-xs text-gray-400 dark:text-gray-500">Timeout (s)</label>
+                <label class="text-xs text-gray-400 dark:text-gray-500">
+                  {t("policy.editor.timeoutS")}
+                </label>
                 <input
                   type="number"
                   class="w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
@@ -628,7 +647,9 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 />
               </div>
               <div>
-                <label class="text-xs text-gray-400 dark:text-gray-500">Max Cost ($)</label>
+                <label class="text-xs text-gray-400 dark:text-gray-500">
+                  {t("policy.editor.maxCost")}
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -645,12 +666,14 @@ export default function PolicyPanel(props: PolicyPanelProps) {
           {/* Rules */}
           <div>
             <div class="mb-1 flex items-center justify-between">
-              <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Rules</label>
+              <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {t("policy.rules")}
+              </label>
               <button
                 class="rounded bg-gray-100 px-2 py-0.5 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={addRule}
               >
-                + Add Rule
+                {t("policy.editor.addRule")}
               </button>
             </div>
             <div class="space-y-2">
@@ -659,13 +682,13 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   <div class="flex flex-wrap items-start gap-2 rounded border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-700">
                     <input
                       class="w-20 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
-                      placeholder="Tool"
+                      placeholder={t("policy.editor.toolPlaceholder")}
                       value={rule.specifier.tool}
                       onInput={(e) => updateRule(i(), "tool", e.currentTarget.value)}
                     />
                     <input
                       class="w-24 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
-                      placeholder="Sub-pattern"
+                      placeholder={t("policy.editor.subPatternPlaceholder")}
                       value={rule.specifier.sub_pattern || ""}
                       onInput={(e) => updateRule(i(), "sub_pattern", e.currentTarget.value)}
                     />
@@ -674,31 +697,31 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       value={rule.decision}
                       onChange={(e) => updateRule(i(), "decision", e.currentTarget.value)}
                     >
-                      <option value="allow">allow</option>
-                      <option value="deny">deny</option>
-                      <option value="ask">ask</option>
+                      <option value="allow">{t("policy.decision.allow")}</option>
+                      <option value="deny">{t("policy.decision.deny")}</option>
+                      <option value="ask">{t("policy.decision.ask")}</option>
                     </select>
                     <input
                       class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
-                      placeholder="path_allow (csv)"
+                      placeholder={t("policy.editor.pathAllowPlaceholder")}
                       value={rule.path_allow?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "path_allow", e.currentTarget.value)}
                     />
                     <input
                       class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
-                      placeholder="path_deny (csv)"
+                      placeholder={t("policy.editor.pathDenyPlaceholder")}
                       value={rule.path_deny?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "path_deny", e.currentTarget.value)}
                     />
                     <input
                       class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
-                      placeholder="cmd_allow (csv)"
+                      placeholder={t("policy.editor.cmdAllowPlaceholder")}
                       value={rule.command_allow?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "command_allow", e.currentTarget.value)}
                     />
                     <input
                       class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
-                      placeholder="cmd_deny (csv)"
+                      placeholder={t("policy.editor.cmdDenyPlaceholder")}
                       value={rule.command_deny?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "command_deny", e.currentTarget.value)}
                     />
@@ -706,7 +729,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       type="button"
                       class="rounded px-1.5 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                       onClick={() => removeRule(i())}
-                      aria-label={`Remove rule ${i() + 1}`}
+                      aria-label={t("policy.editor.removeRuleAria", { n: String(i() + 1) })}
                     >
                       X
                     </button>
@@ -722,14 +745,14 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               class="rounded bg-gray-100 px-4 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
               onClick={() => setView("list")}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               class="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
               onClick={handleSave}
               disabled={saving() || !editProfile().name}
             >
-              {saving() ? "Saving..." : "Save"}
+              {saving() ? t("common.saving") : t("common.save")}
             </button>
           </div>
         </div>
