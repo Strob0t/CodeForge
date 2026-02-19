@@ -1,3 +1,4 @@
+import { getCached, processQueue, queueAction, setCached } from "./cache";
 import type {
   AddModelRequest,
   AddSharedItemRequest,
@@ -80,51 +81,90 @@ function isRetryable(status: number, method: string): boolean {
   return RETRYABLE_STATUSES.has(status);
 }
 
+function isOffline(): boolean {
+  return !navigator.onLine;
+}
+
+async function executeRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers,
+    },
+  });
+
+  if (!res.ok) {
+    const body = (await res.json()) as ApiError;
+    throw new FetchError(res.status, body);
+  }
+
+  // 204 No Content
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  return res.json() as Promise<T>;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? "GET";
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(`${BASE}${path}`, {
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          ...init?.headers,
-        },
-      });
+      const result = await executeRequest<T>(path, init);
 
-      if (!res.ok) {
-        const body = (await res.json()) as ApiError;
-        const err = new FetchError(res.status, body);
+      // Cache successful GET responses
+      if (method === "GET") {
+        setCached(path, result);
+      }
 
-        if (attempt < MAX_RETRIES && isRetryable(res.status, method)) {
+      return result;
+    } catch (err) {
+      if (err instanceof FetchError) {
+        if (attempt < MAX_RETRIES && isRetryable(err.status, method)) {
+          lastError = err;
+          await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
+          continue;
+        }
+        throw err;
+      }
+
+      // Network errors (fetch throws TypeError on network failure)
+      if (err instanceof TypeError) {
+        if (attempt < MAX_RETRIES) {
           lastError = err;
           await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
           continue;
         }
 
+        // All retries exhausted — fall back to cache for GETs
+        if (method === "GET") {
+          const cached = getCached<T>(path);
+          if (cached !== undefined) return cached;
+        }
+
+        // Queue mutations for later retry when back online
+        if (method !== "GET" && isOffline() && init) {
+          return queueAction(path, init) as Promise<T>;
+        }
+
         throw err;
       }
 
-      // 204 No Content
-      if (res.status === 204) {
-        return undefined as T;
-      }
-
-      return res.json() as Promise<T>;
-    } catch (err) {
-      // Network errors (fetch throws TypeError on network failure)
-      if (err instanceof TypeError && attempt < MAX_RETRIES) {
-        lastError = err;
-        await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
-        continue;
-      }
       throw err;
     }
   }
 
   throw lastError;
+}
+
+// Process queued actions when coming back online
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    void processQueue((path, init) => executeRequest(path, init));
+  });
 }
 
 export const api = {

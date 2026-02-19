@@ -767,7 +767,9 @@
 - [x] (2026-02-19) Online/Offline detection: `navigator.onLine` + WebSocket connection status
 - [x] (2026-02-19) Visible reconnect banner when connection lost (WebSocket already has auto-reconnect)
 - [x] (2026-02-19) API client: retry logic with exponential backoff (max 3 retries, 1s/2s/4s)
-- [ ] Graceful degradation: show cached data when offline, queue actions for retry
+- [x] (2026-02-19) Graceful degradation: show cached data when offline, queue actions for retry
+  - `frontend/src/api/cache.ts`: in-memory GET response cache (5min TTL), offline mutation queue with auto-process on reconnect
+  - `frontend/src/api/client.ts`: GET responses cached on success, served from cache on network failure; mutations queued when offline, auto-retried via `window.addEventListener("online")`
 - [x] (2026-02-19) Files: `App.tsx`, `api/client.ts`, new `frontend/src/components/OfflineBanner.tsx`
 
 ### Dependencies

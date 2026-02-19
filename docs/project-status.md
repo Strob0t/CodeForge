@@ -917,5 +917,7 @@
   - Exponential backoff (1s/2s/4s), max 3 retries
   - Only idempotent methods (GET/PUT/DELETE) on 502/503/504
   - Network failure (TypeError) retry for all methods
-- Remaining: Graceful degradation (cached data, action queue)
+- [x] (2026-02-19) Graceful degradation: in-memory GET cache + offline mutation queue
+  - `frontend/src/api/cache.ts`: response cache (5min TTL), mutation queue with auto-drain
+  - `frontend/src/api/client.ts`: cache on GET success, serve stale on network fail; queue mutations when offline, auto-retry on `window.online` event
   - `.gitignore` updated for Playwright artifacts (e2e-results/, e2e-report/, test-results/)
