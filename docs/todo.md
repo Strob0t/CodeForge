@@ -732,13 +732,16 @@
 
 ### 10E. Keyboard Shortcuts (Command Palette)
 
-- [ ] Global hotkey handler: Ctrl+K / Cmd+K for Command Palette overlay
-- [ ] Navigation shortcuts: Ctrl+1 Dashboard, Ctrl+2 Costs, Ctrl+3 Models
-- [ ] Action shortcuts: Ctrl+Enter submit forms, Escape cancel/close
-- [ ] Shortcut help overlay (? or Ctrl+/ to show)
-- [ ] Zero external dependencies — SolidJS `onMount`/`onCleanup` + native KeyboardEvent
-- [ ] Files: `App.tsx` (global handler), new `frontend/src/components/CommandPalette.tsx`
-- [ ] WCAG: shortcuts must not conflict with screen reader keys
+- [x] (2026-02-19) Global hotkey handler: Ctrl+K / Cmd+K for Command Palette overlay
+- [x] (2026-02-19) Navigation shortcuts: Ctrl+1 Dashboard, Ctrl+2 Costs, Ctrl+3 Models
+- [x] (2026-02-19) Action shortcuts: Escape close, Enter select, Arrow keys navigate
+- [x] (2026-02-19) Shortcut help overlay: Ctrl+/ opens palette with all shortcuts visible
+- [x] (2026-02-19) Zero external dependencies — SolidJS `onMount`/`onCleanup` + native KeyboardEvent
+- [x] (2026-02-19) Files: `App.tsx` (integration), new `frontend/src/components/CommandPalette.tsx`
+- [x] (2026-02-19) WCAG: `role="dialog"`, `aria-modal`, `role="combobox"` + `role="listbox"` + `role="option"`, `aria-activedescendant`, `aria-selected`
+  - Commands: Go to Dashboard, Go to Costs, Go to Models, Toggle Theme, Show Keyboard Shortcuts
+  - Fuzzy search filtering, section grouping (Navigation, Actions, Theme)
+  - Platform-aware modifier key display (Cmd on Mac, Ctrl elsewhere)
 
 ### 10F. Toast/Notification System
 

@@ -4,6 +4,7 @@ import { createResource, ErrorBoundary, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { createCodeForgeWS } from "~/api/websocket";
+import { CommandPalette } from "~/components/CommandPalette";
 import { OfflineBanner } from "~/components/OfflineBanner";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
 import { ToastProvider } from "~/components/Toast";
@@ -44,6 +45,7 @@ export default function App(props: RouteSectionProps) {
     <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
       <ThemeProvider>
         <ToastProvider>
+          <CommandPalette />
           <div class="flex h-screen flex-col bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
             <OfflineBanner wsConnected={connected} />
 

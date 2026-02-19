@@ -869,6 +869,19 @@
   - Utility: Toast
 - Color mapping: bg-white->dark:bg-gray-800, bg-gray-50->dark:bg-gray-900, border-gray-200->dark:border-gray-700, text-gray-900->dark:text-gray-100, status badges with dark:bg-{color}-900/30
 
+### 10E. Keyboard Shortcuts — Command Palette (COMPLETED)
+
+- [x] (2026-02-19) `frontend/src/components/CommandPalette.tsx` — searchable command palette
+  - Opens with Ctrl+K / Cmd+K (toggle), Ctrl+/ (shortcut help)
+  - Navigation commands: Go to Dashboard (Ctrl+1), Costs (Ctrl+2), Models (Ctrl+3)
+  - Action commands: Toggle Theme, Show Keyboard Shortcuts
+  - Fuzzy search filtering with section grouping (Navigation, Actions, Theme)
+  - Arrow key navigation, Enter to select, Escape to close
+  - Platform-aware modifier display (Cmd on Mac, Ctrl elsewhere)
+  - WCAG: `role="dialog"` + `aria-modal`, combobox pattern with listbox, `aria-activedescendant`
+  - Zero external dependencies — SolidJS signals + native KeyboardEvent
+- [x] (2026-02-19) `App.tsx` updated with CommandPalette integration inside ThemeProvider
+
 ### 10F. Toast/Notification System (COMPLETED)
 
 - [x] (2026-02-19) `frontend/src/components/Toast.tsx` — ToastProvider + ToastItem
