@@ -2,11 +2,11 @@
   "mcpServers": {
     "docs-mcp-server": {
       "type": "sse",
-      "url": "http://host.docker.internal:6280/sse"
+      "url": "http://codeforge-docs-mcp:6280/sse"
     },
     "playwright-mcp": {
       "type": "sse",
-      "url": "http://localhost:8001/sse"
+      "url": "http://codeforge-playwright:8001/sse"
     }
   }
 }
