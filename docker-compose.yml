@@ -109,6 +109,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
     volumes:
       - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
     command: ["--config", "/app/data/config.yaml", "--port", "4000"]

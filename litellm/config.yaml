@@ -55,6 +55,32 @@ model_list:
     model_info:
       tags: ["default", "background"]
 
+  # -- Groq (fast inference) --
+  - model_name: "groq/llama-3.3-70b"
+    litellm_params:
+      model: "groq/llama-3.3-70b-versatile"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "groq/llama-3.1-8b"
+    litellm_params:
+      model: "groq/llama-3.1-8b-instant"
+    model_info:
+      tags: ["default", "background"]
+
+  # -- Mistral AI --
+  - model_name: "mistral-large"
+    litellm_params:
+      model: "mistral/mistral-large-latest"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "mistral-small"
+    litellm_params:
+      model: "mistral/mistral-small-latest"
+    model_info:
+      tags: ["default", "background"]
+
 litellm_settings:
   drop_params: true
   set_verbose: false

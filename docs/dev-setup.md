@@ -521,6 +521,8 @@ See `.env.example` for all configurable values.
 | OPENAI_API_KEY            | (optional)                               | OpenAI API Key (via LiteLLM)    |
 | ANTHROPIC_API_KEY         | (optional)                               | Anthropic API Key (via LiteLLM) |
 | GEMINI_API_KEY            | (optional)                               | Google Gemini API Key           |
+| GROQ_API_KEY              | (optional)                               | Groq API Key (fast inference)   |
+| MISTRAL_API_KEY           | (optional)                               | Mistral AI API Key              |
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
 | OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |
