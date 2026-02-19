@@ -596,13 +596,13 @@
 - [x] (2026-02-18) Frontend: import UI in RoadmapPanel (Import Specs button, Import from PM form, result display)
 - [x] (2026-02-19) Spec Kit adapter (`adapter/speckit/`) — `.specify/` directory
 - [x] (2026-02-19) Autospec adapter (`adapter/autospec/`) — `specs/spec.yaml` file
-- [ ] Bidirectional PM sync (Plane.so, OpenProject, GitLab Issues)
-- [ ] Webhook-based real-time sync for PM providers
+- [x] (2026-02-19) Bidirectional PM sync — SyncService with pull/push/bidi directions, CreateItem/UpdateItem on pmprovider interface, REST endpoint `POST /projects/{id}/roadmap/sync`
+- [x] (2026-02-19) Webhook-based real-time VCS sync — VCSWebhookService for GitHub/GitLab push + PR events, HMAC-SHA256 verification middleware, REST endpoints `POST /webhooks/vcs/github`, `POST /webhooks/vcs/gitlab`
 
 ### Version Control
 
-- [ ] SVN integration (provider registry pattern)
-- [ ] Gitea/Forgejo support (GitHub adapter works with minimal changes)
+- [x] (2026-02-19) SVN integration — svn adapter (`internal/adapter/svn/`) implementing gitprovider.Provider via svn CLI (checkout, update, status, info, ls branches)
+- [x] (2026-02-19) Gitea/Forgejo support — gitea PM adapter (`internal/adapter/gitea/`) implementing full pmprovider.Provider via REST API (list, get, create, update issues)
 
 ### Protocols
 
@@ -611,7 +611,7 @@
 
 ### Integrations
 
-- [ ] GitHub/GitLab Webhook system for external integrations
+- [x] (2026-02-19) GitHub/GitLab VCS Webhook system — VCSWebhookService processes push/PR events, broadcasts via WebSocket, HMAC-SHA256 signature verification
 - [ ] Webhook notifications (Slack, Discord)
 
 ### Cost & Monitoring

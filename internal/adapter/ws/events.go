@@ -42,6 +42,10 @@ const (
 
 	// Phase 8: roadmap events
 	EventRoadmapStatus = "roadmap.status"
+
+	// Phase 8B: VCS webhook events
+	EventVCSPush        = "vcs.push"
+	EventVCSPullRequest = "vcs.pull_request"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.

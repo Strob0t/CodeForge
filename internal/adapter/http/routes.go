@@ -186,5 +186,12 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/runs/{id}/rewind", h.RewindRun)
 		r.Get("/projects/{id}/sessions", h.ListProjectSessions)
 		r.Get("/sessions/{id}", h.GetSession)
+
+		// VCS Webhooks
+		r.Post("/webhooks/vcs/github", h.HandleGitHubWebhook)
+		r.Post("/webhooks/vcs/gitlab", h.HandleGitLabWebhook)
+
+		// Bidirectional Sync (nested under projects)
+		r.Post("/projects/{id}/roadmap/sync", h.SyncRoadmap)
 	})
 }

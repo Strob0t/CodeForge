@@ -734,6 +734,40 @@
   - `scripts/test.sh e2e` command with port checks (8080 + 3000)
   - `@playwright/test` devDependency, tsconfig/eslint updated for `e2e/` directory
 
+## Phase 9B: SVN + Gitea + VCS Webhooks + Bidirectional PM Sync (COMPLETED)
+
+> Adds version control and PM integration adapters, VCS webhook processing, and bidirectional roadmap sync.
+
+- [x] (2026-02-19) **SVN Integration** (`internal/adapter/svn/`) — gitprovider.Provider for SVN repos
+  - Clone (svn checkout), Pull (svn update), Status (svn status + svn info), ListBranches (svn ls)
+  - Swappable `execCommand` for testing, self-registration via `init()`, 5 unit tests
+- [x] (2026-02-19) **Gitea/Forgejo PM Adapter** (`internal/adapter/gitea/`) — pmprovider.Provider via REST API
+  - Full CRUD: ListItems, GetItem, CreateItem, UpdateItem via `{baseURL}/api/v1/repos/{owner}/{repo}/issues`
+  - Token-based auth, self-registration via `init()` factory, 6 unit tests (httptest)
+- [x] (2026-02-19) **VCS Webhooks** — GitHub + GitLab push/PR event processing
+  - `internal/middleware/webhook.go`: HMAC-SHA256 signature verification + static token verification
+  - `internal/domain/webhook/event.go`: VCSEvent, VCSPushEvent, VCSPullRequestEvent, VCSCommit types
+  - `internal/service/vcs_webhook.go`: HandleGitHubPush, HandleGitLabPush, HandleGitHubPullRequest
+  - WebSocket broadcast of VCS events (EventVCSPush, EventVCSPullRequest)
+  - REST endpoints: `POST /webhooks/vcs/github`, `POST /webhooks/vcs/gitlab`
+  - Config: `Webhook.GitHubSecret`, `Webhook.GitLabToken` with env overrides
+  - 4 service tests
+- [x] (2026-02-19) **Bidirectional PM Sync** — pull/push/bidi sync between CodeForge roadmap and PM providers
+  - `internal/domain/roadmap/sync.go`: SyncDirection (pull/push/bidi), SyncConfig, SyncResult
+  - `internal/service/sync.go`: SyncService with pullFromPM (import items → features) and pushToPM (export features → items)
+  - `internal/port/pmprovider/provider.go`: Added CreateItem/UpdateItem to Provider interface + ErrNotSupported
+  - `internal/adapter/githubpm/provider.go`: Stub CreateItem/UpdateItem returning ErrNotSupported
+  - REST endpoint: `POST /projects/{id}/roadmap/sync`
+- [x] (2026-02-19) **Provider wiring** — blank imports for svn + gitea in `providers.go`, services wired in `main.go`
+
+### Phase 9B Key Deliverables
+- **New files (12):** svn/ (provider.go, register.go, provider_test.go), gitea/ (provider.go, register.go, provider_test.go), webhook middleware, webhook event types, roadmap sync types, vcs_webhook service + test, sync service
+- **Modified files (10):** pmprovider/provider.go, githubpm/provider.go, ws/events.go, config.go, loader.go, handlers.go, routes.go, providers.go, main.go, gitea/provider_test.go
+- **New REST endpoints:** 3 (2 VCS webhooks + 1 roadmap sync)
+- **Interface change:** pmprovider.Provider gains CreateItem + UpdateItem
+- **Tests:** 15+ new test functions (5 SVN + 6 Gitea + 4 VCS webhook), all Go tests pass
+- **Verification:** go build, golangci-lint 0 issues, go test all pass, pre-commit 15/15 hooks pass
+
 ## Phase 10 — Frontend Foundations (IN PROGRESS)
 
 ### 10F. Toast/Notification System (COMPLETED)

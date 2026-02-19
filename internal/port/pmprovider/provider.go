@@ -2,7 +2,13 @@
 // (Plane, OpenProject, GitHub Issues, GitLab Issues, etc.).
 package pmprovider
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNotSupported is returned when a provider does not support the requested operation.
+var ErrNotSupported = errors.New("operation not supported by this provider")
 
 // Item represents a work item from a PM platform.
 type Item struct {
@@ -39,4 +45,12 @@ type Provider interface {
 
 	// GetItem returns a single work item by its external ID.
 	GetItem(ctx context.Context, projectRef, itemID string) (*Item, error)
+
+	// CreateItem creates a new work item in the PM platform.
+	// Returns ErrNotSupported if the provider does not support creation.
+	CreateItem(ctx context.Context, projectRef string, item *Item) (*Item, error)
+
+	// UpdateItem updates an existing work item in the PM platform.
+	// Returns ErrNotSupported if the provider does not support updates.
+	UpdateItem(ctx context.Context, projectRef string, item *Item) (*Item, error)
 }

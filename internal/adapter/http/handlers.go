@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -66,6 +67,8 @@ type Handlers struct {
 	BranchProtection *service.BranchProtectionService
 	Replay           *service.ReplayService
 	Sessions         *service.SessionService
+	VCSWebhook       *service.VCSWebhookService
+	Sync             *service.SyncService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -1969,6 +1972,92 @@ func (h *Handlers) GetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sess)
+}
+
+// --- VCS Webhooks ---
+
+// HandleGitHubWebhook handles POST /api/v1/webhooks/vcs/github
+func (h *Handlers) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	eventType := r.Header.Get("X-GitHub-Event")
+	switch eventType {
+	case "push":
+		ev, err := h.VCSWebhook.HandleGitHubPush(r.Context(), body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, ev)
+	case "pull_request":
+		ev, err := h.VCSWebhook.HandleGitHubPullRequest(r.Context(), body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, ev)
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
+	}
+}
+
+// HandleGitLabWebhook handles POST /api/v1/webhooks/vcs/gitlab
+func (h *Handlers) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+
+	eventType := r.Header.Get("X-Gitlab-Event")
+	switch eventType {
+	case "Push Hook":
+		ev, err := h.VCSWebhook.HandleGitLabPush(r.Context(), body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, ev)
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
+	}
+}
+
+// --- Bidirectional Sync ---
+
+// SyncRoadmap handles POST /api/v1/projects/{id}/roadmap/sync
+func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req roadmap.SyncConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ProjectID = projectID
+
+	if req.Provider == "" {
+		writeError(w, http.StatusBadRequest, "provider is required")
+		return
+	}
+	if req.ProjectRef == "" {
+		writeError(w, http.StatusBadRequest, "project_ref is required")
+		return
+	}
+	if req.Direction == "" {
+		req.Direction = roadmap.SyncDirectionPull
+	}
+
+	result, err := h.Sync.Sync(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // --- Helpers ---

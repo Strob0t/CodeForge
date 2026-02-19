@@ -303,6 +303,11 @@ func run() error {
 	sessionSvc := service.NewSessionService(store, eventStore)
 	slog.Info("replay and session services initialized")
 
+	// --- VCS Webhook & Sync Services ---
+	vcsWebhookSvc := service.NewVCSWebhookService(hub)
+	syncSvc := service.NewSyncService(store)
+	slog.Info("vcs webhook and sync services initialized")
+
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
 
@@ -330,6 +335,8 @@ func run() error {
 		BranchProtection: branchProtSvc,
 		Replay:           replaySvc,
 		Sessions:         sessionSvc,
+		VCSWebhook:       vcsWebhookSvc,
+		Sync:             syncSvc,
 	}
 
 	r := chi.NewRouter()

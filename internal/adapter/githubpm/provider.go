@@ -134,6 +134,16 @@ func issueToItem(issue *ghIssue, repo string) pmprovider.Item {
 	}
 }
 
+// CreateItem is not supported by the GitHub Issues provider via gh CLI.
+func (p *Provider) CreateItem(_ context.Context, _ string, _ *pmprovider.Item) (*pmprovider.Item, error) {
+	return nil, pmprovider.ErrNotSupported
+}
+
+// UpdateItem is not supported by the GitHub Issues provider via gh CLI.
+func (p *Provider) UpdateItem(_ context.Context, _ string, _ *pmprovider.Item) (*pmprovider.Item, error) {
+	return nil, pmprovider.ErrNotSupported
+}
+
 func validateProjectRef(ref string) error {
 	parts := strings.Split(ref, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

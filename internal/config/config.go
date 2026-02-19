@@ -84,6 +84,13 @@ type Config struct {
 	Orchestrator Orchestrator `yaml:"orchestrator"`
 	Cache        Cache        `yaml:"cache"`
 	Idempotency  Idempotency  `yaml:"idempotency"`
+	Webhook      Webhook      `yaml:"webhook"`
+}
+
+// Webhook holds VCS/PM webhook verification configuration.
+type Webhook struct {
+	GitHubSecret string `yaml:"github_secret"` // HMAC-SHA256 secret for GitHub webhooks
+	GitLabToken  string `yaml:"gitlab_token"`  // Static token for GitLab webhooks
 }
 
 // Git holds git operation configuration.
@@ -315,5 +322,6 @@ func Defaults() Config {
 			GraphTopK:               10,
 			GraphHopDecay:           0.7,
 		},
+		Webhook: Webhook{},
 	}
 }
