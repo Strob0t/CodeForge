@@ -568,6 +568,10 @@ const en = {
   "activity.streamLabel": "Live activity stream",
   "activity.showing": "Showing {{count}} of {{total}} events",
 
+  // -- Diff preview --------------------------------------------------------
+  "diff.title": "Code Changes",
+  "diff.noDiff": "No diff content available.",
+
   // -- Teams ----------------------------------------------------------------
   "teams.title": "Agent Teams",
   "teams.selectProject": "Select project...",

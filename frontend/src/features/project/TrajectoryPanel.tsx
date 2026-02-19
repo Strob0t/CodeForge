@@ -2,6 +2,7 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AgentEvent, AgentEventType, TrajectorySummary } from "~/api/types";
+import { DiffPreview } from "~/components/DiffPreview";
 import { useI18n } from "~/i18n";
 
 interface TrajectoryPanelProps {
@@ -29,11 +30,32 @@ const EVENT_TYPES: AgentEventType[] = [
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4] as const;
 
 /** Render tool call payload with structured sections */
+/** Check if a string looks like a unified diff */
+function looksLikeDiff(text: string): boolean {
+  return (
+    (text.includes("--- ") && text.includes("+++ ")) ||
+    text.includes("@@ ") ||
+    text.startsWith("diff --git")
+  );
+}
+
+/** Extract diff content from payload (check .diff, .patch, .output fields) */
+function extractDiff(payload: Record<string, unknown>): string | null {
+  for (const key of ["diff", "patch", "output"]) {
+    const val = payload[key];
+    if (typeof val === "string" && looksLikeDiff(val)) {
+      return val;
+    }
+  }
+  return null;
+}
+
 function EventDetail(props: { event: AgentEvent }) {
   const { t } = useI18n();
   const payload = () => props.event.payload;
   const isToolCall = () => props.event.type === "agent.tool_called";
   const isToolResult = () => props.event.type === "agent.tool_result";
+  const diffContent = () => extractDiff(payload());
 
   return (
     <div class="space-y-2">
@@ -71,7 +93,21 @@ function EventDetail(props: { event: AgentEvent }) {
             </span>
           </div>
         </Show>
-        <Show when={payload().output}>
+
+        {/* Diff preview for tool results with unified diff content */}
+        <Show when={diffContent()}>
+          {(diff) => (
+            <div>
+              <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+                {t("diff.title")}
+              </p>
+              <DiffPreview diff={diff()} maxHeight={300} />
+            </div>
+          )}
+        </Show>
+
+        {/* Regular output (only if no diff was detected) */}
+        <Show when={!diffContent() && payload().output}>
           <div>
             <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
               {t("trajectory.output")}
@@ -95,7 +131,19 @@ function EventDetail(props: { event: AgentEvent }) {
         </Show>
       </Show>
 
-      <Show when={!isToolCall() && !isToolResult()}>
+      {/* Diff preview for non-tool events (e.g. delivery) */}
+      <Show when={!isToolCall() && !isToolResult() && diffContent()}>
+        {(diff) => (
+          <div>
+            <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+              {t("diff.title")}
+            </p>
+            <DiffPreview diff={diff()} maxHeight={300} />
+          </div>
+        )}
+      </Show>
+
+      <Show when={!isToolCall() && !isToolResult() && !diffContent()}>
         <pre class="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">
           {JSON.stringify(payload(), null, 2)}
         </pre>

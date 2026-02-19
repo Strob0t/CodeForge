@@ -1078,3 +1078,14 @@
   - Browse mode enhanced with blue border highlight on expanded events
   - ARIA labels on all replay controls, aria-live on current event
   - 13 new i18n keys (EN + DE)
+
+### 11H. Diff-Review Code Preview (COMPLETED)
+
+- [x] (2026-02-19) Unified diff viewer for agent code changes
+  - `DiffPreview` reusable component: parses unified diff text into files, hunks, and lines
+  - Color-coded display: green (additions), red (removals), blue (hunk headers), gray (context)
+  - Old/new line numbers, collapsible per-file sections, +/- counts per file header
+  - Auto-detection in TrajectoryPanel: checks payload.diff, payload.patch, payload.output for unified diff patterns
+  - Renders in tool_result events and non-tool events (e.g. delivery with patch content)
+  - Falls back to regular output display when no diff detected
+  - 2 i18n keys (EN + DE)

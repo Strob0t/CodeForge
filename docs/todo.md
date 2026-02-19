@@ -892,7 +892,13 @@
 ### Developer Tools
 
 - [ ] Vector search simulator / "What does the agent know?" debug tool
-- [ ] Diff-review / code preview for agent output (before/after comparison)
+- [x] (2026-02-19) Diff-review / code preview for agent output (before/after comparison)
+  - `DiffPreview` reusable component: parses unified diff into files/hunks/lines
+  - Color-coded: green (additions), red (removals), blue (hunk headers), gray (context)
+  - Line numbers (old/new), collapsible per-file sections, +/- counts per file
+  - Auto-detected in TrajectoryPanel EventDetail: checks .diff, .patch, .output for diff content
+  - Also renders in non-tool events (e.g. delivery events with patch content)
+  - 2 i18n keys (EN + DE)
 - [x] (2026-02-19) Trajectory replay / inspector with step-by-step playback
   - Replay mode toggle in TrajectoryPanel: scrubber bar, play/pause, step prev/next
   - 4 playback speeds (0.5x, 1x, 2x, 4x) with cycle button

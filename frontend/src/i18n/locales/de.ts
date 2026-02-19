@@ -558,6 +558,10 @@ const de: Translations = {
   "trajectory.output": "Ausgabe",
   "trajectory.errorOutput": "Fehler",
 
+  // -- Diff preview --------------------------------------------------------
+  "diff.title": "Code\u00e4nderungen",
+  "diff.noDiff": "Kein Diff-Inhalt verf\u00fcgbar.",
+
   // -- Teams ----------------------------------------------------------------
   "teams.title": "Agenten-Teams",
   "teams.selectProject": "Projekt ausw\u00e4hlen\u2026",
