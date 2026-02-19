@@ -36,6 +36,8 @@ services:
       - "effective_cache_size=768MB"
       - "-c"
       - "max_connections=200"
+      - "-c"
+      - "log_line_prefix=%t [%p] %q%u@%d "
     logging: *default-logging
 
   nats:

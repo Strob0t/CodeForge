@@ -43,7 +43,7 @@
   - Python: Extract from NATS headers, bind to structlog context
   - 2 test functions in `internal/middleware/requestid_test.go`
   - 1 new Python test for request ID propagation
-- [ ] PostgreSQL log_line_prefix configuration
+- [x] (2026-02-19) PostgreSQL log_line_prefix configuration
 - [x] (2026-02-17) Docker Compose logging configuration
   - `x-logging` anchor with `json-file` driver, `max-size: 10m`, `max-file: 3`
   - Applied to all 5 services
@@ -572,8 +572,8 @@
 - [x] (2026-02-18) PM import (`ImportPMItems`) — import work items from PM providers into roadmap
 - [x] (2026-02-18) 4 new REST endpoints: import specs, import PM items, list spec providers, list PM providers
 - [x] (2026-02-18) Frontend: import UI in RoadmapPanel (Import Specs button, Import from PM form, result display)
-- [ ] Spec Kit adapter (`adapter/speckit/`) — `.specify/` directory
-- [ ] Autospec adapter (`adapter/autospec/`) — `specs/spec.yaml` file
+- [x] (2026-02-19) Spec Kit adapter (`adapter/speckit/`) — `.specify/` directory
+- [x] (2026-02-19) Autospec adapter (`adapter/autospec/`) — `specs/spec.yaml` file
 - [ ] Bidirectional PM sync (Plane.so, OpenProject, GitLab Issues)
 - [ ] Webhook-based real-time sync for PM providers
 

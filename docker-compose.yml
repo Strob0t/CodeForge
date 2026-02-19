@@ -66,6 +66,7 @@ services:
         -c shared_buffers=128MB
         -c effective_cache_size=384MB
         -c max_connections=100
+        -c log_line_prefix='%t [%p] %q%u@%d '
         -c wal_level=replica
         -c archive_mode=on
         -c archive_command='test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
