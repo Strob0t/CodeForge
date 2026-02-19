@@ -271,6 +271,14 @@ const en = {
   "plan.toast.stepsIncomplete": "All steps must have a task and agent selected",
   "plan.toast.featureRequired": "Feature description is required",
   "plan.toast.cancelFailed": "Failed to cancel plan",
+  "plan.preview.title": "Generated Plan Preview",
+  "plan.preview.accept": "Accept",
+  "plan.preview.discard": "Discard",
+  "plan.preview.name": "Name",
+  "plan.preview.description": "Description",
+  "plan.preview.protocol": "Protocol",
+  "plan.preview.steps": "Steps",
+  "plan.preview.dependsOn": "Depends on",
 
   // -- Policies -------------------------------------------------------------
   "policy.title": "Policies",

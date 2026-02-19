@@ -6,6 +6,7 @@ import type {
   CreatePlanRequest,
   CreateStepRequest,
   DecomposeRequest,
+  ExecutionPlan,
   PlanProtocol,
   PlanStatus,
   PlanStepStatus,
@@ -83,6 +84,7 @@ export default function PlanPanel(props: PlanPanelProps) {
   const [decomposeModel, setDecomposeModel] = createSignal("");
   const [autoStart, setAutoStart] = createSignal(false);
   const [decomposing, setDecomposing] = createSignal(false);
+  const [decomposeResult, setDecomposeResult] = createSignal<ExecutionPlan | null>(null);
 
   const handleDecompose = async () => {
     if (!feature().trim()) {
@@ -98,18 +100,27 @@ export default function PlanPanel(props: PlanPanelProps) {
       if (decomposeModel().trim()) req.model = decomposeModel().trim();
       if (autoStart()) req.auto_start = true;
 
-      await api.plans.decompose(props.projectId, req);
+      const plan = await api.plans.decompose(props.projectId, req);
+      setDecomposeResult(plan);
       refetch();
-      setShowDecompose(false);
-      setFeature("");
-      setDecomposeContext("");
-      setDecomposeModel("");
-      setAutoStart(false);
     } catch (e) {
       props.onError(e instanceof Error ? e.message : t("plan.toast.decomposeFailed"));
     } finally {
       setDecomposing(false);
     }
+  };
+
+  const acceptDecompose = () => {
+    setDecomposeResult(null);
+    setShowDecompose(false);
+    setFeature("");
+    setDecomposeContext("");
+    setDecomposeModel("");
+    setAutoStart(false);
+  };
+
+  const discardDecompose = () => {
+    setDecomposeResult(null);
   };
 
   // Manual plan form state
@@ -232,71 +243,174 @@ export default function PlanPanel(props: PlanPanelProps) {
         </div>
       </div>
 
-      {/* Decompose Feature Form */}
+      {/* Decompose Feature — Split-Screen */}
       <Show when={showDecompose()}>
-        <div class="mb-4 rounded border border-purple-200 bg-purple-50 p-4 dark:border-purple-700 dark:bg-purple-900/20">
-          <p class="mb-3 text-xs text-gray-600 dark:text-gray-400">{t("plan.form.featureHint")}</p>
-          <div class="mb-3">
-            <label
-              for="decompose-feature"
-              class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
-            >
-              {t("plan.form.featureDesc")} <span aria-hidden="true">*</span>
-              <span class="sr-only">(required)</span>
-            </label>
-            <textarea
-              id="decompose-feature"
-              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
-              rows={3}
-              value={feature()}
-              onInput={(e) => setFeature(e.currentTarget.value)}
-              placeholder="Describe the feature to implement..."
-              aria-required="true"
-            />
-          </div>
-          <div class="mb-3">
-            <label for="decompose-context" class="mb-1 block text-xs font-medium text-gray-600">
-              {t("plan.form.context")}
-            </label>
-            <textarea
-              id="decompose-context"
-              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-              rows={2}
-              value={decomposeContext()}
-              onInput={(e) => setDecomposeContext(e.currentTarget.value)}
-              placeholder="Repository structure, existing patterns, constraints..."
-            />
-          </div>
-          <div class="mb-3 flex items-center gap-4">
-            <div class="flex-1">
-              <label for="decompose-model" class="mb-1 block text-xs font-medium text-gray-600">
-                {t("plan.form.modelOverride")}
+        <div
+          class={`mb-4 grid gap-4 ${decomposeResult() ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"}`}
+        >
+          {/* Left: Prompt Form */}
+          <div class="rounded border border-purple-200 bg-purple-50 p-4 dark:border-purple-700 dark:bg-purple-900/20">
+            <p class="mb-3 text-xs text-gray-600 dark:text-gray-400">
+              {t("plan.form.featureHint")}
+            </p>
+            <div class="mb-3">
+              <label
+                for="decompose-feature"
+                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+              >
+                {t("plan.form.featureDesc")} <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
               </label>
-              <input
-                id="decompose-model"
-                type="text"
-                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                value={decomposeModel()}
-                onInput={(e) => setDecomposeModel(e.currentTarget.value)}
-                placeholder="e.g. openai/gpt-4o"
+              <textarea
+                id="decompose-feature"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+                rows={3}
+                value={feature()}
+                onInput={(e) => setFeature(e.currentTarget.value)}
+                placeholder="Describe the feature to implement..."
+                aria-required="true"
               />
             </div>
-            <label class="flex items-center gap-1.5 pt-4 text-sm">
-              <input
-                type="checkbox"
-                checked={autoStart()}
-                onChange={(e) => setAutoStart(e.currentTarget.checked)}
+            <div class="mb-3">
+              <label
+                for="decompose-context"
+                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+              >
+                {t("plan.form.context")}
+              </label>
+              <textarea
+                id="decompose-context"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+                rows={2}
+                value={decomposeContext()}
+                onInput={(e) => setDecomposeContext(e.currentTarget.value)}
+                placeholder="Repository structure, existing patterns, constraints..."
               />
-              {t("plan.form.autoStart")}
-            </label>
+            </div>
+            <div class="mb-3 flex items-center gap-4">
+              <div class="flex-1">
+                <label
+                  for="decompose-model"
+                  class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                >
+                  {t("plan.form.modelOverride")}
+                </label>
+                <input
+                  id="decompose-model"
+                  type="text"
+                  class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+                  value={decomposeModel()}
+                  onInput={(e) => setDecomposeModel(e.currentTarget.value)}
+                  placeholder="e.g. openai/gpt-4o"
+                />
+              </div>
+              <label class="flex items-center gap-1.5 pt-4 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={autoStart()}
+                  onChange={(e) => setAutoStart(e.currentTarget.checked)}
+                />
+                {t("plan.form.autoStart")}
+              </label>
+            </div>
+            <button
+              class="rounded bg-purple-600 px-4 py-1.5 text-sm text-white hover:bg-purple-700 disabled:opacity-50"
+              onClick={handleDecompose}
+              disabled={decomposing()}
+            >
+              {decomposing() ? t("plan.form.decomposing") : t("plan.form.decomposeBtn")}
+            </button>
           </div>
-          <button
-            class="rounded bg-purple-600 px-4 py-1.5 text-sm text-white hover:bg-purple-700 disabled:opacity-50"
-            onClick={handleDecompose}
-            disabled={decomposing()}
-          >
-            {decomposing() ? t("plan.form.decomposing") : t("plan.form.decomposeBtn")}
-          </button>
+
+          {/* Right: Plan Preview */}
+          <Show when={decomposeResult()}>
+            {(result) => (
+              <div class="rounded border border-green-200 bg-green-50 p-4 dark:border-green-700 dark:bg-green-900/20">
+                <div class="mb-3 flex items-center justify-between">
+                  <h4 class="text-sm font-semibold text-green-800 dark:text-green-300">
+                    {t("plan.preview.title")}
+                  </h4>
+                  <div class="flex gap-2">
+                    <button
+                      type="button"
+                      class="rounded bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700"
+                      onClick={acceptDecompose}
+                    >
+                      {t("plan.preview.accept")}
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded bg-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-400 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500"
+                      onClick={discardDecompose}
+                    >
+                      {t("plan.preview.discard")}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Plan summary */}
+                <div class="mb-3 space-y-1 text-xs text-gray-700 dark:text-gray-300">
+                  <p>
+                    <span class="font-medium">{t("plan.preview.name")}:</span> {result().name}
+                  </p>
+                  <Show when={result().description}>
+                    <p>
+                      <span class="font-medium">{t("plan.preview.description")}:</span>{" "}
+                      {result().description}
+                    </p>
+                  </Show>
+                  <p>
+                    <span class="font-medium">{t("plan.preview.protocol")}:</span>{" "}
+                    <span class="rounded bg-green-100 px-1.5 py-0.5 dark:bg-green-800/40">
+                      {result().protocol}
+                    </span>
+                  </p>
+                  <p>
+                    <span class="font-medium">{t("plan.preview.steps")}:</span>{" "}
+                    {result().steps.length}
+                  </p>
+                </div>
+
+                {/* Step list */}
+                <div class="max-h-64 space-y-1.5 overflow-y-auto">
+                  <For each={result().steps}>
+                    {(step, idx) => (
+                      <div class="flex items-start gap-2 rounded bg-white p-2 text-xs dark:bg-gray-800">
+                        <span class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-800/40 dark:text-green-300">
+                          {idx() + 1}
+                        </span>
+                        <div class="min-w-0 flex-1">
+                          <div class="flex items-center gap-2">
+                            <span class="font-medium text-gray-800 dark:text-gray-200">
+                              {taskName(step.task_id)}
+                            </span>
+                            <span class="text-gray-400">/</span>
+                            <span class="text-gray-600 dark:text-gray-400">
+                              {agentName(step.agent_id)}
+                            </span>
+                          </div>
+                          <Show when={step.depends_on && step.depends_on.length > 0}>
+                            <p class="mt-0.5 text-gray-400">
+                              {t("plan.preview.dependsOn")}:{" "}
+                              {step.depends_on
+                                .map((depId) => {
+                                  const depIdx = result().steps.findIndex((s) => s.id === depId);
+                                  return depIdx >= 0 ? `#${depIdx + 1}` : depId.slice(0, 8);
+                                })
+                                .join(", ")}
+                            </p>
+                          </Show>
+                        </div>
+                        <span class={`rounded px-1.5 py-0.5 ${STEP_STATUS_COLORS[step.status]}`}>
+                          {step.status}
+                        </span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </div>
+            )}
+          </Show>
         </div>
       </Show>
 

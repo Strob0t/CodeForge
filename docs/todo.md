@@ -870,7 +870,12 @@
 
 ### Advanced Layouts
 
-- [ ] Split-screen feature planning (chat input left + generated spec right)
+- [x] (2026-02-19) Split-screen feature planning (prompt left + generated plan preview right)
+  - PlanPanel decompose form stores result in signal instead of discarding
+  - Responsive split layout: single column on small screens, side-by-side on lg+
+  - Right panel shows plan name, description, protocol, step list with dependencies
+  - Accept/discard buttons to confirm or re-try the decomposition
+  - 8 new i18n keys (EN + DE) for plan preview
 - [x] (2026-02-19) ProjectDetailPage tab navigation (Overview | Tasks & Roadmap | Agents & Runs | Context | Costs)
   - 5 tabs replace vertically stacked layout
   - Tab bar with `role="tablist"`, `aria-selected`, `aria-controls` for a11y

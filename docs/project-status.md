@@ -1088,4 +1088,15 @@
   - Auto-detection in TrajectoryPanel: checks payload.diff, payload.patch, payload.output for unified diff patterns
   - Renders in tool_result events and non-tool events (e.g. delivery with patch content)
   - Falls back to regular output display when no diff detected
+
+### 11I. Split-Screen Feature Planning (COMPLETED)
+
+- [x] (2026-02-19) Split-screen decompose view in PlanPanel
+  - Prompt form on the left, generated plan preview on the right
+  - Responsive grid: single column by default, side-by-side on lg+ breakpoint
+  - Decompose result (`ExecutionPlan`) stored in signal instead of discarded
+  - Plan preview shows: name, description, protocol badge, step count
+  - Step list with numbered badges, task/agent names, dependency references
+  - Accept button confirms and closes form, Discard button clears preview for re-try
+  - 8 new i18n keys (EN + DE) in `plan.preview.*` namespace
   - 2 i18n keys (EN + DE)

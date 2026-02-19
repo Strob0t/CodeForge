@@ -274,6 +274,14 @@ const de: Translations = {
     "Alle Schritte m\u00fcssen eine Aufgabe und einen Agenten ausgew\u00e4hlt haben",
   "plan.toast.featureRequired": "Feature-Beschreibung ist erforderlich",
   "plan.toast.cancelFailed": "Plan konnte nicht abgebrochen werden",
+  "plan.preview.title": "Generierte Plan-Vorschau",
+  "plan.preview.accept": "Akzeptieren",
+  "plan.preview.discard": "Verwerfen",
+  "plan.preview.name": "Name",
+  "plan.preview.description": "Beschreibung",
+  "plan.preview.protocol": "Protokoll",
+  "plan.preview.steps": "Schritte",
+  "plan.preview.dependsOn": "Abh\u00e4ngig von",
 
   // -- Policies -------------------------------------------------------------
   "policy.title": "Richtlinien",
