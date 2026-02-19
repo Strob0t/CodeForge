@@ -1,0 +1,90 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
+)
+
+func (s *Store) CreateAPIKey(ctx context.Context, key *user.APIKey) error {
+	key.CreatedAt = time.Now().UTC()
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO api_keys (id, user_id, name, prefix, key_hash, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		key.ID, key.UserID, key.Name, key.Prefix, key.KeyHash, nullTime(key.ExpiresAt), key.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create api key: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIKey, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, user_id, name, prefix, key_hash, expires_at, created_at
+		FROM api_keys WHERE key_hash = $1`, keyHash)
+
+	var key user.APIKey
+	var expiresAt sql.NullTime
+	err := row.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &expiresAt, &key.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get api key: %w", domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+	if expiresAt.Valid {
+		key.ExpiresAt = expiresAt.Time
+	}
+	return &key, nil
+}
+
+func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.APIKey, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, name, prefix, key_hash, expires_at, created_at
+		FROM api_keys WHERE user_id = $1 ORDER BY created_at`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list api keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []user.APIKey
+	for rows.Next() {
+		var key user.APIKey
+		var expiresAt sql.NullTime
+		if err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &expiresAt, &key.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan api key: %w", err)
+		}
+		if expiresAt.Valid {
+			key.ExpiresAt = expiresAt.Time
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+func (s *Store) DeleteAPIKey(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM api_keys WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete api key: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("delete api key %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+// nullTime converts a zero time to nil for nullable DB columns.
+func nullTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}

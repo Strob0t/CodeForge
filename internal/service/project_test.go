@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -25,9 +26,12 @@ var _ database.Store = (*mockStore)(nil)
 
 // mockStore is a minimal in-memory implementation of database.Store for testing.
 type mockStore struct {
-	projects []project.Project
-	agents   []agent.Agent
-	tasks    []task.Task
+	projects      []project.Project
+	agents        []agent.Agent
+	tasks         []task.Task
+	users         []user.User
+	refreshTokens []user.RefreshToken
+	apiKeys       []user.APIKey
 
 	// Error hooks — set these to inject failures.
 	listProjectsErr  error
@@ -336,6 +340,130 @@ func (m *mockStore) ListSessions(_ context.Context, _ string) ([]run.Session, er
 }
 func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.SessionStatus, _ string) error {
 	return nil
+}
+
+// --- User/Auth (in-memory implementation for auth tests) ---
+
+func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
+	m.users = append(m.users, *u)
+	return nil
+}
+
+func (m *mockStore) GetUser(_ context.Context, id string) (*user.User, error) {
+	for i := range m.users {
+		if m.users[i].ID == id {
+			return &m.users[i], nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockStore) GetUserByEmail(_ context.Context, email, tenantID string) (*user.User, error) {
+	for i := range m.users {
+		if m.users[i].Email == email && m.users[i].TenantID == tenantID {
+			return &m.users[i], nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockStore) ListUsers(_ context.Context, tenantID string) ([]user.User, error) {
+	var result []user.User
+	for i := range m.users {
+		if m.users[i].TenantID == tenantID {
+			result = append(result, m.users[i])
+		}
+	}
+	return result, nil
+}
+
+func (m *mockStore) UpdateUser(_ context.Context, u *user.User) error {
+	for i := range m.users {
+		if m.users[i].ID == u.ID {
+			m.users[i] = *u
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (m *mockStore) DeleteUser(_ context.Context, id string) error {
+	for i := range m.users {
+		if m.users[i].ID == id {
+			m.users = append(m.users[:i], m.users[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (m *mockStore) CreateRefreshToken(_ context.Context, rt *user.RefreshToken) error {
+	m.refreshTokens = append(m.refreshTokens, *rt)
+	return nil
+}
+
+func (m *mockStore) GetRefreshTokenByHash(_ context.Context, hash string) (*user.RefreshToken, error) {
+	for i := range m.refreshTokens {
+		if m.refreshTokens[i].TokenHash == hash {
+			return &m.refreshTokens[i], nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockStore) DeleteRefreshToken(_ context.Context, id string) error {
+	for i := range m.refreshTokens {
+		if m.refreshTokens[i].ID == id {
+			m.refreshTokens = append(m.refreshTokens[:i], m.refreshTokens[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *mockStore) DeleteRefreshTokensByUser(_ context.Context, userID string) error {
+	filtered := m.refreshTokens[:0]
+	for _, rt := range m.refreshTokens {
+		if rt.UserID != userID {
+			filtered = append(filtered, rt)
+		}
+	}
+	m.refreshTokens = filtered
+	return nil
+}
+
+func (m *mockStore) CreateAPIKey(_ context.Context, key *user.APIKey) error {
+	m.apiKeys = append(m.apiKeys, *key)
+	return nil
+}
+
+func (m *mockStore) GetAPIKeyByHash(_ context.Context, hash string) (*user.APIKey, error) {
+	for i := range m.apiKeys {
+		if m.apiKeys[i].KeyHash == hash {
+			return &m.apiKeys[i], nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockStore) ListAPIKeysByUser(_ context.Context, userID string) ([]user.APIKey, error) {
+	var result []user.APIKey
+	for i := range m.apiKeys {
+		if m.apiKeys[i].UserID == userID {
+			result = append(result, m.apiKeys[i])
+		}
+	}
+	return result, nil
+}
+
+func (m *mockStore) DeleteAPIKey(_ context.Context, id string) error {
+	for i := range m.apiKeys {
+		if m.apiKeys[i].ID == id {
+			m.apiKeys = append(m.apiKeys[:i], m.apiKeys[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
 }
 
 // --- ProjectService Tests ---

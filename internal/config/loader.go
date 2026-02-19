@@ -154,6 +154,15 @@ func loadEnv(cfg *Config) {
 
 	// AG-UI
 	setBool(&cfg.AGUI.Enabled, "CODEFORGE_AGUI_ENABLED")
+
+	// Auth
+	setBool(&cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED")
+	setString(&cfg.Auth.JWTSecret, "CODEFORGE_AUTH_JWT_SECRET")
+	setDuration(&cfg.Auth.AccessTokenExpiry, "CODEFORGE_AUTH_ACCESS_EXPIRY")
+	setDuration(&cfg.Auth.RefreshTokenExpiry, "CODEFORGE_AUTH_REFRESH_EXPIRY")
+	setInt(&cfg.Auth.BcryptCost, "CODEFORGE_AUTH_BCRYPT_COST")
+	setString(&cfg.Auth.DefaultAdminEmail, "CODEFORGE_AUTH_ADMIN_EMAIL")
+	setString(&cfg.Auth.DefaultAdminPass, "CODEFORGE_AUTH_ADMIN_PASS")
 }
 
 // validate checks that required fields are set.

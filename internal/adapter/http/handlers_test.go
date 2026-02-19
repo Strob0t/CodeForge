@@ -29,6 +29,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -389,6 +390,34 @@ func (m *mockStore) ListSessions(_ context.Context, _ string) ([]run.Session, er
 func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.SessionStatus, _ string) error {
 	return nil
 }
+
+// User stubs
+func (m *mockStore) CreateUser(_ context.Context, _ *user.User) error        { return nil }
+func (m *mockStore) GetUser(_ context.Context, _ string) (*user.User, error) { return nil, errNotFound }
+func (m *mockStore) GetUserByEmail(_ context.Context, _, _ string) (*user.User, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListUsers(_ context.Context, _ string) ([]user.User, error) { return nil, nil }
+func (m *mockStore) UpdateUser(_ context.Context, _ *user.User) error           { return nil }
+func (m *mockStore) DeleteUser(_ context.Context, _ string) error               { return nil }
+
+// RefreshToken stubs
+func (m *mockStore) CreateRefreshToken(_ context.Context, _ *user.RefreshToken) error { return nil }
+func (m *mockStore) GetRefreshTokenByHash(_ context.Context, _ string) (*user.RefreshToken, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) DeleteRefreshToken(_ context.Context, _ string) error        { return nil }
+func (m *mockStore) DeleteRefreshTokensByUser(_ context.Context, _ string) error { return nil }
+
+// APIKey stubs
+func (m *mockStore) CreateAPIKey(_ context.Context, _ *user.APIKey) error { return nil }
+func (m *mockStore) GetAPIKeyByHash(_ context.Context, _ string) (*user.APIKey, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKey, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteAPIKey(_ context.Context, _ string) error { return nil }
 
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}

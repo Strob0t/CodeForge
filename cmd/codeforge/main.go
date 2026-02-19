@@ -352,6 +352,14 @@ func run() error {
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
 
+	// --- Auth Service (Phase 10C) ---
+	authSvc := service.NewAuthService(store, &cfg.Auth)
+	if cfg.Auth.Enabled {
+		if err := authSvc.SeedDefaultAdmin(context.Background(), middleware.DefaultTenantID); err != nil {
+			slog.Warn("failed to seed default admin", "error", err)
+		}
+	}
+
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,
 		Tasks:            taskSvc,
@@ -380,6 +388,7 @@ func run() error {
 		Sync:             syncSvc,
 		PMWebhook:        pmWebhookSvc,
 		Notification:     notificationSvc,
+		Auth:             authSvc,
 	}
 
 	r := chi.NewRouter()
@@ -395,6 +404,7 @@ func run() error {
 		r.Use(cfotel.HTTPMiddleware(cfg.OTEL.ServiceName))
 	}
 	r.Use(middleware.RequestID)
+	r.Use(middleware.Auth(authSvc, cfg.Auth.Enabled))
 	r.Use(middleware.TenantID)
 	r.Use(cfhttp.Logger)
 	r.Use(chimw.RealIP)

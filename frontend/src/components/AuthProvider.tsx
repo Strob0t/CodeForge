@@ -1,0 +1,95 @@
+import { createContext, createEffect, createSignal, type JSX, onMount, useContext } from "solid-js";
+
+import { api, setAccessTokenGetter } from "~/api/client";
+import type { User, UserRole } from "~/api/types";
+
+interface AuthContextValue {
+  user: () => User | null;
+  isAuthenticated: () => boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  hasRole: (...roles: UserRole[]) => boolean;
+}
+
+const AuthContext = createContext<AuthContextValue>();
+
+export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
+  const [user, setUser] = createSignal<User | null>(null);
+  const [accessToken, setAccessToken] = createSignal<string | null>(null);
+
+  // Wire up token getter for API client — createEffect tracks the signal
+  // and re-registers the getter whenever the token changes.
+  createEffect(() => {
+    const token = accessToken();
+    setAccessTokenGetter(() => token);
+  });
+
+  const scheduleRefresh = (expiresIn: number): void => {
+    // Refresh 60s before expiry, minimum 10s.
+    const delay = Math.max((expiresIn - 60) * 1000, 10_000);
+    setTimeout(() => {
+      void refreshTokens();
+    }, delay);
+  };
+
+  const refreshTokens = async (): Promise<boolean> => {
+    try {
+      const resp = await api.auth.refresh();
+      setAccessToken(resp.access_token);
+      setUser(resp.user);
+      scheduleRefresh(resp.expires_in);
+      return true;
+    } catch {
+      setAccessToken(null);
+      setUser(null);
+      return false;
+    }
+  };
+
+  const login = async (email: string, password: string): Promise<void> => {
+    const resp = await api.auth.login({ email, password });
+    setAccessToken(resp.access_token);
+    setUser(resp.user);
+    scheduleRefresh(resp.expires_in);
+  };
+
+  const logout = async (): Promise<void> => {
+    try {
+      await api.auth.logout();
+    } finally {
+      setAccessToken(null);
+      setUser(null);
+    }
+  };
+
+  const hasRole = (...roles: UserRole[]): boolean => {
+    const u = user();
+    if (!u) return false;
+    return roles.includes(u.role);
+  };
+
+  const isAuthenticated = (): boolean => user() !== null;
+
+  // Try to restore session via refresh cookie on mount.
+  onMount(() => {
+    void refreshTokens();
+  });
+
+  const value: AuthContextValue = {
+    user,
+    isAuthenticated,
+    login,
+    logout,
+    hasRole,
+  };
+
+  return <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return ctx;
+}

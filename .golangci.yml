@@ -94,7 +94,7 @@ linters:
       - path: internal/config/config\.go
         linters:
           - gosec
-        text: "G101"
+        text: "G101|G117"
       # LiteLLM client -- URL comes from validated config, not user input
       - path: internal/adapter/litellm/
         linters:
@@ -111,6 +111,10 @@ linters:
           - revive
         text: "var-naming"
       - path: internal/domain/context/
+        linters:
+          - revive
+        text: "var-naming"
+      - path: internal/domain/user/
         linters:
           - revive
         text: "var-naming"

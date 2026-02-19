@@ -71,6 +71,7 @@ type Handlers struct {
 	Sync             *service.SyncService
 	PMWebhook        *service.PMWebhookService
 	Notification     *service.NotificationService
+	Auth             *service.AuthService
 }
 
 // ListProjects handles GET /api/v1/projects

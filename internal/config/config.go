@@ -89,6 +89,18 @@ type Config struct {
 	OTEL         OTEL         `yaml:"otel"`
 	A2A          A2A          `yaml:"a2a"`
 	AGUI         AGUI         `yaml:"agui"`
+	Auth         Auth         `yaml:"auth"`
+}
+
+// Auth holds authentication and authorization configuration.
+type Auth struct {
+	Enabled            bool          `yaml:"enabled"`              // Enable auth (default: false)
+	JWTSecret          string        `yaml:"jwt_secret" json:"-"`  // HMAC-SHA256 signing key
+	AccessTokenExpiry  time.Duration `yaml:"access_token_expiry"`  // Access token lifetime (default: 15m)
+	RefreshTokenExpiry time.Duration `yaml:"refresh_token_expiry"` // Refresh token lifetime (default: 168h / 7d)
+	BcryptCost         int           `yaml:"bcrypt_cost"`          // Bcrypt work factor (default: 12)
+	DefaultAdminEmail  string        `yaml:"default_admin_email"`  // Seed admin email (default: admin@localhost)
+	DefaultAdminPass   string        `yaml:"default_admin_pass"`   // Seed admin password (default: changeme123)
 }
 
 // Webhook holds VCS/PM webhook verification configuration.
@@ -364,5 +376,14 @@ func Defaults() Config {
 		},
 		A2A:  A2A{Enabled: false},
 		AGUI: AGUI{Enabled: false},
+		Auth: Auth{
+			Enabled:            false,
+			JWTSecret:          "",
+			AccessTokenExpiry:  15 * time.Minute,
+			RefreshTokenExpiry: 7 * 24 * time.Hour,
+			BcryptCost:         12,
+			DefaultAdminEmail:  "admin@localhost",
+			DefaultAdminPass:   "changeme123",
+		},
 	}
 }

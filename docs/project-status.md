@@ -840,6 +840,45 @@
 
 ## Phase 10 — Frontend Foundations (IN PROGRESS)
 
+### 10C. Authentication & Authorization (COMPLETED)
+
+- [x] (2026-02-19) JWT auth with HS256 (stdlib `crypto/hmac` + `crypto/sha256`, no third-party JWT library)
+  - Access token in JS memory signal (15min), refresh token in httpOnly Secure SameSite=Strict cookie (7d)
+  - Auth disabled by default (`auth.enabled: false`), default admin context injected for backward compatibility
+- [x] (2026-02-19) User domain model: `internal/domain/user/user.go`, `apikey.go`
+  - User struct, Role type (admin/editor/viewer), CreateRequest, LoginRequest, LoginResponse, TokenClaims
+  - APIKey struct with `cfk_` prefix, SHA-256 hashed in DB
+- [x] (2026-02-19) Database migration: `022_create_users_api_keys.sql`
+  - `users` (email+tenant_id unique), `refresh_tokens` (token_hash unique), `api_keys` (key_hash unique)
+- [x] (2026-02-19) Auth service: `internal/service/auth.go` (~320 lines)
+  - Register (bcrypt), Login, RefreshTokens (rotation), Logout, ValidateAccessToken, ValidateAPIKey
+  - CreateAPIKey, ListAPIKeys, DeleteAPIKey, User CRUD, SeedDefaultAdmin
+- [x] (2026-02-19) Auth + RBAC middleware
+  - `internal/middleware/auth.go`: JWT/API key validation, public path exemption, auth-disabled default admin
+  - `internal/middleware/rbac.go`: `RequireRole(roles...)` middleware factory
+  - `internal/middleware/tenant.go`: now extracts tenant from user claims first, falls back to header
+  - Middleware chain: CORS > OTEL > RequestID > **Auth** > TenantID > Logger > ...
+- [x] (2026-02-19) Store interface + Postgres: 14 new methods (User 6, RefreshToken 4, APIKey 4)
+  - `store_user.go`, `store_refresh_token.go`, `store_api_key.go`
+- [x] (2026-02-19) HTTP handlers: `internal/adapter/http/handlers_auth.go` (11 handlers)
+  - Public: Login, Refresh | Authenticated: Logout, GetCurrentUser, API key CRUD | Admin: User CRUD
+  - CORS updated with X-API-Key, X-Tenant-ID, X-Idempotency-Key, Allow-Credentials
+- [x] (2026-02-19) Config: `Auth` struct with 7 fields, 7 `CODEFORGE_AUTH_*` env overrides
+- [x] (2026-02-19) Frontend: AuthProvider, RouteGuard, RoleGate, LoginPage
+  - `AuthProvider.tsx`: SolidJS context, login/logout, auto-refresh scheduling, session restore
+  - `RouteGuard.tsx`: redirect to /login if not authenticated
+  - `RoleGate.tsx`: conditional render by role
+  - `LoginPage.tsx`: email/password form with i18n
+  - `client.ts`: setAccessTokenGetter, Authorization header, credentials: "include", auth/users API groups
+  - `App.tsx`: AuthProvider in provider chain, UserInfo in sidebar, /login route
+- [x] (2026-02-19) i18n: ~27 auth keys in en.ts and de.ts
+- [x] (2026-02-19) Tests: domain validation (3), auth service (7), auth middleware (4), RBAC middleware (4)
+
+#### Phase 10C Key Deliverables
+- **New files (16):** user.go, apikey.go, 022 migration, store_user.go, store_refresh_token.go, store_api_key.go, auth.go (service), auth.go (middleware), rbac.go, handlers_auth.go, AuthProvider.tsx, RouteGuard.tsx, RoleGate.tsx, LoginPage.tsx, user_test.go, auth_test.go (service), auth_test.go (middleware), rbac_test.go
+- **Modified files (14):** config.go, loader.go, store.go, tenant.go, middleware.go, handlers.go, routes.go, main.go, types.ts, client.ts, App.tsx, index.tsx, en.ts, de.ts
+- **Verification:** `go build` clean, `go test` all pass, `golangci-lint` 0 issues, `vite build` clean (58 modules), `pre-commit` all hooks pass
+
 ### 10B. i18n — Internationalization (COMPLETED)
 
 - [x] (2026-02-19) Custom signal-based i18n context provider (zero external dependencies)

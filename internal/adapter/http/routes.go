@@ -4,6 +4,9 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
 // MountRoutes registers all API routes on the given chi router.
@@ -198,5 +201,25 @@ func MountRoutes(r chi.Router, h *Handlers) {
 
 		// Bidirectional Sync (nested under projects)
 		r.Post("/projects/{id}/roadmap/sync", h.SyncRoadmap)
+
+		// Auth (public routes handled by middleware exemption)
+		r.Post("/auth/login", h.Login)
+		r.Post("/auth/refresh", h.Refresh)
+
+		// Auth (authenticated)
+		r.Post("/auth/logout", h.Logout)
+		r.Get("/auth/me", h.GetCurrentUser)
+		r.Post("/auth/api-keys", h.CreateAPIKeyHandler)
+		r.Get("/auth/api-keys", h.ListAPIKeysHandler)
+		r.Delete("/auth/api-keys/{id}", h.DeleteAPIKeyHandler)
+
+		// Users (admin only)
+		r.Route("/users", func(r chi.Router) {
+			r.Use(middleware.RequireRole(user.RoleAdmin))
+			r.Get("/", h.ListUsersHandler)
+			r.Post("/", h.CreateUserHandler)
+			r.Put("/{id}", h.UpdateUserHandler)
+			r.Delete("/{id}", h.DeleteUserHandler)
+		})
 	})
 }

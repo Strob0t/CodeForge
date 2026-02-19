@@ -330,6 +330,13 @@ The YAML file is optional. If missing, defaults are used. Environment variables 
 | `orchestrator.graph_top_k` | `CODEFORGE_ORCH_GRAPH_TOP_K` | `10` | Top-K results for graph search |
 | `orchestrator.graph_hop_decay` | `CODEFORGE_ORCH_GRAPH_HOP_DECAY` | `0.7` | Score decay per hop (0.0-1.0) |
 | `git.max_concurrent` | `CODEFORGE_GIT_MAX_CONCURRENT` | `5` | Max concurrent git CLI operations |
+| `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `false` | Enable JWT authentication |
+| `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | (auto) | HMAC-SHA256 signing key |
+| `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY` | `15m` | Access token lifetime |
+| `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY` | `168h` | Refresh token lifetime (7d) |
+| `auth.bcrypt_cost` | `CODEFORGE_AUTH_BCRYPT_COST` | `12` | Bcrypt work factor |
+| `auth.default_admin_email` | `CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
+| `auth.default_admin_pass` | `CODEFORGE_AUTH_DEFAULT_ADMIN_PASS` | `changeme123` | Seed admin password |
 
 ### Python Worker Config (`workers/codeforge/config.py`)
 
@@ -523,6 +530,13 @@ See `.env.example` for all configurable values.
 | CODEFORGE_OTEL_SAMPLE_RATE | 1.0                                     | Trace sampling rate (0.0-1.0)   |
 | CODEFORGE_A2A_ENABLED     | false                                    | Enable A2A protocol endpoints   |
 | CODEFORGE_AGUI_ENABLED    | false                                    | Enable AG-UI event emission     |
+| CODEFORGE_AUTH_ENABLED    | false                                    | Enable JWT authentication       |
+| CODEFORGE_AUTH_JWT_SECRET | (auto-generated if empty)                | HMAC-SHA256 JWT signing key     |
+| CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY | 15m                               | Access token lifetime           |
+| CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY | 168h                             | Refresh token lifetime (7d)     |
+| CODEFORGE_AUTH_BCRYPT_COST | 12                                      | Bcrypt work factor              |
+| CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL | admin@localhost                  | Seed admin email                |
+| CODEFORGE_AUTH_DEFAULT_ADMIN_PASS | changeme123                      | Seed admin password             |
 
 ## Backup & Restore
 

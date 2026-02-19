@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
 // Store is the port interface for database operations.
@@ -130,4 +131,24 @@ type Store interface {
 	GetSession(ctx context.Context, id string) (*run.Session, error)
 	ListSessions(ctx context.Context, projectID string) ([]run.Session, error)
 	UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error
+
+	// Users
+	CreateUser(ctx context.Context, u *user.User) error
+	GetUser(ctx context.Context, id string) (*user.User, error)
+	GetUserByEmail(ctx context.Context, email, tenantID string) (*user.User, error)
+	ListUsers(ctx context.Context, tenantID string) ([]user.User, error)
+	UpdateUser(ctx context.Context, u *user.User) error
+	DeleteUser(ctx context.Context, id string) error
+
+	// Refresh Tokens
+	CreateRefreshToken(ctx context.Context, rt *user.RefreshToken) error
+	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*user.RefreshToken, error)
+	DeleteRefreshToken(ctx context.Context, id string) error
+	DeleteRefreshTokensByUser(ctx context.Context, userID string) error
+
+	// API Keys
+	CreateAPIKey(ctx context.Context, key *user.APIKey) error
+	GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIKey, error)
+	ListAPIKeysByUser(ctx context.Context, userID string) ([]user.APIKey, error)
+	DeleteAPIKey(ctx context.Context, id string) error
 }

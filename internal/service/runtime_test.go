@@ -23,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -526,6 +527,37 @@ func (m *runtimeMockStore) ListSessions(_ context.Context, _ string) ([]run.Sess
 func (m *runtimeMockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.SessionStatus, _ string) error {
 	return nil
 }
+
+// --- User/Auth stubs (satisfy interface) ---
+
+func (m *runtimeMockStore) CreateUser(_ context.Context, _ *user.User) error { return nil }
+func (m *runtimeMockStore) GetUser(_ context.Context, _ string) (*user.User, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) GetUserByEmail(_ context.Context, _, _ string) (*user.User, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) ListUsers(_ context.Context, _ string) ([]user.User, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateUser(_ context.Context, _ *user.User) error { return nil }
+func (m *runtimeMockStore) DeleteUser(_ context.Context, _ string) error     { return nil }
+func (m *runtimeMockStore) CreateRefreshToken(_ context.Context, _ *user.RefreshToken) error {
+	return nil
+}
+func (m *runtimeMockStore) GetRefreshTokenByHash(_ context.Context, _ string) (*user.RefreshToken, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) DeleteRefreshToken(_ context.Context, _ string) error        { return nil }
+func (m *runtimeMockStore) DeleteRefreshTokensByUser(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) CreateAPIKey(_ context.Context, _ *user.APIKey) error        { return nil }
+func (m *runtimeMockStore) GetAPIKeyByHash(_ context.Context, _ string) (*user.APIKey, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKey, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteAPIKey(_ context.Context, _ string) error { return nil }
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

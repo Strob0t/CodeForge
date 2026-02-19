@@ -1,9 +1,10 @@
 import type { RouteSectionProps } from "@solidjs/router";
-import { A } from "@solidjs/router";
+import { A, useLocation } from "@solidjs/router";
 import { createResource, ErrorBoundary, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { createCodeForgeWS } from "~/api/websocket";
+import { AuthProvider, useAuth } from "~/components/AuthProvider";
 import { CommandPalette } from "~/components/CommandPalette";
 import { OfflineBanner } from "~/components/OfflineBanner";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
@@ -42,6 +43,32 @@ function ErrorFallback(props: { error: unknown; reset: () => void }): JSX.Elemen
 // Inner shell (has access to I18n / Theme / Toast contexts)
 // ---------------------------------------------------------------------------
 
+function UserInfo(): JSX.Element {
+  const { t } = useI18n();
+  const { user, isAuthenticated, logout } = useAuth();
+
+  return (
+    <Show when={isAuthenticated()}>
+      <div class="flex items-center justify-between border-b border-gray-200 px-4 py-2 text-xs dark:border-gray-700">
+        <div class="truncate text-gray-600 dark:text-gray-400" title={user()?.email ?? ""}>
+          {user()?.name ?? ""}{" "}
+          <span class="rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium uppercase dark:bg-gray-700">
+            {user()?.role ?? ""}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => void logout()}
+          class="ml-2 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
+          title={t("auth.logout")}
+        >
+          {t("auth.logout")}
+        </button>
+      </div>
+    </Show>
+  );
+}
+
 function AppShell(props: {
   health: ReturnType<typeof createResource<{ status: string }>>[0];
   connected: () => boolean;
@@ -67,6 +94,7 @@ function AppShell(props: {
               <h1 class="text-xl font-bold">{t("app.title")}</h1>
               <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{t("app.version")}</p>
             </div>
+            <UserInfo />
 
             <nav class="flex-1 px-3" aria-label="Main navigation">
               <A
@@ -140,16 +168,24 @@ function AppShell(props: {
 export default function App(props: RouteSectionProps) {
   const [health] = createResource(() => api.health.check());
   const { connected } = createCodeForgeWS();
+  const location = useLocation();
+
+  // Skip AppShell for the login page.
+  const isLoginPage = (): boolean => location.pathname === "/login";
 
   return (
     <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
       <I18nProvider>
         <ThemeProvider>
-          <ToastProvider>
-            <AppShell health={health} connected={connected}>
-              {props.children}
-            </AppShell>
-          </ToastProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <Show when={!isLoginPage()} fallback={props.children}>
+                <AppShell health={health} connected={connected}>
+                  {props.children}
+                </AppShell>
+              </Show>
+            </ToastProvider>
+          </AuthProvider>
         </ThemeProvider>
       </I18nProvider>
     </ErrorBoundary>

@@ -719,16 +719,45 @@
 
 ### 10C. Authentication & Authorization
 
-- [ ] Decide auth strategy: Session-based (cookie) vs. JWT vs. OAuth2/OIDC
-- [ ] Go Core: Auth middleware (after RequestID, before TenantID in chain)
-- [ ] User domain model (`internal/domain/user/`): id, email, name, role, tenant_id
-- [ ] Database migration: `users` table with password hash (bcrypt/argon2)
-- [ ] Role-Based Access Control: admin, editor, viewer
-- [ ] API Key support for headless/CI access (`X-API-Key` header)
-- [ ] Frontend: Auth Context provider, protected route guard
-- [ ] Frontend: Login page, logout flow, session refresh
-- [ ] Frontend: Show current user in Sidebar, role-based UI element visibility
-- [ ] Connects to existing Multi-Tenancy soft-launch (Phase 3H tenant_id)
+- [x] (2026-02-19) Auth strategy: JWT (HS256 via stdlib crypto) + httpOnly refresh cookie
+  - Access token in JS memory signal (15min), refresh token in httpOnly Secure SameSite=Strict cookie (7d)
+  - Auth disabled by default (`auth.enabled: false`), default admin context injected for backward compatibility
+- [x] (2026-02-19) Go Core: Auth middleware (after RequestID, before TenantID in chain)
+  - `internal/middleware/auth.go`: JWT/API key validation, public path exemption (/health, /ws, /auth/login, /auth/refresh)
+  - `internal/middleware/rbac.go`: `RequireRole(roles...)` middleware factory
+  - Modified `internal/middleware/tenant.go`: extracts tenant from user claims, fallback to X-Tenant-ID header
+- [x] (2026-02-19) User domain model (`internal/domain/user/`)
+  - `user.go`: User struct, Role (admin/editor/viewer), CreateRequest, LoginRequest, LoginResponse, TokenClaims, Validate()
+  - `apikey.go`: APIKey struct, CreateAPIKeyRequest, CreateAPIKeyResponse, `cfk_` prefix
+- [x] (2026-02-19) Database migration: `022_create_users_api_keys.sql`
+  - `users` table (bcrypt password hash, email+tenant_id unique), `refresh_tokens`, `api_keys` (SHA-256 key hash)
+- [x] (2026-02-19) Role-Based Access Control: admin, editor, viewer
+  - Admin-only routes: /api/v1/users/* (CRUD), RequireRole middleware
+- [x] (2026-02-19) API Key support for headless/CI access (`X-API-Key` header)
+  - SHA-256 hashed in DB, `cfk_` prefix, checked before Bearer token in middleware
+- [x] (2026-02-19) Auth service (`internal/service/auth.go`)
+  - Register, Login, RefreshTokens (rotation), Logout, ValidateAccessToken, ValidateAPIKey
+  - CreateAPIKey, ListAPIKeys, DeleteAPIKey, User CRUD, SeedDefaultAdmin
+  - JWT HS256 via stdlib `crypto/hmac` + `crypto/sha256` (no third-party JWT library)
+- [x] (2026-02-19) Store interface + Postgres implementation
+  - 14 new methods in `internal/port/database/store.go` (User 6, RefreshToken 4, APIKey 4)
+  - `store_user.go`, `store_refresh_token.go`, `store_api_key.go`
+- [x] (2026-02-19) HTTP handlers (`internal/adapter/http/handlers_auth.go`)
+  - 11 handler methods: Login, Refresh, Logout, GetCurrentUser, CRUD API keys, CRUD users (admin)
+  - Routes in `routes.go`, CORS headers updated for auth
+- [x] (2026-02-19) Config: `internal/config/config.go` Auth struct, 7 CODEFORGE_AUTH_* env overrides
+- [x] (2026-02-19) Frontend: Auth Context provider, protected route guard
+  - `AuthProvider.tsx`: SolidJS context with signals, login/logout, auto-refresh scheduling, session restore
+  - `RouteGuard.tsx`: redirect to /login if not authenticated
+  - `RoleGate.tsx`: conditional render by role
+- [x] (2026-02-19) Frontend: Login page, logout flow, session refresh
+  - `frontend/src/features/auth/LoginPage.tsx`: email/password form, error handling, redirect
+  - `frontend/src/api/client.ts`: setAccessTokenGetter, Authorization header, credentials: "include"
+- [x] (2026-02-19) Frontend: Show current user in Sidebar, role-based UI element visibility
+  - `App.tsx`: AuthProvider in provider chain, UserInfo component in sidebar
+- [x] (2026-02-19) i18n: ~27 auth keys in en.ts and de.ts
+- [x] (2026-02-19) Tests: domain validation, auth service (7 tests), auth middleware (4 tests), RBAC middleware (4 tests)
+- [x] (2026-02-19) Connects to existing Multi-Tenancy (Phase 3H tenant_id)
 
 ### 10D. WCAG 2.2 Conformance (Level AA)
 

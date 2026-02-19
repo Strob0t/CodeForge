@@ -7,11 +7,14 @@ import type {
   AgentTeam,
   AIRoadmapView,
   ApiError,
+  APIKeyInfo,
   BackendList,
   Branch,
   ContextPack,
   CostSummary,
   CreateAgentRequest,
+  CreateAPIKeyRequest,
+  CreateAPIKeyResponse,
   CreateFeatureRequest,
   CreateMilestoneRequest,
   CreateModeRequest,
@@ -20,6 +23,7 @@ import type {
   CreateRoadmapRequest,
   CreateTaskRequest,
   CreateTeamRequest,
+  CreateUserRequest,
   DailyCost,
   DecomposeRequest,
   DetectionResult,
@@ -31,6 +35,8 @@ import type {
   HealthStatus,
   ImportResult,
   LLMModel,
+  LoginRequest,
+  LoginResponse,
   Milestone,
   Mode,
   ModelCostSummary,
@@ -57,6 +63,8 @@ import type {
   SubAgentSearchResult,
   Task,
   TrajectoryPage,
+  UpdateUserRequest,
+  User,
 } from "./types";
 
 const BASE = "/api/v1";
@@ -64,6 +72,14 @@ const BASE = "/api/v1";
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+
+// Access token getter — set by AuthProvider to inject JWT into requests.
+let accessTokenGetter: (() => string | null) | null = null;
+
+/** Set the function that provides the current access token. */
+export function setAccessTokenGetter(fn: () => string | null): void {
+  accessTokenGetter = fn;
+}
 
 class FetchError extends Error {
   constructor(
@@ -86,12 +102,21 @@ function isOffline(): boolean {
 }
 
 async function executeRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string>),
+  };
+
+  // Inject access token if available.
+  const token = accessTokenGetter?.();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+    headers,
+    credentials: "include", // send httpOnly refresh cookie
   });
 
   if (!res.ok) {
@@ -553,6 +578,59 @@ export const api = {
     agent: () => request<BackendList>("/providers/agent"),
     spec: () => request<ProviderInfo[]>("/providers/spec"),
     pm: () => request<ProviderInfo[]>("/providers/pm"),
+  },
+  auth: {
+    login: (data: LoginRequest) =>
+      request<LoginResponse>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    refresh: () =>
+      request<LoginResponse>("/auth/refresh", {
+        method: "POST",
+      }),
+
+    logout: () =>
+      request<{ status: string }>("/auth/logout", {
+        method: "POST",
+      }),
+
+    me: () => request<User>("/auth/me"),
+
+    createAPIKey: (data: CreateAPIKeyRequest) =>
+      request<CreateAPIKeyResponse>("/auth/api-keys", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    listAPIKeys: () => request<APIKeyInfo[]>("/auth/api-keys"),
+
+    deleteAPIKey: (id: string) =>
+      request<undefined>(`/auth/api-keys/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+  },
+
+  users: {
+    list: () => request<User[]>("/users"),
+
+    create: (data: CreateUserRequest) =>
+      request<User>("/users", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    update: (id: string, data: UpdateUserRequest) =>
+      request<User>(`/users/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      request<undefined>(`/users/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
   },
 } as const;
 

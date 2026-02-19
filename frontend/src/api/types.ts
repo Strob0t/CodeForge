@@ -885,6 +885,73 @@ export interface TrajectorySummary {
   error_count: number;
 }
 
+// --- Auth types (Phase 10C) ---
+
+/** User role enum matching Go domain/user.Role */
+export type UserRole = "admin" | "editor" | "viewer";
+
+/** Matches Go domain/user.User */
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  tenant_id: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/user.LoginRequest */
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+/** Matches Go domain/user.LoginResponse */
+export interface LoginResponse {
+  access_token: string;
+  expires_in: number;
+  user: User;
+}
+
+/** Matches Go domain/user.CreateRequest */
+export interface CreateUserRequest {
+  email: string;
+  name: string;
+  password: string;
+  role: UserRole;
+}
+
+/** Matches Go domain/user.UpdateRequest */
+export interface UpdateUserRequest {
+  name?: string;
+  role?: UserRole;
+  enabled?: boolean;
+}
+
+/** Matches Go domain/user.APIKey (without key_hash) */
+export interface APIKeyInfo {
+  id: string;
+  user_id: string;
+  name: string;
+  prefix: string;
+  expires_at?: string;
+  created_at: string;
+}
+
+/** Matches Go domain/user.CreateAPIKeyRequest */
+export interface CreateAPIKeyRequest {
+  name: string;
+  expires_in?: number;
+}
+
+/** Matches Go domain/user.CreateAPIKeyResponse */
+export interface CreateAPIKeyResponse {
+  api_key: APIKeyInfo;
+  plain_key: string;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;
