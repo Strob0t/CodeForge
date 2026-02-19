@@ -9,6 +9,7 @@ import LoginPage from "./features/auth/LoginPage.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
 import ModelsPage from "./features/llm/ModelsPage.tsx";
+import ModesPage from "./features/modes/ModesPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import SettingsPage from "./features/settings/SettingsPage.tsx";
 
@@ -27,6 +28,7 @@ render(
       <Route path="/projects/:id" component={ProjectDetailPage} />
       <Route path="/costs" component={CostDashboardPage} />
       <Route path="/models" component={ModelsPage} />
+      <Route path="/modes" component={ModesPage} />
       <Route path="/settings" component={SettingsPage} />
     </Router>
   ),

@@ -1020,3 +1020,12 @@
   - User management table (admin only): enable/disable toggle, delete, role badges
   - ~38 i18n keys (EN + DE), route `/settings`, sidebar nav link
   - ProviderCard helper component for uniform display
+
+### 11C. Mode Selection UI (COMPLETED)
+
+- [x] (2026-02-19) Agent modes page with card grid and create form
+  - ModesPage at `/modes`: displays all 8 built-in + custom modes as cards
+  - Mode cards: name, description, tool badges, LLM scenario, autonomy level (color-coded), expandable prompt
+  - Create custom mode form: id, name, description, tools, scenario, autonomy, prompt prefix
+  - Built-in modes sorted before custom, protected from overwrite
+  - ~35 i18n keys (EN + DE), sidebar nav link

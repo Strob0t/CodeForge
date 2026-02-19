@@ -892,7 +892,12 @@
   - User management table (admin only): enable/disable, delete, role badges
   - ~38 i18n keys in EN + DE, route `/settings`, nav link in sidebar
   - Reuses existing backend endpoints: providers.*, auth.*, users.*, llm.health
-- [ ] Mode selection UI (architect, coder, reviewer, debugger, etc.) — backend ready via `api.modes`
+- [x] (2026-02-19) Mode selection UI (architect, coder, reviewer, debugger, etc.)
+  - ModesPage at `/modes` with card grid for all 8 built-in + custom modes
+  - Create custom mode form (id, name, description, tools, scenario, autonomy, prompt)
+  - Mode cards: tool badges, LLM scenario, autonomy level with color coding, expandable prompt
+  - Built-in modes protected from overwrite, sorted before custom
+  - ~35 i18n keys (EN + DE), sidebar nav link, route wired
 - [ ] Team/Multi-Agent management UI — backend ready via `api.teams`
 
 ---
