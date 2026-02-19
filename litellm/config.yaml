@@ -24,11 +24,29 @@ model_list:
       tags: ["default", "background"]
 
   # -- Anthropic --
-  - model_name: "claude-sonnet-4-20250514"
+  - model_name: "claude-opus-4.6"
+    litellm_params:
+      model: "anthropic/claude-opus-4-6"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "claude-sonnet-4.6"
+    litellm_params:
+      model: "anthropic/claude-sonnet-4-6"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "claude-sonnet-4"
     litellm_params:
       model: "anthropic/claude-sonnet-4-20250514"
     model_info:
       tags: ["think", "review", "plan"]
+
+  - model_name: "claude-haiku-4.5"
+    litellm_params:
+      model: "anthropic/claude-haiku-4-5-20251001"
+    model_info:
+      tags: ["default", "background"]
 
   - model_name: "claude-haiku-3.5"
     litellm_params:
@@ -68,6 +86,54 @@ model_list:
     model_info:
       tags: ["default", "background"]
 
+  - model_name: "groq/llama-4-maverick"
+    litellm_params:
+      model: "groq/meta-llama/llama-4-maverick-17b-128e-instruct"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "groq/llama-4-scout"
+    litellm_params:
+      model: "groq/meta-llama/llama-4-scout-17b-16e-instruct"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "groq/gpt-oss-120b"
+    litellm_params:
+      model: "groq/openai/gpt-oss-120b"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "groq/gpt-oss-20b"
+    litellm_params:
+      model: "groq/openai/gpt-oss-20b"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "groq/qwen3-32b"
+    litellm_params:
+      model: "groq/qwen/qwen3-32b"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "groq/kimi-k2"
+    litellm_params:
+      model: "groq/moonshotai/kimi-k2-instruct-0905"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "groq/compound"
+    litellm_params:
+      model: "groq/groq/compound"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "groq/compound-mini"
+    litellm_params:
+      model: "groq/groq/compound-mini"
+    model_info:
+      tags: ["default", "background"]
+
   # -- Mistral AI --
   - model_name: "mistral-large"
     litellm_params:
@@ -75,9 +141,87 @@ model_list:
     model_info:
       tags: ["think", "review", "plan"]
 
+  - model_name: "mistral-medium"
+    litellm_params:
+      model: "mistral/mistral-medium-latest"
+    model_info:
+      tags: ["think", "review", "plan"]
+
   - model_name: "mistral-small"
     litellm_params:
       model: "mistral/mistral-small-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "mistral-tiny"
+    litellm_params:
+      model: "mistral/mistral-tiny-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "magistral-medium"
+    litellm_params:
+      model: "mistral/magistral-medium-latest"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "magistral-small"
+    litellm_params:
+      model: "mistral/magistral-small-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "codestral"
+    litellm_params:
+      model: "mistral/codestral-latest"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "devstral"
+    litellm_params:
+      model: "mistral/devstral-latest"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "devstral-medium"
+    litellm_params:
+      model: "mistral/devstral-medium-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "devstral-small"
+    litellm_params:
+      model: "mistral/devstral-small-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "ministral-14b"
+    litellm_params:
+      model: "mistral/ministral-14b-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "ministral-8b"
+    litellm_params:
+      model: "mistral/ministral-8b-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "ministral-3b"
+    litellm_params:
+      model: "mistral/ministral-3b-latest"
+    model_info:
+      tags: ["default", "background"]
+
+  - model_name: "pixtral-large"
+    litellm_params:
+      model: "mistral/pixtral-large-latest"
+    model_info:
+      tags: ["think", "review", "plan"]
+
+  - model_name: "open-mistral-nemo"
+    litellm_params:
+      model: "mistral/open-mistral-nemo"
     model_info:
       tags: ["default", "background"]
 
