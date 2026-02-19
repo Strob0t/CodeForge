@@ -33,9 +33,9 @@ const MODES: { value: PermissionMode; label: string }[] = [
 ];
 
 const DECISION_COLORS: Record<PolicyDecision, string> = {
-  allow: "bg-green-100 text-green-700",
-  deny: "bg-red-100 text-red-700",
-  ask: "bg-yellow-100 text-yellow-700",
+  allow: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  deny: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  ask: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
 };
 
 function emptyProfile(): PolicyProfile {
@@ -217,14 +217,14 @@ export default function PolicyPanel(props: PolicyPanelProps) {
   };
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       {/* Header */}
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Policies</h3>
         <div class="flex gap-2">
           <Show when={view() !== "list"}>
             <button
-              class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200"
+              class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
               onClick={() => {
                 setView("list");
                 setSelectedName(null);
@@ -247,23 +247,23 @@ export default function PolicyPanel(props: PolicyPanelProps) {
       {/* List View */}
       <Show when={view() === "list"}>
         <Show when={profiles.loading}>
-          <p class="text-sm text-gray-500">Loading...</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
         </Show>
         <Show when={!profiles.loading && profiles()}>
           <div class="space-y-1">
             <For each={profiles()?.profiles ?? []}>
               {(name) => (
-                <div class="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50">
+                <div class="flex items-center justify-between rounded px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700">
                   <button
-                    class="flex items-center gap-2 text-sm font-medium text-gray-800"
+                    class="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200"
                     onClick={() => handleSelect(name)}
                   >
                     <span>{name}</span>
                     <span
                       class={`rounded px-1.5 py-0.5 text-xs ${
                         PRESET_NAMES.has(name)
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-gray-100 text-gray-600"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                          : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
                       }`}
                     >
                       {PRESET_NAMES.has(name) ? "preset" : "custom"}
@@ -271,7 +271,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   </button>
                   <Show when={!PRESET_NAMES.has(name)}>
                     <button
-                      class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50"
+                      class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                       onClick={() => handleDelete(name)}
                     >
                       Delete
@@ -291,36 +291,37 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             <div class="mb-4">
               <h4 class="text-base font-semibold">{p().name}</h4>
               <Show when={p().description}>
-                <p class="mt-1 text-sm text-gray-500">{p().description}</p>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{p().description}</p>
               </Show>
             </div>
 
             {/* Summary */}
             <div class="mb-4 grid grid-cols-3 gap-3 text-sm">
               <div>
-                <span class="text-gray-500">Mode:</span> <span class="font-medium">{p().mode}</span>
+                <span class="text-gray-500 dark:text-gray-400">Mode:</span>{" "}
+                <span class="font-medium">{p().mode}</span>
               </div>
               <Show when={p().termination.max_steps}>
                 <div>
-                  <span class="text-gray-500">Steps:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">Steps:</span>{" "}
                   <span class="font-medium">{p().termination.max_steps}</span>
                 </div>
               </Show>
               <Show when={p().termination.timeout_seconds}>
                 <div>
-                  <span class="text-gray-500">Timeout:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">Timeout:</span>{" "}
                   <span class="font-medium">{p().termination.timeout_seconds}s</span>
                 </div>
               </Show>
               <Show when={p().termination.max_cost}>
                 <div>
-                  <span class="text-gray-500">Cost:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">Cost:</span>{" "}
                   <span class="font-medium">${p().termination.max_cost}</span>
                 </div>
               </Show>
               <Show when={p().termination.stall_detection}>
                 <div>
-                  <span class="text-gray-500">Stall:</span>{" "}
+                  <span class="text-gray-500 dark:text-gray-400">Stall:</span>{" "}
                   <span class="font-medium">{p().termination.stall_threshold}</span>
                 </div>
               </Show>
@@ -328,21 +329,33 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
             {/* Quality Gate */}
             <div class="mb-4">
-              <h5 class="mb-1 text-sm font-medium text-gray-500">Quality Gate</h5>
+              <h5 class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">
+                Quality Gate
+              </h5>
               <div class="flex gap-3 text-sm">
                 <span
-                  class={p().quality_gate.require_tests_pass ? "text-green-600" : "text-gray-400"}
+                  class={
+                    p().quality_gate.require_tests_pass
+                      ? "text-green-600"
+                      : "text-gray-400 dark:text-gray-500"
+                  }
                 >
                   {p().quality_gate.require_tests_pass ? "\u2713" : "\u2717"} Tests
                 </span>
                 <span
-                  class={p().quality_gate.require_lint_pass ? "text-green-600" : "text-gray-400"}
+                  class={
+                    p().quality_gate.require_lint_pass
+                      ? "text-green-600"
+                      : "text-gray-400 dark:text-gray-500"
+                  }
                 >
                   {p().quality_gate.require_lint_pass ? "\u2713" : "\u2717"} Lint
                 </span>
                 <span
                   class={
-                    p().quality_gate.rollback_on_gate_fail ? "text-green-600" : "text-gray-400"
+                    p().quality_gate.rollback_on_gate_fail
+                      ? "text-green-600"
+                      : "text-gray-400 dark:text-gray-500"
                   }
                 >
                   {p().quality_gate.rollback_on_gate_fail ? "\u2713" : "\u2717"} Rollback
@@ -353,11 +366,11 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             {/* Rules Table */}
             <Show when={p().rules.length > 0}>
               <div class="mb-4">
-                <h5 class="mb-1 text-sm font-medium text-gray-500">Rules</h5>
+                <h5 class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">Rules</h5>
                 <div class="overflow-x-auto">
                   <table class="w-full text-sm">
                     <thead>
-                      <tr class="border-b text-left text-xs text-gray-500">
+                      <tr class="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                         <th class="pb-1 pr-3">Tool</th>
                         <th class="pb-1 pr-3">Pattern</th>
                         <th class="pb-1 pr-3">Decision</th>
@@ -367,7 +380,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                     <tbody>
                       <For each={p().rules}>
                         {(rule) => (
-                          <tr class="border-b border-gray-100">
+                          <tr class="border-b border-gray-100 dark:border-gray-700">
                             <td class="py-1 pr-3 font-mono">{rule.specifier.tool}</td>
                             <td class="py-1 pr-3 font-mono text-xs">
                               {rule.specifier.sub_pattern || ""}
@@ -379,7 +392,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                                 {rule.decision}
                               </span>
                             </td>
-                            <td class="py-1 text-xs text-gray-500">
+                            <td class="py-1 text-xs text-gray-500 dark:text-gray-400">
                               {[
                                 rule.path_allow?.length
                                   ? `allow: ${rule.path_allow.join(", ")}`
@@ -408,7 +421,9 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             <Show when={p().resource_limits}>
               {(rl) => (
                 <div class="mb-4">
-                  <h5 class="mb-1 text-sm font-medium text-gray-500">Resource Limits</h5>
+                  <h5 class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">
+                    Resource Limits
+                  </h5>
                   <div class="flex flex-wrap gap-3 text-sm">
                     <Show when={rl().memory_mb}>
                       <span>Memory: {rl().memory_mb}MB</span>
@@ -431,23 +446,25 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             </Show>
 
             {/* Test Evaluation */}
-            <div class="mb-4 rounded border border-gray-200 bg-gray-50 p-3">
-              <h5 class="mb-2 text-sm font-medium text-gray-500">Test Evaluation</h5>
+            <div class="mb-4 rounded border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-700">
+              <h5 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+                Test Evaluation
+              </h5>
               <div class="flex flex-wrap gap-2">
                 <input
-                  class="rounded border border-gray-300 px-2 py-1 text-sm"
+                  class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   placeholder="Tool (e.g. Bash)"
                   value={evalTool()}
                   onInput={(e) => setEvalTool(e.currentTarget.value)}
                 />
                 <input
-                  class="rounded border border-gray-300 px-2 py-1 text-sm"
+                  class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   placeholder="Command (optional)"
                   value={evalCommand()}
                   onInput={(e) => setEvalCommand(e.currentTarget.value)}
                 />
                 <input
-                  class="rounded border border-gray-300 px-2 py-1 text-sm"
+                  class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   placeholder="Path (optional)"
                   value={evalPath()}
                   onInput={(e) => setEvalPath(e.currentTarget.value)}
@@ -474,7 +491,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             {/* Clone button */}
             <div class="flex justify-end">
               <button
-                class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200"
+                class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={handleClone}
               >
                 Clone & Edit
@@ -490,18 +507,22 @@ export default function PolicyPanel(props: PolicyPanelProps) {
           {/* Name & Description */}
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-500">Name</label>
+              <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                Name
+              </label>
               <input
-                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
                 value={editProfile().name}
                 onInput={(e) => updateEditField("name", e.currentTarget.value)}
                 placeholder="my-custom-policy"
               />
             </div>
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-500">Mode</label>
+              <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                Mode
+              </label>
               <select
-                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
                 value={editProfile().mode}
                 onChange={(e) => updateEditField("mode", e.currentTarget.value as PermissionMode)}
               >
@@ -510,9 +531,11 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-gray-500">Description</label>
+            <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              Description
+            </label>
             <input
-              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
               value={editProfile().description || ""}
               onInput={(e) => updateEditField("description", e.currentTarget.value)}
               placeholder="Optional description"
@@ -521,7 +544,9 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
           {/* Quality Gate */}
           <div>
-            <label class="mb-1 block text-xs font-medium text-gray-500">Quality Gate</label>
+            <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              Quality Gate
+            </label>
             <div class="flex gap-4 text-sm">
               <label class="flex items-center gap-1">
                 <input
@@ -554,13 +579,15 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
           {/* Termination */}
           <div>
-            <label class="mb-1 block text-xs font-medium text-gray-500">Termination</label>
+            <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              Termination
+            </label>
             <div class="grid grid-cols-3 gap-3">
               <div>
-                <label class="text-xs text-gray-400">Max Steps</label>
+                <label class="text-xs text-gray-400 dark:text-gray-500">Max Steps</label>
                 <input
                   type="number"
-                  class="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                  class="w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   value={editProfile().termination.max_steps ?? ""}
                   onInput={(e) =>
                     updateTermination("max_steps", parseInt(e.currentTarget.value) || undefined)
@@ -568,10 +595,10 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 />
               </div>
               <div>
-                <label class="text-xs text-gray-400">Timeout (s)</label>
+                <label class="text-xs text-gray-400 dark:text-gray-500">Timeout (s)</label>
                 <input
                   type="number"
-                  class="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                  class="w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   value={editProfile().termination.timeout_seconds ?? ""}
                   onInput={(e) =>
                     updateTermination(
@@ -582,11 +609,11 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 />
               </div>
               <div>
-                <label class="text-xs text-gray-400">Max Cost ($)</label>
+                <label class="text-xs text-gray-400 dark:text-gray-500">Max Cost ($)</label>
                 <input
                   type="number"
                   step="0.01"
-                  class="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                  class="w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   value={editProfile().termination.max_cost ?? ""}
                   onInput={(e) =>
                     updateTermination("max_cost", parseFloat(e.currentTarget.value) || undefined)
@@ -599,9 +626,9 @@ export default function PolicyPanel(props: PolicyPanelProps) {
           {/* Rules */}
           <div>
             <div class="mb-1 flex items-center justify-between">
-              <label class="text-xs font-medium text-gray-500">Rules</label>
+              <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Rules</label>
               <button
-                class="rounded bg-gray-100 px-2 py-0.5 text-xs hover:bg-gray-200"
+                class="rounded bg-gray-100 px-2 py-0.5 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={addRule}
               >
                 + Add Rule
@@ -610,21 +637,21 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             <div class="space-y-2">
               <For each={editProfile().rules}>
                 {(rule, i) => (
-                  <div class="flex flex-wrap items-start gap-2 rounded border border-gray-200 bg-gray-50 p-2">
+                  <div class="flex flex-wrap items-start gap-2 rounded border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-700">
                     <input
-                      class="w-20 rounded border border-gray-300 px-1.5 py-1 text-xs"
+                      class="w-20 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
                       placeholder="Tool"
                       value={rule.specifier.tool}
                       onInput={(e) => updateRule(i(), "tool", e.currentTarget.value)}
                     />
                     <input
-                      class="w-24 rounded border border-gray-300 px-1.5 py-1 text-xs"
+                      class="w-24 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
                       placeholder="Sub-pattern"
                       value={rule.specifier.sub_pattern || ""}
                       onInput={(e) => updateRule(i(), "sub_pattern", e.currentTarget.value)}
                     />
                     <select
-                      class="rounded border border-gray-300 px-1.5 py-1 text-xs"
+                      class="rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
                       value={rule.decision}
                       onChange={(e) => updateRule(i(), "decision", e.currentTarget.value)}
                     >
@@ -633,31 +660,31 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       <option value="ask">ask</option>
                     </select>
                     <input
-                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs"
+                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
                       placeholder="path_allow (csv)"
                       value={rule.path_allow?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "path_allow", e.currentTarget.value)}
                     />
                     <input
-                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs"
+                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
                       placeholder="path_deny (csv)"
                       value={rule.path_deny?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "path_deny", e.currentTarget.value)}
                     />
                     <input
-                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs"
+                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
                       placeholder="cmd_allow (csv)"
                       value={rule.command_allow?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "command_allow", e.currentTarget.value)}
                     />
                     <input
-                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs"
+                      class="w-28 rounded border border-gray-300 px-1.5 py-1 text-xs dark:border-gray-600 dark:bg-gray-600"
                       placeholder="cmd_deny (csv)"
                       value={rule.command_deny?.join(", ") || ""}
                       onInput={(e) => updateRule(i(), "command_deny", e.currentTarget.value)}
                     />
                     <button
-                      class="rounded px-1.5 py-1 text-xs text-red-500 hover:bg-red-50"
+                      class="rounded px-1.5 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                       onClick={() => removeRule(i())}
                     >
                       X
@@ -671,7 +698,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
           {/* Actions */}
           <div class="flex justify-end gap-2">
             <button
-              class="rounded bg-gray-100 px-4 py-1.5 text-sm hover:bg-gray-200"
+              class="rounded bg-gray-100 px-4 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
               onClick={() => setView("list")}
             >
               Cancel

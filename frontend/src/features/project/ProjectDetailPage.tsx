@@ -195,13 +195,15 @@ export default function ProjectDetailPage() {
 
   return (
     <div>
-      <Show when={project()} fallback={<p class="text-gray-500">Loading...</p>}>
+      <Show when={project()} fallback={<p class="text-gray-500 dark:text-gray-400">Loading...</p>}>
         {(p) => (
           <>
             <div class="mb-6">
               <h2 class="text-2xl font-bold">{p().name}</h2>
-              <p class="mt-1 text-gray-500">{p().description || "No description"}</p>
-              <div class="mt-2 flex gap-4 text-sm text-gray-400">
+              <p class="mt-1 text-gray-500 dark:text-gray-400">
+                {p().description || "No description"}
+              </p>
+              <div class="mt-2 flex gap-4 text-sm text-gray-400 dark:text-gray-500">
                 <span>Provider: {p().provider}</span>
                 <Show when={p().repo_url}>
                   <span>Repo: {p().repo_url}</span>
@@ -210,20 +212,22 @@ export default function ProjectDetailPage() {
             </div>
 
             <Show when={error()}>
-              <div class="mb-4 rounded bg-red-50 p-3 text-sm text-red-600">{error()}</div>
+              <div class="mb-4 rounded bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400">
+                {error()}
+              </div>
             </Show>
 
             {/* Budget Alert Banner */}
             <Show when={budgetAlert()}>
               {(alert) => (
-                <div class="mb-4 flex items-center justify-between rounded bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-800">
+                <div class="mb-4 flex items-center justify-between rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-300">
                   <span>
                     Budget alert: run {alert().run_id.slice(0, 8)} has reached{" "}
                     {alert().percentage.toFixed(0)}% of budget (${alert().cost_usd.toFixed(4)} / $
                     {alert().max_cost.toFixed(2)})
                   </span>
                   <button
-                    class="ml-4 text-yellow-600 hover:text-yellow-800"
+                    class="ml-4 text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300"
                     onClick={() => setBudgetAlert(null)}
                   >
                     Dismiss
@@ -233,14 +237,16 @@ export default function ProjectDetailPage() {
             </Show>
 
             {/* Git Section */}
-            <div class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
+            <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
               <h3 class="mb-3 text-lg font-semibold">Git</h3>
 
               <Show
                 when={p().workspace_path}
                 fallback={
                   <div>
-                    <p class="mb-2 text-sm text-gray-500">Repository not cloned yet.</p>
+                    <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">
+                      Repository not cloned yet.
+                    </p>
                     <Show when={p().repo_url}>
                       <button
                         class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
@@ -258,24 +264,31 @@ export default function ProjectDetailPage() {
                   {(gs) => (
                     <div class="mb-4 grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <span class="text-gray-500">Branch:</span>{" "}
+                        <span class="text-gray-500 dark:text-gray-400">Branch:</span>{" "}
                         <span class="font-mono font-medium">{gs().branch}</span>
                       </div>
                       <div>
-                        <span class="text-gray-500">Status:</span>{" "}
-                        <span class={gs().dirty ? "text-yellow-600" : "text-green-600"}>
+                        <span class="text-gray-500 dark:text-gray-400">Status:</span>{" "}
+                        <span
+                          class={
+                            gs().dirty
+                              ? "text-yellow-600 dark:text-yellow-400"
+                              : "text-green-600 dark:text-green-400"
+                          }
+                        >
                           {gs().dirty ? "dirty" : "clean"}
                         </span>
                       </div>
                       <div class="col-span-2">
-                        <span class="text-gray-500">Last commit:</span>{" "}
+                        <span class="text-gray-500 dark:text-gray-400">Last commit:</span>{" "}
                         <span class="font-mono text-xs">{gs().commit_hash.slice(0, 8)}</span>{" "}
                         {gs().commit_message}
                       </div>
                       <Show when={gs().ahead > 0 || gs().behind > 0}>
                         <div>
-                          <span class="text-gray-500">Ahead:</span> {gs().ahead}{" "}
-                          <span class="text-gray-500">Behind:</span> {gs().behind}
+                          <span class="text-gray-500 dark:text-gray-400">Ahead:</span> {gs().ahead}{" "}
+                          <span class="text-gray-500 dark:text-gray-400">Behind:</span>{" "}
+                          {gs().behind}
                         </div>
                       </Show>
                     </div>
@@ -285,14 +298,14 @@ export default function ProjectDetailPage() {
                 {/* Git Actions */}
                 <div class="flex gap-2">
                   <button
-                    class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200 disabled:opacity-50"
+                    class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
                     onClick={handlePull}
                     disabled={pulling()}
                   >
                     {pulling() ? "Pulling..." : "Pull"}
                   </button>
                   <button
-                    class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200"
+                    class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600"
                     onClick={() => refetchGitStatus()}
                   >
                     Refresh
@@ -302,15 +315,17 @@ export default function ProjectDetailPage() {
                 {/* Branches */}
                 <Show when={(branches() ?? []).length > 0}>
                   <div class="mt-4">
-                    <h4 class="mb-2 text-sm font-medium text-gray-500">Branches</h4>
+                    <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+                      Branches
+                    </h4>
                     <div class="flex flex-wrap gap-2">
                       <For each={branches() ?? []}>
                         {(b) => (
                           <button
                             class={`rounded px-2 py-1 text-xs ${
                               b.current
-                                ? "bg-blue-100 text-blue-700"
-                                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"
                             }`}
                             onClick={() => !b.current && handleCheckout(b.name)}
                             disabled={b.current}

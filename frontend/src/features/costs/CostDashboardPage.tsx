@@ -37,34 +37,40 @@ export default function CostDashboardPage() {
 
       {/* Global Totals */}
       <div class="mb-6 grid grid-cols-4 gap-4">
-        <div class="rounded-lg border border-gray-200 bg-white p-4">
-          <p class="text-sm text-gray-500">Total Cost</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900">{formatCost(totals().cost)}</p>
+        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+          <p class="text-sm text-gray-500 dark:text-gray-400">Total Cost</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {formatCost(totals().cost)}
+          </p>
         </div>
-        <div class="rounded-lg border border-gray-200 bg-white p-4">
-          <p class="text-sm text-gray-500">Tokens In</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900">{formatTokens(totals().tokensIn)}</p>
+        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+          <p class="text-sm text-gray-500 dark:text-gray-400">Tokens In</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {formatTokens(totals().tokensIn)}
+          </p>
         </div>
-        <div class="rounded-lg border border-gray-200 bg-white p-4">
-          <p class="text-sm text-gray-500">Tokens Out</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900">{formatTokens(totals().tokensOut)}</p>
+        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+          <p class="text-sm text-gray-500 dark:text-gray-400">Tokens Out</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {formatTokens(totals().tokensOut)}
+          </p>
         </div>
-        <div class="rounded-lg border border-gray-200 bg-white p-4">
-          <p class="text-sm text-gray-500">Total Runs</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900">{totals().runs}</p>
+        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+          <p class="text-sm text-gray-500 dark:text-gray-400">Total Runs</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">{totals().runs}</p>
         </div>
       </div>
 
       {/* Project Breakdown */}
-      <div class="mb-6 rounded-lg border border-gray-200 bg-white p-4">
+      <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
         <h3 class="mb-3 text-lg font-semibold">Cost by Project</h3>
         <Show
           when={(globalCosts() ?? []).length > 0}
-          fallback={<p class="text-sm text-gray-400">No cost data yet.</p>}
+          fallback={<p class="text-sm text-gray-400 dark:text-gray-500">No cost data yet.</p>}
         >
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b border-gray-100 text-left text-gray-500">
+              <tr class="border-b border-gray-100 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400">
                 <th class="pb-2 font-medium">Project</th>
                 <th class="pb-2 text-right font-medium">Cost</th>
                 <th class="pb-2 text-right font-medium">Tokens In</th>
@@ -75,9 +81,12 @@ export default function CostDashboardPage() {
             <tbody>
               <For each={globalCosts() ?? []}>
                 {(p: ProjectCostSummary) => (
-                  <tr class="border-b border-gray-50">
+                  <tr class="border-b border-gray-50 dark:border-gray-700">
                     <td class="py-2">
-                      <A href={`/projects/${p.project_id}`} class="text-blue-600 hover:underline">
+                      <A
+                        href={`/projects/${p.project_id}`}
+                        class="text-blue-600 dark:text-blue-400 hover:underline"
+                      >
                         {p.project_name || p.project_id}
                       </A>
                     </td>
@@ -121,27 +130,27 @@ export function ProjectCostSection(props: { projectId: string }) {
   };
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
       <h3 class="mb-3 text-lg font-semibold">Cost Overview</h3>
 
       {/* Summary Cards */}
       <Show when={summary()}>
         {(s) => (
           <div class="mb-4 grid grid-cols-4 gap-3">
-            <div class="rounded bg-gray-50 p-3">
-              <p class="text-xs text-gray-500">Total Cost</p>
+            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
+              <p class="text-xs text-gray-500 dark:text-gray-400">Total Cost</p>
               <p class="text-lg font-bold">{formatCost(s().total_cost_usd)}</p>
             </div>
-            <div class="rounded bg-gray-50 p-3">
-              <p class="text-xs text-gray-500">Tokens In</p>
+            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
+              <p class="text-xs text-gray-500 dark:text-gray-400">Tokens In</p>
               <p class="text-lg font-bold">{formatTokens(s().total_tokens_in)}</p>
             </div>
-            <div class="rounded bg-gray-50 p-3">
-              <p class="text-xs text-gray-500">Tokens Out</p>
+            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
+              <p class="text-xs text-gray-500 dark:text-gray-400">Tokens Out</p>
               <p class="text-lg font-bold">{formatTokens(s().total_tokens_out)}</p>
             </div>
-            <div class="rounded bg-gray-50 p-3">
-              <p class="text-xs text-gray-500">Runs</p>
+            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
+              <p class="text-xs text-gray-500 dark:text-gray-400">Runs</p>
               <p class="text-lg font-bold">{s().run_count}</p>
             </div>
           </div>
@@ -151,13 +160,13 @@ export function ProjectCostSection(props: { projectId: string }) {
       {/* Model Breakdown */}
       <Show when={(byModel() ?? []).length > 0}>
         <div class="mb-4">
-          <h4 class="mb-2 text-sm font-medium text-gray-500">Cost by Model</h4>
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">Cost by Model</h4>
           <div class="space-y-1">
             <For each={byModel() ?? []}>
               {(m: ModelCostSummary) => (
-                <div class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm">
+                <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
                   <span class="font-mono text-xs">{m.model || "(unknown)"}</span>
-                  <div class="flex gap-4 text-xs text-gray-500">
+                  <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
                     <span>{formatCost(m.total_cost_usd)}</span>
                     <span>{formatTokens(m.total_tokens_in)} in</span>
                     <span>{formatTokens(m.total_tokens_out)} out</span>
@@ -173,7 +182,9 @@ export function ProjectCostSection(props: { projectId: string }) {
       {/* Daily Cost Chart (CSS bars) */}
       <Show when={(daily() ?? []).length > 0}>
         <div class="mb-4">
-          <h4 class="mb-2 text-sm font-medium text-gray-500">Daily Cost (last 30 days)</h4>
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+            Daily Cost (last 30 days)
+          </h4>
           <div class="flex items-end gap-0.5" style={{ height: "80px" }}>
             <For each={daily() ?? []}>
               {(d: DailyCost) => {
@@ -194,16 +205,18 @@ export function ProjectCostSection(props: { projectId: string }) {
       {/* Recent Runs */}
       <Show when={(recentRuns() ?? []).length > 0}>
         <div>
-          <h4 class="mb-2 text-sm font-medium text-gray-500">Recent Runs</h4>
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">Recent Runs</h4>
           <div class="space-y-1">
             <For each={recentRuns() ?? []}>
               {(r: Run) => (
-                <div class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm">
+                <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
                   <div class="flex items-center gap-2">
-                    <span class="font-mono text-xs text-gray-400">{r.id.slice(0, 8)}</span>
-                    <span class="text-xs text-gray-500">{r.model || "-"}</span>
+                    <span class="font-mono text-xs text-gray-400 dark:text-gray-500">
+                      {r.id.slice(0, 8)}
+                    </span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">{r.model || "-"}</span>
                   </div>
-                  <div class="flex gap-3 text-xs text-gray-500">
+                  <div class="flex gap-3 text-xs text-gray-500 dark:text-gray-400">
                     <span>{formatCost(r.cost_usd)}</span>
                     <span>{formatTokens(r.tokens_in)} in</span>
                     <span>{formatTokens(r.tokens_out)} out</span>

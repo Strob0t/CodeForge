@@ -36,11 +36,13 @@ export default function LiveOutput(props: LiveOutputProps) {
   };
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-2 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Live Output</h3>
         <Show when={props.taskId}>
-          <span class="text-xs text-gray-400">Task: {props.taskId?.slice(0, 8) ?? ""}</span>
+          <span class="text-xs text-gray-400 dark:text-gray-500">
+            Task: {props.taskId?.slice(0, 8) ?? ""}
+          </span>
         </Show>
       </div>
 
@@ -64,10 +66,10 @@ export default function LiveOutput(props: LiveOutputProps) {
       </div>
 
       <Show when={props.lines.length > 0}>
-        <div class="mt-2 flex items-center justify-between text-xs text-gray-400">
+        <div class="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
           <span>{props.lines.length} lines</span>
           <button
-            class="hover:text-gray-600"
+            class="hover:text-gray-600 dark:hover:text-gray-300"
             onClick={() => {
               setAutoScroll(true);
               if (containerRef) containerRef.scrollTop = containerRef.scrollHeight;

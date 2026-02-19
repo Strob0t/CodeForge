@@ -64,11 +64,11 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
   ];
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Event Trajectory</h3>
         <button
-          class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200"
+          class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
           onClick={handleExport}
         >
           Export JSON
@@ -78,19 +78,23 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       {/* Stats Summary */}
       <Show when={stats()}>
         {(s) => (
-          <div class="mb-4 flex flex-wrap gap-4 rounded bg-gray-50 p-3 text-sm">
+          <div class="mb-4 flex flex-wrap gap-4 rounded bg-gray-50 p-3 text-sm dark:bg-gray-700">
             <span>
-              <span class="text-gray-500">Events:</span> {s().total_events}
+              <span class="text-gray-500 dark:text-gray-400">Events:</span> {s().total_events}
             </span>
             <span>
-              <span class="text-gray-500">Duration:</span> {(s().duration_ms / 1000).toFixed(1)}s
+              <span class="text-gray-500 dark:text-gray-400">Duration:</span>{" "}
+              {(s().duration_ms / 1000).toFixed(1)}s
             </span>
             <span>
-              <span class="text-gray-500">Tool Calls:</span> {s().tool_call_count}
+              <span class="text-gray-500 dark:text-gray-400">Tool Calls:</span>{" "}
+              {s().tool_call_count}
             </span>
             <span>
-              <span class="text-gray-500">Errors:</span>{" "}
-              <span class={s().error_count > 0 ? "text-red-600" : ""}>{s().error_count}</span>
+              <span class="text-gray-500 dark:text-gray-400">Errors:</span>{" "}
+              <span class={s().error_count > 0 ? "text-red-600 dark:text-red-400" : ""}>
+                {s().error_count}
+              </span>
             </span>
           </div>
         )}
@@ -99,7 +103,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       {/* Filters */}
       <div class="mb-4 flex flex-wrap gap-2">
         <button
-          class={`rounded px-2 py-1 text-xs ${!typeFilter() ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+          class={`rounded px-2 py-1 text-xs ${!typeFilter() ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
           onClick={() => {
             setTypeFilter("");
             setCursor("");
@@ -110,7 +114,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
         <For each={EVENT_TYPES}>
           {(t) => (
             <button
-              class={`rounded px-2 py-1 text-xs ${typeFilter() === t ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              class={`rounded px-2 py-1 text-xs ${typeFilter() === t ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
               onClick={() => {
                 setTypeFilter(t);
                 setCursor("");
@@ -123,29 +127,32 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       </div>
 
       {/* Timeline */}
-      <Show when={trajectory()} fallback={<p class="text-sm text-gray-500">Loading...</p>}>
+      <Show
+        when={trajectory()}
+        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>}
+      >
         <div class="space-y-1">
           <For each={trajectory()?.events ?? []}>
             {(ev: AgentEvent) => (
               <div
-                class="cursor-pointer rounded border border-gray-100 hover:border-gray-200"
+                class="cursor-pointer rounded border border-gray-100 hover:border-gray-200 dark:border-gray-700 dark:hover:border-gray-600"
                 onClick={() => toggleExpand(ev.id)}
               >
                 <div class="flex items-center gap-2 px-3 py-2">
                   <span
                     class={`h-2.5 w-2.5 rounded-full ${EVENT_COLORS[ev.type] ?? "bg-gray-300"}`}
                   />
-                  <span class="font-mono text-xs text-gray-600">{ev.type}</span>
+                  <span class="font-mono text-xs text-gray-600 dark:text-gray-400">{ev.type}</span>
                   <span class="flex-1" />
-                  <span class="text-xs text-gray-400">
+                  <span class="text-xs text-gray-400 dark:text-gray-500">
                     {new Date(ev.created_at).toLocaleTimeString()}
                   </span>
-                  <span class="text-xs text-gray-400">v{ev.version}</span>
+                  <span class="text-xs text-gray-400 dark:text-gray-500">v{ev.version}</span>
                 </div>
 
                 <Show when={expandedId() === ev.id}>
-                  <div class="border-t border-gray-100 bg-gray-50 px-3 py-2">
-                    <pre class="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-gray-700">
+                  <div class="border-t border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-700">
+                    <pre class="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">
                       {JSON.stringify(ev.payload, null, 2)}
                     </pre>
                   </div>
@@ -157,11 +164,13 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
 
         {/* Pagination */}
         <div class="mt-3 flex items-center justify-between text-sm">
-          <span class="text-xs text-gray-500">Total: {trajectory()?.total ?? 0} events</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            Total: {trajectory()?.total ?? 0} events
+          </span>
           <div class="flex gap-2">
             <Show when={cursor()}>
               <button
-                class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200"
+                class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={handlePrevPage}
               >
                 First
@@ -169,7 +178,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
             </Show>
             <Show when={trajectory()?.has_more}>
               <button
-                class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200"
+                class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
                 onClick={handleNextPage}
               >
                 Next

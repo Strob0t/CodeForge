@@ -840,6 +840,35 @@
 
 ## Phase 10 — Frontend Foundations (IN PROGRESS)
 
+### 10A. Theme System — Dark/Light Mode Toggle (COMPLETED)
+
+- [x] (2026-02-19) CSS Design Tokens in `frontend/src/index.css`
+  - `:root` and `.dark` blocks with 17 custom properties each
+  - Surface colors (bg-primary, bg-surface, bg-surface-alt, bg-inset)
+  - Border colors (border, border-subtle, border-input)
+  - Text colors (text-primary, text-secondary, text-tertiary, text-muted)
+  - Accent colors (accent, accent-hover)
+  - Agent status tokens (running, idle, waiting, error, planning)
+  - `@custom-variant dark (&:where(.dark, .dark *));` for Tailwind CSS v4 class-based dark mode
+- [x] (2026-02-19) `frontend/src/components/ThemeProvider.tsx` — ThemeProvider + ThemeToggle
+  - `ThemeContext` with `theme()`, `resolved()`, `setTheme()`, `toggle()`
+  - 3-state toggle: light -> dark -> system (sun/moon/gear icons)
+  - `localStorage` persistence (key: `codeforge-theme`)
+  - `prefers-color-scheme` media query with real-time change listener
+  - Applies `.dark` class on `<html>` element
+- [x] (2026-02-19) Dark mode variants on all 18 component files
+  - App shell, sidebar, navigation (App.tsx)
+  - Dashboard: DashboardPage, ProjectCard
+  - Costs: CostDashboardPage
+  - Models: ModelsPage
+  - Project panels: AgentPanel, TaskPanel, LiveOutput, RunPanel, PlanPanel, PolicyPanel
+  - Project detail: ProjectDetailPage
+  - Context panels: RepoMapPanel, RetrievalPanel
+  - Roadmap: RoadmapPanel
+  - Trajectory: TrajectoryPanel
+  - Utility: Toast
+- Color mapping: bg-white->dark:bg-gray-800, bg-gray-50->dark:bg-gray-900, border-gray-200->dark:border-gray-700, text-gray-900->dark:text-gray-100, status badges with dark:bg-{color}-900/30
+
 ### 10F. Toast/Notification System (COMPLETED)
 
 - [x] (2026-02-19) `frontend/src/components/Toast.tsx` — ToastProvider + ToastItem

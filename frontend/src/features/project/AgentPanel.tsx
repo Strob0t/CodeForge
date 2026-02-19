@@ -12,13 +12,13 @@ interface AgentPanelProps {
 function agentStatusColor(status: AgentStatus): string {
   switch (status) {
     case "idle":
-      return "bg-green-100 text-green-700";
+      return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
     case "running":
-      return "bg-blue-100 text-blue-700";
+      return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
     case "error":
-      return "bg-red-100 text-red-700";
+      return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
     case "stopped":
-      return "bg-gray-100 text-gray-500";
+      return "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400";
   }
 }
 
@@ -83,7 +83,7 @@ export default function AgentPanel(props: AgentPanelProps) {
     props.tasks.filter((t) => t.status === "pending" || t.status === "queued");
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Agents</h3>
         <button
@@ -95,20 +95,25 @@ export default function AgentPanel(props: AgentPanelProps) {
       </div>
 
       <Show when={showForm()}>
-        <form onSubmit={handleCreate} class="mb-4 rounded border border-gray-100 bg-gray-50 p-3">
+        <form
+          onSubmit={handleCreate}
+          class="mb-4 rounded border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
+        >
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-gray-600">Name</label>
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400">Name</label>
               <input
                 type="text"
                 value={name()}
                 onInput={(e) => setName(e.currentTarget.value)}
-                class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
                 placeholder="my-agent"
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600">Backend</label>
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400">
+                Backend
+              </label>
               <Show
                 when={backends()?.backends && (backends()?.backends ?? []).length > 0}
                 fallback={
@@ -116,7 +121,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                     type="text"
                     value={backend()}
                     onInput={(e) => setBackend(e.currentTarget.value)}
-                    class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                    class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
                     placeholder="aider"
                   />
                 }
@@ -124,7 +129,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                 <select
                   value={backend()}
                   onChange={(e) => setBackend(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                  class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
                 >
                   <option value="">Select...</option>
                   <For each={backends()?.backends ?? []}>
@@ -147,16 +152,16 @@ export default function AgentPanel(props: AgentPanelProps) {
 
       <Show
         when={(agents() ?? []).length > 0}
-        fallback={<p class="text-sm text-gray-500">No agents yet.</p>}
+        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">No agents yet.</p>}
       >
         <div class="space-y-3">
           <For each={agents() ?? []}>
             {(agent) => (
-              <div class="rounded border border-gray-100 p-3">
+              <div class="rounded border border-gray-100 p-3 dark:border-gray-700">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
                     <span class="font-medium">{agent.name}</span>
-                    <span class="text-xs text-gray-400">({agent.backend})</span>
+                    <span class="text-xs text-gray-400 dark:text-gray-500">({agent.backend})</span>
                     <span
                       class={`rounded-full px-2 py-0.5 text-xs ${agentStatusColor(agent.status)}`}
                     >
@@ -166,7 +171,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                   <div class="flex gap-2">
                     <Show when={agent.status === "idle" && pendingTasks().length > 0}>
                       <select
-                        class="rounded border border-gray-200 px-2 py-1 text-xs"
+                        class="rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700"
                         onChange={(e) => {
                           const taskId = e.currentTarget.value;
                           if (taskId) handleDispatch(agent.id, taskId);
@@ -188,7 +193,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                     </Show>
                     <Show when={agent.status === "running"}>
                       <button
-                        class="rounded bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200"
+                        class="rounded bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-800"
                         onClick={() => {
                           const runningTask = props.tasks.find(
                             (t) => t.agent_id === agent.id && t.status === "running",
@@ -200,7 +205,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                       </button>
                     </Show>
                     <button
-                      class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50"
+                      class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                       onClick={() => handleDelete(agent.id)}
                     >
                       Delete

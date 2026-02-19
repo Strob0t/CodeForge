@@ -13,13 +13,13 @@ interface RunPanelProps {
 }
 
 const STATUS_COLORS: Record<RunStatus, string> = {
-  pending: "bg-gray-100 text-gray-700",
-  running: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  cancelled: "bg-yellow-100 text-yellow-700",
-  timeout: "bg-orange-100 text-orange-700",
-  quality_gate: "bg-purple-100 text-purple-700",
+  pending: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
+  running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  completed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  cancelled: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+  timeout: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+  quality_gate: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
 };
 
 const DELIVER_MODES: { value: DeliverMode; label: string }[] = [
@@ -133,13 +133,13 @@ export default function RunPanel(props: RunPanelProps) {
   (RunPanel as unknown as { addToolCall: typeof addToolCall }).addToolCall = addToolCall;
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <h3 class="mb-3 text-lg font-semibold">Run Management</h3>
 
       {/* Start Run Form */}
       <div class="mb-4 flex flex-wrap gap-2">
         <select
-          class="rounded border border-gray-300 px-2 py-1.5 text-sm"
+          class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedTaskId()}
           onChange={(e) => {
             setSelectedTaskId(e.currentTarget.value);
@@ -158,7 +158,7 @@ export default function RunPanel(props: RunPanelProps) {
         </select>
 
         <select
-          class="rounded border border-gray-300 px-2 py-1.5 text-sm"
+          class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedAgentId()}
           onChange={(e) => setSelectedAgentId(e.currentTarget.value)}
         >
@@ -173,7 +173,7 @@ export default function RunPanel(props: RunPanelProps) {
         </select>
 
         <select
-          class="rounded border border-gray-300 px-2 py-1.5 text-sm"
+          class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedPolicy()}
           onChange={(e) => setSelectedPolicy(e.currentTarget.value)}
         >
@@ -182,7 +182,7 @@ export default function RunPanel(props: RunPanelProps) {
         </select>
 
         <select
-          class="rounded border border-gray-300 px-2 py-1.5 text-sm"
+          class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedDeliverMode()}
           onChange={(e) => setSelectedDeliverMode(e.currentTarget.value as DeliverMode)}
         >
@@ -201,7 +201,7 @@ export default function RunPanel(props: RunPanelProps) {
       {/* Active Run */}
       <Show when={activeRun()}>
         {(run) => (
-          <div class="mb-4 rounded border border-blue-200 bg-blue-50 p-3">
+          <div class="mb-4 rounded border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
             <div class="mb-2 flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span
@@ -209,7 +209,9 @@ export default function RunPanel(props: RunPanelProps) {
                 >
                   {run().status}
                 </span>
-                <span class="text-xs text-gray-500">Run: {run().id.slice(0, 8)}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  Run: {run().id.slice(0, 8)}
+                </span>
               </div>
               <Show when={run().status === "running" || run().status === "quality_gate"}>
                 <button
@@ -220,7 +222,7 @@ export default function RunPanel(props: RunPanelProps) {
                 </button>
               </Show>
             </div>
-            <div class="flex flex-wrap gap-4 text-sm text-gray-600">
+            <div class="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
               <span>Steps: {run().step_count}</span>
               <span>Cost: ${run().cost_usd.toFixed(4)}</span>
               <Show when={run().tokens_in > 0 || run().tokens_out > 0}>
@@ -243,9 +245,15 @@ export default function RunPanel(props: RunPanelProps) {
               <div class="mt-2 max-h-32 overflow-y-auto text-xs">
                 <For each={toolCalls()}>
                   {(tc) => (
-                    <div class="flex gap-2 py-0.5 text-gray-500">
+                    <div class="flex gap-2 py-0.5 text-gray-500 dark:text-gray-400">
                       <span class="font-mono">{tc.tool || "?"}</span>
-                      <span class={tc.phase === "denied" ? "text-red-500" : "text-green-600"}>
+                      <span
+                        class={
+                          tc.phase === "denied"
+                            ? "text-red-500 dark:text-red-400"
+                            : "text-green-600 dark:text-green-400"
+                        }
+                      >
                         {tc.phase}
                       </span>
                     </div>
@@ -269,18 +277,20 @@ export default function RunPanel(props: RunPanelProps) {
       {/* Run History */}
       <Show when={selectedTaskId() && (taskRuns() ?? []).length > 0}>
         <div>
-          <h4 class="mb-2 text-sm font-medium text-gray-500">Run History</h4>
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">Run History</h4>
           <div class="space-y-1">
             <For each={taskRuns() ?? []}>
               {(r) => (
-                <div class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm">
+                <div class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm dark:bg-gray-900">
                   <div class="flex items-center gap-2">
                     <span class={`rounded px-1.5 py-0.5 text-xs ${STATUS_COLORS[r.status]}`}>
                       {r.status}
                     </span>
-                    <span class="font-mono text-xs text-gray-400">{r.id.slice(0, 8)}</span>
+                    <span class="font-mono text-xs text-gray-400 dark:text-gray-500">
+                      {r.id.slice(0, 8)}
+                    </span>
                   </div>
-                  <div class="flex gap-3 text-xs text-gray-500">
+                  <div class="flex gap-3 text-xs text-gray-500 dark:text-gray-400">
                     <span>{r.step_count} steps</span>
                     <span>${r.cost_usd.toFixed(4)}</span>
                     <Show when={r.tokens_in > 0 || r.tokens_out > 0}>
@@ -295,12 +305,12 @@ export default function RunPanel(props: RunPanelProps) {
                       <span>{r.deliver_mode}</span>
                     </Show>
                     <Show when={r.error}>
-                      <span class="text-red-500" title={r.error}>
+                      <span class="text-red-500 dark:text-red-400" title={r.error}>
                         error
                       </span>
                     </Show>
                     <button
-                      class="text-blue-600 hover:text-blue-800"
+                      class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                       onClick={(e) => {
                         e.stopPropagation();
                         setTrajectoryRunId((prev) => (prev === r.id ? null : r.id));

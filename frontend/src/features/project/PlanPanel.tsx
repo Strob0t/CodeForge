@@ -35,20 +35,20 @@ const PROTOCOL_OPTIONS: { value: PlanProtocol; label: string; description: strin
 ];
 
 const PLAN_STATUS_COLORS: Record<PlanStatus, string> = {
-  pending: "bg-gray-100 text-gray-700",
-  running: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  cancelled: "bg-yellow-100 text-yellow-700",
+  pending: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
+  running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  completed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  cancelled: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
 };
 
 const STEP_STATUS_COLORS: Record<PlanStepStatus, string> = {
-  pending: "bg-gray-100 text-gray-700",
-  running: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  skipped: "bg-gray-100 text-gray-500",
-  cancelled: "bg-yellow-100 text-yellow-700",
+  pending: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
+  running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  completed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  skipped: "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400",
+  cancelled: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
 };
 
 export default function PlanPanel(props: PlanPanelProps) {
@@ -194,7 +194,7 @@ export default function PlanPanel(props: PlanPanelProps) {
   const agentName = (id: string) => props.agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Execution Plans</h3>
         <div class="flex gap-2">
@@ -221,15 +221,17 @@ export default function PlanPanel(props: PlanPanelProps) {
 
       {/* Decompose Feature Form */}
       <Show when={showDecompose()}>
-        <div class="mb-4 rounded border border-purple-200 bg-purple-50 p-4">
-          <p class="mb-3 text-xs text-gray-600">
+        <div class="mb-4 rounded border border-purple-200 bg-purple-50 p-4 dark:border-purple-700 dark:bg-purple-900/20">
+          <p class="mb-3 text-xs text-gray-600 dark:text-gray-400">
             Describe a feature and let the meta-agent decompose it into subtasks with an execution
             plan.
           </p>
           <div class="mb-3">
-            <label class="mb-1 block text-xs font-medium text-gray-600">Feature Description</label>
+            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+              Feature Description
+            </label>
             <textarea
-              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+              class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
               rows={3}
               value={feature()}
               onInput={(e) => setFeature(e.currentTarget.value)}

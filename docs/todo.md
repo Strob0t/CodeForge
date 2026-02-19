@@ -679,13 +679,21 @@
 
 ### 10A. Theme System (Dark/Light Mode Toggle)
 
-- [ ] Define CSS custom properties for color tokens (bg-primary, bg-surface, text-primary, border, etc.)
-- [ ] Implement Tailwind `dark:` variants on all existing components (~15 files in `frontend/src/features/`)
-- [ ] Theme toggle component in Sidebar or TopBar
-- [ ] localStorage persistence for user preference
-- [ ] System preference detection via `prefers-color-scheme` media query
-- [ ] Formalize 4-color agent status schema as design tokens (green=running, yellow=waiting, red=error, blue=planning)
-- [ ] Customization hooks for branding (CSS custom property overrides)
+- [x] (2026-02-19) Define CSS custom properties for color tokens (bg-primary, bg-surface, text-primary, border, etc.)
+  - `:root` and `.dark` blocks in `index.css` with 17 design tokens each
+  - Surface, border, text, accent, and agent status tokens
+- [x] (2026-02-19) Implement Tailwind `dark:` variants on all existing components (~18 files)
+  - `@custom-variant dark (&:where(.dark, .dark *));` for Tailwind CSS v4 class-based dark mode
+  - All components: App, Dashboard, ProjectCard, CostDashboard, ModelsPage, AgentPanel, TaskPanel, LiveOutput, RunPanel, PlanPanel, PolicyPanel, ProjectDetailPage, RepoMapPanel, RetrievalPanel, RoadmapPanel, TrajectoryPanel, Toast
+- [x] (2026-02-19) Theme toggle component in Sidebar
+  - `ThemeProvider.tsx`: ThemeProvider context + ThemeToggle button (sun/moon/gear icons)
+  - Cycles through light -> dark -> system
+- [x] (2026-02-19) localStorage persistence for user preference (key: `codeforge-theme`)
+- [x] (2026-02-19) System preference detection via `prefers-color-scheme` media query
+  - `window.matchMedia` listener for real-time system preference changes
+- [x] (2026-02-19) Formalize 5-color agent status schema as design tokens
+  - `--cf-status-running` (blue), `--cf-status-idle` (green), `--cf-status-waiting` (yellow), `--cf-status-error` (red), `--cf-status-planning` (blue)
+- [x] (2026-02-19) Customization hooks for branding (CSS custom property overrides in `:root`)
 
 ### 10B. i18n (Internationalization)
 

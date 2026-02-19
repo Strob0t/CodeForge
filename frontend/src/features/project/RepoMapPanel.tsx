@@ -47,7 +47,7 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
   };
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4">
+    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-lg font-semibold">Repo Map</h3>
         <button
@@ -60,14 +60,19 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
       </div>
 
       <Show when={error()}>
-        <div class="mb-3 rounded bg-red-50 p-2 text-sm text-red-600">{error()}</div>
+        <div class="mb-3 rounded bg-red-50 p-2 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">
+          {error()}
+        </div>
       </Show>
 
-      <Show when={!repoMap.loading} fallback={<p class="text-sm text-gray-400">Loading...</p>}>
+      <Show
+        when={!repoMap.loading}
+        fallback={<p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>}
+      >
         <Show
           when={repoMap()}
           fallback={
-            <p class="text-sm text-gray-500">
+            <p class="text-sm text-gray-500 dark:text-gray-400">
               No repo map generated yet. Click "Generate" to create one.
             </p>
           }
@@ -76,34 +81,34 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
             <>
               {/* Stats */}
               <div class="mb-3 grid grid-cols-3 gap-3">
-                <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center">
-                  <div class="text-lg font-semibold text-gray-800">
+                <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
+                  <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(rm().file_count)}
                   </div>
-                  <div class="text-xs text-gray-500">Files</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Files</div>
                 </div>
-                <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center">
-                  <div class="text-lg font-semibold text-gray-800">
+                <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
+                  <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(rm().symbol_count)}
                   </div>
-                  <div class="text-xs text-gray-500">Symbols</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Symbols</div>
                 </div>
-                <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center">
-                  <div class="text-lg font-semibold text-gray-800">
+                <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
+                  <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatNumber(rm().token_count)}
                   </div>
-                  <div class="text-xs text-gray-500">Tokens</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Tokens</div>
                 </div>
               </div>
 
               {/* Languages */}
               <Show when={rm().languages.length > 0}>
                 <div class="mb-3">
-                  <span class="mr-2 text-xs text-gray-500">Languages:</span>
+                  <span class="mr-2 text-xs text-gray-500 dark:text-gray-400">Languages:</span>
                   <div class="inline-flex flex-wrap gap-1">
                     <For each={rm().languages}>
                       {(lang) => (
-                        <span class="rounded bg-teal-50 px-2 py-0.5 text-xs text-teal-700">
+                        <span class="rounded bg-teal-50 px-2 py-0.5 text-xs text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
                           {lang}
                         </span>
                       )}
@@ -113,21 +118,21 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
               </Show>
 
               {/* Version and timestamp */}
-              <div class="mb-3 text-xs text-gray-400">
+              <div class="mb-3 text-xs text-gray-400 dark:text-gray-500">
                 Version {rm().version} — updated {new Date(rm().updated_at).toLocaleString()}
               </div>
 
               {/* Collapsible map text */}
               <div>
                 <button
-                  class="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800"
+                  class="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
                   onClick={() => setExpanded((v) => !v)}
                 >
                   <span class="font-mono text-xs">{expanded() ? "v" : ">"}</span>
                   {expanded() ? "Hide map" : "Show map"}
                 </button>
                 <Show when={expanded()}>
-                  <pre class="mt-2 max-h-96 overflow-auto rounded border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
+                  <pre class="mt-2 max-h-96 overflow-auto rounded border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300">
                     {rm().map_text}
                   </pre>
                 </Show>

@@ -118,10 +118,22 @@ export function ToastProvider(props: ParentProps): JSX.Element {
 // ---------------------------------------------------------------------------
 
 const levelStyles: Record<ToastLevel, { bg: string; icon: string }> = {
-  success: { bg: "border-green-400 bg-green-50 text-green-800", icon: "\u2713" },
-  error: { bg: "border-red-400 bg-red-50 text-red-800", icon: "\u2717" },
-  warning: { bg: "border-yellow-400 bg-yellow-50 text-yellow-800", icon: "\u26A0" },
-  info: { bg: "border-blue-400 bg-blue-50 text-blue-800", icon: "\u2139" },
+  success: {
+    bg: "border-green-400 bg-green-50 text-green-800 dark:border-green-600 dark:bg-green-900/30 dark:text-green-300",
+    icon: "\u2713",
+  },
+  error: {
+    bg: "border-red-400 bg-red-50 text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-300",
+    icon: "\u2717",
+  },
+  warning: {
+    bg: "border-yellow-400 bg-yellow-50 text-yellow-800 dark:border-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-300",
+    icon: "\u26A0",
+  },
+  info: {
+    bg: "border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-300",
+    icon: "\u2139",
+  },
 };
 
 function ToastItem(props: { toast: Toast; onDismiss: () => void }): JSX.Element {
@@ -130,7 +142,7 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }): JSX.Element 
   return (
     <div
       role={props.toast.level === "error" ? "alert" : "status"}
-      class={`pointer-events-auto flex items-start gap-2 rounded-lg border-l-4 p-3 shadow-md ${style().bg}`}
+      class={`pointer-events-auto flex items-start gap-2 rounded-lg border-l-4 p-3 shadow-md dark:shadow-gray-900/30 ${style().bg}`}
     >
       <span class="mt-0.5 text-sm font-bold" aria-hidden="true">
         {style().icon}
