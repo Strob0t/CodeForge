@@ -901,7 +901,13 @@
 
 ### Developer Tools
 
-- [ ] Vector search simulator / "What does the agent know?" debug tool
+- [x] (2026-02-19) Vector search simulator / "What does the agent know?" debug tool
+  - `SearchSimulator` component on Context tab, uses hybrid + agent + graph search APIs
+  - Adjustable BM25/semantic weight sliders, top-K, token budget
+  - Token budget progress bar with per-result token estimation and budget fit indicator
+  - Agent mode toggle (query expansion), optional GraphRAG cross-reference
+  - Results colored green/red based on budget fit, BM25 + semantic rank columns
+  - 28 new i18n keys (EN + DE) for simulator
 - [x] (2026-02-19) Diff-review / code preview for agent output (before/after comparison)
   - `DiffPreview` reusable component: parses unified diff into files/hunks/lines
   - Color-coded: green (additions), red (removals), blue (hunk headers), gray (context)

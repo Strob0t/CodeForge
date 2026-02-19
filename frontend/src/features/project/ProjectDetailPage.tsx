@@ -19,6 +19,7 @@ import RepoMapPanel from "./RepoMapPanel";
 import RetrievalPanel from "./RetrievalPanel";
 import RoadmapPanel from "./RoadmapPanel";
 import RunPanel from "./RunPanel";
+import { SearchSimulator } from "./SearchSimulator";
 import TaskPanel from "./TaskPanel";
 
 type Tab = "overview" | "tasks" | "agents" | "context" | "costs";
@@ -418,6 +419,7 @@ export default function ProjectDetailPage() {
             <div class="space-y-6">
               <RepoMapPanel projectId={params.id} />
               <RetrievalPanel projectId={params.id} />
+              <SearchSimulator projectId={params.id} />
             </div>
           </Show>
         </Show>

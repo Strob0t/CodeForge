@@ -1110,3 +1110,14 @@
   - Shows MultiTerminal when 2+ agents have output, falls back to single LiveOutput
   - Responsive grid: 1 col default, 2 cols on lg (<=4 agents), 3 cols on xl (>4 agents)
   - 7 new i18n keys (EN + DE) in `multiTerminal.*` namespace
+
+### 11K. Vector Search Simulator (COMPLETED)
+
+- [x] (2026-02-19) "What does the agent know?" debug tool
+  - `SearchSimulator` component on Context tab alongside RepoMapPanel and RetrievalPanel
+  - Uses hybrid search, agent search (query expansion), and GraphRAG APIs
+  - Adjustable parameters: BM25/semantic weight sliders (linked), top-K, token budget
+  - Token budget progress bar with per-result token estimation (~4 chars/token)
+  - Results color-coded green/red based on budget fit, BM25 rank + semantic rank columns
+  - Agent mode toggle enables query expansion, GraphRAG toggle adds graph results
+  - 28 new i18n keys (EN + DE) in `simulator.*` namespace

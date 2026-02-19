@@ -78,7 +78,7 @@ function TerminalTile(props: {
         <button
           type="button"
           class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          onClick={props.onToggle}
+          onClick={() => props.onToggle()}
           aria-label={
             props.expanded
               ? t("multiTerminal.collapse")
