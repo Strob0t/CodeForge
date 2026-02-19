@@ -727,4 +727,28 @@
   - Vite proxy fix: `/health` route added to `vite.config.ts`
   - `scripts/test.sh e2e` command with port checks (8080 + 3000)
   - `@playwright/test` devDependency, tsconfig/eslint updated for `e2e/` directory
+
+## Phase 10 — Frontend Foundations (IN PROGRESS)
+
+### 10F. Toast/Notification System (COMPLETED)
+
+- [x] (2026-02-19) `frontend/src/components/Toast.tsx` — ToastProvider + ToastItem
+  - Context-based API: `useToast()` returns `{ show, dismiss }`
+  - 4 toast levels: success, error, warning, info (color-coded)
+  - Auto-dismiss (5s default), max 3 simultaneous, oldest eviction
+  - Zero dependencies: SolidJS `createSignal` + `Portal`
+  - WCAG: `aria-live="polite"`, `role="alert"` for errors, `role="status"` for others
+- Remaining: Wire toasts into API-calling panels
+
+### 10G. Error Boundary + Offline Detection (COMPLETED)
+
+- [x] (2026-02-19) SolidJS `ErrorBoundary` in `App.tsx` with fallback UI + retry button
+- [x] (2026-02-19) `frontend/src/components/OfflineBanner.tsx` — online/offline + WS status banner
+  - `navigator.onLine` + window online/offline events + WebSocket connection status
+  - Yellow banner with pulsing indicator when disconnected
+- [x] (2026-02-19) API retry logic in `frontend/src/api/client.ts`
+  - Exponential backoff (1s/2s/4s), max 3 retries
+  - Only idempotent methods (GET/PUT/DELETE) on 502/503/504
+  - Network failure (TypeError) retry for all methods
+- Remaining: Graceful degradation (cached data, action queue)
   - `.gitignore` updated for Playwright artifacts (e2e-results/, e2e-report/, test-results/)

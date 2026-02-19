@@ -711,22 +711,23 @@
 
 ### 10F. Toast/Notification System
 
-- [ ] Global toast container (top-right, max 3 simultaneous, stacked)
-- [ ] Toast types: success (green), error (red), warning (yellow), info (blue)
-- [ ] Auto-dismiss (5s default), manually closable
-- [ ] Zero external dependencies — SolidJS `createSignal` + `Portal`
+- [x] (2026-02-19) Global toast container (top-right, max 3 simultaneous, stacked)
+- [x] (2026-02-19) Toast types: success (green), error (red), warning (yellow), info (blue)
+- [x] (2026-02-19) Auto-dismiss (5s default), manually closable
+- [x] (2026-02-19) Zero external dependencies — SolidJS `createSignal` + `Portal`
 - [ ] Integration points: API errors, WebSocket events (budget alerts, run complete, agent status)
-- [ ] WCAG: `aria-live="polite"` for info/success, `role="alert"` for errors
-- [ ] Files: new `frontend/src/components/Toast.tsx`, `App.tsx` (provider), all API-calling panels
+- [x] (2026-02-19) WCAG: `aria-live="polite"` for info/success, `role="alert"` for errors
+- [x] (2026-02-19) Files: new `frontend/src/components/Toast.tsx`, `App.tsx` (provider)
+- [ ] Wire toasts into all API-calling panels (RunPanel, AgentPanel, RoadmapPanel, etc.)
 
 ### 10G. Error Boundary + Offline Detection
 
-- [ ] SolidJS `ErrorBoundary` around App root with fallback UI + retry button
-- [ ] Online/Offline detection: `navigator.onLine` + WebSocket connection status
-- [ ] Visible reconnect banner when connection lost (WebSocket already has auto-reconnect)
-- [ ] API client: retry logic with exponential backoff (max 3 retries, 1s/2s/4s)
+- [x] (2026-02-19) SolidJS `ErrorBoundary` around App root with fallback UI + retry button
+- [x] (2026-02-19) Online/Offline detection: `navigator.onLine` + WebSocket connection status
+- [x] (2026-02-19) Visible reconnect banner when connection lost (WebSocket already has auto-reconnect)
+- [x] (2026-02-19) API client: retry logic with exponential backoff (max 3 retries, 1s/2s/4s)
 - [ ] Graceful degradation: show cached data when offline, queue actions for retry
-- [ ] Files: `App.tsx`, `api/client.ts`, `api/websocket.ts`, new `frontend/src/components/OfflineBanner.tsx`
+- [x] (2026-02-19) Files: `App.tsx`, `api/client.ts`, new `frontend/src/components/OfflineBanner.tsx`
 
 ### Dependencies
 

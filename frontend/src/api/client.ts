@@ -60,6 +60,10 @@ import type {
 
 const BASE = "/api/v1";
 
+const MAX_RETRIES = 3;
+const RETRY_BASE_MS = 1000;
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+
 class FetchError extends Error {
   constructor(
     public readonly status: number,
@@ -70,26 +74,57 @@ class FetchError extends Error {
   }
 }
 
+function isRetryable(status: number, method: string): boolean {
+  // Only retry on server errors for idempotent methods
+  if (method === "POST") return false;
+  return RETRYABLE_STATUSES.has(status);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  });
+  const method = init?.method ?? "GET";
+  let lastError: unknown;
 
-  if (!res.ok) {
-    const body = (await res.json()) as ApiError;
-    throw new FetchError(res.status, body);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          ...init?.headers,
+        },
+      });
+
+      if (!res.ok) {
+        const body = (await res.json()) as ApiError;
+        const err = new FetchError(res.status, body);
+
+        if (attempt < MAX_RETRIES && isRetryable(res.status, method)) {
+          lastError = err;
+          await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
+          continue;
+        }
+
+        throw err;
+      }
+
+      // 204 No Content
+      if (res.status === 204) {
+        return undefined as T;
+      }
+
+      return res.json() as Promise<T>;
+    } catch (err) {
+      // Network errors (fetch throws TypeError on network failure)
+      if (err instanceof TypeError && attempt < MAX_RETRIES) {
+        lastError = err;
+        await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
+        continue;
+      }
+      throw err;
+    }
   }
 
-  // 204 No Content
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  return res.json() as Promise<T>;
+  throw lastError;
 }
 
 export const api = {
