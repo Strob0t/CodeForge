@@ -74,6 +74,7 @@ export default function TaskPanel(props: TaskPanelProps) {
           </Show>
         </div>
         <button
+          type="button"
           class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
           onClick={() => setShowForm((v) => !v)}
         >
@@ -88,27 +89,39 @@ export default function TaskPanel(props: TaskPanelProps) {
         >
           <div class="space-y-3">
             <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400">
-                Title
+              <label
+                for="task-title"
+                class="block text-xs font-medium text-gray-600 dark:text-gray-400"
+              >
+                Title <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
               </label>
               <input
+                id="task-title"
                 type="text"
                 value={title()}
                 onInput={(e) => setTitle(e.currentTarget.value)}
                 class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
                 placeholder="Fix login bug"
+                aria-required="true"
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400">
-                Prompt
+              <label
+                for="task-prompt"
+                class="block text-xs font-medium text-gray-600 dark:text-gray-400"
+              >
+                Prompt <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
               </label>
               <textarea
+                id="task-prompt"
                 value={prompt()}
                 onInput={(e) => setPrompt(e.currentTarget.value)}
                 class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
                 rows={3}
                 placeholder="Describe the task for the agent..."
+                aria-required="true"
               />
             </div>
           </div>
@@ -133,7 +146,17 @@ export default function TaskPanel(props: TaskPanelProps) {
               <div class="rounded border border-gray-100 dark:border-gray-700">
                 <div
                   class="flex cursor-pointer items-center justify-between p-3"
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={expanded() === t.id}
+                  aria-label={`Task: ${t.title}, status: ${t.status}`}
                   onClick={() => setExpanded((prev) => (prev === t.id ? null : t.id))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setExpanded((prev) => (prev === t.id ? null : t.id));
+                    }
+                  }}
                 >
                   <div class="flex items-center gap-2">
                     <span class="font-medium">{t.title}</span>

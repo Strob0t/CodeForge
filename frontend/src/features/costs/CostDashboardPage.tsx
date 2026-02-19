@@ -71,11 +71,21 @@ export default function CostDashboardPage() {
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-gray-100 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400">
-                <th class="pb-2 font-medium">Project</th>
-                <th class="pb-2 text-right font-medium">Cost</th>
-                <th class="pb-2 text-right font-medium">Tokens In</th>
-                <th class="pb-2 text-right font-medium">Tokens Out</th>
-                <th class="pb-2 text-right font-medium">Runs</th>
+                <th scope="col" class="pb-2 font-medium">
+                  Project
+                </th>
+                <th scope="col" class="pb-2 text-right font-medium">
+                  Cost
+                </th>
+                <th scope="col" class="pb-2 text-right font-medium">
+                  Tokens In
+                </th>
+                <th scope="col" class="pb-2 text-right font-medium">
+                  Tokens Out
+                </th>
+                <th scope="col" class="pb-2 text-right font-medium">
+                  Runs
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -185,7 +195,12 @@ export function ProjectCostSection(props: { projectId: string }) {
           <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
             Daily Cost (last 30 days)
           </h4>
-          <div class="flex items-end gap-0.5" style={{ height: "80px" }}>
+          <div
+            class="flex items-end gap-0.5"
+            style={{ height: "80px" }}
+            role="img"
+            aria-label="Daily cost bar chart for the last 30 days"
+          >
             <For each={daily() ?? []}>
               {(d: DailyCost) => {
                 const pct = () => Math.max((d.cost_usd / maxDailyCost()) * 100, 2);

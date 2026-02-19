@@ -204,20 +204,33 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
           <div>
             <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">No roadmap yet.</p>
             <div class="flex flex-col gap-2">
-              <input
-                type="text"
-                class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                placeholder="Roadmap title"
-                value={title()}
-                onInput={(e) => setTitle(e.currentTarget.value)}
-              />
-              <input
-                type="text"
-                class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-                placeholder="Description (optional)"
-                value={description()}
-                onInput={(e) => setDescription(e.currentTarget.value)}
-              />
+              <div>
+                <label for="roadmap-title" class="sr-only">
+                  Roadmap title (required)
+                </label>
+                <input
+                  id="roadmap-title"
+                  type="text"
+                  class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                  placeholder="Roadmap title"
+                  value={title()}
+                  onInput={(e) => setTitle(e.currentTarget.value)}
+                  aria-required="true"
+                />
+              </div>
+              <div>
+                <label for="roadmap-description" class="sr-only">
+                  Roadmap description
+                </label>
+                <input
+                  id="roadmap-description"
+                  type="text"
+                  class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                  placeholder="Description (optional)"
+                  value={description()}
+                  onInput={(e) => setDescription(e.currentTarget.value)}
+                />
+              </div>
               <div class="flex gap-2">
                 <button
                   class="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
@@ -270,8 +283,10 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   AI View
                 </button>
                 <button
+                  type="button"
                   class="rounded bg-red-50 px-3 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
                   onClick={handleDeleteRoadmap}
+                  aria-label="Delete roadmap"
                 >
                   Delete
                 </button>
@@ -313,6 +328,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     class="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                     value={selectedPM()}
                     onChange={(e) => setSelectedPM(e.currentTarget.value)}
+                    aria-label="Select PM provider"
                   >
                     <option value="">Select provider...</option>
                     <For each={pmProviders() ?? []}>
@@ -325,6 +341,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     placeholder="Project ref (e.g. owner/repo)"
                     value={pmProjectRef()}
                     onInput={(e) => setPmProjectRef(e.currentTarget.value)}
+                    aria-label="PM project reference"
                   />
                   <div class="flex gap-2">
                     <button
@@ -436,6 +453,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                         placeholder="Feature title"
                         value={featureTitle()}
                         onInput={(e) => setFeatureTitle(e.currentTarget.value)}
+                        aria-label="New feature title"
                       />
                       <button
                         class="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
@@ -477,6 +495,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   placeholder="Milestone title"
                   value={milestoneTitle()}
                   onInput={(e) => setMilestoneTitle(e.currentTarget.value)}
+                  aria-label="New milestone title"
                 />
                 <button
                   class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"

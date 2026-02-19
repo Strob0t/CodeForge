@@ -214,6 +214,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                   }
                   value={query()}
                   onInput={(e) => setQuery(e.currentTarget.value)}
+                  aria-label="Search code in retrieval index"
                 />
                 <button
                   type="button"
@@ -232,6 +233,8 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                       ? "Agent search: LLM expands queries and re-ranks"
                       : "Standard hybrid search"
                   }
+                  aria-label={useAgent() ? "Switch to standard search" : "Switch to agent search"}
+                  aria-pressed={useAgent()}
                 >
                   {useAgent() ? "Agent" : "Standard"}
                 </button>
@@ -283,10 +286,15 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                 <div class="rounded border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700">
                   <div class="flex items-center justify-between">
                     <button
+                      type="button"
                       class="flex items-center gap-2 text-sm font-medium text-gray-800 hover:text-indigo-700 dark:text-gray-200 dark:hover:text-indigo-400"
                       onClick={() => toggleExpanded(idx())}
+                      aria-expanded={!!expanded()[idx()]}
+                      aria-label={`${expanded()[idx()] ? "Collapse" : "Expand"} result: ${hit.filepath}`}
                     >
-                      <span class="font-mono text-xs">{expanded()[idx()] ? "v" : ">"}</span>
+                      <span class="font-mono text-xs" aria-hidden="true">
+                        {expanded()[idx()] ? "v" : ">"}
+                      </span>
                       <span class="font-mono">
                         {hit.filepath}:{hit.start_line}-{hit.end_line}
                       </span>

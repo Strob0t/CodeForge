@@ -68,12 +68,15 @@ export default function ModelsPage() {
                   ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
                   : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
               }`}
+              role="status"
+              aria-label={`LiteLLM status: ${health()?.status ?? "unknown"}`}
             >
               LiteLLM: {health()?.status ?? "unknown"}
             </span>
           </Show>
         </div>
         <button
+          type="button"
           class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           onClick={() => setShowForm((v) => !v)}
         >
@@ -82,7 +85,10 @@ export default function ModelsPage() {
       </div>
 
       <Show when={error()}>
-        <div class="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400">
+        <div
+          class="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400"
+          role="alert"
+        >
           {error()}
         </div>
       </Show>
@@ -91,37 +97,54 @@ export default function ModelsPage() {
         <form
           onSubmit={handleAdd}
           class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5"
+          aria-label="Add model"
         >
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Display Name *
+              <label
+                for="model-display-name"
+                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Display Name <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
               </label>
               <input
+                id="model-display-name"
                 type="text"
                 value={modelName()}
                 onInput={(e) => setModelName(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="gpt-4o"
+                aria-required="true"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                LiteLLM Model *
+              <label
+                for="model-litellm-id"
+                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                LiteLLM Model <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
               </label>
               <input
+                id="model-litellm-id"
                 type="text"
                 value={litellmModel()}
                 onInput={(e) => setLitellmModel(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="openai/gpt-4o"
+                aria-required="true"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                for="model-api-base"
+                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 API Base (optional)
               </label>
               <input
+                id="model-api-base"
                 type="text"
                 value={apiBase()}
                 onInput={(e) => setApiBase(e.currentTarget.value)}
@@ -130,10 +153,14 @@ export default function ModelsPage() {
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                for="model-api-key"
+                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 API Key (optional)
               </label>
               <input
+                id="model-api-key"
                 type="password"
                 value={apiKey()}
                 onInput={(e) => setApiKey(e.currentTarget.value)}
@@ -202,8 +229,10 @@ function ModelCard(props: ModelCardProps) {
         </div>
         <Show when={props.model.model_id}>
           <button
+            type="button"
             class="rounded px-2 py-1 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400"
             onClick={() => props.onDelete(props.model.model_id ?? "")}
+            aria-label={`Delete model ${props.model.model_name}`}
           >
             Delete
           </button>

@@ -62,3 +62,54 @@
   --cf-status-error: #f87171; /* red-400   */
   --cf-status-planning: #60a5fa; /* blue-400  */
 }
+
+/* ---------------------------------------------------------------------------
+   Focus-visible — consistent keyboard focus indicator (WCAG 2.4.7)
+   --------------------------------------------------------------------------- */
+
+*:focus-visible {
+  outline: 2px solid var(--cf-accent);
+  outline-offset: 2px;
+}
+
+/* Remove inner dotted outline in Firefox */
+*::-moz-focus-inner {
+  border: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Skip-to-content link — hidden until focused (WCAG 2.4.1)
+   --------------------------------------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: var(--cf-accent);
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 0 0 6px 6px;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Reduced motion — disable animations/transitions (WCAG 2.3.3)
+   --------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

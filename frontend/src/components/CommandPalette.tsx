@@ -192,6 +192,10 @@ export function CommandPalette(): JSX.Element {
     } else if (e.key === "Enter") {
       e.preventDefault();
       executeSelected();
+    } else if (e.key === "Tab") {
+      // Trap focus inside the palette — prevent Tab from escaping
+      e.preventDefault();
+      inputRef?.focus();
     }
   }
 

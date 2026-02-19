@@ -34,7 +34,7 @@ export function OfflineBanner(props: { wsConnected: () => boolean }): JSX.Elemen
         role="alert"
         class="flex items-center gap-2 bg-yellow-500 px-4 py-2 text-sm font-medium text-white"
       >
-        <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-white" />
+        <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-white" aria-hidden="true" />
         {label()}
       </div>
     </Show>

@@ -237,7 +237,10 @@ export default function ProjectDetailPage() {
             </div>
 
             <Show when={error()}>
-              <div class="mb-4 rounded bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400">
+              <div
+                class="mb-4 rounded bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400"
+                role="alert"
+              >
                 {error()}
               </div>
             </Show>
@@ -245,15 +248,21 @@ export default function ProjectDetailPage() {
             {/* Budget Alert Banner */}
             <Show when={budgetAlert()}>
               {(alert) => (
-                <div class="mb-4 flex items-center justify-between rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-300">
+                <div
+                  class="mb-4 flex items-center justify-between rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-300"
+                  role="alert"
+                  aria-live="assertive"
+                >
                   <span>
                     Budget alert: run {alert().run_id.slice(0, 8)} has reached{" "}
                     {alert().percentage.toFixed(0)}% of budget (${alert().cost_usd.toFixed(4)} / $
                     {alert().max_cost.toFixed(2)})
                   </span>
                   <button
+                    type="button"
                     class="ml-4 text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300"
                     onClick={() => setBudgetAlert(null)}
+                    aria-label="Dismiss budget alert"
                   >
                     Dismiss
                   </button>
@@ -274,9 +283,11 @@ export default function ProjectDetailPage() {
                     </p>
                     <Show when={p().repo_url}>
                       <button
+                        type="button"
                         class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                         onClick={handleClone}
                         disabled={cloning()}
+                        aria-label="Clone repository"
                       >
                         {cloning() ? "Cloning..." : "Clone Repository"}
                       </button>
@@ -287,7 +298,7 @@ export default function ProjectDetailPage() {
                 {/* Git Status */}
                 <Show when={gitStatus()}>
                   {(gs) => (
-                    <div class="mb-4 grid grid-cols-2 gap-4 text-sm">
+                    <div class="mb-4 grid grid-cols-2 gap-4 text-sm" aria-live="polite">
                       <div>
                         <span class="text-gray-500 dark:text-gray-400">Branch:</span>{" "}
                         <span class="font-mono font-medium">{gs().branch}</span>
@@ -323,15 +334,19 @@ export default function ProjectDetailPage() {
                 {/* Git Actions */}
                 <div class="flex gap-2">
                   <button
+                    type="button"
                     class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
                     onClick={handlePull}
                     disabled={pulling()}
+                    aria-label="Pull latest changes from remote"
                   >
                     {pulling() ? "Pulling..." : "Pull"}
                   </button>
                   <button
+                    type="button"
                     class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600"
                     onClick={() => refetchGitStatus()}
+                    aria-label="Refresh git status"
                   >
                     Refresh
                   </button>
@@ -347,6 +362,7 @@ export default function ProjectDetailPage() {
                       <For each={branches() ?? []}>
                         {(b) => (
                           <button
+                            type="button"
                             class={`rounded px-2 py-1 text-xs ${
                               b.current
                                 ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
@@ -354,6 +370,10 @@ export default function ProjectDetailPage() {
                             }`}
                             onClick={() => !b.current && handleCheckout(b.name)}
                             disabled={b.current}
+                            aria-label={
+                              b.current ? `Current branch: ${b.name}` : `Switch to branch ${b.name}`
+                            }
+                            aria-current={b.current ? "true" : undefined}
                           >
                             {b.name}
                             {b.current ? " (current)" : ""}

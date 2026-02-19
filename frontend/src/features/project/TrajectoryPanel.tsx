@@ -103,22 +103,28 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       {/* Filters */}
       <div class="mb-4 flex flex-wrap gap-2">
         <button
+          type="button"
           class={`rounded px-2 py-1 text-xs ${!typeFilter() ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
           onClick={() => {
             setTypeFilter("");
             setCursor("");
           }}
+          aria-pressed={!typeFilter()}
+          aria-label="Filter: All event types"
         >
           All
         </button>
         <For each={EVENT_TYPES}>
           {(t) => (
             <button
+              type="button"
               class={`rounded px-2 py-1 text-xs ${typeFilter() === t ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
               onClick={() => {
                 setTypeFilter(t);
                 setCursor("");
               }}
+              aria-pressed={typeFilter() === t}
+              aria-label={`Filter: ${t.replace("agent.", "")} events`}
             >
               {t.replace("agent.", "")}
             </button>
@@ -136,11 +142,22 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
             {(ev: AgentEvent) => (
               <div
                 class="cursor-pointer rounded border border-gray-100 hover:border-gray-200 dark:border-gray-700 dark:hover:border-gray-600"
+                role="button"
+                tabIndex={0}
+                aria-expanded={expandedId() === ev.id}
+                aria-label={`Event: ${ev.type} at ${new Date(ev.created_at).toLocaleTimeString()}`}
                 onClick={() => toggleExpand(ev.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleExpand(ev.id);
+                  }
+                }}
               >
                 <div class="flex items-center gap-2 px-3 py-2">
                   <span
                     class={`h-2.5 w-2.5 rounded-full ${EVENT_COLORS[ev.type] ?? "bg-gray-300"}`}
+                    aria-hidden="true"
                   />
                   <span class="font-mono text-xs text-gray-600 dark:text-gray-400">{ev.type}</span>
                   <span class="flex-1" />

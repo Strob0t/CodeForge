@@ -227,22 +227,29 @@ export default function PlanPanel(props: PlanPanelProps) {
             plan.
           </p>
           <div class="mb-3">
-            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-              Feature Description
+            <label
+              for="decompose-feature"
+              class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+            >
+              Feature Description <span aria-hidden="true">*</span>
+              <span class="sr-only">(required)</span>
             </label>
             <textarea
+              id="decompose-feature"
               class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
               rows={3}
               value={feature()}
               onInput={(e) => setFeature(e.currentTarget.value)}
               placeholder="Describe the feature to implement..."
+              aria-required="true"
             />
           </div>
           <div class="mb-3">
-            <label class="mb-1 block text-xs font-medium text-gray-600">
+            <label for="decompose-context" class="mb-1 block text-xs font-medium text-gray-600">
               Additional Context (optional)
             </label>
             <textarea
+              id="decompose-context"
               class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
               rows={2}
               value={decomposeContext()}
@@ -252,10 +259,11 @@ export default function PlanPanel(props: PlanPanelProps) {
           </div>
           <div class="mb-3 flex items-center gap-4">
             <div class="flex-1">
-              <label class="mb-1 block text-xs font-medium text-gray-600">
+              <label for="decompose-model" class="mb-1 block text-xs font-medium text-gray-600">
                 Model Override (optional)
               </label>
               <input
+                id="decompose-model"
                 type="text"
                 class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 value={decomposeModel()}
@@ -287,18 +295,26 @@ export default function PlanPanel(props: PlanPanelProps) {
         <div class="mb-4 rounded border border-indigo-200 bg-indigo-50 p-4">
           <div class="mb-3 grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-600">Name</label>
+              <label for="plan-name" class="mb-1 block text-xs font-medium text-gray-600">
+                Name <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
+              </label>
               <input
+                id="plan-name"
                 type="text"
                 class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 value={name()}
                 onInput={(e) => setName(e.currentTarget.value)}
                 placeholder="Plan name"
+                aria-required="true"
               />
             </div>
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-600">Protocol</label>
+              <label for="plan-protocol" class="mb-1 block text-xs font-medium text-gray-600">
+                Protocol
+              </label>
               <select
+                id="plan-protocol"
                 class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 value={protocol()}
                 onChange={(e) => setProtocol(e.currentTarget.value as PlanProtocol)}
@@ -311,8 +327,11 @@ export default function PlanPanel(props: PlanPanelProps) {
           </div>
 
           <div class="mb-3">
-            <label class="mb-1 block text-xs font-medium text-gray-600">Description</label>
+            <label for="plan-description" class="mb-1 block text-xs font-medium text-gray-600">
+              Description
+            </label>
             <input
+              id="plan-description"
               type="text"
               class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
               value={description()}
@@ -323,8 +342,11 @@ export default function PlanPanel(props: PlanPanelProps) {
 
           <Show when={protocol() === "parallel"}>
             <div class="mb-3">
-              <label class="mb-1 block text-xs font-medium text-gray-600">Max Parallel</label>
+              <label for="plan-max-parallel" class="mb-1 block text-xs font-medium text-gray-600">
+                Max Parallel
+              </label>
               <input
+                id="plan-max-parallel"
                 type="number"
                 min="1"
                 max="20"
@@ -358,6 +380,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                     class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
                     value={step.task_id}
                     onChange={(e) => updateStep(idx(), "task_id", e.currentTarget.value)}
+                    aria-label={`Step ${idx() + 1} task`}
                   >
                     <option value="">Select Task</option>
                     <For each={props.tasks}>{(t) => <option value={t.id}>{t.title}</option>}</For>
@@ -366,6 +389,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                     class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
                     value={step.agent_id}
                     onChange={(e) => updateStep(idx(), "agent_id", e.currentTarget.value)}
+                    aria-label={`Step ${idx() + 1} agent`}
                   >
                     <option value="">Select Agent</option>
                     <For each={props.agents}>
@@ -378,8 +402,10 @@ export default function PlanPanel(props: PlanPanelProps) {
                   </select>
                   <Show when={steps().length > 2}>
                     <button
+                      type="button"
                       class="text-xs text-red-500 hover:text-red-700"
                       onClick={() => removeStep(idx())}
+                      aria-label={`Remove step ${idx() + 1}`}
                     >
                       x
                     </button>
@@ -413,7 +439,17 @@ export default function PlanPanel(props: PlanPanelProps) {
                     ? "border-indigo-300 bg-indigo-50"
                     : "border-gray-200 hover:bg-gray-50"
                 }`}
+                role="button"
+                tabIndex={0}
+                aria-expanded={selectedPlanId() === p.id}
+                aria-label={`Plan: ${p.name}, status: ${p.status}`}
                 onClick={() => setSelectedPlanId(selectedPlanId() === p.id ? null : p.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedPlanId(selectedPlanId() === p.id ? null : p.id);
+                  }
+                }}
               >
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
@@ -428,22 +464,26 @@ export default function PlanPanel(props: PlanPanelProps) {
                   <div class="flex gap-1">
                     <Show when={p.status === "pending"}>
                       <button
+                        type="button"
                         class="rounded bg-green-600 px-2 py-0.5 text-xs text-white hover:bg-green-700"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleStart(p.id);
                         }}
+                        aria-label={`Start plan ${p.name}`}
                       >
                         Start
                       </button>
                     </Show>
                     <Show when={p.status === "running"}>
                       <button
+                        type="button"
                         class="rounded bg-red-600 px-2 py-0.5 text-xs text-white hover:bg-red-700"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleCancel(p.id);
                         }}
+                        aria-label={`Cancel plan ${p.name}`}
                       >
                         Cancel
                       </button>

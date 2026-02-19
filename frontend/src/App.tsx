@@ -46,17 +46,23 @@ export default function App(props: RouteSectionProps) {
       <ThemeProvider>
         <ToastProvider>
           <CommandPalette />
+          <a href="#main-content" class="skip-link">
+            Skip to main content
+          </a>
           <div class="flex h-screen flex-col bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
             <OfflineBanner wsConnected={connected} />
 
             <div class="flex flex-1 overflow-hidden">
-              <aside class="flex w-64 flex-col border-r border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+              <aside
+                class="flex w-64 flex-col border-r border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
+                aria-label="Sidebar"
+              >
                 <div class="p-4">
                   <h1 class="text-xl font-bold">CodeForge</h1>
                   <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">v0.1.0</p>
                 </div>
 
-                <nav class="flex-1 px-3">
+                <nav class="flex-1 px-3" aria-label="Main navigation">
                   <A
                     href="/"
                     class="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -83,22 +89,34 @@ export default function App(props: RouteSectionProps) {
 
                 <div class="border-t border-gray-200 p-4 dark:border-gray-700">
                   <ThemeToggle />
-                  <div class="mt-2 flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+                  <div
+                    class="mt-2 flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500"
+                    aria-live="polite"
+                  >
                     <span
                       class={`inline-block h-2 w-2 rounded-full ${connected() ? "bg-green-400" : "bg-red-400"}`}
+                      aria-hidden="true"
                     />
-                    <span>WS {connected() ? "connected" : "disconnected"}</span>
+                    <span>WebSocket: {connected() ? "connected" : "disconnected"}</span>
                   </div>
                   <Show when={health()}>
-                    <div class="mt-1 flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
-                      <span class="inline-block h-2 w-2 rounded-full bg-green-400" />
-                      <span>API {health()?.status}</span>
+                    <div
+                      class="mt-1 flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500"
+                      aria-live="polite"
+                    >
+                      <span
+                        class="inline-block h-2 w-2 rounded-full bg-green-400"
+                        aria-hidden="true"
+                      />
+                      <span>API: {health()?.status}</span>
                     </div>
                   </Show>
                 </div>
               </aside>
 
-              <main class="flex-1 overflow-auto p-6">{props.children}</main>
+              <main id="main-content" class="flex-1 overflow-auto p-6">
+                {props.children}
+              </main>
             </div>
           </div>
         </ToastProvider>

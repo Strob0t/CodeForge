@@ -125,10 +125,15 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
               {/* Collapsible map text */}
               <div>
                 <button
+                  type="button"
                   class="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
                   onClick={() => setExpanded((v) => !v)}
+                  aria-expanded={expanded()}
+                  aria-label={expanded() ? "Hide repository map" : "Show repository map"}
                 >
-                  <span class="font-mono text-xs">{expanded() ? "v" : ">"}</span>
+                  <span class="font-mono text-xs" aria-hidden="true">
+                    {expanded() ? "v" : ">"}
+                  </span>
                   {expanded() ? "Hide map" : "Show map"}
                 </button>
                 <Show when={expanded()}>

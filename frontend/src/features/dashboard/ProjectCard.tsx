@@ -37,6 +37,7 @@ export default function ProjectCard(props: ProjectCardProps) {
           type="button"
           class="rounded px-2 py-1 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400"
           onClick={() => props.onDelete(props.project.id)}
+          aria-label={`Delete project ${props.project.name}`}
         >
           Delete
         </button>

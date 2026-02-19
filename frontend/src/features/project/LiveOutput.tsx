@@ -50,6 +50,9 @@ export default function LiveOutput(props: LiveOutputProps) {
         ref={containerRef}
         onScroll={handleScroll}
         class="h-64 overflow-auto rounded bg-gray-900 p-3 font-mono text-xs leading-relaxed"
+        role="log"
+        aria-label="Live agent output"
+        aria-live="polite"
       >
         <Show
           when={props.lines.length > 0}
@@ -69,11 +72,13 @@ export default function LiveOutput(props: LiveOutputProps) {
         <div class="mt-2 flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
           <span>{props.lines.length} lines</span>
           <button
+            type="button"
             class="hover:text-gray-600 dark:hover:text-gray-300"
             onClick={() => {
               setAutoScroll(true);
               if (containerRef) containerRef.scrollTop = containerRef.scrollHeight;
             }}
+            aria-label="Scroll to bottom of output"
           >
             Scroll to bottom
           </button>

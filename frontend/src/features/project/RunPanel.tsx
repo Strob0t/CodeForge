@@ -149,6 +149,7 @@ export default function RunPanel(props: RunPanelProps) {
         <select
           class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedTaskId()}
+          aria-label="Select task for run"
           onChange={(e) => {
             setSelectedTaskId(e.currentTarget.value);
             refetchRuns();
@@ -168,6 +169,7 @@ export default function RunPanel(props: RunPanelProps) {
         <select
           class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedAgentId()}
+          aria-label="Select agent for run"
           onChange={(e) => setSelectedAgentId(e.currentTarget.value)}
         >
           <option value="">Select agent...</option>
@@ -183,6 +185,7 @@ export default function RunPanel(props: RunPanelProps) {
         <select
           class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedPolicy()}
+          aria-label="Select policy profile"
           onChange={(e) => setSelectedPolicy(e.currentTarget.value)}
         >
           <option value="">Default policy</option>
@@ -192,6 +195,7 @@ export default function RunPanel(props: RunPanelProps) {
         <select
           class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
           value={selectedDeliverMode()}
+          aria-label="Select delivery mode"
           onChange={(e) => setSelectedDeliverMode(e.currentTarget.value as DeliverMode)}
         >
           <For each={DELIVER_MODES}>{(m) => <option value={m.value}>{m.label}</option>}</For>
@@ -209,7 +213,10 @@ export default function RunPanel(props: RunPanelProps) {
       {/* Active Run */}
       <Show when={activeRun()}>
         {(run) => (
-          <div class="mb-4 rounded border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
+          <div
+            class="mb-4 rounded border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20"
+            aria-live="polite"
+          >
             <div class="mb-2 flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span
@@ -223,8 +230,10 @@ export default function RunPanel(props: RunPanelProps) {
               </div>
               <Show when={run().status === "running" || run().status === "quality_gate"}>
                 <button
+                  type="button"
                   class="rounded bg-red-500 px-3 py-1 text-xs text-white hover:bg-red-600"
                   onClick={handleCancel}
+                  aria-label="Cancel active run"
                 >
                   Cancel
                 </button>
@@ -318,11 +327,16 @@ export default function RunPanel(props: RunPanelProps) {
                       </span>
                     </Show>
                     <button
+                      type="button"
                       class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                       onClick={(e) => {
                         e.stopPropagation();
                         setTrajectoryRunId((prev) => (prev === r.id ? null : r.id));
                       }}
+                      aria-label={
+                        trajectoryRunId() === r.id ? "Hide trajectory" : "Show trajectory"
+                      }
+                      aria-expanded={trajectoryRunId() === r.id}
                     >
                       {trajectoryRunId() === r.id ? "Hide Trajectory" : "Trajectory"}
                     </button>

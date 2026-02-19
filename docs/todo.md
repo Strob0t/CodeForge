@@ -719,15 +719,15 @@
 
 ### 10D. WCAG 2.2 Conformance (Level AA)
 
-- [ ] Audit all existing components against WCAG 2.2 AA criteria
-- [ ] `aria-label` / `aria-labelledby` on all interactive elements (buttons, inputs, selects)
-- [ ] Focus management: visible focus rings (`:focus-visible`), focus trap in modals/dialogs
-- [ ] Keyboard navigation: correct Tab order, Enter/Space for buttons, Escape for close
-- [ ] Color contrast: minimum 4.5:1 ratio for all text/background combinations (depends on 10A Theme)
-- [ ] Screen reader support: landmark regions (`<main>`, `<nav>`, `<aside>`), `aria-live` for real-time updates
-- [ ] Skip-to-content link as first focusable element
-- [ ] Form accessibility: explicit `<label>` associations, error announcements, required field indicators
-- [ ] Motion: `prefers-reduced-motion` media query for animations
+- [x] (2026-02-19) Audit all existing components against WCAG 2.2 AA criteria
+- [x] (2026-02-19) `aria-label` / `aria-labelledby` on all interactive elements (buttons, inputs, selects)
+- [x] (2026-02-19) Focus management: visible focus rings (`:focus-visible`), focus trap in modals/dialogs
+- [x] (2026-02-19) Keyboard navigation: correct Tab order, Enter/Space for buttons, Escape for close
+- [x] (2026-02-19) Color contrast: minimum 4.5:1 ratio for all text/background combinations (depends on 10A Theme)
+- [x] (2026-02-19) Screen reader support: landmark regions (`<main>`, `<nav>`, `<aside>`), `aria-live` for real-time updates
+- [x] (2026-02-19) Skip-to-content link as first focusable element
+- [x] (2026-02-19) Form accessibility: explicit `<label>` associations, error announcements, required field indicators
+- [x] (2026-02-19) Motion: `prefers-reduced-motion` media query for animations
 - [ ] Test with axe-core / Playwright accessibility audit in E2E tests
 
 ### 10E. Keyboard Shortcuts (Command Palette)

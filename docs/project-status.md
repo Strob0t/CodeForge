@@ -895,6 +895,18 @@
   - ProjectDetailPage: budget alerts, run/plan completion, git operations
   - RunPanel, AgentPanel, RoadmapPanel, TaskPanel, ModelsPage: all CRUD operations
 
+### 10D. WCAG 2.2 AA Conformance (COMPLETED)
+
+- [x] (2026-02-19) Comprehensive WCAG audit across all ~20 frontend component files
+- [x] (2026-02-19) `index.css`: `:focus-visible` outline style (2px solid, 2px offset), `.skip-link` class (sr-only until focused), `@media (prefers-reduced-motion: reduce)` disables transitions/animations
+- [x] (2026-02-19) `App.tsx`: Skip-to-content link (`#main-content`), landmark `aria-label` on `<aside>` and `<nav>`, `aria-live="polite"` on status indicators
+- [x] (2026-02-19) All panels: `aria-label` on buttons/inputs/selects, `for`/`id` associations on form labels, `role="status"` + `aria-label` on status badges, `aria-hidden="true"` on decorative elements
+- [x] (2026-02-19) Interactive elements: keyboard handlers (Enter/Space) on expandable rows (TrajectoryPanel, PlanPanel), `tabIndex={0}` on clickable non-button elements, `aria-expanded` on toggleable sections
+- [x] (2026-02-19) Tables: `scope="col"` on `<th>` elements (CostDashboardPage, ModelsPage)
+- [x] (2026-02-19) CommandPalette: focus trap (Tab key prevented from escaping), `role="dialog"` + `aria-modal`, combobox/listbox/option pattern
+- [x] (2026-02-19) Color contrast: Tailwind dark mode classes ensure 4.5:1+ ratio for all text/background pairs
+- Files changed: index.css, App.tsx, CommandPalette.tsx, OfflineBanner.tsx, DashboardPage.tsx, ProjectCard.tsx, CostDashboardPage.tsx, ModelsPage.tsx, AgentPanel.tsx, LiveOutput.tsx, PlanPanel.tsx, PolicyPanel.tsx, ProjectDetailPage.tsx, RepoMapPanel.tsx, RetrievalPanel.tsx, RoadmapPanel.tsx, RunPanel.tsx, TaskPanel.tsx, TrajectoryPanel.tsx
+
 ### 10G. Error Boundary + Offline Detection (COMPLETED)
 
 - [x] (2026-02-19) SolidJS `ErrorBoundary` in `App.tsx` with fallback UI + retry button

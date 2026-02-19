@@ -271,8 +271,10 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   </button>
                   <Show when={!PRESET_NAMES.has(name)}>
                     <button
+                      type="button"
                       class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                       onClick={() => handleDelete(name)}
+                      aria-label={`Delete policy ${name}`}
                     >
                       Delete
                     </button>
@@ -456,18 +458,21 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   placeholder="Tool (e.g. Bash)"
                   value={evalTool()}
                   onInput={(e) => setEvalTool(e.currentTarget.value)}
+                  aria-label="Tool name for evaluation"
                 />
                 <input
                   class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   placeholder="Command (optional)"
                   value={evalCommand()}
                   onInput={(e) => setEvalCommand(e.currentTarget.value)}
+                  aria-label="Command for evaluation"
                 />
                 <input
                   class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                   placeholder="Path (optional)"
                   value={evalPath()}
                   onInput={(e) => setEvalPath(e.currentTarget.value)}
+                  aria-label="Path for evaluation"
                 />
                 <button
                   class="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
@@ -507,21 +512,31 @@ export default function PolicyPanel(props: PolicyPanelProps) {
           {/* Name & Description */}
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-                Name
+              <label
+                for="policy-name"
+                class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+              >
+                Name <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
               </label>
               <input
+                id="policy-name"
                 class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
                 value={editProfile().name}
                 onInput={(e) => updateEditField("name", e.currentTarget.value)}
                 placeholder="my-custom-policy"
+                aria-required="true"
               />
             </div>
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              <label
+                for="policy-mode"
+                class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+              >
                 Mode
               </label>
               <select
+                id="policy-mode"
                 class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
                 value={editProfile().mode}
                 onChange={(e) => updateEditField("mode", e.currentTarget.value as PermissionMode)}
@@ -531,10 +546,14 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label
+              for="policy-description"
+              class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+            >
               Description
             </label>
             <input
+              id="policy-description"
               class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
               value={editProfile().description || ""}
               onInput={(e) => updateEditField("description", e.currentTarget.value)}
@@ -684,8 +703,10 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       onInput={(e) => updateRule(i(), "command_deny", e.currentTarget.value)}
                     />
                     <button
+                      type="button"
                       class="rounded px-1.5 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                       onClick={() => removeRule(i())}
+                      aria-label={`Remove rule ${i() + 1}`}
                     >
                       X
                     </button>

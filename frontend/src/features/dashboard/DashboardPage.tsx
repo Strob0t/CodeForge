@@ -77,7 +77,10 @@ export default function DashboardPage() {
       </div>
 
       <Show when={error()}>
-        <div class="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400">
+        <div
+          class="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400"
+          role="alert"
+        >
           {error()}
         </div>
       </Show>
@@ -90,7 +93,8 @@ export default function DashboardPage() {
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Name *
+                Name <span aria-hidden="true">*</span>
+                <span class="sr-only">(required)</span>
               </label>
               <input
                 id="name"
@@ -99,6 +103,7 @@ export default function DashboardPage() {
                 onInput={(e) => updateField("name", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="My Project"
+                aria-required="true"
               />
             </div>
 
