@@ -124,4 +124,10 @@ type Store interface {
 	ListBranchProtectionRules(ctx context.Context, projectID string) ([]bp.ProtectionRule, error)
 	UpdateBranchProtectionRule(ctx context.Context, rule *bp.ProtectionRule) error
 	DeleteBranchProtectionRule(ctx context.Context, id string) error
+
+	// Sessions
+	CreateSession(ctx context.Context, s *run.Session) error
+	GetSession(ctx context.Context, id string) (*run.Session, error)
+	ListSessions(ctx context.Context, projectID string) ([]run.Session, error)
+	UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error
 }

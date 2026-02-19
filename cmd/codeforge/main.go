@@ -298,6 +298,11 @@ func run() error {
 	branchProtSvc := service.NewBranchProtectionService(store)
 	slog.Info("branch protection service initialized")
 
+	// --- Replay & Session Services ---
+	replaySvc := service.NewReplayService(store, eventStore)
+	sessionSvc := service.NewSessionService(store, eventStore)
+	slog.Info("replay and session services initialized")
+
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
 
@@ -323,6 +328,8 @@ func run() error {
 		Roadmap:          roadmapSvc,
 		Tenants:          tenantSvc,
 		BranchProtection: branchProtSvc,
+		Replay:           replaySvc,
+		Sessions:         sessionSvc,
 	}
 
 	r := chi.NewRouter()

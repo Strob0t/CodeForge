@@ -326,6 +326,18 @@ func (m *mockStore) DeleteBranchProtectionRule(_ context.Context, _ string) erro
 	return nil
 }
 
+// Session stubs
+func (m *mockStore) CreateSession(_ context.Context, _ *run.Session) error { return nil }
+func (m *mockStore) GetSession(_ context.Context, _ string) (*run.Session, error) {
+	return nil, nil
+}
+func (m *mockStore) ListSessions(_ context.Context, _ string) ([]run.Session, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.SessionStatus, _ string) error {
+	return nil
+}
+
 // --- ProjectService Tests ---
 
 func TestProjectServiceList(t *testing.T) {

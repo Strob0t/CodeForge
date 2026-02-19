@@ -249,6 +249,8 @@
 - [x] (2026-02-19) **3H: Full Multi-Tenancy** — tenants table (migration 018), tenant_id on all 18 tables, WHERE clauses in ~60 store methods + 6 eventstore methods, TenantService CRUD, REST API endpoints
 - [x] (2026-02-19) **4A: Policy Scope Levels + "Why Matched"** — EvaluationResult struct with Scope type (global/project/run), EvaluateWithReason() service method, ResolveProfile() scope resolution, evaluate endpoint returns full result, migration 019 (policy_profile on projects), Debug-level evaluation logging in runtime
 - [x] (2026-02-19) **4A: Branch Protection Rules** — ProtectionRule domain with glob pattern matching (filepath.Match), EvaluatePush/EvaluateMerge/EvaluateDelete functions, BranchProtectionService with CRUD + CheckBranch/CheckMerge, migration 020, tenant-aware store methods with optimistic locking, 5 REST endpoints, 6 domain test functions
+- [x] (2026-02-19) **3D: Replay / Audit Trail** — ReplayService (ListCheckpoints, Replay, AuditTrail, RecordAudit), LoadEventsRange + ListCheckpoints on eventstore, audit_trail table (migration 021), 4 REST endpoints (checkpoints, replay, global audit, project audit)
+- [x] (2026-02-19) **3D: Session Events (Resume/Fork/Rewind)** — Session entity, SessionService (Resume, Fork, Rewind), sessions table (migration 021), 6 session event types, 5 REST endpoints (resume, fork, rewind, list sessions, get session)
 - [x] (2026-02-18) **4B: Runtime Compliance Tests** — 8 sub-tests × 2 exec modes (Mount, Sandbox), 16 test cases passing
 
 ### Key Deliverables

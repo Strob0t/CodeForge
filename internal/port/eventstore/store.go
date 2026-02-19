@@ -51,4 +51,16 @@ type Store interface {
 
 	// TrajectoryStats returns aggregate statistics for a run's event trajectory.
 	TrajectoryStats(ctx context.Context, runID string) (*TrajectorySummary, error)
+
+	// LoadEventsRange returns events for a run between two event IDs (inclusive).
+	LoadEventsRange(ctx context.Context, runID, fromEventID, toEventID string) ([]event.AgentEvent, error)
+
+	// ListCheckpoints returns checkpoint events (tool_result type) for a run.
+	ListCheckpoints(ctx context.Context, runID string) ([]event.AgentEvent, error)
+
+	// AppendAudit inserts an audit trail entry.
+	AppendAudit(ctx context.Context, entry *event.AuditEntry) error
+
+	// LoadAudit returns a cursor-paginated page of audit entries.
+	LoadAudit(ctx context.Context, filter *event.AuditFilter, cursor string, limit int) (*event.AuditPage, error)
 }

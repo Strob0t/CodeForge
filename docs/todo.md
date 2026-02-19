@@ -121,11 +121,8 @@
   - HTTP: `GET /api/v1/runs/{id}/events` handler + route
   - Handlers: `Events eventstore.Store` field wired in main.go
 - [x] (2026-02-18) Trajectory API: cursor-paginated LoadTrajectory, TrajectoryStats, 2 REST endpoints, TrajectoryPanel frontend
-- [ ] Features: Replay task, audit trail
-- [ ] Session Events as Source of Truth (append-only log for Resume/Fork/Rewind)
-  - Every user/model/tool action recorded as event
-  - Stream events via WebSocket/AG-UI to frontend
-  - Event-schema versioning from day one
+- [x] (2026-02-19) Replay / Audit Trail — ReplayService (ListCheckpoints, Replay, AuditTrail, RecordAudit), LoadEventsRange + ListCheckpoints on eventstore, audit_trail table (migration 021), REST endpoints (checkpoints, replay, audit)
+- [x] (2026-02-19) Session Events (Resume/Fork/Rewind) — Session entity, SessionService (Resume, Fork, Rewind, CRUD), sessions table (migration 021), 6 session event types, REST endpoints (resume, fork, rewind, list sessions, get session)
 
 ### 3E. Performance Optimizations
 

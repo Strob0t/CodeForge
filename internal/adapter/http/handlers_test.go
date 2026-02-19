@@ -378,6 +378,18 @@ func (m *mockStore) DeleteBranchProtectionRule(_ context.Context, _ string) erro
 	return nil
 }
 
+// Session stubs
+func (m *mockStore) CreateSession(_ context.Context, _ *run.Session) error { return nil }
+func (m *mockStore) GetSession(_ context.Context, _ string) (*run.Session, error) {
+	return nil, nil
+}
+func (m *mockStore) ListSessions(_ context.Context, _ string) ([]run.Session, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.SessionStatus, _ string) error {
+	return nil
+}
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -416,6 +428,16 @@ func (m *mockEventStore) LoadTrajectory(_ context.Context, _ string, _ eventstor
 }
 func (m *mockEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
 	return &eventstore.TrajectorySummary{}, nil
+}
+func (m *mockEventStore) LoadEventsRange(_ context.Context, _, _, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *mockEventStore) ListCheckpoints(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *mockEventStore) AppendAudit(_ context.Context, _ *event.AuditEntry) error { return nil }
+func (m *mockEventStore) LoadAudit(_ context.Context, _ *event.AuditFilter, _ string, _ int) (*event.AuditPage, error) {
+	return nil, nil
 }
 
 var errNotFound = fmt.Errorf("mock: %w", domain.ErrNotFound)

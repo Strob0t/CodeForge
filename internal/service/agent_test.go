@@ -83,6 +83,16 @@ func (m *mockEventStore) LoadTrajectory(_ context.Context, _ string, _ eventstor
 func (m *mockEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
 	return &eventstore.TrajectorySummary{}, nil
 }
+func (m *mockEventStore) LoadEventsRange(_ context.Context, _, _, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *mockEventStore) ListCheckpoints(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *mockEventStore) AppendAudit(_ context.Context, _ *event.AuditEntry) error { return nil }
+func (m *mockEventStore) LoadAudit(_ context.Context, _ *event.AuditFilter, _ string, _ int) (*event.AuditPage, error) {
+	return nil, nil
+}
 
 // --- AgentService Tests ---
 

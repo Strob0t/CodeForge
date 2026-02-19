@@ -40,6 +40,14 @@ const (
 	TypePlanCompleted Type = "plan.completed"
 	TypePlanFailed    Type = "plan.failed"
 	TypePlanCancelled Type = "plan.cancelled"
+
+	// Session events (resume/fork/rewind)
+	TypeSessionCreated Type = "session.created"
+	TypeSessionResumed Type = "session.resumed"
+	TypeSessionForked  Type = "session.forked"
+	TypeSessionRewound Type = "session.rewound"
+	TypeSessionPaused  Type = "session.paused"
+	TypeSessionEnded   Type = "session.ended"
 )
 
 // AgentEvent represents a single immutable event in an agent's execution trajectory.

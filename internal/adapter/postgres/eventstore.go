@@ -245,5 +245,183 @@ func (s *EventStore) TrajectoryStats(ctx context.Context, runID string) (*events
 	}, nil
 }
 
+// LoadEventsRange returns events for a run between two event IDs (inclusive).
+// If fromEventID is empty, starts from the beginning. If toEventID is empty, goes to the end.
+func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, toEventID string) ([]event.AgentEvent, error) {
+	tid := middleware.TenantIDFromContext(ctx)
+
+	args := []any{runID, tid}
+	conditions := []string{"run_id = $1", "tenant_id = $2"}
+	argIdx := 3
+
+	if fromEventID != "" {
+		conditions = append(conditions, fmt.Sprintf("version >= (SELECT version FROM agent_events WHERE id = $%d)", argIdx))
+		args = append(args, fromEventID)
+		argIdx++
+	}
+	if toEventID != "" {
+		conditions = append(conditions, fmt.Sprintf("version <= (SELECT version FROM agent_events WHERE id = $%d)", argIdx))
+		args = append(args, toEventID)
+	}
+
+	where := strings.Join(conditions, " AND ")
+	query := fmt.Sprintf(
+		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
+		 FROM agent_events WHERE %s ORDER BY version ASC`, where)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("load events range: %w", err)
+	}
+	defer rows.Close()
+
+	var events []event.AgentEvent
+	for rows.Next() {
+		var ev event.AgentEvent
+		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan event range: %w", err)
+		}
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}
+
+// ListCheckpoints returns events of type tool_result for a run, which serve as checkpoints.
+func (s *EventStore) ListCheckpoints(ctx context.Context, runID string) ([]event.AgentEvent, error) {
+	tid := middleware.TenantIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
+		 FROM agent_events WHERE run_id = $1 AND tenant_id = $2 AND event_type = $3 ORDER BY version ASC`,
+		runID, tid, string(event.TypeToolResult))
+	if err != nil {
+		return nil, fmt.Errorf("list checkpoints: %w", err)
+	}
+	defer rows.Close()
+
+	var events []event.AgentEvent
+	for rows.Next() {
+		var ev event.AgentEvent
+		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan checkpoint: %w", err)
+		}
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}
+
+// AppendAudit inserts an audit trail entry.
+func (s *EventStore) AppendAudit(ctx context.Context, entry *event.AuditEntry) error {
+	tid := middleware.TenantIDFromContext(ctx)
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO audit_trail (tenant_id, project_id, run_id, agent_id, action, details)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		tid, entry.ProjectID, nullIfEmpty(entry.RunID), nullIfEmpty(entry.AgentID), entry.Action, entry.Details)
+	if err != nil {
+		return fmt.Errorf("append audit: %w", err)
+	}
+	return nil
+}
+
+// LoadAudit returns a cursor-paginated page of audit entries.
+func (s *EventStore) LoadAudit(ctx context.Context, filter *event.AuditFilter, cursor string, limit int) (*event.AuditPage, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	tid := middleware.TenantIDFromContext(ctx)
+
+	args := []any{tid}
+	conditions := []string{"tenant_id = $1"}
+	argIdx := 2
+
+	if filter.ProjectID != "" {
+		conditions = append(conditions, fmt.Sprintf("project_id = $%d", argIdx))
+		args = append(args, filter.ProjectID)
+		argIdx++
+	}
+	if filter.RunID != "" {
+		conditions = append(conditions, fmt.Sprintf("run_id = $%d", argIdx))
+		args = append(args, filter.RunID)
+		argIdx++
+	}
+	if filter.AgentID != "" {
+		conditions = append(conditions, fmt.Sprintf("agent_id = $%d", argIdx))
+		args = append(args, filter.AgentID)
+		argIdx++
+	}
+	if filter.Action != "" {
+		conditions = append(conditions, fmt.Sprintf("action = $%d", argIdx))
+		args = append(args, filter.Action)
+		argIdx++
+	}
+	if filter.After != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at > $%d", argIdx))
+		args = append(args, *filter.After)
+		argIdx++
+	}
+	if filter.Before != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at < $%d", argIdx))
+		args = append(args, *filter.Before)
+		argIdx++
+	}
+	if cursor != "" {
+		conditions = append(conditions, fmt.Sprintf("id > $%d", argIdx))
+		args = append(args, cursor)
+		argIdx++
+	}
+
+	where := strings.Join(conditions, " AND ")
+
+	// Count total
+	var total int
+	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM audit_trail WHERE %s`, where)
+	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count audit entries: %w", err)
+	}
+
+	// Fetch limit+1 to detect hasMore
+	fetchSQL := fmt.Sprintf(
+		`SELECT id, COALESCE(project_id::text, ''), COALESCE(run_id::text, ''), COALESCE(agent_id::text, ''), action, COALESCE(details, ''), created_at
+		 FROM audit_trail WHERE %s ORDER BY created_at DESC LIMIT $%d`,
+		where, argIdx)
+	args = append(args, limit+1)
+
+	rows, err := s.pool.Query(ctx, fetchSQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("load audit: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []event.AuditEntry
+	for rows.Next() {
+		var e event.AuditEntry
+		if err := rows.Scan(&e.ID, &e.ProjectID, &e.RunID, &e.AgentID, &e.Action, &e.Details, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan audit entry: %w", err)
+		}
+		e.TenantID = tid
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	hasMore := len(entries) > limit
+	if hasMore {
+		entries = entries[:limit]
+	}
+
+	var nextCursor string
+	if hasMore && len(entries) > 0 {
+		nextCursor = entries[len(entries)-1].ID
+	}
+
+	return &event.AuditPage{
+		Entries: entries,
+		Cursor:  nextCursor,
+		HasMore: hasMore,
+		Total:   total,
+	}, nil
+}
+
 // Ensure int-to-string conversion for cursor is available.
 var _ = strconv.Itoa

@@ -515,6 +515,18 @@ func (m *runtimeMockStore) DeleteBranchProtectionRule(_ context.Context, _ strin
 	return nil
 }
 
+// Session stubs
+func (m *runtimeMockStore) CreateSession(_ context.Context, _ *run.Session) error { return nil }
+func (m *runtimeMockStore) GetSession(_ context.Context, _ string) (*run.Session, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListSessions(_ context.Context, _ string) ([]run.Session, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.SessionStatus, _ string) error {
+	return nil
+}
+
 type runtimeMockQueue struct {
 	mu       sync.Mutex
 	messages []publishedMsg
@@ -582,6 +594,18 @@ func (m *runtimeMockEventStore) LoadTrajectory(_ context.Context, _ string, _ ev
 }
 func (m *runtimeMockEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
 	return &eventstore.TrajectorySummary{}, nil
+}
+func (m *runtimeMockEventStore) LoadEventsRange(_ context.Context, _, _, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *runtimeMockEventStore) ListCheckpoints(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *runtimeMockEventStore) AppendAudit(_ context.Context, _ *event.AuditEntry) error {
+	return nil
+}
+func (m *runtimeMockEventStore) LoadAudit(_ context.Context, _ *event.AuditFilter, _ string, _ int) (*event.AuditPage, error) {
+	return nil, nil
 }
 
 // --- Helper ---

@@ -1591,3 +1591,85 @@ func scanBranchProtectionRule(row pgx.Row) (bp.ProtectionRule, error) {
 	)
 	return r, err
 }
+
+// --- Sessions ---
+
+func (s *Store) CreateSession(ctx context.Context, sess *run.Session) error {
+	tid := tenantFromCtx(ctx)
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO sessions (tenant_id, project_id, task_id, parent_session_id, parent_run_id, current_run_id, status, metadata)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id, created_at, updated_at`,
+		tid, sess.ProjectID, sess.TaskID,
+		nullIfEmpty(sess.ParentSessionID), nullIfEmpty(sess.ParentRunID),
+		nullIfEmpty(sess.CurrentRunID), string(sess.Status), sess.Metadata,
+	).Scan(&sess.ID, &sess.CreatedAt, &sess.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+	sess.TenantID = tid
+	return nil
+}
+
+func (s *Store) GetSession(ctx context.Context, id string) (*run.Session, error) {
+	sess, err := scanSession(s.pool.QueryRow(ctx,
+		`SELECT id, tenant_id, project_id, task_id, COALESCE(parent_session_id::text, ''), COALESCE(parent_run_id::text, ''),
+		        COALESCE(current_run_id::text, ''), status, COALESCE(metadata::text, '{}'), created_at, updated_at
+		 FROM sessions WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx)))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get session: %w", err)
+	}
+	return &sess, nil
+}
+
+func (s *Store) ListSessions(ctx context.Context, projectID string) ([]run.Session, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, tenant_id, project_id, task_id, COALESCE(parent_session_id::text, ''), COALESCE(parent_run_id::text, ''),
+		        COALESCE(current_run_id::text, ''), status, COALESCE(metadata::text, '{}'), created_at, updated_at
+		 FROM sessions WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []run.Session
+	for rows.Next() {
+		var sess run.Session
+		if err := rows.Scan(
+			&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID,
+			&sess.ParentSessionID, &sess.ParentRunID, &sess.CurrentRunID,
+			&sess.Status, &sess.Metadata, &sess.CreatedAt, &sess.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		sessions = append(sessions, sess)
+	}
+	return sessions, rows.Err()
+}
+
+func (s *Store) UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE sessions SET status = $1, current_run_id = $2 WHERE id = $3 AND tenant_id = $4`,
+		string(status), nullIfEmpty(currentRunID), id, tenantFromCtx(ctx))
+	if err != nil {
+		return fmt.Errorf("update session status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// scanSession scans a single row into a Session.
+func scanSession(row pgx.Row) (run.Session, error) {
+	var sess run.Session
+	err := row.Scan(
+		&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID,
+		&sess.ParentSessionID, &sess.ParentRunID, &sess.CurrentRunID,
+		&sess.Status, &sess.Metadata, &sess.CreatedAt, &sess.UpdatedAt,
+	)
+	return sess, err
+}

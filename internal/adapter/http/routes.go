@@ -173,5 +173,18 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/branch-rules/{id}", h.GetBranchProtectionRule)
 		r.Put("/branch-rules/{id}", h.UpdateBranchProtectionRule)
 		r.Delete("/branch-rules/{id}", h.DeleteBranchProtectionRule)
+
+		// Replay / Audit Trail (nested under runs + global)
+		r.Get("/runs/{id}/checkpoints", h.ListRunCheckpoints)
+		r.Post("/runs/{id}/replay", h.ReplayRun)
+		r.Get("/audit", h.GlobalAuditTrail)
+		r.Get("/projects/{id}/audit", h.ProjectAuditTrail)
+
+		// Sessions (nested under runs + projects + direct access)
+		r.Post("/runs/{id}/resume", h.ResumeRun)
+		r.Post("/runs/{id}/fork", h.ForkRun)
+		r.Post("/runs/{id}/rewind", h.RewindRun)
+		r.Get("/projects/{id}/sessions", h.ListProjectSessions)
+		r.Get("/sessions/{id}", h.GetSession)
 	})
 }
