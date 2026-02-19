@@ -1065,3 +1065,16 @@
   - TEAM_STATUS_COLORS and ROLE_COLORS for visual differentiation
   - Route `/teams`, sidebar nav link between Activity and Settings
   - ~30 i18n keys (EN + DE)
+
+### 11G. Trajectory Replay Inspector (COMPLETED)
+
+- [x] (2026-02-19) Step-by-step event replay with playback controls
+  - Replay mode toggle in existing TrajectoryPanel (browse mode preserved)
+  - Timeline scrubber bar (range input) + mini timeline dots colored by event type
+  - Play/pause button with auto-advance, 4 playback speeds (0.5x/1x/2x/4x)
+  - Step prev/next buttons for manual navigation
+  - Enhanced `EventDetail` component: structured display for tool calls (tool name badge, input, output, error sections)
+  - Non-tool events still show raw JSON payload
+  - Browse mode enhanced with blue border highlight on expanded events
+  - ARIA labels on all replay controls, aria-live on current event
+  - 13 new i18n keys (EN + DE)

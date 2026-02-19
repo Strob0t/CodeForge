@@ -893,7 +893,13 @@
 
 - [ ] Vector search simulator / "What does the agent know?" debug tool
 - [ ] Diff-review / code preview for agent output (before/after comparison)
-- [ ] Trajectory replay / inspector with step-by-step playback
+- [x] (2026-02-19) Trajectory replay / inspector with step-by-step playback
+  - Replay mode toggle in TrajectoryPanel: scrubber bar, play/pause, step prev/next
+  - 4 playback speeds (0.5x, 1x, 2x, 4x) with cycle button
+  - Mini timeline dots colored by event type, highlighting played events
+  - Enhanced EventDetail component: structured tool call/result display (tool name, input, output, errors)
+  - Browse mode (existing) enhanced with blue highlight on expanded events
+  - 13 new i18n keys (EN + DE), ARIA labels for all controls
 
 ### Missing UI for Existing Backend Features
 
