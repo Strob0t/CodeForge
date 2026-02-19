@@ -8,7 +8,7 @@
 - **Before starting work:** Read this file to understand what needs to be done
 - **After completing a task:** Mark it `[x]`, add completion date, move to "Recently Completed" if needed
 - **When discovering new work:** Add items to the appropriate section with context
-- **Format:** `- [ ]` for open, `- [x]` for done, `- [-]` for cancelled/deferred
+- **Format:** `- [ ]` for open/pending, `- [x]` for done (with date)
 - **Cross-reference:** Link to feature docs, architecture.md sections, or issues where relevant
 
 ---
@@ -28,7 +28,7 @@
   - Validation layer for required fields and min values
   - `codeforge.yaml.example` with all fields documented
   - 6 test functions in `internal/config/loader_test.go`
-- [-] Deferred: SIGHUP reload, CLI override support
+- [ ] SIGHUP config reload, CLI override support
 
 ### 3B. Structured Logging & Observability
 
@@ -43,7 +43,7 @@
   - Python: Extract from NATS headers, bind to structlog context
   - 2 test functions in `internal/middleware/requestid_test.go`
   - 1 new Python test for request ID propagation
-- [-] Deferred: PostgreSQL log_line_prefix configuration
+- [ ] PostgreSQL log_line_prefix configuration
 - [x] (2026-02-17) Docker Compose logging configuration
   - `x-logging` anchor with `json-file` driver, `max-size: 10m`, `max-file: 3`
   - Applied to all 5 services
@@ -196,7 +196,7 @@
   - Domain structs: `TenantID` field added to Project, Task, Agent, Run
   - Middleware chain: `r.Use(middleware.TenantID)` after RequestID
   - 3 tests in `internal/middleware/tenant_test.go`
-- [-] Deferred: full WHERE tenant_id clauses in queries (single-tenant for now)
+- [ ] Full WHERE tenant_id clauses in all queries (currently single-tenant default)
 
 ---
 
@@ -254,7 +254,7 @@
   - Frontend: PolicyPanel component with 3 views (list, detail with evaluate tester, editor)
   - Frontend: Integrated into ProjectDetailPage (between agents and run management)
   - Tests: 6 new service tests, 6 new handler tests — all passing
-- [-] Deferred: Scope levels (global → project → run), run overrides, "why matched" explanation
+- [ ] Policy scope levels (global → project → run), run overrides, "why matched" explanation
 
 ### 4B. Runtime API (Step-by-Step Execution Protocol)
 
@@ -295,7 +295,7 @@
   - Runtime integration: sandbox lifecycle in StartRun, finalizeRun, CancelRun
   - 5 tests in `internal/service/sandbox_test.go`
   - Mount mode: implicit — Python worker operates directly on host filesystem (no additional Go code needed)
-- [-] Deferred: Hybrid mode (read from host, write in sandbox, merge on success)
+- [ ] Hybrid execution mode (read from host, write in sandbox, merge on success)
 - [x] (2026-02-18) Runtime Compliance Tests
   - `internal/service/runtime_compliance_test.go`: 8 sub-tests × 2 modes (Mount, Sandbox)
   - Sub-tests: StartRun, ToolCallFlow, PolicyEnforcement, Termination_MaxSteps, Termination_MaxCost, CancelRun, Completion, StallDetection
