@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -116,4 +117,11 @@ type Store interface {
 	GetTenant(ctx context.Context, id string) (*tenant.Tenant, error)
 	ListTenants(ctx context.Context) ([]tenant.Tenant, error)
 	UpdateTenant(ctx context.Context, t *tenant.Tenant) error
+
+	// Branch Protection Rules
+	CreateBranchProtectionRule(ctx context.Context, req bp.CreateRuleRequest) (*bp.ProtectionRule, error)
+	GetBranchProtectionRule(ctx context.Context, id string) (*bp.ProtectionRule, error)
+	ListBranchProtectionRules(ctx context.Context, projectID string) ([]bp.ProtectionRule, error)
+	UpdateBranchProtectionRule(ctx context.Context, rule *bp.ProtectionRule) error
+	DeleteBranchProtectionRule(ctx context.Context, id string) error
 }

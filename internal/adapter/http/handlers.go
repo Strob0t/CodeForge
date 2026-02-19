@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -62,6 +63,7 @@ type Handlers struct {
 	Cost             *service.CostService
 	Roadmap          *service.RoadmapService
 	Tenants          *service.TenantService
+	BranchProtection *service.BranchProtectionService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -1735,6 +1737,80 @@ func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+// --- Branch Protection Rules ---
+
+// ListBranchProtectionRules handles GET /api/v1/projects/{id}/branch-rules
+func (h *Handlers) ListBranchProtectionRules(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	rules, err := h.BranchProtection.ListRules(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if rules == nil {
+		rules = []bp.ProtectionRule{}
+	}
+	writeJSON(w, http.StatusOK, rules)
+}
+
+// CreateBranchProtectionRule handles POST /api/v1/projects/{id}/branch-rules
+func (h *Handlers) CreateBranchProtectionRule(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	var req bp.CreateRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ProjectID = projectID
+
+	rule, err := h.BranchProtection.CreateRule(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, rule)
+}
+
+// GetBranchProtectionRule handles GET /api/v1/branch-rules/{id}
+func (h *Handlers) GetBranchProtectionRule(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	rule, err := h.BranchProtection.GetRule(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "branch protection rule not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, rule)
+}
+
+// UpdateBranchProtectionRule handles PUT /api/v1/branch-rules/{id}
+func (h *Handlers) UpdateBranchProtectionRule(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req bp.UpdateRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	rule, err := h.BranchProtection.UpdateRule(r.Context(), id, req)
+	if err != nil {
+		writeDomainError(w, err, "branch protection rule not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, rule)
+}
+
+// DeleteBranchProtectionRule handles DELETE /api/v1/branch-rules/{id}
+func (h *Handlers) DeleteBranchProtectionRule(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.BranchProtection.DeleteRule(r.Context(), id); err != nil {
+		writeDomainError(w, err, "branch protection rule not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // --- Helpers ---

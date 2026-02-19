@@ -294,6 +294,10 @@ func run() error {
 	tenantSvc := service.NewTenantService(store)
 	slog.Info("tenant service initialized")
 
+	// --- Branch Protection Service ---
+	branchProtSvc := service.NewBranchProtectionService(store)
+	slog.Info("branch protection service initialized")
+
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
 
@@ -318,6 +322,7 @@ func run() error {
 		Cost:             costSvc,
 		Roadmap:          roadmapSvc,
 		Tenants:          tenantSvc,
+		BranchProtection: branchProtSvc,
 	}
 
 	r := chi.NewRouter()

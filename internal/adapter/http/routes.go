@@ -166,5 +166,12 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/tenants", h.CreateTenant)
 		r.Get("/tenants/{id}", h.GetTenant)
 		r.Put("/tenants/{id}", h.UpdateTenant)
+
+		// Branch Protection Rules (nested under projects + direct access)
+		r.Post("/projects/{id}/branch-rules", h.CreateBranchProtectionRule)
+		r.Get("/projects/{id}/branch-rules", h.ListBranchProtectionRules)
+		r.Get("/branch-rules/{id}", h.GetBranchProtectionRule)
+		r.Put("/branch-rules/{id}", h.UpdateBranchProtectionRule)
+		r.Delete("/branch-rules/{id}", h.DeleteBranchProtectionRule)
 	})
 }

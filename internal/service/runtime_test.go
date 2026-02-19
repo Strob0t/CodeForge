@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -496,6 +497,23 @@ func (m *runtimeMockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenan
 }
 func (m *runtimeMockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
 func (m *runtimeMockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
+
+// Branch Protection Rule stubs
+func (m *runtimeMockStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetBranchProtectionRule(_ context.Context, _ string) (*bp.ProtectionRule, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListBranchProtectionRules(_ context.Context, _ string) ([]bp.ProtectionRule, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateBranchProtectionRule(_ context.Context, _ *bp.ProtectionRule) error {
+	return nil
+}
+func (m *runtimeMockStore) DeleteBranchProtectionRule(_ context.Context, _ string) error {
+	return nil
+}
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

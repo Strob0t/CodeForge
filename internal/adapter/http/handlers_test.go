@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -359,6 +360,23 @@ func (m *mockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, erro
 }
 func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
 func (m *mockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
+
+// Branch Protection Rule stubs
+func (m *mockStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
+	return nil, nil
+}
+func (m *mockStore) GetBranchProtectionRule(_ context.Context, _ string) (*bp.ProtectionRule, error) {
+	return nil, nil
+}
+func (m *mockStore) ListBranchProtectionRules(_ context.Context, _ string) ([]bp.ProtectionRule, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateBranchProtectionRule(_ context.Context, _ *bp.ProtectionRule) error {
+	return nil
+}
+func (m *mockStore) DeleteBranchProtectionRule(_ context.Context, _ string) error {
+	return nil
+}
 
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
