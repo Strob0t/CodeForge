@@ -29,6 +29,7 @@ const en = {
   "app.nav.costs": "Costs",
   "app.nav.models": "Models",
   "app.nav.modes": "Modes",
+  "app.nav.activity": "Activity",
   "app.nav.settings": "Settings",
   "app.error.title": "Something went wrong",
   "app.error.retry": "Try again",
@@ -539,7 +540,20 @@ const en = {
   "trajectory.next": "Next",
   "trajectory.eventAria": "Event: {{type}} at {{time}}",
 
-  // -- Settings ---------------------------------------------------------------
+  // -- Activity stream ------------------------------------------------------
+  "activity.title": "Activity",
+  "activity.connected": "Live",
+  "activity.disconnected": "Disconnected",
+  "activity.filterLabel": "Filter event type",
+  "activity.allEvents": "All events",
+  "activity.pause": "Pause",
+  "activity.resume": "Resume",
+  "activity.clear": "Clear",
+  "activity.empty": "No events yet. Activity will appear here as it happens.",
+  "activity.noMatch": "No events match the current filter.",
+  "activity.streamLabel": "Live activity stream",
+  "activity.showing": "Showing {{count}} of {{total}} events",
+
   // -- Progress indicators --------------------------------------------------
   "progress.steps": "Steps",
   "progress.stepsOf": "{{current}} of {{max}} steps",

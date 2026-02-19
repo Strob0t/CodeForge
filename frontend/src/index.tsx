@@ -5,6 +5,7 @@ import { Route, Router } from "@solidjs/router";
 import { render } from "solid-js/web";
 
 import App from "./App.tsx";
+import ActivityPage from "./features/activity/ActivityPage.tsx";
 import LoginPage from "./features/auth/LoginPage.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
@@ -29,6 +30,7 @@ render(
       <Route path="/costs" component={CostDashboardPage} />
       <Route path="/models" component={ModelsPage} />
       <Route path="/modes" component={ModesPage} />
+      <Route path="/activity" component={ActivityPage} />
       <Route path="/settings" component={SettingsPage} />
     </Router>
   ),

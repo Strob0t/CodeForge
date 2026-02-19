@@ -881,7 +881,13 @@
   - Context: RepoMapPanel + RetrievalPanel (requires workspace)
   - Costs: ProjectCostSection
 - [ ] Multi-terminal view with tiles per agent (relevant when agent teams work)
-- [ ] Global activity/notification stream (cross-project, not just per-project)
+- [x] (2026-02-19) Global activity/notification stream (cross-project, not just per-project)
+  - `ActivityPage` component at `/activity` with global WebSocket subscription
+  - Classifies 12+ WS event types (run.status, run.toolcall, run.budget_alert, run.qualitygate, run.delivery, agent.status, task.status, plan.status, plan.step.status, repomap/retrieval/roadmap.status)
+  - Severity-tagged entries (info/success/warning/error) with color-coded badges
+  - Type icons for visual differentiation, filter by event type, pause/resume/clear
+  - Max 200 entries (newest first), project links, ARIA role="log" + aria-live="polite"
+  - 12 i18n keys (EN + DE), sidebar nav link
 
 ### Developer Tools
 

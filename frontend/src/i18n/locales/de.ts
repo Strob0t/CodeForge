@@ -31,6 +31,7 @@ const de: Translations = {
   "app.nav.costs": "Kosten",
   "app.nav.models": "Modelle",
   "app.nav.modes": "Modi",
+  "app.nav.activity": "Aktivit\u00e4t",
   "app.nav.settings": "Einstellungen",
   "app.error.title": "Etwas ist schiefgelaufen",
   "app.error.retry": "Erneut versuchen",
@@ -585,6 +586,20 @@ const de: Translations = {
   "modes.toast.createFailed": "Modus konnte nicht erstellt werden",
   "modes.toast.idRequired": "Modus-ID ist erforderlich",
   "modes.toast.nameRequired": "Modusname ist erforderlich",
+
+  // -- Activity stream --------------------------------------------------------
+  "activity.title": "Aktivit\u00e4t",
+  "activity.connected": "Live",
+  "activity.disconnected": "Getrennt",
+  "activity.filterLabel": "Eventtyp filtern",
+  "activity.allEvents": "Alle Events",
+  "activity.pause": "Pausieren",
+  "activity.resume": "Fortsetzen",
+  "activity.clear": "Leeren",
+  "activity.empty": "Noch keine Events. Aktivit\u00e4ten erscheinen hier, sobald sie auftreten.",
+  "activity.noMatch": "Keine Events entsprechen dem aktuellen Filter.",
+  "activity.streamLabel": "Live-Aktivit\u00e4tsstream",
+  "activity.showing": "{{count}} von {{total}} Events angezeigt",
 
   // -- Settings ---------------------------------------------------------------
   "settings.title": "Einstellungen",

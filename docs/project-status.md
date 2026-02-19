@@ -1039,3 +1039,16 @@
   - RunPanel: progress bar during active runs (max from policy termination.max_steps)
   - PlanPanel: progress bar for running plans (completed steps / total steps) + plan detail view
   - 5 i18n keys (EN + DE)
+
+### 11E. Global Activity Stream (COMPLETED)
+
+- [x] (2026-02-19) Cross-project real-time activity stream
+  - `ActivityPage` component with global WebSocket subscription via `createCodeForgeWS()`
+  - `classifyMessage()` maps 12+ WS event types to severity-tagged `ActivityEntry` objects
+  - Event types: run.status, run.toolcall, run.budget_alert, run.qualitygate, run.delivery, agent.status, task.status, plan.status, plan.step.status, repomap/retrieval/roadmap.status
+  - Severity classification: info (default), success (completed), warning (budget/denied), error (failed/timeout)
+  - TYPE_ICONS and SEVERITY_COLORS for visual differentiation
+  - Filter by event type, pause/resume streaming, clear all, max 200 entries (newest first)
+  - Project links via projectId, ARIA role="log" + aria-live="polite"
+  - Route `/activity`, sidebar nav link between Modes and Settings
+  - 12 i18n keys (EN + DE)
