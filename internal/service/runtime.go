@@ -161,20 +161,37 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	// Mark task as running
 	_ = s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning)
 
-	// Start sandbox if execution mode is sandbox
-	if req.ExecMode == run.ExecModeSandbox && s.sandbox != nil {
-		proj, projErr := s.store.GetProject(ctx, req.ProjectID)
-		if projErr != nil {
-			return nil, fmt.Errorf("get project for sandbox: %w", projErr)
+	// Start sandbox/hybrid container if applicable
+	if s.sandbox != nil {
+		switch req.ExecMode {
+		case run.ExecModeSandbox:
+			proj, projErr := s.store.GetProject(ctx, req.ProjectID)
+			if projErr != nil {
+				return nil, fmt.Errorf("get project for sandbox: %w", projErr)
+			}
+			if _, sbErr := s.sandbox.Create(ctx, r.ID, proj.WorkspacePath); sbErr != nil {
+				return nil, fmt.Errorf("sandbox create: %w", sbErr)
+			}
+			if sbErr := s.sandbox.Start(ctx, r.ID); sbErr != nil {
+				_ = s.sandbox.Remove(ctx, r.ID)
+				return nil, fmt.Errorf("sandbox start: %w", sbErr)
+			}
+			slog.Info("sandbox started", "run_id", r.ID)
+
+		case run.ExecModeHybrid:
+			proj, projErr := s.store.GetProject(ctx, req.ProjectID)
+			if projErr != nil {
+				return nil, fmt.Errorf("get project for hybrid: %w", projErr)
+			}
+			if _, sbErr := s.sandbox.CreateHybrid(ctx, r.ID, proj.WorkspacePath); sbErr != nil {
+				return nil, fmt.Errorf("hybrid create: %w", sbErr)
+			}
+			if sbErr := s.sandbox.Start(ctx, r.ID); sbErr != nil {
+				_ = s.sandbox.Remove(ctx, r.ID)
+				return nil, fmt.Errorf("hybrid start: %w", sbErr)
+			}
+			slog.Info("hybrid container started", "run_id", r.ID)
 		}
-		if _, sbErr := s.sandbox.Create(ctx, r.ID, proj.WorkspacePath); sbErr != nil {
-			return nil, fmt.Errorf("sandbox create: %w", sbErr)
-		}
-		if sbErr := s.sandbox.Start(ctx, r.ID); sbErr != nil {
-			_ = s.sandbox.Remove(ctx, r.ID)
-			return nil, fmt.Errorf("sandbox start: %w", sbErr)
-		}
-		slog.Info("sandbox started", "run_id", r.ID)
 	}
 
 	// Create stall tracker if policy enables stall detection
@@ -1042,6 +1059,19 @@ func (s *RuntimeService) sendToolCallResponse(ctx context.Context, runID, callID
 		Decision: decision,
 		Reason:   reason,
 	}
+
+	// For hybrid runs, include exec_mode and container_id so the worker
+	// can route file operations to the host and commands to the container.
+	if s.sandbox != nil {
+		if sb, ok := s.sandbox.Get(runID); ok {
+			r, err := s.store.GetRun(ctx, runID)
+			if err == nil && r.ExecMode == run.ExecModeHybrid {
+				resp.ExecMode = string(run.ExecModeHybrid)
+				resp.ContainerID = sb.ContainerID
+			}
+		}
+	}
+
 	return s.publishJSON(ctx, messagequeue.SubjectRunToolCallResponse, resp)
 }
 

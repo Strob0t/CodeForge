@@ -76,10 +76,12 @@ type ToolCallRequestPayload struct {
 
 // ToolCallResponsePayload is the schema for runs.toolcall.response messages.
 type ToolCallResponsePayload struct {
-	RunID    string `json:"run_id"`
-	CallID   string `json:"call_id"`
-	Decision string `json:"decision"`
-	Reason   string `json:"reason"`
+	RunID       string `json:"run_id"`
+	CallID      string `json:"call_id"`
+	Decision    string `json:"decision"`
+	Reason      string `json:"reason"`
+	ExecMode    string `json:"exec_mode,omitempty"`
+	ContainerID string `json:"container_id,omitempty"`
 }
 
 // ToolCallResultPayload is the schema for runs.toolcall.result messages.

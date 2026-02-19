@@ -311,7 +311,13 @@
   - Runtime integration: sandbox lifecycle in StartRun, finalizeRun, CancelRun
   - 5 tests in `internal/service/sandbox_test.go`
   - Mount mode: implicit — Python worker operates directly on host filesystem (no additional Go code needed)
-- [ ] Hybrid execution mode (read from host, write in sandbox, merge on success)
+- [x] (2026-02-19) Hybrid execution mode — workspace mounted read-write, commands execute inside Docker container
+  - `internal/service/sandbox.go`: `CreateHybrid()` method (read-write mount, no `--read-only`, `sleep infinity`)
+  - `internal/service/runtime.go`: hybrid mode handling in `StartRun` (switch on ExecMode), `sendToolCallResponse` includes `exec_mode` + `container_id`
+  - `internal/config/config.go`: `HybridConfig{CommandImage, MountMode}` sub-struct on Runtime
+  - `internal/config/loader.go`: env overrides `CODEFORGE_HYBRID_IMAGE`, `CODEFORGE_HYBRID_MOUNT_MODE`
+  - `internal/port/messagequeue/schemas.go`: `exec_mode`, `container_id` fields on `ToolCallResponsePayload`
+  - Refactored Start/Stop/Exec/Remove to use ContainerID instead of regenerating names
 - [x] (2026-02-18) Runtime Compliance Tests
   - `internal/service/runtime_compliance_test.go`: 8 sub-tests × 2 modes (Mount, Sandbox)
   - Sub-tests: StartRun, ToolCallFlow, PolicyEnforcement, Termination_MaxSteps, Termination_MaxCost, CancelRun, Completion, StallDetection

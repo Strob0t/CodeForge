@@ -94,6 +94,10 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Idempotency.Bucket, "CODEFORGE_IDEMPOTENCY_BUCKET")
 	setDuration(&cfg.Idempotency.TTL, "CODEFORGE_IDEMPOTENCY_TTL")
 
+	// Hybrid
+	setString(&cfg.Runtime.Hybrid.CommandImage, "CODEFORGE_HYBRID_IMAGE")
+	setString(&cfg.Runtime.Hybrid.MountMode, "CODEFORGE_HYBRID_MOUNT_MODE")
+
 	// Sandbox
 	setInt(&cfg.Runtime.Sandbox.MemoryMB, "CODEFORGE_SANDBOX_MEMORY_MB")
 	setInt(&cfg.Runtime.Sandbox.CPUQuota, "CODEFORGE_SANDBOX_CPU_QUOTA")

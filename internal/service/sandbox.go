@@ -122,6 +122,72 @@ func (s *SandboxService) Create(ctx context.Context, runID, workspacePath string
 	return sb, nil
 }
 
+// CreateHybrid creates a Docker container for hybrid execution mode.
+// Unlike Create, the workspace is mounted read-write and the filesystem is not read-only,
+// allowing the agent to modify source files directly while commands execute inside the container.
+func (s *SandboxService) CreateHybrid(ctx context.Context, runID, workspacePath string, overrides ...resource.Limits) (*Sandbox, error) {
+	limits := resource.Limits{
+		MemoryMB:    s.defaults.MemoryMB,
+		CPUQuota:    s.defaults.CPUQuota,
+		PidsLimit:   s.defaults.PidsLimit,
+		StorageGB:   s.defaults.StorageGB,
+		NetworkMode: s.defaults.NetworkMode,
+	}
+
+	for _, o := range overrides {
+		limits = resource.Merge(limits, o)
+	}
+
+	maxLimits := resource.Limits{
+		MemoryMB:  s.defaults.MemoryMB * 4,
+		CPUQuota:  s.defaults.CPUQuota * 4,
+		PidsLimit: s.defaults.PidsLimit * 4,
+		StorageGB: s.defaults.StorageGB * 4,
+	}
+	limits = resource.Cap(limits, maxLimits)
+
+	containerName := fmt.Sprintf("codeforge-hybrid-%s", shortID(runID))
+	image := s.defaults.Image
+
+	args := []string{
+		"create",
+		"--name", containerName,
+		fmt.Sprintf("--memory=%dm", limits.MemoryMB),
+		fmt.Sprintf("--cpus=%d", limits.CPUQuota/1000),
+		fmt.Sprintf("--pids-limit=%d", limits.PidsLimit),
+	}
+
+	if limits.NetworkMode != "" {
+		args = append(args, fmt.Sprintf("--network=%s", limits.NetworkMode))
+	}
+
+	// Hybrid mode: mount read-write, no --read-only flag
+	args = append(args,
+		"-v", fmt.Sprintf("%s:/workspace", workspacePath),
+		"--tmpfs", "/tmp",
+		image,
+		"sleep", "infinity", // Keep container running for docker exec
+	)
+
+	output, err := runDocker(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("hybrid sandbox create: %w", err)
+	}
+
+	sb := &Sandbox{
+		ContainerID: strings.TrimSpace(output),
+		RunID:       runID,
+		WorkDir:     workspacePath,
+		Status:      "created",
+	}
+
+	s.mu.Lock()
+	s.sandboxes[runID] = sb
+	s.mu.Unlock()
+
+	return sb, nil
+}
+
 // Start starts the container for the given run.
 func (s *SandboxService) Start(ctx context.Context, runID string) error {
 	s.mu.Lock()
@@ -132,8 +198,7 @@ func (s *SandboxService) Start(ctx context.Context, runID string) error {
 		return fmt.Errorf("sandbox not found for run %s", runID)
 	}
 
-	containerName := fmt.Sprintf("codeforge-%s", shortID(runID))
-	if _, err := runDocker(ctx, "start", containerName); err != nil {
+	if _, err := runDocker(ctx, "start", sb.ContainerID); err != nil {
 		return fmt.Errorf("sandbox start: %w", err)
 	}
 
@@ -147,15 +212,14 @@ func (s *SandboxService) Start(ctx context.Context, runID string) error {
 // Exec runs a command inside the sandbox container.
 func (s *SandboxService) Exec(ctx context.Context, runID string, command []string) (stdout, stderr string, err error) {
 	s.mu.Lock()
-	_, ok := s.sandboxes[runID]
+	sb, ok := s.sandboxes[runID]
 	s.mu.Unlock()
 
 	if !ok {
 		return "", "", fmt.Errorf("sandbox not found for run %s", runID)
 	}
 
-	containerName := fmt.Sprintf("codeforge-%s", shortID(runID))
-	args := append([]string{"exec", containerName}, command...)
+	args := append([]string{"exec", sb.ContainerID}, command...)
 
 	cmd := exec.CommandContext(ctx, "docker", args...) //nolint:gosec // G204: docker args are constructed internally, not from user input
 	var outBuf, errBuf bytes.Buffer
@@ -176,8 +240,7 @@ func (s *SandboxService) Stop(ctx context.Context, runID string) error {
 		return fmt.Errorf("sandbox not found for run %s", runID)
 	}
 
-	containerName := fmt.Sprintf("codeforge-%s", shortID(runID))
-	if _, err := runDocker(ctx, "stop", "-t", "10", containerName); err != nil {
+	if _, err := runDocker(ctx, "stop", "-t", "10", sb.ContainerID); err != nil {
 		return fmt.Errorf("sandbox stop: %w", err)
 	}
 
@@ -190,8 +253,16 @@ func (s *SandboxService) Stop(ctx context.Context, runID string) error {
 
 // Remove removes the container for the given run.
 func (s *SandboxService) Remove(ctx context.Context, runID string) error {
-	containerName := fmt.Sprintf("codeforge-%s", shortID(runID))
-	if _, err := runDocker(ctx, "rm", "-f", containerName); err != nil {
+	s.mu.Lock()
+	sb, ok := s.sandboxes[runID]
+	s.mu.Unlock()
+
+	if !ok {
+		// Already removed or never created — not an error.
+		return nil
+	}
+
+	if _, err := runDocker(ctx, "rm", "-f", sb.ContainerID); err != nil {
 		return fmt.Errorf("sandbox remove: %w", err)
 	}
 

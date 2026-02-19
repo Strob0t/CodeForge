@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-02-18
+> Last update: 2026-02-19
 
 ## Phase 0: Project Setup (COMPLETED)
 
@@ -251,6 +251,7 @@
 - [x] (2026-02-19) **4A: Branch Protection Rules** — ProtectionRule domain with glob pattern matching (filepath.Match), EvaluatePush/EvaluateMerge/EvaluateDelete functions, BranchProtectionService with CRUD + CheckBranch/CheckMerge, migration 020, tenant-aware store methods with optimistic locking, 5 REST endpoints, 6 domain test functions
 - [x] (2026-02-19) **3D: Replay / Audit Trail** — ReplayService (ListCheckpoints, Replay, AuditTrail, RecordAudit), LoadEventsRange + ListCheckpoints on eventstore, audit_trail table (migration 021), 4 REST endpoints (checkpoints, replay, global audit, project audit)
 - [x] (2026-02-19) **3D: Session Events (Resume/Fork/Rewind)** — Session entity, SessionService (Resume, Fork, Rewind), sessions table (migration 021), 6 session event types, 5 REST endpoints (resume, fork, rewind, list sessions, get session)
+- [x] (2026-02-19) **4B: Hybrid Execution Mode** — CreateHybrid() on SandboxService (read-write mount, no --read-only), hybrid mode in StartRun, ToolCallResponsePayload with exec_mode + container_id, HybridConfig (CommandImage, MountMode) with env overrides, refactored Start/Stop/Exec/Remove to use ContainerID
 - [x] (2026-02-18) **4B: Runtime Compliance Tests** — 8 sub-tests × 2 exec modes (Mount, Sandbox), 16 test cases passing
 
 ### Key Deliverables

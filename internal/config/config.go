@@ -129,6 +129,15 @@ type Runtime struct {
 	HeartbeatInterval    time.Duration `yaml:"heartbeat_interval"` // Worker heartbeat send interval (default: 30s)
 	HeartbeatTimeout     time.Duration `yaml:"heartbeat_timeout"`  // Max time without heartbeat before kill (default: 120s)
 	Sandbox              SandboxConfig `yaml:"sandbox"`
+	Hybrid               HybridConfig  `yaml:"hybrid"`
+}
+
+// HybridConfig holds settings for the hybrid execution mode.
+// Hybrid mode mounts the workspace read-write while running commands
+// inside a Docker container for isolation.
+type HybridConfig struct {
+	CommandImage string `yaml:"command_image"` // Docker image for command execution (default: same as sandbox)
+	MountMode    string `yaml:"mount_mode"`    // Mount type: "rw" (default) or "ro"
 }
 
 // SandboxConfig holds Docker sandbox resource defaults.
@@ -266,6 +275,10 @@ func Defaults() Config {
 				StorageGB:   10,
 				NetworkMode: "none",
 				Image:       "ubuntu:22.04",
+			},
+			Hybrid: HybridConfig{
+				CommandImage: "",
+				MountMode:    "rw",
 			},
 		},
 		Cache: Cache{
