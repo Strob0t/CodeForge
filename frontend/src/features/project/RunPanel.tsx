@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, RunStatus, Task, ToolCallEvent } from "~/api/types";
+import { StepProgress } from "~/components/StepProgress";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 
@@ -41,6 +42,7 @@ export default function RunPanel(props: RunPanelProps) {
   const [selectedDeliverMode, setSelectedDeliverMode] = createSignal<DeliverMode>("");
   const [starting, setStarting] = createSignal(false);
   const [activeRun, setActiveRun] = createSignal<Run | null>(null);
+  const [runMaxSteps, setRunMaxSteps] = createSignal(0);
   const [toolCalls, setToolCalls] = createSignal<ToolCallEvent[]>([]);
   const [trajectoryRunId, setTrajectoryRunId] = createSignal<string | null>(null);
 
@@ -72,6 +74,18 @@ export default function RunPanel(props: RunPanelProps) {
       });
       setActiveRun(run);
       setToolCalls([]);
+      // Fetch max_steps from the policy for progress indicator
+      const policyName = run.policy_profile;
+      if (policyName) {
+        api.policies
+          .get(policyName)
+          .then((p) => {
+            setRunMaxSteps(p.termination?.max_steps ?? 0);
+          })
+          .catch(() => setRunMaxSteps(0));
+      } else {
+        setRunMaxSteps(0);
+      }
       refetchRuns();
       toast("success", t("run.toast.started"));
     } catch (e) {
@@ -241,6 +255,11 @@ export default function RunPanel(props: RunPanelProps) {
                 </button>
               </Show>
             </div>
+            <Show when={run().status === "running" || run().status === "quality_gate"}>
+              <div class="mb-2">
+                <StepProgress current={run().step_count} max={runMaxSteps() || undefined} />
+              </div>
+            </Show>
             <div class="flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
               <span>{tp("run.steps", run().step_count)}</span>
               <span>

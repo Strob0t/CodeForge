@@ -540,6 +540,13 @@ const en = {
   "trajectory.eventAria": "Event: {{type}} at {{time}}",
 
   // -- Settings ---------------------------------------------------------------
+  // -- Progress indicators --------------------------------------------------
+  "progress.steps": "Steps",
+  "progress.stepsOf": "{{current}} of {{max}} steps",
+  "progress.stepsCount": "{{current}} steps completed",
+  "progress.planSteps": "Plan Progress",
+  "progress.planStepsOf": "{{current}} of {{max}} plan steps completed",
+
   // -- Modes -----------------------------------------------------------------
   "modes.title": "Agent Modes",
   "modes.loading": "Loading modes...",

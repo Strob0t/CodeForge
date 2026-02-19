@@ -860,7 +860,13 @@
 
 - [ ] Architecture graph / pulsating project blueprint visualization
 - [ ] Agent network visualization (nodes + edges, message flow animation)
-- [ ] Step-progress indicators replacing time estimates (steps completed / total)
+- [x] (2026-02-19) Step-progress indicators replacing time estimates
+  - `StepProgress` reusable component: progress bar + fraction label (current/max)
+  - Color coding: blue (<70%), yellow (70-90%), red (>90%), indeterminate when max unknown
+  - ARIA progressbar role with aria-valuenow/max, locale-aware labels
+  - RunPanel: shows progress bar during active runs (max from policy termination.max_steps)
+  - PlanPanel: shows progress bar for running plans (completed steps / total steps)
+  - 5 i18n keys (EN + DE)
 
 ### Advanced Layouts
 

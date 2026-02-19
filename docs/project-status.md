@@ -1029,3 +1029,13 @@
   - Create custom mode form: id, name, description, tools, scenario, autonomy, prompt prefix
   - Built-in modes sorted before custom, protected from overwrite
   - ~35 i18n keys (EN + DE), sidebar nav link
+
+### 11D. Step-Progress Indicators (COMPLETED)
+
+- [x] (2026-02-19) Visual progress bars for runs and plans
+  - `StepProgress` reusable component: horizontal bar + fraction label
+  - Color coding: blue (normal), yellow (70-90%), red (>90%), indeterminate when max unknown
+  - ARIA progressbar role, locale-aware screen reader labels
+  - RunPanel: progress bar during active runs (max from policy termination.max_steps)
+  - PlanPanel: progress bar for running plans (completed steps / total steps) + plan detail view
+  - 5 i18n keys (EN + DE)

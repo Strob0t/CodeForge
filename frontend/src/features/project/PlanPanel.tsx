@@ -11,6 +11,7 @@ import type {
   PlanStepStatus,
   Task,
 } from "~/api/types";
+import { StepProgress } from "~/components/StepProgress";
 import { useI18n } from "~/i18n";
 
 interface PlanPanelProps {
@@ -501,8 +502,17 @@ export default function PlanPanel(props: PlanPanelProps) {
                     </Show>
                   </div>
                 </div>
+                <Show when={p.status === "running" && p.steps.length > 0}>
+                  <div class="mt-1">
+                    <StepProgress
+                      current={p.steps.filter((s) => s.status === "completed").length}
+                      max={p.steps.length}
+                      label={t("progress.planSteps")}
+                    />
+                  </div>
+                </Show>
                 <Show when={p.description}>
-                  <p class="mt-1 text-xs text-gray-500">{p.description}</p>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{p.description}</p>
                 </Show>
               </div>
             )}
@@ -513,8 +523,17 @@ export default function PlanPanel(props: PlanPanelProps) {
       {/* Selected Plan Detail */}
       <Show when={selectedPlan()}>
         {(detail) => (
-          <div class="mt-4 rounded border border-indigo-200 bg-indigo-50 p-4">
+          <div class="mt-4 rounded border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
             <h4 class="mb-2 text-sm font-semibold">{detail().name} - Steps</h4>
+            <Show when={detail().steps.length > 0}>
+              <div class="mb-3">
+                <StepProgress
+                  current={detail().steps.filter((s) => s.status === "completed").length}
+                  max={detail().steps.length}
+                  label={t("progress.planSteps")}
+                />
+              </div>
+            </Show>
             <div class="space-y-2">
               <For each={detail().steps}>
                 {(step, idx) => (

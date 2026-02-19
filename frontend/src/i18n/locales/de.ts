@@ -543,6 +543,13 @@ const de: Translations = {
   "trajectory.next": "N\u00e4chste",
   "trajectory.eventAria": "Event: {{type}} um {{time}}",
 
+  // -- Progress indicators --------------------------------------------------
+  "progress.steps": "Schritte",
+  "progress.stepsOf": "{{current}} von {{max}} Schritten",
+  "progress.stepsCount": "{{current}} Schritte abgeschlossen",
+  "progress.planSteps": "Planfortschritt",
+  "progress.planStepsOf": "{{current}} von {{max}} Planschritten abgeschlossen",
+
   // -- Modes -----------------------------------------------------------------
   "modes.title": "Agent-Modi",
   "modes.loading": "Modi werden geladen\u2026",
