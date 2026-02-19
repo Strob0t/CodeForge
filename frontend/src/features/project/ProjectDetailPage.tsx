@@ -11,6 +11,8 @@ import { ProjectCostSection } from "../costs/CostDashboardPage";
 import AgentPanel from "./AgentPanel";
 import type { OutputLine } from "./LiveOutput";
 import LiveOutput from "./LiveOutput";
+import type { AgentTerminal, TerminalLine } from "./MultiTerminal";
+import MultiTerminal from "./MultiTerminal";
 import PlanPanel from "./PlanPanel";
 import PolicyPanel from "./PolicyPanel";
 import RepoMapPanel from "./RepoMapPanel";
@@ -58,6 +60,7 @@ export default function ProjectDetailPage() {
   const [activeTaskId, setActiveTaskId] = createSignal<string | null>(null);
   const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
   const [activeTab, setActiveTab] = createSignal<Tab>("overview");
+  const [agentTerminals, setAgentTerminals] = createSignal<Record<string, TerminalLine[]>>({});
 
   // WebSocket event handling
   const cleanup = onMessage((msg) => {
@@ -162,15 +165,20 @@ export default function ProjectDetailPage() {
       }
       case "task.output": {
         const taskId = payload.task_id as string;
+        const agentId = payload.agent_id as string | undefined;
+        const newLine: TerminalLine = {
+          line: payload.line as string,
+          stream: (payload.stream as "stdout" | "stderr") || "stdout",
+          timestamp: Date.now(),
+        };
         setActiveTaskId(taskId);
-        setOutputLines((prev) => [
-          ...prev,
-          {
-            line: payload.line as string,
-            stream: (payload.stream as "stdout" | "stderr") || "stdout",
-            timestamp: Date.now(),
-          },
-        ]);
+        setOutputLines((prev) => [...prev, newLine]);
+        if (agentId) {
+          setAgentTerminals((prev) => ({
+            ...prev,
+            [agentId]: [...(prev[agentId] ?? []), newLine],
+          }));
+        }
         break;
       }
     }
@@ -382,7 +390,20 @@ export default function ProjectDetailPage() {
               onError={setError}
             />
             <Show when={outputLines().length > 0 || activeTaskId()}>
-              <LiveOutput taskId={activeTaskId()} lines={outputLines()} />
+              <Show
+                when={Object.keys(agentTerminals()).length > 1}
+                fallback={<LiveOutput taskId={activeTaskId()} lines={outputLines()} />}
+              >
+                <MultiTerminal
+                  terminals={Object.entries(agentTerminals()).map(
+                    ([id, lines]): AgentTerminal => ({
+                      agentId: id,
+                      agentName: (agents() ?? []).find((a) => a.id === id)?.name ?? id.slice(0, 8),
+                      lines,
+                    }),
+                  )}
+                />
+              </Show>
             </Show>
           </div>
         </Show>

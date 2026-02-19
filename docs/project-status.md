@@ -1099,4 +1099,14 @@
   - Step list with numbered badges, task/agent names, dependency references
   - Accept button confirms and closes form, Discard button clears preview for re-try
   - 8 new i18n keys (EN + DE) in `plan.preview.*` namespace
-  - 2 i18n keys (EN + DE)
+
+### 11J. Multi-Terminal Agent View (COMPLETED)
+
+- [x] (2026-02-19) Tiled terminal output for concurrent agent teams
+  - `MultiTerminal` component: responsive grid of per-agent terminal tiles
+  - `TerminalTile` sub-component: auto-scroll, line count, stdout/stderr coloring
+  - Expand/collapse: click to expand single tile to full width, hiding others
+  - ProjectDetailPage tracks output per `agent_id` from `task.output` WS events
+  - Shows MultiTerminal when 2+ agents have output, falls back to single LiveOutput
+  - Responsive grid: 1 col default, 2 cols on lg (<=4 agents), 3 cols on xl (>4 agents)
+  - 7 new i18n keys (EN + DE) in `multiTerminal.*` namespace

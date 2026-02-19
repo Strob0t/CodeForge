@@ -885,7 +885,12 @@
   - Agents & Runs: AgentPanel + PolicyPanel + RunPanel + PlanPanel + LiveOutput
   - Context: RepoMapPanel + RetrievalPanel (requires workspace)
   - Costs: ProjectCostSection
-- [ ] Multi-terminal view with tiles per agent (relevant when agent teams work)
+- [x] (2026-02-19) Multi-terminal view with tiles per agent
+  - `MultiTerminal` component with per-agent terminal tiles in responsive grid
+  - Auto-scroll, expand/collapse single tile to full width, max line truncation
+  - ProjectDetailPage tracks output per agent_id, shows MultiTerminal when 2+ agents active
+  - Falls back to single LiveOutput when only one agent has output
+  - 7 new i18n keys (EN + DE) for multi-terminal
 - [x] (2026-02-19) Global activity/notification stream (cross-project, not just per-project)
   - `ActivityPage` component at `/activity` with global WebSocket subscription
   - Classifies 12+ WS event types (run.status, run.toolcall, run.budget_alert, run.qualitygate, run.delivery, agent.status, task.status, plan.status, plan.step.status, repomap/retrieval/roadmap.status)

@@ -499,6 +499,15 @@ const en = {
   "output.scrollAria": "Scroll to bottom of output",
   "output.logAria": "Live agent output",
 
+  // -- Multi-Terminal -------------------------------------------------------
+  "multiTerminal.title": "Agent Terminals",
+  "multiTerminal.agentCount": "{{n}} agents",
+  "multiTerminal.empty": "No agent output yet.",
+  "multiTerminal.lines": "{{n}} lines",
+  "multiTerminal.expand": "Expand {{name}} terminal",
+  "multiTerminal.collapse": "Collapse terminal",
+  "multiTerminal.logAria": "Live output for {{name}}",
+
   // -- Auth -----------------------------------------------------------------
   "auth.title": "Sign in to CodeForge",
   "auth.email": "Email",

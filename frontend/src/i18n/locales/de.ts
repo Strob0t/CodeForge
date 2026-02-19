@@ -502,6 +502,15 @@ const de: Translations = {
   "output.scrollAria": "Zum Ende der Ausgabe scrollen",
   "output.logAria": "Live-Agentenausgabe",
 
+  // -- Multi-Terminal -------------------------------------------------------
+  "multiTerminal.title": "Agenten-Terminals",
+  "multiTerminal.agentCount": "{{n}} Agenten",
+  "multiTerminal.empty": "Noch keine Agentenausgabe.",
+  "multiTerminal.lines": "{{n}} Zeilen",
+  "multiTerminal.expand": "Terminal von {{name}} erweitern",
+  "multiTerminal.collapse": "Terminal minimieren",
+  "multiTerminal.logAria": "Live-Ausgabe f\u00fcr {{name}}",
+
   // -- Auth -----------------------------------------------------------------
   "auth.title": "Bei CodeForge anmelden",
   "auth.email": "E-Mail",
