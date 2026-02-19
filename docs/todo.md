@@ -885,7 +885,13 @@
 
 ### Missing UI for Existing Backend Features
 
-- [ ] Settings/Configuration page (LiteLLM config, API keys, provider setup)
+- [x] (2026-02-19) Settings/Configuration page
+  - Provider info cards (Git, Agent, Spec, PM) with loading/empty states
+  - LLM health status indicator (connected/unavailable/checking)
+  - API key management: create, list, delete, copy warning for new keys
+  - User management table (admin only): enable/disable, delete, role badges
+  - ~38 i18n keys in EN + DE, route `/settings`, nav link in sidebar
+  - Reuses existing backend endpoints: providers.*, auth.*, users.*, llm.health
 - [ ] Mode selection UI (architect, coder, reviewer, debugger, etc.) — backend ready via `api.modes`
 - [ ] Team/Multi-Agent management UI — backend ready via `api.teams`
 

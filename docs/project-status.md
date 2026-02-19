@@ -1010,3 +1010,13 @@
   - Agents & Runs: AgentPanel + PolicyPanel + RunPanel + PlanPanel + LiveOutput
   - Context: RepoMapPanel + RetrievalPanel (requires workspace)
   - Costs: ProjectCostSection
+
+### 11B. Settings/Configuration Page (COMPLETED)
+
+- [x] (2026-02-19) Full settings page aggregating existing backend APIs
+  - Provider info cards (Git, Agent, Spec, PM) with loading/empty states
+  - LLM health status indicator (connected/unavailable/checking)
+  - API key management: create, list, delete with copy-once warning
+  - User management table (admin only): enable/disable toggle, delete, role badges
+  - ~38 i18n keys (EN + DE), route `/settings`, sidebar nav link
+  - ProviderCard helper component for uniform display
