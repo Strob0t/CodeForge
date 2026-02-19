@@ -9,6 +9,7 @@ import {
 
 import type { TranslationKey, Translations } from "./en";
 import en from "./en";
+import * as fmt from "./formatters";
 
 // ---------------------------------------------------------------------------
 // Locale registry — add new languages here (single source of truth)
@@ -37,6 +38,28 @@ const LOCALE_REGISTRY: Record<string, LocaleEntry> = {
 
 export type Locale = keyof typeof LOCALE_REGISTRY;
 
+/** Locale-aware formatting functions. Each uses the current locale reactively. */
+interface I18nFormatters {
+  /** Short date: "Feb 19, 2026" */
+  date: (d: string | Date) => string;
+  /** Date + time: "Feb 19, 2026, 3:45 PM" */
+  dateTime: (d: string | Date) => string;
+  /** Time only: "3:45:12 PM" */
+  time: (d: string | Date) => string;
+  /** Plain number with grouping: "1,234" */
+  number: (n: number) => string;
+  /** Compact number: "1.2K", "3.4M" */
+  compact: (n: number) => string;
+  /** USD currency: "$1.23" */
+  currency: (usd: number) => string;
+  /** Duration from ms: "1.2s" */
+  duration: (ms: number) => string;
+  /** Score: "0.847" */
+  score: (n: number) => string;
+  /** Percentage: "85" (no % sign, caller adds context) */
+  percent: (n: number) => string;
+}
+
 interface I18nContextValue {
   /** Current locale. */
   locale: () => Locale;
@@ -44,6 +67,8 @@ interface I18nContextValue {
   setLocale: (l: Locale) => void;
   /** Translate a key with optional interpolation params. */
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+  /** Locale-aware formatters (date, number, currency, etc.). */
+  fmt: I18nFormatters;
   /** All available locales. */
   availableLocales: readonly Locale[];
   /** Native label for a locale (e.g. "DE", "FR"). */
@@ -132,10 +157,24 @@ export function I18nProvider(props: ParentProps): JSX.Element {
     return LOCALE_REGISTRY[l]?.label ?? l;
   }
 
+  // Build reactive formatters that always use the current locale.
+  const fmtObj: I18nFormatters = {
+    date: (d) => fmt.formatDate(d, locale()),
+    dateTime: (d) => fmt.formatDateTime(d, locale()),
+    time: (d) => fmt.formatTime(d, locale()),
+    number: (n) => fmt.formatNumber(n, locale()),
+    compact: (n) => fmt.formatCompact(n, locale()),
+    currency: (usd) => fmt.formatCurrency(usd, locale()),
+    duration: (ms) => fmt.formatDuration(ms, locale()),
+    score: (n) => fmt.formatScore(n, locale()),
+    percent: (n) => fmt.formatPercent(n, locale()),
+  };
+
   const ctx: I18nContextValue = {
     locale,
     setLocale,
     t,
+    fmt: fmtObj,
     availableLocales: AVAILABLE_LOCALES,
     localeLabel,
   };

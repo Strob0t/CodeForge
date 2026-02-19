@@ -720,7 +720,11 @@
   - `frontend/src/i18n/en.ts` — ~480 translation keys, source of truth
   - `frontend/src/i18n/locales/de.ts` — full German translation
 - [x] (2026-02-19) Language switcher in Sidebar (LocaleSwitcher component, cycles EN/DE)
-- [ ] Locale-aware date/number formatting (Intl.DateTimeFormat, Intl.NumberFormat)
+- [x] (2026-02-19) Locale-aware date/number formatting (Intl.DateTimeFormat, Intl.NumberFormat)
+  - `frontend/src/i18n/formatters.ts`: 9 formatter functions (date, dateTime, time, number, compact, currency, duration, score, percent)
+  - `frontend/src/i18n/context.tsx`: `fmt` object on I18nContextValue, reactive locale binding
+  - Replaced inline formatters in 8 components: ProjectCard, CostDashboardPage, TaskPanel, RunPanel, RepoMapPanel, RetrievalPanel, TrajectoryPanel, ProjectDetailPage
+  - Removed 4 duplicate local formatters (formatDate, formatNumber x2, formatCost x2, formatTokens)
 - [ ] Pluralization support for counts (e.g. "1 agent" vs. "3 agents")
 
 ### 10C. Authentication & Authorization

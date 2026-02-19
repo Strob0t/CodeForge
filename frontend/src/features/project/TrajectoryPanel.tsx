@@ -18,7 +18,7 @@ const EVENT_COLORS: Record<string, string> = {
 };
 
 export default function TrajectoryPanel(props: TrajectoryPanelProps) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const [typeFilter, setTypeFilter] = createSignal("");
   const [cursor, setCursor] = createSignal("");
 
@@ -87,7 +87,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
             </span>
             <span>
               <span class="text-gray-500 dark:text-gray-400">{t("trajectory.duration")}</span>{" "}
-              {(s().duration_ms / 1000).toFixed(1)}s
+              {fmt.duration(s().duration_ms)}
             </span>
             <span>
               <span class="text-gray-500 dark:text-gray-400">{t("trajectory.toolCalls")}</span>{" "}
@@ -148,7 +148,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
                 role="button"
                 tabIndex={0}
                 aria-expanded={expandedId() === ev.id}
-                aria-label={`Event: ${ev.type} at ${new Date(ev.created_at).toLocaleTimeString()}`}
+                aria-label={`Event: ${ev.type} at ${fmt.time(ev.created_at)}`}
                 onClick={() => toggleExpand(ev.id)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -165,7 +165,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
                   <span class="font-mono text-xs text-gray-600 dark:text-gray-400">{ev.type}</span>
                   <span class="flex-1" />
                   <span class="text-xs text-gray-400 dark:text-gray-500">
-                    {new Date(ev.created_at).toLocaleTimeString()}
+                    {fmt.time(ev.created_at)}
                   </span>
                   <span class="text-xs text-gray-400 dark:text-gray-500">v{ev.version}</span>
                 </div>

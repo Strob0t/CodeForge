@@ -8,16 +8,8 @@ interface ProjectCardProps {
   onDelete: (id: string) => void;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 export default function ProjectCard(props: ProjectCardProps) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   return (
     <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm dark:shadow-gray-900/30 transition-shadow hover:shadow-md dark:hover:shadow-gray-900/30">
       <div class="flex items-start justify-between">
@@ -56,7 +48,7 @@ export default function ProjectCard(props: ProjectCardProps) {
             {props.project.repo_url}
           </span>
         )}
-        <span>{t("project.created", { date: formatDate(props.project.created_at) })}</span>
+        <span>{t("project.created", { date: fmt.date(props.project.created_at) })}</span>
       </div>
     </div>
   );

@@ -5,18 +5,8 @@ import { api } from "~/api/client";
 import type { DailyCost, ModelCostSummary, ProjectCostSummary, Run } from "~/api/types";
 import { useI18n } from "~/i18n";
 
-function formatCost(usd: number): string {
-  return usd < 0.01 && usd > 0 ? `$${usd.toFixed(6)}` : `$${usd.toFixed(4)}`;
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
 export default function CostDashboardPage() {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const [globalCosts] = createResource(() => api.costs.global());
 
   // Compute totals from global summary
@@ -42,19 +32,19 @@ export default function CostDashboardPage() {
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
           <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.totalCost")}</p>
           <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {formatCost(totals().cost)}
+            {fmt.currency(totals().cost)}
           </p>
         </div>
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
           <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.tokensIn")}</p>
           <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {formatTokens(totals().tokensIn)}
+            {fmt.compact(totals().tokensIn)}
           </p>
         </div>
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
           <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.tokensOut")}</p>
           <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {formatTokens(totals().tokensOut)}
+            {fmt.compact(totals().tokensOut)}
           </p>
         </div>
         <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
@@ -102,9 +92,9 @@ export default function CostDashboardPage() {
                         {p.project_name || p.project_id}
                       </A>
                     </td>
-                    <td class="py-2 text-right font-mono">{formatCost(p.total_cost_usd)}</td>
-                    <td class="py-2 text-right font-mono">{formatTokens(p.total_tokens_in)}</td>
-                    <td class="py-2 text-right font-mono">{formatTokens(p.total_tokens_out)}</td>
+                    <td class="py-2 text-right font-mono">{fmt.currency(p.total_cost_usd)}</td>
+                    <td class="py-2 text-right font-mono">{fmt.compact(p.total_tokens_in)}</td>
+                    <td class="py-2 text-right font-mono">{fmt.compact(p.total_tokens_out)}</td>
                     <td class="py-2 text-right">{p.run_count}</td>
                   </tr>
                 )}
@@ -119,7 +109,7 @@ export default function CostDashboardPage() {
 
 /** Reusable cost section for a specific project */
 export function ProjectCostSection(props: { projectId: string }) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const [summary] = createResource(
     () => props.projectId,
     (id) => api.costs.project(id),
@@ -152,15 +142,15 @@ export function ProjectCostSection(props: { projectId: string }) {
           <div class="mb-4 grid grid-cols-4 gap-3">
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
               <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.totalCost")}</p>
-              <p class="text-lg font-bold">{formatCost(s().total_cost_usd)}</p>
+              <p class="text-lg font-bold">{fmt.currency(s().total_cost_usd)}</p>
             </div>
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
               <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.tokensIn")}</p>
-              <p class="text-lg font-bold">{formatTokens(s().total_tokens_in)}</p>
+              <p class="text-lg font-bold">{fmt.compact(s().total_tokens_in)}</p>
             </div>
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
               <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.tokensOut")}</p>
-              <p class="text-lg font-bold">{formatTokens(s().total_tokens_out)}</p>
+              <p class="text-lg font-bold">{fmt.compact(s().total_tokens_out)}</p>
             </div>
             <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
               <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.table.runs")}</p>
@@ -182,12 +172,12 @@ export function ProjectCostSection(props: { projectId: string }) {
                 <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
                   <span class="font-mono text-xs">{m.model || t("costs.unknown")}</span>
                   <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-                    <span>{formatCost(m.total_cost_usd)}</span>
+                    <span>{fmt.currency(m.total_cost_usd)}</span>
                     <span>
-                      {formatTokens(m.total_tokens_in)} {t("costs.in")}
+                      {fmt.compact(m.total_tokens_in)} {t("costs.in")}
                     </span>
                     <span>
-                      {formatTokens(m.total_tokens_out)} {t("costs.out")}
+                      {fmt.compact(m.total_tokens_out)} {t("costs.out")}
                     </span>
                     <span>
                       {m.run_count} {t("costs.runs")}
@@ -219,7 +209,7 @@ export function ProjectCostSection(props: { projectId: string }) {
                   <div
                     class="flex-1 rounded-t bg-blue-400 hover:bg-blue-500"
                     style={{ height: `${pct()}%` }}
-                    title={`${d.date}: ${formatCost(d.cost_usd)} (${d.run_count} runs)`}
+                    title={`${d.date}: ${fmt.currency(d.cost_usd)} (${d.run_count} runs)`}
                   />
                 );
               }}
@@ -245,12 +235,12 @@ export function ProjectCostSection(props: { projectId: string }) {
                     <span class="text-xs text-gray-500 dark:text-gray-400">{r.model || "-"}</span>
                   </div>
                   <div class="flex gap-3 text-xs text-gray-500 dark:text-gray-400">
-                    <span>{formatCost(r.cost_usd)}</span>
+                    <span>{fmt.currency(r.cost_usd)}</span>
                     <span>
-                      {formatTokens(r.tokens_in)} {t("costs.in")}
+                      {fmt.compact(r.tokens_in)} {t("costs.in")}
                     </span>
                     <span>
-                      {formatTokens(r.tokens_out)} {t("costs.out")}
+                      {fmt.compact(r.tokens_out)} {t("costs.out")}
                     </span>
                     <span>
                       {r.step_count} {t("costs.steps")}

@@ -9,15 +9,8 @@ interface RepoMapPanelProps {
   onStatusUpdate?: (status: string) => void;
 }
 
-function formatNumber(n: number): string {
-  if (n >= 1000) {
-    return `${(n / 1000).toFixed(1)}k`;
-  }
-  return n.toString();
-}
-
 export default function RepoMapPanel(props: RepoMapPanelProps) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const [repoMap, { refetch }] = createResource<RepoMap | null>(
     () => props.projectId,
     async (id) => {
@@ -85,19 +78,19 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
               <div class="mb-3 grid grid-cols-3 gap-3">
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    {formatNumber(rm().file_count)}
+                    {fmt.compact(rm().file_count)}
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400">{t("repomap.files")}</div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    {formatNumber(rm().symbol_count)}
+                    {fmt.compact(rm().symbol_count)}
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400">{t("repomap.symbols")}</div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    {formatNumber(rm().token_count)}
+                    {fmt.compact(rm().token_count)}
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400">{t("repomap.tokens")}</div>
                 </div>
@@ -125,7 +118,7 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
               <div class="mb-3 text-xs text-gray-400 dark:text-gray-500">
                 {t("repomap.version", {
                   version: rm().version,
-                  date: new Date(rm().updated_at).toLocaleString(),
+                  date: fmt.dateTime(rm().updated_at),
                 })}
               </div>
 

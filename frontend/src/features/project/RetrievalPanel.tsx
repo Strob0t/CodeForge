@@ -14,15 +14,8 @@ interface RetrievalPanelProps {
   onStatusUpdate?: (status: string) => void;
 }
 
-function formatNumber(n: number): string {
-  if (n >= 1000) {
-    return `${(n / 1000).toFixed(1)}k`;
-  }
-  return n.toString();
-}
-
 export default function RetrievalPanel(props: RetrievalPanelProps) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const [indexStatus, { refetch }] = createResource<RetrievalIndexStatus | null>(
     () => props.projectId,
     async (id) => {
@@ -174,13 +167,13 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
               <div class="mb-3 grid grid-cols-4 gap-3">
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    {formatNumber(status().file_count)}
+                    {fmt.compact(status().file_count)}
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400">{t("retrieval.files")}</div>
                 </div>
                 <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                   <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    {formatNumber(status().chunk_count)}
+                    {fmt.compact(status().chunk_count)}
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400">
                     {t("retrieval.chunks")}
@@ -316,7 +309,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                         class="text-xs text-gray-400 dark:text-gray-500"
                         title="Relevance score"
                       >
-                        {hit.score.toFixed(3)}
+                        {fmt.score(hit.score)}
                       </span>
                     </div>
                   </div>
@@ -364,7 +357,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                 <div class="mb-3 grid grid-cols-3 gap-3">
                   <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                     <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                      {formatNumber(gs().node_count)}
+                      {fmt.compact(gs().node_count)}
                     </div>
                     <div class="text-xs text-gray-500 dark:text-gray-400">
                       {t("retrieval.graph.nodes")}
@@ -372,7 +365,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                   </div>
                   <div class="rounded border border-gray-100 bg-gray-50 p-2 text-center dark:border-gray-600 dark:bg-gray-700">
                     <div class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                      {formatNumber(gs().edge_count)}
+                      {fmt.compact(gs().edge_count)}
                     </div>
                     <div class="text-xs text-gray-500 dark:text-gray-400">
                       {t("retrieval.graph.edges")}
@@ -408,7 +401,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                 <Show when={gs().built_at}>
                   <div class="mb-3 text-xs text-gray-400 dark:text-gray-500">
                     {t("retrieval.graph.built", {
-                      date: new Date(gs().built_at ?? "").toLocaleString(),
+                      date: fmt.dateTime(gs().built_at ?? ""),
                     })}
                   </div>
                 </Show>

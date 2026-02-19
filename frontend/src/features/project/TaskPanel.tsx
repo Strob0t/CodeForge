@@ -29,14 +29,8 @@ function statusColor(status: TaskStatus): string {
   }
 }
 
-function formatCost(usd: number): string {
-  if (usd === 0) return "";
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
 export default function TaskPanel(props: TaskPanelProps) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const { show: toast } = useToast();
   const [showForm, setShowForm] = createSignal(false);
   const [title, setTitle] = createSignal("");
@@ -71,7 +65,7 @@ export default function TaskPanel(props: TaskPanelProps) {
           <h3 class="text-lg font-semibold">{t("task.title")}</h3>
           <Show when={totalCost() > 0}>
             <span class="rounded bg-purple-100 px-2 py-0.5 text-xs text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-              {t("task.total")} {formatCost(totalCost())}
+              {t("task.total")} {fmt.currency(totalCost())}
             </span>
           </Show>
         </div>
@@ -167,7 +161,7 @@ export default function TaskPanel(props: TaskPanelProps) {
                     </span>
                     <Show when={task.cost_usd > 0}>
                       <span class="rounded bg-purple-50 px-1.5 py-0.5 text-xs text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                        {formatCost(task.cost_usd)}
+                        {fmt.currency(task.cost_usd)}
                       </span>
                     </Show>
                   </div>

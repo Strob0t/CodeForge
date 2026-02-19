@@ -20,7 +20,7 @@ import RunPanel from "./RunPanel";
 import TaskPanel from "./TaskPanel";
 
 export default function ProjectDetailPage() {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const { show: toast } = useToast();
   const params = useParams<{ id: string }>();
   const { onMessage } = createCodeForgeWS();
@@ -151,7 +151,7 @@ export default function ProjectDetailPage() {
         if (alertProjectId === projectId) {
           setBudgetAlert(payload as unknown as BudgetAlertEvent);
           const pct = (payload as unknown as BudgetAlertEvent).percentage;
-          toast("warning", t("detail.toast.budgetAlert", { pct: pct.toFixed(0) }));
+          toast("warning", t("detail.toast.budgetAlert", { pct: fmt.percent(pct) }));
         }
         break;
       }
@@ -265,9 +265,9 @@ export default function ProjectDetailPage() {
                   <span>
                     {t("detail.budgetAlert", {
                       runId: alert().run_id.slice(0, 8),
-                      pct: alert().percentage.toFixed(0),
-                      cost: alert().cost_usd.toFixed(4),
-                      max: alert().max_cost.toFixed(2),
+                      pct: fmt.percent(alert().percentage),
+                      cost: fmt.currency(alert().cost_usd),
+                      max: fmt.currency(alert().max_cost),
                     })}
                   </span>
                   <button

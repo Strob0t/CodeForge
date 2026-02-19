@@ -25,7 +25,7 @@ const STATUS_COLORS: Record<RunStatus, string> = {
 };
 
 export default function RunPanel(props: RunPanelProps) {
-  const { t } = useI18n();
+  const { t, fmt } = useI18n();
   const { show: toast } = useToast();
 
   const DELIVER_MODES = (): { value: DeliverMode; label: string }[] => [
@@ -246,12 +246,12 @@ export default function RunPanel(props: RunPanelProps) {
                 {t("run.steps")} {run().step_count}
               </span>
               <span>
-                {t("run.cost")} ${run().cost_usd.toFixed(4)}
+                {t("run.cost")} {fmt.currency(run().cost_usd)}
               </span>
               <Show when={run().tokens_in > 0 || run().tokens_out > 0}>
                 <span>
-                  {t("run.tokens")} {run().tokens_in.toLocaleString()} in /{" "}
-                  {run().tokens_out.toLocaleString()} out
+                  {t("run.tokens")} {fmt.number(run().tokens_in)} in /{" "}
+                  {fmt.number(run().tokens_out)} out
                 </span>
               </Show>
               <Show when={run().model}>
@@ -323,10 +323,10 @@ export default function RunPanel(props: RunPanelProps) {
                   </div>
                   <div class="flex gap-3 text-xs text-gray-500 dark:text-gray-400">
                     <span>{r.step_count} steps</span>
-                    <span>${r.cost_usd.toFixed(4)}</span>
+                    <span>{fmt.currency(r.cost_usd)}</span>
                     <Show when={r.tokens_in > 0 || r.tokens_out > 0}>
                       <span>
-                        {r.tokens_in.toLocaleString()}/{r.tokens_out.toLocaleString()} tok
+                        {fmt.number(r.tokens_in)}/{fmt.number(r.tokens_out)} tok
                       </span>
                     </Show>
                     <Show when={r.model}>
