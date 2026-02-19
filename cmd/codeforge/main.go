@@ -360,12 +360,20 @@ func run() error {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
-	// SIGHUP triggers hot reload of secrets vault
+	// ConfigHolder for hot reload support.
+	cfgHolder := config.NewHolder(cfg, config.DefaultConfigFile)
+
+	// SIGHUP triggers hot reload of config and secrets vault
 	sighup := make(chan os.Signal, 1)
 	signal.Notify(sighup, syscall.SIGHUP)
 	go func() {
 		for range sighup {
-			slog.Info("SIGHUP received, reloading secrets")
+			slog.Info("SIGHUP received, reloading config and secrets")
+			if err := cfgHolder.Reload(); err != nil {
+				slog.Error("config reload failed", "error", err)
+			} else {
+				slog.Info("config reloaded successfully")
+			}
 			if err := vault.Reload(); err != nil {
 				slog.Error("secrets reload failed", "error", err)
 			} else {

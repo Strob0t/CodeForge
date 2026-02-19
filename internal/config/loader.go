@@ -16,9 +16,15 @@ const DefaultConfigFile = "codeforge.yaml"
 // Load returns a Config using the hierarchy: defaults < YAML < ENV.
 // YAML file is optional; missing file is not an error.
 func Load() (*Config, error) {
+	return LoadFrom(DefaultConfigFile)
+}
+
+// LoadFrom returns a Config loaded from the given YAML path using the
+// hierarchy: defaults < YAML < ENV. The YAML file is optional.
+func LoadFrom(yamlPath string) (*Config, error) {
 	cfg := Defaults()
 
-	if err := loadYAML(&cfg, DefaultConfigFile); err != nil {
+	if err := loadYAML(&cfg, yamlPath); err != nil {
 		return nil, fmt.Errorf("config yaml: %w", err)
 	}
 

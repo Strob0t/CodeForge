@@ -28,7 +28,12 @@
   - Validation layer for required fields and min values
   - `codeforge.yaml.example` with all fields documented
   - 6 test functions in `internal/config/loader_test.go`
-- [ ] SIGHUP config reload, CLI override support
+- [x] (2026-02-19) SIGHUP config reload (ConfigHolder with hot-reload, expanded SIGHUP handler)
+  - `internal/config/config.go`: `ConfigHolder` struct with `sync.RWMutex`, `Get()`, `Reload()`
+  - `internal/config/loader.go`: `LoadFrom(yamlPath)` for explicit YAML path loading
+  - `cmd/codeforge/main.go`: SIGHUP handler now reloads both config and secrets vault
+  - Warns about non-hot-reloadable fields (port, DSN, NATS URL)
+- [ ] CLI override support
 
 ### 3B. Structured Logging & Observability
 
@@ -805,7 +810,8 @@
   - Fixed goose migration `$$` blocks (StatementBegin/StatementEnd annotations)
   - Updated `.claude/commands/test.md` to use test runner script
 - [x] (2026-02-17) Unit tests for AsyncHandler (buffer overflow, concurrent writes, flush) — 4 tests in `internal/logger/async_test.go`
-- [ ] Integration tests for Config Loader (precedence, validation, reload)
+- [x] (2026-02-19) Integration tests for Config Loader (precedence, validation, reload)
+  - `internal/config/loader_integration_test.go`: 10 tests covering full hierarchy, partial override, invalid env, missing YAML, malformed YAML, validation, orchestrator overrides, reload, reload validation failure, reload env override
 - [x] (2026-02-17) Unit tests for Idempotency (no header, store, replay, GET ignored, different keys) — 5 tests in `internal/middleware/idempotency_test.go`
 - [ ] Load tests for Rate Limiting (sustained vs burst, per-user limiters)
 - [x] (2026-02-18) Runtime Compliance Tests (Sandbox/Mount feature parity) — 16 sub-tests passing
