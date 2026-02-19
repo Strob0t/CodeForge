@@ -16,7 +16,7 @@
 ## Phases 0–8: Complete
 
 > All phases from 0 through 8 are complete. See sections below for details.
-> **Current priority: Phase 9+ (Advanced Features & Vision)** — see bottom of file.
+> **Current priority: Phase 10 (Frontend Foundations)** — then Phase 9 (Advanced) and Phase 11+ (Future GUI).
 
 ### Phase 3 — Reliability, Performance & Agent Foundation
 
@@ -28,7 +28,7 @@
   - Validation layer for required fields and min values
   - `codeforge.yaml.example` with all fields documented
   - 6 test functions in `internal/config/loader_test.go`
-  - Deferred: SIGHUP reload, CLI override support
+- [-] Deferred: SIGHUP reload, CLI override support
 
 ### 3B. Structured Logging & Observability
 
@@ -43,7 +43,7 @@
   - Python: Extract from NATS headers, bind to structlog context
   - 2 test functions in `internal/middleware/requestid_test.go`
   - 1 new Python test for request ID propagation
-  - Deferred: PostgreSQL log_line_prefix configuration
+- [-] Deferred: PostgreSQL log_line_prefix configuration
 - [x] (2026-02-17) Docker Compose logging configuration
   - `x-logging` anchor with `json-file` driver, `max-size: 10m`, `max-file: 3`
   - Applied to all 5 services
@@ -196,7 +196,7 @@
   - Domain structs: `TenantID` field added to Project, Task, Agent, Run
   - Middleware chain: `r.Use(middleware.TenantID)` after RequestID
   - 3 tests in `internal/middleware/tenant_test.go`
-  - Deferred: full WHERE tenant_id clauses in queries (single-tenant for now)
+- [-] Deferred: full WHERE tenant_id clauses in queries (single-tenant for now)
 
 ---
 
@@ -254,7 +254,7 @@
   - Frontend: PolicyPanel component with 3 views (list, detail with evaluate tester, editor)
   - Frontend: Integrated into ProjectDetailPage (between agents and run management)
   - Tests: 6 new service tests, 6 new handler tests — all passing
-  - Deferred: Scope levels (global → project → run), run overrides, "why matched" explanation
+- [-] Deferred: Scope levels (global → project → run), run overrides, "why matched" explanation
 
 ### 4B. Runtime API (Step-by-Step Execution Protocol)
 
@@ -295,7 +295,7 @@
   - Runtime integration: sandbox lifecycle in StartRun, finalizeRun, CancelRun
   - 5 tests in `internal/service/sandbox_test.go`
   - Mount mode: implicit — Python worker operates directly on host filesystem (no additional Go code needed)
-  - Deferred: Hybrid mode (read from host, write in sandbox, merge on success)
+- [-] Deferred: Hybrid mode (read from host, write in sandbox, merge on success)
 - [x] (2026-02-18) Runtime Compliance Tests
   - `internal/service/runtime_compliance_test.go`: 8 sub-tests × 2 modes (Mount, Sandbox)
   - Sub-tests: StartRun, ToolCallFlow, PolicyEnforcement, Termination_MaxSteps, Termination_MaxCost, CancelRun, Completion, StallDetection
@@ -660,8 +660,7 @@
 - [ ] Theme toggle component in Sidebar or TopBar
 - [ ] localStorage persistence for user preference
 - [ ] System preference detection via `prefers-color-scheme` media query
-- [ ] Formalize 4-color agent status schema as design tokens:
-  - Green: running/healthy, Yellow: waiting/needs-input, Red: error/blocked, Blue: planning/thinking
+- [ ] Formalize 4-color agent status schema as design tokens (green=running, yellow=waiting, red=error, blue=planning)
 - [ ] Customization hooks for branding (CSS custom property overrides)
 
 ### 10B. i18n (Internationalization)
@@ -852,7 +851,7 @@ For full completion history, see [project-status.md](project-status.md).
 
 ## Notes
 
-- **Priority order**: Phases 0-8 complete → Phase 9 (Advanced) → Phase 10 (Frontend Foundations) → Phase 11+ (Future GUI)
+- **Priority order**: Phases 0-8 complete → Phase 10 (Frontend Foundations, current) → Phase 9 (Advanced) → Phase 11+ (Future GUI)
 - **Dependencies**: Structured Logging → Request ID → Docker Logging → Log Script
 - **Dependencies**: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
 - **Dependencies**: Repo Map → Hybrid Retrieval → Retrieval Sub-Agent → GraphRAG
