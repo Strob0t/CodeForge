@@ -805,6 +805,39 @@
 - **Tests:** 14 new test functions (5 Slack + 5 Discord + 4 notification service), all Go tests pass
 - **Verification:** go build, golangci-lint 0 issues, go test all pass, pre-commit 15/15 hooks pass
 
+## Phase 9D: OpenTelemetry + A2A + AG-UI + Blue-Green (COMPLETED)
+
+> Adds observability, protocol stubs, and deployment infrastructure.
+
+- [x] (2026-02-19) **OpenTelemetry** — Real TracerProvider + MeterProvider replacing no-op stub
+  - `internal/adapter/otel/setup.go`: OTLP gRPC trace + metric exporters, TraceIDRatioBased sampling
+  - `internal/adapter/otel/middleware.go`: chi HTTP middleware via `otelhttp.NewHandler`
+  - `internal/adapter/otel/spans.go`: StartRunSpan, StartToolCallSpan, StartDeliverySpan helpers
+  - `internal/adapter/otel/metrics.go`: 6 metric instruments (runs started/completed/failed, tool calls, duration, cost)
+  - Config: `OTEL{Enabled, Endpoint, ServiceName, Insecure, SampleRate}` with env overrides
+- [x] (2026-02-19) **A2A Protocol Stub** — Google Agent-to-Agent protocol
+  - `internal/port/a2a/types.go`: AgentCard, Skill, TaskRequest, TaskResponse types
+  - `internal/port/a2a/agentcard.go`: BuildAgentCard with 2 skills (code-task, decompose)
+  - `internal/port/a2a/handler.go`: HTTP handlers for `/.well-known/agent.json`, `/a2a/tasks`
+  - 5 handler tests, all passing
+  - Config: `A2A.Enabled bool` (default false)
+- [x] (2026-02-19) **AG-UI Protocol Events** — CopilotKit Agent-User Interaction
+  - `internal/adapter/ws/agui_events.go`: 8 event types + 8 structs
+  - `frontend/src/api/types.ts`: 8 TypeScript interfaces for AG-UI events
+  - Config: `AGUI.Enabled bool` (default false)
+- [x] (2026-02-19) **Blue-Green Deployment** — Zero-downtime deployment infrastructure
+  - `traefik/traefik.yaml`: Static config (entrypoints, Docker provider, file provider)
+  - `docker-compose.blue-green.yml`: Overlay with blue/green service pairs + Traefik routing
+  - `scripts/deploy-blue-green.sh`: Deployment script (detect active, deploy inactive, health-check, switch)
+- [x] (2026-02-19) **Config + Wiring** — OTEL, A2A, AGUI config structs with env overrides in loader.go; OTEL middleware + A2A route mounting in main.go
+
+### Phase 9D Key Deliverables
+- **New files (10):** otel (3: middleware.go, spans.go, metrics.go), a2a (4: types.go, agentcard.go, handler.go, handler_test.go), ws/agui_events.go, traefik/traefik.yaml, docker-compose.blue-green.yml, scripts/deploy-blue-green.sh
+- **Modified files (6):** otel/setup.go (rewritten), config.go, loader.go, main.go, frontend/src/api/types.ts, go.mod + go.sum
+- **New Go deps:** go.opentelemetry.io/otel (v1.40), go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp
+- **Tests:** 5 A2A handler tests, all Go tests pass
+- **Verification:** go build, golangci-lint 0 issues, go test all pass, pre-commit 15/15 hooks pass
+
 ## Phase 10 — Frontend Foundations (IN PROGRESS)
 
 ### 10F. Toast/Notification System (COMPLETED)

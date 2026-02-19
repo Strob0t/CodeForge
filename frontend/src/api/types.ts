@@ -907,3 +907,53 @@ export interface ProviderList {
 export interface BackendList {
   backends: string[];
 }
+
+// --- AG-UI Protocol Types ---
+
+export interface AGUIRunStartedEvent {
+  run_id: string;
+  thread_id?: string;
+  agent_name?: string;
+}
+
+export interface AGUIRunFinishedEvent {
+  run_id: string;
+  status: "completed" | "failed" | "cancelled";
+}
+
+export interface AGUITextMessageEvent {
+  run_id: string;
+  role: string;
+  content: string;
+}
+
+export interface AGUIToolCallEvent {
+  run_id: string;
+  call_id: string;
+  name: string;
+  args: string;
+}
+
+export interface AGUIToolResultEvent {
+  run_id: string;
+  call_id: string;
+  result: string;
+  error?: string;
+}
+
+export interface AGUIStateDeltaEvent {
+  run_id: string;
+  delta: string;
+}
+
+export interface AGUIStepStartedEvent {
+  run_id: string;
+  step_id: string;
+  name: string;
+}
+
+export interface AGUIStepFinishedEvent {
+  run_id: string;
+  step_id: string;
+  status: "completed" | "failed";
+}

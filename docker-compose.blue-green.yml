@@ -1,0 +1,73 @@
+# Blue-Green deployment overlay for CodeForge
+# Usage: docker compose -f docker-compose.prod.yml -f docker-compose.blue-green.yml up -d
+
+services:
+  traefik:
+    image: traefik:v3.3
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yaml:/etc/traefik/traefik.yaml:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  core-blue:
+    extends:
+      service: core
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.core-blue.rule=PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ws`) || PathPrefix(`/.well-known`) || PathPrefix(`/a2a`)"
+      - "traefik.http.routers.core-blue.entrypoints=web"
+      - "traefik.http.services.core-blue.loadbalancer.server.port=8080"
+      - "traefik.http.routers.core-blue.priority=20"
+    ports: []
+
+  core-green:
+    extends:
+      service: core
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.core-green.rule=PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ws`) || PathPrefix(`/.well-known`) || PathPrefix(`/a2a`)"
+      - "traefik.http.routers.core-green.entrypoints=web"
+      - "traefik.http.services.core-green.loadbalancer.server.port=8080"
+      - "traefik.http.routers.core-green.priority=10"
+    ports: []
+
+  frontend-blue:
+    extends:
+      service: frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend-blue.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend-blue.entrypoints=web"
+      - "traefik.http.services.frontend-blue.loadbalancer.server.port=80"
+      - "traefik.http.routers.frontend-blue.priority=5"
+    ports: []
+
+  frontend-green:
+    extends:
+      service: frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend-green.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend-green.entrypoints=web"
+      - "traefik.http.services.frontend-green.loadbalancer.server.port=80"
+      - "traefik.http.routers.frontend-green.priority=1"
+    ports: []
+
+  # Override original services to not expose ports (Traefik handles routing)
+  core:
+    ports: []
+    profiles:
+      - donotstart
+
+  frontend:
+    ports: []
+    profiles:
+      - donotstart

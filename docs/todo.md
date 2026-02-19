@@ -606,8 +606,8 @@
 
 ### Protocols
 
-- [ ] A2A protocol integration (agent discovery, task delegation, Agent Cards)
-- [ ] AG-UI protocol integration (agent ↔ frontend streaming, replace custom WS events)
+- [x] (2026-02-19) A2A protocol stub (agent discovery via `/.well-known/agent.json`, task create/get via `/a2a/tasks`, AgentCard with 2 skills)
+- [x] (2026-02-19) AG-UI protocol event types (8 event types: run_started, run_finished, text_message, tool_call, tool_result, state_delta, step_started, step_finished)
 
 ### Integrations
 
@@ -646,7 +646,7 @@
     - Route: `/costs` with nav link
     - RunPanel: tokens + model display in active run and history
     - ProjectDetailPage: budget alert banner + cost section
-- [ ] Distributed tracing (OpenTelemetry full implementation)
+- [x] (2026-02-19) OpenTelemetry — real TracerProvider + MeterProvider with OTLP gRPC exporters, HTTP middleware, span helpers, metric instruments
 
 ### Operations
 
@@ -655,7 +655,7 @@
   - `scripts/restore-postgres.sh` — restore from file or latest, drop-and-recreate
   - Docker Compose WAL config (`wal_level=replica`, `archive_mode=on`) for future PITR
   - Documented in `docs/dev-setup.md` (backup, restore, cron, WAL archiving)
-- [ ] Blue-Green deployment support (Traefik labels)
+- [x] (2026-02-19) Blue-Green deployment — Traefik config, docker-compose overlay, deploy script with health checks and rollback
 - [x] (2026-02-19) Multi-tenancy (full, beyond soft-launch) — see 3H for details
 
 ### CI/CD & Tooling

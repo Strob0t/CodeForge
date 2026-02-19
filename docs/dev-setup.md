@@ -517,6 +517,12 @@ See `.env.example` for all configurable values.
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
 | OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |
+| CODEFORGE_OTEL_ENABLED    | false                                    | Enable OpenTelemetry tracing    |
+| CODEFORGE_OTEL_ENDPOINT   | localhost:4317                            | OTLP gRPC endpoint              |
+| CODEFORGE_OTEL_SERVICE_NAME | codeforge-core                          | OTEL service name               |
+| CODEFORGE_OTEL_SAMPLE_RATE | 1.0                                     | Trace sampling rate (0.0-1.0)   |
+| CODEFORGE_A2A_ENABLED     | false                                    | Enable A2A protocol endpoints   |
+| CODEFORGE_AGUI_ENABLED    | false                                    | Enable AG-UI event emission     |
 
 ## Backup & Restore
 

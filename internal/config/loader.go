@@ -141,6 +141,19 @@ func loadEnv(cfg *Config) {
 	// Notification
 	setString(&cfg.Notification.SlackWebhookURL, "CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL")
 	setString(&cfg.Notification.DiscordWebhookURL, "CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL")
+
+	// OpenTelemetry
+	setBool(&cfg.OTEL.Enabled, "CODEFORGE_OTEL_ENABLED")
+	setString(&cfg.OTEL.Endpoint, "CODEFORGE_OTEL_ENDPOINT")
+	setString(&cfg.OTEL.ServiceName, "CODEFORGE_OTEL_SERVICE_NAME")
+	setBool(&cfg.OTEL.Insecure, "CODEFORGE_OTEL_INSECURE")
+	setFloat64(&cfg.OTEL.SampleRate, "CODEFORGE_OTEL_SAMPLE_RATE")
+
+	// A2A
+	setBool(&cfg.A2A.Enabled, "CODEFORGE_A2A_ENABLED")
+
+	// AG-UI
+	setBool(&cfg.AGUI.Enabled, "CODEFORGE_AGUI_ENABLED")
 }
 
 // validate checks that required fields are set.

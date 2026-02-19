@@ -119,10 +119,10 @@
   - Go Core: LSP server lifecycle management per project language
 - OpenTelemetry GenAI — LLM/agent observability, traces + metrics (CNCF)
   - LiteLLM: native OTEL export
-  - Go: `go.opentelemetry.io/otel` SDK (planned)
+  - Go: `go.opentelemetry.io/otel` v1.40 + SDK + OTLP gRPC exporters + `otelhttp` middleware
   - Python: `opentelemetry-api` + `opentelemetry-sdk` (planned)
-- A2A (Agent-to-Agent Protocol, Phase 9+) — Peer-to-peer agent coordination (Linux Foundation)
-- AG-UI (Agent-User Interaction Protocol, Phase 9+) — Agent ↔ frontend streaming (CopilotKit)
+- A2A (Agent-to-Agent Protocol) — Stub: Agent Cards + task create/get endpoints
+- AG-UI (Agent-User Interaction Protocol) — Event types defined, dual-emit planned
 
 ### Agent Backend Integration (Phase 9+)
 - Goose (Rust, MCP-native, subprocess integration)

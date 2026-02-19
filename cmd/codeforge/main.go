@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
 	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
+	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	ristrettoAdapter "github.com/Strob0t/CodeForge/internal/adapter/ristretto"
 	"github.com/Strob0t/CodeForge/internal/adapter/tiered"
@@ -30,6 +31,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/port/a2a"
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
@@ -66,6 +68,23 @@ func run() error {
 		"log_level", cfg.Logging.Level,
 		"pg_max_conns", cfg.Postgres.MaxConns,
 	)
+
+	// --- OpenTelemetry ---
+	otelShutdown, err := cfotel.InitTracer(cfotel.OTELConfig{
+		Enabled:     cfg.OTEL.Enabled,
+		Endpoint:    cfg.OTEL.Endpoint,
+		ServiceName: cfg.OTEL.ServiceName,
+		Insecure:    cfg.OTEL.Insecure,
+		SampleRate:  cfg.OTEL.SampleRate,
+	})
+	if err != nil {
+		return fmt.Errorf("otel: %w", err)
+	}
+	defer func() {
+		if err := otelShutdown(context.Background()); err != nil {
+			slog.Error("otel shutdown error", "error", err)
+		}
+	}()
 
 	ctx := context.Background()
 
@@ -372,6 +391,9 @@ func run() error {
 
 	// Middleware
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
+	if cfg.OTEL.Enabled {
+		r.Use(cfotel.HTTPMiddleware(cfg.OTEL.ServiceName))
+	}
 	r.Use(middleware.RequestID)
 	r.Use(middleware.TenantID)
 	r.Use(cfhttp.Logger)
@@ -392,6 +414,13 @@ func run() error {
 
 	// API routes
 	cfhttp.MountRoutes(r, handlers)
+
+	// A2A protocol routes (root level, not under /api/v1)
+	if cfg.A2A.Enabled {
+		a2aHandler := a2a.NewHandler("http://localhost:" + cfg.Server.Port)
+		a2aHandler.MountRoutes(r)
+		slog.Info("a2a protocol enabled")
+	}
 
 	addr := ":" + cfg.Server.Port
 

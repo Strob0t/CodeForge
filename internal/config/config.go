@@ -86,6 +86,9 @@ type Config struct {
 	Idempotency  Idempotency  `yaml:"idempotency"`
 	Webhook      Webhook      `yaml:"webhook"`
 	Notification Notification `yaml:"notification"`
+	OTEL         OTEL         `yaml:"otel"`
+	A2A          A2A          `yaml:"a2a"`
+	AGUI         AGUI         `yaml:"agui"`
 }
 
 // Webhook holds VCS/PM webhook verification configuration.
@@ -233,6 +236,25 @@ type Idempotency struct {
 	TTL    time.Duration `yaml:"ttl"`
 }
 
+// OTEL holds OpenTelemetry configuration.
+type OTEL struct {
+	Enabled     bool    `yaml:"enabled"`      // Enable OTEL tracing + metrics (default: false)
+	Endpoint    string  `yaml:"endpoint"`     // OTLP gRPC endpoint (default: "localhost:4317")
+	ServiceName string  `yaml:"service_name"` // Service name for traces (default: "codeforge-core")
+	Insecure    bool    `yaml:"insecure"`     // Use insecure gRPC connection (default: true)
+	SampleRate  float64 `yaml:"sample_rate"`  // Trace sampling rate 0.0-1.0 (default: 1.0)
+}
+
+// A2A holds Agent-to-Agent protocol configuration.
+type A2A struct {
+	Enabled bool `yaml:"enabled"` // Enable A2A endpoints (default: false)
+}
+
+// AGUI holds AG-UI (Agent-User Interaction) protocol configuration.
+type AGUI struct {
+	Enabled bool `yaml:"enabled"` // Enable AG-UI event emission (default: false)
+}
+
 // Defaults returns a Config with sensible default values for local development.
 func Defaults() Config {
 	return Config{
@@ -333,5 +355,14 @@ func Defaults() Config {
 		},
 		Webhook:      Webhook{},
 		Notification: Notification{},
+		OTEL: OTEL{
+			Enabled:     false,
+			Endpoint:    "localhost:4317",
+			ServiceName: "codeforge-core",
+			Insecure:    true,
+			SampleRate:  1.0,
+		},
+		A2A:  A2A{Enabled: false},
+		AGUI: AGUI{Enabled: false},
 	}
 }
