@@ -559,6 +559,15 @@ func (m *runtimeMockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]use
 }
 func (m *runtimeMockStore) DeleteAPIKey(_ context.Context, _ string) error { return nil }
 
+func (m *runtimeMockStore) RevokeToken(_ context.Context, _ string, _ time.Time) error { return nil }
+func (m *runtimeMockStore) IsTokenRevoked(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+func (m *runtimeMockStore) PurgeExpiredTokens(_ context.Context) (int64, error) { return 0, nil }
+func (m *runtimeMockStore) RotateRefreshToken(_ context.Context, _ string, _ *user.RefreshToken) error {
+	return nil
+}
+
 type runtimeMockQueue struct {
 	mu       sync.Mutex
 	messages []publishedMsg

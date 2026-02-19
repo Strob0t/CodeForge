@@ -171,6 +171,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setInt(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD")
+	setInt(&cfg.Runtime.StallMaxRetries, "CODEFORGE_STALL_MAX_RETRIES")
 	setDuration(&cfg.Runtime.QualityGateTimeout, "CODEFORGE_QG_TIMEOUT")
 	setString(&cfg.Runtime.DefaultDeliverMode, "CODEFORGE_DELIVER_MODE")
 	setString(&cfg.Runtime.DefaultTestCommand, "CODEFORGE_TEST_COMMAND")

@@ -3,6 +3,7 @@ package database
 
 import (
 	"context"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
@@ -151,4 +152,12 @@ type Store interface {
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIKey, error)
 	ListAPIKeysByUser(ctx context.Context, userID string) ([]user.APIKey, error)
 	DeleteAPIKey(ctx context.Context, id string) error
+
+	// Token Revocation
+	RevokeToken(ctx context.Context, jti string, expiresAt time.Time) error
+	IsTokenRevoked(ctx context.Context, jti string) (bool, error)
+	PurgeExpiredTokens(ctx context.Context) (int64, error)
+
+	// Atomic Refresh Token Rotation
+	RotateRefreshToken(ctx context.Context, oldID string, newRT *user.RefreshToken) error
 }

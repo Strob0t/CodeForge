@@ -209,6 +209,7 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		// Auth (authenticated)
 		r.Post("/auth/logout", h.Logout)
 		r.Get("/auth/me", h.GetCurrentUser)
+		r.Post("/auth/change-password", h.ChangePassword)
 		r.Post("/auth/api-keys", h.CreateAPIKeyHandler)
 		r.Get("/auth/api-keys", h.ListAPIKeysHandler)
 		r.Delete("/auth/api-keys/{id}", h.DeleteAPIKeyHandler)

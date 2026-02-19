@@ -3,12 +3,16 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"regexp"
 )
 
 // DefaultTenantID is the single-tenant default used when no X-Tenant-ID header is set.
 const DefaultTenantID = "00000000-0000-0000-0000-000000000000"
 
 const headerTenantID = "X-Tenant-ID"
+
+// uuidPattern validates UUID v4 format for tenant IDs (P1-7).
+var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type tenantCtxKey struct{}
 
@@ -28,6 +32,10 @@ func TenantID(next http.Handler) http.Handler {
 		tid := r.Header.Get(headerTenantID)
 		if tid == "" {
 			tid = DefaultTenantID
+		} else if !uuidPattern.MatchString(tid) {
+			// P1-7: validate UUID format on explicit header values
+			http.Error(w, `{"error":"invalid tenant ID format"}`, http.StatusBadRequest)
+			return
 		}
 		ctx := context.WithValue(r.Context(), tenantCtxKey{}, tid)
 		next.ServeHTTP(w, r.WithContext(ctx))

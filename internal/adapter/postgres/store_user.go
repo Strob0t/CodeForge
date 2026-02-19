@@ -18,9 +18,9 @@ func (s *Store) CreateUser(ctx context.Context, u *user.User) error {
 	u.UpdatedAt = now
 
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO users (id, email, name, password_hash, role, tenant_id, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		u.ID, u.Email, u.Name, u.PasswordHash, u.Role, u.TenantID, u.Enabled, u.CreatedAt, u.UpdatedAt,
+		INSERT INTO users (id, email, name, password_hash, role, tenant_id, enabled, must_change_password, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		u.ID, u.Email, u.Name, u.PasswordHash, u.Role, u.TenantID, u.Enabled, u.MustChangePassword, u.CreatedAt, u.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
@@ -30,11 +30,11 @@ func (s *Store) CreateUser(ctx context.Context, u *user.User) error {
 
 func (s *Store) GetUser(ctx context.Context, id string) (*user.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, email, name, password_hash, role, tenant_id, enabled, created_at, updated_at
+		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, created_at, updated_at
 		FROM users WHERE id = $1`, id)
 
 	var u user.User
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get user %s: %w", id, domain.ErrNotFound)
@@ -46,11 +46,11 @@ func (s *Store) GetUser(ctx context.Context, id string) (*user.User, error) {
 
 func (s *Store) GetUserByEmail(ctx context.Context, email, tenantID string) (*user.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, email, name, password_hash, role, tenant_id, enabled, created_at, updated_at
+		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, created_at, updated_at
 		FROM users WHERE email = $1 AND tenant_id = $2`, email, tenantID)
 
 	var u user.User
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get user by email %s: %w", email, domain.ErrNotFound)
@@ -62,7 +62,7 @@ func (s *Store) GetUserByEmail(ctx context.Context, email, tenantID string) (*us
 
 func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, email, name, password_hash, role, tenant_id, enabled, created_at, updated_at
+		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, created_at, updated_at
 		FROM users WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
@@ -72,7 +72,7 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, er
 	var users []user.User
 	for rows.Next() {
 		var u user.User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, u)
@@ -83,9 +83,9 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, er
 func (s *Store) UpdateUser(ctx context.Context, u *user.User) error {
 	u.UpdatedAt = time.Now().UTC()
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE users SET name = $2, role = $3, enabled = $4, updated_at = $5
+		UPDATE users SET name = $2, role = $3, enabled = $4, must_change_password = $5, updated_at = $6
 		WHERE id = $1`,
-		u.ID, u.Name, u.Role, u.Enabled, u.UpdatedAt,
+		u.ID, u.Name, u.Role, u.Enabled, u.MustChangePassword, u.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("update user: %w", err)

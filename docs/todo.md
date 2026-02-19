@@ -1058,6 +1058,56 @@ For full completion history, see [project-status.md](project-status.md).
   - Immediate budget check in `HandleToolCallResult` after cost accumulation
   - Prevents budget overrun from single expensive tool calls
 
+## Post-Phase 11: Security Hardening (P1 + P2 Audit Fixes)
+
+- [x] (2026-02-19) P1-1: GitLab PM adapter
+  - `internal/adapter/gitlab/provider.go`: REST API v4 with PRIVATE-TOKEN auth
+  - ListItems, GetItem, CreateItem, UpdateItem using `/api/v4/projects/:id/issues`
+  - Self-registering via `init()` in `register.go`, imported in `cmd/codeforge/providers.go`
+  - 8 table-driven tests with `httptest.NewServer` mocks
+- [x] (2026-02-19) P1-2: Prompt injection hardening — text/template for meta-agent
+  - `internal/service/templates/decompose_system.tmpl` + `decompose_user.tmpl`
+  - `buildDecomposePrompt()` uses `//go:embed` + `text/template` instead of hardcoded strings
+  - `sanitizePromptInput()` applied to user data before template rendering
+- [x] (2026-02-19) P1-3: BM25-inspired file relevance scoring
+  - `ScoreFileRelevance()` in `context_optimizer.go` replaced with BM25 algorithm (k1=1.5, b=0.75)
+  - Same function signature and 0-100 output range for backward compatibility
+- [x] (2026-02-19) P1-4: Branch protection default-DENY
+  - `EvaluatePush/Merge/Delete` now deny when enabled rules exist but none match
+  - Zero rules → allow (backward compat); all rules disabled → allow
+- [x] (2026-02-19) P1-5: WebSocket authentication
+  - `/ws` removed from public paths; JWT via `?token=` query parameter
+  - Auth-disabled mode still accepts all connections (backward compat)
+- [x] (2026-02-19) P1-6: JWT standard claims (jti, aud, iss) + revocation
+  - `signJWT()` includes JTI (UUID), audience ("codeforge"), issuer ("codeforge-core")
+  - Revocation via PostgreSQL `revoked_tokens` table (migration 023)
+  - Fail-open on DB error, skip check for old tokens without JTI
+  - `StartTokenCleanup()` goroutine purges expired entries
+- [x] (2026-02-19) P1-7: Tenant UUID format validation
+  - `X-Tenant-ID` header validated against UUID regex in tenant middleware
+  - Invalid format → 400; empty → default tenant (backward compat)
+- [x] (2026-02-19) P1-8: Stall re-planning with retry mechanism
+  - `StallTracker` extended with `retryCount`, `maxRetries`, `CanRetry()`, `RecordRetry()`
+  - `OrchestratorService.ReplanStep()` resets stalled run for re-dispatch
+  - Configurable `StallMaxRetries` in runtime config (default: 2)
+- [x] (2026-02-19) P2-1: API key resource-based scopes
+  - `Scopes []string` on APIKey with constants (projects:read/write, runs:read/write, etc.)
+  - `RequireScope()` middleware; nil scopes = full access (backward compat for old keys)
+  - Migration 023 adds `scopes TEXT[]` column to `api_keys`
+- [x] (2026-02-19) P2-2: Forced password change for seeded admin
+  - `MustChangePassword bool` field on User; seeded admin gets `true`
+  - Auth middleware returns 403 for non-exempt paths when flag is set
+  - `/api/v1/auth/change-password` endpoint clears the flag
+- [x] (2026-02-19) P2-3: Atomic refresh token rotation
+  - `RotateRefreshToken()` wraps delete+insert in a PostgreSQL transaction
+  - Prevents race conditions in concurrent refresh attempts
+- [x] (2026-02-19) P2-4: Password complexity enforcement
+  - Min 10 chars, must contain uppercase + lowercase + digit
+  - Applied to registration and password change; existing users unaffected
+- [x] (2026-02-19) P2-5: Delivery push error propagation
+  - `PushError` field on `DeliveryResult`; `deliverPR()` skips PR creation on push failure
+  - Error surfaced in audit log and WebSocket broadcast
+
 ---
 
 ## Notes

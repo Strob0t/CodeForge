@@ -8,6 +8,7 @@ import (
 	_ "github.com/Strob0t/CodeForge/internal/adapter/discord"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/gitea"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/githubpm"
+	_ "github.com/Strob0t/CodeForge/internal/adapter/gitlab"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/gitlocal"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/markdownspec"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/openspec"

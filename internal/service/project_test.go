@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
@@ -464,6 +465,13 @@ func (m *mockStore) DeleteAPIKey(_ context.Context, id string) error {
 		}
 	}
 	return domain.ErrNotFound
+}
+
+func (m *mockStore) RevokeToken(_ context.Context, _ string, _ time.Time) error { return nil }
+func (m *mockStore) IsTokenRevoked(_ context.Context, _ string) (bool, error)   { return false, nil }
+func (m *mockStore) PurgeExpiredTokens(_ context.Context) (int64, error)        { return 0, nil }
+func (m *mockStore) RotateRefreshToken(_ context.Context, _ string, _ *user.RefreshToken) error {
+	return nil
 }
 
 // --- ProjectService Tests ---

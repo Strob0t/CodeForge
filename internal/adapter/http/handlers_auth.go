@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -87,7 +88,20 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Auth.Logout(r.Context(), u.ID); err != nil {
+	// Extract JTI from the current access token for revocation.
+	var jti string
+	var tokenExpiry time.Time
+	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token != authHeader {
+			if claims, err := h.Auth.ValidateAccessToken(token); err == nil {
+				jti = claims.JTI
+				tokenExpiry = time.Unix(claims.Expiry, 0)
+			}
+		}
+	}
+
+	if err := h.Auth.Logout(r.Context(), u.ID, jti, tokenExpiry); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -104,6 +118,28 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
+}
+
+// ChangePassword handles POST /api/v1/auth/change-password
+func (h *Handlers) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	var req user.ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := h.Auth.ChangePassword(r.Context(), u.ID, req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_changed"})
 }
 
 // GetCurrentUser handles GET /api/v1/auth/me

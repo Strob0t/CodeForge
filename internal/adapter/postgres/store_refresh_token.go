@@ -56,3 +56,30 @@ func (s *Store) DeleteRefreshTokensByUser(ctx context.Context, userID string) er
 	}
 	return nil
 }
+
+// RotateRefreshToken atomically deletes the old token and creates a new one in a single transaction.
+func (s *Store) RotateRefreshToken(ctx context.Context, oldID string, newRT *user.RefreshToken) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `DELETE FROM refresh_tokens WHERE id = $1`, oldID); err != nil {
+		return fmt.Errorf("delete old refresh token: %w", err)
+	}
+
+	newRT.CreatedAt = time.Now().UTC()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)`,
+		newRT.ID, newRT.UserID, newRT.TokenHash, newRT.ExpiresAt, newRT.CreatedAt,
+	); err != nil {
+		return fmt.Errorf("create new refresh token: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit rotate: %w", err)
+	}
+	return nil
+}

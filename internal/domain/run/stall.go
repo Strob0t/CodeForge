@@ -15,14 +15,36 @@ type StallTracker struct {
 	threshold             int
 	recentHashes          [3]uint64
 	recentCount           int
+	retryCount            int
+	maxRetries            int
 }
 
 // NewStallTracker creates a tracker that triggers after threshold consecutive no-progress steps.
-func NewStallTracker(threshold int) *StallTracker {
+// maxRetries controls how many re-plan attempts are allowed before giving up (P1-8).
+func NewStallTracker(threshold, maxRetries int) *StallTracker {
 	if threshold <= 0 {
 		threshold = 5
 	}
-	return &StallTracker{threshold: threshold}
+	if maxRetries < 0 {
+		maxRetries = 2
+	}
+	return &StallTracker{threshold: threshold, maxRetries: maxRetries}
+}
+
+// CanRetry returns true if there are remaining retry attempts for re-planning.
+func (s *StallTracker) CanRetry() bool {
+	return s.retryCount < s.maxRetries
+}
+
+// RecordRetry increments the retry counter and resets stall state for a new attempt.
+func (s *StallTracker) RecordRetry() {
+	s.retryCount++
+	s.Reset()
+}
+
+// RetryCount returns the number of re-plan attempts used so far.
+func (s *StallTracker) RetryCount() int {
+	return s.retryCount
 }
 
 // RecordStep records a tool execution and returns true if stalling is detected.

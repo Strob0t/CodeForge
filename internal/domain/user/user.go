@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/mail"
 	"time"
+	"unicode"
 )
 
 // Role represents the authorization level of a user.
@@ -25,15 +26,16 @@ var ValidRoles = map[Role]bool{
 
 // User represents a registered user within a tenant.
 type User struct {
-	ID           string    `json:"id"`
-	Email        string    `json:"email"`
-	Name         string    `json:"name"`
-	PasswordHash string    `json:"-"` // never serialized
-	Role         Role      `json:"role"`
-	TenantID     string    `json:"tenant_id"`
-	Enabled      bool      `json:"enabled"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Email              string    `json:"email"`
+	Name               string    `json:"name"`
+	PasswordHash       string    `json:"-"` // never serialized
+	Role               Role      `json:"role"`
+	TenantID           string    `json:"tenant_id"`
+	Enabled            bool      `json:"enabled"`
+	MustChangePassword bool      `json:"must_change_password"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // CreateRequest is the input for registering a new user.
@@ -59,8 +61,8 @@ func (r *CreateRequest) Validate() error {
 	if r.Password == "" {
 		return errors.New("password is required")
 	}
-	if len(r.Password) < 8 {
-		return errors.New("password must be at least 8 characters")
+	if err := ValidatePasswordComplexity(r.Password); err != nil {
+		return err
 	}
 	if !ValidRoles[r.Role] {
 		return errors.New("invalid role: must be admin, editor, or viewer")
@@ -101,13 +103,63 @@ type LoginResponse struct {
 
 // TokenClaims contains the JWT payload fields.
 type TokenClaims struct {
-	UserID   string `json:"sub"`
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Role     Role   `json:"role"`
-	TenantID string `json:"tid"`
-	IssuedAt int64  `json:"iat"`
-	Expiry   int64  `json:"exp"`
+	JTI                string `json:"jti,omitempty"`
+	UserID             string `json:"sub"`
+	Email              string `json:"email"`
+	Name               string `json:"name"`
+	Role               Role   `json:"role"`
+	TenantID           string `json:"tid"`
+	Audience           string `json:"aud,omitempty"`
+	Issuer             string `json:"iss,omitempty"`
+	IssuedAt           int64  `json:"iat"`
+	Expiry             int64  `json:"exp"`
+	MustChangePassword bool   `json:"mcp,omitempty"`
+}
+
+// ChangePasswordRequest is the input for changing a user's password.
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+// Validate checks that the ChangePasswordRequest has all required fields.
+func (r *ChangePasswordRequest) Validate() error {
+	if r.OldPassword == "" {
+		return errors.New("old password is required")
+	}
+	if r.NewPassword == "" {
+		return errors.New("new password is required")
+	}
+	return ValidatePasswordComplexity(r.NewPassword)
+}
+
+// ValidatePasswordComplexity checks that a password meets minimum complexity requirements:
+// at least 10 characters, contains uppercase, lowercase, and a digit.
+func ValidatePasswordComplexity(password string) error {
+	if len(password) < 10 {
+		return errors.New("password must be at least 10 characters")
+	}
+	var hasUpper, hasLower, hasDigit bool
+	for _, r := range password {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		}
+	}
+	if !hasUpper {
+		return errors.New("password must contain at least one uppercase letter")
+	}
+	if !hasLower {
+		return errors.New("password must contain at least one lowercase letter")
+	}
+	if !hasDigit {
+		return errors.New("password must contain at least one digit")
+	}
+	return nil
 }
 
 // RefreshToken represents a stored refresh token.

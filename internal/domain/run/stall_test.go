@@ -3,7 +3,7 @@ package run
 import "testing"
 
 func TestStallTracker_ProgressResetsCounter(t *testing.T) {
-	st := NewStallTracker(3)
+	st := NewStallTracker(3, 2)
 
 	// Non-progress steps
 	st.RecordStep("Read", true, "output1")
@@ -20,7 +20,7 @@ func TestStallTracker_ProgressResetsCounter(t *testing.T) {
 }
 
 func TestStallTracker_ThresholdTriggers(t *testing.T) {
-	st := NewStallTracker(3)
+	st := NewStallTracker(3, 2)
 
 	st.RecordStep("Read", true, "a")
 	st.RecordStep("Grep", true, "b")
@@ -34,7 +34,7 @@ func TestStallTracker_ThresholdTriggers(t *testing.T) {
 }
 
 func TestStallTracker_FailedProgressToolNotCounted(t *testing.T) {
-	st := NewStallTracker(3)
+	st := NewStallTracker(3, 2)
 
 	// Edit with success=false is not progress
 	st.RecordStep("Edit", false, "error")
@@ -46,7 +46,7 @@ func TestStallTracker_FailedProgressToolNotCounted(t *testing.T) {
 }
 
 func TestStallTracker_RepetitionDetection(t *testing.T) {
-	st := NewStallTracker(5)
+	st := NewStallTracker(5, 2)
 
 	// Same output from Edit counts as no progress due to repetition
 	st.RecordStep("Edit", true, "same output")
@@ -61,7 +61,7 @@ func TestStallTracker_RepetitionDetection(t *testing.T) {
 }
 
 func TestStallTracker_DifferentOutputResets(t *testing.T) {
-	st := NewStallTracker(3)
+	st := NewStallTracker(3, 2)
 
 	st.RecordStep("Read", true, "output1") // no-progress (Read is not a progress tool)
 	st.RecordStep("Read", true, "output2") // no-progress
@@ -72,7 +72,7 @@ func TestStallTracker_DifferentOutputResets(t *testing.T) {
 }
 
 func TestStallTracker_Reset(t *testing.T) {
-	st := NewStallTracker(3)
+	st := NewStallTracker(3, 2)
 
 	st.RecordStep("Read", true, "a")
 	st.RecordStep("Read", true, "b")
@@ -91,19 +91,52 @@ func TestStallTracker_Reset(t *testing.T) {
 }
 
 func TestStallTracker_DefaultThreshold(t *testing.T) {
-	st := NewStallTracker(0) // should default to 5
+	st := NewStallTracker(0, 2) // should default to 5
 	if st.threshold != 5 {
 		t.Fatalf("expected default threshold 5, got %d", st.threshold)
 	}
 
-	st2 := NewStallTracker(-1) // should default to 5
+	st2 := NewStallTracker(-1, 2) // should default to 5
 	if st2.threshold != 5 {
 		t.Fatalf("expected default threshold 5, got %d", st2.threshold)
 	}
 }
 
+func TestStallTracker_RetryMechanism(t *testing.T) {
+	st := NewStallTracker(3, 2)
+
+	if !st.CanRetry() {
+		t.Fatal("expected CanRetry() = true initially")
+	}
+	if st.RetryCount() != 0 {
+		t.Fatalf("expected RetryCount 0, got %d", st.RetryCount())
+	}
+
+	// First retry
+	st.RecordRetry()
+	if st.RetryCount() != 1 {
+		t.Fatalf("expected RetryCount 1, got %d", st.RetryCount())
+	}
+	if !st.CanRetry() {
+		t.Fatal("expected CanRetry() = true after 1 retry")
+	}
+	// After RecordRetry, stall state should be reset
+	if st.IsStalled() {
+		t.Fatal("expected stall state reset after retry")
+	}
+
+	// Second retry
+	st.RecordRetry()
+	if st.RetryCount() != 2 {
+		t.Fatalf("expected RetryCount 2, got %d", st.RetryCount())
+	}
+	if st.CanRetry() {
+		t.Fatal("expected CanRetry() = false after maxRetries reached")
+	}
+}
+
 func TestStallTracker_WriteIsProgress(t *testing.T) {
-	st := NewStallTracker(3)
+	st := NewStallTracker(3, 2)
 
 	st.RecordStep("Read", true, "a")
 	st.RecordStep("Read", true, "b")
@@ -118,7 +151,7 @@ func TestStallTracker_WriteIsProgress(t *testing.T) {
 }
 
 func TestStallTracker_BashIsProgress(t *testing.T) {
-	st := NewStallTracker(3)
+	st := NewStallTracker(3, 2)
 
 	st.RecordStep("Read", true, "a")
 	st.RecordStep("Read", true, "b")
@@ -130,7 +163,7 @@ func TestStallTracker_BashIsProgress(t *testing.T) {
 }
 
 func TestStallTracker_RingBufferWraps(t *testing.T) {
-	st := NewStallTracker(10)
+	st := NewStallTracker(10, 2)
 
 	// Fill the ring buffer (size 3) and overflow
 	st.RecordStep("Edit", true, "unique1")

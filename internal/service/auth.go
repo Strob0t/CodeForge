@@ -118,7 +118,7 @@ func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID
 	return resp, rawToken, nil
 }
 
-// RefreshTokens validates a refresh token, rotates it, and issues a new access token.
+// RefreshTokens validates a refresh token, atomically rotates it, and issues a new access token.
 func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user.LoginResponse, string, error) {
 	tokenHash := hashSHA256(rawToken)
 
@@ -131,9 +131,6 @@ func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user
 		_ = s.store.DeleteRefreshToken(ctx, rt.ID)
 		return nil, "", errors.New("refresh token expired")
 	}
-
-	// Delete old token (rotation)
-	_ = s.store.DeleteRefreshToken(ctx, rt.ID)
 
 	u, err := s.store.GetUser(ctx, rt.UserID)
 	if err != nil {
@@ -149,7 +146,7 @@ func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user
 		return nil, "", fmt.Errorf("sign jwt: %w", err)
 	}
 
-	// Issue new refresh token
+	// Issue new refresh token via atomic rotation (P2-3)
 	newRawToken, err := generateRandomToken(32)
 	if err != nil {
 		return nil, "", fmt.Errorf("generate refresh token: %w", err)
@@ -162,8 +159,8 @@ func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user
 		ExpiresAt: time.Now().Add(s.cfg.RefreshTokenExpiry),
 	}
 
-	if err := s.store.CreateRefreshToken(ctx, newRT); err != nil {
-		return nil, "", fmt.Errorf("store refresh token: %w", err)
+	if err := s.store.RotateRefreshToken(ctx, rt.ID, newRT); err != nil {
+		return nil, "", fmt.Errorf("rotate refresh token: %w", err)
 	}
 
 	resp := &user.LoginResponse{
@@ -174,33 +171,62 @@ func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user
 	return resp, newRawToken, nil
 }
 
-// Logout deletes all refresh tokens for a user.
-func (s *AuthService) Logout(ctx context.Context, userID string) error {
+// Logout deletes all refresh tokens for a user and optionally revokes the
+// current access token by JTI. Pass empty jti to skip revocation.
+func (s *AuthService) Logout(ctx context.Context, userID, jti string, tokenExpiry time.Time) error {
+	if jti != "" {
+		if err := s.store.RevokeToken(ctx, jti, tokenExpiry); err != nil {
+			slog.Warn("failed to revoke access token on logout", "jti", jti, "error", err)
+		}
+	}
 	return s.store.DeleteRefreshTokensByUser(ctx, userID)
 }
 
+// RevokeAccessToken adds a token JTI to the revocation blacklist.
+func (s *AuthService) RevokeAccessToken(ctx context.Context, jti string, expiresAt time.Time) error {
+	return s.store.RevokeToken(ctx, jti, expiresAt)
+}
+
 // ValidateAccessToken verifies a JWT and returns the claims.
+// It checks token revocation when a JTI is present (fail-open on DB error).
 func (s *AuthService) ValidateAccessToken(tokenStr string) (*user.TokenClaims, error) {
-	return s.verifyJWT(tokenStr)
+	claims, err := s.verifyJWT(tokenStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check revocation for tokens with JTI (backward compat: old tokens without jti skip this)
+	if claims.JTI != "" {
+		revoked, dbErr := s.store.IsTokenRevoked(context.Background(), claims.JTI)
+		if dbErr != nil {
+			// Fail-open: log warning but allow token to avoid auth outages
+			slog.Warn("token revocation check failed, allowing token", "jti", claims.JTI, "error", dbErr)
+		} else if revoked {
+			return nil, errors.New("token has been revoked")
+		}
+	}
+
+	return claims, nil
 }
 
 // ValidateAPIKey looks up an API key by its SHA-256 hash.
-func (s *AuthService) ValidateAPIKey(ctx context.Context, rawKey string) (*user.User, error) {
+// Returns the user and the API key (for scope checking).
+func (s *AuthService) ValidateAPIKey(ctx context.Context, rawKey string) (*user.User, *user.APIKey, error) {
 	keyHash := hashSHA256(rawKey)
 	apiKey, err := s.store.GetAPIKeyByHash(ctx, keyHash)
 	if err != nil {
-		return nil, errors.New("invalid api key")
+		return nil, nil, errors.New("invalid api key")
 	}
 
 	if !apiKey.ExpiresAt.IsZero() && time.Now().After(apiKey.ExpiresAt) {
-		return nil, errors.New("api key expired")
+		return nil, nil, errors.New("api key expired")
 	}
 
 	u, err := s.store.GetUser(ctx, apiKey.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
+		return nil, nil, fmt.Errorf("get user: %w", err)
 	}
-	return u, nil
+	return u, apiKey, nil
 }
 
 // CreateAPIKey generates a new API key for a user.
@@ -228,6 +254,7 @@ func (s *AuthService) CreateAPIKey(ctx context.Context, userID string, req user.
 		Prefix:    plainKey[:12], // "cfk_" + 8 chars
 		KeyHash:   hashSHA256(plainKey),
 		ExpiresAt: expiresAt,
+		Scopes:    req.Scopes,
 	}
 
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
@@ -301,7 +328,7 @@ func (s *AuthService) SeedDefaultAdmin(ctx context.Context, tenantID string) err
 		return nil // already seeded
 	}
 
-	_, err = s.Register(ctx, &user.CreateRequest{
+	u, err := s.Register(ctx, &user.CreateRequest{
 		Email:    s.cfg.DefaultAdminEmail,
 		Name:     "Admin",
 		Password: s.cfg.DefaultAdminPass,
@@ -312,8 +339,66 @@ func (s *AuthService) SeedDefaultAdmin(ctx context.Context, tenantID string) err
 		return fmt.Errorf("seed admin: %w", err)
 	}
 
+	// Force password change for seeded admin (P2-2)
+	u.MustChangePassword = true
+	if err := s.store.UpdateUser(ctx, u); err != nil {
+		return fmt.Errorf("set must_change_password: %w", err)
+	}
+
 	slog.Info("seeded default admin user", "email", s.cfg.DefaultAdminEmail)
 	return nil
+}
+
+// ChangePassword verifies the old password, validates complexity of the new one,
+// hashes it, updates the user, and clears the MustChangePassword flag.
+func (s *AuthService) ChangePassword(ctx context.Context, userID string, req user.ChangePasswordRequest) error {
+	if err := req.Validate(); err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+
+	u, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user: %w", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.OldPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), s.cfg.BcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	u.PasswordHash = string(hash)
+	u.MustChangePassword = false
+
+	if err := s.store.UpdateUser(ctx, u); err != nil {
+		return fmt.Errorf("update user: %w", err)
+	}
+	return nil
+}
+
+// StartTokenCleanup starts a background goroutine that periodically purges
+// expired revoked tokens. It stops when ctx is cancelled.
+func (s *AuthService) StartTokenCleanup(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				n, err := s.store.PurgeExpiredTokens(ctx)
+				if err != nil {
+					slog.Warn("failed to purge expired tokens", "error", err)
+				} else if n > 0 {
+					slog.Info("purged expired revoked tokens", "count", n)
+				}
+			}
+		}
+	}()
 }
 
 // --- JWT implementation (HS256 with stdlib) ---
@@ -322,14 +407,19 @@ func (s *AuthService) SeedDefaultAdmin(ctx context.Context, tenantID string) err
 var jwtHeader = base64URLEncode([]byte(`{"alg":"HS256","typ":"JWT"}`))
 
 func (s *AuthService) signJWT(u *user.User) (string, error) {
+	now := time.Now()
 	claims := user.TokenClaims{
-		UserID:   u.ID,
-		Email:    u.Email,
-		Name:     u.Name,
-		Role:     u.Role,
-		TenantID: u.TenantID,
-		IssuedAt: time.Now().Unix(),
-		Expiry:   time.Now().Add(s.cfg.AccessTokenExpiry).Unix(),
+		UserID:             u.ID,
+		Email:              u.Email,
+		Name:               u.Name,
+		Role:               u.Role,
+		TenantID:           u.TenantID,
+		IssuedAt:           now.Unix(),
+		Expiry:             now.Add(s.cfg.AccessTokenExpiry).Unix(),
+		JTI:                generateID(),
+		Audience:           "codeforge",
+		Issuer:             "codeforge-core",
+		MustChangePassword: u.MustChangePassword,
 	}
 
 	payload, err := json.Marshal(claims)

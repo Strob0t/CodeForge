@@ -66,7 +66,7 @@ func TestAuth_PublicPath_NoAuthRequired(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	for _, path := range []string{"/health", "/health/ready", "/ws", "/api/v1/auth/login", "/api/v1/auth/refresh"} {
+	for _, path := range []string{"/health", "/health/ready", "/api/v1/auth/login", "/api/v1/auth/refresh"} {
 		req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

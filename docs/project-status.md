@@ -1147,10 +1147,23 @@
 
 ## Post-Phase 11: Security Hardening (COMPLETED)
 
-> P0 critical findings from documentation audit, fixed 2026-02-19.
+> All 18 findings (5 P0, 8 P1, 5 P2) from security audit, fixed 2026-02-19.
 
 - [x] (2026-02-19) **P0-1: Prompt Injection Defense** — `sanitizePromptInput()` in `meta_agent.go`: strips control chars, neutralizes role markers (system:/assistant:/[system]/etc.), truncates at 10k chars, data-boundary instruction in system prompt. 6 tests in `sanitize_test.go`.
 - [x] (2026-02-19) **P0-2: Secret Redaction Utilities** — `Vault.Redacted()` (masked value for logs), `Vault.RedactString()` (scrub secrets from arbitrary strings), `Vault.Keys()` (key names only), `maskValue()` helper. 4 new tests in `vault_test.go`.
 - [x] (2026-02-19) **P0-3: Audit Trail in RuntimeService** — `appendAudit()` helper wired into 8 lifecycle points: run.started, run.completed, run.cancelled, policy.denied, qualitygate.passed, qualitygate.failed, qualitygate.error, delivery.completed, delivery.failed, budget.exceeded.
 - [x] (2026-02-19) **P0-4: Quality Gate Fail-Closed** — NATS publish failure for quality gate request now fails the run instead of silently passing. Audit entry recorded.
 - [x] (2026-02-19) **P0-5: Post-Execution Budget Enforcement** — Immediate budget check in `HandleToolCallResult` after cost accumulation. Single expensive tool call that exceeds budget triggers immediate run termination with StatusTimeout.
+- [x] (2026-02-19) **P1-1: GitLab PM Adapter** — `internal/adapter/gitlab/` with REST API v4, PRIVATE-TOKEN auth, ListItems/GetItem/CreateItem/UpdateItem, self-registering provider, 8 tests.
+- [x] (2026-02-19) **P1-2: Prompt Templates** — `text/template` + `//go:embed` for meta-agent decomposition prompts (`decompose_system.tmpl`, `decompose_user.tmpl`). Replaces hardcoded strings.
+- [x] (2026-02-19) **P1-3: BM25-Inspired Scoring** — `ScoreFileRelevance()` replaced with BM25 algorithm (k1=1.5, b=0.75). Same interface, normalized 0-100 output.
+- [x] (2026-02-19) **P1-4: Branch Protection Default-DENY** — `EvaluatePush/Merge/Delete` deny when enabled rules exist but none match. Zero rules → allow (backward compat).
+- [x] (2026-02-19) **P1-5: WebSocket Authentication** — `/ws` requires JWT via `?token=` query param when auth enabled. Auth-disabled mode unchanged.
+- [x] (2026-02-19) **P1-6: JWT Standard Claims + Revocation** — JTI (UUID), audience, issuer in tokens. PostgreSQL `revoked_tokens` blacklist table (migration 023). Fail-open on DB error, backward-compat for old tokens. Token cleanup goroutine.
+- [x] (2026-02-19) **P1-7: Tenant UUID Validation** — `X-Tenant-ID` header validated against UUID regex. Invalid → 400, empty → default tenant.
+- [x] (2026-02-19) **P1-8: Stall Re-Planning** — `StallTracker` retry mechanism (maxRetries default 2). `ReplanStep()` resets stalled runs for re-dispatch. Configurable via `StallMaxRetries`.
+- [x] (2026-02-19) **P2-1: API Key Scopes** — Resource-based scopes (`projects:read`, `runs:write`, etc.) on API keys. `RequireScope()` middleware. Nil scopes = full access (backward compat). Migration 023.
+- [x] (2026-02-19) **P2-2: Forced Password Change** — `MustChangePassword` flag on User. Seeded admin gets `true`. 403 on non-exempt paths. `/api/v1/auth/change-password` endpoint.
+- [x] (2026-02-19) **P2-3: Atomic Refresh Token Rotation** — `RotateRefreshToken()` wraps delete+insert in PostgreSQL transaction. Prevents race conditions.
+- [x] (2026-02-19) **P2-4: Password Complexity** — Min 10 chars, uppercase + lowercase + digit required. Applies to registration and password change only.
+- [x] (2026-02-19) **P2-5: Delivery Error Propagation** — `PushError` field on `DeliveryResult`. `deliverPR()` skips PR creation on push failure. Error surfaced in audit/WS.

@@ -1,0 +1,26 @@
+Feature: {{.Feature}}
+{{if .Context}}
+Additional context:
+{{.Context}}
+{{end}}
+Available agents:
+{{range .Agents}}- {{.Name}} (backend: {{.Backend}}, status: {{.Status}})
+{{end}}{{if .Tasks}}
+Existing tasks in project:
+{{range .Tasks}}- [{{.Status}}] {{.Title}}
+{{end}}{{end}}
+Output JSON:
+{
+  "plan_name": "short descriptive name",
+  "description": "brief plan description",
+  "strategy": "single|pair|team",
+  "protocol": "sequential|parallel|ping_pong|consensus",
+  "subtasks": [
+    {
+      "title": "short task title",
+      "prompt": "detailed instructions for the coding agent",
+      "depends_on": [],
+      "agent_hint": ""
+    }
+  ]
+}

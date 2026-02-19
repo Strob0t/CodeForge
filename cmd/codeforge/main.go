@@ -363,6 +363,8 @@ func run() error {
 		if err := authSvc.SeedDefaultAdmin(context.Background(), middleware.DefaultTenantID); err != nil {
 			slog.Warn("failed to seed default admin", "error", err)
 		}
+		// Start background cleanup of expired revoked tokens (P1-6)
+		authSvc.StartTokenCleanup(ctx, 15*time.Minute)
 	}
 
 	handlers := &cfhttp.Handlers{

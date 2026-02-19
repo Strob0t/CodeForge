@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -418,6 +419,13 @@ func (m *mockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKe
 	return nil, nil
 }
 func (m *mockStore) DeleteAPIKey(_ context.Context, _ string) error { return nil }
+
+func (m *mockStore) RevokeToken(_ context.Context, _ string, _ time.Time) error { return nil }
+func (m *mockStore) IsTokenRevoked(_ context.Context, _ string) (bool, error)   { return false, nil }
+func (m *mockStore) PurgeExpiredTokens(_ context.Context) (int64, error)        { return 0, nil }
+func (m *mockStore) RotateRefreshToken(_ context.Context, _ string, _ *user.RefreshToken) error {
+	return nil
+}
 
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}

@@ -16,9 +16,9 @@ import (
 func (s *Store) CreateAPIKey(ctx context.Context, key *user.APIKey) error {
 	key.CreatedAt = time.Now().UTC()
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO api_keys (id, user_id, name, prefix, key_hash, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		key.ID, key.UserID, key.Name, key.Prefix, key.KeyHash, nullTime(key.ExpiresAt), key.CreatedAt,
+		INSERT INTO api_keys (id, user_id, name, prefix, key_hash, scopes, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		key.ID, key.UserID, key.Name, key.Prefix, key.KeyHash, key.Scopes, nullTime(key.ExpiresAt), key.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
@@ -28,12 +28,12 @@ func (s *Store) CreateAPIKey(ctx context.Context, key *user.APIKey) error {
 
 func (s *Store) GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIKey, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, user_id, name, prefix, key_hash, expires_at, created_at
+		SELECT id, user_id, name, prefix, key_hash, scopes, expires_at, created_at
 		FROM api_keys WHERE key_hash = $1`, keyHash)
 
 	var key user.APIKey
 	var expiresAt sql.NullTime
-	err := row.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &expiresAt, &key.CreatedAt)
+	err := row.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.Scopes, &expiresAt, &key.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get api key: %w", domain.ErrNotFound)
@@ -48,7 +48,7 @@ func (s *Store) GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIK
 
 func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.APIKey, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, name, prefix, key_hash, expires_at, created_at
+		SELECT id, user_id, name, prefix, key_hash, scopes, expires_at, created_at
 		FROM api_keys WHERE user_id = $1 ORDER BY created_at`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
@@ -59,7 +59,7 @@ func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.AP
 	for rows.Next() {
 		var key user.APIKey
 		var expiresAt sql.NullTime
-		if err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &expiresAt, &key.CreatedAt); err != nil {
+		if err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.Scopes, &expiresAt, &key.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan api key: %w", err)
 		}
 		if expiresAt.Valid {

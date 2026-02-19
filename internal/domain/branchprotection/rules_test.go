@@ -60,8 +60,9 @@ func TestEvaluatePush(t *testing.T) {
 		{"normal push to main", PushAction{Branch: "main"}, true},
 		{"force push to main denied", PushAction{Branch: "main", ForcePush: true}, false},
 		{"force push to dev allowed", PushAction{Branch: "dev", ForcePush: true}, true},
-		{"push to unprotected branch", PushAction{Branch: "feature/x"}, true},
-		{"push to disabled rule", PushAction{Branch: "disabled", ForcePush: true}, true},
+		// P1-4: default-deny when enabled rules exist but none match
+		{"push to unprotected branch (default deny)", PushAction{Branch: "feature/x"}, false},
+		{"push to disabled rule (default deny)", PushAction{Branch: "disabled", ForcePush: true}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -70,6 +71,21 @@ func TestEvaluatePush(t *testing.T) {
 				t.Errorf("EvaluatePush() allowed = %v, want %v (reason: %s)", result.Allowed, tt.allowed, result.Reason)
 			}
 		})
+	}
+}
+
+func TestEvaluatePush_NoRules(t *testing.T) {
+	// No rules at all: allow (backward compat)
+	result := EvaluatePush(nil, PushAction{Branch: "main"})
+	if !result.Allowed {
+		t.Errorf("expected allow with no rules, got deny (reason: %s)", result.Reason)
+	}
+
+	// Only disabled rules: allow (no enabled rules)
+	rules := []ProtectionRule{{BranchPattern: "main", Enabled: false}}
+	result = EvaluatePush(rules, PushAction{Branch: "main"})
+	if !result.Allowed {
+		t.Errorf("expected allow with only disabled rules, got deny (reason: %s)", result.Reason)
 	}
 }
 
@@ -90,7 +106,8 @@ func TestEvaluateMerge(t *testing.T) {
 		{"missing reviews", MergeAction{TargetBranch: "main", TestsPassed: true, LintPassed: true}, false},
 		{"staging tests pass", MergeAction{TargetBranch: "staging", TestsPassed: true}, true},
 		{"staging tests fail", MergeAction{TargetBranch: "staging"}, false},
-		{"unprotected branch", MergeAction{TargetBranch: "feature/x"}, true},
+		// P1-4: default-deny when enabled rules exist but none match
+		{"unprotected branch (default deny)", MergeAction{TargetBranch: "feature/x"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,7 +132,8 @@ func TestEvaluateDelete(t *testing.T) {
 	}{
 		{"delete main denied", "main", false},
 		{"delete temp branch allowed", "temp-fix", true},
-		{"delete unprotected branch", "feature/x", true},
+		// P1-4: default-deny when enabled rules exist but none match
+		{"delete unprotected branch (default deny)", "feature/x", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

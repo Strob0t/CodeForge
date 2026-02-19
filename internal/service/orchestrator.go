@@ -499,3 +499,29 @@ func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event
 		Payload:   payload,
 	})
 }
+
+// ReplanStep restarts a stalled run step with a modified prompt that includes
+// stall context, enabling the agent to try a different approach (P1-8).
+func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) error {
+	r, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("get run for replan: %w", err)
+	}
+
+	// Reset run status to pending so it can be re-dispatched.
+	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusPending, 0, 0, 0, 0); err != nil {
+		return fmt.Errorf("update run for replan: %w", err)
+	}
+
+	slog.Info("re-planning stalled run step",
+		"run_id", runID,
+		"task_id", r.TaskID,
+	)
+
+	s.hub.BroadcastEvent(ctx, "run_replan", map[string]string{
+		"run_id":  r.ID,
+		"task_id": r.TaskID,
+	})
+
+	return nil
+}

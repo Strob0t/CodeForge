@@ -152,6 +152,7 @@ type Orchestrator struct {
 // Runtime holds agent execution engine configuration.
 type Runtime struct {
 	StallThreshold       int           `yaml:"stall_threshold"`
+	StallMaxRetries      int           `yaml:"stall_max_retries"` // Max re-plan attempts on stall (default: 2)
 	QualityGateTimeout   time.Duration `yaml:"quality_gate_timeout"`
 	DefaultDeliverMode   string        `yaml:"default_deliver_mode"`
 	DefaultTestCommand   string        `yaml:"default_test_command"`
@@ -311,6 +312,7 @@ func Defaults() Config {
 		},
 		Runtime: Runtime{
 			StallThreshold:       5,
+			StallMaxRetries:      2,
 			QualityGateTimeout:   60 * time.Second,
 			DefaultDeliverMode:   "",
 			DefaultTestCommand:   "go test ./...",
@@ -383,7 +385,7 @@ func Defaults() Config {
 			RefreshTokenExpiry: 7 * 24 * time.Hour,
 			BcryptCost:         12,
 			DefaultAdminEmail:  "admin@localhost",
-			DefaultAdminPass:   "changeme123",
+			DefaultAdminPass:   "Changeme123",
 		},
 	}
 }

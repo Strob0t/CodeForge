@@ -17,7 +17,7 @@ func newTestAuthService(store *mockStore) *AuthService {
 		RefreshTokenExpiry: 7 * 24 * time.Hour,
 		BcryptCost:         4, // low cost for fast tests
 		DefaultAdminEmail:  "admin@test.com",
-		DefaultAdminPass:   "adminpass123",
+		DefaultAdminPass:   "Adminpass123",
 	}
 	return NewAuthService(store, &cfg)
 }
@@ -31,7 +31,7 @@ func TestAuthService_RegisterAndLogin(t *testing.T) {
 	u, err := svc.Register(ctx, &user.CreateRequest{
 		Email:    "test@example.com",
 		Name:     "Test User",
-		Password: "password123",
+		Password: "Password123",
 		Role:     user.RoleEditor,
 		TenantID: "00000000-0000-0000-0000-000000000000",
 	})
@@ -48,7 +48,7 @@ func TestAuthService_RegisterAndLogin(t *testing.T) {
 	// Login
 	resp, rawRefresh, err := svc.Login(ctx, user.LoginRequest{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Password123",
 	}, "00000000-0000-0000-0000-000000000000")
 	if err != nil {
 		t.Fatalf("login: %v", err)
@@ -73,7 +73,7 @@ func TestAuthService_InvalidLogin(t *testing.T) {
 	_, err := svc.Register(ctx, &user.CreateRequest{
 		Email:    "test@example.com",
 		Name:     "Test",
-		Password: "password123",
+		Password: "Password123",
 		Role:     user.RoleViewer,
 		TenantID: "00000000-0000-0000-0000-000000000000",
 	})
@@ -93,7 +93,7 @@ func TestAuthService_InvalidLogin(t *testing.T) {
 	// Non-existent user
 	_, _, err = svc.Login(ctx, user.LoginRequest{
 		Email:    "nobody@example.com",
-		Password: "password123",
+		Password: "Password123",
 	}, "00000000-0000-0000-0000-000000000000")
 	if err == nil {
 		t.Fatal("expected error for non-existent user")
@@ -109,7 +109,7 @@ func TestAuthService_JWTSignAndVerify(t *testing.T) {
 	_, err := svc.Register(ctx, &user.CreateRequest{
 		Email:    "jwt@test.com",
 		Name:     "JWT User",
-		Password: "jwtpass123",
+		Password: "Jwtpass1234",
 		Role:     user.RoleAdmin,
 		TenantID: "tid-1",
 	})
@@ -119,7 +119,7 @@ func TestAuthService_JWTSignAndVerify(t *testing.T) {
 
 	resp, _, err := svc.Login(ctx, user.LoginRequest{
 		Email:    "jwt@test.com",
-		Password: "jwtpass123",
+		Password: "Jwtpass1234",
 	}, "tid-1")
 	if err != nil {
 		t.Fatalf("login: %v", err)
@@ -165,7 +165,7 @@ func TestAuthService_APIKey(t *testing.T) {
 	u, err := svc.Register(ctx, &user.CreateRequest{
 		Email:    "apikey@test.com",
 		Name:     "API Key User",
-		Password: "password123",
+		Password: "Password123",
 		Role:     user.RoleEditor,
 		TenantID: "tid-1",
 	})
@@ -186,12 +186,15 @@ func TestAuthService_APIKey(t *testing.T) {
 	}
 
 	// Validate API key
-	validatedUser, err := svc.ValidateAPIKey(ctx, resp.PlainKey)
+	validatedUser, validatedKey, err := svc.ValidateAPIKey(ctx, resp.PlainKey)
 	if err != nil {
 		t.Fatalf("validate api key: %v", err)
 	}
 	if validatedUser.ID != u.ID {
 		t.Errorf("user id = %q, want %q", validatedUser.ID, u.ID)
+	}
+	if validatedKey.Name != "ci-key" {
+		t.Errorf("api key name = %q, want ci-key", validatedKey.Name)
 	}
 
 	// List keys

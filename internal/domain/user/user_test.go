@@ -8,13 +8,14 @@ func TestCreateRequest_Validate(t *testing.T) {
 		req     CreateRequest
 		wantErr string
 	}{
-		{name: "valid", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "12345678", Role: RoleAdmin}},
-		{name: "missing email", req: CreateRequest{Name: "A", Password: "12345678", Role: RoleAdmin}, wantErr: "email is required"},
-		{name: "invalid email", req: CreateRequest{Email: "bad", Name: "A", Password: "12345678", Role: RoleAdmin}, wantErr: "invalid email format"},
-		{name: "missing name", req: CreateRequest{Email: "a@b.com", Password: "12345678", Role: RoleAdmin}, wantErr: "name is required"},
+		{name: "valid", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "Abcdef1234", Role: RoleAdmin}},
+		{name: "missing email", req: CreateRequest{Name: "A", Password: "Abcdef1234", Role: RoleAdmin}, wantErr: "email is required"},
+		{name: "invalid email", req: CreateRequest{Email: "bad", Name: "A", Password: "Abcdef1234", Role: RoleAdmin}, wantErr: "invalid email format"},
+		{name: "missing name", req: CreateRequest{Email: "a@b.com", Password: "Abcdef1234", Role: RoleAdmin}, wantErr: "name is required"},
 		{name: "missing password", req: CreateRequest{Email: "a@b.com", Name: "A", Role: RoleAdmin}, wantErr: "password is required"},
-		{name: "short password", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "short", Role: RoleAdmin}, wantErr: "password must be at least 8 characters"},
-		{name: "invalid role", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "12345678", Role: "superadmin"}, wantErr: "invalid role: must be admin, editor, or viewer"},
+		{name: "short password", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "short", Role: RoleAdmin}, wantErr: "password must be at least 10 characters"},
+		{name: "missing uppercase", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "abcdefg123", Role: RoleAdmin}, wantErr: "password must contain at least one uppercase letter"},
+		{name: "invalid role", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "Abcdef1234", Role: "superadmin"}, wantErr: "invalid role: must be admin, editor, or viewer"},
 	}
 
 	for _, tt := range tests {

@@ -14,12 +14,28 @@ func TestTenantIDFromHeader(t *testing.T) {
 		got = middleware.TenantIDFromContext(r.Context())
 	}))
 
+	validUUID := "11111111-2222-3333-4444-555555555555"
 	req := httptest.NewRequest("GET", "/", http.NoBody)
-	req.Header.Set("X-Tenant-ID", "tenant-abc")
+	req.Header.Set("X-Tenant-ID", validUUID)
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	if got != "tenant-abc" {
-		t.Fatalf("expected tenant-abc, got %s", got)
+	if got != validUUID {
+		t.Fatalf("expected %s, got %s", validUUID, got)
+	}
+}
+
+func TestTenantIDInvalidUUID_Returns400(t *testing.T) {
+	handler := middleware.TenantID(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req.Header.Set("X-Tenant-ID", "not-a-uuid")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid UUID, got %d", rec.Code)
 	}
 }
 

@@ -25,12 +25,15 @@ type EvalResult struct {
 }
 
 // EvaluatePush checks whether a push is allowed under the given rules.
+// Default-DENY (P1-4): if enabled rules exist but none match, push is denied.
 func EvaluatePush(rules []ProtectionRule, action PushAction) EvalResult {
+	hasEnabledRules := false
 	for i := range rules {
 		rule := &rules[i]
 		if !rule.Enabled {
 			continue
 		}
+		hasEnabledRules = true
 		if !matchBranch(rule.BranchPattern, action.Branch) {
 			continue
 		}
@@ -47,17 +50,22 @@ func EvaluatePush(rules []ProtectionRule, action PushAction) EvalResult {
 			Rule:    rule.BranchPattern,
 		}
 	}
-	// No rule matched: allow by default.
-	return EvalResult{Allowed: true, Reason: "no protection rule matched"}
+	if hasEnabledRules {
+		return EvalResult{Allowed: false, Reason: "no matching protection rule (default deny)"}
+	}
+	return EvalResult{Allowed: true, Reason: "no protection rules configured"}
 }
 
 // EvaluateMerge checks whether a merge into the target branch is allowed.
+// Default-DENY (P1-4): if enabled rules exist but none match, merge is denied.
 func EvaluateMerge(rules []ProtectionRule, action MergeAction) EvalResult {
+	hasEnabledRules := false
 	for i := range rules {
 		rule := &rules[i]
 		if !rule.Enabled {
 			continue
 		}
+		hasEnabledRules = true
 		if !matchBranch(rule.BranchPattern, action.TargetBranch) {
 			continue
 		}
@@ -88,16 +96,22 @@ func EvaluateMerge(rules []ProtectionRule, action MergeAction) EvalResult {
 			Rule:    rule.BranchPattern,
 		}
 	}
-	return EvalResult{Allowed: true, Reason: "no protection rule matched"}
+	if hasEnabledRules {
+		return EvalResult{Allowed: false, Reason: "no matching protection rule (default deny)"}
+	}
+	return EvalResult{Allowed: true, Reason: "no protection rules configured"}
 }
 
 // EvaluateDelete checks whether deleting a branch is allowed.
+// Default-DENY (P1-4): if enabled rules exist but none match, delete is denied.
 func EvaluateDelete(rules []ProtectionRule, branch string) EvalResult {
+	hasEnabledRules := false
 	for i := range rules {
 		rule := &rules[i]
 		if !rule.Enabled {
 			continue
 		}
+		hasEnabledRules = true
 		if !matchBranch(rule.BranchPattern, branch) {
 			continue
 		}
@@ -114,7 +128,10 @@ func EvaluateDelete(rules []ProtectionRule, branch string) EvalResult {
 			Rule:    rule.BranchPattern,
 		}
 	}
-	return EvalResult{Allowed: true, Reason: "no protection rule matched"}
+	if hasEnabledRules {
+		return EvalResult{Allowed: false, Reason: "no matching protection rule (default deny)"}
+	}
+	return EvalResult{Allowed: true, Reason: "no protection rules configured"}
 }
 
 // matchBranch checks if a branch name matches a glob pattern.

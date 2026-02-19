@@ -200,7 +200,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		if threshold <= 0 {
 			threshold = s.runtimeCfg.StallThreshold
 		}
-		s.stallTrackers.Store(r.ID, run.NewStallTracker(threshold))
+		s.stallTrackers.Store(r.ID, run.NewStallTracker(threshold, s.runtimeCfg.StallMaxRetries))
 	}
 
 	// Publish run start to NATS

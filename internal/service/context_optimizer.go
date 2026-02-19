@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -459,27 +460,74 @@ func (s *ContextOptimizerService) readAndScore(absPath, relPath, taskPrompt stri
 }
 
 // ScoreFileRelevance returns a relevance score (0-100) for a file relative to a task prompt.
-// It uses simple keyword matching: counts how many significant words from the prompt
-// appear in either the file path or file content.
+// Uses BM25-inspired scoring (P1-3): term frequency, inverse document frequency approximation,
+// and document length normalization for more accurate relevance ranking.
 func ScoreFileRelevance(taskPrompt, filePath, fileContent string) int {
-	words := extractKeywords(taskPrompt)
-	if len(words) == 0 {
+	keywords := extractKeywords(taskPrompt)
+	if len(keywords) == 0 {
 		return 0
 	}
 
-	target := strings.ToLower(filePath + " " + fileContent)
-	matches := 0
-	for _, w := range words {
-		if strings.Contains(target, w) {
-			matches++
-		}
+	doc := strings.ToLower(filePath + " " + fileContent)
+	docWords := strings.Fields(doc)
+	docLen := len(docWords)
+	if docLen == 0 {
+		return 0
 	}
 
-	score := (matches * 100) / len(words)
-	if score > 100 {
-		score = 100
+	// BM25 parameters
+	const k1 = 1.5
+	const b = 0.75
+	const avgDocLen = 200.0 // assumed average document length in words
+
+	// Count term frequencies in the document
+	termFreq := make(map[string]int, len(keywords))
+	for _, w := range docWords {
+		termFreq[w]++
 	}
-	return score
+
+	n := float64(len(keywords))
+	var score float64
+	for _, kw := range keywords {
+		tf := float64(termFreq[kw])
+		if tf == 0 {
+			// Also check substring containment (e.g. "auth" in "authentication")
+			for _, w := range docWords {
+				if strings.Contains(w, kw) {
+					tf++
+				}
+			}
+		}
+		if tf == 0 {
+			continue
+		}
+
+		// IDF approximation: treat each keyword as appearing in ~half the "corpus"
+		// idf = log((N - df + 0.5) / (df + 0.5) + 1)
+		df := 1.0 // simplified: each term has df=1
+		idf := math.Log((n-df+0.5)/(df+0.5) + 1)
+
+		// BM25 score component
+		numerator := tf * (k1 + 1)
+		denominator := tf + k1*(1-b+b*(float64(docLen)/avgDocLen))
+		score += idf * (numerator / denominator)
+	}
+
+	// Normalize to 0-100 range
+	// Max possible score: all keywords match with high TF
+	maxScore := n * math.Log((n-1+0.5)/(1+0.5)+1) * ((k1 + 1) / (1 + k1*(1-b+b*(float64(docLen)/avgDocLen))))
+	if maxScore <= 0 {
+		return 0
+	}
+
+	normalized := int((score / maxScore) * 100)
+	if normalized > 100 {
+		normalized = 100
+	}
+	if normalized < 0 {
+		normalized = 0
+	}
+	return normalized
 }
 
 // extractKeywords splits text into lowercase words, filtering out short and common words.

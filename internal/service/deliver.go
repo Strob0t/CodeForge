@@ -23,6 +23,7 @@ type DeliveryResult struct {
 	CommitHash string          `json:"commit_hash,omitempty"`
 	BranchName string          `json:"branch_name,omitempty"`
 	PRURL      string          `json:"pr_url,omitempty"`
+	PushError  string          `json:"push_error,omitempty"` // P2-5: propagate push failure
 }
 
 // DeliverService executes delivery strategies after a successful run.
@@ -147,7 +148,9 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 		}
 		commitHash := strings.TrimSpace(hash)
 
+		var pushError string
 		if _, pushErr := runDeliverGit(ctx, dir, "push", "-u", "origin", branchName); pushErr != nil {
+			pushError = pushErr.Error()
 			slog.Warn("git push failed (branch delivery)", "run_id", r.ID, "error", pushErr)
 		}
 
@@ -156,6 +159,7 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 			Mode:       run.DeliverModeBranch,
 			BranchName: branchName,
 			CommitHash: commitHash,
+			PushError:  pushError,
 		}
 		return nil
 	})
@@ -167,6 +171,12 @@ func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, 
 	branchResult, err := s.deliverBranch(ctx, dir, r, shortID, taskTitle)
 	if err != nil {
 		return nil, fmt.Errorf("branch for PR: %w", err)
+	}
+
+	// P2-5: If push failed, skip PR creation — can't create PR without remote branch.
+	if branchResult.PushError != "" {
+		slog.Warn("skipping PR creation due to push failure", "run_id", r.ID, "push_error", branchResult.PushError)
+		return branchResult, nil
 	}
 
 	// Try to create PR using gh CLI (not a git operation, no pool needed)

@@ -10,14 +10,21 @@ import (
 )
 
 type authUserCtxKey struct{}
+type apiKeyCtxKey struct{}
 
 // publicPaths are exempt from authentication.
 var publicPaths = map[string]bool{
 	"/health":              true,
 	"/health/ready":        true,
-	"/ws":                  true,
 	"/api/v1/auth/login":   true,
 	"/api/v1/auth/refresh": true,
+}
+
+// passwordChangeExempt paths are allowed even when MustChangePassword is true.
+var passwordChangeExempt = map[string]bool{
+	"/api/v1/auth/change-password": true,
+	"/api/v1/auth/logout":          true,
+	"/api/v1/auth/me":              true,
 }
 
 // Auth returns middleware that validates JWT or API key credentials.
@@ -46,14 +53,40 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 				return
 			}
 
+			// WebSocket auth via ?token= query parameter (P1-5)
+			if r.URL.Path == "/ws" {
+				tokenParam := r.URL.Query().Get("token")
+				if tokenParam == "" {
+					http.Error(w, `{"error":"authorization required"}`, http.StatusUnauthorized)
+					return
+				}
+				claims, err := authSvc.ValidateAccessToken(tokenParam)
+				if err != nil {
+					http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusUnauthorized)
+					return
+				}
+				u := &user.User{
+					ID:       claims.UserID,
+					Email:    claims.Email,
+					Name:     claims.Name,
+					Role:     claims.Role,
+					TenantID: claims.TenantID,
+					Enabled:  true,
+				}
+				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			// Try X-API-Key header first.
 			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
-				u, err := authSvc.ValidateAPIKey(r.Context(), apiKey)
+				u, key, err := authSvc.ValidateAPIKey(r.Context(), apiKey)
 				if err != nil {
 					http.Error(w, `{"error":"invalid api key"}`, http.StatusUnauthorized)
 					return
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
+				ctx = context.WithValue(ctx, apiKeyCtxKey{}, key)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -77,13 +110,20 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 				return
 			}
 
+			// MustChangePassword check (P2-2): force password change except on exempt paths
+			if claims.MustChangePassword && !passwordChangeExempt[r.URL.Path] {
+				http.Error(w, `{"error":"password change required"}`, http.StatusForbidden)
+				return
+			}
+
 			u := &user.User{
-				ID:       claims.UserID,
-				Email:    claims.Email,
-				Name:     claims.Name,
-				Role:     claims.Role,
-				TenantID: claims.TenantID,
-				Enabled:  true,
+				ID:                 claims.UserID,
+				Email:              claims.Email,
+				Name:               claims.Name,
+				Role:               claims.Role,
+				TenantID:           claims.TenantID,
+				Enabled:            true,
+				MustChangePassword: claims.MustChangePassword,
 			}
 
 			ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
@@ -96,6 +136,12 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 func UserFromContext(ctx context.Context) *user.User {
 	u, _ := ctx.Value(authUserCtxKey{}).(*user.User)
 	return u
+}
+
+// APIKeyFromContext returns the API key used for authentication, or nil for JWT auth.
+func APIKeyFromContext(ctx context.Context) *user.APIKey {
+	key, _ := ctx.Value(apiKeyCtxKey{}).(*user.APIKey)
+	return key
 }
 
 // AuthUserCtxKeyForTest returns the context key used for storing the auth user.
