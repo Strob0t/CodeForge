@@ -997,7 +997,7 @@
   - `frontend/src/api/client.ts`: cache on GET success, serve stale on network fail; queue mutations when offline, auto-retry on `window.online` event
   - `.gitignore` updated for Playwright artifacts (e2e-results/, e2e-report/, test-results/)
 
-## Phase 11 — Future GUI Enhancements (IN PROGRESS)
+## Phase 11 — Future GUI Enhancements (COMPLETED)
 
 ### 11A. ProjectDetailPage Tab Navigation (COMPLETED)
 
