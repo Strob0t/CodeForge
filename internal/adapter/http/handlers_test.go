@@ -1117,12 +1117,18 @@ func TestEvaluatePolicy(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var result map[string]string
+	var result policy.EvaluationResult
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if result["decision"] != "allow" {
-		t.Fatalf("expected 'allow' for Read in plan-readonly, got %q", result["decision"])
+	if result.Decision != policy.DecisionAllow {
+		t.Fatalf("expected 'allow' for Read in plan-readonly, got %q", result.Decision)
+	}
+	if result.Profile != "plan-readonly" {
+		t.Fatalf("expected profile 'plan-readonly', got %q", result.Profile)
+	}
+	if result.Reason == "" {
+		t.Fatal("expected non-empty reason")
 	}
 }
 

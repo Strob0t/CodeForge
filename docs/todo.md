@@ -267,7 +267,13 @@
   - Frontend: PolicyPanel component with 3 views (list, detail with evaluate tester, editor)
   - Frontend: Integrated into ProjectDetailPage (between agents and run management)
   - Tests: 6 new service tests, 6 new handler tests — all passing
-- [ ] Policy scope levels (global → project → run), run overrides, "why matched" explanation
+- [x] (2026-02-19) Policy scope levels (global → project → run), run overrides, "why matched" explanation
+  - `internal/domain/policy/evaluation.go`: Scope type (global/project/run), EvaluationResult struct
+  - `internal/service/policy.go`: `EvaluateWithReason()`, `ResolveProfile()`, `evaluateWithReason()`
+  - `internal/service/runtime.go`: uses EvaluateWithReason, logs evaluation reason at Debug level
+  - `internal/adapter/http/handlers.go`: evaluate endpoint returns full EvaluationResult
+  - Migration 019: `policy_profile` column on projects table
+  - `internal/domain/project/project.go`: PolicyProfile field on Project struct
 
 ### 4B. Runtime API (Step-by-Step Execution Protocol)
 

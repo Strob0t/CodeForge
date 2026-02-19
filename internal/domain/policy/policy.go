@@ -61,6 +61,7 @@ type TerminationCondition struct {
 type PolicyProfile struct {
 	Name           string               `json:"name" yaml:"name"`
 	Description    string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Scope          Scope                `json:"scope,omitempty" yaml:"scope,omitempty"`
 	Mode           PermissionMode       `json:"mode" yaml:"mode"`
 	Rules          []PermissionRule     `json:"rules" yaml:"rules"`
 	QualityGate    QualityGate          `json:"quality_gate" yaml:"quality_gate"`

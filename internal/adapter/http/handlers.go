@@ -480,15 +480,13 @@ func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	decision, err := h.Policies.Evaluate(r.Context(), name, call)
+	result, err := h.Policies.EvaluateWithReason(r.Context(), name, call)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"decision": string(decision),
-	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // CreatePolicyProfile handles POST /api/v1/policies

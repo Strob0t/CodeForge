@@ -41,12 +41,34 @@ func NewPolicyService(defaultProfile string, custom []policy.PolicyProfile) *Pol
 }
 
 // Evaluate checks a ToolCall against a named PolicyProfile and returns a Decision.
-func (s *PolicyService) Evaluate(_ context.Context, profileName string, call policy.ToolCall) (policy.Decision, error) {
+func (s *PolicyService) Evaluate(ctx context.Context, profileName string, call policy.ToolCall) (policy.Decision, error) {
+	result, err := s.EvaluateWithReason(ctx, profileName, call)
+	if err != nil {
+		return policy.DecisionDeny, err
+	}
+	return result.Decision, nil
+}
+
+// EvaluateWithReason checks a ToolCall against a named PolicyProfile and returns
+// the full evaluation result including which rule matched and why.
+func (s *PolicyService) EvaluateWithReason(_ context.Context, profileName string, call policy.ToolCall) (*policy.EvaluationResult, error) {
 	p, ok := s.profiles[profileName]
 	if !ok {
-		return policy.DecisionDeny, fmt.Errorf("unknown policy profile %q", profileName)
+		return nil, fmt.Errorf("unknown policy profile %q", profileName)
 	}
-	return evaluate(&p, call), nil
+	return evaluateWithReason(&p, profileName, call), nil
+}
+
+// ResolveProfile determines the effective policy profile name using scope resolution:
+// run-level override -> project-level -> service default.
+func (s *PolicyService) ResolveProfile(runProfile, projectProfile string) string {
+	if runProfile != "" {
+		return runProfile
+	}
+	if projectProfile != "" {
+		return projectProfile
+	}
+	return s.defaultProfile
 }
 
 // GetProfile returns a policy profile by name.
@@ -91,8 +113,14 @@ func (s *PolicyService) DefaultProfile() string {
 	return s.defaultProfile
 }
 
-// evaluate performs first-match rule evaluation against a profile.
-func evaluate(profile *policy.PolicyProfile, call policy.ToolCall) policy.Decision {
+// evaluateWithReason performs first-match rule evaluation against a profile,
+// recording which rule matched and why.
+func evaluateWithReason(profile *policy.PolicyProfile, profileName string, call policy.ToolCall) *policy.EvaluationResult {
+	scope := profile.Scope
+	if scope == "" {
+		scope = policy.ScopeGlobal
+	}
+
 	for i := range profile.Rules {
 		rule := &profile.Rules[i]
 		if !matchesSpecifier(rule.Specifier, call) {
@@ -104,9 +132,32 @@ func evaluate(profile *policy.PolicyProfile, call policy.ToolCall) policy.Decisi
 		if !matchesCommandConstraints(rule, call.Command) {
 			continue
 		}
-		return rule.Decision
+
+		matchedRule := fmt.Sprintf("rule[%d]: %s %s -> %s", i, rule.Specifier.Tool, rule.Specifier.SubPattern, rule.Decision)
+		reason := fmt.Sprintf("matched rule %d in profile %q: tool=%s", i, profileName, rule.Specifier.Tool)
+		if rule.Specifier.SubPattern != "" {
+			reason += fmt.Sprintf(" sub_pattern=%s", rule.Specifier.SubPattern)
+		}
+
+		return &policy.EvaluationResult{
+			Decision:    rule.Decision,
+			Profile:     profileName,
+			Scope:       scope,
+			RuleIndex:   i,
+			MatchedRule: matchedRule,
+			Reason:      reason,
+		}
 	}
-	return defaultDecisionForMode(profile.Mode)
+
+	defaultDecision := defaultDecisionForMode(profile.Mode)
+	return &policy.EvaluationResult{
+		Decision:    defaultDecision,
+		Profile:     profileName,
+		Scope:       scope,
+		RuleIndex:   -1,
+		MatchedRule: "",
+		Reason:      fmt.Sprintf("no rule matched, using mode default %q -> %s", profile.Mode, defaultDecision),
+	}
 }
 
 // matchesSpecifier checks if a ToolCall matches a ToolSpecifier.

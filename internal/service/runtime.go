@@ -300,16 +300,27 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), reason)
 	}
 
-	// Evaluate policy
+	// Evaluate policy with reason tracking
 	call := policy.ToolCall{
 		Tool:    req.Tool,
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	decision, err := s.policy.Evaluate(ctx, r.PolicyProfile, call)
+	result, err := s.policy.EvaluateWithReason(ctx, r.PolicyProfile, call)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
+	decision := result.Decision
+
+	slog.Debug("policy evaluation",
+		"run_id", req.RunID,
+		"tool", req.Tool,
+		"decision", result.Decision,
+		"profile", result.Profile,
+		"scope", result.Scope,
+		"rule_index", result.RuleIndex,
+		"reason", result.Reason,
+	)
 
 	// Record event
 	evType := event.TypeToolCallApproved
@@ -320,6 +331,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		"call_id":  req.CallID,
 		"tool":     req.Tool,
 		"decision": string(decision),
+		"reason":   result.Reason,
 	})
 
 	// Broadcast WS

@@ -35,7 +35,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at
+		`SELECT id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at
 		 FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -55,7 +55,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 
 func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at
+		`SELECT id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at
 		 FROM projects WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	p, err := scanProject(row)
@@ -77,7 +77,7 @@ func (s *Store) CreateProject(ctx context.Context, req project.CreateRequest) (*
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO projects (tenant_id, name, description, repo_url, provider, config)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, name, description, repo_url, provider, workspace_path, config, version, created_at, updated_at`,
+		 RETURNING id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at`,
 		tenantFromCtx(ctx), req.Name, req.Description, req.RepoURL, req.Provider, configJSON)
 
 	p, err := scanProject(row)
@@ -93,9 +93,9 @@ func (s *Store) UpdateProject(ctx context.Context, p *project.Project) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE projects SET name = $2, description = $3, repo_url = $4, provider = $5, workspace_path = $6, config = $7
-		 WHERE id = $1 AND version = $8 AND tenant_id = $9`,
-		p.ID, p.Name, p.Description, p.RepoURL, p.Provider, p.WorkspacePath, configJSON, p.Version, tenantFromCtx(ctx))
+		`UPDATE projects SET name = $2, description = $3, repo_url = $4, provider = $5, workspace_path = $6, config = $7, policy_profile = $8
+		 WHERE id = $1 AND version = $9 AND tenant_id = $10`,
+		p.ID, p.Name, p.Description, p.RepoURL, p.Provider, p.WorkspacePath, configJSON, p.PolicyProfile, p.Version, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update project %s: %w", p.ID, err)
 	}
@@ -699,7 +699,7 @@ func scanAgent(row scannable) (agent.Agent, error) {
 func scanProject(row scannable) (project.Project, error) {
 	var p project.Project
 	var configJSON []byte
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.Provider, &p.WorkspacePath, &configJSON, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.RepoURL, &p.Provider, &p.WorkspacePath, &configJSON, &p.PolicyProfile, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return p, err
 	}
