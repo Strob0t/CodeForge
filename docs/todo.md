@@ -15,8 +15,8 @@
 
 ### Phases 0-8: Complete
 
-> All phases from 0 through 8 are complete. See sections below for details.
-> Current priority: **Phase 10 (Frontend Foundations)** — then Phase 9 (Advanced) and Phase 11+ (Future GUI).
+> All phases from 0 through 11 are complete, including P0-P2 security hardening.
+> Current priority: **Phase 12+ (Architecture Evolution)** — new items from brainstorming and research.
 
 #### Phase 3 — Reliability, Performance & Agent Foundation
 
@@ -466,6 +466,7 @@
 - [x] (2026-02-19) Load tests for Rate Limiting (sustained vs burst, per-user limiters) (`tests/load/ratelimit_test.go` build tag `//go:build load`; 6 tests: sustained load, burst absorption, per-IP isolation, concurrent bucket creation, headers, cleanup under load; run with: `go test -tags load -count=1 ./tests/load/`)
 - [x] (2026-02-18) Runtime Compliance Tests (Sandbox/Mount feature parity) — 16 sub-tests passing
 - [x] (2026-02-17) Policy Gate tests (deny/ask/allow evaluation, path scoping, command matching, preset integration)
+- [ ] E2E live tests: Create test users via API and test auth flows end-to-end (login, JWT refresh, role-based access, API key creation/usage, forced password change for seeded admin, password complexity enforcement, logout, session expiry). **Must use Playwright MCP** (`browser_navigate`, `browser_snapshot`, `browser_fill_form`, `browser_click`, etc.) to test all UI/UX flows through the actual browser. If Playwright MCP is not reachable, inform the user and abort the test — do not fall back to API-only testing for UI validation. **Security testing must follow [OWASP Top 10 (2025)](https://owasp.org/Top10/2025/) and [OWASP Web Security Testing Guide (WSTG)](https://owasp.org/www-project-web-security-testing-guide/latest/):** test for injection (SQL, XSS, command), broken authentication (session fixation, credential stuffing, brute force), broken access control (IDOR, privilege escalation, path traversal), security misconfiguration (CORS, headers, error disclosure), SSRF, cryptographic failures, and CSRF. Document each finding with WSTG test ID reference.
 
 ---
 
@@ -515,14 +516,124 @@ For full completion history, see [project-status.md](project-status.md).
 
 ---
 
+### Phase 12+ — Architecture Evolution
+
+> Insights from theme analysis of brainstorming sessions, role engineering research,
+> and Claude Code prompt architecture study. Organized by priority.
+> Sources: brainstorming conversation, `data/docs/` role research, Piebald-AI claude-code-system-prompts.
+
+#### 12A. Mode System Extensions (P1)
+
+- [ ] Add `RequiredArtifact`, `DeniedTools`, `DeniedActions` fields to Mode domain struct (`internal/domain/mode/mode.go`)
+- [ ] Decompose prompt templates into ROLE/CONTEXT/TOOLS/ARTIFACT/GUARDRAILS sections (Go `text/template` with `//go:embed`)
+- [ ] Add prompt token counting per section (estimate tokens before assembly, warn on budget overflow)
+- [ ] Implement mode-specific prompt composition (base + phase + mode sections, conditionally assembled)
+- [ ] Reference: Claude Code conditional prompt assembly pattern (~40 modular sections, token-budget-aware)
+
+#### 12B. LLM Routing Implementation (P1)
+
+- [ ] Wire scenario tags (default/background/think/longContext/review/plan) to LiteLLM model selection in `internal/adapter/litellm/`
+- [ ] Implement tag-to-model mapping in config YAML (e.g., `think` → reasoning model, `background` → fast/cheap model)
+- [ ] Add routing decision logging for observability (which model was selected and why)
+- [ ] Reference: Tags already defined in Mode domain (`internal/domain/mode/mode.go`), LiteLLM adapter has no routing logic yet (`internal/adapter/litellm/`)
+
+#### 12C. Role Evaluation Framework (P1)
+
+- [ ] Define role responsibility matrix (9 roles: Orchestrator, Planner, Coder, Reviewer, Auditor, Runner, Tool Agent, Proponent/Opponent, Moderator) with input/output/allowed/denied columns
+- [ ] Implement FakeLLM test harness for deterministic agent testing (`workers/tests/`): fixture-based, Record/Replay modes
+- [ ] Create `tests/scenarios/` fixture directory structure: `{role}/{scenario}/input.json`, `expected_output.json`, `llm_responses.json`
+- [ ] Define 7 MVP evaluation tests (planner generates valid plan, coder produces diff, reviewer catches bug, runner reports pass/fail, auditor flags risk, debate agents reach consensus, orchestrator selects correct strategy)
+- [ ] Integrate evaluation metrics schema: pass/fail, token usage, step count, artifact quality score
+- [ ] Research reference: SPARC-Bench, DeepEval, AgentNeo, REALM-Bench, GEMMAS
+
+#### 12D. RAG Shared Scope System (P1)
+
+- [ ] Add Scope domain model: Project Scope (isolated, always default), Shared Scope (named, multi-project opt-in), Global Knowledge (shared scope available to all projects)
+- [ ] DB migration: `retrieval_scopes` table (scope_id UUID, name, type project/shared/global, project_ids UUID[])
+- [ ] Extend HybridRetriever (`workers/codeforge/retrieval.py`) to accept scope_id parameter for cross-project search
+- [ ] Extend CodeGraphBuilder (`workers/codeforge/graphrag.py`) to accept scope_id parameter
+- [ ] Implement incremental indexing with hash-based delta detection (only re-index changed files/chunks on post-commit)
+- [ ] Add scope management REST API (CRUD scopes, assign projects to scopes)
+- [ ] Add scope management frontend UI (scope list, project assignment, index status per scope)
+- [ ] Security constraint: projects isolated by default, explicit opt-in required for shared scopes
+
+#### 12E. Artifact-Gated Pipelines (P2)
+
+- [ ] Define typed artifact schemas: PlanArtifact (PLAN.md), DiffArtifact (DIFF), TestReportArtifact (TEST_REPORT.json), ReviewArtifact (REVIEW.md), AuditReportArtifact (AUDIT_REPORT.md), DecisionArtifact (DECISION.md)
+- [ ] Enforce artifact production per workflow step (step N must produce typed artifact before step N+1 starts)
+- [ ] Add artifact validation via Pydantic models in Python workers
+- [ ] Wire into existing ExecutionPlan step completion checks (`internal/domain/plan/`)
+- [ ] Reference: Artifact-gated pipeline pattern from role engineering research
+
+#### 12F. Pipeline Templates (P2)
+
+- [ ] Define reusable YAML workflow templates: `standard-dev-pipeline`, `security-audit-pipeline`, `review-pipeline`
+- [ ] Implement template loader from `.codeforge/pipelines/` directory (follows existing `.codeforge/modes/` pattern)
+- [ ] Each template defines: steps, roles, protocols, artifact requirements, quality gates
+- [ ] Allow project-level override of default pipeline via project settings
+- [ ] Reference: Mode pipeline and DAG composition from CLAUDE.md
+
+#### 12G. Project Workspace Management (P2)
+
+- [ ] Make `WorkspaceRoot` configurable via config hierarchy — currently hardcoded `data/workspaces` in `internal/service/project.go:15`
+- [ ] Implement workspace cleanup on project delete (currently orphaned directories remain)
+- [ ] Add "adopt existing" mode for local projects (import existing directory without clone)
+- [ ] Add workspace health checks (disk usage, git status, staleness detection)
+- [ ] Support configurable workspace root path per tenant (multi-tenancy)
+
+#### 12H. Per-Tool Token Tracking (P2)
+
+- [ ] Extend event schema beyond run-level to per-tool-call granularity
+- [ ] Track `tokens_in`/`tokens_out` per individual tool call in `agent_events` table (migration needed)
+- [ ] Add per-tool cost breakdown in Cost Dashboard frontend
+- [ ] Wire into existing cost aggregation queries (`internal/domain/cost/`, `internal/service/cost.go`)
+
+#### 12I. Periodic Reviews & Audits (P2)
+
+- [ ] Implement ReviewPolicy domain model with trigger types: commit-count threshold, pre-merge hook, cron schedule
+- [ ] Auto-trigger reviewer agent on configurable conditions (e.g., every 10 commits, before merge to main)
+- [ ] Integrate with existing branch protection rules (`internal/domain/protection/`)
+- [ ] Store review results as typed artifacts (ties into 12E)
+
+#### 12J. Project Creation Wizard (P3)
+
+- [ ] Language/framework auto-detection on project creation (scan repo for package.json, go.mod, pyproject.toml, Cargo.toml, etc.)
+- [ ] Propose linter/formatter standards based on detected stack
+- [ ] Suggest default mode and pipeline based on project type
+- [ ] Pre-populate agent configuration from detection results
+
+#### 12K. Knowledge Bases (P3)
+
+- [ ] Curated knowledge modules for common frameworks (React, Go stdlib, Python stdlib, etc.)
+- [ ] Programming paradigm standards (SOLID, Clean Architecture, DDD patterns)
+- [ ] Implement as pre-built retrieval indexes that can be attached to project scopes
+- [ ] Ties into RAG Shared Scope system (12D) — knowledge bases are a type of shared scope with type "global"
+
+#### Dependencies
+
+```text
+12A Mode Extensions ──┐
+12B LLM Routing ──────┤──> 12F Pipeline Templates
+12C Role Evaluation ──┤
+12D RAG Scopes ───────┼──> 12K Knowledge Bases
+12E Artifact Pipes ───┤──> 12I Periodic Reviews
+12G Workspace Mgmt ───┘
+12H Token Tracking (independent)
+12J Project Wizard (independent, benefits from 12A + 12G)
+```
+
+---
+
 ### Notes
 
-- Phases 0-11 complete. All phases implemented.
-- **Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
-- Dependencies: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
-- Dependencies: Repo Map → Hybrid Retrieval → Retrieval Sub-Agent → GraphRAG
-- Dependencies: Roadmap Domain → Store → Service → Handlers → Frontend
-- Dependencies: Auth → Multi-Tenancy full rollout; Theme → WCAG audit
+- Phases 0-11 complete. All phases implemented. P0-P2 security hardening complete.
+- **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
+- **Completed Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
+- Completed: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
+- Completed: Repo Map → Hybrid Retrieval → Retrieval Sub-Agent → GraphRAG
+- Completed: Roadmap Domain → Store → Service → Handlers → Frontend
+- Completed: Auth → Multi-Tenancy full rollout; Theme → WCAG audit
 - Testing: Each new pattern requires unit + integration tests before merge
 - Documentation: ADRs must be written before implementation (capture decision context)
 - Source: Analysis document `docs/Analyse des CodeForge-Projekts (staging-Branch).md`
+- Source: Role engineering research `data/docs/` + Claude Code prompt architecture (Piebald-AI)
