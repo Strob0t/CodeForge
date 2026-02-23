@@ -857,3 +857,12 @@
 - [x] (2026-02-23) P2: Created SECURITY.md and CONTRIBUTING.md
 - [x] (2026-02-23) P2: Fixed CLAUDE.md documentation inaccuracies (5 corrections)
 - [x] (2026-02-23) P3: CI postgres 16→17 alignment + security scanning job (govulncheck, pip-audit, npm audit)
+- [x] (2026-02-23) DB adapter integration tests — tenant-isolated CRUD, repo name lookup, token revocation
+- [x] (2026-02-23) Frontend Vitest setup + 37 unit tests (formatters, cache, StepProgress component)
+- [x] (2026-02-23) NATS adapter integration tests — pub/sub, request ID propagation, DLQ, KV, connectivity
+- [x] (2026-02-23) Error message sanitization in all non-auth handlers (~40 calls)
+- [x] (2026-02-23) Docker sandbox hardening — no-new-privileges, cap-drop=ALL
+- [x] (2026-02-23) MCP/A2A/LSP/AG-UI documentation marked as stub/planned
+- [x] (2026-02-23) SBOM generation in CI (anchore/sbom-action)
+- [x] (2026-02-23) Content-Security-Policy header (nginx + Go middleware)
+- [x] (2026-02-23) HSTS header prepared for production deployment

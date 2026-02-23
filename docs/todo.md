@@ -527,6 +527,15 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) P2: Create SECURITY.md and CONTRIBUTING.md
 - [x] (2026-02-23) P2: Fix CLAUDE.md documentation inaccuracies (Jinja2→text/template, KeyBERT→BM25S, lucide-solid→Unicode+SVG, zero-dep→minimal-dep, websocket size)
 - [x] (2026-02-23) P3: Fix CI postgres version 16→17 + add security scanning job (govulncheck, pip-audit, npm audit)
+- [x] (2026-02-23) A: DB adapter integration tests (`internal/adapter/postgres/store_test.go` — ProjectCRUD with tenant isolation, GetProjectByRepoName tenant isolation, UserCRUD with email uniqueness, TokenRevocation lifecycle)
+- [x] (2026-02-23) B: Frontend Vitest unit tests (37 tests: `formatters.test.ts` 21 tests for i18n formatters, `cache.test.ts` 10 tests for offline cache, `StepProgress.test.tsx` 6 tests for component rendering)
+- [x] (2026-02-23) C: NATS adapter integration tests (`internal/adapter/nats/nats_test.go` — PublishSubscribe, RequestIDPropagation, DLQ validation failure, DLQ retry exhaustion, KeyValue CRUD, IsConnected)
+- [x] (2026-02-23) D: Error message leakage in non-auth handlers — `writeInternalError()` helper, ~40 StatusInternalServerError calls sanitized, StatusBadGateway/StatusGatewayTimeout sanitized (`internal/adapter/http/handlers.go`)
+- [x] (2026-02-23) E: Docker socket hardening — `--security-opt=no-new-privileges`, `--cap-drop=ALL` on sandbox containers (`internal/service/sandbox.go`)
+- [x] (2026-02-23) F: MCP/A2A/LSP/AG-UI documentation — marked as stub/planned in CLAUDE.md
+- [x] (2026-02-23) G: SBOM generation — `anchore/sbom-action` for Go and Frontend in CI (`.github/workflows/ci.yml`)
+- [x] (2026-02-23) H: Content-Security-Policy header — SPA-compatible CSP on nginx + Go middleware
+- [x] (2026-02-23) I: HSTS header — commented-out in nginx.conf, ready for production HTTPS
 
 ---
 

@@ -179,16 +179,16 @@ Detailed analysis: docs/research/market-analysis.md
   - Icons: Unicode symbols + inline SVG (no icon library dependency)
   - NOT used: axios, styled-components, Kobalte, shadcn-solid, Socket.IO, Redux/Zustand
 - **Protocol Support (MCP, LSP, A2A, AG-UI, OpenTelemetry):**
-  - **MCP** (Model Context Protocol): Agent ↔ Tool communication (JSON-RPC, Anthropic standard)
+  - **MCP** (Model Context Protocol): Agent ↔ Tool communication (JSON-RPC, Anthropic standard) — **stub/planned**
     - Go Core: MCP server (expose tools) + MCP client registry (connect external tools)
     - Python Workers: MCP for agent tool access
-  - **LSP** (Language Server Protocol): Code intelligence for agents (go-to-definition, refs, diagnostics)
+  - **LSP** (Language Server Protocol): Code intelligence for agents (go-to-definition, refs, diagnostics) — **stub/planned**
     - Go Core manages LSP server lifecycle per project language
   - **OpenTelemetry GenAI**: Standardized LLM/agent observability (traces, metrics, events)
     - LiteLLM exports OTEL traces natively, Go Core adds agent lifecycle spans
-  - **A2A** (Agent-to-Agent Protocol, Phase 2-3): Peer-to-peer agent coordination (Google → Linux Foundation)
+  - **A2A** (Agent-to-Agent Protocol, Phase 2-3): Peer-to-peer agent coordination (Google → Linux Foundation) — **stub/planned**
     - Agent backends register as A2A agents with capability cards
-  - **AG-UI** (Agent-User Interaction Protocol, Phase 2-3): Bi-directional agent ↔ frontend streaming (CopilotKit)
+  - **AG-UI** (Agent-User Interaction Protocol, Phase 2-3): Bi-directional agent ↔ frontend streaming (CopilotKit) — **stub/planned**
     - Frontend WebSocket follows AG-UI event format (TEXT_MESSAGE, TOOL_CALL, STATE_DELTA)
   - **Future/Watch:** ANP (decentralized agent networking), LSAP (LSP for AI agents)
 - **LLM Integration (LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI):**

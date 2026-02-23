@@ -138,3 +138,15 @@ jobs:
 
       - name: Frontend dependency audit
         run: cd frontend && npm ci && npm audit --omit=dev
+
+      - name: Generate Go SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          artifact-name: sbom-go.spdx.json
+          path: .
+
+      - name: Generate Frontend SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          artifact-name: sbom-frontend.spdx.json
+          path: frontend

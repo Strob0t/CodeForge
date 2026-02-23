@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
@@ -9,6 +10,12 @@ export default defineConfig({
     alias: {
       "~": resolve(__dirname, "src"),
     },
+  },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    transformMode: { web: [/\.[jt]sx?$/] },
+    exclude: ["e2e/**", "node_modules/**"],
   },
   server: {
     host: "0.0.0.0",

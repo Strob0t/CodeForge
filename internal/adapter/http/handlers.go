@@ -85,7 +85,7 @@ type Handlers struct {
 func (h *Handlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.Projects.List(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if projects == nil {
@@ -119,7 +119,7 @@ func (h *Handlers) CreateProject(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.Projects.Create(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
@@ -140,7 +140,7 @@ func (h *Handlers) ListTasks(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	tasks, err := h.Tasks.List(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if tasks == nil {
@@ -167,7 +167,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	t, err := h.Tasks.Create(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
@@ -273,7 +273,7 @@ func (h *Handlers) ProjectGitStatus(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	status, err := h.Projects.Status(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -283,7 +283,7 @@ func (h *Handlers) ProjectGitStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) PullProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Projects.Pull(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -294,7 +294,7 @@ func (h *Handlers) ListProjectBranches(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	branches, err := h.Projects.ListBranches(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, branches)
@@ -317,7 +317,7 @@ func (h *Handlers) CheckoutBranch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Projects.Checkout(r.Context(), id, req.Branch); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "branch": req.Branch})
@@ -328,7 +328,7 @@ func (h *Handlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	agents, err := h.Agents.List(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if agents == nil {
@@ -406,7 +406,7 @@ func (h *Handlers) DispatchTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Agents.Dispatch(r.Context(), agentID, req.TaskID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "dispatched"})
@@ -429,7 +429,7 @@ func (h *Handlers) StopAgentTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Agents.StopTask(r.Context(), agentID, req.TaskID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
@@ -467,7 +467,8 @@ func (h *Handlers) ListAgentBackends(w http.ResponseWriter, _ *http.Request) {
 func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
 	models, err := h.LiteLLM.ListModels(r.Context())
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "litellm unavailable: "+err.Error())
+		slog.Error("litellm unavailable", "error", err)
+		writeError(w, http.StatusBadGateway, "LLM service unavailable")
 		return
 	}
 	if models == nil {
@@ -489,7 +490,8 @@ func (h *Handlers) AddLLMModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.LiteLLM.AddModel(r.Context(), req); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		slog.Error("litellm request failed", "error", err)
+		writeError(w, http.StatusBadGateway, "LLM service error")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok", "model": req.ModelName})
@@ -510,7 +512,8 @@ func (h *Handlers) DeleteLLMModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.LiteLLM.DeleteModel(r.Context(), req.ID); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		slog.Error("litellm request failed", "error", err)
+		writeError(w, http.StatusBadGateway, "LLM service error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -641,7 +644,7 @@ func (h *Handlers) StartRun(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Runtime.StartRun(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -662,7 +665,7 @@ func (h *Handlers) GetRun(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CancelRun(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Runtime.CancelRun(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
@@ -673,7 +676,7 @@ func (h *Handlers) ListTaskRuns(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 	runs, err := h.Runtime.ListRunsByTask(r.Context(), taskID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if runs == nil {
@@ -691,7 +694,7 @@ func (h *Handlers) ListRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := h.Events.LoadByRun(r.Context(), runID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if events == nil {
@@ -726,7 +729,7 @@ func (h *Handlers) ListPlans(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	plans, err := h.Orchestrator.ListPlans(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if plans == nil {
@@ -795,7 +798,7 @@ func (h *Handlers) ListTeams(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	teams, err := h.PoolManager.ListTeams(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if teams == nil {
@@ -897,7 +900,7 @@ func (h *Handlers) BuildContextPack(w http.ResponseWriter, r *http.Request) {
 
 	pack, err := h.ContextOptimizer.BuildContextPack(r.Context(), taskID, req.ProjectID, req.TeamID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, pack)
@@ -1064,7 +1067,8 @@ func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Retrieval.SearchSync(r.Context(), projectID, req.Query, topK, req.BM25Weight, req.SemanticWeight)
 	if err != nil {
-		writeError(w, http.StatusGatewayTimeout, err.Error())
+		slog.Error("search timed out", "error", err)
+		writeError(w, http.StatusGatewayTimeout, "search timed out")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -1121,7 +1125,8 @@ func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Retrieval.SubAgentSearchSync(r.Context(), projectID, req.Query, topK, maxQueries, model, rerank)
 	if err != nil {
-		writeError(w, http.StatusGatewayTimeout, err.Error())
+		slog.Error("search timed out", "error", err)
+		writeError(w, http.StatusGatewayTimeout, "search timed out")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -1139,7 +1144,7 @@ func (h *Handlers) BuildGraph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Graph.RequestBuild(r.Context(), projectID, proj.WorkspacePath); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "building"})
@@ -1189,7 +1194,8 @@ func (h *Handlers) SearchGraph(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Graph.SearchSync(r.Context(), projectID, req.SeedSymbols, maxHops, topK)
 	if err != nil {
-		writeError(w, http.StatusGatewayTimeout, err.Error())
+		slog.Error("search timed out", "error", err)
+		writeError(w, http.StatusGatewayTimeout, "search timed out")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -1201,7 +1207,7 @@ func (h *Handlers) SearchGraph(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GlobalCostSummary(w http.ResponseWriter, r *http.Request) {
 	summaries, err := h.Cost.GlobalSummary(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if summaries == nil {
@@ -1215,7 +1221,7 @@ func (h *Handlers) ProjectCostSummary(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	summary, err := h.Cost.ProjectSummary(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
@@ -1226,7 +1232,7 @@ func (h *Handlers) ProjectCostByModel(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	models, err := h.Cost.ByModel(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if models == nil {
@@ -1246,7 +1252,7 @@ func (h *Handlers) ProjectCostTimeSeries(w http.ResponseWriter, r *http.Request)
 	}
 	series, err := h.Cost.TimeSeries(r.Context(), projectID, days)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if series == nil {
@@ -1266,7 +1272,7 @@ func (h *Handlers) ProjectRecentRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, err := h.Cost.RecentRuns(r.Context(), projectID, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if runs == nil {
@@ -1280,7 +1286,7 @@ func (h *Handlers) ProjectCostByTool(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	tools, err := h.Cost.ByTool(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if tools == nil {
@@ -1294,7 +1300,7 @@ func (h *Handlers) RunCostByTool(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "id")
 	tools, err := h.Cost.ByToolForRun(r.Context(), runID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if tools == nil {
@@ -1334,7 +1340,7 @@ func (h *Handlers) CreateProjectRoadmap(w http.ResponseWriter, r *http.Request) 
 
 	rm, err := h.Roadmap.Create(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, rm)
@@ -1450,7 +1456,7 @@ func (h *Handlers) CreateMilestone(w http.ResponseWriter, r *http.Request) {
 
 	m, err := h.Roadmap.CreateMilestone(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
@@ -1720,14 +1726,14 @@ func (h *Handlers) GetTrajectory(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.Events.LoadTrajectory(r.Context(), runID, filter, cursor, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 
 	// Include stats in the response.
 	stats, err := h.Events.TrajectoryStats(r.Context(), runID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 
@@ -1750,7 +1756,7 @@ func (h *Handlers) ExportTrajectory(w http.ResponseWriter, r *http.Request) {
 
 	events, err := h.Events.LoadByRun(r.Context(), runID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if events == nil {
@@ -1791,7 +1797,7 @@ func (h *Handlers) GetFeature(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ListTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := h.Tenants.List(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if tenants == nil {
@@ -1852,7 +1858,7 @@ func (h *Handlers) ListBranchProtectionRules(w http.ResponseWriter, r *http.Requ
 	projectID := chi.URLParam(r, "id")
 	rules, err := h.BranchProtection.ListRules(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if rules == nil {
@@ -1968,7 +1974,7 @@ func (h *Handlers) GlobalAuditTrail(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.Replay.AuditTrail(r.Context(), &filter, cursor, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -1991,7 +1997,7 @@ func (h *Handlers) ProjectAuditTrail(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.Replay.AuditTrail(r.Context(), &filter, cursor, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -2055,7 +2061,7 @@ func (h *Handlers) ListProjectSessions(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	sessions, err := h.Sessions.ListSessions(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if sessions == nil {
@@ -2155,7 +2161,7 @@ func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Sync.Sync(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -2301,7 +2307,7 @@ func (h *Handlers) ListReviewPolicies(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	policies, err := h.Review.ListPolicies(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, policies)
@@ -2367,7 +2373,7 @@ func (h *Handlers) TriggerReview(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	rev, err := h.Review.ManualTrigger(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, rev)
@@ -2378,7 +2384,7 @@ func (h *Handlers) ListReviews(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	reviews, err := h.Review.ListReviews(r.Context(), projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, reviews)
@@ -2402,6 +2408,13 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 	case errors.Is(err, domain.ErrConflict):
 		writeError(w, http.StatusConflict, "resource was modified by another request")
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("unhandled domain error", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 	}
+}
+
+// writeInternalError logs the actual error server-side and returns a generic message to the client.
+func writeInternalError(w http.ResponseWriter, err error) {
+	slog.Error("request failed", "error", err)
+	writeError(w, http.StatusInternalServerError, "internal server error")
 }

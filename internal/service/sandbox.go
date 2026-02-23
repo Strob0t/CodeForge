@@ -100,6 +100,8 @@ func (s *SandboxService) Create(ctx context.Context, runID, workspacePath string
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath),
 		"--read-only",
 		"--tmpfs", "/tmp",
+		"--security-opt=no-new-privileges",
+		"--cap-drop=ALL",
 		image,
 	)
 

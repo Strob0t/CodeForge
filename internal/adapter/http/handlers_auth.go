@@ -105,7 +105,8 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Auth.Logout(r.Context(), u.ID, jti, tokenExpiry); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("logout failed", "user_id", u.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -188,7 +189,8 @@ func (h *Handlers) ListAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 
 	keys, err := h.Auth.ListAPIKeys(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("list api keys failed", "user_id", u.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if keys == nil {
@@ -213,7 +215,8 @@ func (h *Handlers) ListUsersHandler(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.TenantIDFromContext(r.Context())
 	users, err := h.Auth.ListUsers(r.Context(), tenantID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("list users failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if users == nil {
