@@ -1,1142 +1,142 @@
-networks:
-  proxy:
-    name: homelab_proxy
-    driver: bridge
-  vpn:
-    name: homelab_vpn
-    driver: bridge
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
-  # ======================
-  # Docker Socket Proxy (read-only API)
-  # ======================
-  socket-proxy:
-    image: tecnativa/docker-socket-proxy:latest
-    container_name: socket-proxy
-    restart: unless-stopped
-    networks:
-      - proxy
+  docs-mcp-server:
+    image: ghcr.io/arabold/docs-mcp-server:latest
+    container_name: codeforge-docs-mcp
+    logging: *default-logging
     ports:
-      - "127.0.0.1:2375:2375"
+      - "6280:6280"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${HOST_PROJECT_PATH:-.}:/docs:ro
+      - ${HOST_PROJECT_PATH:-.}/data/docs_mcp:/data
     environment:
-      - LOG_LEVEL=info
-      - POST=0
-      - CONTAINERS=1
-      - IMAGES=1
-      - NETWORKS=1
-      - SERVICES=1
-      - TASKS=1
-      - EVENTS=1
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # ======================
-  # Homepage (Dashboard)
-  # ======================
-  homepage:
-    image: ghcr.io/gethomepage/homepage:latest
-    container_name: homepage
-    restart: unless-stopped
+      - OPENAI_API_BASE=${DOCS_MCP_API_BASE:-http://192.168.88.21:1234/v1}
+      - OPENAI_API_KEY=${DOCS_MCP_API_KEY:-lmstudio}
+      - DOCS_MCP_EMBEDDING_MODEL=${DOCS_MCP_EMBEDDING_MODEL:-text-embedding-qwen3-embedding-8b}
+      - DOCS_MCP_TELEMETRY=false
+    command: ["--protocol", "http", "--host", "0.0.0.0", "--port", "6280"]
     networks:
-      - proxy
-    volumes:
-      - ./appdata/homepage:/app/config
-    environment:
-      - HOMEPAGE_ALLOWED_HOSTS=homepage.lan # notwendig, wenn du Homepage ueber hostname (nicht nur localhost) aufrufst
-      - PUID=1000
-      - PGID=1000
-      - TZ=${TZ}
-    labels:
-      caddy: homepage.lan
-      caddy.reverse_proxy: "{{upstreams 3000}}"
-      caddy.tls: "internal"
-      com.centurylinklabs.watchtower.enable: "true"
+      - codeforge
 
-  # ======================
-  # Management / Proxy
-  # ======================
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    restart: unless-stopped
-    networks:
-      - proxy
-    ports:
-      - "9000:9000"
+  playwright-mcp:
+    image: mcr.microsoft.com/playwright:v1.57.0-jammy
+    container_name: codeforge-playwright
+    logging: *default-logging
+    ipc: host
+    shm_size: "1gb"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./appdata/portainer:/data
-    labels:
-      caddy: portainer.lan
-      caddy.reverse_proxy: "{{upstreams 9000}}"
-      caddy.tls: "internal"
-      homepage.group: Management
-      homepage.name: Portainer
-      homepage.icon: portainer.png
-      homepage.href: https://portainer.lan
-      homepage.description: Docker UI
-      com.centurylinklabs.watchtower.enable: "true"
-
-  watchtower:
-    image: containrrr/watchtower:latest
-    container_name: watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_SCHEDULE=0 0 4 * * *
-      - WATCHTOWER_INCLUDE_STOPPED=true
-      - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_INCLUDE_MAJOR=false
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    user: "1000:1000"
-    restart: unless-stopped
-    networks:
-      - proxy
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./appdata/prometheus:/etc/prometheus
-      - /mnt/ssd/prometheus/data:/prometheus
+      - ${HOST_PROJECT_PATH:-.}/data/playwright:/config
     command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    labels:
-      caddy: prometheus.lan
-      caddy.reverse_proxy: "{{upstreams 9090}}"
-      caddy.tls: "internal"
-      homepage.group: Monitoring
-      homepage.name: Prometheus
-      homepage.icon: prometheus.png
-      homepage.href: https://prometheus.lan
-      homepage.description: Metrics
-      com.centurylinklabs.watchtower.enable: "true"
-
-  nodeexporter:
-    image: quay.io/prometheus/node-exporter:latest
-    container_name: nodeexporter
-    restart: unless-stopped
-    command:
-      - --path.rootfs=/host
-      - --web.listen-address=:9101
-    network_mode: host
-    pid: host
-    volumes:
-      - "/:/host:ro,rslave"
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    restart: unless-stopped
-    networks:
-      - proxy
+      - sh
+      - -c
+      - |
+        npx playwright install --with-deps chromium &&
+        exec npx @playwright/mcp@latest \
+          --config /config/playwright-mcp.json \
+          --headless \
+          --no-sandbox \
+          --isolated \
+          --allowed-hosts '*' \
+          --port 8001
     ports:
-      - "3000:3000"
-    volumes:
-      - ./appdata/grafana:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASS}
-      - TZ=${TZ}
-    labels:
-      caddy: grafana.lan
-      caddy.reverse_proxy: "{{upstreams 3000}}"
-      caddy.tls: "internal"
-      homepage.group: Monitoring
-      homepage.name: Grafana
-      homepage.icon: grafana.png
-      homepage.href: https://grafana.lan
-      homepage.description: Dashboards
-      com.centurylinklabs.watchtower.enable: "true"
-
-  caddy:
-    image: lucaslorentz/caddy-docker-proxy:ci-alpine
-    container_name: caddy
-    restart: unless-stopped
+      - "8001:8001"
     networks:
-      - proxy
+      - codeforge
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: codeforge-postgres
+    logging: *default-logging
     ports:
-      - "80:80"
-      - "443:443/tcp"
-      - "443:443/udp"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./appdata/caddy/data:/data
-      - ./appdata/caddy/config:/config
+      - "5432:5432"
     environment:
-      - CADDY_INGRESS_NETWORKS=homelab_proxy
-      - CADDY_DOCKER_MODE=true
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # ======================
-  # DNS-Stack
-  # ======================
-  pihole:
-    image: pihole/pihole:latest
-    container_name: pihole
-    restart: unless-stopped
-    networks:
-      - proxy
-    ports:
-      - "53:53/tcp"
-      - "53:53/udp"
-      - "8081:80/tcp"
-    environment:
-      TZ: Europe/Berlin
-      FTLCONF_webserver_api_password: "admin"
-      FTLCONF_dns_listeningMode: "ALL"
-      FTLCONF_misc_etc_dnsmasq_d: "true"
+      POSTGRES_DB: codeforge
+      POSTGRES_USER: codeforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeforge_dev}
     volumes:
-      - ./appdata/pihole:/etc/pihole
-      - ./appdata/pihole/dnsmasq.d:/etc/dnsmasq.d
-    cap_add:
-      - NET_ADMIN
-    labels:
-      caddy: pihole.lan
-      caddy.reverse_proxy: "{{upstreams 80}}"
-      caddy.tls: "internal"
-      homepage.group: Network
-      homepage.name: Pi-hole
-      homepage.icon: pi-hole.png
-      homepage.href: https://pihole.lan/admin
-      homepage.description: DNS / Adblock
-      com.centurylinklabs.watchtower.enable: "true"
-
-  unbound:
-    image: klutchell/unbound:latest
-    container_name: unbound
-    restart: unless-stopped
-    networks:
-      - proxy
-    #ports:
-    #  - "5335:53/tcp"
-    #  - "5335:53/udp"
-    volumes:
-      - ./appdata/unbound:/opt/unbound/etc/unbound:ro
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # ======================
-  # Selfhosted Search Engine
-  # ======================
-  metasearch2:
-    build:
-      context: ./build/metasearch2
-      dockerfile: Dockerfile
-      args:
-        REPO_TO_CLONE: "https://github.com/mat-1/metasearch2.git"
-        REF_TO_CLONE: "master"
-    image: metasearch2:latest
-    restart: unless-stopped
-    networks:
-      - proxy
-    ports:
-      - "28019:28019"
-    environment:
-      XDG_CONFIG_HOME: "/config"
-    volumes:
-      - ./appdata/metasearch2:/config/metasearch
-    labels:
-      caddy: search.lan
-      caddy.reverse_proxy: "{{upstreams 28019}}"
-      #caddy.reverse_proxy: "{{upstreams 28019}} {
-      #  keepalive
-      #  lb_try_duration 10s
-      #  lb_try_limit 3
-      #}"
-      caddy.tls: "internal"
-      homepage.group: Search
-      homepage.name: metasearch2
-      homepage.icon: metasearch2.png
-      homepage.href: https://search.lan
-      homepage.description: "metasearch2 is a internet meta search"
-
-  # ======================
-  # VPN-Gateway (Premiumize)
-  # ======================
-  premiumizevpn:
-    image: qmcgaw/gluetun:latest
-    container_name: premiumizevpn
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    networks:
-      - vpn
-      - proxy
-    environment:
-      VPN_SERVICE_PROVIDER: custom
-      VPN_TYPE: openvpn
-      OPENVPN_USER: ${PREMIUMIZE_CUSTOMER_NR}
-      OPENVPN_PASSWORD: ${PREMIUMIZE_API_KEY}
-      OPENVPN_CUSTOM_CONFIG: /gluetun/openvpn/active.ovpn
-      DEFAULT_ROUTE: "vpn"
-      FIREWALL: "on"
-      HTTPPROXY: "off"
-      KEEP_NETWORKING: "on"
-      FIREWALL_VPN_INPUT_PORTS: "7979,8080,6789,9696,8989,7878,6767,8191,5006,8090,3000,5050,8081,8182,5076,9705,11011,11470,12470,18080,18081"
-      FIREWALL_ALLOWED_PORTS: "7979,8080,6789,9696,8989,7878,6767,8191,5006,8090,3000,5050,8081,8182,5076,9705,11011,11470,12470,18080,18081"
-      TZ: Europe/Berlin
-    volumes:
-      - ./appdata/gluetun:/gluetun
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://ifconfig.me/ip"]
-      interval: 60s
-      timeout: 10s
-      retries: 2
-    labels:
-      caddy_0: qbittorrent.lan
-      caddy_0.reverse_proxy: "{{upstreams 8080}}"
-      caddy_0.tls: "internal"
-
-      caddy_1: nzbget.lan
-      caddy_1.reverse_proxy: "{{upstreams 6789}}"
-      caddy_1.tls: "internal"
-
-      caddy_2: prowlarr.lan
-      caddy_2.reverse_proxy: "{{upstreams 9696}}"
-      caddy_2.tls: "internal"
-
-      caddy_3: sonarr.lan
-      caddy_3.reverse_proxy: "{{upstreams 8989}}"
-      caddy_3.tls: "internal"
-
-      caddy_4: radarr.lan
-      caddy_4.reverse_proxy: "{{upstreams 7878}}"
-      caddy_4.tls: "internal"
-
-      caddy_5: bazarr.lan
-      caddy_5.reverse_proxy: "{{upstreams 6767}}"
-      caddy_5.tls: "internal"
-
-      caddy_6: flaresolverr.lan
-      caddy_6.reverse_proxy: "{{upstreams 8191}}"
-      caddy_6.tls: "internal"
-
-      caddy_7: torrserver.lan
-      caddy_7.reverse_proxy: "{{upstreams 8090}}"
-      caddy_7.tls: "internal"
-
-      caddy_8: nzbdav.lan
-      caddy_8.reverse_proxy: "{{upstreams 3000}}"
-      caddy_8.tls: "internal"
-
-      caddy_9: flexget.lan
-      caddy_9.reverse_proxy: "{{upstreams 5050}}"
-      caddy_9.tls: "internal"
-
-      caddy_10: nzbhydra.lan
-      caddy_10.reverse_proxy: "{{upstreams 5076}}"
-      caddy_10.tls: "internal"
-
-      caddy_11: huntarr.lan
-      caddy_11.reverse_proxy: "{{upstreams 9705}}"
-      caddy_11.tls: internal
-
-      caddy_12: cleanuparr.lan
-      caddy_12.reverse_proxy: "{{upstreams 11011}}"
-      caddy_12.tls: internal
-
-      caddy_13: premiumizearr.lan
-      caddy_13.reverse_proxy: "{{upstreams 8182}}"
-      caddy_13.tls: internal
-
-      caddy_14: stremio.lan
-      caddy_14.reverse_proxy: "{{upstreams 18080}}"
-      caddy_14.tls: internal
-
-      caddy_15: aiostreams.lan
-      caddy_15.reverse_proxy: "{{upstreams 18081}}"
-      caddy_15.tls: internal
-
-      caddy_16: scavengarr.lan
-      caddy_16.reverse_proxy: "{{upstreams 7979}}"
-      caddy_16.tls: internal
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # ======================
-  # Download-Clients hinter VPN
-  # ======================
-  qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
-    container_name: qbittorrent
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: Europe/Berlin
-      WEBUI_PORT: 8080
-    volumes:
-      - ./appdata/qbittorrent:/config
-      - /mnt/ssd/downloads:/downloads
-      - /mnt/ssd/torrents:/torrents
-    labels:
-      homepage.group: Downloads
-      homepage.name: qBittorrent
-      homepage.icon: qbittorrent.png
-      homepage.href: https://qbittorrent.lan
-      homepage.description: Torrent Client
-      com.centurylinklabs.watchtower.enable: "true"
-
-  nzbget:
-    image: lscr.io/linuxserver/nzbget:latest
-    container_name: nzbget
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: Europe/Berlin
-    volumes:
-      - ./appdata/nzbget:/config
-      - /mnt/ssd/downloads:/downloads
-    labels:
-      homepage.group: Downloads
-      homepage.name: NZBGet
-      homepage.icon: nzbget.png
-      homepage.href: https://nzbget.lan
-      homepage.description: Usenet Downloader
-      com.centurylinklabs.watchtower.enable: "true"
-
-  premiumizearr:
-    image: ghcr.io/ensingerphilipp/premiumizearr-nova:latest
-    container_name: premiumizearr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Berlin # - PREMIUMIZEARR_LOG_LEVEL=trace
-    volumes:
-      - ./appdata/premiumizearr:/data
-      - /mnt/ssd/downloads/premiumizearr/blackhole:/blackhole
-      - /mnt/ssd/downloads:/downloads
-    labels:
-      homepage.group: Downloads
-      homepage.name: Premiumizearr
-      homepage.icon: mdi-cloud-download-outline
-      homepage.href: https://premiumizearr.lan/
-      homepage.description: Premiumize.me bridge for Sonarr/Radarr
-      com.centurylinklabs.watchtower.enable: "true"
-
-  torrserver:
-    image: yourok/torrserver:latest
-    container_name: torrserver
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      - TZ=${TZ}
-      - TS_PORT=8090
-      - TS_PATH=/opt/torrserver/config
-      - TS_LOGPATHDIR=/opt/torrserver/log
-      - TS_LOGFILE=ts.log
-      - TS_TORRENTSDIR=/opt/torrserver/torrents
-    volumes:
-      - ./appdata/torrserver/config:/opt/torrserver/config
-      - ./appdata/torrserver/log:/opt/torrserver/log
-      - /mnt/ssd/torrserver/torrents:/opt/torrserver/torrents
-    labels:
-      homepage.group: Media
-      homepage.name: TorrServer
-      homepage.icon: mdi-play-network-outline
-      homepage.href: https://torrserver.lan
-      homepage.description: Stream torrents
-      com.centurylinklabs.watchtower.enable: "true"
-
-  nzbdav:
-    image: ghcr.io/nzbdav-dev/nzbdav:latest
-    container_name: nzbdav
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      - TZ=${TZ}
-      - NZBGETHOST=premiumizevpn
-      - ASPNETCORE_HTTP_PORTS=8081
-      - BACKEND_URL=http://localhost:8081
-    volumes:
-      - ./appdata/nzbdav:/config
-      - /mnt/ssd/downloads:/downloads
-    labels:
-      homepage.group: Downloads
-      homepage.name: NZBDav
-      homepage.icon: mdi-cloud-download-outline
-      homepage.href: https://nzbdav.lan
-      homepage.description: NZB WebDAV
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # ======================
-  # ARR-Stack hinter VPN
-  # ======================
-  #recyclarr:
-  #  image: recyclarr/recyclarr:latest
-  #  container_name: recyclarr
-  #  user: "1000:1000"
-  #  network_mode: service:premiumizevpn
-  #  depends_on:
-  #    premiumizevpn:
-  #      condition: service_healthy
-  #    sonarr:
-  #      condition: service_started
-  #    radarr:
-  #      condition: service_started
-  #  environment:
-  #    TZ: ${TZ}
-  #  volumes:
-  #    - ./appdata/recyclarr:/config
-  #  restart: "no"
-
-  prowlarr:
-    build:
-      context: ./build/prowlarr-custom
-      dockerfile: Dockerfile
-      args:
-        PROWLARR_REPO: "https://github.com/Prowlarr/Prowlarr.git"
-        PROWLARR_REF: "master"
-    image: prowlarr-custom:latest
-    #image: lscr.io/linuxserver/prowlarr:latest
-    #container_name: prowlarr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: Europe/Berlin
-    volumes:
-      - ./appdata/prowlarr:/config
-    labels:
-      homepage.group: Arr
-      homepage.name: Prowlarr
-      homepage.icon: prowlarr.png
-      homepage.href: https://prowlarr.lan
-      homepage.description: Indexers
-
-  sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
-    container_name: sonarr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-      qbittorrent:
-        condition: service_started
-      prowlarr:
-        condition: service_started
-    environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: Europe/Berlin
-    volumes:
-      - ./appdata/sonarr:/config
-      - /mnt/ssd/tv:/tv
-      - /mnt/ssd/stream:/stream
-      - /mnt/ssd/downloads:/downloads
-    labels:
-      homepage.group: Arr
-      homepage.name: Sonarr
-      homepage.icon: sonarr.png
-      homepage.href: https://sonarr.lan
-      homepage.description: Series
-      com.centurylinklabs.watchtower.enable: "true"
-
-  radarr:
-    image: lscr.io/linuxserver/radarr:latest
-    container_name: radarr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-      qbittorrent:
-        condition: service_started
-      prowlarr:
-        condition: service_started
-    environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: Europe/Berlin
-    volumes:
-      - ./appdata/radarr:/config
-      - /mnt/ssd/movies:/movies
-      - /mnt/ssd/stream:/stream
-      - /mnt/ssd/downloads:/downloads
-    labels:
-      homepage.group: Arr
-      homepage.name: Radarr
-      homepage.icon: radarr.png
-      homepage.href: https://radarr.lan
-      homepage.description: Movies
-      com.centurylinklabs.watchtower.enable: "true"
-
-  nzbhydra2:
-    image: linuxserver/nzbhydra2:latest
-    container_name: nzbhydra2
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-      qbittorrent:
-        condition: service_started
-      prowlarr:
-        condition: service_started
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Berlin
-    volumes:
-      - ./appdata/nzbhydra2:/config
-      - /mnt/ssd/downloads:/downloads
-    labels:
-      homepage.group: Arr
-      homepage.name: NZBHydra2
-      homepage.icon: mdi-database-search
-      homepage.href: https://nzbhydra.lan
-      homepage.description: Meta indexer
-      com.centurylinklabs.watchtower.enable: "true"
-
-  bazarr:
-    image: lscr.io/linuxserver/bazarr:latest
-    container_name: bazarr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=${TZ}
-    volumes:
-      - ./appdata/bazarr/config:/config
-      - /mnt/ssd/tv:/tv
-      - /mnt/ssd/movies:/movies
-    labels:
-      homepage.group: Arr
-      homepage.name: Bazarr
-      homepage.icon: bazarr.png
-      homepage.href: https://bazarr.lan
-      homepage.description: Subtitles
-      com.centurylinklabs.watchtower.enable: "true"
-
-  huntarr:
-    image: ghcr.io/plexguide/huntarr:latest
-    container_name: huntarr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-      sonarr:
-        condition: service_started
-      radarr:
-        condition: service_started
-    environment:
-      TZ: ${TZ}
-    volumes:
-      - ./appdata/huntarr:/config
-    labels:
-      - homepage.group=Arr
-      - homepage.name=Huntarr
-      - homepage.icon=huntarr
-      - homepage.href=https://huntarr.lan/
-      - homepage.description=Find missing & upgrade
-      - com.centurylinklabs.watchtower.enable=true
-
-  cleanuparr:
-    image: ghcr.io/cleanuparr/cleanuparr:latest
-    container_name: cleanuparr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-      sonarr:
-        condition: service_started
-      radarr:
-        condition: service_started
-      qbittorrent:
-        condition: service_started
-    environment:
-      PORT: 11011
-      PUID: 1000
-      PGID: 1000
-      TZ: ${TZ}
-    volumes:
-      - ./appdata/cleanuparr:/config
-    labels:
-      - homepage.group=Arr
-      - homepage.name=Cleanuparr
-      - homepage.icon=cleanuparr
-      - homepage.href=https://cleanuparr.lan/
-      - homepage.description=Queue/Blacklist Cleanup
-      - com.centurylinklabs.watchtower.enable=true
-
-  unpackerr:
-    image: golift/unpackerr:latest
-    container_name: unpackerr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-      sonarr:
-        condition: service_started
-      radarr:
-        condition: service_started
-      qbittorrent:
-        condition: service_started
-    user: "1000:1000"
-    volumes:
-      - ./appdata/unpackerr:/config
-      - /mnt/ssd/downloads:/downloads
-    environment:
-      - TZ=${TZ}
-      - UN_LOG_FILE=/downloads/unpackerr.log
-      - UN_INTERVAL=2m
-      - UN_SONARR_0_URL=http://localhost:8989
-      - UN_SONARR_0_API_KEY=${SONARR_API_KEY}
-      - UN_SONARR_0_PATHS_0=/downloads
-      - UN_SONARR_0_PROTOCOLS=torrent
-      - UN_RADARR_0_URL=http://localhost:7878
-      - UN_RADARR_0_API_KEY=${RADARR_API_KEY}
-      - UN_RADARR_0_PATHS_0=/downloads
-      - UN_RADARR_0_PROTOCOLS=torrent
-    labels:
-      - homepage.group=Automation
-      - homepage.name=Unpackerr
-      - homepage.icon=unpackerr
-      - homepage.href=
-      - homepage.description=Extracts completed downloads for Sonarr/Radarr
-      - com.centurylinklabs.watchtower.enable=true
-
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: flaresolverr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      - LOG_LEVEL=info
-      - LOG_HTML=false
-      - CAPTCHA_SOLVER=none
-      - TZ=${TZ}
-    volumes:
-      - ./appdata/flaresolverr:/config
-    labels:
-      homepage.group: Arr
-      homepage.name: FlareSolverr
-      homepage.icon: mdi-cloud-lock-outline
-      homepage.href: https://flaresolverr.lan
-      homepage.description: Cloudflare bypass
-      com.centurylinklabs.watchtower.enable: "true"
-
-  umlautadaptarr:
-    build:
-      context: ./build/umlautadaptarr
-      dockerfile: Dockerfile.arm64
-      args:
-        UMLAUTADAPTARR_REPO: "https://github.com/PCJones/UmlautAdaptarr.git"
-        UMLAUTADAPTARR_REF: "master"
-    #image: umlautadaptarr:arm64
-    #container_name: umlautadaptarr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-      sonarr:
-        condition: service_started
-      radarr:
-        condition: service_started
-    environment:
-      - TZ=${TZ}
-      - SONARR__0__ENABLED=true
-      - SONARR__0__HOST=http://localhost:8989
-      - SONARR__0__APIKEY=${SONARR_API_KEY}
-      - RADARR__0__ENABLED=true
-      - RADARR__0__HOST=http://localhost:7878
-      - RADARR__0__APIKEY=${RADARR_API_KEY}
-      - READARR__0__ENABLED=false
-      - READARR__0__HOST=http://localhost:8787
-      - READARR__0__APIKEY=${READARR_API_KEY}
-      - LIDARR__0__ENABLED=false
-      - LIDARR__0__HOST=http://localhost:8686
-      - LIDARR__0__APIKEY=${LIDARR_API_KEY}
-    labels:
-      homepage.group: Automation
-      homepage.name: UmlautAdaptarr
-      homepage.icon: mdi-translate
-      homepage.href: https://sonarr.lan
-      homepage.description: Renamer/Translations
-
-  # ======================
-  # Scavengarr (Torznab Indexer)
-  # ======================
-  scavengarr:
-    build:
-      context: ./build/scavengarr
-      dockerfile: Dockerfile
-      args:
-        SCAVENGARR_REPO: "https://github.com/Strob0t/Scavengarr.git"
-        SCAVENGARR_REF: "staging"
-    image: scavengarr:latest
-    container_name: scavengarr
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    environment:
-      - TZ=${TZ}
-      - SCAVENGARR_ENVIRONMENT=prod
-      - SCAVENGARR_LOG_LEVEL=INFO
-      - SCAVENGARR_LOG_FORMAT=json
-    volumes:
-      - ./appdata/scavengarr/plugins:/app/plugins
-      - ./appdata/scavengarr/cache:/app/cache
-      - ./appdata/scavengarr/data:/app/data
-    labels:
-      homepage.group: Arr
-      homepage.name: Scavengarr
-      homepage.icon: mdi-search-web
-      homepage.href: https://scavengarr.lan
-      homepage.description: Torznab Indexer
-
-  # ======================
-  # Media-Server
-  # ======================
-  jellyfin:
-    image: jellyfin/jellyfin:latest
-    container_name: jellyfin
-    restart: unless-stopped
-    networks:
-      - proxy
-    ports:
-      - "8096:8096/tcp"
-      - "1900:1900/udp"
-      - "7359:7359/udp"
-    volumes:
-      - ./appdata/jellyfin/config:/config
-      - ./appdata/jellyfin/cache:/cache
-      - /mnt/ssd/tv:/data/tvshows
-      - /mnt/ssd/movies:/data/movies
-      - /mnt/ssd/music:/data/music
-      - /mnt/ssd/photos:/data/photos
-    environment:
-      - TZ=${TZ}
-    labels:
-      caddy: jellyfin.lan
-      caddy.reverse_proxy: "{{upstreams 8096}} {\n flush_interval -1\n}"
-      caddy.tls: "internal"
-      homepage.group: Media
-      homepage.name: Jellyfin
-      homepage.icon: jellyfin.png
-      homepage.href: https://jellyfin.lan
-      homepage.description: Media server
-      com.centurylinklabs.watchtower.enable: "true"
-
-  jellyseerr:
-    image: fallenbagel/jellyseerr:latest
-    container_name: jellyseerr
-    restart: unless-stopped
-    networks:
-      - proxy
-    ports:
-      - "5055:5055"
-    volumes:
-      - ./appdata/jellyseerr/config:/app/config
-    environment:
-      - TZ=${TZ}
-    depends_on:
-      jellyfin:
-        condition: service_started
-      premiumizevpn:
-        condition: service_healthy
-    labels:
-      caddy: request.lan
-      caddy.reverse_proxy: "{{upstreams 5055}}"
-      caddy.tls: "internal"
-      homepage.group: Media
-      homepage.name: Jellyseerr
-      homepage.icon: jellyseerr.png
-      homepage.href: https://request.lan
-      homepage.description: Requests
-      com.centurylinklabs.watchtower.enable: "true"
-
-  stremio:
-    image: tsaridas/stremio-docker:latest
-    container_name: stremio
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    volumes:
-      - ./appdata/stremio:/root/.stremio-server
-    environment:
-      - TZ=${TZ}
-      - NO_CORS=1
-      - WEBUI_INTERNAL_PORT=18080
-      - AUTO_SERVER_URL=1
-      - CASTING_DISABLED=1
-    labels:
-      homepage.group: Media
-      homepage.name: Stremio
-      homepage.icon: stremio.png
-      homepage.href: http://stremio.lan
-      homepage.description: Streaming Server
-      com.centurylinklabs.watchtower.enable: "true"
-
-  aiostreams:
-    image: viren070/aiostreams:latest
-    container_name: aiostreams
-    restart: unless-stopped
-    network_mode: service:premiumizevpn
-    depends_on:
-      premiumizevpn:
-        condition: service_healthy
-    volumes:
-      - ./appdata/aiostreams:/app/data
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Berlin
-      - PORT=18081
-      - BASE_URL=http://aiostreams.lan
-      - SECRET_KEY=b529ea12f76a8703f746a8b9bb0360a840b421a27d3e0f44a66dd6248412151b
-      - DEFAULT_TIMEOUT=30000
-      - MAX_TIMEOUT=120000
-      - MAX_ADDONS=100
-    labels:
-      homepage.group: Media
-      homepage.name: AIOStreams
-      homepage.icon: stremio.png
-      homepage.href: http://aiostreams.lan
-      homepage.description: AIOStreams Stream Aggregator
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # ======================
-  # NAS und Dateiverwaltung
-  # ======================
-  copyparty:
-    image: copyparty/ac:latest
-    container_name: copyparty
-    restart: unless-stopped
-    user: "1000:1000"
-    networks:
-      - proxy
-    volumes:
-      - /mnt/ssd:/w
-      - ./appdata/copyparty:/cfg
-    environment:
-      - XDG_CONFIG_HOME=/cfg/xdg
-    command:
-      - --rproxy=1
-      - --xff-hdr=x-forwarded-for
-      - --xff-src=172.19.0.0/16
-    stop_grace_period: 15s
-    labels:
-      caddy: copyparty.lan
-      caddy.reverse_proxy: "{{upstreams 3923}}"
-      caddy.tls: "internal"
-      homepage.group: Storage
-      homepage.name: Copyparty
-      homepage.icon: mdi-folder-network-outline
-      homepage.href: https://copyparty.lan
-      homepage.description: Files
-      com.centurylinklabs.watchtower.enable: "true"
-
-  syncthing:
-    image: lscr.io/linuxserver/syncthing:latest
-    container_name: syncthing
-    restart: unless-stopped
-    hostname: syncthing
-    networks:
-      - proxy
-    environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: ${TZ}
-    volumes:
-      - ./appdata/syncthing:/config
-      - /mnt/ssd/Synthing:/data
-    ports:
-      - "22000:22000/tcp"
-      - "22000:22000/udp"
-      - "21027:21027/udp"
-    labels:
-      caddy: syncthing.lan
-      caddy.reverse_proxy: "{{upstreams 8384}}"
-      caddy.tls: "internal"
-      homepage.group: Storage
-      homepage.name: Syncthing
-      homepage.icon: syncthing.png
-      homepage.href: https://syncthing.lan
-      homepage.description: File sync
-      com.centurylinklabs.watchtower.enable: "true"
-
-  paperless-broker:
-    image: docker.io/library/redis:8
-    container_name: paperless-broker
-    restart: unless-stopped
-    networks:
-      - proxy
-    volumes:
-      - /mnt/ssd/paperless/redisdata:/data
-
-  paperless-db:
-    image: docker.io/library/postgres:17
-    container_name: paperless-db
-    restart: unless-stopped
-    networks:
-      - proxy
-    volumes:
-      - /mnt/ssd/paperless/pgdata:/var/lib/postgresql/data
-    environment:
-      POSTGRES_DB: paperless
-      POSTGRES_USER: paperless
-      POSTGRES_PASSWORD: ${PAPERLESS_DB_PASSWORD}
-
-  paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:latest
-    container_name: paperless
-    restart: unless-stopped
-    depends_on:
-      - paperless-db
-      - paperless-broker
-    networks:
-      - proxy
-    volumes:
-      - /mnt/ssd/paperless/data:/usr/src/paperless/data
-      - /mnt/ssd/paperless/media:/usr/src/paperless/media
-      - /mnt/ssd/paperless/export:/usr/src/paperless/export
-      - /mnt/ssd/paperless/consume:/usr/src/paperless/consume
-      - /mnt/ssd/paperless/tmp:/tmp
-    environment:
-      # Permissions/UID Mapping
-      USERMAP_UID: 1000
-      USERMAP_GID: 1000
-
-      # Core
-      PAPERLESS_URL: https://paperless.lan
-      PAPERLESS_TIME_ZONE: ${TZ}
-      PAPERLESS_TASK_WORKERS: 2
-      PAPERLESS_THREADS_PER_WORKER: 1
-      PAPERLESS_WEBSERVER_WORKERS: 1
-
-      # Sonstige config
-      PAPERLESS_FILENAME_FORMAT: "{{ created_year }}/{{ created_month }}/{{ document_type }}/{{ correspondent }}/{{ created }}__{{ document_type }}__{{ correspondent }}__{{ title }}__asn-{{ asn }}__id-{{ doc_pk }}"
-      PAPERLESS_FILENAME_FORMAT_REMOVE_NONE: true
-      PAPERLESS_OCR_LANGUAGES: "deu eng"
-      PAPERLESS_OCR_LANGUAGE: "deu+eng"
-      PAPERLESS_CONSUMER_DELETE_DUPLICATES: true
-
-      # DB + Redis
-      PAPERLESS_REDIS: redis://paperless-broker:6379
-      PAPERLESS_DBHOST: paperless-db
-      PAPERLESS_DBNAME: paperless
-      PAPERLESS_DBUSER: paperless
-      PAPERLESS_DBPASS: ${PAPERLESS_DB_PASSWORD}
-    labels:
-      caddy: paperless.lan
-      caddy.reverse_proxy: "{{upstreams 8000}}"
-      caddy.tls: "internal"
-      homepage.group: Storage
-      homepage.name: Paperless-ngx
-      homepage.icon: mdi-file-document-outline
-      homepage.href: https://paperless.lan
-      homepage.description: Document archive (OCR)
-      com.centurylinklabs.watchtower.enable: "true"
-
-  # ======================
-  # Automatisierung
-  # ======================
-  filewatcher:
-    image: alpine:latest
-    container_name: filewatcher
-    restart: unless-stopped
-  #  restart: on-failure:5
-    init: true
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./appdata/filewatcher:/config:rw
-      - /mnt/ssd/Synthing/pixel9/dokumente:/paperless/pixel9dokumente:rw
-      - /mnt/ssd/paperless/consume:/paperless/consume:rw
-    environment:
-      - CONFIG_DIR=/config
-      - LOG_LEVEL=debug
-      - XTRACE=1
+      - pgdata:/var/lib/postgresql/data
+    shm_size: 256mb
     command: >
-      sh -lc "apk add --no-cache inotify-tools coreutils su-exec &&
-              chmod +x /config/watch.sh &&
-              exec /config/watch.sh"
-
-  tdarr:
-    image: ghcr.io/haveagitgat/tdarr:latest
-    container_name: tdarr
-    restart: unless-stopped
-    privileged: true
+      postgres
+        -c shared_buffers=128MB
+        -c effective_cache_size=384MB
+        -c max_connections=100
+        -c log_line_prefix='%t [%p] %q%u@%d '
+        -c wal_level=replica
+        -c archive_mode=on
+        -c archive_command='test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codeforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
-      - proxy
+      - codeforge
+
+  nats:
+    image: nats:2-alpine
+    container_name: codeforge-nats
+    logging: *default-logging
     ports:
-      - "8265:8265/tcp"
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--jetstream", "--store_dir", "/data", "-m", "8222"]
     volumes:
-      - ./appdata/tdarr/server:/app/server
-      - ./appdata/tdarr/configs:/app/configs
-      - ./appdata/tdarr/logs:/app/logs
-      - /mnt/ssd/movies:/media/movies
-      - /mnt/ssd/tv:/media/tv
-      - /mnt/ssd/temp/tdarr:/temp
+      - ${HOST_PROJECT_PATH:-.}/data/nats:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - codeforge
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: codeforge-litellm
+    logging: *default-logging
+    ports:
+      - "4000:4000"
     environment:
-      - TZ=${TZ}
-      - PUID=1000
-      - PGID=1000
-      - internalNode=true
-      - inContainer=true
-      - nodeName=pi-node
-    labels:
-      caddy: tdarr.lan
-      caddy.reverse_proxy: "{{upstreams 8265}}"
-      caddy.tls: "internal"
-      homepage.group: Media
-      homepage.name: Tdarr
-      homepage.icon: tdarr.png
-      homepage.href: https://tdarr.lan
-      homepage.description: Media optimizer
-      com.centurylinklabs.watchtower.enable: "true"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
+      DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge
+      OLLAMA_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+    volumes:
+      - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
+    command: ["--config", "/app/data/config.yaml", "--port", "4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - codeforge
+
+volumes:
+  pgdata:
+    name: codeforge-pgdata
+  nats_data:
+    name: codeforge-nats-data
+  litellm_data:
+    name: codeforge-litellm-data
+  docs_mcp_data:
+    name: codeforge-docs-mcp-data
+
+networks:
+  codeforge:
+    driver: bridge
+    name: codeforge
