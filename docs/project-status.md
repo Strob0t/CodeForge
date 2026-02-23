@@ -709,7 +709,7 @@
 - [x] (2026-02-19) P2-4: Password Complexity — Min 10 chars, uppercase + lowercase + digit required. Applies to registration and password change only.
 - [x] (2026-02-19) P2-5: Delivery Error Propagation — `PushError` field on `DeliveryResult`. `deliverPR()` skips PR creation on push failure. Error surfaced in audit/WS.
 
-### Phase 12A — Mode System Extensions (IN PROGRESS)
+### Phase 12A — Mode System Extensions (COMPLETED)
 
 - [x] (2026-02-23) Mode domain extended with `DeniedTools`, `DeniedActions`, `RequiredArtifact` fields + overlap validation in `Validate()`
 - [x] (2026-02-23) All 8 built-in presets updated with meaningful defaults for new fields
@@ -721,3 +721,7 @@
 - [x] (2026-02-23) Frontend: new form fields (Denied Tools, Denied Actions, Required Artifact) + card display + i18n (en + de)
 - [x] (2026-02-23) DB migration 024: `mode_id` column on agents and runs tables; store queries updated
 - [x] (2026-02-23) Tests: 16 Go mode tests (overlap detection, presets validation, unique IDs), 5 Python ModeConfig tests
+- [x] (2026-02-23) Modular prompt templates: 5 template files (mode_role, mode_tools, mode_artifact, mode_actions, mode_guardrails) with conditional assembly via `BuildModePrompt()`
+- [x] (2026-02-23) Per-section token counting with `EstimateTokens()` + `WarnIfOverBudget()` (1024-token soft limit)
+- [x] (2026-02-23) RuntimeService calls `BuildModePrompt()` before NATS publish — assembled prompt replaces raw PromptPrefix
+- [x] (2026-02-23) Tests: 10 mode prompt tests (builtin architect/debugger/coder, custom modes, token counting, all builtins, budget warnings)

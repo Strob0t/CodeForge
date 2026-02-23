@@ -139,9 +139,11 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	var resolvedMode *messagequeue.ModePayload
 	if s.modes != nil {
 		if m, mErr := s.modes.Get(modeID); mErr == nil {
+			assembledPrompt, sections := BuildModePrompt(m)
+			WarnIfOverBudget(m.ID, sections, DefaultModePromptBudget)
 			resolvedMode = &messagequeue.ModePayload{
 				ID:               m.ID,
-				PromptPrefix:     m.PromptPrefix,
+				PromptPrefix:     assembledPrompt,
 				Tools:            m.Tools,
 				DeniedTools:      m.DeniedTools,
 				DeniedActions:    m.DeniedActions,

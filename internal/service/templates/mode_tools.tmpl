@@ -1,0 +1,6 @@
+{{- if .Tools}}
+You have access to the following tools: {{range $i, $t := .Tools}}{{if $i}}, {{end}}{{$t}}{{end}}.
+{{- end}}
+{{- if .DeniedTools}}
+You must NOT use: {{range $i, $t := .DeniedTools}}{{if $i}}, {{end}}{{$t}}{{end}}.
+{{- end}}

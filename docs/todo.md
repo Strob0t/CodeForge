@@ -525,9 +525,9 @@ For full completion history, see [project-status.md](project-status.md).
 #### 12A. Mode System Extensions (P1)
 
 - [x] (2026-02-23) Add `RequiredArtifact`, `DeniedTools`, `DeniedActions` fields to Mode domain struct, update Validate() for overlap detection, wire mode end-to-end through NATS to Python executor (Go: `mode.go`, `presets.go`, `schemas.go`, `runtime.go`, `store.go`, `main.go`; Python: `models.py`, `executor.py`, `consumer.py`; Frontend: `types.ts`, `ModesPage.tsx`, `en.ts`, `de.ts`; DB: migration 024; Tests: 16 Go tests, 5 Python tests)
-- [ ] Decompose prompt templates into ROLE/CONTEXT/TOOLS/ARTIFACT/GUARDRAILS sections (Go `text/template` with `//go:embed`)
-- [ ] Add prompt token counting per section (estimate tokens before assembly, warn on budget overflow)
-- [ ] Implement mode-specific prompt composition (base + phase + mode sections, conditionally assembled)
+- [x] (2026-02-23) Decompose prompt templates into ROLE/TOOLS/ARTIFACT/ACTIONS/GUARDRAILS sections (5 Go `text/template` files with `//go:embed`, conditional assembly via `BuildModePrompt()` in `mode_prompt.go`, custom modes bypass templates)
+- [x] (2026-02-23) Add prompt token counting per section (per-section `EstimateTokens()`, `WarnIfOverBudget()` with 1024-token soft limit, 10 tests)
+- [x] (2026-02-23) Implement mode-specific prompt composition (built-in modes use template assembly, custom modes use raw PromptPrefix, `runtime.go` calls `BuildModePrompt()` before NATS publish)
 - [ ] Reference: Claude Code conditional prompt assembly pattern (~40 modular sections, token-budget-aware)
 
 #### 12B. LLM Routing Implementation (P1)

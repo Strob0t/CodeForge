@@ -1,0 +1,3 @@
+{{- if .DeniedActions}}
+The following actions are forbidden: {{range $i, $a := .DeniedActions}}{{if $i}}, {{end}}{{$a}}{{end}}.
+{{- end}}
