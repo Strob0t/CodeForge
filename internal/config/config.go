@@ -90,6 +90,7 @@ type Config struct {
 	A2A          A2A          `yaml:"a2a"`
 	AGUI         AGUI         `yaml:"agui"`
 	Auth         Auth         `yaml:"auth"`
+	Workspace    Workspace    `yaml:"workspace"`
 }
 
 // Auth holds authentication and authorization configuration.
@@ -193,6 +194,12 @@ type Cache struct {
 type Policy struct {
 	DefaultProfile string `yaml:"default_profile"`
 	CustomDir      string `yaml:"custom_dir"`
+}
+
+// Workspace holds workspace directory configuration.
+type Workspace struct {
+	Root        string `yaml:"root"`         // Base directory for cloned repos (default: data/workspaces)
+	PipelineDir string `yaml:"pipeline_dir"` // Custom pipeline YAML directory
 }
 
 // Server holds HTTP server configuration.
@@ -309,6 +316,9 @@ func Defaults() Config {
 		},
 		Policy: Policy{
 			DefaultProfile: "headless-safe-sandbox",
+		},
+		Workspace: Workspace{
+			Root: "data/workspaces",
 		},
 		Runtime: Runtime{
 			StallThreshold:       5,

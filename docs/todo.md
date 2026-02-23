@@ -587,13 +587,13 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) HTTP endpoints: GET/POST `/api/v1/pipelines`, GET `/api/v1/pipelines/{id}`, POST `/api/v1/pipelines/{id}/instantiate`
 - [x] (2026-02-23) Wired in main.go: PipelineService created with ModeService, passed to Handlers
 
-#### 12G. Project Workspace Management (P2)
+#### 12G. Project Workspace Management (P2) — COMPLETED 2026-02-23
 
-- [ ] Make `WorkspaceRoot` configurable via config hierarchy — currently hardcoded `data/workspaces` in `internal/service/project.go:15`
-- [ ] Implement workspace cleanup on project delete (currently orphaned directories remain)
-- [ ] Add "adopt existing" mode for local projects (import existing directory without clone)
-- [ ] Add workspace health checks (disk usage, git status, staleness detection)
-- [ ] Support configurable workspace root path per tenant (multi-tenancy)
+- [x] (2026-02-23) Make `WorkspaceRoot` configurable via config hierarchy — `Workspace` struct in Config with `Root` (default `data/workspaces`) + `PipelineDir`, env vars `CODEFORGE_WORKSPACE_ROOT` / `CODEFORGE_WORKSPACE_PIPELINE_DIR`
+- [x] (2026-02-23) Implement workspace cleanup on project delete — `Delete()` fetches project, deletes DB record, removes workspace directory if under workspace root (best-effort, logged warning on failure)
+- [x] (2026-02-23) Add "adopt existing" mode for local projects — `POST /api/v1/projects/{id}/adopt` validates directory exists, sets WorkspacePath without copying/moving files
+- [x] (2026-02-23) Add workspace health checks — `GET /api/v1/projects/{id}/workspace` returns exists, path, disk usage (bytes), git repo (bool), last modified
+- [x] (2026-02-23) Support configurable workspace root path per tenant — Clone uses `{root}/{tenantID}/{projectID}` path pattern with tenant ID from context
 
 #### 12H. Per-Tool Token Tracking (P2)
 

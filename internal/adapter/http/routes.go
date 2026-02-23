@@ -31,8 +31,12 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/projects/{id}", h.GetProject)
 		r.Delete("/projects/{id}", h.DeleteProject)
 
-		// Git operations (nested under projects)
+		// Workspace operations (nested under projects)
 		r.Post("/projects/{id}/clone", h.CloneProject)
+		r.Post("/projects/{id}/adopt", h.AdoptProject)
+		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
+
+		// Git operations (nested under projects)
 		r.Get("/projects/{id}/git/status", h.ProjectGitStatus)
 		r.Post("/projects/{id}/git/pull", h.PullProject)
 		r.Get("/projects/{id}/git/branches", h.ListProjectBranches)

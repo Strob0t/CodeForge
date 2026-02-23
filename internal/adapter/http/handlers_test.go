@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -526,7 +527,7 @@ func newTestRouter() chi.Router {
 	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
 	costSvc := service.NewCostService(store)
 	handlers := &cfhttp.Handlers{
-		Projects:         service.NewProjectService(store),
+		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LiteLLM:          litellm.NewClient("http://localhost:4000", ""),
@@ -1397,7 +1398,7 @@ func TestGenerateRepoMap(t *testing.T) {
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
 	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
 	handlers := &cfhttp.Handlers{
-		Projects:         service.NewProjectService(store),
+		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LiteLLM:          litellm.NewClient("http://localhost:4000", ""),
@@ -1454,7 +1455,7 @@ func TestIndexProject(t *testing.T) {
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
 	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
 	handlers := &cfhttp.Handlers{
-		Projects:         service.NewProjectService(store),
+		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LiteLLM:          litellm.NewClient("http://localhost:4000", ""),

@@ -170,6 +170,8 @@ func loadEnv(cfg *Config) {
 	setInt(&cfg.Git.MaxConcurrent, "CODEFORGE_GIT_MAX_CONCURRENT")
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
+	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
+	setString(&cfg.Workspace.PipelineDir, "CODEFORGE_WORKSPACE_PIPELINE_DIR")
 	setInt(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD")
 	setInt(&cfg.Runtime.StallMaxRetries, "CODEFORGE_STALL_MAX_RETRIES")
 	setDuration(&cfg.Runtime.QualityGateTimeout, "CODEFORGE_QG_TIMEOUT")

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -506,7 +508,7 @@ func TestProjectServiceList(t *testing.T) {
 			{ID: "p2", Name: "Beta"},
 		},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	got, err := svc.List(context.Background())
 	if err != nil {
@@ -519,7 +521,7 @@ func TestProjectServiceList(t *testing.T) {
 
 func TestProjectServiceListError(t *testing.T) {
 	store := &mockStore{listProjectsErr: errors.New("db down")}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	_, err := svc.List(context.Background())
 	if err == nil {
@@ -531,7 +533,7 @@ func TestProjectServiceGet(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	p, err := svc.Get(context.Background(), "p1")
 	if err != nil {
@@ -544,7 +546,7 @@ func TestProjectServiceGet(t *testing.T) {
 
 func TestProjectServiceGetNotFound(t *testing.T) {
 	store := &mockStore{}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	_, err := svc.Get(context.Background(), "nonexistent")
 	if !errors.Is(err, domain.ErrNotFound) {
@@ -554,7 +556,7 @@ func TestProjectServiceGetNotFound(t *testing.T) {
 
 func TestProjectServiceCreate(t *testing.T) {
 	store := &mockStore{}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	req := project.CreateRequest{Name: "New", Provider: "local"}
 	p, err := svc.Create(context.Background(), req)
@@ -571,7 +573,7 @@ func TestProjectServiceCreate(t *testing.T) {
 
 func TestProjectServiceCreateError(t *testing.T) {
 	store := &mockStore{createProjectErr: errors.New("constraint violation")}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	_, err := svc.Create(context.Background(), project.CreateRequest{Name: "X"})
 	if err == nil {
@@ -583,7 +585,7 @@ func TestProjectServiceDelete(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	if err := svc.Delete(context.Background(), "p1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -595,7 +597,7 @@ func TestProjectServiceDelete(t *testing.T) {
 
 func TestProjectServiceDeleteNotFound(t *testing.T) {
 	store := &mockStore{}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	err := svc.Delete(context.Background(), "nonexistent")
 	if !errors.Is(err, domain.ErrNotFound) {
@@ -607,9 +609,9 @@ func TestProjectServiceCloneNoRepoURL(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "No Repo", Provider: "local"}},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Clone(context.Background(), "p1")
+	_, err := svc.Clone(context.Background(), "p1", "test-tenant")
 	if err == nil {
 		t.Fatal("expected error for project without repo_url")
 	}
@@ -620,9 +622,9 @@ func TestProjectServiceCloneNoRepoURL(t *testing.T) {
 
 func TestProjectServiceCloneNotFound(t *testing.T) {
 	store := &mockStore{}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Clone(context.Background(), "nonexistent")
+	_, err := svc.Clone(context.Background(), "nonexistent", "test-tenant")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -632,7 +634,7 @@ func TestProjectServiceStatusNoWorkspace(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "No WS"}},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	_, err := svc.Status(context.Background(), "p1")
 	if err == nil {
@@ -644,7 +646,7 @@ func TestProjectServicePullNoWorkspace(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "No WS"}},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	err := svc.Pull(context.Background(), "p1")
 	if err == nil {
@@ -656,7 +658,7 @@ func TestProjectServiceListBranchesNoWorkspace(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "No WS"}},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	_, err := svc.ListBranches(context.Background(), "p1")
 	if err == nil {
@@ -668,10 +670,143 @@ func TestProjectServiceCheckoutNoWorkspace(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "No WS"}},
 	}
-	svc := NewProjectService(store)
+	svc := NewProjectService(store, t.TempDir())
 
 	err := svc.Checkout(context.Background(), "p1", "main")
 	if err == nil {
 		t.Fatal("expected error for project without workspace")
+	}
+}
+
+func TestProjectServiceDeleteCleansUpWorkspace(t *testing.T) {
+	wsRoot := t.TempDir()
+	wsDir := filepath.Join(wsRoot, "tenant", "p1")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a file inside so we can verify removal.
+	if err := os.WriteFile(filepath.Join(wsDir, "test.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha", WorkspacePath: wsDir}},
+	}
+	svc := NewProjectService(store, wsRoot)
+
+	if err := svc.Delete(context.Background(), "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Workspace directory should be removed.
+	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
+		t.Fatalf("expected workspace directory to be removed, got err: %v", err)
+	}
+}
+
+func TestProjectServiceDeleteSkipsOutsideRoot(t *testing.T) {
+	wsRoot := t.TempDir()
+	outsideDir := t.TempDir() // separate temp dir, not under wsRoot
+
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha", WorkspacePath: outsideDir}},
+	}
+	svc := NewProjectService(store, wsRoot)
+
+	if err := svc.Delete(context.Background(), "p1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Directory outside workspace root should NOT be removed.
+	if _, err := os.Stat(outsideDir); err != nil {
+		t.Fatalf("directory outside workspace root should not be removed: %v", err)
+	}
+}
+
+func TestProjectServiceAdopt(t *testing.T) {
+	adoptDir := t.TempDir()
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	p, err := svc.Adopt(context.Background(), "p1", adoptDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.WorkspacePath != adoptDir {
+		t.Fatalf("expected workspace path %q, got %q", adoptDir, p.WorkspacePath)
+	}
+}
+
+func TestProjectServiceAdoptEmptyPath(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	_, err := svc.Adopt(context.Background(), "p1", "")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestProjectServiceAdoptNonexistentDir(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	_, err := svc.Adopt(context.Background(), "p1", "/nonexistent/path/12345")
+	if err == nil {
+		t.Fatal("expected error for nonexistent directory")
+	}
+}
+
+func TestProjectServiceWorkspaceHealthExisting(t *testing.T) {
+	wsDir := t.TempDir()
+	// Create a .git directory and a file.
+	if err := os.MkdirAll(filepath.Join(wsDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "main.go"), []byte("package main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha", WorkspacePath: wsDir}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	info, err := svc.WorkspaceHealth(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !info.Exists {
+		t.Fatal("expected Exists=true")
+	}
+	if !info.GitRepo {
+		t.Fatal("expected GitRepo=true")
+	}
+	if info.DiskUsageBytes == 0 {
+		t.Fatal("expected non-zero disk usage")
+	}
+	if info.Path != wsDir {
+		t.Fatalf("expected path %q, got %q", wsDir, info.Path)
+	}
+}
+
+func TestProjectServiceWorkspaceHealthMissing(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	info, err := svc.WorkspaceHealth(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Exists {
+		t.Fatal("expected Exists=false for project without workspace")
 	}
 }

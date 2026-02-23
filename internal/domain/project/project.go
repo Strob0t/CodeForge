@@ -27,3 +27,17 @@ type CreateRequest struct {
 	Provider    string            `json:"provider"`
 	Config      map[string]string `json:"config"`
 }
+
+// AdoptRequest holds the fields for adopting an existing directory as a workspace.
+type AdoptRequest struct {
+	Path string `json:"path"`
+}
+
+// WorkspaceInfo holds health and status information about a project's workspace.
+type WorkspaceInfo struct {
+	Exists         bool      `json:"exists"`
+	Path           string    `json:"path"`
+	DiskUsageBytes int64     `json:"disk_usage_bytes"`
+	GitRepo        bool      `json:"git_repo"`
+	LastModified   time.Time `json:"last_modified"`
+}

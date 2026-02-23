@@ -27,6 +27,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/tiered"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
@@ -153,7 +154,7 @@ func run() error {
 	hub := ws.NewHub()
 	store := postgres.NewStore(pool)
 	eventStore := postgres.NewEventStore(pool)
-	projectSvc := service.NewProjectService(store)
+	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
 	agentSvc.SetEventStore(eventStore)
@@ -296,6 +297,17 @@ func run() error {
 
 	// --- Pipeline Service (Phase 12F) ---
 	pipelineSvc := service.NewPipelineService(modeSvc)
+	if cfg.Workspace.PipelineDir != "" {
+		templates, err := pipeline.LoadFromDirectory(cfg.Workspace.PipelineDir)
+		if err != nil {
+			slog.Warn("failed to load custom pipeline templates", "dir", cfg.Workspace.PipelineDir, "error", err)
+		}
+		for i := range templates {
+			if err := pipelineSvc.Register(&templates[i]); err != nil {
+				slog.Warn("failed to register pipeline template", "id", templates[i].ID, "error", err)
+			}
+		}
+	}
 	slog.Info("pipeline service initialized", "templates", len(pipelineSvc.List()))
 
 	// --- Spec & PM Providers (Phase 9A) ---

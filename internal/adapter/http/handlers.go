@@ -32,6 +32,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -183,7 +184,8 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 // CloneProject handles POST /api/v1/projects/{id}/clone
 func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	p, err := h.Projects.Clone(r.Context(), id)
+	tenantID := middleware.TenantIDFromContext(r.Context())
+	p, err := h.Projects.Clone(r.Context(), id, tenantID)
 	if err != nil {
 		writeDomainError(w, err, "clone failed")
 		return
@@ -199,6 +201,36 @@ func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, p)
+}
+
+// AdoptProject handles POST /api/v1/projects/{id}/adopt
+func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req project.AdoptRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	p, err := h.Projects.Adopt(r.Context(), id, req.Path)
+	if err != nil {
+		writeDomainError(w, err, "adopt failed")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, p)
+}
+
+// GetWorkspaceInfo handles GET /api/v1/projects/{id}/workspace
+func (h *Handlers) GetWorkspaceInfo(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	info, err := h.Projects.WorkspaceHealth(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "workspace info failed")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
 }
 
 // ProjectGitStatus handles GET /api/v1/projects/{id}/git/status

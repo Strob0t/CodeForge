@@ -781,3 +781,13 @@
 - [x] (2026-02-23) PipelineService (`internal/service/pipeline.go`): List, Get, Register, Instantiate with mode reference validation
 - [x] (2026-02-23) HTTP API: GET/POST `/api/v1/pipelines`, GET `/api/v1/pipelines/{id}`, POST `/api/v1/pipelines/{id}/instantiate`
 - [x] (2026-02-23) Wired into main.go with PipelineService + Handlers struct
+
+### Phase 12G — Project Workspace Management (COMPLETED)
+
+- [x] (2026-02-23) Configurable workspace root: `Workspace` struct in Config (`Root` + `PipelineDir`), env vars `CODEFORGE_WORKSPACE_ROOT` / `CODEFORGE_WORKSPACE_PIPELINE_DIR`, default `data/workspaces`
+- [x] (2026-02-23) Workspace cleanup on delete: `Delete()` removes workspace directory if under workspace root (best-effort with logged warning), `isUnderWorkspaceRoot()` safety check prevents accidental deletion
+- [x] (2026-02-23) Adopt existing directory: `POST /api/v1/projects/{id}/adopt` — validates directory exists, sets WorkspacePath without copy/move
+- [x] (2026-02-23) Workspace health endpoint: `GET /api/v1/projects/{id}/workspace` — returns exists, path, disk usage bytes, git repo bool, last modified
+- [x] (2026-02-23) Tenant-isolated workspace paths: Clone uses `{root}/{tenantID}/{projectID}` pattern, tenant ID passed from HTTP handler to service layer
+- [x] (2026-02-23) Custom pipeline template loading from `cfg.Workspace.PipelineDir` wired in main.go
+- [x] (2026-02-23) 7 new tests: delete cleanup, delete skip outside root, adopt valid/empty/nonexistent, workspace health existing/missing (21 total project tests)
