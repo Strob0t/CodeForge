@@ -1524,6 +1524,56 @@ func (s *Store) RecentRunsWithCost(ctx context.Context, projectID string, limit 
 	return result, rows.Err()
 }
 
+// --- Per-Tool Cost Aggregation (Phase 12H) ---
+
+func (s *Store) CostByTool(ctx context.Context, projectID string) ([]cost.ToolSummary, error) {
+	tid := tenantFromCtx(ctx)
+	rows, err := s.pool.Query(ctx,
+		`SELECT tool_name, COALESCE(model, ''), SUM(cost_usd), SUM(tokens_in), SUM(tokens_out), COUNT(*)
+		 FROM agent_events
+		 WHERE project_id = $1 AND tenant_id = $2 AND event_type = 'run.toolcall.result' AND tool_name != ''
+		 GROUP BY tool_name, model
+		 ORDER BY SUM(cost_usd) DESC`, projectID, tid)
+	if err != nil {
+		return nil, fmt.Errorf("cost by tool: %w", err)
+	}
+	defer rows.Close()
+
+	var result []cost.ToolSummary
+	for rows.Next() {
+		var ts cost.ToolSummary
+		if err := rows.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount); err != nil {
+			return nil, fmt.Errorf("scan tool summary: %w", err)
+		}
+		result = append(result, ts)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) CostByToolForRun(ctx context.Context, runID string) ([]cost.ToolSummary, error) {
+	tid := tenantFromCtx(ctx)
+	rows, err := s.pool.Query(ctx,
+		`SELECT tool_name, COALESCE(model, ''), SUM(cost_usd), SUM(tokens_in), SUM(tokens_out), COUNT(*)
+		 FROM agent_events
+		 WHERE run_id = $1 AND tenant_id = $2 AND event_type = 'run.toolcall.result' AND tool_name != ''
+		 GROUP BY tool_name, model
+		 ORDER BY SUM(cost_usd) DESC`, runID, tid)
+	if err != nil {
+		return nil, fmt.Errorf("cost by tool for run: %w", err)
+	}
+	defer rows.Close()
+
+	var result []cost.ToolSummary
+	for rows.Next() {
+		var ts cost.ToolSummary
+		if err := rows.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount); err != nil {
+			return nil, fmt.Errorf("scan tool summary: %w", err)
+		}
+		result = append(result, ts)
+	}
+	return result, rows.Err()
+}
+
 // --- Branch Protection Rules ---
 
 func (s *Store) CreateBranchProtectionRule(ctx context.Context, req bp.CreateRuleRequest) (*bp.ProtectionRule, error) {

@@ -64,4 +64,10 @@ type AgentEvent struct {
 	RequestID string          `json:"request_id,omitempty"`
 	Version   int             `json:"version"`
 	CreatedAt time.Time       `json:"created_at"`
+	// Per-tool token tracking (populated for run.toolcall.result events).
+	ToolName  string  `json:"tool_name,omitempty"`
+	Model     string  `json:"model,omitempty"`
+	TokensIn  int64   `json:"tokens_in,omitempty"`
+	TokensOut int64   `json:"tokens_out,omitempty"`
+	CostUSD   float64 `json:"cost_usd,omitempty"`
 }

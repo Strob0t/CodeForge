@@ -791,3 +791,14 @@
 - [x] (2026-02-23) Tenant-isolated workspace paths: Clone uses `{root}/{tenantID}/{projectID}` pattern, tenant ID passed from HTTP handler to service layer
 - [x] (2026-02-23) Custom pipeline template loading from `cfg.Workspace.PipelineDir` wired in main.go
 - [x] (2026-02-23) 7 new tests: delete cleanup, delete skip outside root, adopt valid/empty/nonexistent, workspace health existing/missing (21 total project tests)
+
+### Phase 12H — Per-Tool Token Tracking (COMPLETED)
+
+- [x] (2026-02-23) Migration 028: Added 5 columns (`tool_name`, `model`, `tokens_in`, `tokens_out`, `cost_usd`) to `agent_events` with partial indexes on `event_type = 'run.toolcall.result'`
+- [x] (2026-02-23) Extended `AgentEvent` domain type and `TrajectorySummary` with per-tool token fields
+- [x] (2026-02-23) Added `cost.ToolSummary` struct for per-tool cost breakdowns
+- [x] (2026-02-23) Implemented `CostByTool` and `CostByToolForRun` in PostgreSQL store with SQL aggregation
+- [x] (2026-02-23) Wired `HandleToolCallResult` to populate per-tool token data on events via `appendRunEventWithTokens`
+- [x] (2026-02-23) Added `CostService.ByTool`/`ByToolForRun` delegates and HTTP handlers (`GET /projects/{id}/costs/by-tool`, `GET /runs/{id}/costs/by-tool`)
+- [x] (2026-02-23) Extracted `scanEvent` helper + `eventColumns` constant in event store (DRY: replaced 6 duplicated scan sites)
+- [x] (2026-02-23) Frontend: `ToolCostSummary` type, `costs.byTool`/`costs.byToolForRun` client methods, "Cost by Tool" section in dashboard

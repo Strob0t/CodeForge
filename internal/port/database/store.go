@@ -92,6 +92,8 @@ type Store interface {
 	CostByModel(ctx context.Context, projectID string) ([]cost.ModelSummary, error)
 	CostTimeSeries(ctx context.Context, projectID string, days int) ([]cost.DailyCost, error)
 	RecentRunsWithCost(ctx context.Context, projectID string, limit int) ([]run.Run, error)
+	CostByTool(ctx context.Context, projectID string) ([]cost.ToolSummary, error)
+	CostByToolForRun(ctx context.Context, runID string) ([]cost.ToolSummary, error)
 
 	// Roadmaps
 	CreateRoadmap(ctx context.Context, req roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error)

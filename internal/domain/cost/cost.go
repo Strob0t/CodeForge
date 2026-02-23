@@ -30,3 +30,13 @@ type DailyCost struct {
 	TokensOut int64   `json:"tokens_out"`
 	RunCount  int     `json:"run_count"`
 }
+
+// ToolSummary breaks down cost and tokens by tool name.
+type ToolSummary struct {
+	Tool      string  `json:"tool"`
+	Model     string  `json:"model"`
+	CostUSD   float64 `json:"cost_usd"`
+	TokensIn  int64   `json:"tokens_in"`
+	TokensOut int64   `json:"tokens_out"`
+	CallCount int     `json:"call_count"`
+}

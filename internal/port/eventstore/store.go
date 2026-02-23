@@ -25,11 +25,14 @@ type TrajectoryPage struct {
 
 // TrajectorySummary contains aggregate stats for a run's trajectory.
 type TrajectorySummary struct {
-	TotalEvents   int            `json:"total_events"`
-	EventCounts   map[string]int `json:"event_counts"`
-	DurationMS    int64          `json:"duration_ms"`
-	ToolCallCount int            `json:"tool_call_count"`
-	ErrorCount    int            `json:"error_count"`
+	TotalEvents    int            `json:"total_events"`
+	EventCounts    map[string]int `json:"event_counts"`
+	DurationMS     int64          `json:"duration_ms"`
+	ToolCallCount  int            `json:"tool_call_count"`
+	ErrorCount     int            `json:"error_count"`
+	TotalTokensIn  int64          `json:"total_tokens_in"`
+	TotalTokensOut int64          `json:"total_tokens_out"`
+	TotalCostUSD   float64        `json:"total_cost_usd"`
 }
 
 // Store is the port interface for appending and loading agent events.

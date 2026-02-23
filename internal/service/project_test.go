@@ -270,6 +270,12 @@ func (m *mockStore) CostTimeSeries(_ context.Context, _ string, _ int) ([]cost.D
 func (m *mockStore) RecentRunsWithCost(_ context.Context, _ string, _ int) ([]run.Run, error) {
 	return nil, nil
 }
+func (m *mockStore) CostByTool(_ context.Context, _ string) ([]cost.ToolSummary, error) {
+	return nil, nil
+}
+func (m *mockStore) CostByToolForRun(_ context.Context, _ string) ([]cost.ToolSummary, error) {
+	return nil, nil
+}
 
 // Roadmap stubs
 func (m *mockStore) CreateRoadmap(_ context.Context, _ roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error) {

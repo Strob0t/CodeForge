@@ -2,7 +2,13 @@ import { A } from "@solidjs/router";
 import { createResource, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { DailyCost, ModelCostSummary, ProjectCostSummary, Run } from "~/api/types";
+import type {
+  DailyCost,
+  ModelCostSummary,
+  ProjectCostSummary,
+  Run,
+  ToolCostSummary,
+} from "~/api/types";
 import { useI18n } from "~/i18n";
 
 export default function CostDashboardPage() {
@@ -126,6 +132,10 @@ export function ProjectCostSection(props: { projectId: string }) {
     () => props.projectId,
     (id) => api.costs.recentRuns(id, 10),
   );
+  const [byTool] = createResource(
+    () => props.projectId,
+    (id) => api.costs.byTool(id),
+  );
 
   const maxDailyCost = () => {
     const items = daily() ?? [];
@@ -180,6 +190,37 @@ export function ProjectCostSection(props: { projectId: string }) {
                       {fmt.compact(m.total_tokens_out)} {t("costs.out")}
                     </span>
                     <span>{tp("costs.runs", m.run_count)}</span>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+      </Show>
+
+      {/* Tool Breakdown */}
+      <Show when={(byTool() ?? []).length > 0}>
+        <div class="mb-4">
+          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
+            {t("costs.byTool")}
+          </h4>
+          <div class="space-y-1">
+            <For each={byTool() ?? []}>
+              {(item: ToolCostSummary) => (
+                <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono text-xs">{item.tool || t("costs.unknown")}</span>
+                    <span class="text-xs text-gray-400 dark:text-gray-500">{item.model || ""}</span>
+                  </div>
+                  <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
+                    <span>{fmt.currency(item.cost_usd)}</span>
+                    <span>
+                      {fmt.compact(item.tokens_in)} {t("costs.in")}
+                    </span>
+                    <span>
+                      {fmt.compact(item.tokens_out)} {t("costs.out")}
+                    </span>
+                    <span>{tp("costs.calls", item.call_count)}</span>
                   </div>
                 </div>
               )}

@@ -42,3 +42,13 @@ func (s *CostService) TimeSeries(ctx context.Context, projectID string, days int
 func (s *CostService) RecentRuns(ctx context.Context, projectID string, limit int) ([]run.Run, error) {
 	return s.store.RecentRunsWithCost(ctx, projectID, limit)
 }
+
+// ByTool returns per-tool cost breakdown for a project.
+func (s *CostService) ByTool(ctx context.Context, projectID string) ([]cost.ToolSummary, error) {
+	return s.store.CostByTool(ctx, projectID)
+}
+
+// ByToolForRun returns per-tool cost breakdown for a single run.
+func (s *CostService) ByToolForRun(ctx context.Context, runID string) ([]cost.ToolSummary, error) {
+	return s.store.CostByToolForRun(ctx, runID)
+}

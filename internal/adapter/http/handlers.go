@@ -1240,6 +1240,34 @@ func (h *Handlers) ProjectRecentRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, runs)
 }
 
+// ProjectCostByTool handles GET /api/v1/projects/{id}/costs/by-tool
+func (h *Handlers) ProjectCostByTool(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	tools, err := h.Cost.ByTool(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if tools == nil {
+		tools = []cost.ToolSummary{}
+	}
+	writeJSON(w, http.StatusOK, tools)
+}
+
+// RunCostByTool handles GET /api/v1/runs/{id}/costs/by-tool
+func (h *Handlers) RunCostByTool(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "id")
+	tools, err := h.Cost.ByToolForRun(r.Context(), runID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if tools == nil {
+		tools = []cost.ToolSummary{}
+	}
+	writeJSON(w, http.StatusOK, tools)
+}
+
 // --- Roadmap Endpoints (Phase 8) ---
 
 // GetProjectRoadmap handles GET /api/v1/projects/{id}/roadmap

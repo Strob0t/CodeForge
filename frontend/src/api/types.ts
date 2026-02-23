@@ -754,6 +754,16 @@ export interface DailyCost {
   run_count: number;
 }
 
+/** Matches Go domain/cost.ToolSummary */
+export interface ToolCostSummary {
+  tool: string;
+  model: string;
+  cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  call_count: number;
+}
+
 // --- Roadmap types (Phase 8) ---
 
 /** Roadmap status enum matching Go domain/roadmap.RoadmapStatus */
@@ -889,6 +899,9 @@ export interface TrajectorySummary {
   duration_ms: number;
   tool_call_count: number;
   error_count: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  total_cost_usd: number;
 }
 
 // --- Auth types (Phase 10C) ---

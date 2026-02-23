@@ -62,6 +62,7 @@ import type {
   SubAgentSearchRequest,
   SubAgentSearchResult,
   Task,
+  ToolCostSummary,
   TrajectoryPage,
   UpdateUserRequest,
   User,
@@ -482,6 +483,12 @@ export const api = {
 
     recentRuns: (id: string, limit = 20) =>
       request<Run[]>(`/projects/${encodeURIComponent(id)}/costs/runs?limit=${limit}`),
+
+    byTool: (id: string) =>
+      request<ToolCostSummary[]>(`/projects/${encodeURIComponent(id)}/costs/by-tool`),
+
+    byToolForRun: (runId: string) =>
+      request<ToolCostSummary[]>(`/runs/${encodeURIComponent(runId)}/costs/by-tool`),
   },
 
   roadmap: {

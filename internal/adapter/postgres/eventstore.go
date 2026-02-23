@@ -27,21 +27,33 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 	tid := middleware.TenantIDFromContext(ctx)
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO agent_events (tenant_id, agent_id, task_id, project_id, run_id, event_type, payload, request_id, version)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		tid, ev.AgentID, ev.TaskID, ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version)
+		`INSERT INTO agent_events (tenant_id, agent_id, task_id, project_id, run_id, event_type, payload, request_id, version, tool_name, model, tokens_in, tokens_out, cost_usd)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		tid, ev.AgentID, ev.TaskID, ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version,
+		ev.ToolName, ev.Model, ev.TokensIn, ev.TokensOut, ev.CostUSD)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
 	return nil
 }
 
+// eventColumns is the SELECT column list for agent_events queries.
+const eventColumns = `id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at, tool_name, model, tokens_in, tokens_out, cost_usd`
+
+// scanEvent scans a row into an AgentEvent including per-tool token columns.
+func scanEvent(scanner interface{ Scan(dest ...any) error }, ev *event.AgentEvent) error {
+	return scanner.Scan(
+		&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID,
+		&ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt,
+		&ev.ToolName, &ev.Model, &ev.TokensIn, &ev.TokensOut, &ev.CostUSD,
+	)
+}
+
 // LoadByTask returns all events for the given task, ordered by version ascending.
 func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
-		 FROM agent_events WHERE task_id = $1 AND tenant_id = $2 ORDER BY version ASC`, taskID, tid)
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE task_id = $1 AND tenant_id = $2 ORDER BY version ASC`, eventColumns), taskID, tid)
 	if err != nil {
 		return nil, fmt.Errorf("load events by task %s: %w", taskID, err)
 	}
@@ -50,7 +62,7 @@ func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.Age
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := scanEvent(rows, &ev); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		events = append(events, ev)
@@ -62,8 +74,7 @@ func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.Age
 func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
-		 FROM agent_events WHERE agent_id = $1 AND tenant_id = $2 ORDER BY version ASC`, agentID, tid)
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE agent_id = $1 AND tenant_id = $2 ORDER BY version ASC`, eventColumns), agentID, tid)
 	if err != nil {
 		return nil, fmt.Errorf("load events by agent %s: %w", agentID, err)
 	}
@@ -72,7 +83,7 @@ func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.A
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := scanEvent(rows, &ev); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		events = append(events, ev)
@@ -84,8 +95,7 @@ func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.A
 func (s *EventStore) LoadByRun(ctx context.Context, runID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
-		 FROM agent_events WHERE run_id = $1 AND tenant_id = $2 ORDER BY version ASC`, runID, tid)
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE run_id = $1 AND tenant_id = $2 ORDER BY version ASC`, eventColumns), runID, tid)
 	if err != nil {
 		return nil, fmt.Errorf("load events by run %s: %w", runID, err)
 	}
@@ -94,7 +104,7 @@ func (s *EventStore) LoadByRun(ctx context.Context, runID string) ([]event.Agent
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := scanEvent(rows, &ev); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		events = append(events, ev)
@@ -151,9 +161,8 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 
 	// Fetch limit+1 to detect hasMore.
 	fetchSQL := fmt.Sprintf(
-		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
-		 FROM agent_events WHERE %s ORDER BY version ASC LIMIT $%d`,
-		where, argIdx)
+		`SELECT %s FROM agent_events WHERE %s ORDER BY version ASC LIMIT $%d`,
+		eventColumns, where, argIdx)
 	args = append(args, limit+1)
 
 	rows, err := s.pool.Query(ctx, fetchSQL, args...)
@@ -165,7 +174,7 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := scanEvent(rows, &ev); err != nil {
 			return nil, fmt.Errorf("scan trajectory event: %w", err)
 		}
 		events = append(events, ev)
@@ -236,12 +245,26 @@ func (s *EventStore) TrajectoryStats(ctx context.Context, runID string) (*events
 		return nil, fmt.Errorf("trajectory duration: %w", err)
 	}
 
+	// Per-tool token totals from tool call result events.
+	var totalTokensIn, totalTokensOut int64
+	var totalCostUSD float64
+	err = s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0), COALESCE(SUM(cost_usd), 0)
+		 FROM agent_events WHERE run_id = $1 AND tenant_id = $2 AND event_type = 'run.toolcall.result'`, runID, tid).
+		Scan(&totalTokensIn, &totalTokensOut, &totalCostUSD)
+	if err != nil {
+		return nil, fmt.Errorf("trajectory token totals: %w", err)
+	}
+
 	return &eventstore.TrajectorySummary{
-		TotalEvents:   total,
-		EventCounts:   counts,
-		DurationMS:    durationMS,
-		ToolCallCount: toolCalls,
-		ErrorCount:    errors,
+		TotalEvents:    total,
+		EventCounts:    counts,
+		DurationMS:     durationMS,
+		ToolCallCount:  toolCalls,
+		ErrorCount:     errors,
+		TotalTokensIn:  totalTokensIn,
+		TotalTokensOut: totalTokensOut,
+		TotalCostUSD:   totalCostUSD,
 	}, nil
 }
 
@@ -266,8 +289,7 @@ func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, to
 
 	where := strings.Join(conditions, " AND ")
 	query := fmt.Sprintf(
-		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
-		 FROM agent_events WHERE %s ORDER BY version ASC`, where)
+		`SELECT %s FROM agent_events WHERE %s ORDER BY version ASC`, eventColumns, where)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -278,7 +300,7 @@ func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, to
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := scanEvent(rows, &ev); err != nil {
 			return nil, fmt.Errorf("scan event range: %w", err)
 		}
 		events = append(events, ev)
@@ -290,8 +312,7 @@ func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, to
 func (s *EventStore) ListCheckpoints(ctx context.Context, runID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at
-		 FROM agent_events WHERE run_id = $1 AND tenant_id = $2 AND event_type = $3 ORDER BY version ASC`,
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE run_id = $1 AND tenant_id = $2 AND event_type = $3 ORDER BY version ASC`, eventColumns),
 		runID, tid, string(event.TypeToolResult))
 	if err != nil {
 		return nil, fmt.Errorf("list checkpoints: %w", err)
@@ -301,7 +322,7 @@ func (s *EventStore) ListCheckpoints(ctx context.Context, runID string) ([]event
 	var events []event.AgentEvent
 	for rows.Next() {
 		var ev event.AgentEvent
-		if err := rows.Scan(&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID, &ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt); err != nil {
+		if err := scanEvent(rows, &ev); err != nil {
 			return nil, fmt.Errorf("scan checkpoint: %w", err)
 		}
 		events = append(events, ev)

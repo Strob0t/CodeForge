@@ -519,13 +519,13 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		}
 	}
 
-	// Record event
-	s.appendRunEvent(ctx, event.TypeToolCallResultEv, r, map[string]string{
+	// Record event with per-tool token data
+	s.appendRunEventWithTokens(ctx, event.TypeToolCallResultEv, r, map[string]string{
 		"call_id": result.CallID,
 		"tool":    result.Tool,
 		"success": fmt.Sprintf("%t", result.Success),
 		"cost":    fmt.Sprintf("%.6f", result.CostUSD),
-	})
+	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
 
 	// Broadcast WS with token data
 	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
@@ -1211,6 +1211,10 @@ func (s *RuntimeService) publishJSON(ctx context.Context, subject string, payloa
 }
 
 func (s *RuntimeService) appendRunEvent(ctx context.Context, evType event.Type, r *run.Run, payload map[string]string) {
+	s.appendRunEventWithTokens(ctx, evType, r, payload, "", "", 0, 0, 0)
+}
+
+func (s *RuntimeService) appendRunEventWithTokens(ctx context.Context, evType event.Type, r *run.Run, payload map[string]string, toolName, model string, tokensIn, tokensOut int64, costUSD float64) {
 	if s.events == nil {
 		return
 	}
@@ -1228,6 +1232,11 @@ func (s *RuntimeService) appendRunEvent(ctx context.Context, evType event.Type, 
 		Payload:   payloadJSON,
 		RequestID: logger.RequestID(ctx),
 		Version:   1,
+		ToolName:  toolName,
+		Model:     model,
+		TokensIn:  tokensIn,
+		TokensOut: tokensOut,
+		CostUSD:   costUSD,
 	}
 	if err := s.events.Append(ctx, &ev); err != nil {
 		slog.Error("failed to append run event", "type", evType, "run_id", r.ID, "error", err)

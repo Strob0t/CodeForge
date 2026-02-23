@@ -595,12 +595,16 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Add workspace health checks — `GET /api/v1/projects/{id}/workspace` returns exists, path, disk usage (bytes), git repo (bool), last modified
 - [x] (2026-02-23) Support configurable workspace root path per tenant — Clone uses `{root}/{tenantID}/{projectID}` path pattern with tenant ID from context
 
-#### 12H. Per-Tool Token Tracking (P2)
+#### 12H. Per-Tool Token Tracking (P2) — COMPLETED 2026-02-23
 
-- [ ] Extend event schema beyond run-level to per-tool-call granularity
-- [ ] Track `tokens_in`/`tokens_out` per individual tool call in `agent_events` table (migration needed)
-- [ ] Add per-tool cost breakdown in Cost Dashboard frontend
-- [ ] Wire into existing cost aggregation queries (`internal/domain/cost/`, `internal/service/cost.go`)
+- [x] (2026-02-23) Migration 028: Added `tool_name`, `model`, `tokens_in`, `tokens_out`, `cost_usd` columns to `agent_events` with partial indexes
+- [x] (2026-02-23) Extended `AgentEvent` domain type with per-tool token fields
+- [x] (2026-02-23) Added `cost.ToolSummary` struct and `CostByTool`/`CostByToolForRun` store methods
+- [x] (2026-02-23) Wired `HandleToolCallResult` to populate per-tool token data on events
+- [x] (2026-02-23) Added `CostService.ByTool`/`ByToolForRun` delegates + HTTP handlers + routes
+- [x] (2026-02-23) Extended `TrajectorySummary` with `total_tokens_in`/`total_tokens_out`/`total_cost_usd`
+- [x] (2026-02-23) Added "Cost by Tool" section to frontend Cost Dashboard
+- [x] (2026-02-23) Extracted `scanEvent` helper in event store to reduce 6 duplicated scan sites
 
 #### 12I. Periodic Reviews & Audits (P2)
 

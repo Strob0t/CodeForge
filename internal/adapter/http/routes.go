@@ -156,8 +156,10 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/costs", h.GlobalCostSummary)
 		r.Get("/projects/{id}/costs", h.ProjectCostSummary)
 		r.Get("/projects/{id}/costs/by-model", h.ProjectCostByModel)
+		r.Get("/projects/{id}/costs/by-tool", h.ProjectCostByTool)
 		r.Get("/projects/{id}/costs/daily", h.ProjectCostTimeSeries)
 		r.Get("/projects/{id}/costs/runs", h.ProjectRecentRuns)
+		r.Get("/runs/{id}/costs/by-tool", h.RunCostByTool)
 
 		// Roadmap (nested under projects)
 		r.Get("/projects/{id}/roadmap", h.GetProjectRoadmap)
