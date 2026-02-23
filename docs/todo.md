@@ -706,9 +706,26 @@ For full completion history, see [project-status.md](project-status.md).
 
 ---
 
+### Backend E2E Vision Test (2026-02-23)
+
+- [x] (2026-02-23) Create E2E test plan document (`docs/e2e-test-plan.md`) — 6 phases, 60+ test cases across all 4 pillars
+- [x] (2026-02-23) Create executable E2E test script (`/tmp/e2e-vision-test.sh`) — automated PASS/FAIL/SKIP reporting
+- [x] (2026-02-23) Fix bug: ReviewService.CreatePolicy missing TenantID — added `tenantID` param to service method, handler extracts from context (`internal/service/review.go`, `internal/adapter/http/handlers.go`)
+- [x] (2026-02-23) E2E test results: **88 PASS, 0 FAIL, 3 SKIP** (97% pass rate)
+  - Phase 0: 6 PASS — infrastructure (Go Core, PostgreSQL, NATS, LiteLLM, Groq, Mistral)
+  - Phase 1: 13 PASS — Project Dashboard (create, clone, workspace, stack detect, git ops, providers)
+  - Phase 2: 15 PASS — Roadmap (CRUD, AI views JSON/YAML/MD, spec detect, GitHub PM import, sync)
+  - Phase 3: 8 PASS — Multi-LLM (models, health, direct Groq/Mistral calls, costs, backends)
+  - Phase 4: 24 PASS, 1 SKIP — Agent Orchestration (agent/task CRUD, policy eval, modes, run creation; run execution skipped — Python worker not running)
+  - Phase 5: 21 PASS, 2 SKIP — Cross-pillar (scope, review policy, plans, costs, audit; repomap/search skipped — Python worker needed)
+  - Phase 6: 1 PASS — WebSocket connection established
+- [ ] Start Python worker and re-run E2E tests to validate agent execution pipeline (Phase 4.15, 5.2, 5.5)
+
+---
+
 ### Notes
 
-- Phases 0-11 complete. All phases implemented. P0-P2 security hardening complete.
+- Phases 0-11 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91).
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
 - **Completed Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
 - Completed: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy

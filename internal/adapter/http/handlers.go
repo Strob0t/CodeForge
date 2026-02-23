@@ -2350,12 +2350,13 @@ func (h *Handlers) ListReviewPolicies(w http.ResponseWriter, r *http.Request) {
 // CreateReviewPolicy handles POST /api/v1/projects/{id}/review-policies
 func (h *Handlers) CreateReviewPolicy(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
+	tenantID := middleware.TenantIDFromContext(r.Context())
 	req, ok := readJSON[review.CreatePolicyRequest](w, r)
 	if !ok {
 		return
 	}
 
-	p, err := h.Review.CreatePolicy(r.Context(), projectID, &req)
+	p, err := h.Review.CreatePolicy(r.Context(), projectID, tenantID, &req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

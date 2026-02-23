@@ -867,6 +867,22 @@
 - [x] (2026-02-23) Content-Security-Policy header (nginx + Go middleware)
 - [x] (2026-02-23) HSTS header prepared for production deployment
 
+### Backend E2E Vision Test (COMPLETED)
+
+Full 4-pillar end-to-end validation with real LLM calls (Groq + Mistral via LiteLLM).
+
+**Results: 88 PASS, 0 FAIL, 3 SKIP (97% pass rate)**
+
+- [x] (2026-02-23) Phase 0: Infrastructure bootstrap — Go Core, PostgreSQL, NATS, LiteLLM, Groq, Mistral all healthy
+- [x] (2026-02-23) Phase 1: Project Dashboard — create, clone, workspace, stack detection (Go/TS/Python), git status/branches, provider registries
+- [x] (2026-02-23) Phase 2: Roadmap/Feature-Map — CRUD, AI views (JSON/YAML/Markdown), spec detection, GitHub PM import via `gh` CLI, bidirectional sync (dry-run)
+- [x] (2026-02-23) Phase 3: Multi-LLM Provider — model listing, health check, direct LLM calls (Groq llama-3.3-70b + Mistral large), global costs, backend registry
+- [x] (2026-02-23) Phase 4: Agent Orchestration — agent/task CRUD, policy evaluate (allow/deny), 3 mode configs (coder/reviewer/architect), run creation (SKIP: run execution — Python worker not running)
+- [x] (2026-02-23) Phase 5: Cross-Pillar Integration — shared scopes, review policies, execution plans, project costs, audit trail (SKIP: repomap/search — Python worker needed)
+- [x] (2026-02-23) Phase 6: WebSocket live events — connection established
+- [x] (2026-02-23) Bug fix: ReviewService.CreatePolicy missing TenantID parameter (service + handler fix)
+- [x] (2026-02-23) Test plan: `docs/e2e-test-plan.md`, Test script: `/tmp/e2e-vision-test.sh`
+
 ### Comprehensive OWASP Top 10:2025 + WSTG v4.2 Remediation (COMPLETED)
 
 Full security audit and remediation across all priority levels (P0-P3, 50+ findings).

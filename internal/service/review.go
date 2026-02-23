@@ -48,7 +48,7 @@ func NewReviewService(
 // --- CRUD ---
 
 // CreatePolicy creates a new review policy for a project.
-func (s *ReviewService) CreatePolicy(ctx context.Context, projectID string, req *review.CreatePolicyRequest) (*review.ReviewPolicy, error) {
+func (s *ReviewService) CreatePolicy(ctx context.Context, projectID, tenantID string, req *review.CreatePolicyRequest) (*review.ReviewPolicy, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validate policy: %w", err)
 	}
@@ -57,6 +57,7 @@ func (s *ReviewService) CreatePolicy(ctx context.Context, projectID string, req 
 	p := &review.ReviewPolicy{
 		ID:              generateID(),
 		ProjectID:       projectID,
+		TenantID:        tenantID,
 		Name:            req.Name,
 		TriggerType:     req.TriggerType,
 		CommitThreshold: req.CommitThreshold,
