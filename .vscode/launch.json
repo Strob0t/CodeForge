@@ -21,6 +21,11 @@
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/codeforge/",
       "cwd": "${workspaceFolder}",
+      "env": {
+        "NATS_URL": "nats://codeforge-nats:4222",
+        "LITELLM_URL": "http://codeforge-litellm:4000",
+        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge"
+      },
       "console": "integratedTerminal",
       "presentation": { "group": "codeforge", "order": 2 }
     },
@@ -31,6 +36,11 @@
       "module": "codeforge.consumer",
       "cwd": "${workspaceFolder}/workers",
       "python": "${workspaceFolder}/.venv/bin/python",
+      "env": {
+        "NATS_URL": "nats://codeforge-nats:4222",
+        "LITELLM_URL": "http://codeforge-litellm:4000",
+        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge"
+      },
       "console": "integratedTerminal",
       "justMyCode": true,
       "presentation": { "group": "codeforge", "order": 3 }
@@ -42,6 +52,11 @@
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/codeforge/",
       "cwd": "${workspaceFolder}",
+      "env": {
+        "NATS_URL": "nats://codeforge-nats:4222",
+        "LITELLM_URL": "http://codeforge-litellm:4000",
+        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge"
+      },
       "preLaunchTask": "docker-compose-up",
       "console": "integratedTerminal",
       "presentation": { "group": "standalone", "order": 4 }
