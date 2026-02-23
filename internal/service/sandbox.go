@@ -167,6 +167,8 @@ func (s *SandboxService) CreateHybrid(ctx context.Context, runID, workspacePath 
 	args = append(args,
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath),
 		"--tmpfs", "/tmp",
+		"--security-opt=no-new-privileges",
+		"--cap-drop=ALL",
 		image,
 		"sleep", "infinity", // Keep container running for docker exec
 	)

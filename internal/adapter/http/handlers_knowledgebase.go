@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -37,9 +36,8 @@ func (h *Handlers) GetKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 
 // CreateKnowledgeBase handles POST /api/v1/knowledge-bases
 func (h *Handlers) CreateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
-	var req knowledgebase.CreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[knowledgebase.CreateRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -55,9 +53,8 @@ func (h *Handlers) CreateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) UpdateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req knowledgebase.UpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[knowledgebase.UpdateRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -93,11 +90,10 @@ func (h *Handlers) IndexKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) AttachKnowledgeBaseToScope(w http.ResponseWriter, r *http.Request) {
 	scopeID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		KnowledgeBaseID string `json:"knowledge_base_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.KnowledgeBaseID == "" {

@@ -157,15 +157,15 @@ type Store interface {
 	CreateAPIKey(ctx context.Context, key *user.APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIKey, error)
 	ListAPIKeysByUser(ctx context.Context, userID string) ([]user.APIKey, error)
-	DeleteAPIKey(ctx context.Context, id string) error
+	DeleteAPIKey(ctx context.Context, id, userID string) error
 
 	// Token Revocation
 	RevokeToken(ctx context.Context, jti string, expiresAt time.Time) error
 	IsTokenRevoked(ctx context.Context, jti string) (bool, error)
 	PurgeExpiredTokens(ctx context.Context) (int64, error)
 
-	// Atomic Refresh Token Rotation
-	RotateRefreshToken(ctx context.Context, oldID string, newRT *user.RefreshToken) error
+	// Atomic Refresh Token Rotation (locks old token by hash to prevent concurrent replay)
+	RotateRefreshToken(ctx context.Context, oldTokenHash string, newRT *user.RefreshToken) error
 
 	// Review Policies
 	CreateReviewPolicy(ctx context.Context, p *review.ReviewPolicy) error

@@ -41,6 +41,24 @@ func (s *Store) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*u
 	return &rt, nil
 }
 
+// getRefreshTokenByHashForUpdate retrieves a refresh token with a row-level lock
+// to prevent concurrent rotation of the same token.
+func (s *Store) getRefreshTokenByHashForUpdate(ctx context.Context, tx pgx.Tx, tokenHash string) (*user.RefreshToken, error) {
+	row := tx.QueryRow(ctx, `
+		SELECT id, user_id, token_hash, expires_at, created_at
+		FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`, tokenHash)
+
+	var rt user.RefreshToken
+	err := row.Scan(&rt.ID, &rt.UserID, &rt.TokenHash, &rt.ExpiresAt, &rt.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get refresh token: %w", domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get refresh token: %w", err)
+	}
+	return &rt, nil
+}
+
 func (s *Store) DeleteRefreshToken(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM refresh_tokens WHERE id = $1`, id)
 	if err != nil {
@@ -57,15 +75,23 @@ func (s *Store) DeleteRefreshTokensByUser(ctx context.Context, userID string) er
 	return nil
 }
 
-// RotateRefreshToken atomically deletes the old token and creates a new one in a single transaction.
-func (s *Store) RotateRefreshToken(ctx context.Context, oldID string, newRT *user.RefreshToken) error {
+// RotateRefreshToken atomically locks the old token by hash, deletes it, and creates
+// a new one in a single transaction. The SELECT ... FOR UPDATE prevents concurrent
+// rotation of the same token (refresh token replay protection).
+func (s *Store) RotateRefreshToken(ctx context.Context, oldTokenHash string, newRT *user.RefreshToken) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `DELETE FROM refresh_tokens WHERE id = $1`, oldID); err != nil {
+	// Lock the old token row to prevent concurrent rotation
+	oldRT, err := s.getRefreshTokenByHashForUpdate(ctx, tx, oldTokenHash)
+	if err != nil {
+		return fmt.Errorf("lock old token: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM refresh_tokens WHERE id = $1`, oldRT.ID); err != nil {
 		return fmt.Errorf("delete old refresh token: %w", err)
 	}
 

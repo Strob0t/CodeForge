@@ -471,7 +471,7 @@ func (m *mockStore) GetAPIKeyByHash(_ context.Context, _ string) (*user.APIKey, 
 func (m *mockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKey, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteAPIKey(_ context.Context, _ string) error { return nil }
+func (m *mockStore) DeleteAPIKey(_ context.Context, _, _ string) error { return nil }
 
 func (m *mockStore) RevokeToken(_ context.Context, _ string, _ time.Time) error { return nil }
 func (m *mockStore) IsTokenRevoked(_ context.Context, _ string) (bool, error)   { return false, nil }
@@ -620,7 +620,7 @@ func newTestRouter() chi.Router {
 	}
 
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, handlers)
+	cfhttp.MountRoutes(r, handlers, config.Webhook{})
 	return r
 }
 
@@ -1490,7 +1490,7 @@ func TestGenerateRepoMap(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, handlers)
+	cfhttp.MountRoutes(r, handlers, config.Webhook{})
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/repomap", http.NoBody)
 	w := httptest.NewRecorder()
@@ -1547,7 +1547,7 @@ func TestIndexProject(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, handlers)
+	cfhttp.MountRoutes(r, handlers, config.Webhook{})
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/index", http.NoBody)
 	w := httptest.NewRecorder()

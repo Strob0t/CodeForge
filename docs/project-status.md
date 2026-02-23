@@ -866,3 +866,30 @@
 - [x] (2026-02-23) SBOM generation in CI (anchore/sbom-action)
 - [x] (2026-02-23) Content-Security-Policy header (nginx + Go middleware)
 - [x] (2026-02-23) HSTS header prepared for production deployment
+
+### Comprehensive OWASP Top 10:2025 + WSTG v4.2 Remediation (COMPLETED)
+
+Full security audit and remediation across all priority levels (P0-P3, 50+ findings).
+
+#### P0 Blockers Fixed
+- [x] (2026-02-23) Hardcoded credentials removed: `codeforge.yaml` → `codeforge.example.yaml` with placeholders, original gitignored
+- [x] (2026-02-23) Docker production hardening: required env vars (`${VAR:?required}`), sslmode=require, NATS auth, read_only, no-new-privileges
+- [x] (2026-02-23) JWT empty secret rejection: `Config.Validate()` rejects empty JWT secret when auth enabled
+- [x] (2026-02-23) Tenant isolation in store_review.go: all 11 queries now include `AND tenant_id` filter
+- [x] (2026-02-23) IDOR fix in DeleteAPIKey: added `AND user_id` filter to prevent cross-user key deletion
+- [x] (2026-02-23) Webhook HMAC enforcement: empty secret returns 503 instead of pass-through
+- [x] (2026-02-23) Request body size limits: generic `readJSON[T]` helper with 1MB MaxBytesReader across 30+ handlers
+- [x] (2026-02-23) Path traversal prevention: `sanitizeName()` for policy profiles, `filepath.Clean()` + absolute path checks for AdoptProject/DetectStackByPath
+
+#### P1 Critical Fixed
+- [x] (2026-02-23) RBAC on tenant routes: `RequireRole(admin)` wrapper on `/tenants` endpoints
+- [x] (2026-02-23) Role escalation prevention: `Register()` validates role against `ValidRoles`, defaults to `viewer`
+- [x] (2026-02-23) Account lockout: 5 failed attempts → 15min lock, `FailedAttempts`/`LockedUntil` fields + migration 031
+- [x] (2026-02-23) WebSocket origin validation: `OriginPatterns` replaces `InsecureSkipVerify: true`
+- [x] (2026-02-23) WebSocket tenant isolation: `BroadcastToTenant()` method, tenant-scoped message delivery
+- [x] (2026-02-23) JWT error message sanitization: generic "invalid token" responses, detailed errors server-side only
+- [x] (2026-02-23) Refresh token race condition: `SELECT ... FOR UPDATE` inside transaction for token rotation
+- [x] (2026-02-23) Rate limiter hardening: removed X-Forwarded-For trust, added maxBuckets cap (100k)
+- [x] (2026-02-23) Webhook routes moved outside auth group with per-route HMAC/Token middleware
+- [x] (2026-02-23) Sandbox hybrid security: `--security-opt=no-new-privileges --cap-drop=ALL` on hybrid containers
+- [x] (2026-02-23) MustChangePassword enforcement on API key auth path

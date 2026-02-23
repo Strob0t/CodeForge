@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -13,9 +12,8 @@ import (
 
 // CreateScope handles POST /api/v1/scopes
 func (h *Handlers) CreateScope(w http.ResponseWriter, r *http.Request) {
-	var req cfcontext.CreateScopeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[cfcontext.CreateScopeRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -55,9 +53,8 @@ func (h *Handlers) GetScope(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) UpdateScope(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req cfcontext.UpdateScopeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[cfcontext.UpdateScopeRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -83,11 +80,10 @@ func (h *Handlers) DeleteScope(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) AddProjectToScope(w http.ResponseWriter, r *http.Request) {
 	scopeID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.ProjectID == "" {
@@ -118,14 +114,13 @@ func (h *Handlers) RemoveProjectFromScope(w http.ResponseWriter, r *http.Request
 func (h *Handlers) SearchScope(w http.ResponseWriter, r *http.Request) {
 	scopeID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Query          string  `json:"query"`
 		TopK           int     `json:"top_k"`
 		BM25Weight     float64 `json:"bm25_weight"`
 		SemanticWeight float64 `json:"semantic_weight"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Query == "" {
@@ -159,13 +154,12 @@ func (h *Handlers) SearchScope(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SearchScopeGraph(w http.ResponseWriter, r *http.Request) {
 	scopeID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		SeedSymbols []string `json:"seed_symbols"`
 		MaxHops     int      `json:"max_hops"`
 		TopK        int      `json:"top_k"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if len(req.SeedSymbols) == 0 {

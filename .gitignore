@@ -44,6 +44,9 @@ desktop.ini
 .env.*
 !.env.example
 
+# -- Config (secrets) ------------------------------
+codeforge.yaml
+
 # -- Persistent data (docker volumes, caches) ------
 data/
 

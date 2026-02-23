@@ -43,6 +43,48 @@ import (
 )
 
 const maxQueryLength = 2000
+const maxRequestBodySize = 1 << 20 // 1 MB
+
+// readJSON decodes a JSON request body with a size limit.
+func readJSON[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
+	var v T
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+		if err.Error() == "http: request body too large" {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+		}
+		return v, false
+	}
+	return v, true
+}
+
+// sanitizeName validates a name is safe for use in file paths.
+// It rejects names containing path separators, dots-prefix, or other traversal patterns.
+func sanitizeName(name string) error {
+	if name == "" {
+		return errors.New("name is required")
+	}
+	if len(name) > 128 {
+		return errors.New("name too long (max 128 chars)")
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return errors.New("name must not contain path separators")
+	}
+	if strings.Contains(name, "..") {
+		return errors.New("name must not contain '..'")
+	}
+	if name[0] == '.' {
+		return errors.New("name must not start with '.'")
+	}
+	// Verify cleaned path stays within the expected directory
+	cleaned := filepath.Clean(name)
+	if cleaned != name {
+		return errors.New("name contains invalid path characters")
+	}
+	return nil
+}
 
 // Handlers holds the HTTP handler dependencies.
 type Handlers struct {
@@ -107,9 +149,8 @@ func (h *Handlers) GetProject(w http.ResponseWriter, r *http.Request) {
 
 // CreateProject handles POST /api/v1/projects
 func (h *Handlers) CreateProject(w http.ResponseWriter, r *http.Request) {
-	var req project.CreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[project.CreateRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.Name == "" {
@@ -153,9 +194,8 @@ func (h *Handlers) ListTasks(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req task.CreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[task.CreateRequest](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -209,13 +249,28 @@ func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 // AdoptProject handles POST /api/v1/projects/{id}/adopt
 func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var req project.AdoptRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[project.AdoptRequest](w, r)
+	if !ok {
 		return
 	}
 
-	p, err := h.Projects.Adopt(r.Context(), id, req.Path)
+	// Validate the path is an absolute path and exists
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	cleanPath := filepath.Clean(req.Path)
+	if !filepath.IsAbs(cleanPath) {
+		writeError(w, http.StatusBadRequest, "path must be absolute")
+		return
+	}
+	// Prevent traversal: path must resolve to itself after cleaning
+	if cleanPath != req.Path && cleanPath+"/" != req.Path {
+		writeError(w, http.StatusBadRequest, "path contains invalid characters")
+		return
+	}
+
+	p, err := h.Projects.Adopt(r.Context(), id, cleanPath)
 	if err != nil {
 		writeDomainError(w, err, "adopt failed")
 		return
@@ -249,18 +304,22 @@ func (h *Handlers) DetectProjectStack(w http.ResponseWriter, r *http.Request) {
 
 // DetectStackByPath handles POST /api/v1/detect-stack
 func (h *Handlers) DetectStackByPath(w http.ResponseWriter, r *http.Request) {
-	var req struct {
+	req, ok := readJSON[struct {
 		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Path == "" {
 		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
-	result, err := h.Projects.DetectStackByPath(r.Context(), req.Path)
+	cleanPath := filepath.Clean(req.Path)
+	if !filepath.IsAbs(cleanPath) {
+		writeError(w, http.StatusBadRequest, "path must be absolute")
+		return
+	}
+	result, err := h.Projects.DetectStackByPath(r.Context(), cleanPath)
 	if err != nil {
 		writeDomainError(w, err, "stack detection failed")
 		return
@@ -304,11 +363,10 @@ func (h *Handlers) ListProjectBranches(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CheckoutBranch(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Branch string `json:"branch"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Branch == "" {
@@ -341,14 +399,13 @@ func (h *Handlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Name           string            `json:"name"`
 		Backend        string            `json:"backend"`
 		Config         map[string]string `json:"config"`
 		ResourceLimits *resource.Limits  `json:"resource_limits,omitempty"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Name == "" {
@@ -393,11 +450,10 @@ func (h *Handlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DispatchTask(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		TaskID string `json:"task_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.TaskID == "" {
@@ -416,11 +472,10 @@ func (h *Handlers) DispatchTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) StopAgentTask(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		TaskID string `json:"task_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.TaskID == "" {
@@ -479,9 +534,8 @@ func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
 
 // AddLLMModel handles POST /api/v1/llm/models
 func (h *Handlers) AddLLMModel(w http.ResponseWriter, r *http.Request) {
-	var req litellm.AddModelRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[litellm.AddModelRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.ModelName == "" {
@@ -499,11 +553,10 @@ func (h *Handlers) AddLLMModel(w http.ResponseWriter, r *http.Request) {
 
 // DeleteLLMModel handles POST /api/v1/llm/models/delete
 func (h *Handlers) DeleteLLMModel(w http.ResponseWriter, r *http.Request) {
-	var req struct {
+	req, ok := readJSON[struct {
 		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.ID == "" {
@@ -553,9 +606,8 @@ func (h *Handlers) GetPolicyProfile(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
-	var call policy.ToolCall
-	if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	call, ok := readJSON[policy.ToolCall](w, r)
+	if !ok {
 		return
 	}
 	if call.Tool == "" {
@@ -574,13 +626,12 @@ func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 
 // CreatePolicyProfile handles POST /api/v1/policies
 func (h *Handlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Request) {
-	var profile policy.PolicyProfile
-	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	profile, ok := readJSON[policy.PolicyProfile](w, r)
+	if !ok {
 		return
 	}
-	if profile.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+	if err := sanitizeName(profile.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -604,6 +655,10 @@ func (h *Handlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Request) {
 // DeletePolicyProfile handles DELETE /api/v1/policies/{name}
 func (h *Handlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	if err := sanitizeName(name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if err := h.Policies.DeleteProfile(name); err != nil {
 		if policy.IsPreset(name) {
@@ -628,9 +683,8 @@ func (h *Handlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Request) {
 
 // StartRun handles POST /api/v1/runs
 func (h *Handlers) StartRun(w http.ResponseWriter, r *http.Request) {
-	var req run.StartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[run.StartRequest](w, r)
+	if !ok {
 		return
 	}
 	if req.TaskID == "" {
@@ -709,9 +763,8 @@ func (h *Handlers) ListRunEvents(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreatePlan(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req plan.CreatePlanRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[plan.CreatePlanRequest](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -776,9 +829,8 @@ func (h *Handlers) CancelPlan(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DecomposeFeature(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req plan.DecomposeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[plan.DecomposeRequest](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -811,9 +863,8 @@ func (h *Handlers) ListTeams(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req agent.CreateTeamRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[agent.CreateTeamRequest](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -853,9 +904,8 @@ func (h *Handlers) DeleteTeam(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) PlanFeature(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req plan.PlanFeatureRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[plan.PlanFeatureRequest](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -885,12 +935,11 @@ func (h *Handlers) GetContextPack(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) BuildContextPack(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
 		TeamID    string `json:"team_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.ProjectID == "" {
@@ -923,9 +972,8 @@ func (h *Handlers) GetSharedContext(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) AddSharedContextItem(w http.ResponseWriter, r *http.Request) {
 	teamID := chi.URLParam(r, "id")
 
-	var req cfcontext.AddSharedItemRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[cfcontext.AddSharedItemRequest](w, r)
+	if !ok {
 		return
 	}
 	req.TeamID = teamID
@@ -962,9 +1010,8 @@ func (h *Handlers) GetMode(w http.ResponseWriter, r *http.Request) {
 
 // CreateMode handles POST /api/v1/modes
 func (h *Handlers) CreateMode(w http.ResponseWriter, r *http.Request) {
-	var m mode.Mode
-	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	m, ok := readJSON[mode.Mode](w, r)
+	if !ok {
 		return
 	}
 	if err := h.Modes.Register(&m); err != nil {
@@ -995,6 +1042,7 @@ func (h *Handlers) GenerateRepoMap(w http.ResponseWriter, r *http.Request) {
 		ActiveFiles []string `json:"active_files"`
 	}
 	// Body is optional; empty body is fine.
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	if err := h.RepoMap.RequestGeneration(r.Context(), projectID, req.ActiveFiles); err != nil {
@@ -1014,6 +1062,7 @@ func (h *Handlers) IndexProject(w http.ResponseWriter, r *http.Request) {
 		EmbeddingModel string `json:"embedding_model"`
 	}
 	// Body is optional; empty body is fine.
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	if err := h.Retrieval.RequestIndex(r.Context(), projectID, req.EmbeddingModel); err != nil {
@@ -1038,14 +1087,13 @@ func (h *Handlers) GetIndexStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Query          string  `json:"query"`
 		TopK           int     `json:"top_k"`
 		BM25Weight     float64 `json:"bm25_weight"`
 		SemanticWeight float64 `json:"semantic_weight"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Query == "" {
@@ -1080,15 +1128,14 @@ func (h *Handlers) SearchProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Query      string `json:"query"`
 		TopK       int    `json:"top_k"`
 		MaxQueries int    `json:"max_queries"`
 		Model      string `json:"model"`
 		Rerank     *bool  `json:"rerank"` // pointer to distinguish absent (use config default) from explicit false
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Query == "" {
@@ -1165,13 +1212,12 @@ func (h *Handlers) GetGraphStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SearchGraph(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		SeedSymbols []string `json:"seed_symbols"`
 		MaxHops     int      `json:"max_hops"`
 		TopK        int      `json:"top_k"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if len(req.SeedSymbols) == 0 {
@@ -1326,9 +1372,8 @@ func (h *Handlers) GetProjectRoadmap(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateProjectRoadmap(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req roadmap.CreateRoadmapRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[roadmap.CreateRoadmapRequest](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -1356,14 +1401,13 @@ func (h *Handlers) UpdateProjectRoadmap(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Status      string `json:"status"`
 		Version     int    `json:"version"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 
@@ -1442,9 +1486,8 @@ func (h *Handlers) CreateMilestone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req roadmap.CreateMilestoneRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[roadmap.CreateMilestoneRequest](w, r)
+	if !ok {
 		return
 	}
 	req.RoadmapID = rm.ID
@@ -1466,15 +1509,14 @@ func (h *Handlers) CreateMilestone(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) UpdateMilestone(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Status      string `json:"status"`
 		SortOrder   *int   `json:"sort_order"`
 		Version     int    `json:"version"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 
@@ -1521,9 +1563,8 @@ func (h *Handlers) DeleteMilestone(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateFeature(w http.ResponseWriter, r *http.Request) {
 	milestoneID := chi.URLParam(r, "id")
 
-	var req roadmap.CreateFeatureRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[roadmap.CreateFeatureRequest](w, r)
+	if !ok {
 		return
 	}
 	req.MilestoneID = milestoneID
@@ -1545,7 +1586,7 @@ func (h *Handlers) CreateFeature(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) UpdateFeature(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Title       string            `json:"title"`
 		Description string            `json:"description"`
 		Status      string            `json:"status"`
@@ -1554,9 +1595,8 @@ func (h *Handlers) UpdateFeature(w http.ResponseWriter, r *http.Request) {
 		ExternalIDs map[string]string `json:"external_ids"`
 		SortOrder   *int              `json:"sort_order"`
 		Version     int               `json:"version"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 
@@ -1626,12 +1666,11 @@ func (h *Handlers) ImportSpecs(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ImportPMItems(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req struct {
+	req, ok := readJSON[struct {
 		Provider   string `json:"provider"`
 		ProjectRef string `json:"project_ref"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r)
+	if !ok {
 		return
 	}
 	if req.Provider == "" {
@@ -1808,9 +1847,8 @@ func (h *Handlers) ListTenants(w http.ResponseWriter, r *http.Request) {
 
 // CreateTenant handles POST /api/v1/tenants
 func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
-	var req tenant.CreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[tenant.CreateRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -1837,9 +1875,8 @@ func (h *Handlers) GetTenant(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req tenant.UpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[tenant.UpdateRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -1871,9 +1908,8 @@ func (h *Handlers) ListBranchProtectionRules(w http.ResponseWriter, r *http.Requ
 func (h *Handlers) CreateBranchProtectionRule(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req bp.CreateRuleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[bp.CreateRuleRequest](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -1901,9 +1937,8 @@ func (h *Handlers) GetBranchProtectionRule(w http.ResponseWriter, r *http.Reques
 func (h *Handlers) UpdateBranchProtectionRule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req bp.UpdateRuleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[bp.UpdateRuleRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -1944,9 +1979,8 @@ func (h *Handlers) ListRunCheckpoints(w http.ResponseWriter, r *http.Request) {
 // ReplayRun handles POST /api/v1/runs/{id}/replay
 func (h *Handlers) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var req event.ReplayRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	req, ok := readJSON[event.ReplayRequest](w, r)
+	if !ok {
 		return
 	}
 	req.RunID = id
@@ -2009,6 +2043,7 @@ func (h *Handlers) ProjectAuditTrail(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ResumeRun(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req run.ResumeRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = run.ResumeRequest{} // empty body is OK
 	}
@@ -2026,6 +2061,7 @@ func (h *Handlers) ResumeRun(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ForkRun(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req run.ForkRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = run.ForkRequest{} // empty body is OK
 	}
@@ -2043,6 +2079,7 @@ func (h *Handlers) ForkRun(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) RewindRun(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req run.RewindRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		req = run.RewindRequest{} // empty body is OK
 	}
@@ -2140,9 +2177,8 @@ func (h *Handlers) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var req roadmap.SyncConfig
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[roadmap.SyncConfig](w, r)
+	if !ok {
 		return
 	}
 	req.ProjectID = projectID
@@ -2267,9 +2303,8 @@ func (h *Handlers) GetPipeline(w http.ResponseWriter, r *http.Request) {
 
 // RegisterPipeline handles POST /api/v1/pipelines
 func (h *Handlers) RegisterPipeline(w http.ResponseWriter, r *http.Request) {
-	var t pipeline.Template
-	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	t, ok := readJSON[pipeline.Template](w, r)
+	if !ok {
 		return
 	}
 	if err := h.Pipelines.Register(&t); err != nil {
@@ -2282,9 +2317,8 @@ func (h *Handlers) RegisterPipeline(w http.ResponseWriter, r *http.Request) {
 // InstantiatePipeline handles POST /api/v1/pipelines/{id}/instantiate
 func (h *Handlers) InstantiatePipeline(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var req pipeline.InstantiateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[pipeline.InstantiateRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -2316,9 +2350,8 @@ func (h *Handlers) ListReviewPolicies(w http.ResponseWriter, r *http.Request) {
 // CreateReviewPolicy handles POST /api/v1/projects/{id}/review-policies
 func (h *Handlers) CreateReviewPolicy(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	var req review.CreatePolicyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	req, ok := readJSON[review.CreatePolicyRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -2344,9 +2377,8 @@ func (h *Handlers) GetReviewPolicy(w http.ResponseWriter, r *http.Request) {
 // UpdateReviewPolicy handles PUT /api/v1/review-policies/{id}
 func (h *Handlers) UpdateReviewPolicy(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var req review.UpdatePolicyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	req, ok := readJSON[review.UpdatePolicyRequest](w, r)
+	if !ok {
 		return
 	}
 

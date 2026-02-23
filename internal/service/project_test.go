@@ -510,7 +510,7 @@ func (m *mockStore) ListAPIKeysByUser(_ context.Context, userID string) ([]user.
 	return result, nil
 }
 
-func (m *mockStore) DeleteAPIKey(_ context.Context, id string) error {
+func (m *mockStore) DeleteAPIKey(_ context.Context, id, _ string) error {
 	for i := range m.apiKeys {
 		if m.apiKeys[i].ID == id {
 			m.apiKeys = append(m.apiKeys[:i], m.apiKeys[i+1:]...)

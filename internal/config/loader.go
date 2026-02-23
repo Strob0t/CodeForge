@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -257,7 +258,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Auth.DefaultAdminPass, "CODEFORGE_AUTH_ADMIN_PASS")
 }
 
-// validate checks that required fields are set.
+// validate checks that required fields are set and security constraints are met.
 func validate(cfg *Config) error {
 	if cfg.Server.Port == "" {
 		return errors.New("server.port is required")
@@ -277,6 +278,25 @@ func validate(cfg *Config) error {
 	if cfg.Rate.Burst < 1 {
 		return errors.New("rate.burst must be >= 1")
 	}
+
+	// Auth validation: reject empty JWT secret when auth is enabled.
+	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "" {
+		return errors.New("auth.jwt_secret is required when auth.enabled is true")
+	}
+
+	// Auth validation: enforce minimum bcrypt cost for security.
+	if cfg.Auth.BcryptCost < 10 {
+		return errors.New("auth.bcrypt_cost must be >= 10")
+	}
+
+	// Auth validation: warn about default admin password in production.
+	if cfg.Auth.Enabled {
+		p := cfg.Auth.DefaultAdminPass
+		if p == "changeme123" || p == "Changeme123" || p == "CHANGE_ME_ON_FIRST_BOOT" {
+			slog.Warn("auth.default_admin_pass is set to a well-known default; change it before production use")
+		}
+	}
+
 	return nil
 }
 

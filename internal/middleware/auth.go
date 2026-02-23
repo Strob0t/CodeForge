@@ -62,7 +62,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 				}
 				claims, err := authSvc.ValidateAccessToken(tokenParam)
 				if err != nil {
-					http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusUnauthorized)
+					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 					return
 				}
 				u := &user.User{
@@ -83,6 +83,10 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 				u, key, err := authSvc.ValidateAPIKey(r.Context(), apiKey)
 				if err != nil {
 					http.Error(w, `{"error":"invalid api key"}`, http.StatusUnauthorized)
+					return
+				}
+				if u.MustChangePassword && !passwordChangeExempt[r.URL.Path] {
+					http.Error(w, `{"error":"password change required"}`, http.StatusForbidden)
 					return
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
@@ -106,7 +110,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 
 			claims, err := authSvc.ValidateAccessToken(token)
 			if err != nil {
-				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusUnauthorized)
+				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
 

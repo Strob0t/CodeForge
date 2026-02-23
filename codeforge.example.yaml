@@ -7,7 +7,7 @@ server:
   cors_origin: "http://localhost:3000"
 
 postgres:
-  dsn: "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"
+  dsn: "postgres://codeforge:CHANGE_ME@localhost:5432/codeforge?sslmode=disable"
   max_conns: 15
   min_conns: 2
   max_conn_lifetime: "1h"
@@ -79,6 +79,6 @@ auth:
   jwt_secret: ""                      # HMAC-SHA256 signing key (required when enabled)
   access_token_expiry: "15m"          # Access token lifetime (default: 15m)
   refresh_token_expiry: "168h"        # Refresh token lifetime (default: 7 days)
-  bcrypt_cost: 12                     # Bcrypt work factor (default: 12, min: 4)
+  bcrypt_cost: 12                     # Bcrypt work factor (default: 12, min: 10)
   default_admin_email: "admin@localhost"  # Seed admin email on first start
-  default_admin_pass: "changeme123"       # Seed admin password (change immediately)
+  default_admin_pass: "CHANGE_ME_ON_FIRST_BOOT"  # Seed admin password (change immediately)

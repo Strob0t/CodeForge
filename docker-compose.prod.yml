@@ -1,5 +1,8 @@
 # Production Docker Compose for CodeForge
 # Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# Required environment variables (set in .env or export before running):
+#   POSTGRES_PASSWORD, LITELLM_MASTER_KEY, NATS_USER, NATS_PASS
 
 x-logging: &default-logging
   driver: json-file
@@ -15,12 +18,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-codeforge}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-codeforge}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeforge}"]
       interval: 10s
@@ -43,12 +44,16 @@ services:
   nats:
     image: nats:2-alpine
     restart: unless-stopped
-    command: ["--jetstream", "--store_dir", "/data"]
+    command:
+      - "--jetstream"
+      - "--store_dir"
+      - "/data"
+      - "--user"
+      - "${NATS_USER:?NATS_USER is required}"
+      - "--pass"
+      - "${NATS_PASS:?NATS_PASS is required}"
     volumes:
       - nats_data:/data
-    ports:
-      - "${NATS_PORT:-4222}:4222"
-      - "${NATS_MONITOR_PORT:-8222}:8222"
     healthcheck:
       test: ["CMD", "nats-server", "--signal", "ldm"]
       interval: 10s
@@ -61,8 +66,8 @@ services:
     image: ghcr.io/berriai/litellm:main-latest
     restart: unless-stopped
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:-codeforge}@postgres:5432/${POSTGRES_DB:-codeforge}"
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
     ports:
       - "${LITELLM_PORT:-4000}:4000"
     depends_on:
@@ -84,12 +89,15 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - "no-new-privileges:true"
     environment:
       CF_SERVER_PORT: "8080"
-      CF_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:-codeforge}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=disable"
-      CF_NATS_URL: "nats://nats:4222"
+      CF_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
+      CF_NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
       CF_LITELLM_URL: "http://litellm:4000"
-      CF_LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
+      CF_LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
     ports:
       - "${CORE_PORT:-8080}:8080"
     depends_on:
@@ -113,11 +121,14 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - "no-new-privileges:true"
     environment:
-      CF_NATS_URL: "nats://nats:4222"
+      CF_NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
       CF_LITELLM_URL: "http://litellm:4000"
-      CF_LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
-      CF_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:-codeforge}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=disable"
+      CF_LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      CF_POSTGRES_DSN: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
     depends_on:
       nats:
         condition: service_healthy

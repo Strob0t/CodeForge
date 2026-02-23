@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
@@ -17,7 +18,21 @@ import (
 //	    r.Use(middleware.Deprecation(sunsetDate))
 //	    // ... existing v1 routes ...
 //	})
-func MountRoutes(r chi.Router, h *Handlers) {
+func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
+	// VCS Webhooks (outside auth, use HMAC/token verification)
+	r.Route("/api/v1/webhooks", func(r chi.Router) {
+		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
+			Post("/vcs/github", h.HandleGitHubWebhook)
+		r.With(middleware.WebhookToken(webhookCfg.GitLabToken, "X-Gitlab-Token")).
+			Post("/vcs/gitlab", h.HandleGitLabWebhook)
+		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
+			Post("/pm/github", h.HandleGitHubIssueWebhook)
+		r.With(middleware.WebhookToken(webhookCfg.GitLabToken, "X-Gitlab-Token")).
+			Post("/pm/gitlab", h.HandleGitLabIssueWebhook)
+		r.With(middleware.WebhookHMAC(webhookCfg.PlaneSecret, "X-Plane-Signature")).
+			Post("/pm/plane", h.HandlePlaneWebhook)
+	})
+
 	r.Route("/api/v1", func(r chi.Router) {
 		// Version
 		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
@@ -204,11 +219,14 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/runs/{id}/trajectory", h.GetTrajectory)
 		r.Get("/runs/{id}/trajectory/export", h.ExportTrajectory)
 
-		// Tenants
-		r.Get("/tenants", h.ListTenants)
-		r.Post("/tenants", h.CreateTenant)
-		r.Get("/tenants/{id}", h.GetTenant)
-		r.Put("/tenants/{id}", h.UpdateTenant)
+		// Tenants (admin only)
+		r.Route("/tenants", func(r chi.Router) {
+			r.Use(middleware.RequireRole(user.RoleAdmin))
+			r.Get("/", h.ListTenants)
+			r.Post("/", h.CreateTenant)
+			r.Get("/{id}", h.GetTenant)
+			r.Put("/{id}", h.UpdateTenant)
+		})
 
 		// Branch Protection Rules (nested under projects + direct access)
 		r.Post("/projects/{id}/branch-rules", h.CreateBranchProtectionRule)
@@ -229,15 +247,6 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/runs/{id}/rewind", h.RewindRun)
 		r.Get("/projects/{id}/sessions", h.ListProjectSessions)
 		r.Get("/sessions/{id}", h.GetSession)
-
-		// VCS Webhooks
-		r.Post("/webhooks/vcs/github", h.HandleGitHubWebhook)
-		r.Post("/webhooks/vcs/gitlab", h.HandleGitLabWebhook)
-
-		// PM Webhooks
-		r.Post("/webhooks/pm/github", h.HandleGitHubIssueWebhook)
-		r.Post("/webhooks/pm/gitlab", h.HandleGitLabIssueWebhook)
-		r.Post("/webhooks/pm/plane", h.HandlePlaneWebhook)
 
 		// Review Policies & Reviews (Phase 12I)
 		r.Get("/projects/{id}/review-policies", h.ListReviewPolicies)

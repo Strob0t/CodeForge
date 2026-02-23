@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -17,9 +16,8 @@ const refreshCookieName = "codeforge_refresh"
 
 // Login handles POST /api/v1/auth/login
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
-	var req user.LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[user.LoginRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -132,9 +130,8 @@ func (h *Handlers) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req user.ChangePasswordRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[user.ChangePasswordRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -164,9 +161,8 @@ func (h *Handlers) CreateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req user.CreateAPIKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[user.CreateAPIKeyRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -202,8 +198,13 @@ func (h *Handlers) ListAPIKeysHandler(w http.ResponseWriter, r *http.Request) {
 
 // DeleteAPIKeyHandler handles DELETE /api/v1/auth/api-keys/{id}
 func (h *Handlers) DeleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
 	id := chi.URLParam(r, "id")
-	if err := h.Auth.DeleteAPIKey(r.Context(), id); err != nil {
+	if err := h.Auth.DeleteAPIKey(r.Context(), id, u.ID); err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -227,9 +228,8 @@ func (h *Handlers) ListUsersHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreateUserHandler handles POST /api/v1/users (admin only)
 func (h *Handlers) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
-	var req user.CreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[user.CreateRequest](w, r)
+	if !ok {
 		return
 	}
 
@@ -248,9 +248,8 @@ func (h *Handlers) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 // UpdateUserHandler handles PUT /api/v1/users/{id} (admin only)
 func (h *Handlers) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var req user.UpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[user.UpdateRequest](w, r)
+	if !ok {
 		return
 	}
 

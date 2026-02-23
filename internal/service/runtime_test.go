@@ -568,7 +568,7 @@ func (m *runtimeMockStore) GetAPIKeyByHash(_ context.Context, _ string) (*user.A
 func (m *runtimeMockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKey, error) {
 	return nil, nil
 }
-func (m *runtimeMockStore) DeleteAPIKey(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) DeleteAPIKey(_ context.Context, _, _ string) error { return nil }
 
 func (m *runtimeMockStore) RevokeToken(_ context.Context, _ string, _ time.Time) error { return nil }
 func (m *runtimeMockStore) IsTokenRevoked(_ context.Context, _ string) (bool, error) {

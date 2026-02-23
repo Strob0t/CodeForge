@@ -39,7 +39,12 @@ func NewAuthService(store database.Store, cfg *config.Auth) *AuthService {
 }
 
 // Register creates a new user with a bcrypt-hashed password.
+// If the requested role is empty or not in the valid set, it defaults to viewer.
 func (s *AuthService) Register(ctx context.Context, req *user.CreateRequest) (*user.User, error) {
+	if req.Role == "" {
+		req.Role = user.RoleViewer
+	}
+
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validate: %w", err)
 	}
@@ -66,6 +71,7 @@ func (s *AuthService) Register(ctx context.Context, req *user.CreateRequest) (*u
 }
 
 // Login authenticates a user and returns an access token + refresh token hash.
+// Accounts are temporarily locked after 5 consecutive failed attempts (15 min lockout).
 func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID string) (*user.LoginResponse, string, error) {
 	if err := req.Validate(); err != nil {
 		return nil, "", fmt.Errorf("validate: %w", err)
@@ -83,8 +89,32 @@ func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID
 		return nil, "", errors.New("account is disabled")
 	}
 
+	// Check account lockout.
+	if u.IsLocked() {
+		return nil, "", errors.New("account is temporarily locked, try again later")
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
+		// Increment failed attempts and potentially lock the account.
+		u.FailedAttempts++
+		if u.FailedAttempts >= user.MaxFailedAttempts {
+			u.LockedUntil = time.Now().Add(user.LockoutDuration)
+			slog.Warn("account locked due to failed login attempts",
+				"email", u.Email, "attempts", u.FailedAttempts)
+		}
+		if updateErr := s.store.UpdateUser(ctx, u); updateErr != nil {
+			slog.Error("failed to update user lockout state", "error", updateErr)
+		}
 		return nil, "", errors.New("invalid credentials")
+	}
+
+	// Successful login: reset failed attempts and lockout.
+	if u.FailedAttempts > 0 || !u.LockedUntil.IsZero() {
+		u.FailedAttempts = 0
+		u.LockedUntil = time.Time{}
+		if updateErr := s.store.UpdateUser(ctx, u); updateErr != nil {
+			slog.Error("failed to reset user lockout state", "error", updateErr)
+		}
 	}
 
 	accessToken, err := s.signJWT(u)
@@ -159,7 +189,7 @@ func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user
 		ExpiresAt: time.Now().Add(s.cfg.RefreshTokenExpiry),
 	}
 
-	if err := s.store.RotateRefreshToken(ctx, rt.ID, newRT); err != nil {
+	if err := s.store.RotateRefreshToken(ctx, tokenHash, newRT); err != nil {
 		return nil, "", fmt.Errorf("rotate refresh token: %w", err)
 	}
 
@@ -274,9 +304,9 @@ func (s *AuthService) ListAPIKeys(ctx context.Context, userID string) ([]user.AP
 	return s.store.ListAPIKeysByUser(ctx, userID)
 }
 
-// DeleteAPIKey removes an API key.
-func (s *AuthService) DeleteAPIKey(ctx context.Context, id string) error {
-	return s.store.DeleteAPIKey(ctx, id)
+// DeleteAPIKey removes an API key owned by the given user.
+func (s *AuthService) DeleteAPIKey(ctx context.Context, id, userID string) error {
+	return s.store.DeleteAPIKey(ctx, id, userID)
 }
 
 // ListUsers returns all users for a tenant.

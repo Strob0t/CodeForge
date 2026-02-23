@@ -70,8 +70,8 @@ func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.AP
 	return keys, rows.Err()
 }
 
-func (s *Store) DeleteAPIKey(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM api_keys WHERE id = $1`, id)
+func (s *Store) DeleteAPIKey(ctx context.Context, id, userID string) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM api_keys WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete api key: %w", err)
 	}

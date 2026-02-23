@@ -24,6 +24,14 @@ var ValidRoles = map[Role]bool{
 	RoleViewer: true,
 }
 
+// MaxFailedAttempts is the number of consecutive failed login attempts
+// before an account is temporarily locked.
+const MaxFailedAttempts = 5
+
+// LockoutDuration is how long an account stays locked after exceeding
+// MaxFailedAttempts.
+const LockoutDuration = 15 * time.Minute
+
 // User represents a registered user within a tenant.
 type User struct {
 	ID                 string    `json:"id"`
@@ -34,8 +42,16 @@ type User struct {
 	TenantID           string    `json:"tenant_id"`
 	Enabled            bool      `json:"enabled"`
 	MustChangePassword bool      `json:"must_change_password"`
+	FailedAttempts     int       `json:"-"` // consecutive failed login attempts
+	LockedUntil        time.Time `json:"-"` // account locked until this time
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// IsLocked returns true if the account is currently locked due to
+// too many failed login attempts.
+func (u *User) IsLocked() bool {
+	return !u.LockedUntil.IsZero() && time.Now().Before(u.LockedUntil)
 }
 
 // CreateRequest is the input for registering a new user.

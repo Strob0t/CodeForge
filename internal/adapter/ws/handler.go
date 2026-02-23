@@ -19,41 +19,58 @@ type Message struct {
 
 // conn wraps a single WebSocket connection.
 type conn struct {
-	ws     *websocket.Conn
-	cancel context.CancelFunc
+	ws       *websocket.Conn
+	cancel   context.CancelFunc
+	tenantID string
 }
 
 // Hub manages all active WebSocket connections and broadcasts messages.
 type Hub struct {
-	mu    sync.RWMutex
-	conns map[*conn]struct{}
+	mu            sync.RWMutex
+	conns         map[*conn]struct{}
+	allowOrigin   string                       // allowed WebSocket origin (from CORS config)
+	tenantFromCtx func(context.Context) string // extracts tenant ID from request context
 }
 
-// NewHub creates a new WebSocket hub.
-func NewHub() *Hub {
+// NewHub creates a new WebSocket hub with origin validation and tenant extraction.
+func NewHub(allowOrigin string, tenantFromCtx func(context.Context) string) *Hub {
 	return &Hub{
-		conns: make(map[*conn]struct{}),
+		conns:         make(map[*conn]struct{}),
+		allowOrigin:   allowOrigin,
+		tenantFromCtx: tenantFromCtx,
 	}
 }
 
 // HandleWS returns an http.HandlerFunc that upgrades connections to WebSocket.
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // CORS handled by middleware
-	})
+	opts := &websocket.AcceptOptions{}
+	if h.allowOrigin != "" {
+		opts.OriginPatterns = []string{h.allowOrigin}
+	}
+
+	ws, err := websocket.Accept(w, r, opts)
 	if err != nil {
 		slog.Error("websocket accept failed", "error", err)
 		return
 	}
 
+	// Extract tenant ID from context (set by TenantID middleware)
+	tenantID := ""
+	if h.tenantFromCtx != nil {
+		tenantID = h.tenantFromCtx(r.Context())
+	}
+	if tenantID == "" {
+		tenantID = "00000000-0000-0000-0000-000000000000"
+	}
+
 	ctx, cancel := context.WithCancel(r.Context())
-	c := &conn{ws: ws, cancel: cancel}
+	c := &conn{ws: ws, cancel: cancel, tenantID: tenantID}
 
 	h.mu.Lock()
 	h.conns[c] = struct{}{}
 	h.mu.Unlock()
 
-	slog.Info("websocket connected", "remote", r.RemoteAddr)
+	slog.Info("websocket connected", "remote", r.RemoteAddr, "tenant", tenantID)
 
 	// Read loop (to detect disconnects and consume pings)
 	go func() {
@@ -82,6 +99,28 @@ func (h *Hub) Broadcast(ctx context.Context, msg Message) {
 	defer h.mu.RUnlock()
 
 	for c := range h.conns {
+		if err := c.ws.Write(ctx, websocket.MessageText, data); err != nil {
+			slog.Debug("websocket write failed", "error", err)
+			go h.remove(c)
+		}
+	}
+}
+
+// BroadcastToTenant sends a message only to clients of the specified tenant.
+func (h *Hub) BroadcastToTenant(ctx context.Context, tenantID string, msg Message) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("websocket marshal failed", "error", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for c := range h.conns {
+		if c.tenantID != tenantID {
+			continue
+		}
 		if err := c.ws.Write(ctx, websocket.MessageText, data); err != nil {
 			slog.Debug("websocket write failed", "error", err)
 			go h.remove(c)

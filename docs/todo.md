@@ -537,6 +537,32 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) H: Content-Security-Policy header — SPA-compatible CSP on nginx + Go middleware
 - [x] (2026-02-23) I: HSTS header — commented-out in nginx.conf, ready for production HTTPS
 
+### Comprehensive OWASP Top 10:2025 + WSTG v4.2 Remediation (2026-02-23)
+
+#### P0 Blocker Fixes
+- [x] (2026-02-23) Auth enabled validation: reject empty JWT secret when `auth.enabled=true` (`internal/config/loader.go`: `Validate()` method)
+- [x] (2026-02-23) Hardcoded credentials removed: `codeforge.yaml` → `codeforge.example.yaml` with placeholders, added `codeforge.yaml` to `.gitignore`
+- [x] (2026-02-23) Docker compose prod hardened: removed default password fallbacks (`${VAR:?required}`), sslmode=require, postgres port not exposed, NATS auth, read_only containers
+- [x] (2026-02-23) Tenant isolation in store_review.go: added `AND tenant_id = $N` to all 11 read/update/delete queries
+- [x] (2026-02-23) WebSocket origin validation: replaced `InsecureSkipVerify: true` with configurable `OriginPatterns` from CORS config
+- [x] (2026-02-23) WebSocket tenant-scoped broadcast: `BroadcastToTenant()` method, connections track tenant ID
+- [x] (2026-02-23) Webhook HMAC wired to routes: moved webhook routes outside auth group, per-route HMAC/Token middleware
+- [x] (2026-02-23) Webhook HMAC empty secret bypass: now returns 503 instead of pass-through when secret not configured
+- [x] (2026-02-23) DeleteAPIKey IDOR: added `user_id` filter (`DELETE FROM api_keys WHERE id=$1 AND user_id=$2`)
+- [x] (2026-02-23) Path traversal in policy CRUD: `sanitizeName()` rejects path separators, `..`, dot-prefix, overlong names
+- [x] (2026-02-23) Path traversal in AdoptProject/DetectStackByPath: `filepath.Clean()` + absolute path validation
+- [x] (2026-02-23) Rate limiter hardened: removed spoofable X-Forwarded-For trust, added `maxBuckets` cap (100k) against memory exhaustion
+
+#### P1 Critical Fixes
+- [x] (2026-02-23) JWT error message sanitization: replaced `err.Error()` interpolation with generic `"invalid token"` message
+- [x] (2026-02-23) MustChangePassword on API key auth: enforced on API key path same as Bearer token path
+- [x] (2026-02-23) Refresh token rotation race condition: `SELECT ... FOR UPDATE` inside transaction, `RotateRefreshToken` takes hash instead of ID
+- [x] (2026-02-23) Role escalation prevention: `Register()` validates role against `ValidRoles`, defaults to `viewer`
+- [x] (2026-02-23) Account lockout: 5 failed attempts → 15min lock (`FailedAttempts`, `LockedUntil` fields on User, migration 031)
+- [x] (2026-02-23) Sandbox hybrid mode hardened: added `--security-opt=no-new-privileges --cap-drop=ALL` to CreateHybrid
+- [x] (2026-02-23) RBAC for tenant management: `/tenants` routes wrapped in `RequireRole(admin)` middleware
+- [x] (2026-02-23) Request body size limits: generic `readJSON[T]` helper with 1MB `http.MaxBytesReader` on all JSON decode handlers (~35+ endpoints)
+
 ---
 
 ### Phase 12+ — Architecture Evolution

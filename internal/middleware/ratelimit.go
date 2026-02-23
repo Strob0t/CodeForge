@@ -6,17 +6,17 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
 
 // RateLimiter is per-IP token bucket rate limiting middleware.
 type RateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*bucket
-	rate    float64 // tokens per second
-	burst   int     // max tokens
+	mu         sync.Mutex
+	buckets    map[string]*bucket
+	rate       float64 // tokens per second
+	burst      int     // max tokens
+	maxBuckets int     // max tracked IPs (prevents memory exhaustion)
 }
 
 type bucket struct {
@@ -29,9 +29,10 @@ type bucket struct {
 // (requests per second) and burst size.
 func NewRateLimiter(rate float64, burst int) *RateLimiter {
 	return &RateLimiter{
-		buckets: make(map[string]*bucket),
-		rate:    rate,
-		burst:   burst,
+		buckets:    make(map[string]*bucket),
+		rate:       rate,
+		burst:      burst,
+		maxBuckets: 100000, // 100k IPs max
 	}
 }
 
@@ -66,6 +67,10 @@ func (rl *RateLimiter) allow(ip string) (remaining int, retryAfter float64, allo
 	now := time.Now()
 	b, exists := rl.buckets[ip]
 	if !exists {
+		// Prevent memory exhaustion: cap the number of tracked IPs
+		if len(rl.buckets) >= rl.maxBuckets {
+			return 0, 1.0 / rl.rate, false // reject when at capacity
+		}
 		b = &bucket{
 			tokens:    float64(rl.burst) - 1, // consume one token for this request
 			updatedAt: now,
@@ -133,20 +138,10 @@ func (rl *RateLimiter) Len() int {
 	return len(rl.buckets)
 }
 
-// realIP extracts the client IP from X-Real-Ip or X-Forwarded-For headers
-// (set by a trusted reverse proxy like nginx), falling back to RemoteAddr.
+// realIP extracts the client IP from RemoteAddr.
+// Proxy headers (X-Forwarded-For, X-Real-Ip) are NOT trusted because
+// they can be spoofed by attackers to bypass rate limiting.
 func realIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-Ip"); ip != "" {
-		return ip
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first (client) IP from the comma-separated list.
-		if i := strings.IndexByte(xff, ','); i > 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return xff
-	}
-	// Strip port from RemoteAddr (e.g. "192.168.1.1:12345" -> "192.168.1.1").
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

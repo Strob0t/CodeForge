@@ -207,7 +207,7 @@ func TestAuthService_APIKey(t *testing.T) {
 	}
 
 	// Delete key
-	if err := svc.DeleteAPIKey(ctx, resp.APIKey.ID); err != nil {
+	if err := svc.DeleteAPIKey(ctx, resp.APIKey.ID, u.ID); err != nil {
 		t.Fatalf("delete api key: %v", err)
 	}
 }

@@ -80,7 +80,7 @@ func TestMain(m *testing.M) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	cfhttp.MountRoutes(r, handlers)
+	cfhttp.MountRoutes(r, handlers, config.Webhook{})
 
 	testServer = httptest.NewServer(r)
 

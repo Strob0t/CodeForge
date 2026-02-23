@@ -151,7 +151,7 @@ func run() error {
 	aider.Register(queue)
 
 	// --- Services ---
-	hub := ws.NewHub()
+	hub := ws.NewHub(cfg.Server.CORSOrigin, middleware.TenantIDFromContext)
 	store := postgres.NewStore(pool)
 	eventStore := postgres.NewEventStore(pool)
 	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
@@ -475,7 +475,7 @@ func run() error {
 	r.Get("/ws", hub.HandleWS)
 
 	// API routes
-	cfhttp.MountRoutes(r, handlers)
+	cfhttp.MountRoutes(r, handlers, cfg.Webhook)
 
 	// A2A protocol routes (root level, not under /api/v1)
 	if cfg.A2A.Enabled {

@@ -19,7 +19,7 @@ func WebhookHMAC(secret, header string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if secret == "" {
-				next.ServeHTTP(w, r)
+				http.Error(w, `{"error":"webhook secret not configured"}`, http.StatusServiceUnavailable)
 				return
 			}
 
@@ -67,7 +67,7 @@ func WebhookToken(token, header string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if token == "" {
-				next.ServeHTTP(w, r)
+				http.Error(w, `{"error":"webhook token not configured"}`, http.StatusServiceUnavailable)
 				return
 			}
 
