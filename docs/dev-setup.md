@@ -1,47 +1,40 @@
-# CodeForge — Development Setup
+# CodeForge -- Development Setup
 
-## Prerequisites
+### Purpose
+
+This document covers prerequisites, project structure, configuration, and daily workflows for developing CodeForge locally.
+
+### Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (with WSL2 backend on Windows)
 - [VS Code](https://code.visualstudio.com/) with Extension "Dev Containers" (`ms-vscode-remote.remote-containers`)
 - Git
 
-## Quick Start
+### Quick Start
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repo-url> CodeForge
-   cd CodeForge
-   ```
+Clone the repository:
 
-2. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env (LM Studio / Ollama endpoint, API keys, etc.)
-   ```
-
-3. **Start devcontainer:**
-   - Open VS Code: `code .`
-   - `Ctrl+Shift+P` → "Dev Containers: Reopen in Container"
-   - Wait until `setup.sh` has finished running
-
-4. **Infrastructure services start automatically** via `setup.sh`.
-   The devcontainer is connected to the `codeforge` Docker network so the
-   Go backend can reach services by container name (`codeforge-postgres`,
-   `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`,
-   `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured
-   in `devcontainer.json` — no manual setup needed.
-
-5. **Done.** The container automatically installs:
-   - Go 1.24, Python 3.12, Node.js 22
-   - Poetry, golangci-lint v2, goimports, Claude Code CLI
-   - Python dependencies (poetry install)
-   - Node dependencies (npm install)
-   - Pre-commit Hooks
-
-## Project Structure
-
+```bash
+git clone <repo-url> CodeForge
+cd CodeForge
 ```
+
+Configure the environment:
+
+```bash
+cp .env.example .env
+# Edit .env (LM Studio / Ollama endpoint, API keys, etc.)
+```
+
+Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` and select "Dev Containers: Reopen in Container". Wait until `setup.sh` has finished running.
+
+**Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed.
+
+The container automatically installs Go 1.24, Python 3.12, Node.js 22, Poetry, golangci-lint v2, goimports, Claude Code CLI, Python dependencies (poetry install), Node dependencies (npm install), and Pre-commit Hooks.
+
+### Project Structure
+
+```text
 CodeForge/
 ├── .claude/                  # Claude Code Config (gitignored)
 │   ├── commands/             # Custom Slash Commands
@@ -119,7 +112,7 @@ CodeForge/
 │       ├── quality_gate.py   # Test/lint gate executor
 │       ├── repo_map.py       # tree-sitter repo map generator
 │       ├── retrieval.py      # Hybrid retrieval (BM25 + semantic + sub-agent)
-│       ├── runtime.py        # Runtime client (Go ↔ Python protocol)
+│       ├── runtime.py        # Runtime client (Go <-> Python protocol)
 │       └── models.py         # Pydantic data models
 ├── frontend/                 # SolidJS Web GUI
 │   ├── e2e/                  # Playwright E2E tests (5 spec files)
@@ -164,7 +157,7 @@ CodeForge/
 └── pyproject.toml            # Python: Poetry + Ruff + Pytest
 ```
 
-## Ports
+### Ports
 
 | Port | Service              | Purpose                          |
 |------|----------------------|----------------------------------|
@@ -178,7 +171,7 @@ CodeForge/
 | 8080 | Go API               | Core Service REST/WebSocket      |
 | 8222 | NATS Monitoring      | NATS HTTP monitoring dashboard   |
 
-## Running Linting Manually
+### Running Linting Manually
 
 ```bash
 # All languages via pre-commit (15 hooks)
@@ -197,17 +190,17 @@ npm run lint --prefix frontend
 npm run format:check --prefix frontend
 ```
 
-### Linter Rule Summary
+#### Linter Rule Summary
 
-**Python (ruff):** F, E, W, I, N, UP, B, SIM, S (bandit security), C4, C90 (complexity 12), PERF, PIE, RET, FURB, LOG, T20, PT
+Python (ruff): F, E, W, I, N, UP, B, SIM, S (bandit security), C4, C90 (complexity 12), PERF, PIE, RET, FURB, LOG, T20, PT
 
-**Go (golangci-lint):** errcheck, govet, staticcheck, unused, ineffassign, gocritic, misspell, unconvert, unparam, gosec, bodyclose, noctx, errorlint, revive (18 rules), fatcontext, dupword, durationcheck
+Go (golangci-lint): errcheck, govet, staticcheck, unused, ineffassign, gocritic, misspell, unconvert, unparam, gosec, bodyclose, noctx, errorlint, revive (18 rules), fatcontext, dupword, durationcheck
 
-**TypeScript (ESLint):** typescript-eslint strict + stylistic configs, simple-import-sort for imports/exports
+**TypeScript** (ESLint): typescript-eslint strict + stylistic configs, simple-import-sort for imports/exports
 
-## Running Tests
+### Running Tests
 
-Use the central test runner script:
+Use the central test runner script.
 
 ```bash
 ./scripts/test.sh              # Unit tests (Go + Python + Frontend)
@@ -220,7 +213,7 @@ Use the central test runner script:
 ./scripts/test.sh all          # Everything including integration and E2E
 ```
 
-Or run each suite directly:
+Or run each suite directly.
 
 ```bash
 go test -race -count=1 ./...                              # Go unit tests
@@ -228,7 +221,7 @@ cd workers && poetry run pytest -v                         # Python unit tests
 npm run lint --prefix frontend && npm run build --prefix frontend  # Frontend
 ```
 
-### E2E Browser Tests
+#### E2E Browser Tests
 
 E2E tests use Playwright and require the full stack to be running (Go backend + frontend dev server + infrastructure).
 
@@ -248,9 +241,9 @@ cd frontend && npm run test:e2e:headed           # See browser
 cd frontend && npm run test:e2e:report           # View HTML report
 ```
 
-Tests cover: health checks (3), sidebar navigation (4), project CRUD (5), cost dashboard (2), models page (3) — 17 tests total.
+Tests cover health checks (3), sidebar navigation (4), project CRUD (5), cost dashboard (2), and models page (3), totaling 17 tests.
 
-### Integration Tests
+#### Integration Tests
 
 Integration tests run against real PostgreSQL (not mocked). They live in `tests/integration/` and use the `//go:build integration` build tag, so they are excluded from normal `go test ./...`.
 
@@ -262,13 +255,9 @@ docker compose up -d postgres nats
 go test -race -count=1 -tags=integration ./tests/integration/...
 ```
 
-The integration tests verify:
-- Health/liveness endpoints
-- Project CRUD lifecycle (create, get, list, delete)
-- Input validation (missing fields return 400)
-- Task CRUD lifecycle (create, get, list within a project)
+The integration tests verify health/liveness endpoints, project CRUD lifecycle (create, get, list, delete), input validation (missing fields return 400), and task CRUD lifecycle (create, get, list within a project).
 
-## Running the Project
+### Running the Project
 
 ```bash
 # 1. Start infrastructure (PostgreSQL, NATS, LiteLLM)
@@ -284,23 +273,23 @@ cd workers && poetry run python -m codeforge.consumer
 npm run dev --prefix frontend
 ```
 
-## Configuration
+### Configuration
 
-CodeForge uses a hierarchical configuration system: **defaults < YAML < environment variables < CLI flags**.
+CodeForge uses a hierarchical configuration system: defaults < YAML < environment variables < CLI flags.
 
-### Config File
+#### Config File
 
-Copy the example config and adjust as needed:
+Copy the example config and adjust as needed.
+
 ```bash
 cp codeforge.yaml.example codeforge.yaml
 ```
 
-The YAML file is optional. If missing, defaults are used. Environment variables override YAML,
-and CLI flags override everything.
+The YAML file is optional. If missing, defaults are used. Environment variables override YAML, and CLI flags override everything.
 
-### CLI Flags
+#### CLI Flags
 
-The Go Core binary accepts the following command-line flags (highest precedence):
+The Go Core binary accepts the following command-line flags (highest precedence).
 
 | Flag | Shorthand | Description |
 |---|---|---|
@@ -311,11 +300,12 @@ The Go Core binary accepts the following command-line flags (highest precedence)
 | `--nats-url` | | NATS server URL |
 
 Example:
+
 ```bash
 ./codeforge --port 9090 --log-level debug -c /etc/codeforge/config.yaml
 ```
 
-### Go Core Config (`internal/config/`)
+#### Go Core Config (`internal/config/`)
 
 | YAML Key | ENV Variable | Default | Description |
 |---|---|---|---|
@@ -357,7 +347,7 @@ Example:
 | `auth.default_admin_email` | `CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
 | `auth.default_admin_pass` | `CODEFORGE_AUTH_DEFAULT_ADMIN_PASS` | `changeme123` | Seed admin password |
 
-### Python Worker Config (`workers/codeforge/config.py`)
+#### Python Worker Config (`workers/codeforge/config.py`)
 
 | ENV Variable | Default | Description |
 |---|---|---|
@@ -368,7 +358,7 @@ Example:
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
 | `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker health port |
 
-## Health Endpoints
+### Health Endpoints
 
 | Endpoint | Purpose | Response |
 |---|---|---|
@@ -377,53 +367,53 @@ Example:
 
 The readiness endpoint checks PostgreSQL (ping), NATS (connection status), and LiteLLM (health API) with per-service latency reporting.
 
-## NATS Subjects
+### NATS Subjects
 
-The Go Core and Python Workers communicate via NATS JetStream subjects:
+The Go Core and Python Workers communicate via NATS JetStream subjects.
 
-### Legacy Task Protocol (fire-and-forget)
-
-| Subject | Direction | Purpose |
-|---------|-----------|---------|
-| `tasks.agent.*` | Go → Python | Dispatch task to agent backend |
-| `tasks.result` | Python → Go | Task result from worker |
-| `tasks.output` | Python → Go | Streaming output line |
-| `agents.status` | Go → Frontend | Agent status update |
-
-### Run Protocol (Phase 4B, step-by-step)
+#### Legacy Task Protocol (fire-and-forget)
 
 | Subject | Direction | Purpose |
 |---------|-----------|---------|
-| `runs.start` | Go → Python | Start a new run |
-| `runs.toolcall.request` | Python → Go | Request permission for tool call |
-| `runs.toolcall.response` | Go → Python | Permission decision (allow/deny/ask) |
-| `runs.toolcall.result` | Python → Go | Tool execution result |
-| `runs.complete` | Python → Go | Run finished |
-| `runs.cancel` | Go → Python | Cancel a running run |
-| `runs.output` | Python → Go | Streaming output line (run-scoped) |
+| `tasks.agent.*` | Go -> Python | Dispatch task to agent backend |
+| `tasks.result` | Python -> Go | Task result from worker |
+| `tasks.output` | Python -> Go | Streaming output line |
+| `agents.status` | Go -> Frontend | Agent status update |
+
+#### Run Protocol (Phase 4B, step-by-step)
+
+| Subject | Direction | Purpose |
+|---------|-----------|---------|
+| `runs.start` | Go -> Python | Start a new run |
+| `runs.toolcall.request` | Python -> Go | Request permission for tool call |
+| `runs.toolcall.response` | Go -> Python | Permission decision (allow/deny/ask) |
+| `runs.toolcall.result` | Python -> Go | Tool execution result |
+| `runs.complete` | Python -> Go | Run finished |
+| `runs.cancel` | Go -> Python | Cancel a running run |
+| `runs.output` | Python -> Go | Streaming output line (run-scoped) |
 
 The run protocol enables per-tool-call policy enforcement. Each tool call is individually approved by the Go control plane's policy engine before the Python worker executes it.
 
-### Retrieval Protocol (Phase 6B-6D)
+#### Retrieval Protocol (Phase 6B-6D)
 
 | Subject | Direction | Purpose |
 |---------|-----------|---------|
-| `retrieval.build.request` | Go → Python | Build retrieval index (BM25 + embeddings) |
-| `retrieval.build.result` | Python → Go | Index build result |
-| `retrieval.search.request` | Go → Python | Hybrid search query |
-| `retrieval.search.result` | Python → Go | Search results |
-| `retrieval.agent.search.request` | Go → Python | Sub-agent search (LLM query expansion + rerank) |
-| `retrieval.agent.search.result` | Python → Go | Sub-agent search results |
-| `graph.build.request` | Go → Python | Build structural code graph |
-| `graph.build.result` | Python → Go | Graph build result |
-| `graph.search.request` | Go → Python | BFS graph traversal from seed symbols |
-| `graph.search.result` | Python → Go | Graph search results |
+| `retrieval.build.request` | Go -> Python | Build retrieval index (BM25 + embeddings) |
+| `retrieval.build.result` | Python -> Go | Index build result |
+| `retrieval.search.request` | Go -> Python | Hybrid search query |
+| `retrieval.search.result` | Python -> Go | Search results |
+| `retrieval.agent.search.request` | Go -> Python | Sub-agent search (LLM query expansion + rerank) |
+| `retrieval.agent.search.result` | Python -> Go | Sub-agent search results |
+| `graph.build.request` | Go -> Python | Build structural code graph |
+| `graph.build.result` | Python -> Go | Graph build result |
+| `graph.search.request` | Go -> Python | BFS graph traversal from seed symbols |
+| `graph.search.result` | Python -> Go | Graph search results |
 
-## Logging
+### Logging
 
 CodeForge uses structured JSON logging across all services with Docker-native log management.
 
-### Log Access
+#### Log Access
 
 ```bash
 # Follow all service logs
@@ -439,7 +429,7 @@ docker compose logs codeforge 2>&1 | jq 'select(.level == "ERROR")'
 docker compose logs 2>&1 | jq 'select(.request_id == "your-request-id")'
 ```
 
-### Helper Script
+#### Helper Script
 
 ```bash
 ./scripts/logs.sh tail              # Follow all logs
@@ -448,44 +438,36 @@ docker compose logs 2>&1 | jq 'select(.request_id == "your-request-id")'
 ./scripts/logs.sh request abc-123   # By request ID across services
 ```
 
-### Log Level Configuration
+#### Log Level Configuration
 
 | Service | Config Key | Env Variable | Default |
 |---|---|---|---|
 | Go Core | `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` |
-| Python Workers | — | `CODEFORGE_WORKER_LOG_LEVEL` | `info` |
+| Python Workers | -- | `CODEFORGE_WORKER_LOG_LEVEL` | `info` |
 
 Valid levels: `debug`, `info`, `warn`, `error`
 
-### Log Format
+#### Log Format
 
-All services emit structured JSON to stdout:
+All services emit structured JSON to stdout.
 
 ```json
 {"time":"2026-02-17T14:30:00Z","level":"INFO","service":"codeforge","msg":"request handled","request_id":"abc-123","method":"GET","path":"/api/v1/projects"}
 ```
 
-### Request ID Propagation
+#### Request ID Propagation
 
-Every HTTP request gets a UUID (`X-Request-ID` header). This ID propagates through:
-1. Go Core HTTP handler → logger context
-2. NATS message headers (`X-Request-ID`)
-3. Python Worker → structlog context
-4. Back to Go Core via NATS response
+Every HTTP request gets a UUID (`X-Request-ID` header). This ID propagates through Go Core HTTP handler (logger context), NATS message headers (`X-Request-ID`), Python Worker (structlog context), and back to Go Core via NATS response. Use the request ID to trace a single operation across all services.
 
-Use the request ID to trace a single operation across all services.
+#### Log Rotation
 
-### Log Rotation
+Docker handles log rotation automatically via the `json-file` driver. Each service gets max 10 MB per log file with max 3 files (30 MB total per service). This is configured in `docker-compose.yml` via the `x-logging` anchor.
 
-Docker handles log rotation automatically via the `json-file` driver:
-- Max 10 MB per log file, max 3 files per service (30 MB total per service)
-- Configured in `docker-compose.yml` via `x-logging` anchor
-
-## Docker Production Build
+### Docker Production Build
 
 CodeForge ships with multi-stage Dockerfiles for all three services.
 
-### Building Images
+#### Building Images
 
 ```bash
 # Go Core (multi-stage: golang:1.24-alpine -> alpine:3.21)
@@ -498,7 +480,7 @@ docker build -t codeforge-worker -f Dockerfile.worker .
 docker build -t codeforge-frontend -f Dockerfile.frontend .
 ```
 
-### Production Compose
+#### Production Compose
 
 ```bash
 # Start all 6 services (core, worker, frontend, postgres, nats, litellm)
@@ -511,18 +493,13 @@ docker compose -f docker-compose.prod.yml logs -f
 docker compose -f docker-compose.prod.yml down
 ```
 
-Production compose differences from dev:
-- Named volumes for data persistence
-- Health checks on all services
-- `restart: unless-stopped` for auto-recovery
-- Tuned PostgreSQL (256MB shared_buffers, optimized WAL settings)
-- No dev-only services (docs-mcp, playwright)
+Production compose differences from dev include named volumes for data persistence, health checks on all services, `restart: unless-stopped` for auto-recovery, tuned PostgreSQL (256MB shared_buffers, optimized WAL settings), and no dev-only services (docs-mcp, playwright).
 
-### CI/CD
+#### CI/CD
 
 GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`.
 
-## Environment Variables
+### Environment Variables
 
 See `.env.example` for all configurable values.
 
@@ -559,9 +536,9 @@ See `.env.example` for all configurable values.
 | CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL | admin@localhost                  | Seed admin email                |
 | CODEFORGE_AUTH_DEFAULT_ADMIN_PASS | changeme123                      | Seed admin password             |
 
-## Backup & Restore
+### Backup and Restore
 
-### Manual Backup
+#### Manual Backup
 
 ```bash
 # Set connection variables (or use .env)
@@ -576,7 +553,7 @@ export PGHOST=localhost PGPORT=5432 PGUSER=codeforge PGPASSWORD=codeforge_dev PG
 
 Backups are stored in `./backups/postgres/` (gitignored) as compressed `pg_dump --format=custom` files.
 
-### Restore from Backup
+#### Restore from Backup
 
 ```bash
 # Restore from a specific file
@@ -588,18 +565,18 @@ Backups are stored in `./backups/postgres/` (gitignored) as compressed `pg_dump 
 
 The restore script drops and recreates the database. Active connections are terminated automatically.
 
-### Scheduled Backups (cron)
+#### Scheduled Backups (cron)
 
 ```bash
 # Daily backup at 3 AM UTC with 7-day retention
 0 3 * * * cd /path/to/CodeForge && PGHOST=localhost PGUSER=codeforge PGPASSWORD=... ./scripts/backup-postgres.sh --cleanup >> /var/log/codeforge-backup.log 2>&1
 ```
 
-### WAL Archiving
+#### WAL Archiving
 
 The Docker Compose postgres service is configured with `wal_level=replica` and `archive_mode=on` for future Point-in-Time Recovery (PITR) support. WAL files are archived to `/var/lib/postgresql/data/archive/` inside the container.
 
-### Environment Variables
+#### Backup Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|

@@ -4,7 +4,7 @@
 > **Date:** 2026-02-17
 > **Deciders:** Project lead + Claude Code analysis
 
-## Context
+### Context
 
 CodeForge's Go Core handles concurrent HTTP requests, WebSocket connections, NATS message processing, and agent lifecycle management. Synchronous logging (`slog.Handler` writing to stdout) blocks the calling goroutine on every log call. Under load, this creates back-pressure from I/O that slows down request processing.
 
@@ -16,13 +16,13 @@ Requirements:
 - Graceful shutdown must drain buffered logs before exit
 - The solution must use Go's standard `log/slog` (no external logging libraries)
 
-## Decision
+### Decision
 
 **Async logging via buffered channel + worker pool**, implemented as a standard `slog.Handler` wrapper.
 
-### Go Core (`internal/logger/async.go`)
+#### Go Core (`internal/logger/async.go`)
 
-```
+```text
 Caller goroutine                    Worker goroutines (N=4)
      |                                     |
      | Handle(record)                      |
@@ -38,9 +38,9 @@ Key design:
 - 4 worker goroutines drain the channel and call `inner.Handle()` (JSON to stdout)
 - `Close()` closes the channel, workers drain remaining records, `sync.WaitGroup` ensures completion
 - `WithAttrs()` and `WithGroup()` return new `AsyncHandler` instances sharing the same channel, workers, and drop counter
-- Factory: `logger.New(cfg)` returns `(*slog.Logger, Closer)` — async when `cfg.Async == true`, sync otherwise
+- Factory: `logger.New(cfg)` returns `(*slog.Logger, Closer)` (async when `cfg.Async == true`, sync otherwise)
 
-### Python Workers (`workers/codeforge/logger.py`)
+#### Python Workers (`workers/codeforge/logger.py`)
 
 Mirrors the Go approach using Python stdlib:
 - `queue.Queue(maxsize=10_000)` as the buffer
@@ -48,7 +48,7 @@ Mirrors the Go approach using Python stdlib:
 - `logging.handlers.QueueListener` with a background thread for draining
 - `stop_logging()` function for graceful shutdown
 
-### Shared Log Schema
+#### Shared Log Schema
 
 Both Go and Python emit structured JSON with a common schema:
 
@@ -56,30 +56,28 @@ Both Go and Python emit structured JSON with a common schema:
 {"time": "...", "level": "INFO", "service": "codeforge", "msg": "...", "request_id": "..."}
 ```
 
-## Consequences
+### Consequences
 
-### Positive
+#### Positive
 
-- Hot path never blocks on log I/O — `Handle()` is bounded by channel send (nanoseconds)
-- Standard `slog.Handler` interface — no custom logger API, works with `slog.Info()`, `slog.Error()`, etc.
-- Graceful shutdown drains all buffered records — no log loss during normal operation
+- Hot path never blocks on log I/O because `Handle()` is bounded by channel send (nanoseconds)
+- Standard `slog.Handler` interface means no custom logger API, works with `slog.Info()`, `slog.Error()`, etc.
+- Graceful shutdown drains all buffered records, preventing log loss during normal operation
 - Drop counter enables monitoring: if `dropped > 0`, the system is under extreme load
-- Same pattern in Go and Python — consistent mental model across the stack
+- Same pattern in Go and Python provides a consistent mental model across the stack
 
-### Negative
+#### Negative
 
-- Under extreme load (>10,000 records buffered), log records are dropped silently
-  - Mitigation: drop counter is queryable; buffer size is generous for typical workloads
-- Workers add 4 goroutines to the process (negligible resource cost)
-- Log ordering across goroutines is not strictly guaranteed (records may interleave between workers)
-  - Mitigation: each record has a timestamp; log aggregators sort by time
+- Under extreme load (>10,000 records buffered), log records are dropped silently. Mitigation: drop counter is queryable; buffer size is generous for typical workloads.
+- Workers add 4 goroutines to the process (negligible resource cost).
+- Log ordering across goroutines is not strictly guaranteed (records may interleave between workers). Mitigation: each record has a timestamp; log aggregators sort by time.
 
-### Neutral
+#### Neutral
 
 - Async mode is opt-in via `cfg.Async` (defaults to `true` in production config)
 - Sync mode available for development/debugging where log ordering matters more than throughput
 
-## Alternatives Considered
+### Alternatives Considered
 
 | Alternative | Pros | Cons | Why Not |
 |---|---|---|---|
@@ -88,11 +86,11 @@ Both Go and Python emit structured JSON with a common schema:
 | Ring buffer (overwrite oldest) | Never drops new records | Complex implementation, loses oldest context which may be important | Channel + drop-newest is simpler and acceptable for our workload |
 | Unbounded channel | Never drops | Unbounded memory growth under sustained load | Memory safety is more important than guaranteed delivery for log records |
 
-## References
+### References
 
-- `internal/logger/async.go` — AsyncHandler implementation
-- `internal/logger/logger.go` — Factory function (`New`)
-- `internal/logger/context.go` — Request ID propagation
-- `internal/logger/async_test.go` — 4 test functions
-- `workers/codeforge/logger.py` — Python async logging
-- `workers/tests/test_logger.py` — 2 Python test functions
+- `internal/logger/async.go` -- AsyncHandler implementation
+- `internal/logger/logger.go` -- Factory function (`New`)
+- `internal/logger/context.go` -- Request ID propagation
+- `internal/logger/async_test.go` -- 4 test functions
+- `workers/codeforge/logger.py` -- Python async logging
+- `workers/tests/test_logger.py` -- 2 Python test functions

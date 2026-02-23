@@ -1,25 +1,25 @@
-# ADR-007: Policy Layer — Permission Rules, Quality Gates, and Termination Conditions
+# ADR-007: Policy Layer -- Permission Rules, Quality Gates, and Termination Conditions
 
 > **Status:** accepted
 > **Date:** 2026-02-17
 > **Deciders:** Project lead + Claude Code analysis
 
-## Context
+### Context
 
-CodeForge executes AI coding agents at varying autonomy levels (supervised → headless). At higher autonomy levels, safety rules replace the human approver. The system needs a configurable mechanism to:
+CodeForge executes AI coding agents at varying autonomy levels (supervised to headless). At higher autonomy levels, safety rules replace the human approver. The system needs a configurable mechanism to:
 
-1. **Decide per tool call** whether an agent may execute it (allow/deny/ask)
-2. **Enforce quality gates** before delivering results (tests pass, lint clean)
-3. **Terminate runs** that exceed resource limits (steps, cost, time, stall)
-4. **Apply different rules** to different contexts (plan-only agents vs. trusted autonomous agents)
+- Decide per tool call whether an agent may execute it (allow/deny/ask)
+- Enforce quality gates before delivering results (tests pass, lint clean)
+- Terminate runs that exceed resource limits (steps, cost, time, stall)
+- Apply different rules to different contexts (plan-only agents vs. trusted autonomous agents)
 
 The policy system must be declarative (YAML-configurable), evaluable at runtime (sub-millisecond per tool call), and extensible (custom policies without code changes).
 
-## Decision
+### Decision
 
-**First-match-wins permission rules with quality gates and termination conditions, organized as named PolicyProfile presets.**
+**First-match-wins permission rules** with quality gates and termination conditions, organized as named PolicyProfile presets.
 
-### Domain Model (`internal/domain/policy/`)
+#### Domain Model (`internal/domain/policy/`)
 
 ```go
 type PolicyProfile struct {
@@ -42,25 +42,25 @@ type PermissionRule struct {
 }
 ```
 
-### Evaluation Algorithm
+#### Evaluation Algorithm
 
-```
+```text
 For each rule in profile.Rules (ordered):
     1. Does rule.Specifier match the ToolCall? (tool name + sub-pattern glob)
     2. Does the path pass PathDeny/PathAllow constraints?
     3. Does the command pass CommandDeny/CommandAllow constraints?
-    If all match → return rule.Decision
-    If any fails → skip to next rule
+    If all match -> return rule.Decision
+    If any fails -> skip to next rule
 
-No rule matched → return defaultDecisionForMode(profile.Mode)
-    plan      → deny
-    default   → ask
-    acceptEdits/delegate → allow
+No rule matched -> return defaultDecisionForMode(profile.Mode)
+    plan      -> deny
+    default   -> ask
+    acceptEdits/delegate -> allow
 ```
 
 Deny lists take precedence over allow lists within a single rule. This means a path that matches both `PathAllow` and `PathDeny` is denied (safe default).
 
-### Built-in Presets (4)
+#### Built-in Presets (4)
 
 | Preset | Mode | Use Case | Key Rules |
 |---|---|---|---|
@@ -69,7 +69,7 @@ Deny lists take precedence over allow lists within a single rule. This means a p
 | `headless-permissive-sandbox` | default | Broader autonomous execution | Allow most tools, deny network commands (curl/wget/ssh); 100 steps, 1800s, $20 |
 | `trusted-mount-autonomous` | acceptEdits | Trusted agents on mounted repos | Allow all tools, deny only secrets paths; 200 steps, 3600s, $50 |
 
-### Custom Policies
+#### Custom Policies
 
 Users create YAML files in the policy directory (`CODEFORGE_POLICY_DIR`):
 
@@ -101,40 +101,37 @@ termination:
 
 Custom profiles are loaded on startup from YAML files and can be created/deleted at runtime via the REST API.
 
-### Integration Points
+#### Integration Points
 
-- **Runtime (per tool call):** `PolicyService.Evaluate(profile, toolCall)` → Decision
-- **Runtime (termination):** `checkTermination()` reads TerminationCondition from active policy
-- **Checkpoint (rollback):** QualityGate.RollbackOnGateFail triggers `CheckpointService.RewindToLast()`
-- **Sandbox (resources):** ResourceLimits merged into Docker container flags
-- **Frontend:** PolicyPanel with list/detail/editor views and evaluate tester
+- Runtime (per tool call): `PolicyService.Evaluate(profile, toolCall)` returns a Decision
+- Runtime (termination): `checkTermination()` reads TerminationCondition from active policy
+- Checkpoint (rollback): QualityGate.RollbackOnGateFail triggers `CheckpointService.RewindToLast()`
+- Sandbox (resources): ResourceLimits merged into Docker container flags
+- Frontend: PolicyPanel with list/detail/editor views and evaluate tester
 
-## Consequences
+### Consequences
 
-### Positive
+#### Positive
 
-- **Declarative:** Policies are data (YAML), not code — operators configure without programming
-- **Fast:** First-match-wins is O(n) with small n (typically 5-15 rules); sub-microsecond evaluation
-- **Composable:** Presets cover common cases; custom policies handle edge cases
-- **Safe defaults:** Mode-based fallback ensures unmatched tools get the safest decision for the context
-- **Auditable:** Policy evaluation is deterministic — same input always produces same output
+- Declarative: Policies are data (YAML), not code, so operators configure without programming
+- Fast: First-match-wins is O(n) with small n (typically 5-15 rules); sub-microsecond evaluation
+- Composable: Presets cover common cases; custom policies handle edge cases
+- Safe defaults: Mode-based fallback ensures unmatched tools get the safest decision for the context
+- Auditable: Policy evaluation is deterministic, meaning same input always produces same output
 
-### Negative
+#### Negative
 
-- **No scope hierarchy yet:** Policies are flat (per-run), not layered (global → project → run override)
-  - Mitigation: deferred to future work; single-level policies are sufficient for current use cases
-- **No "why matched" explanation:** The evaluate endpoint returns the decision but not which rule matched
-  - Mitigation: deferred; useful for debugging but not critical for operation
-- **Rule ordering matters:** First-match-wins means rule order is semantically significant — reordering rules can change behavior
-  - Mitigation: presets are carefully ordered; custom policies must be reviewed by the user
+- No scope hierarchy yet: Policies are flat (per-run), not layered (global to project to run override). Mitigation: deferred to future work; single-level policies are sufficient for current use cases.
+- No "why matched" explanation: The evaluate endpoint returns the decision but not which rule matched. Mitigation: deferred; useful for debugging but not critical for operation.
+- Rule ordering matters: First-match-wins means rule order is semantically significant, so reordering rules can change behavior. Mitigation: presets are carefully ordered; custom policies must be reviewed by the user.
 
-### Neutral
+#### Neutral
 
-- Glob patterns (`**`, `*`, `?`) reuse Go's `filepath.Match` with a custom `**` extension — no regex overhead
-- Command matching uses prefix-based comparison (`git` matches `git status`, `git push`) — simple and predictable
+- Glob patterns (`**`, `*`, `?`) reuse Go's `filepath.Match` with a custom `**` extension, avoiding regex overhead
+- Command matching uses prefix-based comparison (`git` matches `git status`, `git push`), keeping it simple and predictable
 - Built-in presets cannot be deleted via API (protection against accidental removal)
 
-## Alternatives Considered
+### Alternatives Considered
 
 | Alternative | Pros | Cons | Why Not |
 |---|---|---|---|
@@ -143,14 +140,14 @@ Custom profiles are loaded on startup from YAML files and can be created/deleted
 | Allow-all with blocklist only | Simpler mental model | Cannot express "only these tools are allowed" (whitelist scenarios) | Plan-readonly mode requires explicit allow-listing of read-only tools |
 | Regex-based matching | More powerful patterns | Slower evaluation, harder to write correctly, regex injection risk | Glob patterns are sufficient for file paths and command prefixes |
 
-## References
+### References
 
-- `internal/domain/policy/policy.go` — Domain model (PolicyProfile, PermissionRule, ToolCall, Decision)
-- `internal/domain/policy/presets.go` — 4 built-in presets
-- `internal/domain/policy/validate.go` — Profile validation
-- `internal/domain/policy/loader.go` — YAML loading + SaveToFile
-- `internal/service/policy.go` — PolicyService with first-match-wins evaluation
-- `internal/service/policy_test.go` — 25+ test functions
-- `internal/adapter/http/handlers.go` — REST API handlers (list, get, evaluate, create, delete)
-- `frontend/src/features/project/PolicyPanel.tsx` — Frontend UI component
-- `docs/features/04-agent-orchestration.md` — Policy System section
+- `internal/domain/policy/policy.go` -- Domain model (PolicyProfile, PermissionRule, ToolCall, Decision)
+- `internal/domain/policy/presets.go` -- 4 built-in presets
+- `internal/domain/policy/validate.go` -- Profile validation
+- `internal/domain/policy/loader.go` -- YAML loading + SaveToFile
+- `internal/service/policy.go` -- PolicyService with first-match-wins evaluation
+- `internal/service/policy_test.go` -- 25+ test functions
+- `internal/adapter/http/handlers.go` -- REST API handlers (list, get, evaluate, create, delete)
+- `frontend/src/features/project/PolicyPanel.tsx` -- Frontend UI component
+- `docs/features/04-agent-orchestration.md` -- Policy System section

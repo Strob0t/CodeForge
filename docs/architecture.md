@@ -1,13 +1,12 @@
-# CodeForge — Architecture
+# CodeForge -- Architecture
 
-## Overview
+### Purpose
 
-CodeForge is a containerized service for orchestrating AI coding agents.
-The architecture follows a three-layer model with strict language separation by responsibility.
+CodeForge is a containerized service for orchestrating AI coding agents. The architecture follows a three-layer model with strict language separation by responsibility.
 
-## System Architecture
+### System Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │                  TypeScript Frontend                 │
 │                     (SolidJS)                        │
@@ -59,159 +58,131 @@ The architecture follows a three-layer model with strict language separation by 
 └────────────────────────────────────────────────────┘
 ```
 
-## Layers in Detail
+### Layers in Detail
 
-### Frontend (TypeScript)
+#### Frontend (TypeScript)
 
-- **Purpose:** Web GUI for all user interactions
-- **Communication:** REST API for CRUD, WebSocket for real-time updates (agent logs, status)
-- **Core Modules:**
-  - Project Dashboard (manage repos, status overview)
-  - Roadmap/Feature-Map Editor (visual, OpenSpec-compatible)
-  - LLM Provider Management (configuration, cost tracking)
-  - Agent Monitor (live logs, task status, results)
+The frontend serves as the web GUI for all user interactions. It communicates with the Go Core via REST API for CRUD and WebSocket for real-time updates (agent logs, status).
 
-### Core Service (Go)
+**Core modules** include Project Dashboard (manage repos, status overview), Roadmap/Feature-Map Editor (visual, OpenSpec-compatible), LLM Provider Management (configuration, cost tracking), and Agent Monitor (live logs, task status, results).
 
-- **Purpose:** Performant backend for HTTP, WebSocket, scheduling, and coordination
-- **Why Go:** Native concurrency (goroutines), minimal RAM (~10-20MB), fast startup times, excellent for thousands of simultaneous connections
-- **Core Modules:**
-  - HTTP/WebSocket Server
-  - Agent Lifecycle Management (Start, Stop, Status, Restart)
-  - Repo Manager (Git, GitHub, GitLab, SVN Integration)
-  - Scheduling Engine (task queue, prioritization)
-  - Auth / Sessions / Multi-Tenancy
-  - Queue Producer (dispatch jobs to Python Workers)
+#### Core Service (Go)
 
-### AI Workers (Python)
+The core service provides a performant backend for HTTP, WebSocket, scheduling, and coordination. Go was chosen for native concurrency (goroutines), minimal RAM (~10-20MB), fast startup times, and excellent performance for thousands of simultaneous connections.
 
-- **Purpose:** LLM interaction and agent execution
-- **Why Python:** Native access to the AI ecosystem (LiteLLM, LangGraph, all LLM SDKs)
-- **Scaling:** Horizontal via Message Queue — any number of worker instances
-- **Core Modules:**
-  - LiteLLM Integration (multi-provider routing: OpenAI, Claude, Ollama, etc.)
-  - Agent Execution (Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex as swappable backends)
-  - LangGraph Orchestration (for complex multi-agent workflows)
+**Core modules** include HTTP/WebSocket Server, Agent Lifecycle Management (Start, Stop, Status, Restart), Repo Manager (Git, GitHub, GitLab, SVN Integration), Scheduling Engine (task queue, prioritization), Auth / Sessions / Multi-Tenancy, and Queue Producer (dispatch jobs to Python Workers).
 
-## Communication Between Layers
+#### AI Workers (Python)
 
-| From → To | Protocol | Purpose |
+The AI workers handle LLM interaction and agent execution. Python was chosen for native access to the AI ecosystem (LiteLLM, LangGraph, all LLM SDKs). Workers scale horizontally via Message Queue, supporting any number of worker instances.
+
+**Core modules** include LiteLLM Integration (multi-provider routing: OpenAI, Claude, Ollama, etc.), Agent Execution (Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex as swappable backends), and LangGraph Orchestration (for complex multi-agent workflows).
+
+### Communication Between Layers
+
+| From -> To | Protocol | Purpose |
 |---|---|---|
-| Frontend → Go | REST (HTTP/2) | CRUD Operations |
-| Frontend → Go | WebSocket | Real-time updates, logs |
-| Go → Python Workers | NATS JetStream | Job dispatch (subject-based routing) |
-| Python Workers → Go | NATS JetStream | Results, status updates |
-| Go → LiteLLM Proxy | HTTP (OpenAI format) | Config management, health checks |
-| Python Workers → LiteLLM Proxy | HTTP (OpenAI format) | LLM calls (`litellm.completion()`) |
-| LiteLLM Proxy → LLM APIs | HTTPS | Provider-specific API calls |
-| Go → SCM (Git/SVN) | CLI / REST API | Repo operations |
-| Go → Ollama/LM Studio | HTTP | Local Model Auto-Discovery |
-| Go → PM Platforms | REST API / Webhooks | Bidirectional PM sync (Plane, OpenProject, etc.) |
-| Go → Repo Specs | Filesystem | Spec detection and sync (OpenSpec, Spec Kit, Autospec) |
-| Go ↔ Tools/Agents | MCP (JSON-RPC) | Tool integration (server: expose tools, client: connect external) |
-| Go → LSP Servers | LSP (JSON-RPC) | Code intelligence per project language |
-| Go → OTEL Collector | OTLP (gRPC/HTTP) | Agent lifecycle traces, metrics |
-| Python → OTEL Collector | OTLP (gRPC/HTTP) | LLM call traces, token metrics |
-| Frontend ← Go | AG-UI events (Phase 2-3) | Standardized agent output streaming |
-| External Agents ↔ Go | A2A (Phase 2-3) | Agent discovery via Agent Cards, task delegation |
+| Frontend -> Go | REST (HTTP/2) | CRUD Operations |
+| Frontend -> Go | WebSocket | Real-time updates, logs |
+| Go -> Python Workers | NATS JetStream | Job dispatch (subject-based routing) |
+| Python Workers -> Go | NATS JetStream | Results, status updates |
+| Go -> LiteLLM Proxy | HTTP (OpenAI format) | Config management, health checks |
+| Python Workers -> LiteLLM Proxy | HTTP (OpenAI format) | LLM calls (`litellm.completion()`) |
+| LiteLLM Proxy -> LLM APIs | HTTPS | Provider-specific API calls |
+| Go -> SCM (Git/SVN) | CLI / REST API | Repo operations |
+| Go -> Ollama/LM Studio | HTTP | Local Model Auto-Discovery |
+| Go -> PM Platforms | REST API / Webhooks | Bidirectional PM sync (Plane, OpenProject, etc.) |
+| Go -> Repo Specs | Filesystem | Spec detection and sync (OpenSpec, Spec Kit, Autospec) |
+| Go <-> Tools/Agents | MCP (JSON-RPC) | Tool integration (server: expose tools, client: connect external) |
+| Go -> LSP Servers | LSP (JSON-RPC) | Code intelligence per project language |
+| Go -> OTEL Collector | OTLP (gRPC/HTTP) | Agent lifecycle traces, metrics |
+| Python -> OTEL Collector | OTLP (gRPC/HTTP) | LLM call traces, token metrics |
+| Frontend <- Go | AG-UI events (Phase 2-3) | Standardized agent output streaming |
+| External Agents <-> Go | A2A (Phase 2-3) | Agent discovery via Agent Cards, task delegation |
 
-## Protocol Support
+### Protocol Support
 
-CodeForge integrates with standardized protocols for tool integration, agent coordination,
-frontend streaming, code intelligence, and observability.
+CodeForge integrates with standardized protocols for tool integration, agent coordination, frontend streaming, code intelligence, and observability.
 
-### Tier 1: Essential (Phase 1-2)
-
-| Protocol | Purpose | Standard | Integration Point |
-|---|---|---|---|
-| **MCP** (Model Context Protocol) | Agent ↔ Tool communication | JSON-RPC 2.0 over stdio/SSE/HTTP (Anthropic) | Go Core: MCP server (expose tools) + MCP client registry (connect external tools). Python Workers: MCP for agent tool access |
-| **LSP** (Language Server Protocol) | Code intelligence for agents | JSON-RPC over stdio/TCP (Microsoft) | Go Core: manages LSP server lifecycle per project language. Agents receive go-to-definition, references, diagnostics, completions |
-| **OpenTelemetry GenAI** | Standardized LLM/agent observability | OTEL Semantic Conventions (CNCF) | LiteLLM exports OTEL traces natively. Go Core adds spans for agent lifecycle. Feeds Cost Dashboard + audit trails |
-
-### Tier 2: Important (Phase 2-3)
+#### Tier 1: Essential (Phase 1-2)
 
 | Protocol | Purpose | Standard | Integration Point |
 |---|---|---|---|
-| **A2A** (Agent-to-Agent Protocol) | Peer-to-peer agent coordination | Agent Cards + Tasks over HTTP/SSE (Google → Linux Foundation AAIF) | Agent backends register as A2A agents with capability cards. External agents discover and delegate to CodeForge |
-| **AG-UI** (Agent-User Interaction Protocol) | Bi-directional agent ↔ frontend streaming | JSON events over HTTP (CopilotKit) | Frontend WebSocket protocol follows AG-UI event format. Lifecycle events: TEXT_MESSAGE, TOOL_CALL, STATE_DELTA. Human-in-the-loop built in |
+| MCP (Model Context Protocol) | Agent <-> Tool communication | JSON-RPC 2.0 over stdio/SSE/HTTP (Anthropic) | Go Core: MCP server (expose tools) + MCP client registry (connect external tools). Python Workers: MCP for agent tool access |
+| LSP (Language Server Protocol) | Code intelligence for agents | JSON-RPC over stdio/TCP (Microsoft) | Go Core: manages LSP server lifecycle per project language. Agents receive go-to-definition, references, diagnostics, completions |
+| OpenTelemetry GenAI | Standardized LLM/agent observability | OTEL Semantic Conventions (CNCF) | LiteLLM exports OTEL traces natively. Go Core adds spans for agent lifecycle. Feeds Cost Dashboard + audit trails |
 
-### Tier 3: Future / Watch
+#### Tier 2: Important (Phase 2-3)
+
+| Protocol | Purpose | Standard | Integration Point |
+|---|---|---|---|
+| A2A (Agent-to-Agent Protocol) | Peer-to-peer agent coordination | Agent Cards + Tasks over HTTP/SSE (Google -> Linux Foundation AAIF) | Agent backends register as A2A agents with capability cards. External agents discover and delegate to CodeForge |
+| AG-UI (Agent-User Interaction Protocol) | Bi-directional agent <-> frontend streaming | JSON events over HTTP (CopilotKit) | Frontend WebSocket protocol follows AG-UI event format. Lifecycle events: TEXT_MESSAGE, TOOL_CALL, STATE_DELTA. Human-in-the-loop built in |
+
+#### Tier 3: Future / Watch
 
 | Protocol | Purpose | Notes |
 |---|---|---|
-| **ANP** (Agent Network Protocol) | Decentralized agent communication over internet | Early stage, W3C DIDs. Relevant when agents talk to external agent networks |
-| **LSAP** (Language Server Agent Protocol) | LSP extension for AI agents | Emerging proposal, extends LSP with AI-specific capabilities |
+| ANP (Agent Network Protocol) | Decentralized agent communication over internet | Early stage, W3C DIDs. Relevant when agents talk to external agent networks |
+| LSAP (Language Server Agent Protocol) | LSP extension for AI agents | Emerging proposal, extends LSP with AI-specific capabilities |
 
-### Protocol Architecture
+#### Protocol Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │              TypeScript Frontend                     │
 │                                                     │
-│   AG-UI Events ←→ Agent output streaming            │
+│   AG-UI Events <-> Agent output streaming            │
 │   (TEXT_MESSAGE, TOOL_CALL, STATE_DELTA, APPROVAL)  │
 └────────────────────┬────────────────────────────────┘
                      │ WebSocket (AG-UI event format)
 ┌────────────────────▼────────────────────────────────┐
 │              Go Core Service                         │
 │                                                     │
-│   MCP Server ←→ Expose CodeForge tools              │
-│   MCP Client ←→ Connect to external MCP servers     │
-│   LSP Client ←→ Code intelligence per language      │
-│   A2A Server ←→ Agent Cards, task delegation        │
-│   OTEL SDK   ←→ Traces, metrics → collector         │
+│   MCP Server <-> Expose CodeForge tools              │
+│   MCP Client <-> Connect to external MCP servers     │
+│   LSP Client <-> Code intelligence per language      │
+│   A2A Server <-> Agent Cards, task delegation        │
+│   OTEL SDK   <-> Traces, metrics -> collector         │
 └────────────────────┬────────────────────────────────┘
                      │ NATS JetStream
 ┌────────────────────▼────────────────────────────────┐
 │              Python Workers                          │
 │                                                     │
-│   MCP Client ←→ Tool access for agents              │
-│   OTEL SDK   ←→ LLM call traces, token metrics      │
+│   MCP Client <-> Tool access for agents              │
+│   OTEL SDK   <-> LLM call traces, token metrics      │
 └─────────────────────────────────────────────────────┘
 ```
 
-## Design Decisions
+### Design Decisions
 
-### Why not everything in Python?
-Go handles a fraction of the resources under the same load. A Go HTTP server scales effortlessly to tens of thousands of simultaneous connections — in Python you need significantly more tuning and instances for that.
+#### Why not everything in Python?
 
-### Why not everything in Go?
+Go handles a fraction of the resources under the same load. A Go HTTP server scales effortlessly to tens of thousands of simultaneous connections. In Python you need significantly more tuning and instances for that.
+
+#### Why not everything in Go?
+
 The entire AI/agent ecosystem (LiteLLM, LangGraph, Aider, OpenHands, SWE-agent, all LLM SDKs) is Python. Connecting everything via bridges would be more overhead than dedicated Python workers.
 
-### Why Message Queue instead of direct calls?
-- Decoupling: Go service does not have to wait for slow LLM calls
-- Scaling: Workers are horizontally scalable
-- Resilience: Jobs are not lost when a worker crashes
-- Backpressure: Queue buffers during load spikes
+#### Why Message Queue instead of direct calls?
 
-### Why YAML as the uniform configuration format?
+Decoupling means the Go service does not have to wait for slow LLM calls. Workers are horizontally scalable. Jobs are not lost when a worker crashes (resilience). The queue buffers during load spikes (backpressure).
 
-**All configuration files in CodeForge use YAML** — no exceptions:
+#### Why YAML as the uniform configuration format?
 
-- Agent modes and specializations
-- Tool bundles and tool definitions
-- Project settings and safety rules
-- Autonomy configuration
-- LiteLLM config (natively YAML)
-- Prompt metadata (Jinja2 templates themselves remain `.jinja2`)
+All configuration files in CodeForge use YAML with no exceptions. This applies to agent modes and specializations, tool bundles and tool definitions, project settings and safety rules, autonomy configuration, LiteLLM config (natively YAML), and prompt metadata (Jinja2 templates themselves remain `.jinja2`).
 
-**Reason:** YAML supports comments. This is critical for:
-- Documentation directly in the config (`# Why this budget limit?`)
-- Temporarily disabling settings (`# tools: [terminal]`)
-- Onboarding: Contributors understand configs without external documentation
-- Versioning: Comments explain changes in the Git diff
+**YAML supports comments**, which is critical for documentation directly in the config (`# Why this budget limit?`), temporarily disabling settings (`# tools: [terminal]`), onboarding (contributors understand configs without external documentation), and versioning (comments explain changes in the Git diff).
 
-JSON is **not** used for configuration files. JSON remains
-for API responses, event serialization, and internal data exchange.
+JSON is not used for configuration files. JSON remains for API responses, event serialization, and internal data exchange.
 
-## Software Architecture: Hexagonal + Provider Registry
+### Software Architecture: Hexagonal + Provider Registry
 
-### Core Principle: Hexagonal Architecture (Ports & Adapters)
+#### Core Principle: Hexagonal Architecture (Ports and Adapters)
 
-The core logic (domain + services) is completely isolated from external systems.
-All dependencies point inward — never outward.
+The core logic (domain + services) is completely isolated from external systems. All dependencies point inward, never outward.
 
-```
+```text
 ┌──────────────────────────────────────────────────────────┐
 │                    ADAPTERS (outer)                        │
 │  HTTP Handlers, GitHub, Postgres, NATS, Ollama, Aider     │
@@ -231,18 +202,11 @@ All dependencies point inward — never outward.
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Provider Registry Pattern
+#### Provider Registry Pattern
 
-For open-source extensibility, CodeForge uses a self-registering provider pattern.
-New implementations (e.g., a Gitea adapter) require:
+For open-source extensibility, CodeForge uses a self-registering provider pattern. New implementations (e.g., a Gitea adapter) require a Go package that satisfies the corresponding interface, a blank import in `cmd/codeforge/providers.go`, and no changes to the core logic.
 
-1. A Go package that satisfies the corresponding interface
-2. A blank import in `cmd/codeforge/providers.go`
-3. No changes to the core logic
-
-#### Flow
-
-```
+```text
 1. Port defines interface + registry
    (Register, New, Available)
 
@@ -271,8 +235,7 @@ This pattern follows the Go standard pattern (`database/sql` + `_ "github.com/li
 
 #### Capabilities
 
-Not every provider supports all operations. Instead of empty implementations,
-each provider declares its capabilities:
+Not every provider supports all operations. Instead of empty implementations, each provider declares its capabilities.
 
 ```go
 type Capability string
@@ -284,18 +247,15 @@ const (
 )
 ```
 
-The core logic and the frontend check capabilities and adapt their behavior accordingly.
-SVN does not support webhooks, for example — that is not an error but declared behavior.
+The core logic and the frontend check capabilities and adapt their behavior accordingly. SVN does not support webhooks, for example. That is not an error but declared behavior.
 
 #### Compliance Tests
 
-Each provider type ships a reusable test suite (`RunComplianceTests`).
-A new adapter calls this function and automatically receives all interface tests.
-Contributors write minimal test code and get maximum coverage.
+Each provider type ships a reusable test suite (`RunComplianceTests`). A new adapter calls this function and automatically receives all interface tests. Contributors write minimal test code and get maximum coverage.
 
-### Go Core Directory Structure
+#### Go Core Directory Structure
 
-```
+```text
 cmd/
   codeforge/
     main.go              # Entry point, dependency injection
@@ -343,188 +303,102 @@ internal/
   service/               # Use cases (connects domain with ports)
 ```
 
-## Infrastructure Patterns (Implemented)
+### Infrastructure Patterns (Implemented)
 
-### Reliability
+#### Reliability
 
-#### Circuit Breaker (`internal/resilience/breaker.go`)
+**Circuit Breaker** (`internal/resilience/breaker.go`) provides a zero-dependency circuit breaker for external service calls (NATS Publish, LiteLLM API).
 
-Zero-dependency circuit breaker for external service calls (NATS Publish, LiteLLM API):
-
-```
+```text
 Closed ──(failure count >= maxFailures)──> Open
 Open   ──(timeout elapsed)──────────────> Half-Open
 Half-Open ──(success)───────────────────> Closed
 Half-Open ──(failure)───────────────────> Open
 ```
 
-- Configurable `maxFailures` and `timeout` from `config.Breaker`
-- Injected via `SetBreaker()` on NATS and LiteLLM adapters
-- Prevents cascading failures when downstream services are unavailable
+The breaker has configurable `maxFailures` and `timeout` from `config.Breaker`. It is injected via `SetBreaker()` on NATS and LiteLLM adapters. This prevents cascading failures when downstream services are unavailable.
 
-#### Idempotency Middleware (`internal/middleware/idempotency.go`)
+**Idempotency Middleware** (`internal/middleware/idempotency.go`) deduplicates mutating HTTP requests (POST/PUT/DELETE). The client sends an `Idempotency-Key` header. The first request executes, captures the response (status + headers + body), and stores it in NATS JetStream KV (24h TTL). Subsequent requests with the same key replay the cached response without re-executing. Response body is capped at 1 MB with best-effort storage (failures don't error the response). GET/HEAD/OPTIONS bypass the middleware entirely.
 
-HTTP middleware for deduplicating mutating requests (POST/PUT/DELETE):
+**Dead Letter Queue** handles failed NATS messages by retrying 3 times with `NakWithDelay(2s)`, then moving to `{subject}.dlq`. In Go, `moveToDLQ()` publishes to the DLQ subject and acks the original message. In Python, `_move_to_dlq()` uses the same retry counting via `Retry-Count` header. Invalid schema messages go directly to the DLQ with no retries.
 
-- Client sends `Idempotency-Key` header
-- First request: execute, capture response (status + headers + body), store in NATS JetStream KV (24h TTL)
-- Subsequent requests with same key: replay cached response without re-executing
-- Response body capped at 1 MB; best-effort storage (failures don't error the response)
-- GET/HEAD/OPTIONS bypass the middleware entirely
+**Graceful Shutdown** follows a 4-phase ordered sequence: HTTP server, cancel NATS subscribers, NATS Drain, PostgreSQL pool close.
 
-#### Dead Letter Queue
+#### Performance
 
-Failed NATS messages are retried 3 times with `NakWithDelay(2s)`, then moved to `{subject}.dlq`:
+**Tiered Cache** (L1 + L2) provides a two-level caching strategy.
 
-- Go: `moveToDLQ()` publishes to DLQ subject, acks original message
-- Python: `_move_to_dlq()` with same retry counting via `Retry-Count` header
-- Invalid schema messages go directly to DLQ (no retries)
-
-#### Graceful Shutdown
-
-4-phase ordered shutdown: HTTP server → cancel NATS subscribers → NATS Drain → PostgreSQL pool close.
-
-### Performance
-
-#### Tiered Cache (L1 + L2)
-
-```
+```text
 L1: Ristretto (in-process)     L2: NATS JetStream KV (distributed)
     100 MB, ~1ns reads              10-minute TTL, shared across instances
 
-Get: L1 hit? → return
-     L2 hit? → backfill L1 → return
-     Miss?   → return not-found
+Get: L1 hit? -> return
+     L2 hit? -> backfill L1 -> return
+     Miss?   -> return not-found
 
 Set: Write L1 + L2 (sequential)
 Delete: Remove L1 + L2 (sequential)
 ```
 
-- Port: `internal/port/cache/cache.go` (Get/Set/Delete interface)
-- Adapters: `internal/adapter/ristretto/`, `internal/adapter/natskv/`, `internal/adapter/tiered/`
-- L1 backfill uses shorter TTL (5 min) to prevent stale data
+The port lives at `internal/port/cache/cache.go` (Get/Set/Delete interface). Adapters live at `internal/adapter/ristretto/`, `internal/adapter/natskv/`, and `internal/adapter/tiered/`. L1 backfill uses shorter TTL (5 min) to prevent stale data.
 
-#### Rate Limiting (`internal/middleware/ratelimit.go`)
+**Rate Limiting** (`internal/middleware/ratelimit.go`) implements a token bucket rate limiter per IP address. It has configurable `requests_per_second` and `burst` from config. Response headers follow GitHub-style conventions: `X-RateLimit-Remaining`, `X-RateLimit-Reset`. It returns 429 with `Retry-After` header when the limit is exceeded.
 
-Token bucket rate limiter per IP address:
+#### Agent Execution
 
-- Configurable `requests_per_second` and `burst` from config
-- Response headers: `X-RateLimit-Remaining`, `X-RateLimit-Reset` (GitHub-style)
-- Returns 429 with `Retry-After` header when limit exceeded
+**Policy Layer** (`internal/service/policy.go`) evaluates first-match-wins permission rules per tool call. It ships with 4 built-in presets: `plan-readonly`, `headless-safe-sandbox`, `headless-permissive-sandbox`, and `trusted-mount-autonomous`. Custom YAML policies load from a configurable directory. Evaluation follows this order: tool specifier matching, path constraints (glob), command constraints (prefix), mode fallback. Quality gates require tests/lint pass with rollback on failure. Termination conditions include max steps, timeout, max cost, and stall detection. ADR: [007-policy-layer](architecture/adr/007-policy-layer.md).
 
-### Agent Execution
+**Runtime API** (`internal/service/runtime.go`) provides a step-by-step execution protocol between Go Control Plane and Python Workers. NATS subjects include `runs.start`, `runs.toolcall.{request,response,result}`, `runs.complete`, `runs.cancel`, and `runs.output`. The protocol enforces per-tool-call policy: Python requests permission, Go evaluates policy, Go responds allow/deny/ask. Termination enforcement checks max steps, max cost, timeout, and stall detection per tool call. Quality gate orchestration works as follows: Go triggers gate request, Python runs test/lint, Go processes result. Five deliver modes are supported: none, patch, commit-local, branch, and PR. ADR: [006-agent-execution-approach-c](architecture/adr/006-agent-execution-approach-c.md).
 
-#### Policy Layer (`internal/service/policy.go`)
+**Checkpoint System** (`internal/service/checkpoint.go`) creates shadow Git commits for safe rollback during agent execution. `CreateCheckpoint` runs `git add -A && git commit` after each file-modifying tool call. `RewindToFirst` runs `git reset --hard {first}^` to restore pre-run state on quality gate failure. `RewindToLast` runs `git reset --hard {last}^` to undo only the last change. `CleanupCheckpoints` runs `git reset --soft {first}^` to remove shadow commits while keeping the working tree.
 
-First-match-wins permission rules evaluated per tool call:
+**Docker Sandbox** (`internal/service/sandbox.go`) manages container lifecycle for isolated agent execution. It supports a Create, Start, Exec, Stop, Remove lifecycle via Docker CLI (`os/exec`). Resource limits include memory, CPU quota, PID limit, and network mode (default: `none`). A three-layer limit hierarchy applies: config defaults, then policy limits, then agent limits, capped at ceiling. The root filesystem is read-only with tmpfs `/tmp`.
 
-- 4 built-in presets: `plan-readonly`, `headless-safe-sandbox`, `headless-permissive-sandbox`, `trusted-mount-autonomous`
-- Custom YAML policies loaded from configurable directory
-- Evaluation: tool specifier matching → path constraints (glob) → command constraints (prefix) → mode fallback
-- Quality gates: require tests/lint pass, rollback on failure
-- Termination conditions: max steps, timeout, max cost, stall detection
-- ADR: [007-policy-layer](architecture/adr/007-policy-layer.md)
+#### Observability
 
-#### Runtime API (`internal/service/runtime.go`)
+**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording. Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 22+ event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, and delivery status. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download). Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).
 
-Step-by-step execution protocol between Go Control Plane and Python Workers:
+**Structured Logging** uses async JSON logging across all services (ADR: [004-async-logging](architecture/adr/004-async-logging.md)). Go uses `slog.JSONHandler` wrapped in `AsyncHandler` (10K buffer, 4 workers, non-blocking drops). Python uses `structlog.JSONRenderer` via `QueueHandler` (10K buffer, background thread). The common schema is `{time, level, service, msg, request_id}`. Docker-native log management is described in ADR: [005-docker-native-logging](architecture/adr/005-docker-native-logging.md).
 
-- NATS subjects: `runs.start`, `runs.toolcall.{request,response,result}`, `runs.complete`, `runs.cancel`, `runs.output`
-- Per-tool-call policy enforcement: Python requests permission → Go evaluates policy → Go responds allow/deny/ask
-- Termination enforcement: max steps, max cost, timeout, stall detection checked per tool call
-- Quality gate orchestration: Go triggers gate request → Python runs test/lint → Go processes result
-- 5 deliver modes: none, patch, commit-local, branch, PR
-- ADR: [006-agent-execution-approach-c](architecture/adr/006-agent-execution-approach-c.md)
+**Configuration** follows a hierarchical config system (ADR: [003-config-hierarchy](architecture/adr/003-config-hierarchy.md)). Three tiers apply: defaults < YAML (`codeforge.yaml`) < environment variables. A typed `Config` struct validates on startup. Go Core uses `CODEFORGE_*` prefix and Python uses `CODEFORGE_WORKER_*`.
 
-#### Checkpoint System (`internal/service/checkpoint.go`)
+### LLM Capability Levels
 
-Shadow Git commits for safe rollback during agent execution:
+Not every LLM brings the same capabilities. CodeForge must fill the gaps so that even simple models can be used productively.
 
-- `CreateCheckpoint`: `git add -A && git commit` after each file-modifying tool call
-- `RewindToFirst`: `git reset --hard {first}^` — restore pre-run state on quality gate failure
-- `RewindToLast`: `git reset --hard {last}^` — undo only the last change
-- `CleanupCheckpoints`: `git reset --soft {first}^` — remove shadow commits, keep working tree
+#### The Problem
 
-#### Docker Sandbox (`internal/service/sandbox.go`)
-
-Container lifecycle management for isolated agent execution:
-
-- Create → Start → Exec → Stop → Remove lifecycle via Docker CLI (`os/exec`)
-- Resource limits: memory, CPU quota, PID limit, network mode (default: `none`)
-- Three-layer limit hierarchy: config defaults → policy limits → agent limits → cap at ceiling
-- Read-only root filesystem with tmpfs `/tmp`
-
-### Observability
-
-#### Event Sourcing (`internal/domain/event/`)
-
-Append-only event stream for agent trajectory recording:
-
-- PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp)
-- 22+ event types: tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status
-- API: `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`
-- Trajectory API: `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering)
-- Trajectory Export: `GET /api/v1/runs/{id}/trajectory/export` (JSON download)
-- Trajectory Stats: SQL aggregates (total events, duration, tool calls, errors)
-- Frontend: TrajectoryPanel with timeline visualization, event filters, stats summary, export
-- Enables replay, audit trail, and trajectory inspection (deferred: full replay UI)
-
-#### Structured Logging
-
-Async JSON logging across all services (ADR: [004-async-logging](architecture/adr/004-async-logging.md)):
-
-- Go: `slog.JSONHandler` wrapped in `AsyncHandler` (10K buffer, 4 workers, non-blocking drops)
-- Python: `structlog.JSONRenderer` via `QueueHandler` (10K buffer, background thread)
-- Common schema: `{time, level, service, msg, request_id}`
-- Docker-native log management (ADR: [005-docker-native-logging](architecture/adr/005-docker-native-logging.md))
-
-#### Configuration
-
-Hierarchical config system (ADR: [003-config-hierarchy](architecture/adr/003-config-hierarchy.md)):
-
-- Three tiers: defaults < YAML (`codeforge.yaml`) < environment variables
-- Typed `Config` struct with validation on startup
-- `CODEFORGE_*` prefix for Go Core, `CODEFORGE_WORKER_*` for Python
-
-## LLM Capability Levels
-
-Not every LLM brings the same capabilities. CodeForge must fill the gaps
-so that even simple models can be used productively.
-
-### The Problem
-
-```
-Claude Code / Aider       →  own tool usage, codebase search, agent loop
-OpenAI API (direct)       →  function calling, but no codebase context
-Ollama (local)            →  pure text completion, no tools, no context
+```text
+Claude Code / Aider       ->  own tool usage, codebase search, agent loop
+OpenAI API (direct)       ->  function calling, but no codebase context
+Ollama (local)            ->  pure text completion, no tools, no context
 ```
 
-A local Ollama model knows nothing about the repo, cannot read files,
-and has no memory. CodeForge must provide these capabilities.
+A local Ollama model knows nothing about the repo, cannot read files, and has no memory. CodeForge must provide these capabilities.
 
-### Capability Stacking by Python Workers
+#### Capability Stacking by Python Workers
 
-The workers supplement missing capabilities depending on the LLM level:
+The workers supplement missing capabilities depending on the LLM level.
 
-```
+```text
 ┌──────────────────────────────────────────────────────┐
 │                    CodeForge Worker                    │
 │                                                      │
 │  ┌────────────────────────────────────────────────┐  │
 │  │  Context Layer (for all LLMs)                  │  │
 │  │  GraphRAG: Vector search + Graph DB +          │  │
-│  │  Web fallback → find relevant code/docs        │  │
+│  │  Web fallback -> find relevant code/docs        │  │
 │  └────────────────────────────────────────────────┘  │
 │                                                      │
 │  ┌────────────────────────────────────────────────┐  │
 │  │  Quality Layer (optional, configurable)        │  │
-│  │  Multi-Agent Debate: Pro/Con/Moderator →       │  │
+│  │  Multi-Agent Debate: Pro/Con/Moderator ->       │  │
 │  │  Reduce hallucinations, verify solutions       │  │
 │  └────────────────────────────────────────────────┘  │
 │                                                      │
 │  ┌────────────────────────────────────────────────┐  │
 │  │  Routing Layer                                 │  │
-│  │  Task-based model routing via LiteLLM →        │  │
+│  │  Task-based model routing via LiteLLM ->        │  │
 │  │  Right task to the right model                 │  │
 │  └────────────────────────────────────────────────┘  │
 │                                                      │
@@ -536,77 +410,49 @@ The workers supplement missing capabilities depending on the LLM level:
 └──────────────────────────────────────────────────────┘
 ```
 
-### Three LLM Integration Levels
+#### Three LLM Integration Levels
 
 | Level | Example | What CodeForge Provides |
 |---|---|---|
-| **Full-featured Agents** | Claude Code, Aider, OpenHands | Orchestration only — agent brings its own tools |
-| **API with Tool Support** | OpenAI, Claude API, Gemini | Context Layer (GraphRAG) + Routing + Tool Definitions |
-| **Pure Completion** | Ollama, LM Studio (local models) | Everything: Context, Tools, Prompt Engineering, Quality Layer |
+| Full-featured Agents | Claude Code, Aider, OpenHands | Orchestration only -- agent brings its own tools |
+| API with Tool Support | OpenAI, Claude API, Gemini | Context Layer (GraphRAG) + Routing + Tool Definitions |
+| Pure Completion | Ollama, LM Studio (local models) | Everything: Context, Tools, Prompt Engineering, Quality Layer |
 
 The less an LLM can do, the more the CodeForge Worker takes over.
 
-### Worker Modules in Detail
+#### Worker Modules in Detail
 
-**Context Layer — GraphRAG (4-Tier Retrieval)**
-- Tier 1 — RepoMap: File-level dependency graph via PageRank (tree-sitter)
-- Tier 2 — Hybrid Retrieval: BM25 keyword search + semantic embeddings with RRF fusion
-- Tier 3 — Sub-Agent: LLM-guided multi-query expansion + reranking
-- Tier 4 — GraphRAG: PostgreSQL adjacency lists for import/call graph traversal (BFS with hop-decay scoring)
-- All tiers use PostgreSQL (no Neo4j/Qdrant — single-DB architecture)
-- Result: Relevant context is prepended to the LLM prompt
+**Context Layer -- GraphRAG (4-Tier Retrieval)**
 
-**Quality Layer — Multi-Stage Quality Assurance**
+Tier 1 (RepoMap) builds a file-level dependency graph via PageRank (tree-sitter). Tier 2 (Hybrid Retrieval) runs BM25 keyword search + semantic embeddings with RRF fusion. Tier 3 (Sub-Agent) uses LLM-guided multi-query expansion + reranking. Tier 4 (GraphRAG) uses PostgreSQL adjacency lists for import/call graph traversal (BFS with hop-decay scoring). All tiers use PostgreSQL (no Neo4j/Qdrant -- single-DB architecture). The result is relevant context prepended to the LLM prompt.
 
-Four strategies, graduated by effort and criticality:
+**Quality Layer -- Multi-Stage Quality Assurance**
 
-1. **Action Sampling** (lightweight)
-   - Generate multiple independent LLM responses
-   - AskColleagues: N proposals, LLM synthesizes the best solution
-   - BinaryComparison: Pairwise comparison, winner is selected
-   - For everyday tasks with moderate quality requirements
+Four strategies are available, graduated by effort and criticality.
 
-2. **RetryAgent + Reviewer** (medium)
-   - Agent solves task multiple times (environment reset between attempts)
-   - LLM-based reviewer evaluates each solution:
-     - Score mode: Numerical evaluation, average across samples
-     - Chooser mode: Direct comparison of all solutions
-   - Best solution is selected
-   - For important changes with measurable quality
+Action Sampling (lightweight) generates multiple independent LLM responses. AskColleagues produces N proposals where an LLM synthesizes the best solution. BinaryComparison runs pairwise comparison and selects the winner. This strategy suits everyday tasks with moderate quality requirements.
 
-3. **LLM Guardrail Agent** (medium)
-   - A separate LLM evaluates the output of the working agent
-   - Validates format compliance, safety, and correctness
-   - Can reject and trigger retry before delivery
-   - For automated pipelines where human review is unavailable
+RetryAgent + Reviewer (medium) has the agent solve a task multiple times with environment reset between attempts. An LLM-based reviewer evaluates each solution in score mode (numerical evaluation, average across samples) or chooser mode (direct comparison of all solutions). The best solution is selected. This strategy suits important changes with measurable quality.
 
-4. **Multi-Agent Debate** (heavyweight)
-   - Pro agent argues for a solution
-   - Con agent searches for weaknesses
-   - Moderator synthesizes the result
-   - For critical architecture decisions and security-relevant changes
+LLM Guardrail Agent (medium) uses a separate LLM to evaluate the output of the working agent. It validates format compliance, safety, and correctness. It can reject and trigger retry before delivery. This strategy suits automated pipelines where human review is unavailable.
+
+Multi-Agent Debate (heavyweight) has a pro agent argue for a solution, a con agent search for weaknesses, and a moderator synthesize the result. This strategy suits critical architecture decisions and security-relevant changes.
 
 All four strategies are optional and configurable per project/task.
 
-**Routing Layer — Intelligent Model Routing**
-- Task classification: Architecture, code generation, review, docs, tests
-- Cost optimization: Simple tasks to cheap models, complex to powerful ones
-- Latency routing: Fast responses for interactive usage
-- Fallback chains: If a provider fails, automatically use the next one
-- Routing rules configurable per project and per user
-- **Cost Management:**
-  - Budget limits per task, per project, per user
-  - Automatic cost tracking via LiteLLM
-  - Warning/stop when budget is exceeded
-  - API call limits per agent run
+**Routing Layer -- Intelligent Model Routing**
 
-## Agent Execution: Modes, Safety, Workflow
+The routing layer handles task classification (architecture, code generation, review, docs, tests), cost optimization (simple tasks to cheap models, complex to powerful ones), latency routing (fast responses for interactive usage), and fallback chains (if a provider fails, automatically use the next one). Routing rules are configurable per project and per user.
 
-### Three Execution Modes
+Cost management includes budget limits per task/project/user, automatic cost tracking via LiteLLM, warning/stop when budget is exceeded, and API call limits per agent run.
 
-Not every use case needs a sandbox. CodeForge supports three modes:
+### Agent Execution: Modes, Safety, Workflow
 
-```
+#### Three Execution Modes
+
+Not every use case needs a sandbox. CodeForge supports three modes.
+
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Execution Modes                             │
 │                                                                 │
@@ -624,34 +470,21 @@ Not every use case needs a sandbox. CodeForge supports three modes:
 
 | Mode | When | Security | Speed |
 |---|---|---|---|
-| **Sandbox** | Untrusted agents, foreign models, batch jobs | High — no access to host | Medium — container overhead, repo copy |
-| **Mount** | Trusted agents (Claude Code, Aider), local development | Low — direct file access | High — no overhead |
-| **Hybrid** | Review workflows, CI-like execution | Medium — controlled access | Medium |
+| Sandbox | Untrusted agents, foreign models, batch jobs | High -- no access to host | Medium -- container overhead, repo copy |
+| Mount | Trusted agents (Claude Code, Aider), local development | Low -- direct file access | High -- no overhead |
+| Hybrid | Review workflows, CI-like execution | Medium -- controlled access | Medium |
 
-**Mount Mode in Detail:**
-- Agent receives path to the mounted repo (e.g., `/workspace/my-project`)
-- Changes land directly in the host's filesystem
-- Ideal for interactive use: user sees changes immediately in their IDE
-- No container needed — agent runs in the worker process or native tool
+Mount Mode gives the agent a path to the mounted repo (e.g., `/workspace/my-project`). Changes land directly in the host's filesystem. This mode is ideal for interactive use because the user sees changes immediately in their IDE. No container is needed since the agent runs in the worker process or native tool.
 
-**Sandbox Mode in Detail:**
-- Docker container per task (Docker-in-Docker)
-- Repo is copied into the container or mounted as a read-only volume
-- Agent gets all necessary tools provisioned in the container
-- Result is extracted as a patch/diff and applied to the original repo
+Sandbox Mode runs a Docker container per task (Docker-in-Docker). The repo is copied into the container or mounted as a read-only volume. The agent gets all necessary tools provisioned in the container. The result is extracted as a patch/diff and applied to the original repo.
 
-**Hybrid Mode in Detail:**
-- Container with mounted volume
-- Mount permissions configurable: read-only source + write workspace copy
-- Agent can read, but changes go into a copy
-- User reviews and merges manually
+**Hybrid Mode** runs a container with a mounted volume. Mount permissions are configurable: read-only source + write workspace copy. The agent can read, but changes go into a copy. The user reviews and merges manually.
 
-### Tool Provisioning for Sandbox Agents
+#### Tool Provisioning for Sandbox Agents
 
-Agents in sandbox containers need the right tools. CodeForge provides
-these automatically — depending on the agent type and execution mode:
+Agents in sandbox containers need the right tools. CodeForge provides these automatically depending on the agent type and execution mode.
 
-```
+```text
 ┌─────────────────────────────────────────────────┐
 │            Sandbox Container                     │
 │                                                 │
@@ -673,31 +506,19 @@ these automatically — depending on the agent type and execution mode:
 └─────────────────────────────────────────────┘
 ```
 
-Tools are defined as Pydantic schemas and passed to the LLM as function calls
-or tool definitions. Full-featured agents (Aider, OpenHands)
-bring their own tools and only need the repo.
+Tools are defined as Pydantic schemas and passed to the LLM as function calls or tool definitions. Full-featured agents (Aider, OpenHands) bring their own tools and only need the repo.
 
-### Command Safety Evaluator
+#### Command Safety Evaluator
 
-Every shell command from an agent goes through a safety check:
+Every shell command from an agent goes through a safety check. The evaluator detects destructive operations (`rm -rf`, `git push --force`, etc.), prompt injection in commands, and assesses risk level (low / medium / high). Tool blocklists cover interactive programs (`vim`, `nano`), standalone interpreters (`python` without script), and dangerous commands, all configurable per project as YAML.
 
-- **Destructive operations** detection (`rm -rf`, `git push --force`, etc.)
-- **Prompt injection** detection in commands
-- **Risk level** assessment: low / medium / high
-- **Tool blocklists:** Interactive programs (`vim`, `nano`), standalone
-  interpreters (`python` without script), dangerous commands — configurable
-  per project as YAML
-- **Configurable** per project: What may an agent do, what not?
-- When uncertain: Block command and ask user (human-in-the-loop)
+When uncertain, the evaluator blocks the command and asks the user (human-in-the-loop). This is optional for trusted agents in mount mode but mandatory for local models in the sandbox.
 
-Optional for trusted agents in mount mode. Mandatory for local models in the
-sandbox.
+#### Agent Workflow: Plan -> Execute -> Review
 
-### Agent Workflow: Plan → Execute → Review
+A standardized workflow applies to all agents with configurable autonomy level.
 
-Standardized workflow for all agents — with configurable autonomy level:
-
-```
+```text
 1. PLAN      Agent analyzes task + codebase, creates structured plan
                 ↓
 2. APPROVE   Plan is submitted for approval (depending on autonomy level)
@@ -709,16 +530,13 @@ Standardized workflow for all agents — with configurable autonomy level:
 5. DELIVER   Result as diff/patch, PR, or direct file change
 ```
 
-- Each step is individually configurable (skip, auto-approve, etc.)
-- Autonomy level determines who may approve (user vs. safety rules)
-- At level 4-5, safety rules replace the human approver
+Each step is individually configurable (skip, auto-approve, etc.). The autonomy level determines who may approve (user vs. safety rules). At level 4-5, safety rules replace the human approver.
 
-### Autonomy Spectrum
+#### Autonomy Spectrum
 
-CodeForge supports five autonomy levels — from fully supervised
-operation to completely autonomous execution without user interaction:
+CodeForge supports five autonomy levels, from fully supervised operation to completely autonomous execution without user interaction.
 
-```
+```text
 Level 1   Level 2     Level 3     Level 4      Level 5
 supervised  semi-auto   auto-edit   full-auto    headless
   │           │           │           │            │
@@ -745,9 +563,9 @@ supervised  semi-auto   auto-edit   full-auto    headless
 autonomy:
   default_level: semi-auto       # Default for new tasks
 
-  # Safety rules — replace the user as guardrail at level 4-5
+  # Safety rules -- replace the user as guardrail at level 4-5
   safety:
-    budget_hard_limit: 50.00     # USD — agent stops when exceeded
+    budget_hard_limit: 50.00     # USD -- agent stops when exceeded
     max_steps: 100               # Max actions per task
     max_file_changes: 50         # Max changed files per task
     blocked_paths:               # Files that may never be changed
@@ -764,16 +582,15 @@ autonomy:
     require_lint_pass: true      # Linting must pass before deliver
     rollback_on_failure: true    # Auto-rollback on test/lint failure
     branch_isolation: true       # Autonomous agents never work on main/master
-    max_cost_per_step: 2.00      # USD — single LLM call may cost max X
+    max_cost_per_step: 2.00      # USD -- single LLM call may cost max X
     stall_detection: true        # Detect and abort/re-plan on agent loops
 ```
 
 #### Security for Fully Autonomous Execution
 
-At level 4 (`full-auto`) and level 5 (`headless`), the following
-mechanisms replace the human approver:
+At level 4 (`full-auto`) and level 5 (`headless`), the following mechanisms replace the human approver.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                  Safety Layer (replaces user)                  │
 │                                                             │
@@ -802,7 +619,7 @@ mechanisms replace the human approver:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-#### Headless Mode (Level 5) — Use Cases
+#### Headless Mode (Level 5) -- Use Cases
 
 ```yaml
 # Nightly code review (cron job)
@@ -844,10 +661,9 @@ schedules:
 
 #### API-Driven Autonomous Execution
 
-For CI/CD and external systems:
+For CI/CD and external systems.
 
-```
-POST /api/v1/tasks
+```json
 {
   "repo": "myorg/backend",
   "task": "Fix all lint errors in src/",
@@ -862,16 +678,13 @@ POST /api/v1/tasks
 }
 ```
 
-- No UI interaction needed
-- Result is retrieved via callback or polling
-- Ideal for GitHub Actions, GitLab CI, Jenkins, etc.
+The endpoint is `POST /api/v1/tasks`. No UI interaction is needed. The result is retrieved via callback or polling. This approach is ideal for GitHub Actions, GitLab CI, Jenkins, etc.
 
-### Jinja2 Prompt Templates
+#### Jinja2 Prompt Templates
 
-All prompts for LLM calls are stored as Jinja2 templates in separate
-files, not in Python code:
+All prompts for LLM calls are stored as Jinja2 templates in separate files, not in Python code.
 
-```
+```text
 workers/codeforge/templates/
   planner.jinja2          # Planning prompt
   coder.jinja2            # Code generation prompt
@@ -880,45 +693,21 @@ workers/codeforge/templates/
   safety_evaluator.jinja2 # Safety check prompt
 ```
 
-Advantages:
-- Prompts are adjustable without code changes
-- Contributors can improve prompts without knowing Python
-- Different prompt sets for different LLMs are possible
-- Versionable and comparable (Git diff on prompt changes)
+Prompts are adjustable without code changes. Contributors can improve prompts without knowing Python. Different prompt sets for different LLMs are possible. Templates are versionable and comparable (Git diff on prompt changes).
 
-### Keyword Extraction (KeyBERT)
+#### Keyword Extraction (KeyBERT)
 
-For the Context Layer: Semantic keyword extraction from tasks and code
-using SentenceTransformers/BERT:
+For the Context Layer, semantic keyword extraction from tasks and code uses SentenceTransformers/BERT. It extracts relevant keywords from user requests and codebase. Maximal Marginal Relevance (MMR) provides diverse, non-redundant keywords. Keywords improve retrieval quality in the GraphRAG layer. The process is lightweight and runs locally without an external API.
 
-- Extracts relevant keywords from user requests and codebase
-- Maximal Marginal Relevance (MMR) for diverse, non-redundant keywords
-- Keywords improve retrieval quality in the GraphRAG layer
-- Lightweight, runs locally without external API
+#### Real-time State via WebSocket
 
-### Real-time State via WebSocket
+Every state mutation of an agent is immediately emitted to the frontend via WebSocket. This includes agent status (active, waiting, finished), internal monologue (what the agent is "thinking"), current step in the workflow, token usage and costs in real time, and terminal/browser session data. The frontend can display live updates without polling.
 
-Every state mutation of an agent is immediately emitted to the
-frontend via WebSocket:
+#### Agent Specialization: Modes System
 
-- Agent status (active, waiting, finished)
-- Internal monologue (what the agent is "thinking")
-- Current step in the workflow
-- Token usage and costs in real time
-- Terminal/browser session data
+Inspired by Roo Code's Modes and Cline's `.clinerules`, CodeForge defines specialized agent modes as YAML configurations instead of using a general-purpose agent. Each mode has its own tools, LLM settings, and autonomy level.
 
-The frontend can display live updates without polling.
-
-### Agent Specialization: Modes System
-
-Inspired by Roo Code's Modes and Cline's `.clinerules`. Instead of a
-general-purpose agent, CodeForge defines specialized agent modes
-as YAML configurations. Each mode has its own tools, LLM settings,
-and autonomy level.
-
-#### Architecture
-
-```
+```text
 ┌──────────────────────────────────────────────────────────┐
 │                    Mode Registry                          │
 │                                                          │
@@ -942,7 +731,7 @@ and autonomy level.
 # modes/architect.yaml
 name: architect
 description: "Analyzes codebase structure, plans changes, creates design documents"
-llm_scenario: think            # LiteLLM Tag → strong reasoning model
+llm_scenario: think            # LiteLLM Tag -> strong reasoning model
 autonomy: supervised           # Architecture decisions always with user
 tools:
   - read_file
@@ -951,7 +740,7 @@ tools:
   - list_files
   - plan                       # Create structured plan
   - web_search                 # Research documentation
-# No write_file, no terminal — Architect may only read and plan
+# No write_file, no terminal -- Architect may only read and plan
 prompt_template: architect.jinja2
 max_steps: 30
 ```
@@ -960,7 +749,7 @@ max_steps: 30
 # modes/coder.yaml
 name: coder
 description: "Implements features, fixes bugs, writes code"
-llm_scenario: default          # LiteLLM Tag → standard coding model
+llm_scenario: default          # LiteLLM Tag -> standard coding model
 autonomy: auto-edit            # File changes auto, terminal needs approval
 tools:
   - read_file
@@ -981,7 +770,7 @@ max_steps: 50
 # modes/reviewer.yaml
 name: reviewer
 description: "Reviews code changes for quality, bugs, security"
-llm_scenario: review           # LiteLLM Tag → review-optimized model
+llm_scenario: review           # LiteLLM Tag -> review-optimized model
 autonomy: headless             # Can run completely autonomously (readonly)
 tools:
   - read_file
@@ -991,7 +780,7 @@ tools:
   - git_diff
   - lint
   - test
-# No write_file — Reviewer may not edit, only evaluate
+# No write_file -- Reviewer may not edit, only evaluate
 prompt_template: reviewer.jinja2
 max_steps: 30
 deliver: comment               # Result as comment (PR, issue, web GUI)
@@ -1041,7 +830,7 @@ safety:
 
 #### Custom Modes (User-Defined)
 
-Users can create their own modes as YAML files:
+Users can create their own modes as YAML files.
 
 ```yaml
 # .codeforge/modes/security-auditor.yaml
@@ -1067,7 +856,7 @@ deliver: security-report       # Structured security report
 
 #### Mode Selection and Composition
 
-Modes can be used individually or as a pipeline:
+Modes can be used individually or as a pipeline.
 
 ```yaml
 # Single mode
@@ -1108,7 +897,7 @@ task:
 
 #### Directory Structure
 
-```
+```text
 # Global (shipped with CodeForge)
 modes/
   architect.yaml
@@ -1130,10 +919,9 @@ modes/
   schedules.yaml               # Cron jobs for autonomous tasks
 ```
 
-### YAML-Based Tool Definitions
+#### YAML-Based Tool Definitions
 
-Tools for agents are defined declaratively in YAML, not hardcoded in code.
-Contributors can add new tools without writing Python code:
+Tools for agents are defined declaratively in YAML, not hardcoded in code. Contributors can add new tools without writing Python code.
 
 ```yaml
 # tools/bundles/file_ops/config.yaml
@@ -1156,65 +944,50 @@ tools:
         required: true
 ```
 
-- Tool bundles are directories with `config.yaml` + optional install script
-- Automatic conversion to OpenAI function calling format
-- Works with any LLM that supports function calling
-- For LLMs without function calling: Backtick/JSON-based parsing as fallback
+Tool bundles are directories with `config.yaml` + optional install script. Automatic conversion to OpenAI function calling format works with any LLM that supports function calling. For LLMs without function calling, backtick/JSON-based parsing serves as a fallback.
 
-### History Processors (Context Window Management)
+#### History Processors (Context Window Management)
 
-Long agent sessions exceed the context window. History Processors
-optimize context as a configurable pipeline:
+Long agent sessions exceed the context window. History Processors optimize context as a configurable pipeline.
 
 | Processor | Function |
 |---|---|
-| **LastNObservations** | Replace old tool outputs with summaries |
-| **ClosedWindowProcessor** | Remove outdated file views, keep only the most recent |
-| **CacheControlProcessor** | Set cache markers for prompt caching (Anthropic, etc.) |
-| **RemoveRegex** | Remove specific patterns from the history |
+| LastNObservations | Replace old tool outputs with summaries |
+| ClosedWindowProcessor | Remove outdated file views, keep only the most recent |
+| CacheControlProcessor | Set cache markers for prompt caching (Anthropic, etc.) |
+| RemoveRegex | Remove specific patterns from the history |
 
-Processors are applied as a pipeline one after another. Configurable
-per agent type and LLM (small local models need more aggressive trimming).
+Processors are applied as a pipeline one after another. They are configurable per agent type and LLM (small local models need more aggressive trimming).
 
-### Hook System (Observer Pattern)
+#### Hook System (Observer Pattern)
 
-Extension points at agent and environment lifecycle, without core modification:
+Extension points at agent and environment lifecycle, without core modification.
 
-```
+```text
 Agent Hooks:
-  on_run_start       → Start monitoring, logging
-  on_step_done       → Record step, update metrics
-  on_model_query     → Track costs, rate limiting
-  on_run_end         → Summary, cleanup
+  on_run_start       -> Start monitoring, logging
+  on_step_done       -> Record step, update metrics
+  on_model_query     -> Track costs, rate limiting
+  on_run_end         -> Summary, cleanup
 
 Environment Hooks:
-  on_init            → Prepare container
-  on_copy_repo       → Start repo indexing
-  on_startup         → Install tools
-  on_close           → Clean up container
+  on_init            -> Prepare container
+  on_copy_repo       -> Start repo indexing
+  on_startup         -> Install tools
+  on_close           -> Clean up container
 ```
 
-Hooks enable monitoring, custom logging, metrics collection, and
-integration with external systems — all without modifying the core logic.
+Hooks enable monitoring, custom logging, metrics collection, and integration with external systems, all without modifying the core logic.
 
-### Trajectory Recording and Replay
+#### Trajectory Recording and Replay
 
-Every agent run is recorded as a trajectory:
+Every agent run is recorded as a trajectory. Each step includes Thought, Action, Observation, Timestamp, and Cost. Trajectories are stored as JSON for analysis and reproducibility. Replay mode deterministically repeats a trajectory for debugging. The Inspector provides a web-based viewer integrated in the GUI. Batch statistics track success rates, costs, and steps across many runs.
 
-- Every step: Thought → Action → Observation → Timestamp → Cost
-- Stored as JSON for analysis and reproducibility
-- **Replay mode:** Deterministically repeat trajectory (debugging)
-- **Inspector:** Web-based viewer integrated in the GUI
-- **Batch statistics:** Success rates, costs, steps across many runs
+Trajectories enable debugging of failed agent runs, comparison of different LLMs/configs on the same tasks, and audit trail for code changes by agents.
 
-Trajectories enable:
-- Debugging of failed agent runs
-- Comparison of different LLMs/configs on the same tasks
-- Audit trail for code changes by agents
+#### Python Workers Directory Structure
 
-### Python Workers Directory Structure
-
-```
+```text
 workers/
   codeforge/
     consumer/            # Queue consumer (ingress)
@@ -1257,7 +1030,7 @@ workers/
       termination.py     # Composable Termination Conditions
       handoff.py         # HandoffMessage Pattern
       planning.py        # MagenticOne Planning Loop + Stall Detection
-      pipeline.py        # Document pipeline PRD→Design→Tasks→Code (from MetaGPT)
+      pipeline.py        # Document pipeline PRD->Design->Tasks->Code (from MetaGPT)
     trajectory/          # Trajectory Recording
       recorder.py        # Step-by-step recording
       replay.py          # Deterministic replay
@@ -1273,17 +1046,15 @@ workers/
       providers.py       # Human Feedback Provider Protocol (from CrewAI)
 ```
 
-## Framework Insights: Adopted Patterns
+### Framework Insights: Adopted Patterns
 
-From the analysis of LangGraph, CrewAI, AutoGen, and MetaGPT, the following
-patterns were adopted for CodeForge. Detailed comparison: docs/research/market-analysis.md
+From the analysis of LangGraph, CrewAI, AutoGen, and MetaGPT, the following patterns were adopted for CodeForge. Detailed comparison: [docs/research/market-analysis.md](research/market-analysis.md).
 
-### Composite Memory Scoring (from CrewAI)
+#### Composite Memory Scoring (from CrewAI)
 
-Simple semantic similarity is not enough for memory recall. CodeForge
-uses weighted scoring from three factors:
+Simple semantic similarity is not enough for memory recall. CodeForge uses weighted scoring from three factors.
 
-```
+```text
 Score = (semantic_weight * cosine_similarity)
       + (recency_weight  * recency_decay)
       + (importance_weight * importance_score)
@@ -1295,55 +1066,42 @@ Score = (semantic_weight * cosine_similarity)
 | Recency | 0.3 | Exponential decay (half-life configurable) |
 | Importance | 0.2 | LLM-based evaluation at storage time |
 
-Two recall modes:
-- **Shallow:** Direct vector search with composite scoring
-- **Deep:** LLM distills sub-queries, searches in parallel, confidence-based routing
+Two recall modes exist. **Shallow** recall uses direct vector search with composite scoring. Deep recall has an LLM distill sub-queries, search in parallel, and apply confidence-based routing.
 
-### Context Window Strategies (from AutoGen)
+#### Context Window Strategies (from AutoGen)
 
-In addition to the History Processors, different strategies for
-chat completion context management are supported:
+In addition to the History Processors, different strategies for chat completion context management are supported.
 
 | Strategy | Behavior |
 |---|---|
-| **Unbounded** | Keep all messages (only for short sessions) |
-| **Buffered** | Keep last N messages |
-| **TokenLimited** | Trim to token budget |
-| **HeadAndTail** | Keep first N + last M messages (system prompt + current context) |
+| Unbounded | Keep all messages (only for short sessions) |
+| Buffered | Keep last N messages |
+| TokenLimited | Trim to token budget |
+| HeadAndTail | Keep first N + last M messages (system prompt + current context) |
 
-Configurable per agent type and LLM. Small local models get more aggressive
-trimming, large API models keep more context.
+Strategies are configurable per agent type and LLM. Small local models get more aggressive trimming, large API models keep more context.
 
-### Experience Pool (from MetaGPT)
+#### Experience Pool (from MetaGPT)
 
-Successful agent runs are cached and reused for similar tasks:
+Successful agent runs are cached and reused for similar tasks.
 
-```
+```python
 @exp_cache(context_builder=build_task_context)
 async def solve_task(task: Task) -> Result:
     # If similar task was already solved successfully:
-    # → Return cached result
+    # -> Return cached result
     # Otherwise: Execute normally and cache result
 ```
 
-- Cache key based on task description + codebase context
-- Similarity-based retrieval (not exact match)
-- Configurable confidence threshold
-- Saves LLM costs and improves consistency
+The cache key is based on task description + codebase context. Retrieval is similarity-based (not exact match). A configurable confidence threshold controls when cached results are used. This saves LLM costs and improves consistency.
 
-### Tool Recommendation via BM25 (from MetaGPT)
+#### Tool Recommendation via BM25 (from MetaGPT)
 
-Instead of passing all available tools to the LLM (token waste),
-relevant tools are automatically selected:
+Instead of passing all available tools to the LLM (token waste), relevant tools are automatically selected. BM25-based ranking scores tools against the current task context. Top-K tools are offered to the LLM as function calls. This reduces token usage and improves tool selection quality. All tools are used as a fallback when confidence score is low.
 
-- BM25-based ranking of tools against the current task context
-- Top-K tools are offered to the LLM as function calls
-- Reduces token usage and improves tool selection quality
-- Fallback: All tools when confidence score is low
+#### Workbench -- Tool Container (from AutoGen)
 
-### Workbench — Tool Container (from AutoGen)
-
-Related tools share state and lifecycle:
+Related tools share state and lifecycle.
 
 ```python
 class GitWorkbench(Workbench):
@@ -1361,23 +1119,19 @@ class GitWorkbench(Workbench):
         ]
 ```
 
-- Shared state between related tools
-- Lifecycle management (start/stop/restart)
-- Dynamic tool discovery (tools can change)
-- Ideal for MCP integration (McpWorkbench)
+Workbenches provide shared state between related tools, lifecycle management (start/stop/restart), dynamic tool discovery (tools can change), and are ideal for MCP integration (McpWorkbench).
 
-### LLM Guardrail Agent (from CrewAI)
+#### LLM Guardrail Agent (from CrewAI)
 
-A dedicated agent validates the output of another agent:
+A dedicated agent validates the output of another agent.
 
-```
-Agent A (Coder) → Output → Guardrail Agent → Validates → Accept / Reject + Feedback
+```text
+Agent A (Coder) -> Output -> Guardrail Agent -> Validates -> Accept / Reject + Feedback
                                                               ↓ (on reject)
                                                          Agent A retries with feedback
 ```
 
-Integrated into the Quality Layer as a fourth strategy alongside
-Action Sampling, RetryAgent+Reviewer, and Multi-Agent Debate:
+This is integrated into the Quality Layer as a fourth strategy alongside Action Sampling, RetryAgent+Reviewer, and Multi-Agent Debate.
 
 | Level | Effort | Mechanism |
 |---|---|---|
@@ -1386,9 +1140,9 @@ Action Sampling, RetryAgent+Reviewer, and Multi-Agent Debate:
 | 3. LLM Guardrail Agent | Medium | Dedicated agent checks output |
 | 4. Multi-Agent Debate | Heavy | Pro/Con/Moderator |
 
-### Structured Output / ActionNode (from MetaGPT)
+#### Structured Output / ActionNode (from MetaGPT)
 
-LLM outputs are validated against a schema and automatically corrected if needed:
+LLM outputs are validated against a schema and automatically corrected if needed.
 
 ```python
 class CodeReviewOutput(ActionNode):
@@ -1398,16 +1152,13 @@ class CodeReviewOutput(ActionNode):
     approved: bool            # Review passed?
 ```
 
-- Schema definition as Pydantic model
-- LLM fills the fields via constrained generation
-- Automatic review/revise cycle on schema violation
-- Retry with error feedback to the LLM
+Schema definition uses Pydantic models. The LLM fills fields via constrained generation. An automatic review/revise cycle triggers on schema violation. Retry with error feedback is sent to the LLM.
 
-### Event Bus for Observability (from CrewAI)
+#### Event Bus for Observability (from CrewAI)
 
-All relevant events in the system are emitted via an event bus:
+All relevant events in the system are emitted via an event bus.
 
-```
+```text
 Agent Events:          Task Events:           System Events:
   agent_started          task_assigned          budget_warning
   agent_step_done        task_completed         budget_exceeded
@@ -1418,31 +1169,24 @@ Agent Events:          Task Events:           System Events:
   agent_error            task_delegated         worker_stopped
 ```
 
-- Events are streamed to the frontend via WebSocket
-- Dashboard can filter, aggregate, and visualize events
-- Monitoring/alerting based on events (e.g., budget_exceeded → notification)
-- Audit trail: All events persisted for traceability
+Events are streamed to the frontend via WebSocket. The dashboard can filter, aggregate, and visualize events. Monitoring/alerting based on events (e.g., budget_exceeded triggers notification) is supported. All events are persisted as an audit trail for traceability.
 
-### GraphFlow / DAG Orchestration (from AutoGen)
+#### GraphFlow / DAG Orchestration (from AutoGen)
 
-For complex multi-agent workflows with conditional paths:
+For complex multi-agent workflows with conditional paths.
 
-```
-                    ┌─── success ──→ [Test Agent]
-[Plan Agent] ──→ [Code Agent] ──┤
-                    └─── failure ──→ [Debug Agent] ──→ [Code Agent]
+```text
+                    ┌─── success ──-> [Test Agent]
+[Plan Agent] ──-> [Code Agent] ──┤
+                    └─── failure ──-> [Debug Agent] ──-> [Code Agent]
                                                           (Cycle)
 ```
 
-- Conditional edges based on agent output
-- Parallel nodes (activation="any" for race, activation="all" for join)
-- Cycle support with exit conditions (max_iterations, success_condition)
-- DiGraphBuilder API for fluent graph construction
-- Visualizable in the frontend as an interactive DAG editor
+This supports conditional edges based on agent output, parallel nodes (activation="any" for race, activation="all" for join), cycle support with exit conditions (max_iterations, success_condition), a DiGraphBuilder API for fluent graph construction, and visualization in the frontend as an interactive DAG editor.
 
-### Termination Conditions (from AutoGen)
+#### Termination Conditions (from AutoGen)
 
-Flexible, composable stop conditions for agent workflows:
+Flexible, composable stop conditions for agent workflows.
 
 ```python
 # Composable with & (AND) and | (OR)
@@ -1453,19 +1197,11 @@ stop = (MaxSteps(50)
         & NotCondition(StallDetected())
 ```
 
-Available conditions:
-- MaxSteps, MaxMessages, MaxTokens
-- BudgetExceeded (cost limit)
-- TextMention (specific text in output)
-- Timeout (wall-clock-based)
-- StallDetected (no progress)
-- FunctionCallResult (specific tool result)
-- Custom (arbitrary predicate function)
+Available conditions include MaxSteps, MaxMessages, MaxTokens, BudgetExceeded (cost limit), TextMention (specific text in output), Timeout (wall-clock-based), StallDetected (no progress), FunctionCallResult (specific tool result), and Custom (arbitrary predicate function).
 
-### Component System / Declarative Configuration (from AutoGen)
+#### Component System / Declarative Configuration (from AutoGen)
 
-Agents, tools, and workflows are JSON/YAML serializable and
-reconstructable without code changes:
+Agents, tools, and workflows are JSON/YAML serializable and reconstructable without code changes.
 
 ```json
 {
@@ -1481,74 +1217,62 @@ reconstructable without code changes:
 }
 ```
 
-- Essential for the GUI workflow editor
-- Agents/workflows can be saved, shared, and versioned
-- Schema versioning with migration support
-- Import/export of agent configurations
+This is essential for the GUI workflow editor. Agents/workflows can be saved, shared, and versioned. Schema versioning with migration support enables import/export of agent configurations.
 
-### Document Pipeline PRD→Design→Tasks→Code (from MetaGPT)
+#### Document Pipeline PRD->Design->Tasks->Code (from MetaGPT)
 
-For complex features: Structured intermediate artifacts instead of direct code generation:
+For complex features, structured intermediate artifacts replace direct code generation.
 
-```
-1. Requirement → Structured PRD (JSON)
+```text
+1. Requirement -> Structured PRD (JSON)
      User stories, acceptance criteria, scope
-2. PRD → System Design (JSON + Mermaid)
+2. PRD -> System Design (JSON + Mermaid)
      Data structures, API specification, class diagram
-3. Design → Task List (JSON)
+3. Design -> Task List (JSON)
      Ordered list of files to create with dependencies
-4. Tasks → Code (per file)
+4. Tasks -> Code (per file)
      Context: Design + other already created files
-5. Code → Review + Tests
+5. Code -> Review + Tests
      Automatic validation against design specification
 ```
 
-- Each intermediate document is schema-validated (ActionNode)
-- Reduces hallucination through structured constraints
-- Incremental development: Existing code is taken into account
-- Intermediate documents are visible and editable in the GUI
+Each intermediate document is schema-validated (ActionNode). Structured constraints reduce hallucination. Incremental development takes existing code into account. Intermediate documents are visible and editable in the GUI.
 
-### MagenticOne Planning Loop (from AutoGen)
+#### MagenticOne Planning Loop (from AutoGen)
 
-For complex, long-lived tasks: Adaptive planning with stall detection:
+For complex, long-lived tasks, adaptive planning with stall detection applies.
 
-```
-1. PLAN    → Orchestrator creates initial plan
-2. EXECUTE → Agent works through next step
-3. CHECK   → Evaluate progress:
-               - Progress? → Continue with 2
-               - Stall?    → Re-planning (back to 1)
-               - Done?     → Deliver result
-               - Failed?   → Fact gathering, then re-planning
+```text
+1. PLAN    -> Orchestrator creates initial plan
+2. EXECUTE -> Agent works through next step
+3. CHECK   -> Evaluate progress:
+               - Progress? -> Continue with 2
+               - Stall?    -> Re-planning (back to 1)
+               - Done?     -> Deliver result
+               - Failed?   -> Fact gathering, then re-planning
 ```
 
-- Stall detection recognizes when agents are going in circles
-- Re-planning adjusts the plan based on previous results
-- Fact gathering collects missing information before a new plan
-- Progress tracking via a ledger (progress protocol)
+Stall detection recognizes when agents are going in circles. Re-planning adjusts the plan based on previous results. Fact gathering collects missing information before a new plan. Progress tracking uses a ledger (progress protocol).
 
-### HandoffMessage Pattern (from AutoGen)
+#### HandoffMessage Pattern (from AutoGen)
 
-Agents explicitly hand off tasks to specialists:
+Agents explicitly hand off tasks to specialists.
 
-```
+```text
 [Planner Agent]
-    → HandoffMessage(target="coder", context="Implement feature X per plan")
-        → [Code Agent]
-            → HandoffMessage(target="reviewer", context="Review changes in src/")
-                → [Review Agent]
-                    → HandoffMessage(target="tester", context="Run test suite")
-                        → [Test Agent]
+    -> HandoffMessage(target="coder", context="Implement feature X per plan")
+        -> [Code Agent]
+            -> HandoffMessage(target="reviewer", context="Review changes in src/")
+                -> [Review Agent]
+                    -> HandoffMessage(target="tester", context="Run test suite")
+                        -> [Test Agent]
 ```
 
-- Explicit handoff with context (not blind forwarding)
-- Agent decides itself who to hand off to
-- Fits CodeForge's agent specialization (Planner, Coder, Reviewer, etc.)
-- Works with different agent backends (Aider→OpenHands→SWE-agent)
+Handoff is explicit with context (not blind forwarding). The agent decides itself who to hand off to. This fits CodeForge's agent specialization (Planner, Coder, Reviewer, etc.) and works with different agent backends (Aider->OpenHands->SWE-agent).
 
-### Human Feedback Provider Protocol (from CrewAI)
+#### Human Feedback Provider Protocol (from CrewAI)
 
-Extensible HITL channels via a provider interface:
+Extensible HITL channels via a provider interface.
 
 ```python
 class HumanFeedbackProvider(Protocol):
@@ -1558,33 +1282,21 @@ class HumanFeedbackProvider(Protocol):
         ...
 ```
 
-Implementations:
-- **WebGuiProvider** — Feedback via the SolidJS web GUI (default)
-- **SlackProvider** — Approval requests as Slack messages
-- **EmailProvider** — Approval via email link
-- **CliProvider** — Terminal input for development/debugging
+**Implementations** include WebGuiProvider (feedback via the SolidJS web GUI, default), SlackProvider (approval requests as Slack messages), EmailProvider (approval via email link), and CliProvider (terminal input for development/debugging).
 
-## Coding Agent Insights: Adopted Patterns
+### Coding Agent Insights: Adopted Patterns
 
-From the deep analysis of Cline, Devika, OpenHands, SWE-agent, and Aider, the following
-patterns were adopted for CodeForge. Detailed analysis: docs/research/market-analysis.md
-and docs/research/aider-deep-analysis.md
+From the deep analysis of Cline, Devika, OpenHands, SWE-agent, and Aider, the following patterns were adopted for CodeForge. Detailed analysis: [docs/research/market-analysis.md](research/market-analysis.md) and [docs/research/aider-deep-analysis.md](research/aider-deep-analysis.md).
 
-### Shadow Git Checkpoints (from Cline)
+#### Shadow Git Checkpoints (from Cline)
 
-Isolated git repository for safe rollback during agent execution:
+An isolated git repository provides safe rollback during agent execution. Before each agent action, a checkpoint is created in a shadow git repo. On failure or user rejection, instant rollback to last good state occurs. This is separate from the project's actual git history (no polluting commits). It complements the Sandbox mode's container isolation and is integrated into the Safety Layer as the Rollback component.
 
-- Before each agent action, a checkpoint is created in a shadow git repo
-- On failure or user rejection: instant rollback to last good state
-- Separate from the project's actual git history (no polluting commits)
-- Complementary to the Sandbox mode's container isolation
-- Integrated into the Safety Layer as the Rollback component
+#### Event-Sourcing Architecture (from OpenHands)
 
-### Event-Sourcing Architecture (from OpenHands)
+All agent activities are recorded as an append-only event stream.
 
-All agent activities are recorded as an append-only event stream:
-
-```
+```text
 EventStream: Agent actions, observations, thoughts, tool results
      │
      ├── Replay: Reconstruct any point in time
@@ -1593,14 +1305,11 @@ EventStream: Agent actions, observations, thoughts, tool results
      └── Persist: Events stored for trajectory recording
 ```
 
-- Central abstraction for agent execution
-- All components communicate through events (not direct calls)
-- Enables the Trajectory Recording system
-- Frontend receives events via WebSocket for live visualization
+The EventStream serves as the central abstraction for agent execution. All components communicate through events (not direct calls). This enables the Trajectory Recording system. The frontend receives events via WebSocket for live visualization.
 
-### Microagents (from OpenHands)
+#### Microagents (from OpenHands)
 
-Small, trigger-driven agents defined in YAML+Markdown:
+Small, trigger-driven agents defined in YAML+Markdown.
 
 ```yaml
 # .codeforge/microagents/fix-imports.yaml
@@ -1614,111 +1323,60 @@ prompt: |
   3. Run: poetry install
 ```
 
-- Three types: knowledge (factual), repo (project-specific), task (action)
-- Auto-injected into agent context when trigger matches
-- Lightweight alternative to full agent modes for simple patterns
-- User-definable in `.codeforge/microagents/`
+Three types exist: knowledge (factual), repo (project-specific), and task (action). They are auto-injected into agent context when the trigger matches. Microagents provide a lightweight alternative to full agent modes for simple patterns. Users can define them in `.codeforge/microagents/`.
 
-### Diff-based File Review (from Cline)
+#### Diff-based File Review (from Cline)
 
-Before applying changes, the user sees a side-by-side diff:
+Before applying changes, the user sees a side-by-side diff. The agent proposes changes as a unified diff. The frontend renders before/after with syntax highlighting. The user can accept, reject, or edit individual hunks. This is integrated into the Plan -> Approve -> Execute workflow. At autonomy level 3+, diffs are auto-approved for file edits.
 
-- Agent proposes changes as a unified diff
-- Frontend renders before/after with syntax highlighting
-- User can accept, reject, or edit individual hunks
-- Integrated into the Plan → Approve → Execute workflow
-- At autonomy level 3+, diffs are auto-approved for file edits
+#### Stateless Agent Design (from Devika)
 
-### Stateless Agent Design (from Devika)
+Agent processes are stateless with all state living in the Go Core. The agent receives full context (task, repo info, history) per invocation. No persistent agent processes exist between tasks. State transitions are tracked in the core service via database. This enables horizontal scaling since any worker can pick up any task. Agent State Visualization in the frontend reads from core, not from agents.
 
-Agent processes are stateless — all state lives in the Go Core:
+#### ACI -- Agent-Computer Interface (from SWE-agent)
 
-- Agent receives full context (task, repo info, history) per invocation
-- No persistent agent processes between tasks
-- State transitions tracked in the core service via database
-- Enables horizontal scaling: any worker can pick up any task
-- Agent State Visualization in frontend reads from core, not from agents
+Shell commands are optimized for LLM agents (not for humans). `open <file> [line]` replaces complex `vim`/`cat` invocations. `edit <start>:<end> <content>` replaces sed/awk. `search_dir <pattern> [dir]` replaces `grep -r`. `find_file <name> [dir]` replaces `find`. This reduces error rate by providing LLM-friendly abstractions. The commands are implemented as YAML tool bundles (see Tool Definitions section).
 
-### ACI — Agent-Computer Interface (from SWE-agent)
+#### tree-sitter Repo Map (from Aider)
 
-Shell commands optimized for LLM agents (not for humans):
+A semantic code map is generated via tree-sitter parsing. It extracts class/function/method definitions from all files. Results are ranked by relevance to the current task (PageRank on call graph). This provides a codebase overview without sending all file contents. It reduces token usage while maintaining context quality. The repo map is part of the Context Layer (GraphRAG) and complements vector search.
 
-- `open <file> [line]` instead of complex `vim`/`cat` invocations
-- `edit <start>:<end> <content>` instead of sed/awk
-- `search_dir <pattern> [dir]` instead of `grep -r`
-- `find_file <name> [dir]` instead of `find`
-- Reduces error rate by providing LLM-friendly abstractions
-- Implemented as YAML tool bundles (see Tool Definitions section)
+#### Architect/Editor Pattern (from Aider)
 
-### tree-sitter Repo Map (from Aider)
+Separate LLM roles handle planning and implementation. The architect model (strong reasoning, e.g., Claude Opus) analyzes the codebase and creates a plan. The editor model (fast coding, e.g., Claude Sonnet) implements the plan. This maps directly to CodeForge's Modes System: `architect` -> `coder` pipeline. Cost optimization uses the expensive model only for planning and the cheaper model for execution. The pattern is configurable via mode pipelines in task YAML.
 
-Semantic code map generated via tree-sitter parsing:
+#### Edit Formats (from Aider)
 
-- Extracts class/function/method definitions from all files
-- Ranked by relevance to current task (PageRank on call graph)
-- Provides codebase overview without sending all file contents
-- Reduces token usage while maintaining context quality
-- Part of the Context Layer (GraphRAG): complements vector search
-
-### Architect/Editor Pattern (from Aider)
-
-Separate LLM roles for planning and implementation:
-
-- **Architect model** (strong reasoning, e.g., Claude Opus): analyzes codebase, creates plan
-- **Editor model** (fast coding, e.g., Claude Sonnet): implements the plan
-- Maps directly to CodeForge's Modes System: `architect` → `coder` pipeline
-- Cost optimization: expensive model only for planning, cheaper model for execution
-- Configurable via mode pipelines in task YAML
-
-### Edit Formats (from Aider)
-
-Multiple output formats for different LLM capabilities:
+Multiple output formats support different LLM capabilities.
 
 | Format | When | How |
 |---|---|---|
-| **whole-file** | Small files, local models | LLM outputs complete file |
-| **diff** | Standard edits, capable models | Unified diff format |
-| **search/replace** | Precise edits | Search block → Replace block |
-| **udiff** | Complex multi-file edits | Universal diff with context |
+| whole-file | Small files, local models | LLM outputs complete file |
+| diff | Standard edits, capable models | Unified diff format |
+| search/replace | Precise edits | Search block -> Replace block |
+| udiff | Complex multi-file edits | Universal diff with context |
 
-- Format selection based on LLM capability level and file size
-- Automatic retry with simpler format on parse failure
-- Integrated into the Execution Layer's tool provisioning
+Format selection is based on LLM capability level and file size. Automatic retry with simpler format occurs on parse failure. This is integrated into the Execution Layer's tool provisioning.
 
-### Skills System (from OpenHands)
+#### Skills System (from OpenHands)
 
-Reusable Python snippets automatically injected into agent context:
+Reusable Python snippets are automatically injected into agent context. Pre-built skills cover common operations (file manipulation, git, testing). Skills are Python functions available in the agent's execution environment. They are automatically included in the prompt based on task context. Users can extend them with custom skills in `.codeforge/skills/`. Skills complement YAML Tool Bundles (skills are code, bundles are declarations).
 
-- Pre-built skills for common operations (file manipulation, git, testing)
-- Skills are Python functions available in the agent's execution environment
-- Automatically included in the prompt based on task context
-- User-extensible: custom skills in `.codeforge/skills/`
-- Complementary to YAML Tool Bundles (skills are code, bundles are declarations)
+#### Risk Management (from OpenHands)
 
-### Risk Management (from OpenHands)
+LLM-based security analysis evaluates agent actions. The **InvariantAnalyzer** validates agent actions against security policies. It checks for path traversal, command injection, and credential exposure. It runs as a pre-execution filter in the Safety Layer and complements the Command Safety Evaluator with LLM-based reasoning. It can be disabled for trusted agents to reduce latency.
 
-LLM-based security analysis of agent actions:
+### Roadmap/Feature-Map: Auto-Detection and Adaptive Integration
 
-- **InvariantAnalyzer**: Validates agent actions against security policies
-- Checks for: path traversal, command injection, credential exposure
-- Runs as a pre-execution filter in the Safety Layer
-- Complements the Command Safety Evaluator with LLM-based reasoning
-- Can be disabled for trusted agents to reduce latency
+#### Core Principle
 
-## Roadmap/Feature-Map: Auto-Detection & Adaptive Integration
+CodeForge automatically detects which spec-driven development tools, PM platforms, and roadmap artifacts are used in a project, and offers appropriate integration. No proprietary PM tool is built. Instead, bidirectional sync with existing tools is provided.
 
-### Core Principle
+#### Provider Registry for Specs and PM
 
-CodeForge automatically detects which spec-driven development tools, PM platforms, and
-roadmap artifacts are used in a project, and offers appropriate integration.
-**No proprietary PM tool** — instead, bidirectional sync with existing tools.
+The same architecture as `gitprovider` applies. New adapters only require a new package and a blank import.
 
-### Provider Registry for Specs and PM
-
-Same architecture as `gitprovider` — new adapters only require a new package and
-a blank import:
-
-```
+```text
 port/
   specprovider/
     provider.go        # Interface: Detect(), ReadSpecs(), WriteChange(), Watch()
@@ -1737,9 +1395,9 @@ adapter/
   gitlab_pm/           # GitLab Issues/Boards (REST + GraphQL)
 ```
 
-### Three-Tier Auto-Detection
+#### Three-Tier Auto-Detection
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    Auto-Detection Engine                      │
 │                                                             │
@@ -1762,11 +1420,9 @@ adapter/
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Each detector implements the `specprovider.SpecProvider` or `pmprovider.PMProvider`
-interface and registers itself via `init()`. The detection engine iterates over all
-registered detectors and returns a list of detected tools.
+Each detector implements the `specprovider.SpecProvider` or `pmprovider.PMProvider` interface and registers itself via `init()`. The detection engine iterates over all registered detectors and returns a list of detected tools.
 
-### Spec Provider Interface
+#### Spec Provider Interface
 
 ```go
 type SpecProvider interface {
@@ -1787,7 +1443,7 @@ type SpecProvider interface {
 }
 ```
 
-### PM Provider Interface
+#### PM Provider Interface
 
 ```go
 type PMProvider interface {
@@ -1808,19 +1464,19 @@ type PMProvider interface {
 }
 ```
 
-### Bidirectional Sync
+#### Bidirectional Sync
 
-```
+```text
 ┌─────────────────┐              ┌─────────────────┐
-│  CodeForge       │  ◄── Sync ──►  │  External PM     │
+│  CodeForge       │  <-- Sync -->  │  External PM     │
 │  Roadmap Model   │              │  (Plane/GitHub/  │
 │                  │              │   OpenProject)   │
-│  Milestone       │  ←──────→   │  Initiative/     │
-│  Feature         │  ←──────→   │  Epic/Issue      │
-│  Task            │  ←──────→   │  Work Item       │
+│  Milestone       │  <-------->   │  Initiative/     │
+│  Feature         │  <-------->   │  Epic/Issue      │
+│  Task            │  <-------->   │  Work Item       │
 └────────┬────────┘              └─────────────────┘
          │
-         │  ◄── Sync ──►
+         │  <-- Sync -->
          │
 ┌────────▼────────┐
 │  Repo Specs      │
@@ -1830,16 +1486,12 @@ type PMProvider interface {
 └─────────────────┘
 ```
 
-- **Import:** PM tool → CodeForge roadmap model (issues/epics become features/tasks)
-- **Export:** CodeForge → PM tool (new features are created as issues)
-- **Bidirectional:** Changes synchronized in both directions
-- **Conflict resolution:** Timestamp-based + user decision on conflicts
-- **Sync triggers:** Webhook (real-time), poll (periodic), manual
+Import brings PM tool data into the CodeForge roadmap model (issues/epics become features/tasks). Export sends CodeForge data to the PM tool (new features are created as issues). **Bidirectional** sync means changes are synchronized in both directions. Conflict resolution is timestamp-based + user decision on conflicts. Sync triggers include webhook (real-time), poll (periodic), and manual.
 
-### Roadmap Data Model
+#### Roadmap Data Model
 
 ```go
-// Internal roadmap model — PM adapters map to this format
+// Internal roadmap model -- PM adapters map to this format
 type Milestone struct {
     ID          string
     Title       string
@@ -1862,22 +1514,19 @@ type Feature struct {
 }
 ```
 
-### `/ai` Endpoint for LLM Consumption (from Ploi Roadmap)
+#### `/ai` Endpoint for LLM Consumption (from Ploi Roadmap)
 
-```
+```text
 GET /api/v1/projects/{id}/roadmap/ai?format=json
 GET /api/v1/projects/{id}/roadmap/ai?format=yaml
 GET /api/v1/projects/{id}/roadmap/ai?format=markdown
 ```
 
-Provides the roadmap in an LLM-optimized format:
-- Compact summary of all milestones, features, tasks
-- Status information and dependencies
-- Usable for AI agents that need to understand project context
+This endpoint provides the roadmap in an LLM-optimized format. It returns a compact summary of all milestones, features, and tasks with status information and dependencies. AI agents use this to understand project context.
 
-### Directory Structure (Extension)
+#### Directory Structure (Extension)
 
-```
+```text
 internal/
   port/
     specprovider/          # Spec detection interface
@@ -1901,17 +1550,15 @@ internal/
     sync.go                # Bidirectional Sync Service
 ```
 
-## LLM Integration: LiteLLM Proxy as Sidecar
+### LLM Integration: LiteLLM Proxy as Sidecar
 
-### Architecture Decision
+#### Architecture Decision
 
-After analysis of LiteLLM, OpenRouter, Claude Code Router, and OpenCode CLI:
-**CodeForge does not build its own LLM provider interface.** LiteLLM Proxy runs as a Docker sidecar
-and provides a unified OpenAI-compatible API. Detailed analysis: docs/research/market-analysis.md
+After analysis of LiteLLM, OpenRouter, Claude Code Router, and OpenCode CLI, the decision was made that CodeForge does not build its own LLM provider interface. LiteLLM Proxy runs as a Docker sidecar and provides a unified OpenAI-compatible API. Detailed analysis: [docs/research/market-analysis.md](research/market-analysis.md).
 
-### Integration Architecture
+#### Integration Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │                  TypeScript Frontend                 │
 │                                                     │
@@ -1956,7 +1603,7 @@ and provides a unified OpenAI-compatible API. Detailed analysis: docs/research/m
 └─────────────────────────────────────────────────────┘
 ```
 
-### What LiteLLM Provides (not built by us)
+#### What LiteLLM Provides (not built by us)
 
 | Feature | LiteLLM Mechanism |
 |---|---|
@@ -1972,21 +1619,20 @@ and provides a unified OpenAI-compatible API. Detailed analysis: docs/research/m
 | Observability | 42+ integrations (Prometheus, Langfuse, Datadog, etc.) |
 | Rate limiting | Per-key TPM/RPM, per-team, per-model |
 
-### What CodeForge Builds (Custom Development)
+#### What CodeForge Builds (Custom Development)
 
 | Component | Layer | Description |
 |---|---|---|
-| **LiteLLM Config Manager** | Go Core | Generates `litellm_config.yaml` from CodeForge DB. CRUD for models, deployments, keys. |
-| **User-Key Mapping** | Go Core | CodeForge user → LiteLLM Virtual Keys. API keys stored securely in CodeForge DB, forwarded to LiteLLM. |
-| **Scenario Router** | Go Core | Task type → LiteLLM tag. `metadata.tags: ["think"]` in request → LiteLLM routes to matching deployment. |
-| **Cost Dashboard** | Frontend | Query LiteLLM Spend API (`/spend/logs`, `/global/spend/per_team`). Visualization per project/user/agent. |
-| **Local Model Discovery** | Go Core | Query Ollama (`/api/tags`) and LM Studio (`/v1/models`) endpoints. Discovered models automatically added to LiteLLM config. |
-| **Copilot Token Exchange** | Go Core | Read GitHub OAuth token from `~/.config/github-copilot/hosts.json`, exchange for bearer token via `api.github.com/copilot_internal/v2/token`. |
+| LiteLLM Config Manager | Go Core | Generates `litellm_config.yaml` from CodeForge DB. CRUD for models, deployments, keys. |
+| User-Key Mapping | Go Core | CodeForge user -> LiteLLM Virtual Keys. API keys stored securely in CodeForge DB, forwarded to LiteLLM. |
+| Scenario Router | Go Core | Task type -> LiteLLM tag. `metadata.tags: ["think"]` in request -> LiteLLM routes to matching deployment. |
+| Cost Dashboard | Frontend | Query LiteLLM Spend API (`/spend/logs`, `/global/spend/per_team`). Visualization per project/user/agent. |
+| Local Model Discovery | Go Core | Query Ollama (`/api/tags`) and LM Studio (`/v1/models`) endpoints. Discovered models automatically added to LiteLLM config. |
+| Copilot Token Exchange | Go Core | Read GitHub OAuth token from `~/.config/github-copilot/hosts.json`, exchange for bearer token via `api.github.com/copilot_internal/v2/token`. |
 
-### Scenario-Based Routing
+#### Scenario-Based Routing
 
-Inspired by Claude Code Router. Different task types are automatically routed to
-matching models via LiteLLM's tag-based routing:
+Inspired by Claude Code Router, different task types are automatically routed to matching models via LiteLLM's tag-based routing.
 
 ```yaml
 # litellm_config.yaml (generated by Go Core)
@@ -2038,7 +1684,7 @@ router_settings:
 | `review` | Code review, quality check | Claude Sonnet |
 | `plan` | Feature planning, design documents | Claude Opus |
 
-### LiteLLM Proxy Configuration
+#### LiteLLM Proxy Configuration
 
 ```yaml
 # docker-compose.yml (excerpt)
@@ -2060,9 +1706,9 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
 ```
 
-### Frontend Directory Structure (SolidJS)
+#### Frontend Directory Structure (SolidJS)
 
-```
+```text
 frontend/
   src/
     features/            # Feature modules (dashboard, roadmap, agents, llm)

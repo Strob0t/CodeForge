@@ -4,36 +4,34 @@
 > **Date:** YYYY-MM-DD
 > **Deciders:** (who was involved)
 
-## Context
+### Context
 
 What is the issue that we're seeing that is motivating this decision or change?
 
-## Decision
+### Decision
 
 What is the change that we're proposing and/or doing?
 
-## Consequences
+### Consequences
 
-What becomes easier or more difficult to do because of this change?
-
-### Positive
+#### Positive
 
 - ...
 
-### Negative
+#### Negative
 
 - ...
 
-### Neutral
+#### Neutral
 
 - ...
 
-## Alternatives Considered
+### Alternatives Considered
 
 | Alternative | Pros | Cons | Why Not |
 |---|---|---|---|
 | ... | ... | ... | ... |
 
-## References
+### References
 
 - Links to relevant docs, issues, or research

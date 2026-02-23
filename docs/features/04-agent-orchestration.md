@@ -1,16 +1,14 @@
 # Feature: Agent Orchestration (Pillar 4)
 
-> **Status:** Core implemented (Phases 2-6) — agent backends, runtime API, policy layer, multi-agent orchestration, 4-tier Code-RAG
-> **Priority:** Phase 2-6 — completed; Phase 9+ for additional backends and advanced features
-> **Architecture reference:** [architecture.md](../architecture.md) — "Agent Execution", "Worker Modules", "Modes System"
+> Status: Core implemented (Phases 2-6) -- agent backends, runtime API, policy layer, multi-agent orchestration, 4-tier Code-RAG
+> Priority: Phase 2-6 completed; Phase 9+ for additional backends and advanced features
+> Architecture reference: [architecture.md](../architecture.md) -- "Agent Execution", "Worker Modules", "Modes System"
 
-## Overview
+### Purpose
 
-Coordination of various AI coding agents through a unified orchestration layer.
-Agents are swappable backends that run in configurable execution modes with
-safety controls and quality assurance.
+Coordination of various AI coding agents through a **unified** orchestration layer. Agents are swappable backends that run in configurable execution modes with safety controls and quality assurance.
 
-## Agent Backends
+### Agent Backends
 
 | Agent | Adapter | Priority | Type |
 |---|---|---|---|
@@ -23,23 +21,23 @@ safety controls and quality assurance.
 
 All backends implement the `agentbackend.Backend` interface with capability declarations.
 
-## Execution Modes
+### Execution Modes
 
 | Mode | Security | Speed | Use Case |
 |---|---|---|---|
-| **Sandbox** | High (isolated container) | Medium | Untrusted agents, batch jobs |
-| **Mount** | Low (direct file access) | High | Trusted agents, local dev |
-| **Hybrid** | Medium (controlled access) | Medium | Review workflows, CI-like |
+| Sandbox | High (isolated container) | Medium | Untrusted agents, batch jobs |
+| Mount | Low (direct file access) | High | Trusted agents, local dev |
+| Hybrid | Medium (controlled access) | Medium | Review workflows, CI-like |
 
-## Agent Workflow
+### Agent Workflow
 
+```text
+Plan -> Approve -> Execute -> Review -> Deliver
 ```
-Plan → Approve → Execute → Review → Deliver
-```
 
-Each step is individually configurable. Autonomy level determines who approves.
+Each step is individually configurable. The **autonomy** level determines who approves.
 
-## Autonomy Spectrum (5 Levels)
+### Autonomy Spectrum (5 Levels)
 
 | Level | Name | Who Approves | Use Case |
 |---|---|---|---|
@@ -49,32 +47,29 @@ Each step is individually configurable. Autonomy level determines who approves.
 | 4 | `full-auto` | Safety rules | Batch jobs, delegated tasks |
 | 5 | `headless` | Safety rules, no UI | CI/CD, cron jobs, API |
 
-## Safety Layer (8 Components)
+### Safety Layer (8 Components)
 
-1. **Budget Limiter** — hard stop on cost exceeded
-2. **Command Safety Evaluator** — blocklist + regex matching
-3. **Branch Isolation** — never on main, always feature branch
-4. **Test/Lint Gate** — deliver only when tests + lint pass
-5. **Max Steps** — infinite loop detection
-6. **Rollback** — automatic on failure (Shadow Git)
-7. **Path Blocklist** — sensitive files protected
-8. **Stall Detection** — re-planning or abort
+- Budget Limiter -- hard stop on cost exceeded.
+- Command Safety Evaluator -- blocklist + regex matching.
+- Branch Isolation -- never on main, always feature branch.
+- Test/Lint Gate -- deliver only when tests + lint pass.
+- Max Steps -- infinite loop detection.
+- Rollback -- automatic on failure (Shadow Git).
+- **Path Blocklist** -- sensitive files protected.
+- Stall Detection -- re-planning or abort.
 
-## Quality Layer (4 Tiers)
+### Quality Layer (4 Tiers)
 
-1. **Action Sampling** (light) — N responses, select best
-2. **RetryAgent + Reviewer** (medium) — retry + score/chooser evaluation
-3. **LLM Guardrail Agent** (medium) — dedicated agent checks output
-4. **Multi-Agent Debate** (heavy) — Pro/Con/Moderator
+- Action Sampling (light) -- N responses, select best.
+- RetryAgent + Reviewer (medium) -- retry + score/chooser evaluation.
+- LLM Guardrail Agent (medium) -- dedicated agent checks output.
+- **Multi-Agent Debate** (heavy) -- Pro/Con/Moderator.
 
-## Modes System
+### Modes System
 
-YAML-configurable agent specializations:
-- **Built-in:** architect, coder, reviewer, debugger, tester, lint-fixer, planner, researcher
-- **Custom:** user-defined in `.codeforge/modes/`
-- **Composition:** pipelines and DAG workflows
+YAML-configurable agent specializations. Built-in modes include architect, coder, reviewer, debugger, tester, lint-fixer, planner, and researcher. Users can define custom modes in `.codeforge/modes/`. Modes support composition through pipelines and DAG workflows.
 
-## Worker Modules
+### Worker Modules
 
 | Module | Purpose |
 |---|---|
@@ -91,35 +86,38 @@ YAML-configurable agent specializations:
 | Trajectory | Recording, replay, audit trail |
 | HITL | Human feedback provider protocol |
 
-## Policy System
+### Policy System
 
 The policy layer governs agent permissions, quality gates, and termination conditions.
 
-### Backend
-- **Domain:** `internal/domain/policy/` — PolicyProfile, PermissionRule, ToolSpecifier, QualityGate, TerminationCondition
-- **Presets (4):** plan-readonly, headless-safe-sandbox, headless-permissive-sandbox, trusted-mount-autonomous
-- **Service:** `internal/service/policy.go` — first-match-wins rule evaluation, CRUD (SaveProfile, DeleteProfile)
-- **Loader:** `internal/domain/policy/loader.go` — YAML file loading + SaveToFile for custom profiles
-- **REST API:** GET/POST /policies, GET/DELETE /policies/{name}, POST /policies/{name}/evaluate
+#### Backend
 
-### Frontend (PolicyPanel)
-- **Component:** `frontend/src/features/project/PolicyPanel.tsx`
-- **3 views:** List (presets + custom), Detail (summary + rules table + evaluate tester), Editor (create/clone)
-- **Evaluate tester:** test a tool call against a policy and see the decision (allow/deny/ask)
-- **Types:** `PolicyProfile`, `PermissionRule`, `PolicyQualityGate`, `TerminationCondition`, `ResourceLimits`
+- Domain: `internal/domain/policy/` -- PolicyProfile, PermissionRule, ToolSpecifier, QualityGate, TerminationCondition.
+- Presets (4): plan-readonly, headless-safe-sandbox, headless-permissive-sandbox, trusted-mount-autonomous.
+- Service: `internal/service/policy.go` -- first-match-wins rule evaluation, CRUD (SaveProfile, DeleteProfile).
+- **Loader**: `internal/domain/policy/loader.go` -- YAML file loading + SaveToFile for custom profiles.
+- REST API: GET/POST /policies, GET/DELETE /policies/{name}, POST /policies/{name}/evaluate.
 
-### Deferred
-- Scope levels: global (user) → project → run/session (override)
-- "Effective Permission Preview" — show which rule matched and why
-- Run-level policy overrides
+#### Frontend (PolicyPanel)
 
-## Retrieval Sub-Agent (Phase 6C)
+- Component: `frontend/src/features/project/PolicyPanel.tsx`.
+- 3 views: List (presets + custom), Detail (summary + rules table + evaluate tester), Editor (create/clone).
+- Evaluate tester lets you test a tool call against a policy and see the decision (allow/deny/ask).
+- Types: `PolicyProfile`, `PermissionRule`, `PolicyQualityGate`, `TerminationCondition`, `ResourceLimits`.
+
+#### Deferred
+
+- Scope levels: global (user) to project to run/session (override).
+- "Effective Permission Preview" -- show which rule matched and why.
+- Run-level policy overrides.
+
+### Retrieval Sub-Agent (Phase 6C)
 
 LLM-guided multi-query retrieval that improves context quality for agents working on complex tasks.
 
-### Architecture
+#### Architecture
 
-```
+```text
 Go Core (RetrievalService)
   |
   | NATS: retrieval.subagent.request
@@ -136,76 +134,79 @@ Python Worker (RetrievalSubAgent)
 Go Core (handles result, delivers to waiter or HTTP handler)
 ```
 
-### Backend
-- **Python:** `RetrievalSubAgent` in `workers/codeforge/retrieval.py` — composes `HybridRetriever` + `LiteLLMClient`
-- **Go Service:** `SubAgentSearchSync()` / `HandleSubAgentSearchResult()` in `internal/service/retrieval.go`
-- **Context Optimizer:** `fetchRetrievalEntries()` tries sub-agent first, falls back to single-shot search
-- **REST API:** `POST /api/v1/projects/{id}/search/agent`
-- **Config:** `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` in `config.Orchestrator`
+#### Backend
 
-### Frontend (RetrievalPanel)
-- Standard/Agent toggle button next to search bar
-- Agent mode shows expanded queries as tags + total candidates count
-- Component: `frontend/src/features/project/RetrievalPanel.tsx`
+- Python: `RetrievalSubAgent` in `workers/codeforge/retrieval.py` -- composes `HybridRetriever` + `LiteLLMClient`.
+- Go Service: `SubAgentSearchSync()` / `HandleSubAgentSearchResult()` in `internal/service/retrieval.go`.
+- **Context Optimizer**: `fetchRetrievalEntries()` tries sub-agent first, falls back to single-shot search.
+- REST API: `POST /api/v1/projects/{id}/search/agent`.
+- Config: `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` in `config.Orchestrator`.
 
-### Deferred
-- Configurable expansion prompts per project
-- Streaming results (partial results as queries complete)
-- Cost tracking for sub-agent LLM calls
+#### Frontend (RetrievalPanel)
 
-## Completed (Phase 1-2)
+- Standard/Agent toggle button next to search bar.
+- Agent mode shows expanded queries as tags + total candidates count.
+- Component: `frontend/src/features/project/RetrievalPanel.tsx`.
 
-- [x] `agentbackend.Backend` interface definition (`internal/port/agentbackend/`)
-- [x] Agent backend registry with self-registration via `init()`
-- [x] Basic queue consumer (Python worker) — NATS-based async dispatch
-- [x] Aider backend adapter (`internal/adapter/aider/`)
-- [x] Simple task → single agent execution
-- [x] Mount mode implementation (direct file access)
-- [x] Basic safety evaluator (command blocklist + regex matching)
-- [x] Frontend: Agent Monitor (live logs, status via WebSocket)
-- [x] Frontend: Task submission form, task list, agent CRUD
+#### Deferred
 
-## Completed (Phase 3 — Reliability & Agent Foundation)
+- Configurable expansion prompts per project.
+- Streaming results (partial results as queries complete).
+- Cost tracking for sub-agent LLM calls.
 
-- [x] Configuration management (hierarchical: defaults < YAML < ENV)
-- [x] Structured logging (async JSON, Go + Python, request ID propagation)
-- [x] Circuit breaker for NATS + LiteLLM calls
-- [x] Graceful 4-phase shutdown, idempotency middleware, dead letter queue
-- [x] Event sourcing for agent trajectory (`agent_events` table, 22+ event types)
-- [x] Tiered cache (L1 Ristretto + L2 NATS KV), rate limiting, connection pool tuning
+### Completed (Phase 1-2)
 
-## Completed (Phase 4 — Agent Execution Engine)
+- [x] `agentbackend.Backend` interface definition (`internal/port/agentbackend/`).
+- [x] Agent backend registry with self-registration via `init()`.
+- [x] Basic queue consumer (Python worker) -- NATS-based async dispatch.
+- [x] Aider backend adapter (`internal/adapter/aider/`).
+- [x] Simple task to single agent execution.
+- [x] Mount mode implementation (direct file access).
+- [x] Basic safety evaluator (command blocklist + regex matching).
+- [x] Frontend: Agent Monitor (live logs, status via WebSocket).
+- [x] Frontend: Task submission form, task list, agent CRUD.
 
-- [x] Policy layer: 4 presets, YAML custom policies, first-match-wins evaluation, REST API + frontend PolicyPanel
-- [x] Runtime API: step-by-step execution protocol (Go ↔ Python via NATS), per-tool-call policy enforcement
-- [x] Checkpoint system: shadow Git commits for safe rollback
-- [x] Docker Sandbox: container lifecycle management with resource limits
-- [x] Stall detection: FNV-64a hash ring buffer, configurable threshold
-- [x] Quality gate enforcement: test/lint gates via NATS request/result protocol
-- [x] 5 deliver modes: none, patch, commit-local, branch, PR
+### Completed (Phase 3 -- Reliability and Agent Foundation)
 
-## Completed (Phase 5 — Multi-Agent Orchestration)
+- [x] Configuration management (hierarchical: defaults < YAML < ENV).
+- [x] Structured logging (async JSON, Go + Python, request ID propagation).
+- [x] Circuit breaker for NATS + LiteLLM calls.
+- [x] Graceful 4-phase shutdown, idempotency middleware, dead letter queue.
+- [x] Event sourcing for agent trajectory (`agent_events` table, 22+ event types).
+- [x] Tiered cache (L1 Ristretto + L2 NATS KV), rate limiting, connection pool tuning.
 
-- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus)
-- [x] Orchestrator agent (meta-agent): LLM-based feature decomposition, agent strategy selection
-- [x] Agent teams: team CRUD, role-based members, protocol selection
-- [x] Context optimizer: token budget management, workspace scanning, context packing
-- [x] Shared context: team-level versioned state with NATS notifications
-- [x] Modes system: 8 built-in presets, ModeService, REST API
+### Completed (Phase 4 -- Agent Execution Engine)
 
-## Completed (Phase 6 — Code-RAG)
+- [x] Policy layer: 4 presets, YAML custom policies, first-match-wins evaluation, REST API + frontend PolicyPanel.
+- [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement.
+- [x] Checkpoint system: shadow Git commits for safe rollback.
+- [x] Docker Sandbox: container lifecycle management with resource limits.
+- [x] Stall detection: FNV-64a hash ring buffer, configurable threshold.
+- [x] Quality gate enforcement: test/lint gates via NATS request/result protocol.
+- [x] 5 deliver modes: none, patch, commit-local, branch, PR.
 
-- [x] Tier 1 — RepoMap: tree-sitter symbol extraction, PageRank file ranking (16+ languages)
-- [x] Tier 2 — Hybrid Retrieval: BM25S keyword + semantic embeddings, RRF fusion
-- [x] Tier 3 — Retrieval Sub-Agent: LLM multi-query expansion, parallel search, re-ranking
-- [x] Tier 4 — GraphRAG: PostgreSQL adjacency-list graph, BFS with hop-decay scoring
+### Completed (Phase 5 -- Multi-Agent Orchestration)
 
-## TODOs (Phase 9+)
+- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus).
+- [x] Orchestrator agent (meta-agent): LLM-based feature decomposition, agent strategy selection.
+- [x] Agent teams: team CRUD, role-based members, protocol selection.
+- [x] Context optimizer: token budget management, workspace scanning, context packing.
+- [x] Shared context: team-level versioned state with NATS notifications.
+- [x] Modes system: 8 built-in presets, ModeService, REST API.
+
+### Completed (Phase 6 -- Code-RAG)
+
+- [x] Tier 1 -- RepoMap: tree-sitter symbol extraction, PageRank file ranking (16+ languages).
+- [x] Tier 2 -- Hybrid Retrieval: BM25S keyword + semantic embeddings, RRF fusion.
+- [x] Tier 3 -- Retrieval Sub-Agent: LLM multi-query expansion, parallel search, re-ranking.
+- [x] Tier 4 -- GraphRAG: PostgreSQL adjacency-list graph, BFS with hop-decay scoring.
+
+### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.
 
-- [ ] Additional backends (OpenHands, Goose, OpenCode, Plandex)
-- [ ] Trajectory replay UI and audit trail
-- [ ] Session events as source of truth (Resume/Fork/Rewind)
-- [ ] A2A protocol integration (agent discovery, Agent Cards)
-- [ ] AG-UI protocol integration (agent ↔ frontend streaming)
+- [ ] Additional backends (OpenHands, Goose, OpenCode, Plandex).
+- [ ] Trajectory replay UI and audit trail.
+- [ ] Session events as source of truth (Resume/Fork/Rewind).
+- [ ] A2A protocol integration (agent discovery, Agent Cards).
+- [ ] AG-UI protocol integration (agent to frontend streaming).

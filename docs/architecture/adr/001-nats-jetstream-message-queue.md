@@ -4,18 +4,18 @@
 > **Date:** 2026-02-14
 > **Deciders:** Project lead + Claude Code analysis
 
-## Context
+### Context
 
 CodeForge needs a message queue between the Go Core Service and Python AI Workers for:
-- Job dispatch (Go → Python): Task assignments to agent workers
-- Result streaming (Python → Go): Status updates, logs, agent results
+- Job dispatch (Go to Python): Task assignments to agent workers
+- Result streaming (Python to Go): Status updates, logs, agent results
 - Fan-out: Real-time updates to multiple WebSocket clients
 - Scaling: Multiple Python workers consuming from the same queue
 - Reliability: At-least-once delivery, no lost tasks
 
 The two main candidates were NATS JetStream and Redis Streams.
 
-## Decision
+### Decision
 
 **NATS JetStream** is the message queue for CodeForge.
 
@@ -25,17 +25,17 @@ Go Core and Python Workers communicate exclusively through NATS:
 - Result streaming via dedicated subjects like `results.{task_id}`
 - Real-time fan-out for WebSocket updates via standard NATS pub/sub
 
-### Key Reasons
+#### Key Reasons
 
-1. **Go-native**: NATS is written in Go; `nats.go` is the reference client — ideal fit for the Go Core
-2. **Purpose-built messaging**: Designed for microservice communication, not a data structure server with messaging bolted on
-3. **Subject-based routing**: Natural mapping to agent backends (`tasks.agent.{backend}`) and task types
-4. **Request-Reply**: First-class pattern for synchronous task dispatch when needed
-5. **JetStream persistence**: At-least-once delivery, consumer groups, replay, and built-in KV store
-6. **Lightweight**: ~20MB binary, minimal RAM, millisecond startup
-7. **LiteLLM does NOT require Redis**: LiteLLM uses in-memory caching for single-instance deployments; Redis is only needed for multi-instance production (>1000 RPS)
+- Go-native: NATS is written in Go; `nats.go` is the reference client, making it an ideal fit for the Go Core
+- Purpose-built messaging: Designed for microservice communication, not a data structure server with messaging bolted on
+- Subject-based routing: Natural mapping to agent backends (`tasks.agent.{backend}`) and task types
+- Request-Reply: First-class pattern for synchronous task dispatch when needed
+- JetStream persistence: At-least-once delivery, consumer groups, replay, and built-in KV store
+- Lightweight: ~20MB binary, minimal RAM, millisecond startup
+- LiteLLM does NOT require Redis: LiteLLM uses in-memory caching for single-instance deployments (Redis is only needed for multi-instance production at >1000 RPS)
 
-### Configuration
+#### Configuration
 
 ```yaml
 # docker-compose.yml
@@ -52,36 +52,36 @@ services:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
 ```
 
-### Client Libraries
+#### Client Libraries
 
 | Layer | Library | Notes |
 |---|---|---|
 | Go Core | `nats.go` + `nats.go/jetstream` | Official, reference implementation |
 | Python Workers | `nats-py` | Official, asyncio-native |
 
-## Consequences
+### Consequences
 
-### Positive
+#### Positive
 
 - Single-purpose tool: NATS does messaging extremely well
 - Subject-based routing eliminates manual routing logic
 - JetStream KV can serve as lightweight state store (agent sessions, config cache)
 - Built-in monitoring on port 8222 (no extra tooling needed)
-- Excellent clustering support (RAFT consensus) if we scale later
+- Excellent clustering support (RAFT consensus) if scaling is needed later
 - Throughput far exceeds our needs (~11M msgs/sec core, ~1M persistent)
 
-### Negative
+#### Negative
 
 - One more service in Docker Compose (but lightweight at ~20MB)
-- Less "general knowledge" than Redis (fewer Stack Overflow answers, though NATS docs are excellent)
-- If we ever need Redis for LiteLLM multi-instance, we'd have two infrastructure services
+- Less general knowledge than Redis (fewer Stack Overflow answers, though NATS docs are excellent)
+- If Redis is ever needed for LiteLLM multi-instance, there would be two infrastructure services
 
-### Neutral
+#### Neutral
 
-- JetStream KV is not a replacement for PostgreSQL — it's for lightweight, ephemeral state only
+- JetStream KV is not a replacement for PostgreSQL, it handles lightweight ephemeral state only
 - NATS Pub/Sub (non-persistent) can be used alongside JetStream for fire-and-forget events
 
-## Alternatives Considered
+### Alternatives Considered
 
 | Alternative | Pros | Cons | Why Not |
 |---|---|---|---|
@@ -89,10 +89,10 @@ services:
 | RabbitMQ | Mature, feature-rich, AMQP standard | Heavy (Erlang VM), complex configuration, overkill for our use case | Too heavyweight for a containerized dev tool |
 | Direct gRPC | No middleware, type-safe, fast | No persistence, no fan-out, tight coupling, no consumer groups | Doesn't support our scaling or reliability requirements |
 
-## References
+### References
 
 - [NATS Documentation](https://docs.nats.io/)
 - [JetStream Documentation](https://docs.nats.io/nats-concepts/jetstream)
 - [nats.go Client](https://github.com/nats-io/nats.go)
 - [nats-py Client](https://github.com/nats-io/nats.py)
-- [LiteLLM Caching Docs](https://docs.litellm.ai/docs/caching) — Redis optional for single-instance
+- [LiteLLM Caching Docs](https://docs.litellm.ai/docs/caching) (Redis optional for single-instance)
