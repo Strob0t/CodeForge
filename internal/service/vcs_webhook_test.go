@@ -7,7 +7,7 @@ import (
 
 func TestHandleGitHubPush(t *testing.T) {
 	bc := &mockBroadcaster{}
-	svc := NewVCSWebhookService(bc)
+	svc := NewVCSWebhookService(bc, nil)
 
 	payload := []byte(`{
 		"ref": "refs/heads/main",
@@ -51,7 +51,7 @@ func TestHandleGitHubPush(t *testing.T) {
 
 func TestHandleGitLabPush(t *testing.T) {
 	bc := &mockBroadcaster{}
-	svc := NewVCSWebhookService(bc)
+	svc := NewVCSWebhookService(bc, nil)
 
 	payload := []byte(`{
 		"ref": "refs/heads/develop",
@@ -85,7 +85,7 @@ func TestHandleGitLabPush(t *testing.T) {
 
 func TestHandleGitHubPullRequest(t *testing.T) {
 	bc := &mockBroadcaster{}
-	svc := NewVCSWebhookService(bc)
+	svc := NewVCSWebhookService(bc, nil)
 
 	payload := []byte(`{
 		"action": "opened",

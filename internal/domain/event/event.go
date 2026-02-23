@@ -43,6 +43,11 @@ const (
 	TypePlanFailed    Type = "plan.failed"
 	TypePlanCancelled Type = "plan.cancelled"
 
+	// Phase 12I: review lifecycle events
+	TypeReviewTriggered Type = "review.triggered"
+	TypeReviewCompleted Type = "review.completed"
+	TypeReviewFailed    Type = "review.failed"
+
 	// Session events (resume/fork/rewind)
 	TypeSessionCreated Type = "session.created"
 	TypeSessionResumed Type = "session.resumed"

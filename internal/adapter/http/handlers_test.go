@@ -27,6 +27,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -323,6 +324,46 @@ func (m *mockStore) CostByTool(_ context.Context, _ string) ([]cost.ToolSummary,
 	return nil, nil
 }
 func (m *mockStore) CostByToolForRun(_ context.Context, _ string) ([]cost.ToolSummary, error) {
+	return nil, nil
+}
+
+// Project repo lookup
+func (m *mockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
+	return nil, nil
+}
+
+// Review Policy stubs
+func (m *mockStore) CreateReviewPolicy(_ context.Context, _ *review.ReviewPolicy) error {
+	return nil
+}
+func (m *mockStore) GetReviewPolicy(_ context.Context, _ string) (*review.ReviewPolicy, error) {
+	return nil, nil
+}
+func (m *mockStore) ListReviewPoliciesByProject(_ context.Context, _ string) ([]review.ReviewPolicy, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateReviewPolicy(_ context.Context, _ *review.ReviewPolicy) error {
+	return nil
+}
+func (m *mockStore) DeleteReviewPolicy(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListEnabledPoliciesByTrigger(_ context.Context, _ review.TriggerType) ([]review.ReviewPolicy, error) {
+	return nil, nil
+}
+func (m *mockStore) IncrementCommitCounter(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) ResetCommitCounter(_ context.Context, _ string) error   { return nil }
+func (m *mockStore) CreateReview(_ context.Context, _ *review.Review) error { return nil }
+func (m *mockStore) GetReview(_ context.Context, _ string) (*review.Review, error) {
+	return nil, nil
+}
+func (m *mockStore) ListReviewsByProject(_ context.Context, _ string) ([]review.Review, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateReviewStatus(_ context.Context, _ string, _ review.Status, _ *time.Time) error {
+	return nil
+}
+func (m *mockStore) GetReviewByPlanID(_ context.Context, _ string) (*review.Review, error) {
 	return nil, nil
 }
 

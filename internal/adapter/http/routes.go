@@ -222,6 +222,16 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/webhooks/pm/gitlab", h.HandleGitLabIssueWebhook)
 		r.Post("/webhooks/pm/plane", h.HandlePlaneWebhook)
 
+		// Review Policies & Reviews (Phase 12I)
+		r.Get("/projects/{id}/review-policies", h.ListReviewPolicies)
+		r.Post("/projects/{id}/review-policies", h.CreateReviewPolicy)
+		r.Get("/review-policies/{id}", h.GetReviewPolicy)
+		r.Put("/review-policies/{id}", h.UpdateReviewPolicy)
+		r.Delete("/review-policies/{id}", h.DeleteReviewPolicy)
+		r.Post("/review-policies/{id}/trigger", h.TriggerReview)
+		r.Get("/projects/{id}/reviews", h.ListReviews)
+		r.Get("/reviews/{id}", h.GetReviewHandler)
+
 		// Bidirectional Sync (nested under projects)
 		r.Post("/projects/{id}/roadmap/sync", h.SyncRoadmap)
 

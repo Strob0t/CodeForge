@@ -639,6 +639,42 @@ export const api = {
         method: "DELETE",
       }),
   },
+
+  reviews: {
+    listPolicies: (projectId: string) =>
+      request<import("./types").ReviewPolicy[]>(
+        `/projects/${encodeURIComponent(projectId)}/review-policies`,
+      ),
+
+    createPolicy: (projectId: string, data: Partial<import("./types").ReviewPolicy>) =>
+      request<import("./types").ReviewPolicy>(
+        `/projects/${encodeURIComponent(projectId)}/review-policies`,
+        { method: "POST", body: JSON.stringify(data) },
+      ),
+
+    getPolicy: (id: string) =>
+      request<import("./types").ReviewPolicy>(`/review-policies/${encodeURIComponent(id)}`),
+
+    updatePolicy: (id: string, data: Partial<import("./types").ReviewPolicy>) =>
+      request<import("./types").ReviewPolicy>(`/review-policies/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    deletePolicy: (id: string) =>
+      request<undefined>(`/review-policies/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    trigger: (policyId: string) =>
+      request<import("./types").Review>(
+        `/review-policies/${encodeURIComponent(policyId)}/trigger`,
+        { method: "POST" },
+      ),
+
+    list: (projectId: string) =>
+      request<import("./types").Review[]>(`/projects/${encodeURIComponent(projectId)}/reviews`),
+
+    get: (id: string) => request<import("./types").Review>(`/reviews/${encodeURIComponent(id)}`),
+  },
 } as const;
 
 export { FetchError };

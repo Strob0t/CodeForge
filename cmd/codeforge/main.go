@@ -352,10 +352,18 @@ func run() error {
 	slog.Info("replay and session services initialized")
 
 	// --- VCS Webhook & Sync Services ---
-	vcsWebhookSvc := service.NewVCSWebhookService(hub)
+	vcsWebhookSvc := service.NewVCSWebhookService(hub, store)
 	syncSvc := service.NewSyncService(store)
 	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc)
 	slog.Info("vcs webhook, pm webhook, and sync services initialized")
+
+	// --- Review Service (Phase 12I) ---
+	reviewSvc := service.NewReviewService(store, pipelineSvc, orchSvc, hub, eventStore)
+	vcsWebhookSvc.SetReviewService(reviewSvc)
+	orchSvc.SetOnPlanComplete(reviewSvc.HandlePlanComplete)
+	reviewSvc.StartCron(ctx)
+	defer reviewSvc.StopCron()
+	slog.Info("review service initialized")
 
 	// --- Notification Service ---
 	var notifiers []notifier.Notifier
@@ -421,6 +429,7 @@ func run() error {
 		Auth:             authSvc,
 		Scope:            scopeSvc,
 		Pipelines:        pipelineSvc,
+		Review:           reviewSvc,
 	}
 
 	r := chi.NewRouter()

@@ -69,6 +69,21 @@ func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, er
 	return &p, nil
 }
 
+func (s *Store) GetProjectByRepoName(ctx context.Context, repoName string) (*project.Project, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at
+		 FROM projects WHERE repo_url LIKE '%' || $1 || '%' LIMIT 1`, repoName)
+
+	p, err := scanProject(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get project by repo %s: %w", repoName, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get project by repo %s: %w", repoName, err)
+	}
+	return &p, nil
+}
+
 func (s *Store) CreateProject(ctx context.Context, req project.CreateRequest) (*project.Project, error) {
 	configJSON, err := json.Marshal(req.Config)
 	if err != nil {

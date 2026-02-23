@@ -28,6 +28,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -76,6 +77,7 @@ type Handlers struct {
 	Auth             *service.AuthService
 	Scope            *service.ScopeService
 	Pipelines        *service.PipelineService
+	Review           *service.ReviewService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -2257,6 +2259,107 @@ func (h *Handlers) InstantiatePipeline(w http.ResponseWriter, r *http.Request) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
+}
+
+// --- Review Policies & Reviews (Phase 12I) ---
+
+// ListReviewPolicies handles GET /api/v1/projects/{id}/review-policies
+func (h *Handlers) ListReviewPolicies(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	policies, err := h.Review.ListPolicies(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, policies)
+}
+
+// CreateReviewPolicy handles POST /api/v1/projects/{id}/review-policies
+func (h *Handlers) CreateReviewPolicy(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	var req review.CreatePolicyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	p, err := h.Review.CreatePolicy(r.Context(), projectID, &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+// GetReviewPolicy handles GET /api/v1/review-policies/{id}
+func (h *Handlers) GetReviewPolicy(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := h.Review.GetPolicy(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "review policy not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// UpdateReviewPolicy handles PUT /api/v1/review-policies/{id}
+func (h *Handlers) UpdateReviewPolicy(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req review.UpdatePolicyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	p, err := h.Review.UpdatePolicy(r.Context(), id, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// DeleteReviewPolicy handles DELETE /api/v1/review-policies/{id}
+func (h *Handlers) DeleteReviewPolicy(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Review.DeletePolicy(r.Context(), id); err != nil {
+		writeDomainError(w, err, "review policy not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// TriggerReview handles POST /api/v1/review-policies/{id}/trigger
+func (h *Handlers) TriggerReview(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	rev, err := h.Review.ManualTrigger(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, rev)
+}
+
+// ListReviews handles GET /api/v1/projects/{id}/reviews
+func (h *Handlers) ListReviews(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	reviews, err := h.Review.ListReviews(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, reviews)
+}
+
+// GetReviewHandler handles GET /api/v1/reviews/{id}
+func (h *Handlers) GetReviewHandler(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	rev, err := h.Review.GetReview(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "review not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, rev)
 }
 
 func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {

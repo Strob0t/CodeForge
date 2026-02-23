@@ -606,12 +606,18 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Added "Cost by Tool" section to frontend Cost Dashboard
 - [x] (2026-02-23) Extracted `scanEvent` helper in event store to reduce 6 duplicated scan sites
 
-#### 12I. Periodic Reviews & Audits (P2)
+#### 12I. Periodic Reviews & Audits (P2) — COMPLETED 2026-02-23
 
-- [ ] Implement ReviewPolicy domain model with trigger types: commit-count threshold, pre-merge hook, cron schedule
-- [ ] Auto-trigger reviewer agent on configurable conditions (e.g., every 10 commits, before merge to main)
-- [ ] Integrate with existing branch protection rules (`internal/domain/protection/`)
-- [ ] Store review results as typed artifacts (ties into 12E)
+- [x] (2026-02-23) ReviewPolicy domain model with 3 trigger types: commit_count, pre_merge, cron (`internal/domain/review/review.go`)
+- [x] (2026-02-23) Minimal cron parser with ParseCronExpr, NextAfter, ValidateCronExpr (`internal/domain/review/cron.go`, table-driven tests)
+- [x] (2026-02-23) Migration 029: `review_policies` + `reviews` tables with partial indexes
+- [x] (2026-02-23) PostgreSQL store: 13 methods for CRUD, counter management, review lifecycle (`internal/adapter/postgres/store_review.go`)
+- [x] (2026-02-23) ReviewService with CRUD, push/pre-merge/cron trigger logic, plan callback (`internal/service/review.go`)
+- [x] (2026-02-23) Orchestrator `SetOnPlanComplete` callback wired to review status updates
+- [x] (2026-02-23) VCS webhook push/PR integration: auto-triggers commit_count and pre_merge reviews
+- [x] (2026-02-23) HTTP API: 8 endpoints for review policies and reviews
+- [x] (2026-02-23) WebSocket `review.status` event + 3 domain event types
+- [x] (2026-02-23) Frontend: TypeScript types, API client, i18n keys
 
 #### 12J. Project Creation Wizard (P3)
 

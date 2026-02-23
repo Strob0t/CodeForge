@@ -802,3 +802,18 @@
 - [x] (2026-02-23) Added `CostService.ByTool`/`ByToolForRun` delegates and HTTP handlers (`GET /projects/{id}/costs/by-tool`, `GET /runs/{id}/costs/by-tool`)
 - [x] (2026-02-23) Extracted `scanEvent` helper + `eventColumns` constant in event store (DRY: replaced 6 duplicated scan sites)
 - [x] (2026-02-23) Frontend: `ToolCostSummary` type, `costs.byTool`/`costs.byToolForRun` client methods, "Cost by Tool" section in dashboard
+
+### Phase 12I — Periodic Reviews & Audits (COMPLETED)
+
+- [x] (2026-02-23) Domain model: `ReviewPolicy` (3 trigger types: commit_count, pre_merge, cron), `Review` entity, validation, `MatchesBranch` with filepath.Match
+- [x] (2026-02-23) Cron parser: `ParseCronExpr` supports daily, weekly, HH:MM, daily:HH:MM, weekly:Day, weekly:Day:HH:MM; `NextAfter`, `ValidateCronExpr`; table-driven tests
+- [x] (2026-02-23) Migration 029: `review_policies` (with commit_counter) + `reviews` tables, partial indexes on enabled policies and plan linkage
+- [x] (2026-02-23) PostgreSQL store: 13 methods — CRUD, `ListEnabledPoliciesByTrigger`, `IncrementCommitCounter` (atomic), `ResetCommitCounter`, `GetReviewByPlanID`
+- [x] (2026-02-23) Store: added `GetProjectByRepoName` for VCS webhook → project resolution
+- [x] (2026-02-23) ReviewService: CRUD, `HandlePush` (commit counter), `HandlePreMerge` (branch pattern), `ManualTrigger`, cron scheduler (60s ticker)
+- [x] (2026-02-23) Pipeline integration: `triggerReview` instantiates "review-only" template → creates plan → starts orchestration
+- [x] (2026-02-23) Orchestrator `SetOnPlanComplete` callback: updates review status on plan completion/failure
+- [x] (2026-02-23) VCS webhook: push events trigger commit counter checks, PR events trigger pre-merge reviews
+- [x] (2026-02-23) HTTP API: 8 endpoints — CRUD for policies, trigger, list/get reviews
+- [x] (2026-02-23) WebSocket `review.status` event + 3 domain event types (review.triggered, review.completed, review.failed)
+- [x] (2026-02-23) Frontend: `ReviewPolicy` + `Review` types, `reviews` API client namespace (8 methods), i18n keys

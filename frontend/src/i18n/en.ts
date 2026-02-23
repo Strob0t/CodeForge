@@ -772,6 +772,33 @@ const en = {
   "settings.users.deleteFailed": "Failed to delete user",
   "settings.users.updateFailed": "Failed to update user",
   "settings.users.empty": "No users found.",
+
+  // Reviews (Phase 12I)
+  "reviews.title": "Reviews",
+  "reviews.policies": "Review Policies",
+  "reviews.policies.create": "Create Policy",
+  "reviews.policies.name": "Policy Name",
+  "reviews.policies.trigger": "Trigger Type",
+  "reviews.policies.trigger.commitCount": "Commit Count",
+  "reviews.policies.trigger.preMerge": "Pre-Merge",
+  "reviews.policies.trigger.cron": "Cron Schedule",
+  "reviews.policies.commitThreshold": "Commit Threshold",
+  "reviews.policies.cronExpr": "Cron Expression",
+  "reviews.policies.branchPattern": "Branch Pattern",
+  "reviews.policies.template": "Pipeline Template",
+  "reviews.policies.enabled": "Enabled",
+  "reviews.policies.empty": "No review policies configured.",
+  "reviews.policies.deleted": "Policy deleted",
+  "reviews.policies.deleteFailed": "Failed to delete policy",
+  "reviews.history": "Review History",
+  "reviews.history.empty": "No reviews yet.",
+  "reviews.trigger": "Trigger Review",
+  "reviews.triggered": "Review triggered",
+  "reviews.triggerFailed": "Failed to trigger review",
+  "reviews.status.pending": "Pending",
+  "reviews.status.running": "Running",
+  "reviews.status.completed": "Completed",
+  "reviews.status.failed": "Failed",
 } as const;
 
 export type TranslationKey = keyof typeof en;

@@ -19,6 +19,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -596,6 +597,46 @@ func (m *runtimeMockStore) ListScopesByProject(_ context.Context, _ string) ([]c
 }
 func (m *runtimeMockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
 func (m *runtimeMockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
+
+// Project repo lookup
+func (m *runtimeMockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
+	return nil, nil
+}
+
+// Review Policy stubs
+func (m *runtimeMockStore) CreateReviewPolicy(_ context.Context, _ *review.ReviewPolicy) error {
+	return nil
+}
+func (m *runtimeMockStore) GetReviewPolicy(_ context.Context, _ string) (*review.ReviewPolicy, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListReviewPoliciesByProject(_ context.Context, _ string) ([]review.ReviewPolicy, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateReviewPolicy(_ context.Context, _ *review.ReviewPolicy) error {
+	return nil
+}
+func (m *runtimeMockStore) DeleteReviewPolicy(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) ListEnabledPoliciesByTrigger(_ context.Context, _ review.TriggerType) ([]review.ReviewPolicy, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) IncrementCommitCounter(_ context.Context, _ string, _ int) (int, error) {
+	return 0, nil
+}
+func (m *runtimeMockStore) ResetCommitCounter(_ context.Context, _ string) error   { return nil }
+func (m *runtimeMockStore) CreateReview(_ context.Context, _ *review.Review) error { return nil }
+func (m *runtimeMockStore) GetReview(_ context.Context, _ string) (*review.Review, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListReviewsByProject(_ context.Context, _ string) ([]review.Review, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateReviewStatus(_ context.Context, _ string, _ review.Status, _ *time.Time) error {
+	return nil
+}
+func (m *runtimeMockStore) GetReviewByPlanID(_ context.Context, _ string) (*review.Review, error) {
+	return nil, nil
+}
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

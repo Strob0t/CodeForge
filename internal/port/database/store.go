@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -27,6 +28,7 @@ type Store interface {
 	CreateProject(ctx context.Context, req project.CreateRequest) (*project.Project, error)
 	UpdateProject(ctx context.Context, p *project.Project) error
 	DeleteProject(ctx context.Context, id string) error
+	GetProjectByRepoName(ctx context.Context, repoName string) (*project.Project, error)
 
 	// Agents
 	ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error)
@@ -163,6 +165,23 @@ type Store interface {
 
 	// Atomic Refresh Token Rotation
 	RotateRefreshToken(ctx context.Context, oldID string, newRT *user.RefreshToken) error
+
+	// Review Policies
+	CreateReviewPolicy(ctx context.Context, p *review.ReviewPolicy) error
+	GetReviewPolicy(ctx context.Context, id string) (*review.ReviewPolicy, error)
+	ListReviewPoliciesByProject(ctx context.Context, projectID string) ([]review.ReviewPolicy, error)
+	UpdateReviewPolicy(ctx context.Context, p *review.ReviewPolicy) error
+	DeleteReviewPolicy(ctx context.Context, id string) error
+	ListEnabledPoliciesByTrigger(ctx context.Context, triggerType review.TriggerType) ([]review.ReviewPolicy, error)
+	IncrementCommitCounter(ctx context.Context, policyID string, count int) (int, error)
+	ResetCommitCounter(ctx context.Context, policyID string) error
+
+	// Reviews
+	CreateReview(ctx context.Context, r *review.Review) error
+	GetReview(ctx context.Context, id string) (*review.Review, error)
+	ListReviewsByProject(ctx context.Context, projectID string) ([]review.Review, error)
+	UpdateReviewStatus(ctx context.Context, id string, status review.Status, completedAt *time.Time) error
+	GetReviewByPlanID(ctx context.Context, planID string) (*review.Review, error)
 
 	// Retrieval Scopes
 	CreateScope(ctx context.Context, req cfcontext.CreateScopeRequest) (*cfcontext.RetrievalScope, error)

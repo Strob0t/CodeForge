@@ -1043,3 +1043,33 @@ export interface AGUIStepFinishedEvent {
   step_id: string;
   status: "completed" | "failed";
 }
+
+// Phase 12I: Review Policies & Reviews
+
+export interface ReviewPolicy {
+  id: string;
+  project_id: string;
+  tenant_id: string;
+  name: string;
+  trigger_type: "commit_count" | "pre_merge" | "cron";
+  commit_threshold: number;
+  cron_expr: string;
+  branch_pattern: string;
+  template_id: string;
+  enabled: boolean;
+  commit_counter: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Review {
+  id: string;
+  policy_id: string;
+  project_id: string;
+  tenant_id: string;
+  plan_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  trigger_ref: string;
+  created_at: string;
+  completed_at?: string;
+}

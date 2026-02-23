@@ -49,6 +49,9 @@ const (
 	// Phase 8B: VCS webhook events
 	EventVCSPush        = "vcs.push"
 	EventVCSPullRequest = "vcs.pull_request"
+
+	// Phase 12I: review events
+	EventReviewStatus = "review.status"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -209,6 +212,15 @@ type ArtifactValidationEvent struct {
 	ArtifactType string   `json:"artifact_type"`
 	Valid        bool     `json:"valid"`
 	Errors       []string `json:"errors,omitempty"`
+}
+
+// ReviewStatusEvent is broadcast when a review's status changes.
+type ReviewStatusEvent struct {
+	ReviewID  string `json:"review_id"`
+	PolicyID  string `json:"policy_id"`
+	ProjectID string `json:"project_id"`
+	Status    string `json:"status"`
+	PlanID    string `json:"plan_id,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

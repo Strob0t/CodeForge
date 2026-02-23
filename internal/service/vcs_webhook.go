@@ -10,16 +10,33 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // VCSWebhookService processes VCS webhook events from GitHub and GitLab.
 type VCSWebhookService struct {
-	hub broadcast.Broadcaster
+	hub    broadcast.Broadcaster
+	store  database.Store
+	review *ReviewService
 }
 
 // NewVCSWebhookService creates a new VCSWebhookService.
-func NewVCSWebhookService(hub broadcast.Broadcaster) *VCSWebhookService {
-	return &VCSWebhookService{hub: hub}
+func NewVCSWebhookService(hub broadcast.Broadcaster, store database.Store) *VCSWebhookService {
+	return &VCSWebhookService{hub: hub, store: store}
+}
+
+// SetReviewService sets the review service for triggering automated reviews on push events.
+func (s *VCSWebhookService) SetReviewService(rs *ReviewService) {
+	s.review = rs
+}
+
+// resolveProject looks up a project ID by repository name.
+func (s *VCSWebhookService) resolveProject(ctx context.Context, repoFullName string) (string, error) {
+	p, err := s.store.GetProjectByRepoName(ctx, repoFullName)
+	if err != nil {
+		return "", err
+	}
+	return p.ID, nil
 }
 
 // HandleGitHubPush processes a GitHub push webhook payload.
@@ -81,6 +98,14 @@ func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (
 	slog.Info("github push event", "repo", ev.Repository, "branch", branch, "commits", len(ev.Commits))
 
 	s.hub.BroadcastEvent(ctx, ws.EventVCSPush, ev)
+
+	// Trigger review checks on push events.
+	if s.review != nil && s.store != nil {
+		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
+			_ = s.review.HandlePush(ctx, projectID, branch, len(ev.Commits))
+		}
+	}
+
 	return ev, nil
 }
 
@@ -139,6 +164,14 @@ func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, data []byte) (
 	slog.Info("gitlab push event", "repo", ev.Repository, "branch", branch, "commits", len(ev.Commits))
 
 	s.hub.BroadcastEvent(ctx, ws.EventVCSPush, ev)
+
+	// Trigger review checks on push events.
+	if s.review != nil && s.store != nil {
+		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
+			_ = s.review.HandlePush(ctx, projectID, branch, len(ev.Commits))
+		}
+	}
+
 	return ev, nil
 }
 
@@ -189,6 +222,14 @@ func (s *VCSWebhookService) HandleGitHubPullRequest(ctx context.Context, data []
 	slog.Info("github PR event", "repo", ev.Repository, "action", ev.Action, "pr", ev.PRNumber)
 
 	s.hub.BroadcastEvent(ctx, ws.EventVCSPullRequest, ev)
+
+	// Trigger pre-merge review checks on PR open/synchronize.
+	if s.review != nil && s.store != nil && (ev.Action == "opened" || ev.Action == "synchronize") {
+		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
+			_, _ = s.review.HandlePreMerge(ctx, projectID, ev.BaseBranch)
+		}
+	}
+
 	return ev, nil
 }
 
