@@ -449,7 +449,7 @@ func run() error {
 	rateLimiterCleanup := rateLimiter.StartCleanup(cfg.Rate.CleanupInterval, cfg.Rate.MaxIdleTime)
 	defer rateLimiterCleanup()
 
-	// Middleware
+	// Middleware (applied to all routes including WebSocket)
 	r.Use(cfhttp.SecurityHeaders)
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
 	if cfg.OTEL.Enabled {
@@ -461,9 +461,9 @@ func run() error {
 	r.Use(cfhttp.Logger)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
-	r.Use(chimw.Timeout(30 * time.Second))
-	r.Use(rateLimiter.Handler)
-	r.Use(middleware.Idempotency(idempotencyKV))
+
+	// WebSocket — no Timeout/RateLimiter/Idempotency (long-lived connection)
+	r.Get("/ws", hub.HandleWS)
 
 	// Liveness (always 200)
 	r.Get("/health", livenessHandler)
@@ -471,18 +471,21 @@ func run() error {
 	// Readiness (pings DB, checks NATS, checks LiteLLM)
 	r.Get("/health/ready", readinessHandler(pool, queue, llmClient))
 
-	// WebSocket endpoint
-	r.Get("/ws", hub.HandleWS)
+	// API routes wrapped in a group with additional middleware
+	r.Group(func(api chi.Router) {
+		api.Use(chimw.Timeout(30 * time.Second))
+		api.Use(rateLimiter.Handler)
+		api.Use(middleware.Idempotency(idempotencyKV))
 
-	// API routes
-	cfhttp.MountRoutes(r, handlers, cfg.Webhook)
+		cfhttp.MountRoutes(api, handlers, cfg.Webhook)
 
-	// A2A protocol routes (root level, not under /api/v1)
-	if cfg.A2A.Enabled {
-		a2aHandler := a2a.NewHandler("http://localhost:" + cfg.Server.Port)
-		a2aHandler.MountRoutes(r)
-		slog.Info("a2a protocol enabled")
-	}
+		// A2A protocol routes (root level, not under /api/v1)
+		if cfg.A2A.Enabled {
+			a2aHandler := a2a.NewHandler("http://localhost:" + cfg.Server.Port)
+			a2aHandler.MountRoutes(api)
+			slog.Info("a2a protocol enabled")
+		}
+	})
 
 	addr := ":" + cfg.Server.Port
 

@@ -72,19 +72,19 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("websocket connected", "remote", r.RemoteAddr, "tenant", tenantID)
 
-	// Read loop (to detect disconnects and consume pings)
-	go func() {
-		defer func() {
-			h.remove(c)
-			_ = ws.Close(websocket.StatusNormalClosure, "")
-		}()
-		for {
-			_, _, err := ws.Read(ctx)
-			if err != nil {
-				return
-			}
-		}
+	// Read loop blocks the handler to keep r.Context() alive.
+	// Returning from the handler would cancel the request context and
+	// immediately tear down the hijacked connection.
+	defer func() {
+		h.remove(c)
+		_ = ws.Close(websocket.StatusNormalClosure, "")
 	}()
+	for {
+		_, _, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+	}
 }
 
 // Broadcast sends a message to all connected clients.
