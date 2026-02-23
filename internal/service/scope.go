@@ -14,9 +14,10 @@ import (
 
 // ScopeService manages retrieval scope CRUD and cross-project search fan-out.
 type ScopeService struct {
-	store     database.Store
-	retrieval *RetrievalService
-	graph     *GraphService
+	store          database.Store
+	retrieval      *RetrievalService
+	graph          *GraphService
+	knowledgeBases *KnowledgeBaseService
 }
 
 // NewScopeService creates a ScopeService.
@@ -29,6 +30,9 @@ func (s *ScopeService) SetRetrieval(r *RetrievalService) { s.retrieval = r }
 
 // SetGraph wires the graph service for cross-project graph search.
 func (s *ScopeService) SetGraph(g *GraphService) { s.graph = g }
+
+// SetKnowledgeBase wires the knowledge base service for scope-based KB search.
+func (s *ScopeService) SetKnowledgeBase(kb *KnowledgeBaseService) { s.knowledgeBases = kb }
 
 // --- CRUD ---
 
@@ -98,7 +102,27 @@ func (s *ScopeService) SearchScope(
 	if err != nil {
 		return nil, fmt.Errorf("resolve scope projects: %w", err)
 	}
-	if len(pids) == 0 {
+
+	// Resolve knowledge base IDs attached to this scope.
+	var kbIDs []string
+	if s.knowledgeBases != nil {
+		kbs, err := s.knowledgeBases.ListByScope(ctx, scopeID)
+		if err != nil {
+			slog.Warn("failed to list scope knowledge bases", "scope_id", scopeID, "error", err)
+		} else {
+			for i := range kbs {
+				if kbs[i].Status == "indexed" {
+					kbIDs = append(kbIDs, "kb:"+kbs[i].ID)
+				}
+			}
+		}
+	}
+
+	// Combine project IDs and KB "project" IDs for fan-out search.
+	allIDs := make([]string, 0, len(pids)+len(kbIDs))
+	allIDs = append(allIDs, pids...)
+	allIDs = append(allIDs, kbIDs...)
+	if len(allIDs) == 0 {
 		return nil, nil
 	}
 
@@ -108,10 +132,10 @@ func (s *ScopeService) SearchScope(
 	}
 
 	sem := make(chan struct{}, maxScopeFanOut)
-	results := make([]result, len(pids))
+	results := make([]result, len(allIDs))
 	var wg sync.WaitGroup
 
-	for i, pid := range pids {
+	for i, pid := range allIDs {
 		wg.Add(1)
 		go func(idx int, projectID string) {
 			defer wg.Done()

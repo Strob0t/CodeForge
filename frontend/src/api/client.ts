@@ -686,6 +686,44 @@ export const api = {
 
     get: (id: string) => request<import("./types").Review>(`/reviews/${encodeURIComponent(id)}`),
   },
+
+  knowledgeBases: {
+    list: () => request<import("./types").KnowledgeBase[]>("/knowledge-bases"),
+
+    get: (id: string) =>
+      request<import("./types").KnowledgeBase>(`/knowledge-bases/${encodeURIComponent(id)}`),
+
+    create: (data: import("./types").CreateKnowledgeBaseRequest) =>
+      request<import("./types").KnowledgeBase>("/knowledge-bases", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      request<undefined>(`/knowledge-bases/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    index: (id: string) =>
+      request<{ status: string }>(`/knowledge-bases/${encodeURIComponent(id)}/index`, {
+        method: "POST",
+      }),
+
+    listByScope: (scopeId: string) =>
+      request<import("./types").KnowledgeBase[]>(
+        `/scopes/${encodeURIComponent(scopeId)}/knowledge-bases`,
+      ),
+
+    attachToScope: (scopeId: string, kbId: string) =>
+      request<undefined>(`/scopes/${encodeURIComponent(scopeId)}/knowledge-bases`, {
+        method: "POST",
+        body: JSON.stringify({ knowledge_base_id: kbId }),
+      }),
+
+    detachFromScope: (scopeId: string, kbId: string) =>
+      request<undefined>(
+        `/scopes/${encodeURIComponent(scopeId)}/knowledge-bases/${encodeURIComponent(kbId)}`,
+        { method: "DELETE" },
+      ),
+  },
 } as const;
 
 export { FetchError };

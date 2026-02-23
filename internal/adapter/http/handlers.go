@@ -78,6 +78,7 @@ type Handlers struct {
 	Scope            *service.ScopeService
 	Pipelines        *service.PipelineService
 	Review           *service.ReviewService
+	KnowledgeBases   *service.KnowledgeBaseService
 }
 
 // ListProjects handles GET /api/v1/projects

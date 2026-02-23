@@ -828,3 +828,15 @@
 - [x] (2026-02-23) Frontend: "Detect Stack" button on ProjectCard (visible when workspace_path set), results panel with language badges + recommendation chips
 - [x] (2026-02-23) Tests: 9 scan tests (Go/TS/JS/Python/Rust/multi-lang/empty/nonexistent/not-a-dir) + 7 stackmap validation tests
 - [x] (2026-02-23) No database changes — detection is stateless, runs on demand against filesystem
+
+### Phase 12K — Knowledge Bases (COMPLETED)
+
+- [x] (2026-02-23) Domain: `KnowledgeBase` struct, `CreateRequest`/`UpdateRequest`, `Category`/`Status` types, validation
+- [x] (2026-02-23) Built-in catalog: 8 entries (go-stdlib, react-patterns, python-stdlib, solid-principles, clean-architecture, ddd-patterns, security-owasp, rest-api-design)
+- [x] (2026-02-23) Migration `030_knowledge_bases.sql`: `knowledge_bases` + `scope_knowledge_bases` join table
+- [x] (2026-02-23) Store: 9 interface methods + Postgres implementation (tenant-scoped, partial update)
+- [x] (2026-02-23) Service: `KnowledgeBaseService` — CRUD, scope attach/detach, `RequestIndex` (reuses retrieval pipeline with `kb:` prefix), `SeedBuiltins` (idempotent)
+- [x] (2026-02-23) Scope integration: `SearchScope` includes indexed KBs in fan-out search alongside project indexes
+- [x] (2026-02-23) HTTP API: 9 endpoints (CRUD + index + scope attach/detach/list)
+- [x] (2026-02-23) Frontend: KnowledgeBasesPage (card grid, create form, index/delete actions), API client, types, i18n, sidebar nav
+- [x] (2026-02-23) Tests: 3 domain + 6 service tests (validation, CRUD, delete-builtin guard, scope ops, seed idempotency)

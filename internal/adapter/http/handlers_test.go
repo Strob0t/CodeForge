@@ -23,6 +23,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -498,6 +499,31 @@ func (m *mockStore) ListScopesByProject(_ context.Context, _ string) ([]cfcontex
 }
 func (m *mockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
 func (m *mockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
+
+// Knowledge Base stubs
+func (m *mockStore) CreateKnowledgeBase(_ context.Context, _ *knowledgebase.CreateRequest) (*knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *mockStore) GetKnowledgeBase(_ context.Context, _ string) (*knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *mockStore) ListKnowledgeBases(_ context.Context) ([]knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateKnowledgeBase(_ context.Context, _ string, _ knowledgebase.UpdateRequest) (*knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteKnowledgeBase(_ context.Context, _ string) error { return nil }
+func (m *mockStore) UpdateKnowledgeBaseStatus(_ context.Context, _, _ string, _ int) error {
+	return nil
+}
+func (m *mockStore) AddKnowledgeBaseToScope(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) RemoveKnowledgeBaseFromScope(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockStore) ListKnowledgeBasesByScope(_ context.Context, _ string) ([]knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
 
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}

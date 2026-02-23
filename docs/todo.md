@@ -628,12 +628,19 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Frontend: "Detect Stack" button on ProjectCard, detection results panel with language badges + recommendation chips — `DashboardPage.tsx`, `ProjectCard.tsx`
 - [x] (2026-02-23) 16 tests: 9 scan tests (7 project types + nonexistent + not-a-dir) + 7 stackmap validation tests
 
-#### 12K. Knowledge Bases (P3)
+#### 12K. Knowledge Bases (P3) — COMPLETED 2026-02-23
 
-- [ ] Curated knowledge modules for common frameworks (React, Go stdlib, Python stdlib, etc.)
-- [ ] Programming paradigm standards (SOLID, Clean Architecture, DDD patterns)
-- [ ] Implement as pre-built retrieval indexes that can be attached to project scopes
-- [ ] Ties into RAG Shared Scope system (12D) — knowledge bases are a type of shared scope with type "global"
+- [x] (2026-02-23) Domain types: `KnowledgeBase`, `CreateRequest`, `UpdateRequest`, `Category`, `Status` in `internal/domain/knowledgebase/knowledgebase.go`
+- [x] (2026-02-23) Built-in catalog: 8 entries (go-stdlib, react-patterns, python-stdlib, solid-principles, clean-architecture, ddd-patterns, security-owasp, rest-api-design) in `catalog.go`
+- [x] (2026-02-23) Database migration `030_knowledge_bases.sql`: `knowledge_bases` table + `scope_knowledge_bases` join table with cascade deletes
+- [x] (2026-02-23) Store interface: 9 new methods on `database.Store` for KB CRUD + scope attachment + status updates
+- [x] (2026-02-23) Postgres store implementation: `store_knowledgebase.go` — tenant-scoped queries, partial update, ErrNotFound mapping
+- [x] (2026-02-23) Service: `KnowledgeBaseService` — CRUD, scope attach/detach, `RequestIndex` (reuses retrieval pipeline with `kb:` prefix), `SeedBuiltins` (idempotent startup seeding)
+- [x] (2026-02-23) Scope integration: `SearchScope` now includes indexed KBs attached to scope in fan-out search alongside project indexes
+- [x] (2026-02-23) HTTP API: 9 handlers — CRUD + index + scope attach/detach/list endpoints
+- [x] (2026-02-23) Frontend: TypeScript types, API client (8 methods), KnowledgeBasesPage with card grid, create form, index/delete actions, sidebar nav link
+- [x] (2026-02-23) i18n: 26 keys for KB UI labels, statuses, categories, toasts
+- [x] (2026-02-23) Tests: 3 domain tests (validation, categories, catalog) + 6 service tests (CRUD, delete-builtin, scope attach/detach, seed idempotency, validation errors)
 
 #### Dependencies
 

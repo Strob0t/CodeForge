@@ -9,6 +9,7 @@ import ActivityPage from "./features/activity/ActivityPage.tsx";
 import LoginPage from "./features/auth/LoginPage.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
+import KnowledgeBasesPage from "./features/knowledgebases/KnowledgeBasesPage.tsx";
 import ModelsPage from "./features/llm/ModelsPage.tsx";
 import ModesPage from "./features/modes/ModesPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
@@ -32,6 +33,7 @@ render(
       <Route path="/models" component={ModelsPage} />
       <Route path="/modes" component={ModesPage} />
       <Route path="/activity" component={ActivityPage} />
+      <Route path="/knowledge-bases" component={KnowledgeBasesPage} />
       <Route path="/teams" component={TeamsPage} />
       <Route path="/settings" component={SettingsPage} />
     </Router>

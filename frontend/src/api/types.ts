@@ -1098,3 +1098,29 @@ export interface StackDetectionResult {
   recommendations: ToolRecommendation[];
   scanned_path: string;
 }
+
+// Phase 12K: Knowledge Bases
+
+/** Matches Go domain/knowledgebase.KnowledgeBase */
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  tags: string[];
+  builtin: boolean;
+  content_path: string;
+  status: string;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/knowledgebase.CreateRequest */
+export interface CreateKnowledgeBaseRequest {
+  name: string;
+  description: string;
+  category: string;
+  tags: string[];
+  content_path: string;
+}

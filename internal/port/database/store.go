@@ -9,6 +9,7 @@ import (
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
+	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -192,4 +193,15 @@ type Store interface {
 	ListScopesByProject(ctx context.Context, projectID string) ([]cfcontext.RetrievalScope, error)
 	AddProjectToScope(ctx context.Context, scopeID, projectID string) error
 	RemoveProjectFromScope(ctx context.Context, scopeID, projectID string) error
+
+	// Knowledge Bases
+	CreateKnowledgeBase(ctx context.Context, req *knowledgebase.CreateRequest) (*knowledgebase.KnowledgeBase, error)
+	GetKnowledgeBase(ctx context.Context, id string) (*knowledgebase.KnowledgeBase, error)
+	ListKnowledgeBases(ctx context.Context) ([]knowledgebase.KnowledgeBase, error)
+	UpdateKnowledgeBase(ctx context.Context, id string, req knowledgebase.UpdateRequest) (*knowledgebase.KnowledgeBase, error)
+	DeleteKnowledgeBase(ctx context.Context, id string) error
+	UpdateKnowledgeBaseStatus(ctx context.Context, id, status string, chunkCount int) error
+	AddKnowledgeBaseToScope(ctx context.Context, scopeID, kbID string) error
+	RemoveKnowledgeBaseFromScope(ctx context.Context, scopeID, kbID string) error
+	ListKnowledgeBasesByScope(ctx context.Context, scopeID string) ([]knowledgebase.KnowledgeBase, error)
 }

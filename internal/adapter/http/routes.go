@@ -156,6 +156,19 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/scopes/{id}/search", h.SearchScope)
 		r.Post("/scopes/{id}/graph/search", h.SearchScopeGraph)
 
+		// Knowledge Bases on Scopes
+		r.Post("/scopes/{id}/knowledge-bases", h.AttachKnowledgeBaseToScope)
+		r.Delete("/scopes/{id}/knowledge-bases/{kbid}", h.DetachKnowledgeBaseFromScope)
+		r.Get("/scopes/{id}/knowledge-bases", h.ListScopeKnowledgeBases)
+
+		// Knowledge Bases
+		r.Get("/knowledge-bases", h.ListKnowledgeBases)
+		r.Post("/knowledge-bases", h.CreateKnowledgeBase)
+		r.Get("/knowledge-bases/{id}", h.GetKnowledgeBase)
+		r.Put("/knowledge-bases/{id}", h.UpdateKnowledgeBase)
+		r.Delete("/knowledge-bases/{id}", h.DeleteKnowledgeBase)
+		r.Post("/knowledge-bases/{id}/index", h.IndexKnowledgeBase)
+
 		// Cost aggregation
 		r.Get("/costs", h.GlobalCostSummary)
 		r.Get("/projects/{id}/costs", h.ProjectCostSummary)

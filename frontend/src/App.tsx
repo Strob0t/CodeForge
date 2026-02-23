@@ -134,6 +134,13 @@ function AppShell(props: {
                 {t("app.nav.activity")}
               </A>
               <A
+                href="/knowledge-bases"
+                class="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                activeClass="bg-gray-100 text-blue-600 dark:bg-gray-700 dark:text-blue-400"
+              >
+                {t("kb.title")}
+              </A>
+              <A
                 href="/teams"
                 class="block rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                 activeClass="bg-gray-100 text-blue-600 dark:bg-gray-700 dark:text-blue-400"

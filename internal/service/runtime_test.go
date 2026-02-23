@@ -16,6 +16,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -597,6 +598,31 @@ func (m *runtimeMockStore) ListScopesByProject(_ context.Context, _ string) ([]c
 }
 func (m *runtimeMockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
 func (m *runtimeMockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
+
+// Knowledge Base stubs
+func (m *runtimeMockStore) CreateKnowledgeBase(_ context.Context, _ *knowledgebase.CreateRequest) (*knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetKnowledgeBase(_ context.Context, _ string) (*knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListKnowledgeBases(_ context.Context) ([]knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateKnowledgeBase(_ context.Context, _ string, _ knowledgebase.UpdateRequest) (*knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteKnowledgeBase(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) UpdateKnowledgeBaseStatus(_ context.Context, _, _ string, _ int) error {
+	return nil
+}
+func (m *runtimeMockStore) AddKnowledgeBaseToScope(_ context.Context, _, _ string) error { return nil }
+func (m *runtimeMockStore) RemoveKnowledgeBaseFromScope(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) ListKnowledgeBasesByScope(_ context.Context, _ string) ([]knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
 
 // Project repo lookup
 func (m *runtimeMockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
