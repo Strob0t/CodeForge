@@ -1,0 +1,5 @@
+{
+  "contains": ["TEST_REPORT", "pass", "fail"],
+  "not_contains": [],
+  "min_length": 100
+}

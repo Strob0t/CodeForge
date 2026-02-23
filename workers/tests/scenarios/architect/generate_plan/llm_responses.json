@@ -1,0 +1,11 @@
+{
+  "responses": [
+    {
+      "content": "# PLAN.md — Authentication Module\n\n## Architecture\n\nThe auth module follows a layered architecture with clear separation of concerns.\n\n## Components\n\n### 1. JWT Service\n- Access token generation and validation (HMAC-SHA256)\n- Refresh token rotation with configurable expiry\n- Token claims: user_id, email, role, exp, iat\n\n### 2. Password Service\n- Bcrypt hashing with configurable cost factor\n- Password validation and comparison\n\n### 3. Auth Middleware\n- HTTP middleware for protected routes\n- Token extraction from Authorization header\n- Context injection of authenticated user\n\n### 4. Session Store\n- Refresh token persistence in PostgreSQL\n- Token revocation support\n\n## Data Flow\n\n1. Login: credentials -> password verify -> JWT pair -> response\n2. Refresh: refresh token -> validate -> new JWT pair -> response\n3. Protected route: request -> middleware -> token verify -> handler\n\n## Dependencies\n- golang.org/x/crypto/bcrypt\n- github.com/golang-jwt/jwt/v5\n",
+      "tokens_in": 85,
+      "tokens_out": 210,
+      "model": "fake-model",
+      "cost_usd": 0.001
+    }
+  ]
+}

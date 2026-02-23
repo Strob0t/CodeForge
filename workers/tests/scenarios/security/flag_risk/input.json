@@ -1,0 +1,5 @@
+{
+  "prompt": "Audit the following code for security vulnerabilities:\n\nfunc getUser(db *sql.DB, id string) (*User, error) {\n    query := \"SELECT * FROM users WHERE id = '\" + id + \"'\"\n    row := db.QueryRow(query)\n    var u User\n    err := row.Scan(&u.ID, &u.Email, &u.Name)\n    return &u, err\n}",
+  "title": "Audit SQL query",
+  "project_id": "proj-test-001"
+}

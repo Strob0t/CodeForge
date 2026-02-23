@@ -1,0 +1,5 @@
+{
+  "contains": ["SQL injection", "vulnerability"],
+  "not_contains": [],
+  "min_length": 80
+}

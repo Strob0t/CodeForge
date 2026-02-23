@@ -1,0 +1,5 @@
+{
+  "prompt": "Write tests for an HTTP auth middleware that validates JWT tokens. Report results as a structured TEST_REPORT with pass/fail status for each test case.",
+  "title": "Test auth middleware",
+  "project_id": "proj-test-001"
+}

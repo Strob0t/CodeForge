@@ -733,3 +733,12 @@
 - [x] (2026-02-23) Executor wired: `execute_with_runtime()` reads `mode.llm_scenario`, resolves to tag + temperature, passes to `completion(tags=[...], temperature=...)`
 - [x] (2026-02-23) Routing decision logging: structured log in executor (run_id, mode, scenario, temperature) + debug log in LLM client (model, temperature, tags, prompt_len)
 - [x] (2026-02-23) Tests: 5 new LLM tests (tag passing, no-tags backward compat, scenario resolution, fallback, temperature values); all 99 Python tests pass
+
+### Phase 12C — Role Evaluation Framework (COMPLETED)
+
+- [x] (2026-02-23) FakeLLM test harness (`workers/tests/fake_llm.py`): duck-types LiteLLMClient, fixture-loaded via `from_fixture()`, tracks all calls with `LLMCall` dataclass, raises RuntimeError on exhaustion
+- [x] (2026-02-23) Role responsibility matrix (`workers/tests/role_matrix.py`): 9 roles (orchestrator, architect, coder, reviewer, security, tester, debugger, proponent, moderator) with RoleSpec dataclass (input/output/tools/test_location)
+- [x] (2026-02-23) EvaluationMetrics dataclass (`workers/tests/evaluation.py`): passed, tokens_in/out, step_count, cost_usd, artifact_quality
+- [x] (2026-02-23) Scenario fixtures (`workers/tests/scenarios/`): 5 roles x 3 JSON files = 15 fixtures (architect/generate_plan, coder/produce_diff, reviewer/catch_bug, tester/report_pass_fail, security/flag_risk)
+- [x] (2026-02-23) Shared fixture loader (`workers/tests/conftest.py`): `load_scenario(role, scenario)` returns (input, expected, FakeLLM) tuple
+- [x] (2026-02-23) 7 MVP evaluation tests (`workers/tests/test_role_evaluation.py`): architect plan, coder diff, reviewer bug, tester report, security audit, debate convergence, orchestrator boundary; all 106 Python tests pass

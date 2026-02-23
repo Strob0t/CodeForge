@@ -1,0 +1,11 @@
+{
+  "responses": [
+    {
+      "content": "# TEST_REPORT: Auth Middleware\n\n## Summary\n- Total: 4\n- Pass: 3\n- Fail: 1\n\n## Results\n\n| # | Test Case | Status |\n|---|-----------|--------|\n| 1 | Valid token passes middleware | pass |\n| 2 | Expired token returns 401 | pass |\n| 3 | Missing Authorization header returns 401 | pass |\n| 4 | Malformed token returns 401 | fail |\n\n## Failure Details\n\n### Test 4: Malformed token returns 401\n- Expected: HTTP 401 with error body\n- Actual: HTTP 500 internal server error\n- Root cause: Token parsing does not handle non-JWT strings; panics on nil claims.\n\n## Suggested Fix\n\nAdd a recover middleware or validate token format before parsing.\n",
+      "tokens_in": 60,
+      "tokens_out": 180,
+      "model": "fake-model",
+      "cost_usd": 0.001
+    }
+  ]
+}

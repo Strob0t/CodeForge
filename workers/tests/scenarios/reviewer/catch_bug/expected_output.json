@@ -1,0 +1,5 @@
+{
+  "contains": ["division by zero", "bug"],
+  "not_contains": [],
+  "min_length": 50
+}

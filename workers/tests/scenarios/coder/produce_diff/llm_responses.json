@@ -1,0 +1,11 @@
+{
+  "responses": [
+    {
+      "content": "--- /dev/null\n+++ b/internal/auth/jwt.go\n@@ -0,0 +1,45 @@\n+package auth\n+\n+import (\n+\t\"errors\"\n+\t\"time\"\n+\n+\t\"github.com/golang-jwt/jwt/v5\"\n+)\n+\n+type TokenService struct {\n+\tsecret []byte\n+\texpiry time.Duration\n+}\n+\n+func NewTokenService(secret string, expiry time.Duration) *TokenService {\n+\treturn &TokenService{secret: []byte(secret), expiry: expiry}\n+}\n+\n+type Claims struct {\n+\tUserID string `json:\"user_id\"`\n+\tEmail  string `json:\"email\"`\n+\tjwt.RegisteredClaims\n+}\n+\n+func (s *TokenService) Generate(userID, email string) (string, error) {\n+\tclaims := Claims{\n+\t\tUserID: userID,\n+\t\tEmail:  email,\n+\t\tRegisteredClaims: jwt.RegisteredClaims{\n+\t\t\tExpiresAt: jwt.NewNumericDate(time.Now().Add(s.expiry)),\n+\t\t\tIssuedAt:  jwt.NewNumericDate(time.Now()),\n+\t\t},\n+\t}\n+\ttoken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)\n+\treturn token.SignedString(s.secret)\n+}\n+\n+func (s *TokenService) Validate(tokenStr string) (*Claims, error) {\n+\ttoken, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {\n+\t\treturn s.secret, nil\n+\t})\n+\tif err != nil {\n+\t\treturn nil, err\n+\t}\n+\tif claims, ok := token.Claims.(*Claims); ok && token.Valid {\n+\t\treturn claims, nil\n+\t}\n+\treturn nil, errors.New(\"invalid token\")\n+}\n",
+      "tokens_in": 70,
+      "tokens_out": 320,
+      "model": "fake-model",
+      "cost_usd": 0.002
+    }
+  ]
+}

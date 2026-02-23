@@ -1,0 +1,11 @@
+{
+  "responses": [
+    {
+      "content": "# Code Review: divide(a, b int) int\n\n## Bug Found: Division by Zero\n\n**Severity:** Critical\n\nThe function `divide(a, b int) int` performs integer division without checking whether `b` is zero. When `b == 0`, this causes a runtime panic (division by zero).\n\n### Recommendation\n\nReturn an error or use a guard clause:\n\n```go\nfunc divide(a, b int) (int, error) {\n    if b == 0 {\n        return 0, errors.New(\"division by zero\")\n    }\n    return a / b, nil\n}\n```\n\n## Additional Notes\n\n- Consider whether the return type should be `float64` for precision.\n- Add unit tests covering edge cases (zero divisor, negative numbers, overflow).\n",
+      "tokens_in": 45,
+      "tokens_out": 150,
+      "model": "fake-model",
+      "cost_usd": 0.0005
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "responses": [
+    {
+      "content": "# AUDIT_REPORT: getUser Function\n\n## Critical Vulnerability: SQL Injection\n\n**Severity:** Critical (CVSS 9.8)\n**CWE:** CWE-89 (SQL Injection)\n\nThe function concatenates user-supplied `id` directly into the SQL query string without any sanitization or parameterization. An attacker can inject arbitrary SQL:\n\n```\nid = \"'; DROP TABLE users; --\"\n```\n\n### Impact\n- Full database read access\n- Data modification or deletion\n- Potential remote code execution (depending on DB permissions)\n\n### Remediation\n\nUse parameterized queries:\n\n```go\nfunc getUser(db *sql.DB, id string) (*User, error) {\n    query := \"SELECT id, email, name FROM users WHERE id = $1\"\n    row := db.QueryRow(query, id)\n    var u User\n    err := row.Scan(&u.ID, &u.Email, &u.Name)\n    return &u, err\n}\n```\n\n### Additional Findings\n- `SELECT *` should be replaced with explicit column names\n- No input validation on `id` parameter\n",
+      "tokens_in": 55,
+      "tokens_out": 200,
+      "model": "fake-model",
+      "cost_usd": 0.001
+    }
+  ]
+}

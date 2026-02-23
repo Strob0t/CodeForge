@@ -1,0 +1,5 @@
+{
+  "prompt": "Design the authentication module for a Go web service. It should support JWT access tokens, refresh tokens, bcrypt password hashing, and middleware for protected routes.",
+  "title": "Design auth module",
+  "project_id": "proj-test-001"
+}

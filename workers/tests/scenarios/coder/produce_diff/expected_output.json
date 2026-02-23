@@ -1,0 +1,5 @@
+{
+  "contains": ["package auth", "func", "token", "jwt"],
+  "not_contains": [],
+  "min_length": 100
+}

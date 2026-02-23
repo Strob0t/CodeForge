@@ -539,11 +539,11 @@ For full completion history, see [project-status.md](project-status.md).
 
 #### 12C. Role Evaluation Framework (P1)
 
-- [ ] Define role responsibility matrix (9 roles: Orchestrator, Planner, Coder, Reviewer, Auditor, Runner, Tool Agent, Proponent/Opponent, Moderator) with input/output/allowed/denied columns
-- [ ] Implement FakeLLM test harness for deterministic agent testing (`workers/tests/`): fixture-based, Record/Replay modes
-- [ ] Create `tests/scenarios/` fixture directory structure: `{role}/{scenario}/input.json`, `expected_output.json`, `llm_responses.json`
-- [ ] Define 7 MVP evaluation tests (planner generates valid plan, coder produces diff, reviewer catches bug, runner reports pass/fail, auditor flags risk, debate agents reach consensus, orchestrator selects correct strategy)
-- [ ] Integrate evaluation metrics schema: pass/fail, token usage, step count, artifact quality score
+- [x] (2026-02-23) Define role responsibility matrix (9 roles: Orchestrator, Architect, Coder, Reviewer, Security, Tester, Debugger, Proponent, Moderator) with input/output/allowed/denied columns (`workers/tests/role_matrix.py`)
+- [x] (2026-02-23) Implement FakeLLM test harness for deterministic agent testing (`workers/tests/fake_llm.py`): fixture-based, call tracking, `from_fixture()` class method
+- [x] (2026-02-23) Create `tests/scenarios/` fixture directory structure: 5 roles x 3 files = 15 JSON fixtures (`{role}/{scenario}/input.json`, `expected_output.json`, `llm_responses.json`)
+- [x] (2026-02-23) Define 7 MVP evaluation tests (`workers/tests/test_role_evaluation.py`): architect generates plan, coder produces diff, reviewer catches bug, tester reports pass/fail, security flags risk, debate convergence, orchestrator boundary
+- [x] (2026-02-23) Integrate evaluation metrics schema (`workers/tests/evaluation.py`): EvaluationMetrics dataclass (passed, tokens, steps, cost, artifact_quality)
 - [ ] Research reference: SPARC-Bench, DeepEval, AgentNeo, REALM-Bench, GEMMAS
 
 #### 12D. RAG Shared Scope System (P1)

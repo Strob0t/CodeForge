@@ -1,0 +1,5 @@
+{
+  "prompt": "Implement a JWT token service in Go. The service should generate access tokens with HMAC-SHA256 signing and validate tokens returning the claims.",
+  "title": "Implement JWT service",
+  "project_id": "proj-test-001"
+}

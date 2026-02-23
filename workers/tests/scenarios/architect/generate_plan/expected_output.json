@@ -1,0 +1,5 @@
+{
+  "contains": ["Architecture", "Components", "JWT", "middleware"],
+  "not_contains": ["package main", "func main()"],
+  "min_length": 200
+}
