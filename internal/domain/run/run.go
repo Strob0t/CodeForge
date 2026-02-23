@@ -45,6 +45,7 @@ type Run struct {
 	AgentID       string      `json:"agent_id"`
 	ProjectID     string      `json:"project_id"`
 	TeamID        string      `json:"team_id,omitempty"`
+	ModeID        string      `json:"mode_id,omitempty"`
 	PolicyProfile string      `json:"policy_profile"`
 	ExecMode      ExecMode    `json:"exec_mode"`
 	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`
@@ -69,6 +70,7 @@ type StartRequest struct {
 	AgentID       string      `json:"agent_id"`
 	ProjectID     string      `json:"project_id"`
 	TeamID        string      `json:"team_id,omitempty"`
+	ModeID        string      `json:"mode_id,omitempty"`
 	PolicyProfile string      `json:"policy_profile,omitempty"`
 	ExecMode      ExecMode    `json:"exec_mode,omitempty"`
 	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`

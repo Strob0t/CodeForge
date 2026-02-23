@@ -285,6 +285,7 @@ func run() error {
 
 	// --- Mode Service (Phase 5E) ---
 	modeSvc := service.NewModeService()
+	runtimeSvc.SetModeService(modeSvc)
 	slog.Info("mode service initialized", "modes", len(modeSvc.List()))
 
 	// --- Spec & PM Providers (Phase 9A) ---

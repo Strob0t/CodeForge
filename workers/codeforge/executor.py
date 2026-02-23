@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from codeforge.models import TaskMessage, TaskResult, TaskStatus
+from codeforge.models import ModeConfig, TaskMessage, TaskResult, TaskStatus
 from codeforge.pricing import resolve_cost
 
 if TYPE_CHECKING:
@@ -57,6 +57,7 @@ class AgentExecutor:
         self,
         task: TaskMessage,
         runtime: RuntimeClient,
+        mode: ModeConfig | None = None,
     ) -> None:
         """Execute a task using the step-by-step runtime protocol.
 
@@ -65,6 +66,9 @@ class AgentExecutor:
         """
         logger.info("executing task %s with runtime protocol: %s", task.id, task.title)
         await runtime.send_output(f"Starting task: {task.title}")
+
+        # Build system prompt from mode or fallback to generic prompt
+        system_prompt = mode.prompt_prefix if mode and mode.prompt_prefix else f"You are working on task: {task.title}"
 
         try:
             # Request permission for LLM call
@@ -87,7 +91,7 @@ class AgentExecutor:
             # Execute the LLM call
             response = await self._llm.completion(
                 prompt=task.prompt,
-                system=f"You are working on task: {task.title}",
+                system=system_prompt,
             )
 
             # Report result with real cost and tokens

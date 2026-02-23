@@ -17,6 +17,9 @@ export default function ModesPage() {
   const [formName, setFormName] = createSignal("");
   const [formDesc, setFormDesc] = createSignal("");
   const [formTools, setFormTools] = createSignal("");
+  const [formDeniedTools, setFormDeniedTools] = createSignal("");
+  const [formDeniedActions, setFormDeniedActions] = createSignal("");
+  const [formRequiredArtifact, setFormRequiredArtifact] = createSignal("");
   const [formScenario, setFormScenario] = createSignal("default");
   const [formAutonomy, setFormAutonomy] = createSignal(3);
   const [formPrompt, setFormPrompt] = createSignal("");
@@ -26,6 +29,9 @@ export default function ModesPage() {
     setFormName("");
     setFormDesc("");
     setFormTools("");
+    setFormDeniedTools("");
+    setFormDeniedActions("");
+    setFormRequiredArtifact("");
     setFormScenario("default");
     setFormAutonomy(3);
     setFormPrompt("");
@@ -53,6 +59,15 @@ export default function ModesPage() {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+        denied_tools: formDeniedTools()
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        denied_actions: formDeniedActions()
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        required_artifact: formRequiredArtifact().trim() || undefined,
         llm_scenario: formScenario().trim() || undefined,
         autonomy: formAutonomy(),
         prompt_prefix: formPrompt().trim() || undefined,
@@ -172,6 +187,54 @@ export default function ModesPage() {
                 onInput={(e) => setFormTools(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
                 placeholder={t("modes.form.toolsPlaceholder")}
+              />
+            </div>
+            <div>
+              <label
+                for="mode-denied-tools"
+                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("modes.form.deniedTools")}
+              </label>
+              <input
+                id="mode-denied-tools"
+                type="text"
+                value={formDeniedTools()}
+                onInput={(e) => setFormDeniedTools(e.currentTarget.value)}
+                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                placeholder={t("modes.form.deniedToolsPlaceholder")}
+              />
+            </div>
+            <div>
+              <label
+                for="mode-denied-actions"
+                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("modes.form.deniedActions")}
+              </label>
+              <input
+                id="mode-denied-actions"
+                type="text"
+                value={formDeniedActions()}
+                onInput={(e) => setFormDeniedActions(e.currentTarget.value)}
+                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                placeholder={t("modes.form.deniedActionsPlaceholder")}
+              />
+            </div>
+            <div>
+              <label
+                for="mode-required-artifact"
+                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("modes.form.requiredArtifact")}
+              </label>
+              <input
+                id="mode-required-artifact"
+                type="text"
+                value={formRequiredArtifact()}
+                onInput={(e) => setFormRequiredArtifact(e.currentTarget.value)}
+                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                placeholder={t("modes.form.requiredArtifactPlaceholder")}
               />
             </div>
             <div>
@@ -305,8 +368,44 @@ function ModeCard(props: { mode: Mode }) {
           </div>
         </div>
 
-        {/* Scenario + Autonomy */}
-        <div class="flex items-center gap-3 text-xs">
+        {/* Denied Tools */}
+        <Show when={props.mode.denied_tools?.length}>
+          <div>
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {t("modes.deniedTools")}
+            </span>
+            <div class="mt-1 flex flex-wrap gap-1">
+              <For each={props.mode.denied_tools}>
+                {(tool) => (
+                  <span class="rounded bg-red-100 px-1.5 py-0.5 font-mono text-xs text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                    {tool}
+                  </span>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* Denied Actions */}
+        <Show when={props.mode.denied_actions?.length}>
+          <div>
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {t("modes.deniedActions")}
+            </span>
+            <div class="mt-1 flex flex-wrap gap-1">
+              <For each={props.mode.denied_actions}>
+                {(action) => (
+                  <span class="rounded bg-red-100 px-1.5 py-0.5 font-mono text-xs text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                    {action}
+                  </span>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        {/* Scenario + Autonomy + Required Artifact */}
+        <div class="flex flex-wrap items-center gap-3 text-xs">
           <div>
             <span class="font-medium text-gray-500 dark:text-gray-400">
               {t("modes.scenario")}:{" "}
@@ -323,6 +422,16 @@ function ModeCard(props: { mode: Mode }) {
               {t("modes.autonomyLabel", { level: String(props.mode.autonomy) })}
             </span>
           </div>
+          <Show when={props.mode.required_artifact}>
+            <div>
+              <span class="font-medium text-gray-500 dark:text-gray-400">
+                {t("modes.requiredArtifact")}:{" "}
+              </span>
+              <span class="rounded bg-amber-50 px-1.5 py-0.5 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+                {props.mode.required_artifact}
+              </span>
+            </div>
+          </Show>
         </div>
 
         {/* Prompt toggle */}

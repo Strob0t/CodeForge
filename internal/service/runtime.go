@@ -31,6 +31,7 @@ type RuntimeService struct {
 	hub           broadcast.Broadcaster
 	events        eventstore.Store
 	policy        *PolicyService
+	modes         *ModeService
 	deliver       *DeliverService
 	contextOpt    *ContextOptimizerService
 	checkpoint    *CheckpointService
@@ -88,6 +89,11 @@ func (s *RuntimeService) SetSandboxService(sb *SandboxService) {
 	s.sandbox = sb
 }
 
+// SetModeService sets the mode service for resolving agent modes during run start.
+func (s *RuntimeService) SetModeService(m *ModeService) {
+	s.modes = m
+}
+
 // SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
 func (s *RuntimeService) SetHeartbeat(runID string, t time.Time) {
 	s.heartbeats.Store(runID, t)
@@ -122,6 +128,31 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		return nil, fmt.Errorf("get agent: %w", err)
 	}
 
+	// Resolve agent mode: explicit request > agent default > "coder" fallback
+	modeID := req.ModeID
+	if modeID == "" {
+		modeID = ag.ModeID
+	}
+	if modeID == "" {
+		modeID = "coder"
+	}
+	var resolvedMode *messagequeue.ModePayload
+	if s.modes != nil {
+		if m, mErr := s.modes.Get(modeID); mErr == nil {
+			resolvedMode = &messagequeue.ModePayload{
+				ID:               m.ID,
+				PromptPrefix:     m.PromptPrefix,
+				Tools:            m.Tools,
+				DeniedTools:      m.DeniedTools,
+				DeniedActions:    m.DeniedActions,
+				RequiredArtifact: m.RequiredArtifact,
+				LLMScenario:      m.LLMScenario,
+			}
+		} else {
+			slog.Warn("mode not found, using default", "mode_id", modeID, "error", mErr)
+		}
+	}
+
 	// Verify task exists
 	t, err := s.store.GetTask(ctx, req.TaskID)
 	if err != nil {
@@ -140,6 +171,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		AgentID:       req.AgentID,
 		ProjectID:     req.ProjectID,
 		TeamID:        req.TeamID,
+		ModeID:        modeID,
 		PolicyProfile: profileName,
 		ExecMode:      req.ExecMode,
 		DeliverMode:   deliverMode,
@@ -213,6 +245,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		PolicyProfile: profileName,
 		ExecMode:      string(req.ExecMode),
 		DeliverMode:   string(deliverMode),
+		Mode:          resolvedMode,
 		Config:        ag.Config,
 		Termination: messagequeue.TerminationPayload{
 			MaxSteps:       profile.Termination.MaxSteps,
@@ -240,6 +273,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		"policy_profile": profileName,
 		"exec_mode":      string(req.ExecMode),
 		"backend":        ag.Backend,
+		"mode_id":        modeID,
 	})
 
 	// Broadcast WS
@@ -274,7 +308,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	// Audit trail
-	s.appendAudit(ctx, r, "run.started", fmt.Sprintf("Run started with policy %s, exec_mode %s, agent %s", profileName, req.ExecMode, ag.Name))
+	s.appendAudit(ctx, r, "run.started", fmt.Sprintf("Run started with policy %s, exec_mode %s, agent %s, mode %s", profileName, req.ExecMode, ag.Name, modeID))
 
 	slog.Info("run started", "run_id", r.ID, "task_id", r.TaskID, "policy", profileName)
 	return r, nil

@@ -16,8 +16,9 @@ type ModeService struct {
 // NewModeService creates a ModeService pre-loaded with built-in modes.
 func NewModeService() *ModeService {
 	s := &ModeService{modes: make(map[string]mode.Mode)}
-	for _, m := range mode.BuiltinModes() {
-		s.modes[m.ID] = m
+	builtins := mode.BuiltinModes()
+	for i := range builtins {
+		s.modes[builtins[i].ID] = builtins[i]
 	}
 	return s
 }
@@ -27,8 +28,8 @@ func (s *ModeService) List() []mode.Mode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]mode.Mode, 0, len(s.modes))
-	for _, m := range s.modes {
-		result = append(result, m)
+	for id := range s.modes {
+		result = append(result, s.modes[id])
 	}
 	return result
 }

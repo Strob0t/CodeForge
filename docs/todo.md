@@ -524,7 +524,7 @@ For full completion history, see [project-status.md](project-status.md).
 
 #### 12A. Mode System Extensions (P1)
 
-- [ ] Add `RequiredArtifact`, `DeniedTools`, `DeniedActions` fields to Mode domain struct (`internal/domain/mode/mode.go`)
+- [x] (2026-02-23) Add `RequiredArtifact`, `DeniedTools`, `DeniedActions` fields to Mode domain struct, update Validate() for overlap detection, wire mode end-to-end through NATS to Python executor (Go: `mode.go`, `presets.go`, `schemas.go`, `runtime.go`, `store.go`, `main.go`; Python: `models.py`, `executor.py`, `consumer.py`; Frontend: `types.ts`, `ModesPage.tsx`, `en.ts`, `de.ts`; DB: migration 024; Tests: 16 Go tests, 5 Python tests)
 - [ ] Decompose prompt templates into ROLE/CONTEXT/TOOLS/ARTIFACT/GUARDRAILS sections (Go `text/template` with `//go:embed`)
 - [ ] Add prompt token counting per section (estimate tokens before assembly, warn on budget overflow)
 - [ ] Implement mode-specific prompt composition (base + phase + mode sections, conditionally assembled)

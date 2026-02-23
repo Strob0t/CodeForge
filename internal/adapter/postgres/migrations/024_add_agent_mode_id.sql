@@ -1,0 +1,7 @@
+-- +goose Up
+ALTER TABLE agents ADD COLUMN mode_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE runs ADD COLUMN mode_id TEXT NOT NULL DEFAULT '';
+
+-- +goose Down
+ALTER TABLE runs DROP COLUMN IF EXISTS mode_id;
+ALTER TABLE agents DROP COLUMN IF EXISTS mode_id;

@@ -456,6 +456,9 @@ export interface Mode {
   description: string;
   builtin: boolean;
   tools: string[];
+  denied_tools: string[];
+  denied_actions: string[];
+  required_artifact: string;
   llm_scenario: string;
   autonomy: number;
   prompt_prefix: string;
@@ -467,6 +470,9 @@ export interface CreateModeRequest {
   name: string;
   description?: string;
   tools?: string[];
+  denied_tools?: string[];
+  denied_actions?: string[];
+  required_artifact?: string;
   llm_scenario?: string;
   autonomy: number;
   prompt_prefix?: string;

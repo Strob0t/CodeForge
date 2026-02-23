@@ -24,6 +24,7 @@ type Agent struct {
 	ProjectID      string            `json:"project_id"`
 	Name           string            `json:"name"`
 	Backend        string            `json:"backend"`
+	ModeID         string            `json:"mode_id,omitempty"`
 	Status         Status            `json:"status"`
 	Config         map[string]string `json:"config"`
 	ResourceLimits *resource.Limits  `json:"resource_limits,omitempty"`

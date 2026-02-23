@@ -122,7 +122,7 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 
 func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at
+		`SELECT id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at
 		 FROM agents WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -142,7 +142,7 @@ func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent
 
 func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at
+		`SELECT id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at
 		 FROM agents WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	a, err := scanAgent(row)
@@ -170,10 +170,10 @@ func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string
 	}
 
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO agents (tenant_id, project_id, name, backend, config, resource_limits)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, project_id, name, backend, status, config, resource_limits, version, created_at, updated_at`,
-		tenantFromCtx(ctx), projectID, name, backend, configJSON, limitsJSON)
+		`INSERT INTO agents (tenant_id, project_id, name, backend, mode_id, config, resource_limits)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at`,
+		tenantFromCtx(ctx), projectID, name, backend, "", configJSON, limitsJSON)
 
 	a, err := scanAgent(row)
 	if err != nil {
@@ -287,17 +287,17 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 
 func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO runs (tenant_id, task_id, agent_id, project_id, team_id, policy_profile, exec_mode, deliver_mode, status, output)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO runs (tenant_id, task_id, agent_id, project_id, team_id, mode_id, policy_profile, exec_mode, deliver_mode, status, output)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING id, started_at, created_at, updated_at, version`,
-		tenantFromCtx(ctx), r.TaskID, r.AgentID, r.ProjectID, nullIfEmpty(r.TeamID), r.PolicyProfile, string(r.ExecMode), string(r.DeliverMode), string(r.Status), r.Output)
+		tenantFromCtx(ctx), r.TaskID, r.AgentID, r.ProjectID, nullIfEmpty(r.TeamID), r.ModeID, r.PolicyProfile, string(r.ExecMode), string(r.DeliverMode), string(r.Status), r.Output)
 
 	return row.Scan(&r.ID, &r.StartedAt, &r.CreatedAt, &r.UpdatedAt, &r.Version)
 }
 
 func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
+		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile, exec_mode, deliver_mode, status,
 		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
@@ -343,7 +343,7 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, o
 
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile, exec_mode, deliver_mode, status,
+		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile, exec_mode, deliver_mode, status,
 		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, taskID, tenantFromCtx(ctx))
 	if err != nil {
@@ -678,7 +678,7 @@ type scannable interface {
 func scanAgent(row scannable) (agent.Agent, error) {
 	var a agent.Agent
 	var configJSON, limitsJSON []byte
-	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.Status, &configJSON, &limitsJSON, &a.Version, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.ModeID, &a.Status, &configJSON, &limitsJSON, &a.Version, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return a, err
 	}
@@ -715,7 +715,7 @@ func scanProject(row scannable) (project.Project, error) {
 func scanRun(row scannable) (run.Run, error) {
 	var r run.Run
 	err := row.Scan(
-		&r.ID, &r.TenantID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.TeamID, &r.PolicyProfile,
+		&r.ID, &r.TenantID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.TeamID, &r.ModeID, &r.PolicyProfile,
 		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD,
 		&r.TokensIn, &r.TokensOut, &r.Model,
 		&r.Output, &r.Error,
@@ -1472,7 +1472,7 @@ func (s *Store) RecentRunsWithCost(ctx context.Context, projectID string, limit 
 		limit = 20
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), policy_profile,
+		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile,
 		        exec_mode, deliver_mode, status, step_count, cost_usd, tokens_in, tokens_out, model,
 		        output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE project_id = $1 AND tenant_id = $2

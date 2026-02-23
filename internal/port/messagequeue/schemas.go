@@ -43,6 +43,17 @@ type AgentStatusPayload struct {
 
 // --- Run protocol payloads (Phase 4B) ---
 
+// ModePayload carries agent mode metadata to the Python worker.
+type ModePayload struct {
+	ID               string   `json:"id"`
+	PromptPrefix     string   `json:"prompt_prefix"`
+	Tools            []string `json:"tools"`
+	DeniedTools      []string `json:"denied_tools,omitempty"`
+	DeniedActions    []string `json:"denied_actions,omitempty"`
+	RequiredArtifact string   `json:"required_artifact,omitempty"`
+	LLMScenario      string   `json:"llm_scenario,omitempty"`
+}
+
 // RunStartPayload is the schema for runs.start messages.
 type RunStartPayload struct {
 	RunID         string                `json:"run_id"`
@@ -53,6 +64,7 @@ type RunStartPayload struct {
 	PolicyProfile string                `json:"policy_profile"`
 	ExecMode      string                `json:"exec_mode"`
 	DeliverMode   string                `json:"deliver_mode,omitempty"`
+	Mode          *ModePayload          `json:"mode,omitempty"`
 	Config        map[string]string     `json:"config"`
 	Termination   TerminationPayload    `json:"termination"`
 	Context       []ContextEntryPayload `json:"context,omitempty"` // Pre-packed context entries (Phase 5D)

@@ -239,9 +239,9 @@ class TaskConsumer:
                 config=run_msg.config,
             )
 
-            await self._executor.execute_with_runtime(task, runtime)
+            await self._executor.execute_with_runtime(task, runtime, mode=run_msg.mode)
             await msg.ack()
-            log.info("run processing complete")
+            log.info("run processing complete", mode_id=run_msg.mode.id)
 
         except Exception:
             logger.exception("failed to process run start message")

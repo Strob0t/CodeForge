@@ -708,3 +708,16 @@
 - [x] (2026-02-19) P2-3: Atomic Refresh Token Rotation — `RotateRefreshToken()` wraps delete+insert in PostgreSQL transaction. Prevents race conditions.
 - [x] (2026-02-19) P2-4: Password Complexity — Min 10 chars, uppercase + lowercase + digit required. Applies to registration and password change only.
 - [x] (2026-02-19) P2-5: Delivery Error Propagation — `PushError` field on `DeliveryResult`. `deliverPR()` skips PR creation on push failure. Error surfaced in audit/WS.
+
+### Phase 12A — Mode System Extensions (IN PROGRESS)
+
+- [x] (2026-02-23) Mode domain extended with `DeniedTools`, `DeniedActions`, `RequiredArtifact` fields + overlap validation in `Validate()`
+- [x] (2026-02-23) All 8 built-in presets updated with meaningful defaults for new fields
+- [x] (2026-02-23) Agent struct extended with `ModeID` field; Run struct and StartRequest extended with `ModeID`
+- [x] (2026-02-23) NATS `ModePayload` struct added to `RunStartPayload` for mode metadata transmission to workers
+- [x] (2026-02-23) Python `ModeConfig` Pydantic model added; `RunStartMessage` extended with `mode` field
+- [x] (2026-02-23) RuntimeService wired with ModeService: mode resolution chain (explicit > agent > "coder" fallback), mode in NATS payload, event metadata, audit trail
+- [x] (2026-02-23) Python executor uses `mode.prompt_prefix` as system prompt (backward-compatible fallback)
+- [x] (2026-02-23) Frontend: new form fields (Denied Tools, Denied Actions, Required Artifact) + card display + i18n (en + de)
+- [x] (2026-02-23) DB migration 024: `mode_id` column on agents and runs tables; store queries updated
+- [x] (2026-02-23) Tests: 16 Go mode tests (overlap detection, presets validation, unique IDs), 5 Python ModeConfig tests

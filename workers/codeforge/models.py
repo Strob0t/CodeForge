@@ -62,6 +62,18 @@ class ContextEntry(BaseModel):
     priority: int = 50
 
 
+class ModeConfig(BaseModel):
+    """Agent mode metadata received from the Go control plane."""
+
+    id: str = ""
+    prompt_prefix: str = ""
+    tools: list[str] = Field(default_factory=list)
+    denied_tools: list[str] = Field(default_factory=list)
+    denied_actions: list[str] = Field(default_factory=list)
+    required_artifact: str = ""
+    llm_scenario: str = ""
+
+
 class RunStartMessage(BaseModel):
     """Message received from NATS when a run is started."""
 
@@ -72,6 +84,7 @@ class RunStartMessage(BaseModel):
     prompt: str
     policy_profile: str = ""
     exec_mode: str = "mount"
+    mode: ModeConfig = Field(default_factory=ModeConfig)
     config: dict[str, str] = Field(default_factory=dict)
     termination: TerminationConfig = Field(default_factory=TerminationConfig)
     context: list[ContextEntry] = Field(default_factory=list)
