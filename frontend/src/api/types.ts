@@ -1073,3 +1073,28 @@ export interface Review {
   created_at: string;
   completed_at?: string;
 }
+
+// Phase 12J: Stack Detection
+
+/** Matches Go domain/project.Language */
+export interface DetectedLanguage {
+  name: string;
+  confidence: number;
+  manifests: string[];
+  frameworks: string[];
+}
+
+/** Matches Go domain/project.ToolRecommendation */
+export interface ToolRecommendation {
+  category: string;
+  id: string;
+  name: string;
+  reason: string;
+}
+
+/** Matches Go domain/project.StackDetectionResult */
+export interface StackDetectionResult {
+  languages: DetectedLanguage[];
+  recommendations: ToolRecommendation[];
+  scanned_path: string;
+}

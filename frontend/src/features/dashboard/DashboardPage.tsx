@@ -1,7 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { CreateProjectRequest } from "~/api/types";
+import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 
@@ -15,6 +15,13 @@ const emptyForm: CreateProjectRequest = {
   config: {},
 };
 
+const categoryLabels: Record<string, string> = {
+  mode: "dashboard.detect.category.mode",
+  pipeline: "dashboard.detect.category.pipeline",
+  linter: "dashboard.detect.category.linter",
+  formatter: "dashboard.detect.category.formatter",
+};
+
 export default function DashboardPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
@@ -22,6 +29,8 @@ export default function DashboardPage() {
   const [showForm, setShowForm] = createSignal(false);
   const [form, setForm] = createSignal<CreateProjectRequest>({ ...emptyForm });
   const [error, setError] = createSignal("");
+  const [detecting, setDetecting] = createSignal(false);
+  const [stackResult, setStackResult] = createSignal<StackDetectionResult | null>(null);
 
   async function handleCreate(e: SubmitEvent) {
     e.preventDefault();
@@ -37,6 +46,7 @@ export default function DashboardPage() {
       await api.projects.create(data);
       setForm({ ...emptyForm });
       setShowForm(false);
+      setStackResult(null);
       await refetch();
       toast("success", t("dashboard.toast.created"));
     } catch (err) {
@@ -55,6 +65,20 @@ export default function DashboardPage() {
       const msg = err instanceof Error ? err.message : t("dashboard.toast.deleteFailed");
       setError(msg);
       toast("error", msg);
+    }
+  }
+
+  async function handleDetectStack(projectId: string) {
+    setDetecting(true);
+    setStackResult(null);
+    try {
+      const result = await api.projects.detectStack(projectId);
+      setStackResult(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : t("dashboard.detect.error");
+      toast("error", msg);
+    } finally {
+      setDetecting(false);
     }
   }
 
@@ -187,10 +211,69 @@ export default function DashboardPage() {
         >
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <For each={projects()}>
-              {(p) => <ProjectCard project={p} onDelete={handleDelete} />}
+              {(p) => (
+                <ProjectCard
+                  project={p}
+                  onDelete={handleDelete}
+                  onDetectStack={handleDetectStack}
+                  detecting={detecting()}
+                />
+              )}
             </For>
           </div>
         </Show>
+      </Show>
+
+      {/* Stack Detection Results Panel */}
+      <Show when={stackResult()}>
+        {(result) => (
+          <div class="mt-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              {t("dashboard.detect.languages")}
+            </h3>
+
+            <Show
+              when={result().languages.length > 0}
+              fallback={
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {t("dashboard.detect.noLanguages")}
+                </p>
+              }
+            >
+              <div class="flex flex-wrap gap-2 mb-4">
+                <For each={result().languages}>
+                  {(lang) => (
+                    <div class="inline-flex items-center gap-2 rounded-full bg-blue-100 dark:bg-blue-900/30 px-3 py-1 text-sm text-blue-800 dark:text-blue-300">
+                      <span class="font-medium">{lang.name}</span>
+                      <span class="text-xs opacity-75">{Math.round(lang.confidence * 100)}%</span>
+                      <Show when={lang.frameworks.length > 0}>
+                        <span class="text-xs opacity-60">({lang.frameworks.join(", ")})</span>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            <Show when={result().recommendations.length > 0}>
+              <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                {t("dashboard.detect.recommendations")}
+              </h4>
+              <div class="flex flex-wrap gap-2">
+                <For each={result().recommendations}>
+                  {(rec) => (
+                    <div class="inline-flex items-center gap-1 rounded-md border border-gray-200 dark:border-gray-600 px-2 py-1 text-xs">
+                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                        {t(categoryLabels[rec.category] ?? rec.category)}
+                      </span>
+                      <span class="text-gray-900 dark:text-gray-100">{rec.name}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+        )}
       </Show>
     </div>
   );

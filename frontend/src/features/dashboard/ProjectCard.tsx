@@ -1,4 +1,5 @@
 import { A } from "@solidjs/router";
+import { Show } from "solid-js";
 
 import type { Project } from "~/api/types";
 import { useI18n } from "~/i18n";
@@ -6,6 +7,8 @@ import { useI18n } from "~/i18n";
 interface ProjectCardProps {
   project: Project;
   onDelete: (id: string) => void;
+  onDetectStack?: (id: string) => void;
+  detecting?: boolean;
 }
 
 export default function ProjectCard(props: ProjectCardProps) {
@@ -27,14 +30,27 @@ export default function ProjectCard(props: ProjectCardProps) {
           )}
         </div>
 
-        <button
-          type="button"
-          class="rounded px-2 py-1 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400"
-          onClick={() => props.onDelete(props.project.id)}
-          aria-label={t("project.deleteAria", { name: props.project.name })}
-        >
-          {t("project.delete")}
-        </button>
+        <div class="flex items-center gap-2">
+          <Show when={props.onDetectStack && props.project.workspace_path}>
+            <button
+              type="button"
+              class="rounded px-2 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+              onClick={() => props.onDetectStack?.(props.project.id)}
+              disabled={props.detecting}
+            >
+              {props.detecting ? t("dashboard.detect.detecting") : t("dashboard.detect.button")}
+            </button>
+          </Show>
+
+          <button
+            type="button"
+            class="rounded px-2 py-1 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400"
+            onClick={() => props.onDelete(props.project.id)}
+            aria-label={t("project.deleteAria", { name: props.project.name })}
+          >
+            {t("project.delete")}
+          </button>
+        </div>
       </div>
 
       <div class="mt-3 flex flex-wrap gap-3 text-xs text-gray-400 dark:text-gray-500">

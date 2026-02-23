@@ -235,6 +235,38 @@ func (h *Handlers) GetWorkspaceInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
+// DetectProjectStack handles GET /api/v1/projects/{id}/detect-stack
+func (h *Handlers) DetectProjectStack(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	result, err := h.Projects.DetectStack(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "stack detection failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// DetectStackByPath handles POST /api/v1/detect-stack
+func (h *Handlers) DetectStackByPath(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	result, err := h.Projects.DetectStackByPath(r.Context(), req.Path)
+	if err != nil {
+		writeDomainError(w, err, "stack detection failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // ProjectGitStatus handles GET /api/v1/projects/{id}/git/status
 func (h *Handlers) ProjectGitStatus(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

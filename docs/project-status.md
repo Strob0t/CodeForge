@@ -817,3 +817,14 @@
 - [x] (2026-02-23) HTTP API: 8 endpoints — CRUD for policies, trigger, list/get reviews
 - [x] (2026-02-23) WebSocket `review.status` event + 3 domain event types (review.triggered, review.completed, review.failed)
 - [x] (2026-02-23) Frontend: `ReviewPolicy` + `Review` types, `reviews` API client namespace (8 methods), i18n keys
+
+### Phase 12J — Project Creation Wizard / Stack Detection (COMPLETED)
+
+- [x] (2026-02-23) Domain types: `Language`, `ToolRecommendation`, `StackDetectionResult` in `internal/domain/project/detection.go`
+- [x] (2026-02-23) Stack mapping tables: `manifestMap` (18 manifest→language entries), `frameworkDetectors` (8 languages, 25+ framework rules), `toolRecommendations` (8 languages with linter/formatter recs) in `stackmap.go`
+- [x] (2026-02-23) Scanner: `ScanWorkspace()` — top-level dir scan, manifest matching, 64KB-capped content reading for framework detection, JS→TS promotion when tsconfig.json present, deduped recommendations
+- [x] (2026-02-23) Service: `DetectStack(ctx, id)` (for existing projects) + `DetectStackByPath(ctx, path)` (for arbitrary paths)
+- [x] (2026-02-23) HTTP API: `GET /projects/{id}/detect-stack`, `POST /detect-stack`
+- [x] (2026-02-23) Frontend: "Detect Stack" button on ProjectCard (visible when workspace_path set), results panel with language badges + recommendation chips
+- [x] (2026-02-23) Tests: 9 scan tests (Go/TS/JS/Python/Rust/multi-lang/empty/nonexistent/not-a-dir) + 7 stackmap validation tests
+- [x] (2026-02-23) No database changes — detection is stateless, runs on demand against filesystem

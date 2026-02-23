@@ -36,6 +36,10 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Post("/projects/{id}/adopt", h.AdoptProject)
 		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
 
+		// Stack Detection
+		r.Get("/projects/{id}/detect-stack", h.DetectProjectStack)
+		r.Post("/detect-stack", h.DetectStackByPath)
+
 		// Git operations (nested under projects)
 		r.Get("/projects/{id}/git/status", h.ProjectGitStatus)
 		r.Post("/projects/{id}/git/pull", h.PullProject)

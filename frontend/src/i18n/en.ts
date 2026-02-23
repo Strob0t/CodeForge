@@ -91,6 +91,20 @@ const en = {
   "dashboard.toast.deleted": "Project deleted",
   "dashboard.toast.deleteFailed": "Failed to delete project",
 
+  // -- Stack Detection ------------------------------------------------------
+  "dashboard.detect.button": "Detect Stack",
+  "dashboard.detect.detecting": "Scanning workspace\u2026",
+  "dashboard.detect.languages": "Detected Languages",
+  "dashboard.detect.recommendations": "Recommendations",
+  "dashboard.detect.noWorkspace": "Clone or adopt a workspace first to detect stack",
+  "dashboard.detect.noLanguages": "No languages detected",
+  "dashboard.detect.confidence": "Confidence: {{value}}",
+  "dashboard.detect.category.mode": "Agent Mode",
+  "dashboard.detect.category.pipeline": "Pipeline",
+  "dashboard.detect.category.linter": "Linter",
+  "dashboard.detect.category.formatter": "Formatter",
+  "dashboard.detect.error": "Stack detection failed",
+
   // -- Project card ---------------------------------------------------------
   "project.delete": "Delete",
   "project.deleteAria": "Delete project {{name}}",

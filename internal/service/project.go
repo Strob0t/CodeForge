@@ -242,6 +242,40 @@ func (s *ProjectService) Checkout(ctx context.Context, id, branch string) error 
 	return provider.Checkout(ctx, p.WorkspacePath, branch)
 }
 
+// DetectStack scans an existing project's workspace and returns stack detection results.
+func (s *ProjectService) DetectStack(ctx context.Context, id string) (*project.StackDetectionResult, error) {
+	p, err := s.store.GetProject(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+	if p.WorkspacePath == "" {
+		return nil, fmt.Errorf("project %s has no workspace (not cloned)", id)
+	}
+	return project.ScanWorkspace(p.WorkspacePath)
+}
+
+// DetectStackByPath scans an arbitrary directory path for language detection.
+func (s *ProjectService) DetectStackByPath(_ context.Context, path string) (*project.StackDetectionResult, error) {
+	if path == "" {
+		return nil, fmt.Errorf("detect stack: path is required")
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("detect stack: resolve path: %w", err)
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("detect stack: directory does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("detect stack: %s is not a directory", absPath)
+	}
+
+	return project.ScanWorkspace(absPath)
+}
+
 // isUnderWorkspaceRoot validates that the path is under the workspace root
 // to prevent accidental deletion of unrelated directories.
 func (s *ProjectService) isUnderWorkspaceRoot(path string) bool {

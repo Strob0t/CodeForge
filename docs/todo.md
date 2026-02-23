@@ -619,12 +619,14 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) WebSocket `review.status` event + 3 domain event types
 - [x] (2026-02-23) Frontend: TypeScript types, API client, i18n keys
 
-#### 12J. Project Creation Wizard (P3)
+#### 12J. Project Creation Wizard (P3) — COMPLETED 2026-02-23
 
-- [ ] Language/framework auto-detection on project creation (scan repo for package.json, go.mod, pyproject.toml, Cargo.toml, etc.)
-- [ ] Propose linter/formatter standards based on detected stack
-- [ ] Suggest default mode and pipeline based on project type
-- [ ] Pre-populate agent configuration from detection results
+- [x] (2026-02-23) Language/framework auto-detection on project creation (scan repo for package.json, go.mod, pyproject.toml, Cargo.toml, etc.) — `internal/domain/project/scan.go`: `ScanWorkspace()` reads top-level dir entries, matches against `manifestMap`, reads manifest content (capped 64KB) for framework detection
+- [x] (2026-02-23) Propose linter/formatter standards based on detected stack — `internal/domain/project/stackmap.go`: static `toolRecommendations` map (go→golangci-lint/gofmt, ts→eslint/prettier, python→ruff/pytest, rust→clippy/rustfmt, etc.)
+- [x] (2026-02-23) Suggest default mode and pipeline based on project type — `coreModeRecommendations()` (coder, reviewer, tester, security, architect) + `corePipelineRecommendations()` (standard-dev, review-only) for all languages
+- [x] (2026-02-23) API endpoints: `GET /projects/{id}/detect-stack`, `POST /detect-stack` — `internal/adapter/http/handlers.go`, `routes.go`
+- [x] (2026-02-23) Frontend: "Detect Stack" button on ProjectCard, detection results panel with language badges + recommendation chips — `DashboardPage.tsx`, `ProjectCard.tsx`
+- [x] (2026-02-23) 16 tests: 9 scan tests (7 project types + nonexistent + not-a-dir) + 7 stackmap validation tests
 
 #### 12K. Knowledge Bases (P3)
 

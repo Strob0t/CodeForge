@@ -236,6 +236,17 @@ export const api = {
           body: JSON.stringify({ branch }),
         },
       ),
+
+    detectStack: (id: string) =>
+      request<import("./types").StackDetectionResult>(
+        `/projects/${encodeURIComponent(id)}/detect-stack`,
+      ),
+
+    detectStackByPath: (path: string) =>
+      request<import("./types").StackDetectionResult>("/detect-stack", {
+        method: "POST",
+        body: JSON.stringify({ path }),
+      }),
   },
 
   agents: {
