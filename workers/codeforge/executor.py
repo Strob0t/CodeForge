@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from codeforge.llm import resolve_scenario
 from codeforge.models import ModeConfig, TaskMessage, TaskResult, TaskStatus
 from codeforge.pricing import resolve_cost
 
@@ -70,6 +71,17 @@ class AgentExecutor:
         # Build system prompt from mode or fallback to generic prompt
         system_prompt = mode.prompt_prefix if mode and mode.prompt_prefix else f"You are working on task: {task.title}"
 
+        # Resolve scenario for model routing and temperature
+        scenario_tag = mode.llm_scenario if mode and mode.llm_scenario else "default"
+        scenario_cfg = resolve_scenario(scenario_tag)
+        logger.info(
+            "llm_routing_decision run_id=%s mode=%s scenario=%s temperature=%.2f",
+            runtime.run_id,
+            mode.id if mode else "",
+            scenario_cfg.tag,
+            scenario_cfg.temperature,
+        )
+
         try:
             # Request permission for LLM call
             decision = await runtime.request_tool_call(
@@ -88,10 +100,12 @@ class AgentExecutor:
                 )
                 return
 
-            # Execute the LLM call
+            # Execute the LLM call with scenario-based routing
             response = await self._llm.completion(
                 prompt=task.prompt,
                 system=system_prompt,
+                temperature=scenario_cfg.temperature,
+                tags=[scenario_cfg.tag],
             )
 
             # Report result with real cost and tokens

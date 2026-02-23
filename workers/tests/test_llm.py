@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from codeforge.llm import LiteLLMClient
+from codeforge.llm import SCENARIO_DEFAULTS, LiteLLMClient, resolve_scenario
 
 _FAKE_REQUEST = httpx.Request("POST", "http://test:4000/v1/chat/completions")
 
@@ -107,3 +107,67 @@ async def test_close_calls_aclose(client: LiteLLMClient) -> None:
     with patch.object(client._client, "aclose", new_callable=AsyncMock) as mock_close:
         await client.close()
         mock_close.assert_called_once()
+
+
+# -- Scenario routing tests --
+
+
+async def test_completion_passes_tags(client: LiteLLMClient) -> None:
+    """completion() should include tags in the request payload when provided."""
+    mock_response = httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": "Hello"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+        request=_FAKE_REQUEST,
+    )
+
+    with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+        await client.completion(prompt="test", tags=["think"])
+
+    call_payload = mock_post.call_args.kwargs["json"]
+    assert call_payload["tags"] == ["think"]
+
+
+async def test_completion_without_tags(client: LiteLLMClient) -> None:
+    """completion() should not include tags key when tags is None."""
+    mock_response = httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": "Hello"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+        request=_FAKE_REQUEST,
+    )
+
+    with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+        await client.completion(prompt="test")
+
+    call_payload = mock_post.call_args.kwargs["json"]
+    assert "tags" not in call_payload
+
+
+def test_resolve_scenario_known() -> None:
+    """resolve_scenario() should return correct config for all known scenarios."""
+    for name, expected in SCENARIO_DEFAULTS.items():
+        cfg = resolve_scenario(name)
+        assert cfg.tag == expected.tag
+        assert cfg.temperature == expected.temperature
+
+
+def test_resolve_scenario_unknown_falls_back() -> None:
+    """resolve_scenario() should fall back to 'default' for unknown scenarios."""
+    cfg = resolve_scenario("nonexistent")
+    assert cfg.tag == "default"
+    assert cfg.temperature == 0.2
+
+
+def test_resolve_scenario_temperatures() -> None:
+    """Verify specific temperature values per scenario."""
+    assert resolve_scenario("think").temperature == pytest.approx(0.3)
+    assert resolve_scenario("review").temperature == pytest.approx(0.1)
+    assert resolve_scenario("default").temperature == pytest.approx(0.2)
+    assert resolve_scenario("background").temperature == pytest.approx(0.1)
+    assert resolve_scenario("plan").temperature == pytest.approx(0.3)
+    assert resolve_scenario("longContext").temperature == pytest.approx(0.2)

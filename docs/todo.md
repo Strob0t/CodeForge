@@ -532,9 +532,9 @@ For full completion history, see [project-status.md](project-status.md).
 
 #### 12B. LLM Routing Implementation (P1)
 
-- [ ] Wire scenario tags (default/background/think/longContext/review/plan) to LiteLLM model selection in `internal/adapter/litellm/`
-- [ ] Implement tag-to-model mapping in config YAML (e.g., `think` → reasoning model, `background` → fast/cheap model)
-- [ ] Add routing decision logging for observability (which model was selected and why)
+- [x] (2026-02-23) Wire scenario tags to LiteLLM model selection via native tag-based routing (`litellm/config.yaml`: moved tags from `model_info.tags` to `litellm_params.tags`, added `router_settings.enable_tag_filtering`; Python: `resolve_scenario()` + `tags` param on `completion()` in `llm.py`; `executor.py` reads `mode.llm_scenario` and passes tag + temperature)
+- [x] (2026-02-23) Implement tag-to-model mapping in LiteLLM proxy config — 30+ models tagged with default/background/think/longContext/review/plan; Gemini models get `longContext` tag; `ScenarioConfig` maps scenarios to temperatures (think=0.3, review=0.1, default=0.2, background=0.1, plan=0.3)
+- [x] (2026-02-23) Add routing decision logging for observability — structured log in `executor.py` (run_id, mode, scenario, temperature) + debug log in `llm.py` (model, temperature, tags, prompt_len); 5 new tests in `test_llm.py`
 - [ ] Reference: Tags already defined in Mode domain (`internal/domain/mode/mode.go`), LiteLLM adapter has no routing logic yet (`internal/adapter/litellm/`)
 
 #### 12C. Role Evaluation Framework (P1)

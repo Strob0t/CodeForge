@@ -725,3 +725,11 @@
 - [x] (2026-02-23) Per-section token counting with `EstimateTokens()` + `WarnIfOverBudget()` (1024-token soft limit)
 - [x] (2026-02-23) RuntimeService calls `BuildModePrompt()` before NATS publish — assembled prompt replaces raw PromptPrefix
 - [x] (2026-02-23) Tests: 10 mode prompt tests (builtin architect/debugger/coder, custom modes, token counting, all builtins, budget warnings)
+
+### Phase 12B — LLM Routing Implementation (COMPLETED)
+
+- [x] (2026-02-23) LiteLLM proxy config fixed: tags moved from `model_info.tags` to `litellm_params.tags` for all 30+ models; `router_settings.enable_tag_filtering: true` added; `longContext` tag added to Gemini models
+- [x] (2026-02-23) Scenario-based routing in Python: `ScenarioConfig` + `SCENARIO_DEFAULTS` (6 scenarios with temperature mapping) + `resolve_scenario()` in `llm.py`; `tags` parameter added to `completion()`
+- [x] (2026-02-23) Executor wired: `execute_with_runtime()` reads `mode.llm_scenario`, resolves to tag + temperature, passes to `completion(tags=[...], temperature=...)`
+- [x] (2026-02-23) Routing decision logging: structured log in executor (run_id, mode, scenario, temperature) + debug log in LLM client (model, temperature, tags, prompt_len)
+- [x] (2026-02-23) Tests: 5 new LLM tests (tag passing, no-tags backward compat, scenario resolution, fallback, temperature values); all 99 Python tests pass

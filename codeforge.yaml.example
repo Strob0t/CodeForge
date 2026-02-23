@@ -20,6 +20,9 @@ nats:
 litellm:
   url: "http://localhost:4000"
   master_key: ""
+  # Scenario-based routing is handled by LiteLLM's tag-based routing.
+  # Configure model tags in litellm/config.yaml under litellm_params.tags.
+  # Supported scenarios: default, background, think, longContext, review, plan
 
 logging:
   level: "info"    # debug, info, warn, error

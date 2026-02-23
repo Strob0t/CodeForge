@@ -1,10 +1,13 @@
-"""LiteLLM Proxy client for LLM completions."""
+"""LiteLLM Proxy client for LLM completions with scenario-based routing."""
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -16,6 +19,30 @@ class CompletionResponse:
     tokens_out: int
     model: str
     cost_usd: float = 0.0
+
+
+@dataclass(frozen=True)
+class ScenarioConfig:
+    """Per-scenario LLM call defaults (tag for routing, temperature for generation)."""
+
+    tag: str
+    temperature: float
+
+
+# Scenario -> default parameters.  Tags match litellm_params.tags in litellm/config.yaml.
+SCENARIO_DEFAULTS: dict[str, ScenarioConfig] = {
+    "default": ScenarioConfig(tag="default", temperature=0.2),
+    "background": ScenarioConfig(tag="background", temperature=0.1),
+    "think": ScenarioConfig(tag="think", temperature=0.3),
+    "longContext": ScenarioConfig(tag="longContext", temperature=0.2),
+    "review": ScenarioConfig(tag="review", temperature=0.1),
+    "plan": ScenarioConfig(tag="plan", temperature=0.3),
+}
+
+
+def resolve_scenario(scenario: str) -> ScenarioConfig:
+    """Look up scenario config, falling back to 'default' for unknown values."""
+    return SCENARIO_DEFAULTS.get(scenario, SCENARIO_DEFAULTS["default"])
 
 
 class LiteLLMClient:
@@ -34,8 +61,13 @@ class LiteLLMClient:
         model: str = "ollama/llama3.2",
         system: str = "",
         temperature: float = 0.2,
+        tags: list[str] | None = None,
     ) -> CompletionResponse:
-        """Send a chat completion request to LiteLLM."""
+        """Send a chat completion request to LiteLLM.
+
+        When *tags* is provided, LiteLLM routes to a model whose
+        ``litellm_params.tags`` include at least one matching tag.
+        """
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -46,6 +78,17 @@ class LiteLLMClient:
             "messages": messages,
             "temperature": temperature,
         }
+
+        if tags:
+            payload["tags"] = tags
+
+        logger.debug(
+            "llm_completion_request model=%s temperature=%.2f tags=%s prompt_len=%d",
+            model,
+            temperature,
+            tags,
+            len(prompt),
+        )
 
         resp = await self._client.post("/v1/chat/completions", json=payload)
         resp.raise_for_status()
