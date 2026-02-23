@@ -151,6 +151,12 @@ class RepoMapRequest(BaseModel):
     token_budget: int = 1024
     active_files: list[str] = Field(default_factory=list)
 
+    @field_validator("active_files", mode="before")
+    @classmethod
+    def _coerce_null_to_empty(cls, v: list[str] | None) -> list[str]:
+        """Go marshals nil slices as null; treat as empty list."""
+        return v if v is not None else []
+
 
 class RepoMapResult(BaseModel):
     """Result of repo map generation sent back to Go control plane."""

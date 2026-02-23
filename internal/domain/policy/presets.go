@@ -31,6 +31,7 @@ func PresetHeadlessSafeSandbox() PolicyProfile {
 		Description: "Safe sandbox for headless/autonomous execution. Strict safety limits.",
 		Mode:        ModeDefault,
 		Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "LLM"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
@@ -69,6 +70,7 @@ func PresetHeadlessPermissiveSandbox() PolicyProfile {
 		Description: "Permissive sandbox for batch operations and refactoring.",
 		Mode:        ModeAcceptEdits,
 		Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "LLM"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
@@ -106,6 +108,7 @@ func PresetTrustedMountAutonomous() PolicyProfile {
 		Description: "Fully autonomous with direct file access. Minimal restrictions.",
 		Mode:        ModeAcceptEdits,
 		Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "LLM"}, Decision: DecisionAllow},
 			{
 				Specifier: ToolSpecifier{Tool: "Edit"},
 				Decision:  DecisionDeny,

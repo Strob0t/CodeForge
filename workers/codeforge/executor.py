@@ -26,10 +26,12 @@ class AgentExecutor:
         """Execute a task by sending the prompt to the LLM (fire-and-forget path)."""
         logger.info("executing task %s: %s", task.id, task.title)
 
+        model = task.config.get("model", "")
         try:
             response = await self._llm.completion(
                 prompt=task.prompt,
                 system=f"You are working on task: {task.title}",
+                **({"model": model} if model else {}),
             )
 
             cost = resolve_cost(
@@ -101,11 +103,13 @@ class AgentExecutor:
                 return
 
             # Execute the LLM call with scenario-based routing
+            model = task.config.get("model", "")
             response = await self._llm.completion(
                 prompt=task.prompt,
                 system=system_prompt,
                 temperature=scenario_cfg.temperature,
                 tags=[scenario_cfg.tag],
+                **({"model": model} if model else {}),
             )
 
             # Report result with real cost and tokens
