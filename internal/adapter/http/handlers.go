@@ -2439,6 +2439,12 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		writeError(w, http.StatusNotFound, fallbackMsg)
 	case errors.Is(err, domain.ErrConflict):
 		writeError(w, http.StatusConflict, "resource was modified by another request")
+	case errors.Is(err, domain.ErrValidation):
+		msg := strings.TrimPrefix(err.Error(), domain.ErrValidation.Error()+": ")
+		writeError(w, http.StatusBadRequest, msg)
+	case strings.Contains(err.Error(), "invalid input syntax"):
+		// PostgreSQL type-cast error (e.g. invalid UUID format) → 400
+		writeError(w, http.StatusBadRequest, "invalid identifier format")
 	default:
 		slog.Error("unhandled domain error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")

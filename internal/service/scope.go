@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -39,7 +40,7 @@ func (s *ScopeService) SetKnowledgeBase(kb *KnowledgeBaseService) { s.knowledgeB
 // Create validates and creates a new retrieval scope.
 func (s *ScopeService) Create(ctx context.Context, req cfcontext.CreateScopeRequest) (*cfcontext.RetrievalScope, error) {
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("validate scope: %w", err)
+		return nil, fmt.Errorf("%w: %s", domain.ErrValidation, err.Error())
 	}
 	return s.store.CreateScope(ctx, req)
 }
