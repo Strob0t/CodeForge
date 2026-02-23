@@ -755,3 +755,17 @@
 - [x] (2026-02-23) NATS payload updates (`schemas.go`): ProjectID field on RetrievalSearchHitPayload and GraphSearchHitPayload
 - [x] (2026-02-23) Python model updates (`models.py`): project_id field on RetrievalSearchHit and GraphSearchHit
 - [x] (2026-02-23) Wired in main.go: ScopeService initialization with SetRetrieval and SetGraph
+
+### Phase 12E — Artifact-Gated Pipelines (COMPLETED)
+
+- [x] (2026-02-23) Go artifact domain package (`internal/domain/artifact/artifact.go`): ArtifactType enum (6 types: PLAN.md, DIFF, REVIEW.md, TEST_REPORT, AUDIT_REPORT, DECISION.md), ValidationResult struct, Validate() dispatcher with per-type structural validators, IsKnownType() helper
+- [x] (2026-02-23) Go artifact tests (`internal/domain/artifact/artifact_test.go`): 10 table-driven test functions covering all artifact types with valid/invalid cases, empty/unknown edge cases
+- [x] (2026-02-23) Run domain extended (`internal/domain/run/run.go`): ArtifactType (string), ArtifactValid (*bool, nil=not checked), ArtifactErrors ([]string)
+- [x] (2026-02-23) DB migration (`026_artifact_fields.sql`): ALTER TABLE runs ADD artifact_type TEXT, artifact_valid BOOLEAN, artifact_errors JSONB
+- [x] (2026-02-23) Store interface + PostgreSQL implementation: UpdateRunArtifact(id, artifactType, valid, errors), scanRun updated for 3 new positional fields, 3 SELECT queries updated (GetRun, ListRunsByTask, RecentRunsWithCost)
+- [x] (2026-02-23) Event types (`event.go`): TypeArtifactValidated, TypeArtifactFailed
+- [x] (2026-02-23) WS events (`events.go`): EventArtifactValidation constant + ArtifactValidationEvent struct
+- [x] (2026-02-23) Runtime integration (`runtime.go`): Artifact validation gate in HandleRunComplete — sits before quality gates, validates run output against mode's RequiredArtifact, persists validation result via UpdateRunArtifact, broadcasts WS event, records audit trail, fails run on validation failure
+- [x] (2026-02-23) Mock stores updated (3 files): handlers_test.go, runtime_test.go, project_test.go
+- [x] (2026-02-23) Python artifact models (`workers/codeforge/artifacts.py`): ArtifactType StrEnum, validate_artifact(), is_known_type(), 6 validators mirroring Go
+- [x] (2026-02-23) Python artifact tests (`workers/tests/test_artifacts.py`): 35 pytest cases mirroring Go coverage

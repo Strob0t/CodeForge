@@ -20,6 +20,9 @@ const (
 	EventQualityGate = "run.qualitygate"
 	EventDelivery    = "run.delivery"
 
+	// Phase 12E: artifact validation events
+	EventArtifactValidation = "run.artifact"
+
 	// Phase 5A: orchestration plan events
 	EventPlanStatus     = "plan.status"
 	EventPlanStepStatus = "plan.step.status"
@@ -196,6 +199,16 @@ type RoadmapStatusEvent struct {
 	ProjectID string `json:"project_id"`
 	Status    string `json:"status"`
 	Title     string `json:"title"`
+}
+
+// ArtifactValidationEvent is broadcast when artifact validation completes.
+type ArtifactValidationEvent struct {
+	RunID        string   `json:"run_id"`
+	TaskID       string   `json:"task_id"`
+	ProjectID    string   `json:"project_id"`
+	ArtifactType string   `json:"artifact_type"`
+	Valid        bool     `json:"valid"`
+	Errors       []string `json:"errors,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

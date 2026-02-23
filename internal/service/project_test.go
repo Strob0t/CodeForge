@@ -177,6 +177,9 @@ func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _
 func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _, _ string, _ float64, _ int, _, _ int64, _ string) error {
 	return nil
 }
+func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
+	return nil
+}
 func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
 
 // --- Plan stub methods (satisfy database.Store interface) ---

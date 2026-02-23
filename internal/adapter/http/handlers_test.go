@@ -218,6 +218,10 @@ func (m *mockStore) CompleteRun(_ context.Context, id string, status run.Status,
 	return errNotFound
 }
 
+func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
+	return nil
+}
+
 func (m *mockStore) ListRunsByTask(_ context.Context, taskID string) ([]run.Run, error) {
 	var result []run.Run
 	for i := range m.runs {

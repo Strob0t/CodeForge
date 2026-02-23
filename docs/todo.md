@@ -562,13 +562,18 @@ For full completion history, see [project-status.md](project-status.md).
 - [ ] Implement incremental indexing with hash-based delta detection (deferred - independent feature)
 - [ ] Add scope management frontend UI (scope list, project assignment, index status per scope)
 
-#### 12E. Artifact-Gated Pipelines (P2)
+#### 12E. Artifact-Gated Pipelines (P2) — COMPLETED
 
-- [ ] Define typed artifact schemas: PlanArtifact (PLAN.md), DiffArtifact (DIFF), TestReportArtifact (TEST_REPORT.json), ReviewArtifact (REVIEW.md), AuditReportArtifact (AUDIT_REPORT.md), DecisionArtifact (DECISION.md)
-- [ ] Enforce artifact production per workflow step (step N must produce typed artifact before step N+1 starts)
-- [ ] Add artifact validation via Pydantic models in Python workers
-- [ ] Wire into existing ExecutionPlan step completion checks (`internal/domain/plan/`)
-- [ ] Reference: Artifact-gated pipeline pattern from role engineering research
+- [x] (2026-02-23) Go artifact domain package (`internal/domain/artifact/artifact.go`): ArtifactType enum (6 types), ValidationResult struct, Validate() dispatcher, IsKnownType(), 6 per-type structural validators (PLAN.md, DIFF, REVIEW.md, TEST_REPORT, AUDIT_REPORT, DECISION.md)
+- [x] (2026-02-23) Go artifact tests (`internal/domain/artifact/artifact_test.go`): 10 table-driven test functions covering all artifact types, empty/unknown edge cases
+- [x] (2026-02-23) Run domain extended (`internal/domain/run/run.go`): ArtifactType, ArtifactValid (*bool), ArtifactErrors fields
+- [x] (2026-02-23) DB migration (`026_artifact_fields.sql`): artifact_type, artifact_valid, artifact_errors columns on runs table
+- [x] (2026-02-23) Store interface + implementation: UpdateRunArtifact method, scanRun updated for 3 new fields, 3 SELECT queries updated (GetRun, ListRunsByTask, RecentRunsWithCost)
+- [x] (2026-02-23) Event types (`event.go`): TypeArtifactValidated, TypeArtifactFailed
+- [x] (2026-02-23) WS events (`events.go`): EventArtifactValidation constant + ArtifactValidationEvent struct
+- [x] (2026-02-23) Runtime integration (`runtime.go`): artifact validation gate in HandleRunComplete, before quality gates — validates output against mode's RequiredArtifact, persists result, broadcasts WS event, fails run on validation failure
+- [x] (2026-02-23) Python artifact models (`workers/codeforge/artifacts.py`): Pydantic-based validators mirroring Go, validate_artifact() + is_known_type()
+- [x] (2026-02-23) Python artifact tests (`workers/tests/test_artifacts.py`): 35 test cases mirroring Go coverage
 
 #### 12F. Pipeline Templates (P2)
 

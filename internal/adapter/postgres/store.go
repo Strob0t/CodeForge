@@ -298,7 +298,8 @@ func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
 func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
+		        step_count, cost_usd, tokens_in, tokens_out, model, artifact_type, artifact_valid, artifact_errors,
+		        output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	r, err := scanRun(row)
@@ -341,10 +342,29 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, o
 	return nil
 }
 
+func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errs []string) error {
+	errJSON, err := json.Marshal(errs)
+	if err != nil {
+		return fmt.Errorf("marshal artifact errors: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE runs SET artifact_type = $2, artifact_valid = $3, artifact_errors = $4, updated_at = now()
+		 WHERE id = $1 AND tenant_id = $5`,
+		id, artifactType, valid, errJSON, tenantFromCtx(ctx))
+	if err != nil {
+		return fmt.Errorf("update run artifact %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("update run artifact %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, tokens_in, tokens_out, model, output, error, version, started_at, completed_at, created_at, updated_at
+		        step_count, cost_usd, tokens_in, tokens_out, model, artifact_type, artifact_valid, artifact_errors,
+		        output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, taskID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list runs by task: %w", err)
@@ -714,14 +734,24 @@ func scanProject(row scannable) (project.Project, error) {
 
 func scanRun(row scannable) (run.Run, error) {
 	var r run.Run
+	var artifactErrorsJSON []byte
 	err := row.Scan(
 		&r.ID, &r.TenantID, &r.TaskID, &r.AgentID, &r.ProjectID, &r.TeamID, &r.ModeID, &r.PolicyProfile,
 		&r.ExecMode, &r.DeliverMode, &r.Status, &r.StepCount, &r.CostUSD,
 		&r.TokensIn, &r.TokensOut, &r.Model,
+		&r.ArtifactType, &r.ArtifactValid, &artifactErrorsJSON,
 		&r.Output, &r.Error,
 		&r.Version, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 	)
-	return r, err
+	if err != nil {
+		return r, err
+	}
+	if artifactErrorsJSON != nil {
+		if err := json.Unmarshal(artifactErrorsJSON, &r.ArtifactErrors); err != nil {
+			return r, fmt.Errorf("unmarshal artifact_errors: %w", err)
+		}
+	}
+	return r, nil
 }
 
 func scanTask(row scannable) (task.Task, error) {
@@ -1474,6 +1504,7 @@ func (s *Store) RecentRunsWithCost(ctx context.Context, projectID string, limit 
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile,
 		        exec_mode, deliver_mode, status, step_count, cost_usd, tokens_in, tokens_out, model,
+		        artifact_type, artifact_valid, artifact_errors,
 		        output, error, version, started_at, completed_at, created_at, updated_at
 		 FROM runs WHERE project_id = $1 AND tenant_id = $2
 		 ORDER BY created_at DESC LIMIT $3`, projectID, tenantFromCtx(ctx), limit)

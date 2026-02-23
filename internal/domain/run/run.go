@@ -39,29 +39,32 @@ const (
 // Run represents a single execution attempt of a task by an agent under a specific policy.
 // One task can have multiple runs (retries, different agents, different policies).
 type Run struct {
-	ID            string      `json:"id"`
-	TenantID      string      `json:"tenant_id,omitempty"`
-	TaskID        string      `json:"task_id"`
-	AgentID       string      `json:"agent_id"`
-	ProjectID     string      `json:"project_id"`
-	TeamID        string      `json:"team_id,omitempty"`
-	ModeID        string      `json:"mode_id,omitempty"`
-	PolicyProfile string      `json:"policy_profile"`
-	ExecMode      ExecMode    `json:"exec_mode"`
-	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`
-	Status        Status      `json:"status"`
-	StepCount     int         `json:"step_count"`
-	CostUSD       float64     `json:"cost_usd"`
-	TokensIn      int64       `json:"tokens_in"`
-	TokensOut     int64       `json:"tokens_out"`
-	Model         string      `json:"model,omitempty"`
-	Output        string      `json:"output,omitempty"`
-	Error         string      `json:"error,omitempty"`
-	Version       int         `json:"version"`
-	StartedAt     time.Time   `json:"started_at"`
-	CompletedAt   *time.Time  `json:"completed_at,omitempty"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
+	ID             string      `json:"id"`
+	TenantID       string      `json:"tenant_id,omitempty"`
+	TaskID         string      `json:"task_id"`
+	AgentID        string      `json:"agent_id"`
+	ProjectID      string      `json:"project_id"`
+	TeamID         string      `json:"team_id,omitempty"`
+	ModeID         string      `json:"mode_id,omitempty"`
+	PolicyProfile  string      `json:"policy_profile"`
+	ExecMode       ExecMode    `json:"exec_mode"`
+	DeliverMode    DeliverMode `json:"deliver_mode,omitempty"`
+	Status         Status      `json:"status"`
+	StepCount      int         `json:"step_count"`
+	CostUSD        float64     `json:"cost_usd"`
+	TokensIn       int64       `json:"tokens_in"`
+	TokensOut      int64       `json:"tokens_out"`
+	Model          string      `json:"model,omitempty"`
+	ArtifactType   string      `json:"artifact_type,omitempty"`
+	ArtifactValid  *bool       `json:"artifact_valid,omitempty"`
+	ArtifactErrors []string    `json:"artifact_errors,omitempty"`
+	Output         string      `json:"output,omitempty"`
+	Error          string      `json:"error,omitempty"`
+	Version        int         `json:"version"`
+	StartedAt      time.Time   `json:"started_at"`
+	CompletedAt    *time.Time  `json:"completed_at,omitempty"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
 // StartRequest holds the fields needed to start a new run.

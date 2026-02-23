@@ -181,6 +181,9 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.
 	}
 	return errMockNotFound
 }
+func (m *runtimeMockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
+	return nil
+}
 func (m *runtimeMockStore) ListRunsByTask(_ context.Context, taskID string) ([]run.Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -33,6 +33,8 @@ const (
 	TypeDeliveryCompleted  Type = "run.delivery.completed"
 	TypeDeliveryFailed     Type = "run.delivery.failed"
 	TypeStallDetected      Type = "run.stall_detected"
+	TypeArtifactValidated  Type = "run.artifact.validated"
+	TypeArtifactFailed     Type = "run.artifact.failed"
 
 	// Phase 5A: orchestration plan events
 	TypePlanCreated   Type = "plan.created"

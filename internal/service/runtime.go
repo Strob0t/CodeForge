@@ -11,6 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/artifact"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -551,6 +552,37 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			status = run.StatusFailed
 		} else {
 			status = run.StatusCompleted
+		}
+	}
+
+	// Artifact validation gate (Phase 12E)
+	if status == run.StatusCompleted && s.modes != nil {
+		if m, mErr := s.modes.Get(r.ModeID); mErr == nil && m.RequiredArtifact != "" {
+			result := artifact.Validate(m.RequiredArtifact, payload.Output)
+			valid := result.Valid
+			if err := s.store.UpdateRunArtifact(ctx, r.ID, m.RequiredArtifact, &valid, result.Errors); err != nil {
+				slog.Error("failed to persist artifact validation", "run_id", r.ID, "error", err)
+			}
+			s.hub.BroadcastEvent(ctx, ws.EventArtifactValidation, ws.ArtifactValidationEvent{
+				RunID:        r.ID,
+				TaskID:       r.TaskID,
+				ProjectID:    r.ProjectID,
+				ArtifactType: m.RequiredArtifact,
+				Valid:        valid,
+				Errors:       result.Errors,
+			})
+			if valid {
+				s.appendRunEvent(ctx, event.TypeArtifactValidated, r, map[string]string{
+					"artifact_type": m.RequiredArtifact,
+				})
+			} else {
+				s.appendRunEvent(ctx, event.TypeArtifactFailed, r, map[string]string{
+					"artifact_type": m.RequiredArtifact,
+					"errors":        fmt.Sprintf("%v", result.Errors),
+				})
+				s.appendAudit(ctx, r, "artifact.failed", fmt.Sprintf("Artifact validation failed for %s: %v", m.RequiredArtifact, result.Errors))
+				status = run.StatusFailed
+			}
 		}
 	}
 
