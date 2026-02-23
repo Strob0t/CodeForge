@@ -11,9 +11,9 @@ interface RepoMapPanelProps {
 
 export default function RepoMapPanel(props: RepoMapPanelProps) {
   const { t, fmt } = useI18n();
-  const [repoMap, { refetch }] = createResource<RepoMap | null>(
-    () => props.projectId,
-    async (id) => {
+  const [repoMap, { refetch }] = createResource(
+    () => props.projectId || undefined,
+    async (id: string): Promise<RepoMap | null> => {
       try {
         return await api.repomap.get(id);
       } catch {

@@ -2,7 +2,7 @@ import { useParams } from "@solidjs/router";
 import { createResource, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Branch, BudgetAlertEvent, GitStatus } from "~/api/types";
+import type { BudgetAlertEvent } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
@@ -42,13 +42,13 @@ export default function ProjectDetailPage() {
     () => params.id,
     (id) => api.tasks.list(id),
   );
-  const [gitStatus, { refetch: refetchGitStatus }] = createResource<GitStatus | null>(
-    () => (project()?.workspace_path ? params.id : null),
-    (id) => (id ? api.projects.gitStatus(id) : null),
+  const [gitStatus, { refetch: refetchGitStatus }] = createResource(
+    () => (project()?.workspace_path ? params.id : undefined),
+    (id: string) => api.projects.gitStatus(id),
   );
-  const [branches, { refetch: refetchBranches }] = createResource<Branch[] | null>(
-    () => (project()?.workspace_path ? params.id : null),
-    (id) => (id ? api.projects.branches(id) : null),
+  const [branches, { refetch: refetchBranches }] = createResource(
+    () => (project()?.workspace_path ? params.id : undefined),
+    (id: string) => api.projects.branches(id),
   );
 
   const [agents, { refetch: refetchAgents }] = createResource(

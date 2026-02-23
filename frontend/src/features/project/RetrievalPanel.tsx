@@ -16,9 +16,9 @@ interface RetrievalPanelProps {
 
 export default function RetrievalPanel(props: RetrievalPanelProps) {
   const { t, fmt } = useI18n();
-  const [indexStatus, { refetch }] = createResource<RetrievalIndexStatus | null>(
-    () => props.projectId,
-    async (id) => {
+  const [indexStatus, { refetch }] = createResource(
+    () => props.projectId || undefined,
+    async (id: string): Promise<RetrievalIndexStatus | null> => {
       try {
         return await api.retrieval.indexStatus(id);
       } catch {
@@ -27,9 +27,9 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
     },
   );
 
-  const [graphStatus, { refetch: refetchGraph }] = createResource<GraphStatus | null>(
-    () => props.projectId,
-    async (id) => {
+  const [graphStatus, { refetch: refetchGraph }] = createResource(
+    () => props.projectId || undefined,
+    async (id: string): Promise<GraphStatus | null> => {
       try {
         return await api.graph.status(id);
       } catch {

@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import type { TranslationKey } from "~/i18n/en";
 
 import ProjectCard from "./ProjectCard";
 
@@ -264,7 +265,7 @@ export default function DashboardPage() {
                   {(rec) => (
                     <div class="inline-flex items-center gap-1 rounded-md border border-gray-200 dark:border-gray-600 px-2 py-1 text-xs">
                       <span class="font-medium text-gray-500 dark:text-gray-400">
-                        {t(categoryLabels[rec.category] ?? rec.category)}
+                        {t((categoryLabels[rec.category] ?? rec.category) as TranslationKey)}
                       </span>
                       <span class="text-gray-900 dark:text-gray-100">{rec.name}</span>
                     </div>

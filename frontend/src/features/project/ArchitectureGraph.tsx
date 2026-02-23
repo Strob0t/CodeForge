@@ -170,9 +170,9 @@ function simulateForces(nodes: GraphNode[], edges: GraphEdge[], width: number, h
 export default function ArchitectureGraph(props: ArchitectureGraphProps) {
   const { t, fmt } = useI18n();
 
-  const [graphStatus] = createResource<GraphStatus | null>(
-    () => props.projectId,
-    async (id) => {
+  const [graphStatus] = createResource(
+    () => props.projectId || undefined,
+    async (id: string): Promise<GraphStatus | null> => {
       try {
         return await api.graph.status(id);
       } catch {

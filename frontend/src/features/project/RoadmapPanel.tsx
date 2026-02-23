@@ -6,7 +6,6 @@ import type {
   ImportResult,
   Milestone,
   ProviderInfo,
-  Roadmap,
   RoadmapFeature,
   RoadmapStatus,
 } from "~/api/types";
@@ -201,7 +200,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       <h3 class="mb-3 text-lg font-semibold">{t("roadmap.title")}</h3>
 
       <Show
-        when={roadmap() !== null && roadmap() !== undefined}
+        when={roadmap()}
         fallback={
           <div>
             <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">{t("roadmap.empty")}</p>
@@ -253,7 +252,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
           </div>
         }
       >
-        {(rm: () => Roadmap) => (
+        {(rm) => (
           <>
             <div class="mb-4 flex items-center justify-between">
               <div class="flex items-center gap-2">

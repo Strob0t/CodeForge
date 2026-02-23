@@ -2,7 +2,7 @@
 // German translations
 // ---------------------------------------------------------------------------
 
-import type { Translations } from "./en";
+import type { Translations } from "../en";
 
 const de: Translations = {
   // -- Common ---------------------------------------------------------------
@@ -92,6 +92,21 @@ const de: Translations = {
   "dashboard.toast.createFailed": "Projekt konnte nicht erstellt werden",
   "dashboard.toast.deleted": "Projekt gel\u00f6scht",
   "dashboard.toast.deleteFailed": "Projekt konnte nicht gel\u00f6scht werden",
+
+  // -- Stack-Erkennung -------------------------------------------------------
+  "dashboard.detect.button": "Stack erkennen",
+  "dashboard.detect.detecting": "Workspace wird gescannt\u2026",
+  "dashboard.detect.languages": "Erkannte Sprachen",
+  "dashboard.detect.recommendations": "Empfehlungen",
+  "dashboard.detect.noWorkspace":
+    "Klonen oder adoptieren Sie zuerst einen Workspace, um den Stack zu erkennen",
+  "dashboard.detect.noLanguages": "Keine Sprachen erkannt",
+  "dashboard.detect.confidence": "Konfidenz: {{value}}",
+  "dashboard.detect.category.mode": "Agent-Modus",
+  "dashboard.detect.category.pipeline": "Pipeline",
+  "dashboard.detect.category.linter": "Linter",
+  "dashboard.detect.category.formatter": "Formatter",
+  "dashboard.detect.error": "Stack-Erkennung fehlgeschlagen",
 
   // -- Project card ---------------------------------------------------------
   "project.delete": "L\u00f6schen",
@@ -778,6 +793,61 @@ const de: Translations = {
   "settings.users.deleteFailed": "Benutzer konnte nicht gel\u00f6scht werden",
   "settings.users.updateFailed": "Benutzer konnte nicht aktualisiert werden",
   "settings.users.empty": "Keine Benutzer gefunden.",
+
+  // -- Reviews (Phase 12I) ---------------------------------------------------
+  "reviews.title": "Reviews",
+  "reviews.policies": "Review-Richtlinien",
+  "reviews.policies.create": "Richtlinie erstellen",
+  "reviews.policies.name": "Richtlinienname",
+  "reviews.policies.trigger": "Ausl\u00f6sertyp",
+  "reviews.policies.trigger.commitCount": "Commit-Anzahl",
+  "reviews.policies.trigger.preMerge": "Vor Merge",
+  "reviews.policies.trigger.cron": "Cron-Zeitplan",
+  "reviews.policies.commitThreshold": "Commit-Schwellenwert",
+  "reviews.policies.cronExpr": "Cron-Ausdruck",
+  "reviews.policies.branchPattern": "Branch-Muster",
+  "reviews.policies.template": "Pipeline-Vorlage",
+  "reviews.policies.enabled": "Aktiviert",
+  "reviews.policies.empty": "Keine Review-Richtlinien konfiguriert.",
+  "reviews.policies.deleted": "Richtlinie gel\u00f6scht",
+  "reviews.policies.deleteFailed": "Richtlinie konnte nicht gel\u00f6scht werden",
+  "reviews.history": "Review-Verlauf",
+  "reviews.history.empty": "Noch keine Reviews.",
+  "reviews.trigger": "Review ausl\u00f6sen",
+  "reviews.triggered": "Review ausgel\u00f6st",
+  "reviews.triggerFailed": "Review konnte nicht ausgel\u00f6st werden",
+  "reviews.status.pending": "Ausstehend",
+  "reviews.status.running": "L\u00e4uft",
+  "reviews.status.completed": "Abgeschlossen",
+  "reviews.status.failed": "Fehlgeschlagen",
+
+  // -- Knowledge Bases (Phase 12K) -------------------------------------------
+  "kb.title": "Wissensbasen",
+  "kb.description": "Kuratierte Wissensmodule f\u00fcr Agent-Kontext",
+  "kb.empty": "Keine Wissensbasen verf\u00fcgbar",
+  "kb.loading": "Wissensbasen werden geladen\u2026",
+  "kb.builtin": "Integriert",
+  "kb.custom": "Benutzerdefiniert",
+  "kb.status.pending": "Ausstehend",
+  "kb.status.indexed": "Indiziert",
+  "kb.status.error": "Fehler",
+  "kb.category.framework": "Framework",
+  "kb.category.paradigm": "Paradigma",
+  "kb.category.language": "Sprache",
+  "kb.category.security": "Sicherheit",
+  "kb.category.custom": "Benutzerdefiniert",
+  "kb.form.create": "Wissensbasis erstellen",
+  "kb.form.name": "Name",
+  "kb.form.description": "Beschreibung",
+  "kb.form.category": "Kategorie",
+  "kb.form.tags": "Tags",
+  "kb.form.contentPath": "Inhaltspfad",
+  "kb.index.button": "Indizieren",
+  "kb.index.reindex": "Neu indizieren",
+  "kb.toast.created": "Wissensbasis erstellt",
+  "kb.toast.deleted": "Wissensbasis gel\u00f6scht",
+  "kb.toast.indexed": "Indizierung gestartet",
+  "kb.chunks": "Chunks",
 };
 
 export default de;
