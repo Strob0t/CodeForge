@@ -336,9 +336,10 @@ function ScopeDetail(props: {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [tab, setTab] = createSignal<"projects" | "kbs" | "search">("projects");
+  const [kbVersion, setKbVersion] = createSignal(0);
   const [kbs] = createResource(
-    () => props.scope.id,
-    (id) => api.knowledgeBases.listByScope(id),
+    () => ({ id: props.scope.id, v: kbVersion() }),
+    ({ id }) => api.knowledgeBases.listByScope(id),
   );
   const [allKbs] = createResource(() => api.knowledgeBases.list());
 
@@ -366,6 +367,7 @@ function ScopeDetail(props: {
   const handleAttachKB = async (kbId: string) => {
     try {
       await api.knowledgeBases.attachToScope(props.scope.id, kbId);
+      setKbVersion((v) => v + 1);
       toast("success", t("scope.toast.updated"));
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to attach KB");
@@ -375,6 +377,7 @@ function ScopeDetail(props: {
   const handleDetachKB = async (kbId: string) => {
     try {
       await api.knowledgeBases.detachFromScope(props.scope.id, kbId);
+      setKbVersion((v) => v + 1);
       toast("success", t("scope.toast.updated"));
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to detach KB");

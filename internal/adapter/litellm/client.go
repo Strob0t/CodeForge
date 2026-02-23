@@ -17,11 +17,11 @@ import (
 
 // Model represents a configured model in LiteLLM.
 type Model struct {
-	ModelName string            `json:"model_name"`
-	Provider  string            `json:"litellm_provider,omitempty"`
-	ModelID   string            `json:"model_id,omitempty"`
-	ModelInfo map[string]any    `json:"model_info,omitempty"`
-	Params    map[string]string `json:"litellm_params,omitempty"`
+	ModelName string         `json:"model_name"`
+	Provider  string         `json:"litellm_provider,omitempty"`
+	ModelID   string         `json:"model_id,omitempty"`
+	ModelInfo map[string]any `json:"model_info,omitempty"`
+	Params    map[string]any `json:"litellm_params,omitempty"`
 }
 
 // HealthStatus represents the health of a LiteLLM model.
