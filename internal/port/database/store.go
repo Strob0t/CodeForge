@@ -160,4 +160,14 @@ type Store interface {
 
 	// Atomic Refresh Token Rotation
 	RotateRefreshToken(ctx context.Context, oldID string, newRT *user.RefreshToken) error
+
+	// Retrieval Scopes
+	CreateScope(ctx context.Context, req cfcontext.CreateScopeRequest) (*cfcontext.RetrievalScope, error)
+	GetScope(ctx context.Context, id string) (*cfcontext.RetrievalScope, error)
+	ListScopes(ctx context.Context) ([]cfcontext.RetrievalScope, error)
+	UpdateScope(ctx context.Context, id string, req cfcontext.UpdateScopeRequest) (*cfcontext.RetrievalScope, error)
+	DeleteScope(ctx context.Context, id string) error
+	ListScopesByProject(ctx context.Context, projectID string) ([]cfcontext.RetrievalScope, error)
+	AddProjectToScope(ctx context.Context, scopeID, projectID string) error
+	RemoveProjectFromScope(ctx context.Context, scopeID, projectID string) error
 }

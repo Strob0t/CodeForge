@@ -72,6 +72,7 @@ type Handlers struct {
 	PMWebhook        *service.PMWebhookService
 	Notification     *service.NotificationService
 	Auth             *service.AuthService
+	Scope            *service.ScopeService
 }
 
 // ListProjects handles GET /api/v1/projects

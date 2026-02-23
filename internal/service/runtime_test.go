@@ -568,6 +568,26 @@ func (m *runtimeMockStore) RotateRefreshToken(_ context.Context, _ string, _ *us
 	return nil
 }
 
+// Retrieval Scope stubs
+func (m *runtimeMockStore) CreateScope(_ context.Context, _ cfcontext.CreateScopeRequest) (*cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetScope(_ context.Context, _ string) (*cfcontext.RetrievalScope, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) ListScopes(_ context.Context) ([]cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateScope(_ context.Context, _ string, _ cfcontext.UpdateScopeRequest) (*cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteScope(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) ListScopesByProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
+func (m *runtimeMockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
+
 type runtimeMockQueue struct {
 	mu       sync.Mutex
 	messages []publishedMsg

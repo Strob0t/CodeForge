@@ -215,6 +215,7 @@ class RetrievalSearchHit(BaseModel):
     score: float = 0.0
     bm25_rank: int = 0
     semantic_rank: int = 0
+    project_id: str = ""
 
 
 class RetrievalSearchResult(BaseModel):
@@ -306,6 +307,7 @@ class GraphSearchHit(BaseModel):
     distance: int  # hops from seed
     score: float
     edge_path: list[str] = Field(default_factory=list)
+    project_id: str = ""
 
 
 class GraphSearchResult(BaseModel):

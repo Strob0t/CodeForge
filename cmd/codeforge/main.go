@@ -279,6 +279,12 @@ func run() error {
 	contextOptSvc.SetGraph(graphSvc)
 	slog.Info("graph service initialized", "enabled", cfg.Orchestrator.GraphEnabled)
 
+	// --- Scope Service (Phase 12D) ---
+	scopeSvc := service.NewScopeService(store)
+	scopeSvc.SetRetrieval(retrievalSvc)
+	scopeSvc.SetGraph(graphSvc)
+	slog.Info("scope service initialized")
+
 	// --- Wire SharedContext into PoolManager + Orchestrator (Phase 5E) ---
 	poolManagerSvc.SetSharedContext(sharedCtxSvc)
 	orchSvc.SetSharedContext(sharedCtxSvc)
@@ -397,6 +403,7 @@ func run() error {
 		PMWebhook:        pmWebhookSvc,
 		Notification:     notificationSvc,
 		Auth:             authSvc,
+		Scope:            scopeSvc,
 	}
 
 	r := chi.NewRouter()

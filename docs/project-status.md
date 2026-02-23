@@ -742,3 +742,16 @@
 - [x] (2026-02-23) Scenario fixtures (`workers/tests/scenarios/`): 5 roles x 3 JSON files = 15 fixtures (architect/generate_plan, coder/produce_diff, reviewer/catch_bug, tester/report_pass_fail, security/flag_risk)
 - [x] (2026-02-23) Shared fixture loader (`workers/tests/conftest.py`): `load_scenario(role, scenario)` returns (input, expected, FakeLLM) tuple
 - [x] (2026-02-23) 7 MVP evaluation tests (`workers/tests/test_role_evaluation.py`): architect plan, coder diff, reviewer bug, tester report, security audit, debate convergence, orchestrator boundary; all 106 Python tests pass
+
+### Phase 12D — RAG Shared Scope System (COMPLETED)
+
+- [x] (2026-02-23) Domain model (`internal/domain/context/scope.go`): ScopeType enum (shared/global), RetrievalScope struct with Validate, CreateScopeRequest, UpdateScopeRequest
+- [x] (2026-02-23) DB migration (`025_retrieval_scopes.sql`): retrieval_scopes table + retrieval_scope_projects join table with FK cascade, unique index on (tenant_id, name)
+- [x] (2026-02-23) Store interface extended (`internal/port/database/store.go`): 8 scope methods (CreateScope, GetScope, ListScopes, UpdateScope, DeleteScope, ListScopesByProject, AddProjectToScope, RemoveProjectFromScope)
+- [x] (2026-02-23) PostgreSQL store implementation (`internal/adapter/postgres/store_scope.go`): full CRUD with tenant isolation, transaction-based create/update, cascade delete, ON CONFLICT for idempotent project add
+- [x] (2026-02-23) Service layer (`internal/service/scope.go`): ScopeService with CRUD delegation, ResolveProjectIDs, SearchScope (concurrent fan-out, max 5 goroutines, merge by score), SearchScopeGraph (same pattern)
+- [x] (2026-02-23) HTTP handlers (`internal/adapter/http/handlers_scope.go`): 9 endpoints — CRUD, add/remove project, search, graph search
+- [x] (2026-02-23) Route registration (`routes.go`): 9 scope routes under /api/v1/scopes
+- [x] (2026-02-23) NATS payload updates (`schemas.go`): ProjectID field on RetrievalSearchHitPayload and GraphSearchHitPayload
+- [x] (2026-02-23) Python model updates (`models.py`): project_id field on RetrievalSearchHit and GraphSearchHit
+- [x] (2026-02-23) Wired in main.go: ScopeService initialization with SetRetrieval and SetGraph

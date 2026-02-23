@@ -427,6 +427,26 @@ func (m *mockStore) RotateRefreshToken(_ context.Context, _ string, _ *user.Refr
 	return nil
 }
 
+// Retrieval Scope stubs
+func (m *mockStore) CreateScope(_ context.Context, _ cfcontext.CreateScopeRequest) (*cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *mockStore) GetScope(_ context.Context, _ string) (*cfcontext.RetrievalScope, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListScopes(_ context.Context) ([]cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateScope(_ context.Context, _ string, _ cfcontext.UpdateScopeRequest) (*cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteScope(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListScopesByProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
+func (m *mockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
+func (m *mockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 

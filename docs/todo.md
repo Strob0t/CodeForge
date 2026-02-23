@@ -548,14 +548,19 @@ For full completion history, see [project-status.md](project-status.md).
 
 #### 12D. RAG Shared Scope System (P1)
 
-- [ ] Add Scope domain model: Project Scope (isolated, always default), Shared Scope (named, multi-project opt-in), Global Knowledge (shared scope available to all projects)
-- [ ] DB migration: `retrieval_scopes` table (scope_id UUID, name, type project/shared/global, project_ids UUID[])
-- [ ] Extend HybridRetriever (`workers/codeforge/retrieval.py`) to accept scope_id parameter for cross-project search
-- [ ] Extend CodeGraphBuilder (`workers/codeforge/graphrag.py`) to accept scope_id parameter
-- [ ] Implement incremental indexing with hash-based delta detection (only re-index changed files/chunks on post-commit)
-- [ ] Add scope management REST API (CRUD scopes, assign projects to scopes)
+- [x] (2026-02-23) Add Scope domain model (`internal/domain/context/scope.go`): ScopeType enum (shared/global), RetrievalScope struct, CreateScopeRequest, UpdateScopeRequest with Validate methods
+- [x] (2026-02-23) DB migration (`internal/adapter/postgres/migrations/025_retrieval_scopes.sql`): retrieval_scopes + retrieval_scope_projects join table with FK cascade
+- [x] (2026-02-23) Store interface + PostgreSQL implementation (`store_scope.go`): 8 scope methods (CRUD + project management)
+- [x] (2026-02-23) Service layer (`internal/service/scope.go`): ScopeService with CRUD, cross-project SearchScope fan-out, SearchScopeGraph fan-out
+- [x] (2026-02-23) HTTP handlers (`internal/adapter/http/handlers_scope.go`): 9 endpoints (CRUD + add/remove project + search + graph search)
+- [x] (2026-02-23) Route registration, Handlers struct wiring, main.go initialization
+- [x] (2026-02-23) NATS payload updates: ProjectID field on RetrievalSearchHitPayload and GraphSearchHitPayload
+- [x] (2026-02-23) Python model updates: project_id field on RetrievalSearchHit and GraphSearchHit
+- [x] (2026-02-23) Security constraint: projects isolated by default, explicit opt-in required for shared scopes
+- [ ] Extend HybridRetriever (`workers/codeforge/retrieval.py`) to accept scope_id parameter for cross-project search (deferred - fan-out in Go)
+- [ ] Extend CodeGraphBuilder (`workers/codeforge/graphrag.py`) to accept scope_id parameter (deferred - fan-out in Go)
+- [ ] Implement incremental indexing with hash-based delta detection (deferred - independent feature)
 - [ ] Add scope management frontend UI (scope list, project assignment, index status per scope)
-- [ ] Security constraint: projects isolated by default, explicit opt-in required for shared scopes
 
 #### 12E. Artifact-Gated Pipelines (P2)
 

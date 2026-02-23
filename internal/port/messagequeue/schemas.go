@@ -263,6 +263,7 @@ type RetrievalSearchHitPayload struct {
 	Score        float64 `json:"score"`
 	BM25Rank     int     `json:"bm25_rank"`
 	SemanticRank int     `json:"semantic_rank"`
+	ProjectID    string  `json:"project_id,omitempty"`
 }
 
 // --- Retrieval Sub-Agent payloads (Phase 6C) ---
@@ -326,6 +327,7 @@ type GraphSearchHitPayload struct {
 	Distance   int      `json:"distance"`
 	Score      float64  `json:"score"`
 	EdgePath   []string `json:"edge_path"`
+	ProjectID  string   `json:"project_id,omitempty"`
 }
 
 // GraphSearchResultPayload is the schema for graph.search.result messages.

@@ -131,6 +131,17 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/projects/{id}/graph/status", h.GetGraphStatus)
 		r.Post("/projects/{id}/graph/search", h.SearchGraph)
 
+		// Retrieval Scopes (cross-project search)
+		r.Post("/scopes", h.CreateScope)
+		r.Get("/scopes", h.ListScopes)
+		r.Get("/scopes/{id}", h.GetScope)
+		r.Put("/scopes/{id}", h.UpdateScope)
+		r.Delete("/scopes/{id}", h.DeleteScope)
+		r.Post("/scopes/{id}/projects", h.AddProjectToScope)
+		r.Delete("/scopes/{id}/projects/{pid}", h.RemoveProjectFromScope)
+		r.Post("/scopes/{id}/search", h.SearchScope)
+		r.Post("/scopes/{id}/graph/search", h.SearchScopeGraph)
+
 		// Cost aggregation
 		r.Get("/costs", h.GlobalCostSummary)
 		r.Get("/projects/{id}/costs", h.ProjectCostSummary)
