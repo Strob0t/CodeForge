@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -25,7 +26,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.TenantIDFromContext(r.Context())
 	resp, rawRefresh, err := h.Auth.Login(r.Context(), req, tenantID)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, err.Error())
+		slog.Debug("login failed", "email", req.Email, "error", err)
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
@@ -53,6 +55,7 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	resp, newRawRefresh, err := h.Auth.RefreshTokens(r.Context(), cookie.Value)
 	if err != nil {
+		slog.Debug("token refresh failed", "error", err)
 		// Clear invalid cookie.
 		http.SetCookie(w, &http.Cookie{
 			Name:     refreshCookieName,
@@ -63,7 +66,7 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   -1,
 		})
-		writeError(w, http.StatusUnauthorized, err.Error())
+		writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
 	}
 

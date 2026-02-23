@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,7 +38,7 @@ func NewRateLimiter(rate float64, burst int) *RateLimiter {
 // Handler returns HTTP middleware that enforces per-IP rate limiting.
 func (rl *RateLimiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
+		ip := realIP(r)
 
 		remaining, retryAfter, allowed := rl.allow(ip)
 
@@ -129,4 +131,25 @@ func (rl *RateLimiter) Len() int {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	return len(rl.buckets)
+}
+
+// realIP extracts the client IP from X-Real-Ip or X-Forwarded-For headers
+// (set by a trusted reverse proxy like nginx), falling back to RemoteAddr.
+func realIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-Ip"); ip != "" {
+		return ip
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first (client) IP from the comma-separated list.
+		if i := strings.IndexByte(xff, ','); i > 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return xff
+	}
+	// Strip port from RemoteAddr (e.g. "192.168.1.1:12345" -> "192.168.1.1").
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

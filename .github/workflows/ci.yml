@@ -13,7 +13,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: codeforge
           POSTGRES_PASSWORD: codeforge_dev
@@ -112,3 +112,29 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Go vulnerability check
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Run govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+
+      - name: Python dependency audit
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run pip-audit
+        run: pip install pip-audit poetry && poetry export -f requirements.txt --without-hashes -o /tmp/requirements.txt && pip-audit -r /tmp/requirements.txt
+
+      - name: Frontend dependency audit
+        run: cd frontend && npm ci && npm audit --omit=dev

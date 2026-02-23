@@ -7,6 +7,7 @@ commands in the project workspace, and reports results back.
 from __future__ import annotations
 
 import asyncio
+import shlex
 
 import structlog
 
@@ -64,8 +65,9 @@ class QualityGateExecutor:
         """Run a shell command and return (passed, output)."""
         log.debug("running gate command", command=command, cwd=cwd)
         try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
+            args = shlex.split(command)
+            proc = await asyncio.create_subprocess_exec(
+                *args,
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,

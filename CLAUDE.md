@@ -91,8 +91,8 @@ Detailed analysis: docs/research/market-analysis.md
 - **Hook System:** Observer pattern for agent/environment lifecycle
 - **Trajectory Recording:** Recording, replay, inspector, audit trail
 - **Cost Management:** Budget limits per task/project/user, auto-tracking
-- **Jinja2 Prompt Templates:** Prompts in separate files, not in code
-- **KeyBERT Keyword Extraction:** Semantic keywords for better retrieval
+- **Go text/template Prompt Templates:** Prompts in separate `.tmpl` files via `//go:embed`, not in code
+- **BM25S Keyword Retrieval:** BM25-based retrieval for code search and tool recommendation
 - **Real-time State via WebSocket:** Live updates for agent status, logs, costs
 - **Frontend:** SolidJS + Tailwind CSS
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
@@ -165,18 +165,18 @@ Detailed analysis: docs/research/market-analysis.md
   - Python: psycopg3 (sync+async)
   - NATS JetStream KV for ephemeral state (heartbeats, locks)
   - ADR: docs/architecture/adr/002-postgresql-database.md
-- **Go Libraries (zero-dep principle):**
-  - HTTP Router: chi v5 (zero deps, 100% net/http compatible, route groups + middleware)
-  - WebSocket: coder/websocket v1.8+ (zero deps, context-native, concurrent-write-safe)
+- **Go Libraries (minimal-dep principle):**
+  - HTTP Router: chi v5 (minimal deps, 100% net/http compatible, route groups + middleware)
+  - WebSocket: coder/websocket v1.8+ (minimal deps, context-native, concurrent-write-safe)
   - Git: os/exec wrapper around git CLI (zero deps, 100% feature coverage, native speed)
   - NOT used: Echo/Fiber (framework coupling), gorilla/websocket (no context, panic on concurrent writes), go-git (28 deps, 4-9x slower)
 - **Frontend Libraries (minimal-stack principle):**
   - Routing: @solidjs/router (only viable SolidJS router)
   - Styling: Tailwind CSS directly (no component library, no CSS-in-JS)
-  - WebSocket: @solid-primitives/websocket (728 bytes, auto-reconnect)
+  - WebSocket: @solid-primitives/websocket (auto-reconnect)
   - HTTP: native fetch API + thin wrapper (~30-50 LOC)
   - State: SolidJS built-in signals/stores/context (no external state library)
-  - Icons: lucide-solid (tree-shakeable, direct imports)
+  - Icons: Unicode symbols + inline SVG (no icon library dependency)
   - NOT used: axios, styled-components, Kobalte, shadcn-solid, Socket.IO, Redux/Zustand
 - **Protocol Support (MCP, LSP, A2A, AG-UI, OpenTelemetry):**
   - **MCP** (Model Context Protocol): Agent ↔ Tool communication (JSON-RPC, Anthropic standard)

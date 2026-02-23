@@ -72,7 +72,7 @@ func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, er
 func (s *Store) GetProjectByRepoName(ctx context.Context, repoName string) (*project.Project, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at
-		 FROM projects WHERE repo_url LIKE '%' || $1 || '%' LIMIT 1`, repoName)
+		 FROM projects WHERE repo_url LIKE '%' || $1 || '%' AND tenant_id = $2 LIMIT 1`, repoName, tenantFromCtx(ctx))
 
 	p, err := scanProject(row)
 	if err != nil {

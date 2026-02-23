@@ -188,7 +188,7 @@ func (s *AuthService) RevokeAccessToken(ctx context.Context, jti string, expires
 }
 
 // ValidateAccessToken verifies a JWT and returns the claims.
-// It checks token revocation when a JTI is present (fail-open on DB error).
+// It checks token revocation when a JTI is present (fail-closed on DB error).
 func (s *AuthService) ValidateAccessToken(tokenStr string) (*user.TokenClaims, error) {
 	claims, err := s.verifyJWT(tokenStr)
 	if err != nil {
@@ -199,9 +199,11 @@ func (s *AuthService) ValidateAccessToken(tokenStr string) (*user.TokenClaims, e
 	if claims.JTI != "" {
 		revoked, dbErr := s.store.IsTokenRevoked(context.Background(), claims.JTI)
 		if dbErr != nil {
-			// Fail-open: log warning but allow token to avoid auth outages
-			slog.Warn("token revocation check failed, allowing token", "jti", claims.JTI, "error", dbErr)
-		} else if revoked {
+			// Fail-closed: deny access when revocation check is unavailable.
+			slog.Error("token revocation check failed, denying token", "jti", claims.JTI, "error", dbErr)
+			return nil, errors.New("unable to verify token status")
+		}
+		if revoked {
 			return nil, errors.New("token has been revoked")
 		}
 	}
@@ -464,6 +466,13 @@ func (s *AuthService) verifyJWT(tokenStr string) (*user.TokenClaims, error) {
 
 	if time.Now().Unix() > claims.Expiry {
 		return nil, errors.New("token expired")
+	}
+
+	if claims.Audience != "codeforge" {
+		return nil, errors.New("invalid token audience")
+	}
+	if claims.Issuer != "codeforge-core" {
+		return nil, errors.New("invalid token issuer")
 	}
 
 	return &claims, nil

@@ -179,6 +179,7 @@ func matchesPathConstraints(rule *policy.PermissionRule, path string) bool {
 	if path == "" {
 		return true
 	}
+	path = filepath.Clean(path)
 
 	// Path deny: if any pattern matches, skip this rule.
 	for _, pattern := range rule.PathDeny {
@@ -237,7 +238,9 @@ func matchCommandPattern(pattern, command string) bool {
 // matchGlob matches a string against a glob pattern. Supports:
 // - Standard filepath.Match patterns (*, ?)
 // - ** for recursive directory matching
+// Paths are cleaned before matching to prevent traversal bypasses.
 func matchGlob(pattern, value string) bool {
+	value = filepath.Clean(value)
 	// Handle ** patterns by splitting on path separator.
 	if strings.Contains(pattern, "**") {
 		return matchDoubleStar(pattern, value)

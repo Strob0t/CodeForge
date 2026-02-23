@@ -843,3 +843,17 @@
 - [x] (2026-02-23) HTTP API: 9 endpoints (CRUD + index + scope attach/detach/list)
 - [x] (2026-02-23) Frontend: KnowledgeBasesPage (card grid, create form, index/delete actions), API client, types, i18n, sidebar nav
 - [x] (2026-02-23) Tests: 3 domain + 6 service tests (validation, CRUD, delete-builtin guard, scope ops, seed idempotency)
+
+### OWASP Audit Remediation (COMPLETED)
+
+- [x] (2026-02-23) P0: Fix BOLA in `GetProjectByRepoName` — tenant_id filter added to DB query
+- [x] (2026-02-23) P1: HTTP security headers — nginx + Go SecurityHeaders middleware
+- [x] (2026-02-23) P1: Rate limiter IP extraction — X-Real-Ip/X-Forwarded-For with fallback
+- [x] (2026-02-23) P1: JWT aud/iss validation + fail-closed token revocation
+- [x] (2026-02-23) P1: Webhook token constant-time comparison via crypto/subtle
+- [x] (2026-02-23) P1: Auth error message sanitization — generic responses, server-side logging
+- [x] (2026-02-23) P1: Policy path traversal prevention — filepath.Clean normalization
+- [x] (2026-02-23) P2: Quality gate command injection — subprocess_exec with shlex.split
+- [x] (2026-02-23) P2: Created SECURITY.md and CONTRIBUTING.md
+- [x] (2026-02-23) P2: Fixed CLAUDE.md documentation inaccuracies (5 corrections)
+- [x] (2026-02-23) P3: CI postgres 16→17 alignment + security scanning job (govulncheck, pip-audit, npm audit)

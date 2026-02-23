@@ -450,6 +450,7 @@ func run() error {
 	defer rateLimiterCleanup()
 
 	// Middleware
+	r.Use(cfhttp.SecurityHeaders)
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
 	if cfg.OTEL.Enabled {
 		r.Use(cfotel.HTTPMiddleware(cfg.OTEL.ServiceName))

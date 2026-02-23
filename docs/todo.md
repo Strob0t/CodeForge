@@ -514,6 +514,20 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-19) P2-4: Password complexity enforcement (Min 10 chars, must contain uppercase + lowercase + digit; applied to registration and password change; existing users unaffected)
 - [x] (2026-02-19) P2-5: Delivery push error propagation (`PushError` field on `DeliveryResult`; `deliverPR()` skips PR creation on push failure; error surfaced in audit log and WebSocket broadcast)
 
+### OWASP Audit Remediation (2026-02-23)
+
+- [x] (2026-02-23) P0: Fix BOLA in `GetProjectByRepoName` — add `AND tenant_id = $2` filter (`internal/adapter/postgres/store.go`)
+- [x] (2026-02-23) P1: Add HTTP security headers — X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy (`frontend/nginx.conf`, `internal/adapter/http/middleware.go`, `cmd/codeforge/main.go`)
+- [x] (2026-02-23) P1: Fix rate limiter IP extraction — use X-Real-Ip/X-Forwarded-For from trusted proxy (`internal/middleware/ratelimit.go`)
+- [x] (2026-02-23) P1: Fix JWT audience/issuer validation + fail-closed revocation (`internal/service/auth.go`)
+- [x] (2026-02-23) P1: Fix webhook token timing attack — use `crypto/subtle.ConstantTimeCompare` (`internal/middleware/webhook.go`)
+- [x] (2026-02-23) P1: Fix auth error message leakage — use generic messages, log details server-side (`internal/adapter/http/handlers_auth.go`)
+- [x] (2026-02-23) P1: Fix policy path traversal — add `filepath.Clean()` normalization (`internal/service/policy.go`)
+- [x] (2026-02-23) P2: Fix quality gate command injection — switch from `create_subprocess_shell` to `create_subprocess_exec` with `shlex.split` (`workers/codeforge/qualitygate.py`)
+- [x] (2026-02-23) P2: Create SECURITY.md and CONTRIBUTING.md
+- [x] (2026-02-23) P2: Fix CLAUDE.md documentation inaccuracies (Jinja2→text/template, KeyBERT→BM25S, lucide-solid→Unicode+SVG, zero-dep→minimal-dep, websocket size)
+- [x] (2026-02-23) P3: Fix CI postgres version 16→17 + add security scanning job (govulncheck, pip-audit, npm audit)
+
 ---
 
 ### Phase 12+ — Architecture Evolution

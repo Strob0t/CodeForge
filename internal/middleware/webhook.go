@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -71,7 +72,7 @@ func WebhookToken(token, header string) func(http.Handler) http.Handler {
 			}
 
 			got := r.Header.Get(header)
-			if got != token {
+			if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 				http.Error(w, fmt.Sprintf("invalid %s token", header), http.StatusForbidden)
 				return
 			}
