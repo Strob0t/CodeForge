@@ -23,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
+	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -73,6 +74,7 @@ type Handlers struct {
 	Notification     *service.NotificationService
 	Auth             *service.AuthService
 	Scope            *service.ScopeService
+	Pipelines        *service.PipelineService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -2138,6 +2140,59 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		slog.Error("failed to write JSON response", "error", err)
 	}
+}
+
+// --- Pipeline Templates ---
+
+// ListPipelines handles GET /api/v1/pipelines
+func (h *Handlers) ListPipelines(w http.ResponseWriter, _ *http.Request) {
+	templates := h.Pipelines.List()
+	if templates == nil {
+		templates = []pipeline.Template{}
+	}
+	writeJSON(w, http.StatusOK, templates)
+}
+
+// GetPipeline handles GET /api/v1/pipelines/{id}
+func (h *Handlers) GetPipeline(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	t, err := h.Pipelines.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "pipeline template not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+// RegisterPipeline handles POST /api/v1/pipelines
+func (h *Handlers) RegisterPipeline(w http.ResponseWriter, r *http.Request) {
+	var t pipeline.Template
+	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.Pipelines.Register(&t); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+// InstantiatePipeline handles POST /api/v1/pipelines/{id}/instantiate
+func (h *Handlers) InstantiatePipeline(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req pipeline.InstantiateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	result, err := h.Pipelines.Instantiate(r.Context(), id, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

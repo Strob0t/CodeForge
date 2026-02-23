@@ -116,6 +116,12 @@ func MountRoutes(r chi.Router, h *Handlers) {
 		r.Get("/modes/{id}", h.GetMode)
 		r.Post("/modes", h.CreateMode)
 
+		// Pipeline Templates
+		r.Get("/pipelines", h.ListPipelines)
+		r.Post("/pipelines", h.RegisterPipeline)
+		r.Get("/pipelines/{id}", h.GetPipeline)
+		r.Post("/pipelines/{id}/instantiate", h.InstantiatePipeline)
+
 		// RepoMap (nested under projects)
 		r.Get("/projects/{id}/repomap", h.GetRepoMap)
 		r.Post("/projects/{id}/repomap", h.GenerateRepoMap)

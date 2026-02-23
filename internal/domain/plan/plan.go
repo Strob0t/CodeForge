@@ -68,6 +68,7 @@ type Step struct {
 	TaskID        string     `json:"task_id"`
 	AgentID       string     `json:"agent_id"`
 	PolicyProfile string     `json:"policy_profile"`
+	ModeID        string     `json:"mode_id,omitempty"`
 	DeliverMode   string     `json:"deliver_mode"`
 	DependsOn     []string   `json:"depends_on"`
 	Status        StepStatus `json:"status"`
@@ -94,6 +95,7 @@ type CreateStepRequest struct {
 	TaskID        string   `json:"task_id"`
 	AgentID       string   `json:"agent_id"`
 	PolicyProfile string   `json:"policy_profile,omitempty"`
+	ModeID        string   `json:"mode_id,omitempty"`
 	DeliverMode   string   `json:"deliver_mode,omitempty"`
 	DependsOn     []string `json:"depends_on,omitempty"` // step indices ("0", "1") at creation time
 }

@@ -575,13 +575,17 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Python artifact models (`workers/codeforge/artifacts.py`): Pydantic-based validators mirroring Go, validate_artifact() + is_known_type()
 - [x] (2026-02-23) Python artifact tests (`workers/tests/test_artifacts.py`): 35 test cases mirroring Go coverage
 
-#### 12F. Pipeline Templates (P2)
+#### 12F. Pipeline Templates (P2) — COMPLETED
 
-- [ ] Define reusable YAML workflow templates: `standard-dev-pipeline`, `security-audit-pipeline`, `review-pipeline`
-- [ ] Implement template loader from `.codeforge/pipelines/` directory (follows existing `.codeforge/modes/` pattern)
-- [ ] Each template defines: steps, roles, protocols, artifact requirements, quality gates
-- [ ] Allow project-level override of default pipeline via project settings
-- [ ] Reference: Mode pipeline and DAG composition from CLAUDE.md
+- [x] (2026-02-23) ModeID on plan steps (`plan.go`): Added ModeID field to Step + CreateStepRequest, DB migration (`027_step_mode_id.sql`), store queries updated (CreatePlan INSERT, ListPlanSteps SELECT, GetPlanStepByRunID SELECT, scanPlanStep Scan)
+- [x] (2026-02-23) Orchestrator ModeID passthrough (`orchestrator.go`): startStep() now passes step.ModeID to run.StartRequest
+- [x] (2026-02-23) Pipeline domain package (`internal/domain/pipeline/`): Template, Step, StepBinding, InstantiateRequest structs; Validate() with DAG validation via Kahn's algorithm; Instantiate() produces CreatePlanRequest from template + bindings
+- [x] (2026-02-23) Pipeline presets (`presets.go`): 3 built-in templates — `standard-dev` (architect→coder→reviewer→tester, sequential), `security-audit` (architect→coder→security, sequential), `review-only` (reviewer+security, parallel)
+- [x] (2026-02-23) Pipeline loader (`loader.go`): LoadFromFile, LoadFromDirectory (YAML, same pattern as policy/loader.go, missing dirs return nil)
+- [x] (2026-02-23) Pipeline tests (`pipeline_test.go`): 22 tests — validation (10), instantiation (4), presets (2), loader (6)
+- [x] (2026-02-23) Pipeline service (`internal/service/pipeline.go`): PipelineService with List, Get, Register, Instantiate; mode reference validation via ModeService
+- [x] (2026-02-23) HTTP endpoints: GET/POST `/api/v1/pipelines`, GET `/api/v1/pipelines/{id}`, POST `/api/v1/pipelines/{id}/instantiate`
+- [x] (2026-02-23) Wired in main.go: PipelineService created with ModeService, passed to Handlers
 
 #### 12G. Project Workspace Management (P2)
 

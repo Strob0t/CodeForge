@@ -294,6 +294,10 @@ func run() error {
 	runtimeSvc.SetModeService(modeSvc)
 	slog.Info("mode service initialized", "modes", len(modeSvc.List()))
 
+	// --- Pipeline Service (Phase 12F) ---
+	pipelineSvc := service.NewPipelineService(modeSvc)
+	slog.Info("pipeline service initialized", "templates", len(pipelineSvc.List()))
+
 	// --- Spec & PM Providers (Phase 9A) ---
 	var specProvs []specprovider.Provider
 	for _, name := range specprovider.Available() {
@@ -404,6 +408,7 @@ func run() error {
 		Notification:     notificationSvc,
 		Auth:             authSvc,
 		Scope:            scopeSvc,
+		Pipelines:        pipelineSvc,
 	}
 
 	r := chi.NewRouter()

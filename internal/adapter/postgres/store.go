@@ -548,10 +548,10 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 		step := &p.Steps[i]
 		step.PlanID = p.ID
 		err = tx.QueryRow(ctx,
-			`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, mode_id, deliver_mode, depends_on, status, round)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			 RETURNING id, created_at, updated_at`,
-			tid, step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
+			tid, step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.ModeID, step.DeliverMode,
 			step.DependsOn, string(step.Status), step.Round,
 		).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
 		if err != nil {
@@ -629,7 +629,7 @@ func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {
 
 func (s *Store) ListPlanSteps(ctx context.Context, planID string) ([]plan.Step, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
+		`SELECT id, plan_id, task_id, agent_id, policy_profile, mode_id, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
 		 FROM plan_steps WHERE plan_id = $1 AND tenant_id = $2 ORDER BY created_at ASC`, planID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list plan steps: %w", err)
@@ -663,7 +663,7 @@ func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status 
 
 func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
+		`SELECT id, plan_id, task_id, agent_id, policy_profile, mode_id, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at
 		 FROM plan_steps WHERE run_id = $1 AND tenant_id = $2`, runID, tenantFromCtx(ctx))
 
 	st, err := scanPlanStep(row)
@@ -791,7 +791,7 @@ func scanPlan(row scannable) (plan.ExecutionPlan, error) {
 func scanPlanStep(row scannable) (plan.Step, error) {
 	var st plan.Step
 	var runID *string
-	err := row.Scan(&st.ID, &st.PlanID, &st.TaskID, &st.AgentID, &st.PolicyProfile, &st.DeliverMode,
+	err := row.Scan(&st.ID, &st.PlanID, &st.TaskID, &st.AgentID, &st.PolicyProfile, &st.ModeID, &st.DeliverMode,
 		&st.DependsOn, &st.Status, &runID, &st.Round, &st.Error, &st.CreatedAt, &st.UpdatedAt)
 	if runID != nil {
 		st.RunID = *runID

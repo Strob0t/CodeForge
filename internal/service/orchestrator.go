@@ -413,6 +413,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		AgentID:       step.AgentID,
 		ProjectID:     p.ProjectID,
 		TeamID:        p.TeamID,
+		ModeID:        step.ModeID,
 		PolicyProfile: step.PolicyProfile,
 		DeliverMode:   run.DeliverMode(step.DeliverMode),
 	}

@@ -769,3 +769,15 @@
 - [x] (2026-02-23) Mock stores updated (3 files): handlers_test.go, runtime_test.go, project_test.go
 - [x] (2026-02-23) Python artifact models (`workers/codeforge/artifacts.py`): ArtifactType StrEnum, validate_artifact(), is_known_type(), 6 validators mirroring Go
 - [x] (2026-02-23) Python artifact tests (`workers/tests/test_artifacts.py`): 35 pytest cases mirroring Go coverage
+
+### Phase 12F — Pipeline Templates (COMPLETED)
+
+- [x] (2026-02-23) ModeID on plan steps: Added ModeID field to Step + CreateStepRequest structs, DB migration (`027_step_mode_id.sql`), PostgreSQL store queries updated (CreatePlan, ListPlanSteps, GetPlanStepByRunID, scanPlanStep)
+- [x] (2026-02-23) Orchestrator ModeID passthrough: startStep() now passes step.ModeID to run.StartRequest for mode-aware execution
+- [x] (2026-02-23) Pipeline domain package (`internal/domain/pipeline/`): Template + Step + StepBinding + InstantiateRequest structs, Validate() with DAG cycle detection, Instantiate() produces CreatePlanRequest from template + project bindings
+- [x] (2026-02-23) 3 built-in pipeline templates: `standard-dev` (architect→coder→reviewer→tester, sequential), `security-audit` (architect→coder→security, sequential), `review-only` (reviewer+security, parallel max_parallel=2)
+- [x] (2026-02-23) Pipeline YAML loader: LoadFromFile + LoadFromDirectory (same pattern as policy/loader.go, missing dirs return nil)
+- [x] (2026-02-23) 22 pipeline tests: validation (10), instantiation (4), presets (2), loader (6)
+- [x] (2026-02-23) PipelineService (`internal/service/pipeline.go`): List, Get, Register, Instantiate with mode reference validation
+- [x] (2026-02-23) HTTP API: GET/POST `/api/v1/pipelines`, GET `/api/v1/pipelines/{id}`, POST `/api/v1/pipelines/{id}/instantiate`
+- [x] (2026-02-23) Wired into main.go with PipelineService + Handlers struct
