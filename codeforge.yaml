@@ -1,0 +1,84 @@
+# CodeForge Configuration
+# Precedence: defaults < this file < environment variables
+# Copy to codeforge.yaml and adjust as needed.
+
+server:
+  port: "8080"
+  cors_origin: "http://localhost:3000"
+
+postgres:
+  dsn: "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"
+  max_conns: 15
+  min_conns: 2
+  max_conn_lifetime: "1h"
+  max_conn_idle_time: "10m"
+  health_check: "1m"
+
+nats:
+  url: "nats://localhost:4222"
+
+litellm:
+  url: "http://localhost:4000"
+  master_key: ""
+
+logging:
+  level: "info"    # debug, info, warn, error
+  service: "codeforge-core"
+
+breaker:
+  max_failures: 5
+  timeout: "30s"
+
+rate:
+  requests_per_second: 10.0
+  burst: 100
+  cleanup_interval: "5m"   # stale bucket cleanup interval
+  max_idle_time: "10m"     # remove IP buckets idle longer than this
+
+# Git worker pool — limits concurrent git CLI operations
+git:
+  max_concurrent: 5
+
+# Policy engine for agent permissions and safety
+# Available presets: plan-readonly, headless-safe-sandbox,
+#   headless-permissive-sandbox, trusted-mount-autonomous
+policy:
+  default_profile: "headless-safe-sandbox"
+  custom_dir: ""   # Directory with custom .yaml policy files
+
+# Agent execution engine settings
+runtime:
+  stall_threshold: 5               # consecutive no-progress steps before stall abort
+  quality_gate_timeout: "60s"      # max time for test/lint gate execution
+  default_deliver_mode: ""         # "": none, "patch", "commit-local", "branch", "pr"
+  default_test_command: "go test ./..."
+  default_lint_command: "golangci-lint run ./..."
+  delivery_commit_prefix: "codeforge:"
+
+# Multi-agent orchestrator settings
+orchestrator:
+  max_parallel: 4              # Max concurrent steps in parallel/consensus plans
+  ping_pong_max_rounds: 3      # Max rounds per step in ping_pong protocol
+  consensus_quorum: 0          # Required successes for consensus (0 = majority)
+  mode: "semi_auto"            # "manual" | "semi_auto" | "full_auto"
+  decompose_model: "openai/gpt-4o-mini"  # LLM model for feature decomposition
+  decompose_max_tokens: 4096   # Max tokens for decomposition LLM response
+  max_team_size: 5             # Max agents per team (default: 5)
+
+  # GraphRAG settings (Phase 6D)
+  graph_enabled: false         # Enable GraphRAG code graph (default: false)
+  graph_max_hops: 2            # Max hops for graph traversal (default: 2)
+  graph_top_k: 10              # Top-K results for graph search (default: 10)
+  graph_hop_decay: 0.7         # Score decay per hop (default: 0.7)
+
+# Authentication & Authorization (Phase 10C)
+# When disabled (default), a default admin context is injected for all requests.
+# Enable and set jwt_secret for production use.
+auth:
+  enabled: false                      # Enable JWT authentication (default: false)
+  jwt_secret: ""                      # HMAC-SHA256 signing key (required when enabled)
+  access_token_expiry: "15m"          # Access token lifetime (default: 15m)
+  refresh_token_expiry: "168h"        # Refresh token lifetime (default: 7 days)
+  bcrypt_cost: 12                     # Bcrypt work factor (default: 12, min: 4)
+  default_admin_email: "admin@localhost"  # Seed admin email on first start
+  default_admin_pass: "changeme123"       # Seed admin password (change immediately)

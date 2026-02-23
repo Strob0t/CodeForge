@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     name        TEXT        NOT NULL,
     password_hash TEXT      NOT NULL,
     role        TEXT        NOT NULL DEFAULT 'viewer',
-    tenant_id   TEXT        NOT NULL REFERENCES tenants(id),
+    tenant_id   UUID        NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000' REFERENCES tenants(id),
     enabled     BOOLEAN     NOT NULL DEFAULT true,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()

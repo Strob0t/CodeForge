@@ -12,23 +12,19 @@ function buildWSURL(): string {
 }
 
 export function createCodeForgeWS() {
-  const ws = createReconnectingWS(buildWSURL, undefined, {
+  const ws = createReconnectingWS(buildWSURL(), undefined, {
     delay: 1000,
     retries: Infinity,
   });
 
   const [connected, setConnected] = createSignal(false);
 
-  const onOpen = () => setConnected(true);
-  const onClose = () => setConnected(false);
+  ws.addEventListener("open", () => setConnected(true));
+  ws.addEventListener("close", () => setConnected(false));
 
-  // The reconnecting WS returns a reactive `state` accessor
-  // but we also track open/close via the underlying WebSocket events.
-  // createReconnectingWS returns a getter for the underlying WebSocket instance.
-
-  // Poll state from the reactive primitive
+  // Poll readyState as fallback for reconnection state changes
   const interval = setInterval(() => {
-    setConnected(ws() !== undefined && ws()?.readyState === WebSocket.OPEN);
+    setConnected(ws.readyState === WebSocket.OPEN);
   }, 2000);
 
   onCleanup(() => clearInterval(interval));
@@ -39,26 +35,10 @@ export function createCodeForgeWS() {
       handler(data);
     };
 
-    // Since the WS instance may reconnect, we need to track it reactively.
-    // For now, add listener to the current instance and re-add on reconnect.
-    let currentWS: WebSocket | undefined;
-
-    const check = setInterval(() => {
-      const instance = ws();
-      if (instance && instance !== currentWS) {
-        currentWS?.removeEventListener("message", listener);
-        instance.addEventListener("open", onOpen);
-        instance.addEventListener("close", onClose);
-        instance.addEventListener("message", listener);
-        currentWS = instance;
-      }
-    }, 500);
+    ws.addEventListener("message", listener);
 
     return () => {
-      clearInterval(check);
-      currentWS?.removeEventListener("message", listener);
-      currentWS?.removeEventListener("open", onOpen);
-      currentWS?.removeEventListener("close", onClose);
+      ws.removeEventListener("message", listener);
     };
   }
 
