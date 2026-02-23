@@ -126,7 +126,8 @@ func (s *GraphService) HandleBuildResult(ctx context.Context, payload *messagequ
 }
 
 // SearchSync sends a graph search request and waits synchronously for the result.
-func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSymbols []string, maxHops, topK int) (*messagequeue.GraphSearchResultPayload, error) {
+// scopeID is optional — set when the search originates from a scope fan-out (observability).
+func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSymbols []string, maxHops, topK int, scopeID ...string) (*messagequeue.GraphSearchResultPayload, error) {
 	if s.isUnhealthy() {
 		return nil, fmt.Errorf("graph search skipped: worker recently unhealthy (project %s)", projectID)
 	}
@@ -145,6 +146,9 @@ func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSym
 		SeedSymbols: seedSymbols,
 		MaxHops:     maxHops,
 		TopK:        topK,
+	}
+	if len(scopeID) > 0 {
+		payload.ScopeID = scopeID[0]
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

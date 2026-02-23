@@ -322,6 +322,9 @@ class TaskConsumer:
                 chunk_count=status.chunk_count,
                 embedding_model=status.embedding_model,
                 error=status.error,
+                incremental=status.incremental,
+                files_changed=status.files_changed,
+                files_unchanged=status.files_unchanged,
             )
 
             if self._js is not None:
@@ -346,7 +349,7 @@ class TaskConsumer:
         """Process a retrieval search request: search index and publish result."""
         try:
             request = RetrievalSearchRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id, request_id=request.request_id)
+            log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
             log.info("received retrieval search request", query=request.query[:80])
 
             hits = await self._retriever.search(
@@ -386,7 +389,7 @@ class TaskConsumer:
         """Process a sub-agent search request: expand, search, dedup, rerank, publish."""
         try:
             request = SubAgentSearchRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id, request_id=request.request_id)
+            log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
             log.info("received subagent search request", query=request.query[:80])
 
             hits, expanded_queries, total_candidates = await self._subagent.search(
@@ -434,7 +437,7 @@ class TaskConsumer:
         """Process a graph build request: build code graph and publish result."""
         try:
             request = GraphBuildRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id)
+            log = logger.bind(project_id=request.project_id, scope_id=request.scope_id)
             log.info("received graph build request", workspace=request.workspace_path)
 
             result: GraphBuildResult = await self._graph_builder.build_graph(
@@ -465,7 +468,7 @@ class TaskConsumer:
         """Process a graph search request: search graph and publish result."""
         try:
             request = GraphSearchRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id, request_id=request.request_id)
+            log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
             log.info("received graph search request", seeds=request.seed_symbols)
 
             hits = await self._graph_searcher.search(

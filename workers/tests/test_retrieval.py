@@ -370,3 +370,167 @@ async def test_handle_retrieval_search_message(workspace: str) -> None:
     msg.nak.assert_not_called()
 
     await consumer._retriever.close()
+
+
+# ---------------------------------------------------------------------------
+# Incremental indexing tests
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_post(dim: int = 8):
+    """Return an async mock for httpx post that counts embed calls."""
+    call_count = {"n": 0, "texts": 0}
+
+    async def _mock_post(url: str, json: dict[str, object] | None = None, **kwargs: object) -> MagicMock:
+        texts = json.get("input", []) if json else []
+        call_count["n"] += 1
+        call_count["texts"] += len(texts)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json = MagicMock(return_value=_make_embedding_response(texts, dim=dim))
+        return resp
+
+    return _mock_post, call_count
+
+
+async def test_incremental_no_changes(workspace: str) -> None:
+    """Second build with no file changes should skip embedding entirely."""
+    retriever = HybridRetriever(litellm_url="http://test:4000")
+    mock_post, counts = _make_mock_post()
+
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status1 = await retriever.build_index("proj-inc", workspace)
+    assert status1.status == "ready"
+    assert not status1.incremental
+    first_embed_calls = counts["n"]
+    assert first_embed_calls >= 1
+
+    # Second build — same files, same model.
+    counts["n"] = 0
+    counts["texts"] = 0
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status2 = await retriever.build_index("proj-inc", workspace)
+    assert status2.status == "ready"
+    assert status2.incremental is True
+    assert status2.files_changed == 0
+    assert status2.files_unchanged >= 2
+    # No embedding calls needed.
+    assert counts["n"] == 0
+
+    await retriever.close()
+
+
+async def test_incremental_file_added(workspace: str) -> None:
+    """Adding a file should only embed the new file's chunks."""
+    retriever = HybridRetriever(litellm_url="http://test:4000")
+    mock_post, counts = _make_mock_post()
+
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status1 = await retriever.build_index("proj-add", workspace)
+    assert status1.status == "ready"
+    original_chunks = status1.chunk_count
+
+    # Add a new Python file.
+    new_file = os.path.join(workspace, "src", "extra.py")
+    with open(new_file, "w") as f:
+        f.write("def extra_function():\n    return 'new'\n")
+
+    counts["n"] = 0
+    counts["texts"] = 0
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status2 = await retriever.build_index("proj-add", workspace)
+    assert status2.status == "ready"
+    assert status2.incremental is True
+    assert status2.files_changed == 1  # only the new file
+    assert status2.chunk_count > original_chunks
+    # Only the new file's chunks should have been embedded.
+    assert counts["texts"] >= 1  # at least one new chunk
+    assert counts["texts"] < status2.chunk_count  # not all chunks re-embedded
+
+    await retriever.close()
+
+
+async def test_incremental_file_changed(workspace: str) -> None:
+    """Modifying a file should re-embed only that file's chunks."""
+    retriever = HybridRetriever(litellm_url="http://test:4000")
+    mock_post, counts = _make_mock_post()
+
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status1 = await retriever.build_index("proj-chg", workspace)
+    assert status1.status == "ready"
+
+    # Modify the Go file.
+    go_file = os.path.join(workspace, "pkg", "handler.go")
+    with open(go_file, "w") as f:
+        f.write(
+            "package pkg\n\n"
+            "func NewHandler() *Handler { return &Handler{} }\n\n"
+            'func ExtraMethod() string { return "modified" }\n\n'
+            "type Handler struct {\n    Name string\n}\n"
+        )
+
+    counts["n"] = 0
+    counts["texts"] = 0
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status2 = await retriever.build_index("proj-chg", workspace)
+    assert status2.status == "ready"
+    assert status2.incremental is True
+    assert status2.files_changed == 1  # only the modified Go file
+    assert status2.files_unchanged >= 1  # the Python file is unchanged
+    # Embedding call happened but only for the changed file's chunks.
+    assert counts["n"] == 1
+    assert counts["texts"] >= 1
+
+    await retriever.close()
+
+
+async def test_incremental_file_deleted(workspace: str) -> None:
+    """Deleting a file should reduce chunk count, no embed for removed chunks."""
+    retriever = HybridRetriever(litellm_url="http://test:4000")
+    mock_post, counts = _make_mock_post()
+
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status1 = await retriever.build_index("proj-del", workspace)
+    assert status1.status == "ready"
+    original_chunks = status1.chunk_count
+    original_files = status1.file_count
+
+    # Delete the Go file.
+    go_file = os.path.join(workspace, "pkg", "handler.go")
+    os.remove(go_file)
+
+    counts["n"] = 0
+    counts["texts"] = 0
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status2 = await retriever.build_index("proj-del", workspace)
+    assert status2.status == "ready"
+    assert status2.incremental is True
+    assert status2.file_count == original_files - 1
+    assert status2.chunk_count < original_chunks
+    # File deletion + all remaining files unchanged = no new embeds needed.
+    assert counts["n"] == 0
+
+    await retriever.close()
+
+
+async def test_incremental_model_change(workspace: str) -> None:
+    """Changing embedding model should trigger a full rebuild."""
+    retriever = HybridRetriever(litellm_url="http://test:4000")
+    mock_post, counts = _make_mock_post()
+
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status1 = await retriever.build_index("proj-mdl", workspace, embedding_model="model-a")
+    assert status1.status == "ready"
+    first_total = counts["texts"]
+
+    counts["n"] = 0
+    counts["texts"] = 0
+    with patch.object(retriever._client, "post", side_effect=mock_post):
+        status2 = await retriever.build_index("proj-mdl", workspace, embedding_model="model-b")
+    assert status2.status == "ready"
+    assert not status2.incremental  # full rebuild
+    # All chunks re-embedded.
+    assert counts["texts"] == first_total
+
+    await retriever.close()

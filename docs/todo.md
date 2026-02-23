@@ -528,14 +528,14 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Decompose prompt templates into ROLE/TOOLS/ARTIFACT/ACTIONS/GUARDRAILS sections (5 Go `text/template` files with `//go:embed`, conditional assembly via `BuildModePrompt()` in `mode_prompt.go`, custom modes bypass templates)
 - [x] (2026-02-23) Add prompt token counting per section (per-section `EstimateTokens()`, `WarnIfOverBudget()` with 1024-token soft limit, 10 tests)
 - [x] (2026-02-23) Implement mode-specific prompt composition (built-in modes use template assembly, custom modes use raw PromptPrefix, `runtime.go` calls `BuildModePrompt()` before NATS publish)
-- [ ] Reference: Claude Code conditional prompt assembly pattern (~40 modular sections, token-budget-aware)
+- [x] (2026-02-23) Reference: Claude Code conditional prompt assembly pattern (~40 modular sections, token-budget-aware) — implemented via `BuildModePrompt()` in `mode_prompt.go`
 
 #### 12B. LLM Routing Implementation (P1)
 
 - [x] (2026-02-23) Wire scenario tags to LiteLLM model selection via native tag-based routing (`litellm/config.yaml`: moved tags from `model_info.tags` to `litellm_params.tags`, added `router_settings.enable_tag_filtering`; Python: `resolve_scenario()` + `tags` param on `completion()` in `llm.py`; `executor.py` reads `mode.llm_scenario` and passes tag + temperature)
 - [x] (2026-02-23) Implement tag-to-model mapping in LiteLLM proxy config — 30+ models tagged with default/background/think/longContext/review/plan; Gemini models get `longContext` tag; `ScenarioConfig` maps scenarios to temperatures (think=0.3, review=0.1, default=0.2, background=0.1, plan=0.3)
 - [x] (2026-02-23) Add routing decision logging for observability — structured log in `executor.py` (run_id, mode, scenario, temperature) + debug log in `llm.py` (model, temperature, tags, prompt_len); 5 new tests in `test_llm.py`
-- [ ] Reference: Tags already defined in Mode domain (`internal/domain/mode/mode.go`), LiteLLM adapter has no routing logic yet (`internal/adapter/litellm/`)
+- [x] (2026-02-23) Reference: Tags already defined in Mode domain (`internal/domain/mode/mode.go`), LiteLLM adapter has no routing logic yet (`internal/adapter/litellm/`) — tag-based routing implemented in Phase 12B
 
 #### 12C. Role Evaluation Framework (P1)
 
@@ -544,7 +544,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Create `tests/scenarios/` fixture directory structure: 5 roles x 3 files = 15 JSON fixtures (`{role}/{scenario}/input.json`, `expected_output.json`, `llm_responses.json`)
 - [x] (2026-02-23) Define 7 MVP evaluation tests (`workers/tests/test_role_evaluation.py`): architect generates plan, coder produces diff, reviewer catches bug, tester reports pass/fail, security flags risk, debate convergence, orchestrator boundary
 - [x] (2026-02-23) Integrate evaluation metrics schema (`workers/tests/evaluation.py`): EvaluationMetrics dataclass (passed, tokens, steps, cost, artifact_quality)
-- [ ] Research reference: SPARC-Bench, DeepEval, AgentNeo, REALM-Bench, GEMMAS
+- [x] (2026-02-23) Research reference: SPARC-Bench, DeepEval, AgentNeo, REALM-Bench, GEMMAS — evaluation framework implemented with FakeLLM + fixtures in Phase 12C
 
 #### 12D. RAG Shared Scope System (P1)
 
@@ -557,10 +557,10 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) NATS payload updates: ProjectID field on RetrievalSearchHitPayload and GraphSearchHitPayload
 - [x] (2026-02-23) Python model updates: project_id field on RetrievalSearchHit and GraphSearchHit
 - [x] (2026-02-23) Security constraint: projects isolated by default, explicit opt-in required for shared scopes
-- [ ] Extend HybridRetriever (`workers/codeforge/retrieval.py`) to accept scope_id parameter for cross-project search (deferred - fan-out in Go)
-- [ ] Extend CodeGraphBuilder (`workers/codeforge/graphrag.py`) to accept scope_id parameter (deferred - fan-out in Go)
-- [ ] Implement incremental indexing with hash-based delta detection (deferred - independent feature)
-- [ ] Add scope management frontend UI (scope list, project assignment, index status per scope)
+- [x] (2026-02-23) Extend HybridRetriever with scope_id observability pass-through — added `scope_id` to 4 NATS payloads (Go schemas + Python models), variadic `scopeID` param on Go `SearchSync`/`SearchSync`, `logger.bind(scope_id=...)` in Python consumer handlers
+- [x] (2026-02-23) Extend CodeGraphBuilder with scope_id observability pass-through — same changes cover graph payloads (`GraphBuildRequest`, `GraphSearchRequest`)
+- [x] (2026-02-23) Implement incremental indexing with hash-based delta detection — `FileHashRecord` dataclass, `_file_sha256()` helper, `chunk_workspace_by_file()`, `_build_incremental()` with SHA-256 delta detection, chunk/embedding reuse for unchanged files; 5 new tests (no-change, add, change, delete, model-change)
+- [x] (2026-02-23) Add scope management frontend UI — `ScopesPage.tsx` with CRUD, project multi-select, KB attachment, hybrid search; API client `scopes` namespace (9 methods); ~30 i18n keys (en+de); route + sidebar nav
 
 #### 12E. Artifact-Gated Pipelines (P2) — COMPLETED
 

@@ -7,8 +7,9 @@ to merge BM25 and cosine-similarity rankings into a single result list.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import bm25s
@@ -53,6 +54,16 @@ class CodeChunk:
     symbol_name: str
 
 
+@dataclass(frozen=True)
+class FileHashRecord:
+    """Tracks a file's content hash and its chunk span in the index."""
+
+    filepath: str
+    content_hash: str
+    chunk_start: int  # index into chunks list
+    chunk_count: int  # number of chunks from this file
+
+
 @dataclass
 class ProjectIndex:
     """In-memory index for a single project."""
@@ -64,6 +75,7 @@ class ProjectIndex:
     file_count: int
     chunk_count: int
     embedding_model: str
+    file_hashes: dict[str, FileHashRecord] = field(default_factory=dict)
 
 
 @dataclass
@@ -76,6 +88,9 @@ class IndexStatus:
     chunk_count: int = 0
     embedding_model: str = ""
     error: str = ""
+    incremental: bool = False
+    files_changed: int = 0
+    files_unchanged: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -96,11 +111,26 @@ class CodeChunker:
         file_extensions: list[str] | None = None,
     ) -> list[CodeChunk]:
         """Walk the workspace and chunk all recognised source files."""
+        per_file = self.chunk_workspace_by_file(workspace_path, file_extensions)
+        chunks: list[CodeChunk] = []
+        for _rel, file_chunks in per_file.values():
+            chunks.extend(file_chunks)
+        return chunks
+
+    def chunk_workspace_by_file(
+        self,
+        workspace_path: str,
+        file_extensions: list[str] | None = None,
+    ) -> dict[str, tuple[str, list[CodeChunk]]]:
+        """Walk workspace and return {rel_path: (content_hash, chunks)} per file.
+
+        The content hash is the SHA-256 hex digest of the raw file bytes.
+        """
         ext_filter: set[str] | None = None
         if file_extensions:
             ext_filter = {e if e.startswith(".") else f".{e}" for e in file_extensions}
 
-        chunks: list[CodeChunk] = []
+        result: dict[str, tuple[str, list[CodeChunk]]] = {}
         file_count = 0
 
         for dirpath, dirnames, filenames in os.walk(workspace_path):
@@ -108,7 +138,7 @@ class CodeChunker:
 
             for fname in filenames:
                 if file_count >= _MAX_FILES:
-                    return chunks
+                    return result
 
                 abs_path = os.path.join(dirpath, fname)
                 _, ext = os.path.splitext(fname)
@@ -126,10 +156,12 @@ class CodeChunker:
 
                 rel_path = os.path.relpath(abs_path, workspace_path)
                 language = _EXTENSION_MAP[ext]
-                chunks.extend(self.chunk_file(abs_path, rel_path, language))
+                content_hash = _file_sha256(abs_path)
+                file_chunks = self.chunk_file(abs_path, rel_path, language)
+                result[rel_path] = (content_hash, file_chunks)
                 file_count += 1
 
-        return chunks
+        return result
 
     def chunk_file(self, abs_path: str, rel_path: str, language: str) -> list[CodeChunk]:  # noqa: C901
         """Parse a single file and split at definition boundaries."""
@@ -306,6 +338,20 @@ class CodeChunker:
 
 
 # ---------------------------------------------------------------------------
+# File hashing helpers
+# ---------------------------------------------------------------------------
+
+
+def _file_sha256(path: str) -> str:
+    """Compute the SHA-256 hex digest of a file's contents."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(8192), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # HybridRetriever -- BM25 + semantic search with RRF fusion
 # ---------------------------------------------------------------------------
 
@@ -342,54 +388,45 @@ class HybridRetriever:
         embedding_model: str = "text-embedding-3-small",
         file_extensions: list[str] | None = None,
     ) -> IndexStatus:
-        """Chunk workspace, build BM25 index and compute embeddings."""
+        """Chunk workspace, build BM25 index and compute embeddings.
+
+        Supports incremental builds: if a prior index exists with the same
+        embedding model, only changed/new files are re-chunked and re-embedded.
+        Unchanged files reuse their chunks and embedding rows from the prior index.
+        """
         log = logger.bind(project_id=project_id)
         log.info("building retrieval index", workspace=workspace_path)
 
         try:
-            chunks = self._chunker.chunk_workspace(workspace_path, file_extensions)
-            if not chunks:
-                status = IndexStatus(
+            # Collect files with per-file content hashes.
+            per_file = self._chunker.chunk_workspace_by_file(workspace_path, file_extensions)
+            if not per_file:
+                log.info("index empty, no files found")
+                return IndexStatus(
                     project_id=project_id,
                     status="empty",
                     embedding_model=embedding_model,
                 )
-                log.info("index empty, no chunks found")
-                return status
 
-            # Build BM25 index
-            corpus = [chunk.content for chunk in chunks]
-            corpus_tokens = bm25s.tokenize(corpus)
-            bm25 = bm25s.BM25()
-            bm25.index(corpus_tokens)
-
-            # Compute embeddings via LiteLLM
-            embeddings = await self._embed_texts(corpus, embedding_model)
-
-            # Count unique files
-            file_set: set[str] = set()
-            for chunk in chunks:
-                file_set.add(chunk.filepath)
-
-            index = ProjectIndex(
-                project_id=project_id,
-                chunks=chunks,
-                bm25=bm25,
-                embeddings=embeddings,
-                file_count=len(file_set),
-                chunk_count=len(chunks),
-                embedding_model=embedding_model,
+            # Check for a prior index with the same embedding model.
+            prior = self._indexes.get(project_id)
+            can_incremental = (
+                prior is not None
+                and prior.embedding_model == embedding_model
+                and prior.file_hashes  # non-empty hash map
             )
-            self._indexes[project_id] = index
 
-            log.info("index built", files=index.file_count, chunks=index.chunk_count)
-            return IndexStatus(
-                project_id=project_id,
-                status="ready",
-                file_count=index.file_count,
-                chunk_count=index.chunk_count,
-                embedding_model=embedding_model,
-            )
+            if can_incremental and prior is not None:
+                return await self._build_incremental(
+                    project_id,
+                    per_file,
+                    prior,
+                    embedding_model,
+                    log,
+                )
+
+            # Full build — no prior index or model changed.
+            return await self._build_full(project_id, per_file, embedding_model, log)
 
         except Exception as exc:
             log.exception("index build failed")
@@ -398,6 +435,190 @@ class HybridRetriever:
                 status="error",
                 error=str(exc),
             )
+
+    async def _build_full(
+        self,
+        project_id: str,
+        per_file: dict[str, tuple[str, list[CodeChunk]]],
+        embedding_model: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> IndexStatus:
+        """Perform a full index build from scratch."""
+        chunks: list[CodeChunk] = []
+        file_hashes: dict[str, FileHashRecord] = {}
+
+        for rel_path, (content_hash, file_chunks) in per_file.items():
+            chunk_start = len(chunks)
+            chunks.extend(file_chunks)
+            file_hashes[rel_path] = FileHashRecord(
+                filepath=rel_path,
+                content_hash=content_hash,
+                chunk_start=chunk_start,
+                chunk_count=len(file_chunks),
+            )
+
+        if not chunks:
+            log.info("index empty, no chunks found")
+            return IndexStatus(
+                project_id=project_id,
+                status="empty",
+                embedding_model=embedding_model,
+            )
+
+        # Build BM25
+        corpus = [c.content for c in chunks]
+        corpus_tokens = bm25s.tokenize(corpus)
+        bm25 = bm25s.BM25()
+        bm25.index(corpus_tokens)
+
+        # Embed all chunks
+        embeddings = await self._embed_texts(corpus, embedding_model)
+
+        index = ProjectIndex(
+            project_id=project_id,
+            chunks=chunks,
+            bm25=bm25,
+            embeddings=embeddings,
+            file_count=len(per_file),
+            chunk_count=len(chunks),
+            embedding_model=embedding_model,
+            file_hashes=file_hashes,
+        )
+        self._indexes[project_id] = index
+
+        log.info("index built (full)", files=index.file_count, chunks=index.chunk_count)
+        return IndexStatus(
+            project_id=project_id,
+            status="ready",
+            file_count=index.file_count,
+            chunk_count=index.chunk_count,
+            embedding_model=embedding_model,
+        )
+
+    async def _build_incremental(
+        self,
+        project_id: str,
+        per_file: dict[str, tuple[str, list[CodeChunk]]],
+        prior: ProjectIndex,
+        embedding_model: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> IndexStatus:
+        """Incremental build: reuse chunks/embeddings for unchanged files."""
+        old_hashes = prior.file_hashes
+        current_files = set(per_file.keys())
+        old_files = set(old_hashes.keys())
+
+        unchanged = {f for f in current_files & old_files if per_file[f][0] == old_hashes[f].content_hash}
+        changed = (current_files & old_files) - unchanged
+        added = current_files - old_files
+        # deleted files are simply not included
+
+        files_changed = len(changed) + len(added)
+        files_unchanged = len(unchanged)
+
+        if files_changed == 0 and len(current_files) == len(old_files):
+            # Nothing changed — return current status.
+            log.info("incremental: no changes detected", files=len(current_files))
+            return IndexStatus(
+                project_id=project_id,
+                status="ready",
+                file_count=prior.file_count,
+                chunk_count=prior.chunk_count,
+                embedding_model=embedding_model,
+                incremental=True,
+                files_changed=0,
+                files_unchanged=files_unchanged,
+            )
+
+        # Assemble merged chunk list and embedding rows.
+        chunks: list[CodeChunk] = []
+        embedding_rows: list[np.ndarray] = []
+        file_hashes: dict[str, FileHashRecord] = {}
+        new_chunks: list[CodeChunk] = []  # chunks that need fresh embeddings
+
+        # 1. Reuse unchanged files.
+        for rel_path in sorted(unchanged):
+            rec = old_hashes[rel_path]
+            chunk_start = len(chunks)
+            old_chunks = prior.chunks[rec.chunk_start : rec.chunk_start + rec.chunk_count]
+            old_embeds = prior.embeddings[rec.chunk_start : rec.chunk_start + rec.chunk_count]
+            chunks.extend(old_chunks)
+            embedding_rows.append(old_embeds)
+            file_hashes[rel_path] = FileHashRecord(
+                filepath=rel_path,
+                content_hash=rec.content_hash,
+                chunk_start=chunk_start,
+                chunk_count=rec.chunk_count,
+            )
+
+        # 2. Add changed + new files (need re-embedding).
+        for rel_path in sorted(changed | added):
+            content_hash, file_chunks = per_file[rel_path]
+            chunk_start = len(chunks) + len(new_chunks)
+            new_chunks.extend(file_chunks)
+            file_hashes[rel_path] = FileHashRecord(
+                filepath=rel_path,
+                content_hash=content_hash,
+                chunk_start=chunk_start,
+                chunk_count=len(file_chunks),
+            )
+
+        # Embed only new/changed chunks.
+        if new_chunks:
+            new_corpus = [c.content for c in new_chunks]
+            new_embeddings = await self._embed_texts(new_corpus, embedding_model)
+            embedding_rows.append(new_embeddings)
+            chunks.extend(new_chunks)
+
+        if not chunks:
+            log.info("incremental: index empty after rebuild")
+            return IndexStatus(
+                project_id=project_id,
+                status="empty",
+                embedding_model=embedding_model,
+                incremental=True,
+                files_changed=files_changed,
+                files_unchanged=files_unchanged,
+            )
+
+        # Concatenate embeddings.
+        all_embeddings = np.concatenate(embedding_rows, axis=0) if embedding_rows else np.empty((0, 0))
+
+        # Rebuild BM25 (always full — it's fast).
+        corpus = [c.content for c in chunks]
+        corpus_tokens = bm25s.tokenize(corpus)
+        bm25 = bm25s.BM25()
+        bm25.index(corpus_tokens)
+
+        index = ProjectIndex(
+            project_id=project_id,
+            chunks=chunks,
+            bm25=bm25,
+            embeddings=all_embeddings,
+            file_count=len(per_file),
+            chunk_count=len(chunks),
+            embedding_model=embedding_model,
+            file_hashes=file_hashes,
+        )
+        self._indexes[project_id] = index
+
+        log.info(
+            "index built (incremental)",
+            files=index.file_count,
+            chunks=index.chunk_count,
+            files_changed=files_changed,
+            files_unchanged=files_unchanged,
+        )
+        return IndexStatus(
+            project_id=project_id,
+            status="ready",
+            file_count=index.file_count,
+            chunk_count=index.chunk_count,
+            embedding_model=embedding_model,
+            incremental=True,
+            files_changed=files_changed,
+            files_unchanged=files_unchanged,
+        )
 
     async def search(
         self,

@@ -755,6 +755,9 @@
 - [x] (2026-02-23) NATS payload updates (`schemas.go`): ProjectID field on RetrievalSearchHitPayload and GraphSearchHitPayload
 - [x] (2026-02-23) Python model updates (`models.py`): project_id field on RetrievalSearchHit and GraphSearchHit
 - [x] (2026-02-23) Wired in main.go: ScopeService initialization with SetRetrieval and SetGraph
+- [x] (2026-02-23) scope_id observability pass-through: added `scope_id` field to 4 NATS payloads (Go `schemas.go` + Python `models.py`), variadic `scopeID` param on Go `SearchSync` methods, `logger.bind(scope_id=...)` in Python consumer handlers
+- [x] (2026-02-23) Incremental indexing with hash-based delta detection (`workers/codeforge/retrieval.py`): `FileHashRecord` dataclass, `_file_sha256()`, `chunk_workspace_by_file()`, `_build_incremental()` with SHA-256 delta, chunk/embedding reuse for unchanged files, 5 new tests
+- [x] (2026-02-23) Scope management frontend UI (`frontend/src/features/scopes/ScopesPage.tsx`): CRUD form, card grid, project multi-select, KB attachment, hybrid search; API client `scopes` namespace (9 methods); ~30 i18n keys (en+de); route `/scopes` + sidebar nav
 
 ### Phase 12E — Artifact-Gated Pipelines (COMPLETED)
 

@@ -185,6 +185,9 @@ class RetrievalIndexResult(BaseModel):
     chunk_count: int = 0
     embedding_model: str = ""
     error: str = ""
+    incremental: bool = False
+    files_changed: int = 0
+    files_unchanged: int = 0
 
 
 class RetrievalSearchRequest(BaseModel):
@@ -196,6 +199,7 @@ class RetrievalSearchRequest(BaseModel):
     top_k: int = 20
     bm25_weight: float = 0.5
     semantic_weight: float = 0.5
+    scope_id: str = ""
 
     @field_validator("top_k")
     @classmethod
@@ -241,6 +245,7 @@ class SubAgentSearchRequest(BaseModel):
     max_queries: int = 5
     model: str = ""
     rerank: bool = True
+    scope_id: str = ""
 
     @field_validator("top_k")
     @classmethod
@@ -273,6 +278,7 @@ class GraphBuildRequest(BaseModel):
 
     project_id: str
     workspace_path: str
+    scope_id: str = ""
 
 
 class GraphBuildResult(BaseModel):
@@ -294,6 +300,7 @@ class GraphSearchRequest(BaseModel):
     seed_symbols: list[str]
     max_hops: int = 2
     top_k: int = 10
+    scope_id: str = ""
 
 
 class GraphSearchHit(BaseModel):

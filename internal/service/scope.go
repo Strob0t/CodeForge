@@ -142,7 +142,7 @@ func (s *ScopeService) SearchScope(
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			resp, err := s.retrieval.SearchSync(ctx, projectID, query, topK, bm25Weight, semanticWeight)
+			resp, err := s.retrieval.SearchSync(ctx, projectID, query, topK, bm25Weight, semanticWeight, scopeID)
 			if err != nil {
 				slog.Warn("scope search failed for project", "project_id", projectID, "error", err)
 				results[idx] = result{err: err}
@@ -211,7 +211,7 @@ func (s *ScopeService) SearchScopeGraph(
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			resp, err := s.graph.SearchSync(ctx, projectID, seedSymbols, maxHops, topK)
+			resp, err := s.graph.SearchSync(ctx, projectID, seedSymbols, maxHops, topK, scopeID)
 			if err != nil {
 				slog.Warn("scope graph search failed for project", "project_id", projectID, "error", err)
 				results[idx] = result{err: err}

@@ -687,6 +687,52 @@ export const api = {
     get: (id: string) => request<import("./types").Review>(`/reviews/${encodeURIComponent(id)}`),
   },
 
+  scopes: {
+    list: () => request<import("./types").RetrievalScope[]>("/scopes"),
+
+    get: (id: string) =>
+      request<import("./types").RetrievalScope>(`/scopes/${encodeURIComponent(id)}`),
+
+    create: (data: import("./types").CreateScopeRequest) =>
+      request<import("./types").RetrievalScope>("/scopes", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    update: (id: string, data: import("./types").UpdateScopeRequest) =>
+      request<import("./types").RetrievalScope>(`/scopes/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      request<undefined>(`/scopes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    addProject: (scopeId: string, projectId: string) =>
+      request<undefined>(`/scopes/${encodeURIComponent(scopeId)}/projects`, {
+        method: "POST",
+        body: JSON.stringify({ project_id: projectId }),
+      }),
+
+    removeProject: (scopeId: string, projectId: string) =>
+      request<undefined>(
+        `/scopes/${encodeURIComponent(scopeId)}/projects/${encodeURIComponent(projectId)}`,
+        { method: "DELETE" },
+      ),
+
+    search: (scopeId: string, data: SearchRequest) =>
+      request<RetrievalSearchResult>(`/scopes/${encodeURIComponent(scopeId)}/search`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    graphSearch: (scopeId: string, data: GraphSearchRequest) =>
+      request<GraphSearchResult>(`/scopes/${encodeURIComponent(scopeId)}/graph/search`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
+
   knowledgeBases: {
     list: () => request<import("./types").KnowledgeBase[]>("/knowledge-bases"),
 

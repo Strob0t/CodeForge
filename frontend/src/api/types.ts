@@ -1124,3 +1124,34 @@ export interface CreateKnowledgeBaseRequest {
   tags: string[];
   content_path: string;
 }
+
+// Phase 12D: Retrieval Scopes
+
+/** Scope type matching Go domain/context.ScopeType */
+export type ScopeType = "shared" | "global";
+
+/** Matches Go domain/context.RetrievalScope */
+export interface RetrievalScope {
+  id: string;
+  name: string;
+  type: ScopeType;
+  description: string;
+  project_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/context.CreateScopeRequest */
+export interface CreateScopeRequest {
+  name: string;
+  type: ScopeType;
+  project_ids: string[];
+  description: string;
+}
+
+/** Matches Go domain/context.UpdateScopeRequest */
+export interface UpdateScopeRequest {
+  name?: string;
+  description?: string;
+  project_ids?: string[];
+}

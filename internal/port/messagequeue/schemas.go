@@ -231,6 +231,9 @@ type RetrievalIndexResultPayload struct {
 	ChunkCount     int    `json:"chunk_count"`
 	EmbeddingModel string `json:"embedding_model"`
 	Error          string `json:"error,omitempty"`
+	Incremental    bool   `json:"incremental,omitempty"`
+	FilesChanged   int    `json:"files_changed,omitempty"`
+	FilesUnchanged int    `json:"files_unchanged,omitempty"`
 }
 
 // RetrievalSearchRequestPayload is the schema for retrieval.search.request messages.
@@ -241,6 +244,7 @@ type RetrievalSearchRequestPayload struct {
 	TopK           int     `json:"top_k"`
 	BM25Weight     float64 `json:"bm25_weight"`
 	SemanticWeight float64 `json:"semantic_weight"`
+	ScopeID        string  `json:"scope_id,omitempty"`
 }
 
 // RetrievalSearchResultPayload is the schema for retrieval.search.result messages.
@@ -277,6 +281,7 @@ type SubAgentSearchRequestPayload struct {
 	MaxQueries int    `json:"max_queries"`
 	Model      string `json:"model"`
 	Rerank     bool   `json:"rerank"`
+	ScopeID    string `json:"scope_id,omitempty"`
 }
 
 // SubAgentSearchResultPayload is the schema for retrieval.subagent.result messages.
@@ -296,6 +301,7 @@ type SubAgentSearchResultPayload struct {
 type GraphBuildRequestPayload struct {
 	ProjectID     string `json:"project_id"`
 	WorkspacePath string `json:"workspace_path"`
+	ScopeID       string `json:"scope_id,omitempty"`
 }
 
 // GraphBuildResultPayload is the schema for graph.build.result messages.
@@ -315,6 +321,7 @@ type GraphSearchRequestPayload struct {
 	SeedSymbols []string `json:"seed_symbols"`
 	MaxHops     int      `json:"max_hops"`
 	TopK        int      `json:"top_k"`
+	ScopeID     string   `json:"scope_id,omitempty"`
 }
 
 // GraphSearchHitPayload represents a single graph search result hit.

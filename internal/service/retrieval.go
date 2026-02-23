@@ -207,7 +207,8 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 }
 
 // SearchSync sends a search request and waits synchronously for the result.
-func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query string, topK int, bm25Weight, semanticWeight float64) (*messagequeue.RetrievalSearchResultPayload, error) {
+// scopeID is optional — set when the search originates from a scope fan-out (observability).
+func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query string, topK int, bm25Weight, semanticWeight float64, scopeID ...string) (*messagequeue.RetrievalSearchResultPayload, error) {
 	// Fast-fail if the worker recently failed (#3).
 	if s.isUnhealthy(&s.lastSearchFailure) {
 		return nil, fmt.Errorf("search skipped: worker recently unhealthy (project %s)", projectID)
@@ -229,6 +230,9 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 		TopK:           topK,
 		BM25Weight:     bm25Weight,
 		SemanticWeight: semanticWeight,
+	}
+	if len(scopeID) > 0 {
+		payload.ScopeID = scopeID[0]
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

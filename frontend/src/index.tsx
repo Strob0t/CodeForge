@@ -13,6 +13,7 @@ import KnowledgeBasesPage from "./features/knowledgebases/KnowledgeBasesPage.tsx
 import ModelsPage from "./features/llm/ModelsPage.tsx";
 import ModesPage from "./features/modes/ModesPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
+import ScopesPage from "./features/scopes/ScopesPage.tsx";
 import SettingsPage from "./features/settings/SettingsPage.tsx";
 import TeamsPage from "./features/teams/TeamsPage.tsx";
 
@@ -34,6 +35,7 @@ render(
       <Route path="/modes" component={ModesPage} />
       <Route path="/activity" component={ActivityPage} />
       <Route path="/knowledge-bases" component={KnowledgeBasesPage} />
+      <Route path="/scopes" component={ScopesPage} />
       <Route path="/teams" component={TeamsPage} />
       <Route path="/settings" component={SettingsPage} />
     </Router>
