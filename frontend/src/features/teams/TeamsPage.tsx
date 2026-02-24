@@ -12,20 +12,22 @@ import type {
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { Badge, Button, Card, EmptyState, Input, PageLayout, Select } from "~/ui";
+import type { BadgeVariant } from "~/ui/primitives/Badge";
 
-const TEAM_STATUS_COLORS: Record<TeamStatus, string> = {
-  initializing: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
-  active: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  completed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+const TEAM_STATUS_VARIANTS: Record<TeamStatus, BadgeVariant> = {
+  initializing: "default",
+  active: "success",
+  completed: "info",
+  failed: "danger",
 };
 
-const ROLE_COLORS: Record<TeamRole, string> = {
-  coder: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  reviewer: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-  tester: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  documenter: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  planner: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+const ROLE_VARIANTS: Record<TeamRole, BadgeVariant> = {
+  coder: "info",
+  reviewer: "primary",
+  tester: "success",
+  documenter: "warning",
+  planner: "danger",
 };
 
 const PROTOCOLS = ["round-robin", "pipeline", "parallel", "consensus", "ping-pong"] as const;
@@ -129,136 +131,131 @@ export default function TeamsPage() {
   };
 
   return (
-    <div>
-      <h2 class="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">{t("teams.title")}</h2>
-
+    <PageLayout title={t("teams.title")}>
       {/* Project selector */}
       <div class="mb-4">
-        <select
-          class="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700"
+        <Select
           value={selectedProjectId()}
           aria-label={t("teams.selectProject")}
           onChange={(e) => {
             setSelectedProjectId(e.currentTarget.value);
             setExpandedTeamId(null);
           }}
+          class="max-w-xs"
         >
           <option value="">{t("teams.selectProject")}</option>
           <For each={projects() ?? []}>
             {(p: Project) => <option value={p.id}>{p.name}</option>}
           </For>
-        </select>
+        </Select>
       </div>
 
       <Show when={selectedProjectId()}>
         {/* Create Team form */}
-        <div class="mb-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <h3 class="mb-3 text-lg font-semibold">{t("teams.createTeam")}</h3>
-          <div class="mb-3 flex flex-wrap gap-2">
-            <input
-              type="text"
-              class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
-              placeholder={t("teams.form.namePlaceholder")}
-              value={formName()}
-              onInput={(e) => setFormName(e.currentTarget.value)}
-              aria-label={t("teams.form.name")}
-            />
-            <select
-              class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
-              value={formProtocol()}
-              aria-label={t("teams.form.protocol")}
-              onChange={(e) => setFormProtocol(e.currentTarget.value)}
-            >
-              <For each={PROTOCOLS}>{(p) => <option value={p}>{p}</option>}</For>
-            </select>
-          </div>
-
-          {/* Members */}
-          <div class="mb-3">
-            <div class="mb-1 flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-600 dark:text-gray-400">
-                {t("teams.form.members")}
-              </span>
-              <button
-                type="button"
-                class="rounded bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                onClick={addMember}
+        <Card class="mb-6">
+          <Card.Header>
+            <h3 class="text-lg font-semibold text-cf-text-primary">{t("teams.createTeam")}</h3>
+          </Card.Header>
+          <Card.Body>
+            <div class="mb-3 flex flex-wrap gap-2">
+              <Input
+                type="text"
+                placeholder={t("teams.form.namePlaceholder")}
+                value={formName()}
+                onInput={(e) => setFormName(e.currentTarget.value)}
+                aria-label={t("teams.form.name")}
+                class="w-auto"
+              />
+              <Select
+                value={formProtocol()}
+                aria-label={t("teams.form.protocol")}
+                onChange={(e) => setFormProtocol(e.currentTarget.value)}
+                class="w-auto"
               >
-                {t("teams.form.addMember")}
-              </button>
+                <For each={PROTOCOLS}>{(p) => <option value={p}>{p}</option>}</For>
+              </Select>
             </div>
-            <div class="space-y-1">
-              <For each={formMembers()}>
-                {(member, idx) => (
-                  <div class="flex items-center gap-2">
-                    <select
-                      class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
-                      value={member.agent_id}
-                      aria-label={t("teams.form.selectAgent")}
-                      onChange={(e) => updateMember(idx(), "agent_id", e.currentTarget.value)}
-                    >
-                      <option value="">{t("teams.form.selectAgent")}</option>
-                      <For each={agents() ?? []}>
-                        {(a: Agent) => (
-                          <option value={a.id}>
-                            {a.name} ({a.backend})
-                          </option>
-                        )}
-                      </For>
-                    </select>
-                    <select
-                      class="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
-                      value={member.role}
-                      aria-label={t("teams.form.selectRole")}
-                      onChange={(e) => updateMember(idx(), "role", e.currentTarget.value)}
-                    >
-                      <For each={ROLES}>
-                        {(r) => <option value={r}>{t(`teams.role.${r}`)}</option>}
-                      </For>
-                    </select>
-                    <button
-                      type="button"
-                      class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                      onClick={() => removeMember(idx())}
-                      aria-label={t("teams.form.removeMemberAria")}
-                    >
-                      {t("common.delete")}
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
-          </div>
 
-          <button
-            type="button"
-            class="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-            onClick={handleCreate}
-            disabled={creating()}
-          >
-            {creating() ? t("common.creating") : t("teams.form.create")}
-          </button>
-        </div>
+            {/* Members */}
+            <div class="mb-3">
+              <div class="mb-1 flex items-center gap-2">
+                <span class="text-sm font-medium text-cf-text-tertiary">
+                  {t("teams.form.members")}
+                </span>
+                <Button variant="secondary" size="sm" onClick={addMember}>
+                  {t("teams.form.addMember")}
+                </Button>
+              </div>
+              <div class="space-y-1">
+                <For each={formMembers()}>
+                  {(member, idx) => (
+                    <div class="flex items-center gap-2">
+                      <Select
+                        value={member.agent_id}
+                        aria-label={t("teams.form.selectAgent")}
+                        onChange={(e) => updateMember(idx(), "agent_id", e.currentTarget.value)}
+                        class="flex-1"
+                      >
+                        <option value="">{t("teams.form.selectAgent")}</option>
+                        <For each={agents() ?? []}>
+                          {(a: Agent) => (
+                            <option value={a.id}>
+                              {a.name} ({a.backend})
+                            </option>
+                          )}
+                        </For>
+                      </Select>
+                      <Select
+                        value={member.role}
+                        aria-label={t("teams.form.selectRole")}
+                        onChange={(e) => updateMember(idx(), "role", e.currentTarget.value)}
+                        class="w-auto"
+                      >
+                        <For each={ROLES}>
+                          {(r) => <option value={r}>{t(`teams.role.${r}`)}</option>}
+                        </For>
+                      </Select>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => removeMember(idx())}
+                        aria-label={t("teams.form.removeMemberAria")}
+                      >
+                        {t("common.delete")}
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+
+            <Button onClick={handleCreate} loading={creating()}>
+              {creating() ? t("common.creating") : t("teams.form.create")}
+            </Button>
+          </Card.Body>
+        </Card>
 
         {/* Teams list */}
         <Show
           when={(teams() ?? []).length > 0}
           fallback={
-            <div class="rounded-lg border border-gray-200 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-800">
-              <p class="text-sm text-gray-500 dark:text-gray-400">{t("teams.empty")}</p>
-            </div>
+            <Card>
+              <Card.Body>
+                <EmptyState title={t("teams.empty")} />
+              </Card.Body>
+            </Card>
           }
         >
           <div class="space-y-3">
             <For each={teams() ?? []}>
               {(team: AgentTeam) => (
-                <div class="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                <Card>
                   {/* Team header */}
                   <div class="flex items-center justify-between px-4 py-3">
                     <div class="flex items-center gap-3">
                       <button
                         type="button"
-                        class="text-left font-medium text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                        class="text-left font-medium text-cf-text-primary hover:text-cf-accent"
                         onClick={() =>
                           setExpandedTeamId((prev) => (prev === team.id ? null : team.id))
                         }
@@ -266,50 +263,42 @@ export default function TeamsPage() {
                       >
                         {team.name}
                       </button>
-                      <span
-                        class={`rounded px-2 py-0.5 text-xs font-medium ${TEAM_STATUS_COLORS[team.status]}`}
-                      >
+                      <Badge variant={TEAM_STATUS_VARIANTS[team.status]} pill>
                         {team.status}
-                      </span>
-                      <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-                        {team.protocol}
-                      </span>
+                      </Badge>
+                      <Badge variant="default">{team.protocol}</Badge>
                     </div>
                     <div class="flex items-center gap-2">
-                      <span class="text-xs text-gray-400 dark:text-gray-500">
+                      <span class="text-xs text-cf-text-muted">
                         {t("teams.members", { count: String(team.members.length) })}
                       </span>
-                      <span class="text-xs text-gray-400 dark:text-gray-500">
-                        {fmt.date(team.created_at)}
-                      </span>
-                      <button
-                        type="button"
-                        class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      <span class="text-xs text-cf-text-muted">{fmt.date(team.created_at)}</span>
+                      <Button
+                        variant="danger"
+                        size="sm"
                         onClick={() => handleDelete(team)}
                         aria-label={t("teams.deleteAria", { name: team.name })}
                       >
                         {t("common.delete")}
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
                   {/* Expanded detail */}
                   <Show when={expandedTeamId() === team.id}>
-                    <div class="border-t border-gray-100 px-4 py-3 dark:border-gray-700">
+                    <div class="border-t border-cf-border px-4 py-3">
                       {/* Members */}
-                      <h4 class="mb-2 text-sm font-medium text-gray-600 dark:text-gray-400">
+                      <h4 class="mb-2 text-sm font-medium text-cf-text-tertiary">
                         {t("teams.memberList")}
                       </h4>
                       <div class="mb-3 space-y-1">
                         <For each={team.members}>
                           {(m) => (
                             <div class="flex items-center gap-2 text-sm">
-                              <span class={`rounded px-1.5 py-0.5 text-xs ${ROLE_COLORS[m.role]}`}>
+                              <Badge variant={ROLE_VARIANTS[m.role]} pill>
                                 {t(`teams.role.${m.role}`)}
-                              </span>
-                              <span class="text-gray-700 dark:text-gray-300">
-                                {agentName(m.agent_id)}
-                              </span>
+                              </Badge>
+                              <span class="text-cf-text-secondary">{agentName(m.agent_id)}</span>
                             </div>
                           )}
                         </For>
@@ -319,16 +308,16 @@ export default function TeamsPage() {
                       <Show when={sharedCtx()}>
                         {(ctx) => (
                           <div>
-                            <h4 class="mb-2 text-sm font-medium text-gray-600 dark:text-gray-400">
+                            <h4 class="mb-2 text-sm font-medium text-cf-text-tertiary">
                               {t("teams.sharedContext")}{" "}
-                              <span class="text-xs font-normal text-gray-400">
+                              <span class="text-xs font-normal text-cf-text-muted">
                                 v{(ctx() as SharedContext).version}
                               </span>
                             </h4>
                             <Show
                               when={(ctx() as SharedContext).items.length > 0}
                               fallback={
-                                <p class="text-xs text-gray-400 dark:text-gray-500">
+                                <p class="text-xs text-cf-text-muted">
                                   {t("teams.noSharedContext")}
                                 </p>
                               }
@@ -336,14 +325,14 @@ export default function TeamsPage() {
                               <div class="space-y-1">
                                 <For each={(ctx() as SharedContext).items}>
                                   {(item) => (
-                                    <div class="rounded bg-gray-50 px-3 py-1.5 text-xs dark:bg-gray-900">
-                                      <span class="font-mono font-medium text-gray-600 dark:text-gray-400">
+                                    <div class="rounded bg-cf-bg-surface-alt px-3 py-1.5 text-xs">
+                                      <span class="font-mono font-medium text-cf-text-tertiary">
                                         {item.key}
                                       </span>
-                                      <span class="ml-2 text-gray-500 dark:text-gray-500">
+                                      <span class="ml-2 text-cf-text-muted">
                                         by {item.author} ({item.tokens} tok)
                                       </span>
-                                      <p class="mt-0.5 truncate text-gray-700 dark:text-gray-300">
+                                      <p class="mt-0.5 truncate text-cf-text-secondary">
                                         {item.value.slice(0, 200)}
                                       </p>
                                     </div>
@@ -356,12 +345,12 @@ export default function TeamsPage() {
                       </Show>
                     </div>
                   </Show>
-                </div>
+                </Card>
               )}
             </For>
           </div>
         </Show>
       </Show>
-    </div>
+    </PageLayout>
   );
 }

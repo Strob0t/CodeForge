@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { Mode } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { Button, Checkbox, FormField, Select } from "~/ui";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
 
@@ -106,26 +107,15 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
     <Show when={props.open}>
       <div
         ref={popoverRef}
-        class="absolute right-0 top-full mt-2 w-96 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-50 p-4"
+        class="absolute right-0 top-full mt-2 w-96 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg z-50 p-4"
       >
-        <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+        <h3 class="text-sm font-semibold text-cf-text-primary mb-3">
           {t("detail.settings.title")}
         </h3>
 
         {/* Mode Selection */}
-        <div class="mb-3">
-          <label
-            for="popover_mode"
-            class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            {t("detail.settings.defaultMode")}
-          </label>
-          <select
-            id="popover_mode"
-            value={mode()}
-            onChange={(e) => setMode(e.currentTarget.value)}
-            class="block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
+        <FormField id="popover_mode" label={t("detail.settings.defaultMode")}>
+          <Select id="popover_mode" value={mode()} onChange={(e) => setMode(e.currentTarget.value)}>
             <option value="">{t("detail.settings.defaultModePlaceholder")}</option>
             <For each={props.allModes}>
               {(m: Mode) => (
@@ -134,44 +124,35 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
                 </option>
               )}
             </For>
-          </select>
-        </div>
+          </Select>
+        </FormField>
 
         {/* Autonomy Level */}
-        <div class="mb-3">
-          <label
-            for="popover_autonomy"
-            class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            {t("detail.settings.autonomyLevel")}
-          </label>
-          <select
+        <FormField id="popover_autonomy" label={t("detail.settings.autonomyLevel")}>
+          <Select
             id="popover_autonomy"
             value={autonomy()}
             onChange={(e) => setAutonomy(e.currentTarget.value)}
-            class="block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">{t("detail.settings.autonomyPlaceholder")}</option>
             <For each={AUTONOMY_LEVELS}>
               {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
             </For>
-          </select>
-        </div>
+          </Select>
+        </FormField>
 
         {/* Agent Backends */}
         <div class="mb-3">
-          <span class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <span class="block text-xs font-medium text-cf-text-secondary mb-1">
             {t("detail.settings.agentBackends")}
           </span>
           <div class="flex flex-wrap gap-2">
             <For each={AGENT_BACKENDS}>
               {(backend) => (
-                <label class="inline-flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
-                  <input
-                    type="checkbox"
+                <label class="inline-flex items-center gap-1 text-xs text-cf-text-secondary cursor-pointer">
+                  <Checkbox
                     checked={backends().includes(backend)}
                     onChange={() => toggleBackend(backend)}
-                    class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
                   {backend}
                 </label>
@@ -182,19 +163,20 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
 
         {/* Save Button */}
         <div class="mb-4 flex justify-end">
-          <button
-            type="button"
-            class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleSave}
             disabled={saving()}
+            loading={saving()}
           >
             {saving() ? t("detail.settings.saving") : t("detail.settings.save")}
-          </button>
+          </Button>
         </div>
 
         {/* Cost Summary */}
-        <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
-          <h4 class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+        <div class="border-t border-cf-border pt-3">
+          <h4 class="text-xs font-medium text-cf-text-tertiary mb-2">
             {t("detail.settings.costSummary")}
           </h4>
           <ProjectCostSection projectId={props.projectId} />

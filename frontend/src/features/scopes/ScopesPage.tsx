@@ -10,6 +10,18 @@ import type {
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  FormField,
+  Input,
+  LoadingState,
+  PageLayout,
+  Select,
+  Tabs,
+} from "~/ui";
 
 const SCOPE_TYPES: ScopeType[] = ["shared", "global"];
 
@@ -101,127 +113,96 @@ export default function ScopesPage() {
   };
 
   return (
-    <div>
-      <div class="mb-6 flex items-center justify-between">
-        <div>
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("scope.title")}</h2>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t("scope.description")}</p>
-        </div>
-        <button
-          type="button"
-          class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          onClick={() => setShowForm((v) => !v)}
-        >
+    <PageLayout
+      title={t("scope.title")}
+      description={t("scope.description")}
+      action={
+        <Button onClick={() => setShowForm((v) => !v)}>
           {showForm() ? t("common.cancel") : t("scope.form.create")}
-        </button>
-      </div>
-
+        </Button>
+      }
+    >
       <Show when={showForm()}>
-        <form
-          onSubmit={handleCreate}
-          class="mb-6 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800"
-          aria-label={t("scope.form.create")}
-        >
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label
-                for="scope-name"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("scope.form.name")} *
-              </label>
-              <input
-                id="scope-name"
-                type="text"
-                value={formName()}
-                onInput={(e) => setFormName(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                required
-              />
-            </div>
-            <div>
-              <label
-                for="scope-type"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("scope.form.type")}
-              </label>
-              <select
-                id="scope-type"
-                value={formType()}
-                onChange={(e) => setFormType(e.currentTarget.value as ScopeType)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-              >
-                <For each={SCOPE_TYPES}>
-                  {(st) => (
-                    <option value={st}>
-                      {t(`scope.type.${st}` as keyof typeof import("~/i18n/en").default)}
-                    </option>
-                  )}
-                </For>
-              </select>
-            </div>
-            <div class="sm:col-span-2">
-              <label
-                for="scope-desc"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("scope.form.description")}
-              </label>
-              <input
-                id="scope-desc"
-                type="text"
-                value={formDesc()}
-                onInput={(e) => setFormDesc(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-              />
-            </div>
-            <div class="sm:col-span-2">
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t("scope.form.projects")}
-              </label>
-              <div class="mt-2 flex flex-wrap gap-2">
-                <For each={projects() ?? []}>
-                  {(proj) => {
-                    const selected = () => formProjects().includes(proj.id);
-                    return (
-                      <button
-                        type="button"
-                        class={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          selected()
-                            ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                            : "border-gray-300 text-gray-600 hover:border-gray-400 dark:border-gray-600 dark:text-gray-400"
-                        }`}
-                        onClick={() => toggleProject(proj.id)}
-                      >
-                        {proj.name}
-                      </button>
-                    );
-                  }}
-                </For>
+        <form onSubmit={handleCreate} class="mb-6" aria-label={t("scope.form.create")}>
+          <Card>
+            <Card.Body>
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField label={t("scope.form.name")} id="scope-name" required>
+                  <Input
+                    id="scope-name"
+                    type="text"
+                    value={formName()}
+                    onInput={(e) => setFormName(e.currentTarget.value)}
+                    required
+                  />
+                </FormField>
+                <FormField label={t("scope.form.type")} id="scope-type">
+                  <Select
+                    id="scope-type"
+                    value={formType()}
+                    onChange={(e) => setFormType(e.currentTarget.value as ScopeType)}
+                  >
+                    <For each={SCOPE_TYPES}>
+                      {(st) => (
+                        <option value={st}>
+                          {t(`scope.type.${st}` as keyof typeof import("~/i18n/en").default)}
+                        </option>
+                      )}
+                    </For>
+                  </Select>
+                </FormField>
+                <FormField
+                  label={t("scope.form.description")}
+                  id="scope-desc"
+                  class="sm:col-span-2"
+                >
+                  <Input
+                    id="scope-desc"
+                    type="text"
+                    value={formDesc()}
+                    onInput={(e) => setFormDesc(e.currentTarget.value)}
+                  />
+                </FormField>
+                <div class="sm:col-span-2">
+                  <label class="block text-sm font-medium text-cf-text-secondary">
+                    {t("scope.form.projects")}
+                  </label>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <For each={projects() ?? []}>
+                      {(proj) => {
+                        const selected = () => formProjects().includes(proj.id);
+                        return (
+                          <button
+                            type="button"
+                            class={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                              selected()
+                                ? "border-cf-accent bg-cf-accent/10 text-cf-accent"
+                                : "border-cf-border text-cf-text-tertiary hover:border-cf-border-input"
+                            }`}
+                            onClick={() => toggleProject(proj.id)}
+                          >
+                            {proj.name}
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-          <div class="mt-4 flex justify-end">
-            <button
-              type="submit"
-              class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              {t("scope.form.create")}
-            </button>
-          </div>
+              <div class="mt-4 flex justify-end">
+                <Button type="submit">{t("scope.form.create")}</Button>
+              </div>
+            </Card.Body>
+          </Card>
         </form>
       </Show>
 
       <Show when={scopes.loading}>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{t("scope.loading")}</p>
+        <LoadingState message={t("scope.loading")} />
       </Show>
 
       <Show when={!scopes.loading}>
-        <Show
-          when={sorted().length}
-          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("scope.empty")}</p>}
-        >
+        <Show when={sorted().length} fallback={<EmptyState title={t("scope.empty")} />}>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <For each={sorted()}>
               {(scope) => (
@@ -240,7 +221,7 @@ export default function ScopesPage() {
           </div>
         </Show>
       </Show>
-    </div>
+    </PageLayout>
   );
 }
 
@@ -248,9 +229,9 @@ export default function ScopesPage() {
 // ScopeCard
 // ---------------------------------------------------------------------------
 
-const typeColors: Record<string, string> = {
-  shared: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  global: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+const typeVariants: Record<string, "primary" | "info"> = {
+  shared: "info",
+  global: "primary",
 };
 
 function ScopeCard(props: {
@@ -271,7 +252,7 @@ function ScopeCard(props: {
     props.projects.filter((p) => !props.scope.project_ids?.includes(p.id));
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:shadow-gray-900/30 dark:hover:shadow-gray-900/30">
+    <Card class="transition-shadow hover:shadow-md">
       <div
         class="cursor-pointer p-5"
         onClick={() => props.onToggle()}
@@ -283,22 +264,18 @@ function ScopeCard(props: {
       >
         <div class="flex items-start justify-between">
           <div class="min-w-0 flex-1">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {props.scope.name}
-            </h3>
+            <h3 class="text-lg font-semibold text-cf-text-primary">{props.scope.name}</h3>
             <Show when={props.scope.description}>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{props.scope.description}</p>
+              <p class="mt-1 text-sm text-cf-text-muted">{props.scope.description}</p>
             </Show>
           </div>
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          <span
-            class={`rounded-full px-2 py-0.5 text-xs font-medium ${typeColors[props.scope.type] ?? typeColors.shared}`}
-          >
+          <Badge variant={typeVariants[props.scope.type] ?? "info"} pill>
             {t(`scope.type.${props.scope.type}` as keyof typeof import("~/i18n/en").default)}
-          </span>
-          <span class="text-xs text-gray-500 dark:text-gray-400">
+          </Badge>
+          <span class="text-xs text-cf-text-muted">
             {props.scope.project_ids?.length ?? 0} {t("scope.projects.count")}
           </span>
         </div>
@@ -306,7 +283,7 @@ function ScopeCard(props: {
 
       {/* Expanded detail panel */}
       <Show when={props.expanded}>
-        <div class="border-t border-gray-200 p-5 dark:border-gray-700">
+        <div class="border-t border-cf-border p-5">
           <ScopeDetail
             scope={props.scope}
             scopeProjects={scopeProjects()}
@@ -317,7 +294,7 @@ function ScopeCard(props: {
           />
         </div>
       </Show>
-    </div>
+    </Card>
   );
 }
 
@@ -335,7 +312,7 @@ function ScopeDetail(props: {
 }) {
   const { t } = useI18n();
   const { show: toast } = useToast();
-  const [tab, setTab] = createSignal<"projects" | "kbs" | "search">("projects");
+  const [tab, setTab] = createSignal<string>("projects");
   const [kbVersion, setKbVersion] = createSignal(0);
   const [kbs] = createResource(
     () => ({ id: props.scope.id, v: kbVersion() }),
@@ -384,42 +361,25 @@ function ScopeDetail(props: {
     }
   };
 
-  const tabClass = (active: boolean) =>
-    `px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-      active
-        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-        : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-    }`;
-
   const attachableKbs = (): KnowledgeBase[] => {
     const attached = new Set((kbs() ?? []).map((kb) => kb.id));
     return (allKbs() ?? []).filter((kb) => !attached.has(kb.id));
   };
 
+  const tabItems = [
+    { value: "projects", label: t("scope.form.projects") },
+    { value: "kbs", label: t("scope.kbs.title") },
+    { value: "search", label: t("scope.search.title") },
+  ];
+
   return (
     <div>
       <div class="mb-4 flex items-center gap-2">
-        <button
-          type="button"
-          class={tabClass(tab() === "projects")}
-          onClick={() => setTab("projects")}
-        >
-          {t("scope.form.projects")}
-        </button>
-        <button type="button" class={tabClass(tab() === "kbs")} onClick={() => setTab("kbs")}>
-          {t("scope.kbs.title")}
-        </button>
-        <button type="button" class={tabClass(tab() === "search")} onClick={() => setTab("search")}>
-          {t("scope.search.title")}
-        </button>
+        <Tabs items={tabItems} value={tab()} onChange={setTab} variant="pills" />
         <div class="flex-1" />
-        <button
-          type="button"
-          class="rounded-md bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-          onClick={() => props.onDelete(props.scope.id)}
-        >
+        <Button variant="danger" size="sm" onClick={() => props.onDelete(props.scope.id)}>
           {t("common.delete")}
-        </button>
+        </Button>
       </div>
 
       {/* Projects tab */}
@@ -427,21 +387,19 @@ function ScopeDetail(props: {
         <div class="space-y-2">
           <Show
             when={props.scopeProjects.length}
-            fallback={
-              <p class="text-sm text-gray-400 dark:text-gray-500">{t("scope.projects.none")}</p>
-            }
+            fallback={<p class="text-sm text-cf-text-muted">{t("scope.projects.none")}</p>}
           >
             <For each={props.scopeProjects}>
               {(proj) => (
-                <div class="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700">
-                  <span class="text-sm text-gray-800 dark:text-gray-200">{proj.name}</span>
-                  <button
-                    type="button"
-                    class="text-xs text-red-500 hover:text-red-700"
+                <div class="flex items-center justify-between rounded-cf-md border border-cf-border px-3 py-2">
+                  <span class="text-sm text-cf-text-primary">{proj.name}</span>
+                  <Button
+                    variant="danger"
+                    size="sm"
                     onClick={() => props.onRemoveProject(props.scope.id, proj.id)}
                   >
                     {t("common.delete")}
-                  </button>
+                  </Button>
                 </div>
               )}
             </For>
@@ -453,7 +411,7 @@ function ScopeDetail(props: {
                 {(proj) => (
                   <button
                     type="button"
-                    class="rounded-full border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:border-blue-400 hover:text-blue-600 dark:border-gray-600 dark:text-gray-400"
+                    class="rounded-full border border-cf-border px-2 py-0.5 text-xs text-cf-text-tertiary hover:border-cf-accent hover:text-cf-accent"
                     onClick={() => props.onAddProject(props.scope.id, proj.id)}
                   >
                     + {proj.name}
@@ -470,19 +428,15 @@ function ScopeDetail(props: {
         <div class="space-y-2">
           <Show
             when={(kbs() ?? []).length}
-            fallback={<p class="text-sm text-gray-400 dark:text-gray-500">{t("scope.kbs.none")}</p>}
+            fallback={<p class="text-sm text-cf-text-muted">{t("scope.kbs.none")}</p>}
           >
             <For each={kbs() ?? []}>
               {(kb) => (
-                <div class="flex items-center justify-between rounded-md border border-gray-100 px-3 py-2 dark:border-gray-700">
-                  <span class="text-sm text-gray-800 dark:text-gray-200">{kb.name}</span>
-                  <button
-                    type="button"
-                    class="text-xs text-red-500 hover:text-red-700"
-                    onClick={() => handleDetachKB(kb.id)}
-                  >
+                <div class="flex items-center justify-between rounded-cf-md border border-cf-border px-3 py-2">
+                  <span class="text-sm text-cf-text-primary">{kb.name}</span>
+                  <Button variant="danger" size="sm" onClick={() => handleDetachKB(kb.id)}>
                     {t("scope.kbs.detach")}
-                  </button>
+                  </Button>
                 </div>
               )}
             </For>
@@ -494,7 +448,7 @@ function ScopeDetail(props: {
                 {(kb) => (
                   <button
                     type="button"
-                    class="rounded-full border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:border-blue-400 hover:text-blue-600 dark:border-gray-600 dark:text-gray-400"
+                    class="rounded-full border border-cf-border px-2 py-0.5 text-xs text-cf-text-tertiary hover:border-cf-accent hover:text-cf-accent"
                     onClick={() => handleAttachKB(kb.id)}
                   >
                     + {kb.name}
@@ -510,7 +464,7 @@ function ScopeDetail(props: {
       <Show when={tab() === "search"}>
         <div class="space-y-3">
           <div class="flex gap-2">
-            <input
+            <Input
               type="text"
               value={searchQuery()}
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
@@ -518,20 +472,19 @@ function ScopeDetail(props: {
                 if (e.key === "Enter") handleSearch();
               }}
               placeholder={t("scope.search.query")}
-              class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+              class="flex-1"
             />
-            <button
-              type="button"
-              class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            <Button
               onClick={handleSearch}
               disabled={searching() || !searchQuery().trim()}
+              loading={searching()}
             >
               {t("scope.search.hybrid")}
-            </button>
+            </Button>
           </div>
 
           <Show when={searching()}>
-            <p class="text-sm text-gray-500">{t("common.loading")}</p>
+            <LoadingState message={t("common.loading")} />
           </Show>
 
           <Show when={searchResults() !== null && !searching()}>
@@ -540,30 +493,34 @@ function ScopeDetail(props: {
               return (
                 <Show
                   when={results().length}
-                  fallback={<p class="text-sm text-gray-400">{t("scope.search.noResults")}</p>}
+                  fallback={<p class="text-sm text-cf-text-muted">{t("scope.search.noResults")}</p>}
                 >
-                  <p class="text-xs text-gray-500">
+                  <p class="text-xs text-cf-text-muted">
                     {results().length} {t("scope.search.results")}
                   </p>
                   <div class="max-h-80 space-y-2 overflow-y-auto">
                     <For each={results()}>
                       {(hit) => (
-                        <div class="rounded-md border border-gray-100 p-3 dark:border-gray-700">
-                          <div class="flex items-baseline justify-between">
-                            <span class="text-xs font-medium text-gray-800 dark:text-gray-200">
-                              {hit.filepath}:{hit.start_line}
-                            </span>
-                            <span class="text-xs text-gray-400">score: {hit.score.toFixed(4)}</span>
-                          </div>
-                          <Show when={hit.symbol_name}>
-                            <span class="text-xs text-blue-600 dark:text-blue-400">
-                              {hit.symbol_name}
-                            </span>
-                          </Show>
-                          <pre class="mt-1 max-h-24 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-300">
-                            {hit.content.slice(0, 500)}
-                          </pre>
-                        </div>
+                        <Card>
+                          <Card.Body class="p-3">
+                            <div class="flex items-baseline justify-between">
+                              <span class="text-xs font-medium text-cf-text-primary">
+                                {hit.filepath}:{hit.start_line}
+                              </span>
+                              <span class="text-xs text-cf-text-muted">
+                                score: {hit.score.toFixed(4)}
+                              </span>
+                            </div>
+                            <Show when={hit.symbol_name}>
+                              <Badge variant="info" class="mt-1">
+                                {hit.symbol_name}
+                              </Badge>
+                            </Show>
+                            <pre class="mt-1 max-h-24 overflow-auto rounded bg-cf-bg-surface-alt p-2 text-xs text-cf-text-secondary">
+                              {hit.content.slice(0, 500)}
+                            </pre>
+                          </Card.Body>
+                        </Card>
                       )}
                     </For>
                   </div>

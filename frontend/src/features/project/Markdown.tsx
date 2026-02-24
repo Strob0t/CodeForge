@@ -117,12 +117,12 @@ function renderInline(text: string): string {
   // Inline code
   result = result.replace(
     /`([^`]+)`/g,
-    '<code class="rounded bg-gray-200 px-1 py-0.5 text-sm dark:bg-gray-700">$1</code>',
+    '<code class="rounded-cf-sm bg-cf-bg-inset px-1 py-0.5 text-sm">$1</code>',
   );
   // Links
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" class="text-blue-600 underline hover:text-blue-800 dark:text-blue-400" target="_blank" rel="noopener noreferrer">$1</a>',
+    '<a href="$2" class="text-cf-accent underline hover:opacity-80" target="_blank" rel="noopener noreferrer">$1</a>',
   );
   return result;
 }
@@ -156,13 +156,13 @@ export default function Markdown(props: MarkdownProps) {
               return (
                 <div class="my-2">
                   <Show when={node.lang}>
-                    <div class="rounded-t bg-gray-700 px-3 py-1 text-xs text-gray-300">
+                    <div class="rounded-t-cf-sm bg-cf-bg-surface-alt px-3 py-1 text-xs text-cf-text-secondary">
                       {node.lang}
                     </div>
                   </Show>
                   <pre
-                    class={`overflow-x-auto bg-gray-900 p-3 text-sm text-gray-100 ${
-                      node.lang ? "rounded-b" : "rounded"
+                    class={`overflow-x-auto bg-cf-bg-primary p-3 text-sm text-cf-text-primary ${
+                      node.lang ? "rounded-b-cf-sm" : "rounded-cf-sm"
                     }`}
                   >
                     <code>{node.text}</code>
@@ -173,7 +173,7 @@ export default function Markdown(props: MarkdownProps) {
             case "blockquote":
               return (
                 <blockquote
-                  class="my-2 border-l-4 border-gray-300 pl-3 italic text-gray-600 dark:border-gray-600 dark:text-gray-400"
+                  class="my-2 border-l-4 border-cf-border pl-3 italic text-cf-text-secondary"
                   innerHTML={renderInline(node.text ?? "")}
                 />
               );
@@ -188,7 +188,7 @@ export default function Markdown(props: MarkdownProps) {
               );
 
             case "hr":
-              return <hr class="my-3 border-gray-300 dark:border-gray-600" />;
+              return <hr class="my-3 border-cf-border" />;
 
             case "paragraph":
             default:

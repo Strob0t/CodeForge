@@ -1,4 +1,4 @@
-import { A, useParams } from "@solidjs/router";
+import { useParams } from "@solidjs/router";
 import { createResource, createSignal, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
@@ -6,6 +6,7 @@ import type { BudgetAlertEvent } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { Alert, Badge, Button } from "~/ui";
 
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
@@ -197,19 +198,16 @@ export default function ProjectDetailPage() {
         fallback={
           <Show
             when={project.error}
-            fallback={<p class="text-gray-500 dark:text-gray-400 p-4">{t("detail.loading")}</p>}
+            fallback={<p class="text-cf-text-tertiary p-4">{t("detail.loading")}</p>}
           >
             <div class="flex flex-col items-center justify-center py-20 text-center">
-              <h2 class="mb-2 text-xl font-bold text-gray-900 dark:text-gray-100">
+              <h2 class="mb-2 text-xl font-bold text-cf-text-primary">
                 {t("notFound.projectTitle")}
               </h2>
-              <p class="mb-6 text-gray-500 dark:text-gray-400">{t("notFound.projectMessage")}</p>
-              <A
-                href="/"
-                class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
+              <p class="mb-6 text-cf-text-tertiary">{t("notFound.projectMessage")}</p>
+              <Button variant="primary" onClick={() => window.location.assign("/")}>
                 {t("notFound.backToDashboard")}
-              </A>
+              </Button>
             </div>
           </Show>
         }
@@ -217,23 +215,17 @@ export default function ProjectDetailPage() {
         {(p) => (
           <>
             {/* Header Bar */}
-            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-cf-border flex-shrink-0">
               <div class="flex items-center gap-3">
-                <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{p().name}</h2>
+                <h2 class="text-lg font-bold text-cf-text-primary">{p().name}</h2>
 
                 {/* Git Status Badge */}
                 <Show when={gitStatus()}>
                   {(gs) => (
-                    <span
-                      class={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                        gs().dirty
-                          ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
-                          : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      }`}
-                    >
-                      <span class="font-mono">{gs().branch}</span>
+                    <Badge variant={gs().dirty ? "warning" : "success"} pill>
+                      <span class="font-mono">{gs().branch}</span>{" "}
                       <span>{gs().dirty ? t("detail.dirty") : t("detail.clean")}</span>
-                    </span>
+                    </Badge>
                   )}
                 </Show>
               </div>
@@ -241,35 +233,37 @@ export default function ProjectDetailPage() {
               <div class="flex items-center gap-2">
                 {/* Clone Button */}
                 <Show when={!p().workspace_path && p().repo_url}>
-                  <button
-                    type="button"
-                    class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  <Button
+                    variant="primary"
+                    size="sm"
                     onClick={handleClone}
                     disabled={cloning()}
+                    loading={cloning()}
                     aria-label={t("detail.cloneAria")}
                   >
                     {cloning() ? t("detail.cloning") : t("detail.cloneRepo")}
-                  </button>
+                  </Button>
                 </Show>
 
                 {/* Pull Button */}
                 <Show when={p().workspace_path}>
-                  <button
-                    type="button"
-                    class="rounded-md bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={handlePull}
                     disabled={pulling()}
+                    loading={pulling()}
                     aria-label={t("detail.pullAria")}
                   >
                     {pulling() ? t("detail.pulling") : t("detail.pull")}
-                  </button>
+                  </Button>
                 </Show>
 
                 {/* Settings Gear Icon */}
                 <div class="relative">
-                  <button
-                    type="button"
-                    class="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setSettingsOpen(!settingsOpen())}
                     aria-label={t("detail.settings.gearTooltip")}
                     title={t("detail.settings.gearTooltip")}
@@ -292,7 +286,7 @@ export default function ProjectDetailPage() {
                         d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
                       />
                     </svg>
-                  </button>
+                  </Button>
                   <CompactSettingsPopover
                     projectId={params.id}
                     config={p().config ?? {}}
@@ -310,45 +304,32 @@ export default function ProjectDetailPage() {
 
             {/* Error Banner */}
             <Show when={error()}>
-              <div
-                class="mx-4 mt-2 rounded bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400 flex-shrink-0"
-                role="alert"
-              >
-                {error()}
+              <div class="mx-4 mt-2 flex-shrink-0">
+                <Alert variant="error" onDismiss={() => setError("")}>
+                  {error()}
+                </Alert>
               </div>
             </Show>
 
             {/* Budget Alert Banner */}
             <Show when={budgetAlert()}>
               {(alert) => (
-                <div
-                  class="mx-4 mt-2 flex items-center justify-between rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-300 flex-shrink-0"
-                  role="alert"
-                  aria-live="assertive"
-                >
-                  <span>
+                <div class="mx-4 mt-2 flex-shrink-0">
+                  <Alert variant="warning" onDismiss={() => setBudgetAlert(null)}>
                     {t("detail.budgetAlert", {
                       runId: alert().run_id.slice(0, 8),
                       pct: fmt.percent(alert().percentage),
                       cost: fmt.currency(alert().cost_usd),
                       max: fmt.currency(alert().max_cost),
                     })}
-                  </span>
-                  <button
-                    type="button"
-                    class="ml-4 text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-300"
-                    onClick={() => setBudgetAlert(null)}
-                    aria-label={t("detail.dismissAria")}
-                  >
-                    {t("common.dismiss")}
-                  </button>
+                  </Alert>
                 </div>
               )}
             </Show>
 
             {/* Side-by-side Layout: Roadmap (left) | Chat (right) */}
             <div class="flex flex-1 min-h-0">
-              <div class="w-1/2 border-r border-gray-200 dark:border-gray-700 overflow-y-auto p-4">
+              <div class="w-1/2 border-r border-cf-border overflow-y-auto p-4">
                 <RoadmapPanel projectId={params.id} onError={setError} />
               </div>
               <div class="w-1/2 flex flex-col min-h-0">

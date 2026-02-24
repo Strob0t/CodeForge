@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 
 import { useI18n } from "~/i18n";
+import { Button, Card, StatusDot } from "~/ui";
 
 interface TerminalLine {
   line: string;
@@ -58,26 +59,24 @@ function TerminalTile(props: {
 
   return (
     <div
-      class={`flex flex-col rounded-lg border bg-white dark:bg-gray-800 ${
+      class={`flex flex-col rounded-cf-md border bg-cf-bg-surface ${
         props.expanded
           ? "col-span-full border-indigo-300 dark:border-indigo-600"
-          : "border-gray-200 dark:border-gray-700"
+          : "border-cf-border"
       }`}
     >
       {/* Header */}
-      <div class="flex items-center justify-between border-b border-gray-200 px-3 py-1.5 dark:border-gray-700">
+      <div class="flex items-center justify-between border-b border-cf-border px-3 py-1.5">
         <div class="flex items-center gap-2">
-          <span class="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
-          <span class="text-xs font-medium text-gray-700 dark:text-gray-300">
-            {props.terminal.agentName}
-          </span>
-          <span class="text-xs text-gray-400">
+          <StatusDot color="#22c55e" />
+          <span class="text-xs font-medium text-cf-text-secondary">{props.terminal.agentName}</span>
+          <span class="text-xs text-cf-text-muted">
             {t("multiTerminal.lines", { n: props.terminal.lines.length })}
           </span>
         </div>
-        <button
-          type="button"
-          class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => props.onToggle()}
           aria-label={
             props.expanded
@@ -86,14 +85,14 @@ function TerminalTile(props: {
           }
         >
           {props.expanded ? "\u25BC" : "\u25A0"}
-        </button>
+        </Button>
       </div>
 
       {/* Output */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        class={`overflow-auto bg-gray-900 p-2 font-mono text-xs leading-relaxed ${
+        class={`overflow-auto bg-cf-bg-primary p-2 font-mono text-xs leading-relaxed ${
           props.expanded ? "h-64" : "h-40"
         }`}
         role="log"
@@ -102,11 +101,11 @@ function TerminalTile(props: {
       >
         <Show
           when={visibleLines().length > 0}
-          fallback={<span class="text-gray-500">{t("output.waiting")}</span>}
+          fallback={<span class="text-cf-text-tertiary">{t("output.waiting")}</span>}
         >
           <For each={visibleLines()}>
             {(entry) => (
-              <div class={entry.stream === "stderr" ? "text-red-400" : "text-green-400"}>
+              <div class={entry.stream === "stderr" ? "text-cf-danger-fg" : "text-cf-success-fg"}>
                 {entry.line}
               </div>
             )}
@@ -127,46 +126,48 @@ export default function MultiTerminal(props: MultiTerminalProps) {
   };
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-      <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">{t("multiTerminal.title")}</h3>
-        <span class="text-xs text-gray-400">
-          {t("multiTerminal.agentCount", { n: props.terminals.length })}
-        </span>
-      </div>
-
-      <Show
-        when={props.terminals.length > 0}
-        fallback={
-          <p class="text-sm text-gray-400 dark:text-gray-500">{t("multiTerminal.empty")}</p>
-        }
-      >
-        <div
-          class={`grid gap-3 ${
-            expandedId()
-              ? "grid-cols-1"
-              : props.terminals.length === 1
-                ? "grid-cols-1"
-                : props.terminals.length <= 4
-                  ? "grid-cols-1 lg:grid-cols-2"
-                  : "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
-          }`}
-        >
-          <For each={props.terminals}>
-            {(terminal) => (
-              <Show when={!expandedId() || expandedId() === terminal.agentId}>
-                <TerminalTile
-                  terminal={terminal}
-                  expanded={expandedId() === terminal.agentId}
-                  onToggle={() => toggleExpand(terminal.agentId)}
-                  maxLines={maxLines()}
-                />
-              </Show>
-            )}
-          </For>
+    <Card>
+      <Card.Header>
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold">{t("multiTerminal.title")}</h3>
+          <span class="text-xs text-cf-text-muted">
+            {t("multiTerminal.agentCount", { n: props.terminals.length })}
+          </span>
         </div>
-      </Show>
-    </div>
+      </Card.Header>
+
+      <Card.Body>
+        <Show
+          when={props.terminals.length > 0}
+          fallback={<p class="text-sm text-cf-text-muted">{t("multiTerminal.empty")}</p>}
+        >
+          <div
+            class={`grid gap-3 ${
+              expandedId()
+                ? "grid-cols-1"
+                : props.terminals.length === 1
+                  ? "grid-cols-1"
+                  : props.terminals.length <= 4
+                    ? "grid-cols-1 lg:grid-cols-2"
+                    : "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
+            }`}
+          >
+            <For each={props.terminals}>
+              {(terminal) => (
+                <Show when={!expandedId() || expandedId() === terminal.agentId}>
+                  <TerminalTile
+                    terminal={terminal}
+                    expanded={expandedId() === terminal.agentId}
+                    onToggle={() => toggleExpand(terminal.agentId)}
+                    maxLines={maxLines()}
+                  />
+                </Show>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Card.Body>
+    </Card>
   );
 }
 

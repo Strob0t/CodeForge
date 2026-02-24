@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { AgentStatus, CreateAgentRequest, Task } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { Badge, Button, Card, FormField, Input, Select } from "~/ui";
 
 interface AgentPanelProps {
   projectId: string;
@@ -11,16 +12,16 @@ interface AgentPanelProps {
   onError: (msg: string) => void;
 }
 
-function agentStatusColor(status: AgentStatus): string {
+function agentStatusVariant(status: AgentStatus): "success" | "info" | "danger" | "default" {
   switch (status) {
     case "idle":
-      return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+      return "success";
     case "running":
-      return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+      return "info";
     case "error":
-      return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      return "danger";
     case "stopped":
-      return "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400";
+      return "default";
   }
 }
 
@@ -99,168 +100,155 @@ export default function AgentPanel(props: AgentPanelProps) {
     props.tasks.filter((task) => task.status === "pending" || task.status === "queued");
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-      <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">{t("agent.title")}</h3>
-        <button
-          type="button"
-          class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
-          onClick={() => setShowForm((v) => !v)}
-        >
-          {showForm() ? t("common.cancel") : t("agent.addAgent")}
-        </button>
-      </div>
+    <Card>
+      <Card.Header>
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold">{t("agent.title")}</h3>
+          <Button
+            variant={showForm() ? "secondary" : "primary"}
+            size="sm"
+            onClick={() => setShowForm((v) => !v)}
+          >
+            {showForm() ? t("common.cancel") : t("agent.addAgent")}
+          </Button>
+        </div>
+      </Card.Header>
 
-      <Show when={showForm()}>
-        <form
-          onSubmit={handleCreate}
-          class="mb-4 rounded border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
-        >
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label
-                for="agent-name"
-                class="block text-xs font-medium text-gray-600 dark:text-gray-400"
-              >
-                {t("agent.form.name")} <span aria-hidden="true">*</span>
-                <span class="sr-only">(required)</span>
-              </label>
-              <input
-                id="agent-name"
-                type="text"
-                value={name()}
-                onInput={(e) => setName(e.currentTarget.value)}
-                class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
-                placeholder={t("agent.form.namePlaceholder")}
-                aria-required="true"
-              />
-            </div>
-            <div>
-              <label
-                for="agent-backend"
-                class="block text-xs font-medium text-gray-600 dark:text-gray-400"
-              >
-                {t("agent.form.backend")} <span aria-hidden="true">*</span>
-                <span class="sr-only">(required)</span>
-              </label>
-              <Show
-                when={backends()?.backends && (backends()?.backends ?? []).length > 0}
-                fallback={
-                  <input
-                    id="agent-backend"
-                    type="text"
-                    value={backend()}
-                    onInput={(e) => setBackend(e.currentTarget.value)}
-                    class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
-                    placeholder="aider"
-                    aria-required="true"
-                  />
-                }
-              >
-                <select
-                  id="agent-backend"
-                  value={backend()}
-                  onChange={(e) => setBackend(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700"
+      <Card.Body>
+        <Show when={showForm()}>
+          <form
+            onSubmit={handleCreate}
+            class="mb-4 rounded-cf-sm border border-cf-border-subtle bg-cf-bg-primary p-3"
+          >
+            <div class="grid grid-cols-2 gap-3">
+              <FormField id="agent-name" label={t("agent.form.name")} required>
+                <Input
+                  id="agent-name"
+                  type="text"
+                  value={name()}
+                  onInput={(e) => setName(e.currentTarget.value)}
+                  placeholder={t("agent.form.namePlaceholder")}
                   aria-required="true"
+                />
+              </FormField>
+              <div>
+                <Show
+                  when={backends()?.backends && (backends()?.backends ?? []).length > 0}
+                  fallback={
+                    <FormField id="agent-backend" label={t("agent.form.backend")} required>
+                      <Input
+                        id="agent-backend"
+                        type="text"
+                        value={backend()}
+                        onInput={(e) => setBackend(e.currentTarget.value)}
+                        placeholder="aider"
+                        aria-required="true"
+                      />
+                    </FormField>
+                  }
                 >
-                  <option value="">{t("agent.form.backendPlaceholder")}</option>
-                  <For each={backends()?.backends ?? []}>
-                    {(b) => <option value={b}>{b}</option>}
-                  </For>
-                </select>
-              </Show>
+                  <FormField id="agent-backend" label={t("agent.form.backend")} required>
+                    <Select
+                      id="agent-backend"
+                      value={backend()}
+                      onChange={(e) => setBackend(e.currentTarget.value)}
+                      aria-required="true"
+                    >
+                      <option value="">{t("agent.form.backendPlaceholder")}</option>
+                      <For each={backends()?.backends ?? []}>
+                        {(b) => <option value={b}>{b}</option>}
+                      </For>
+                    </Select>
+                  </FormField>
+                </Show>
+              </div>
             </div>
-          </div>
-          <div class="mt-3 flex justify-end">
-            <button
-              type="submit"
-              class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
-            >
-              {t("agent.form.create")}
-            </button>
-          </div>
-        </form>
-      </Show>
+            <div class="mt-3 flex justify-end">
+              <Button type="submit" variant="primary" size="sm">
+                {t("agent.form.create")}
+              </Button>
+            </div>
+          </form>
+        </Show>
 
-      <Show
-        when={(agents() ?? []).length > 0}
-        fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("agent.empty")}</p>}
-      >
-        <div class="space-y-3">
-          <For each={agents() ?? []}>
-            {(agent) => (
-              <div class="rounded border border-gray-100 p-3 dark:border-gray-700">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium">{agent.name}</span>
-                    <span class="text-xs text-gray-400 dark:text-gray-500">({agent.backend})</span>
-                    <span
-                      class={`rounded-full px-2 py-0.5 text-xs ${agentStatusColor(agent.status)}`}
-                      role="status"
-                      aria-label={`Agent ${agent.name} status: ${agent.status}`}
-                    >
-                      {agent.status}
-                    </span>
-                  </div>
-                  <div class="flex gap-2">
-                    <Show when={agent.status === "idle" && pendingTasks().length > 0}>
-                      <select
-                        class="rounded border border-gray-200 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700"
-                        aria-label={`Dispatch task to agent ${agent.name}`}
-                        onChange={(e) => {
-                          const taskId = e.currentTarget.value;
-                          if (taskId) handleDispatch(agent.id, taskId);
-                          e.currentTarget.value = "";
-                        }}
-                        disabled={dispatching() === agent.id}
+        <Show
+          when={(agents() ?? []).length > 0}
+          fallback={<p class="text-sm text-cf-text-tertiary">{t("agent.empty")}</p>}
+        >
+          <div class="space-y-3">
+            <For each={agents() ?? []}>
+              {(agent) => (
+                <div class="rounded-cf-sm border border-cf-border-subtle p-3">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium">{agent.name}</span>
+                      <span class="text-xs text-cf-text-muted">({agent.backend})</span>
+                      <Badge
+                        variant={agentStatusVariant(agent.status)}
+                        pill
+                        aria-label={`Agent ${agent.name} status: ${agent.status}`}
                       >
-                        <option value="">
-                          {dispatching() === agent.id
-                            ? t("agent.dispatching")
-                            : t("agent.dispatchTask")}
-                        </option>
-                        <For each={pendingTasks()}>
-                          {(task) => (
-                            <option value={task.id}>
-                              {task.title} ({task.id.slice(0, 8)})
-                            </option>
-                          )}
-                        </For>
-                      </select>
-                    </Show>
-                    <Show when={agent.status === "running"}>
-                      <button
-                        type="button"
-                        class="rounded bg-red-100 px-2 py-1 text-xs text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-800"
-                        onClick={() => {
-                          const runningTask = props.tasks.find(
-                            (task) => task.agent_id === agent.id && task.status === "running",
-                          );
-                          if (runningTask) handleStop(agent.id, runningTask.id);
-                        }}
-                        aria-label={`Stop agent ${agent.name}`}
+                        {agent.status}
+                      </Badge>
+                    </div>
+                    <div class="flex gap-2">
+                      <Show when={agent.status === "idle" && pendingTasks().length > 0}>
+                        <Select
+                          aria-label={`Dispatch task to agent ${agent.name}`}
+                          onChange={(e) => {
+                            const taskId = e.currentTarget.value;
+                            if (taskId) handleDispatch(agent.id, taskId);
+                            e.currentTarget.value = "";
+                          }}
+                          disabled={dispatching() === agent.id}
+                        >
+                          <option value="">
+                            {dispatching() === agent.id
+                              ? t("agent.dispatching")
+                              : t("agent.dispatchTask")}
+                          </option>
+                          <For each={pendingTasks()}>
+                            {(task) => (
+                              <option value={task.id}>
+                                {task.title} ({task.id.slice(0, 8)})
+                              </option>
+                            )}
+                          </For>
+                        </Select>
+                      </Show>
+                      <Show when={agent.status === "running"}>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => {
+                            const runningTask = props.tasks.find(
+                              (task) => task.agent_id === agent.id && task.status === "running",
+                            );
+                            if (runningTask) handleStop(agent.id, runningTask.id);
+                          }}
+                          aria-label={`Stop agent ${agent.name}`}
+                        >
+                          {t("agent.stop")}
+                        </Button>
+                      </Show>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(agent.id)}
+                        aria-label={`Delete agent ${agent.name}`}
                       >
-                        {t("agent.stop")}
-                      </button>
-                    </Show>
-                    <button
-                      type="button"
-                      class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                      onClick={() => handleDelete(agent.id)}
-                      aria-label={`Delete agent ${agent.name}`}
-                    >
-                      {t("common.delete")}
-                    </button>
+                        {t("common.delete")}
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-    </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Card.Body>
+    </Card>
   );
 }
 
-export { agentStatusColor };
+export { agentStatusVariant };

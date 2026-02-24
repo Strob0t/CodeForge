@@ -3,6 +3,7 @@ import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } f
 
 import { useTheme } from "~/components/ThemeProvider";
 import { useI18n } from "~/i18n";
+import { Input } from "~/ui";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -245,7 +246,7 @@ export function CommandPalette(): JSX.Element {
       >
         {/* Palette */}
         <div
-          class="w-full max-w-lg rounded-lg border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+          class="w-full max-w-lg rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-lg"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handlePaletteKeydown}
           role="dialog"
@@ -253,17 +254,19 @@ export function CommandPalette(): JSX.Element {
           aria-modal="true"
         >
           {/* Search input */}
-          <div class="flex items-center border-b border-gray-200 px-4 dark:border-gray-700">
-            <span class="mr-2 text-gray-400 dark:text-gray-500" aria-hidden="true">
+          <div class="flex items-center border-b border-cf-border px-4">
+            <span class="mr-2 text-cf-text-muted" aria-hidden="true">
               /
             </span>
-            <input
+            <Input
               ref={inputRef}
               type="text"
-              class="w-full bg-transparent py-3 text-sm text-gray-900 placeholder-gray-400 outline-none dark:text-gray-100 dark:placeholder-gray-500"
+              class="!border-0 !bg-transparent !px-0 !py-3 !ring-0 !shadow-none !rounded-none"
               placeholder={t("palette.placeholder")}
               value={query()}
-              onInput={(e) => setQuery(e.currentTarget.value)}
+              onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) =>
+                setQuery(e.currentTarget.value)
+              }
               aria-label={t("palette.searchLabel")}
               aria-activedescendant={
                 filtered()[selectedIndex()] ? `cmd-${filtered()[selectedIndex()].id}` : undefined
@@ -273,7 +276,7 @@ export function CommandPalette(): JSX.Element {
               aria-controls="command-list"
               aria-autocomplete="list"
             />
-            <kbd class="ml-2 rounded border border-gray-300 px-1.5 py-0.5 text-xs text-gray-400 dark:border-gray-600 dark:text-gray-500">
+            <kbd class="ml-2 rounded-cf-sm border border-cf-border px-1.5 py-0.5 text-xs text-cf-text-muted">
               esc
             </kbd>
           </div>
@@ -283,7 +286,7 @@ export function CommandPalette(): JSX.Element {
             <Show
               when={filtered().length > 0}
               fallback={
-                <p class="px-3 py-4 text-center text-sm text-gray-400 dark:text-gray-500">
+                <p class="px-3 py-4 text-center text-sm text-cf-text-muted">
                   {t("palette.noResults")}
                 </p>
               }
@@ -291,7 +294,7 @@ export function CommandPalette(): JSX.Element {
               <For each={grouped()}>
                 {(group) => (
                   <>
-                    <div class="mb-1 mt-2 px-3 text-xs font-medium text-gray-400 first:mt-0 dark:text-gray-500">
+                    <div class="mb-1 mt-2 px-3 text-xs font-medium text-cf-text-muted first:mt-0">
                       {SECTION_LABELS[group.section]?.() ?? group.section}
                     </div>
                     <For each={group.items}>
@@ -300,10 +303,10 @@ export function CommandPalette(): JSX.Element {
                         return (
                           <div
                             id={`cmd-${cmd.id}`}
-                            class={`flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm ${
+                            class={`flex cursor-pointer items-center justify-between rounded-cf-md px-3 py-2 text-sm ${
                               idx() === selectedIndex()
-                                ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                : "text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                                ? "bg-cf-info-bg text-cf-accent"
+                                : "text-cf-text-secondary hover:bg-cf-bg-surface-alt"
                             }`}
                             role="option"
                             aria-selected={idx() === selectedIndex()}
@@ -315,7 +318,7 @@ export function CommandPalette(): JSX.Element {
                           >
                             <span>{cmd.label}</span>
                             <Show when={cmd.shortcut}>
-                              <kbd class="rounded border border-gray-200 px-1.5 py-0.5 text-xs text-gray-400 dark:border-gray-600 dark:text-gray-500">
+                              <kbd class="rounded-cf-sm border border-cf-border px-1.5 py-0.5 text-xs text-cf-text-muted">
                                 {formatShortcut(cmd.shortcut ?? "")}
                               </kbd>
                             </Show>
@@ -330,21 +333,17 @@ export function CommandPalette(): JSX.Element {
           </div>
 
           {/* Footer hint */}
-          <div class="flex items-center gap-3 border-t border-gray-200 px-4 py-2 text-xs text-gray-400 dark:border-gray-700 dark:text-gray-500">
+          <div class="flex items-center gap-3 border-t border-cf-border px-4 py-2 text-xs text-cf-text-muted">
             <span>
-              <kbd class="rounded border border-gray-300 px-1 py-0.5 dark:border-gray-600">
-                &uarr;&darr;
-              </kbd>{" "}
+              <kbd class="rounded-cf-sm border border-cf-border px-1 py-0.5">&uarr;&darr;</kbd>{" "}
               {t("palette.navigate")}
             </span>
             <span>
-              <kbd class="rounded border border-gray-300 px-1 py-0.5 dark:border-gray-600">
-                &crarr;
-              </kbd>{" "}
+              <kbd class="rounded-cf-sm border border-cf-border px-1 py-0.5">&crarr;</kbd>{" "}
               {t("palette.select")}
             </span>
             <span>
-              <kbd class="rounded border border-gray-300 px-1 py-0.5 dark:border-gray-600">esc</kbd>{" "}
+              <kbd class="rounded-cf-sm border border-cf-border px-1 py-0.5">esc</kbd>{" "}
               {t("palette.close")}
             </span>
           </div>

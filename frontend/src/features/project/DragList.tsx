@@ -72,7 +72,7 @@ export default function DragList<T>(props: DragListProps<T>) {
               onDrop={handleDrop(index())}
               class={`transition-all ${
                 overIdx() === index() && dragIdx() !== null && dragIdx() !== index()
-                  ? "border-t-2 border-blue-400"
+                  ? "border-t-2 border-cf-accent"
                   : "border-t-2 border-transparent"
               } ${dragIdx() === index() ? "opacity-40" : ""}`}
             >

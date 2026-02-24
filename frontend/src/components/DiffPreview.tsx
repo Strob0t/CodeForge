@@ -97,30 +97,30 @@ export function DiffPreview(props: DiffPreviewProps) {
 
   return (
     <div
-      class="overflow-auto rounded border border-gray-200 dark:border-gray-700"
+      class="overflow-auto rounded-cf-md border border-cf-border"
       style={{ "max-height": `${props.maxHeight ?? 400}px` }}
     >
       <Show
         when={files().length > 0}
-        fallback={<p class="p-3 text-xs text-gray-500 dark:text-gray-400">{t("diff.noDiff")}</p>}
+        fallback={<p class="p-3 text-xs text-cf-text-tertiary">{t("diff.noDiff")}</p>}
       >
         <For each={files()}>
           {(file, idx) => (
-            <div class="border-b border-gray-100 last:border-b-0 dark:border-gray-700">
+            <div class="border-b border-cf-border last:border-b-0">
               {/* File header */}
               <button
                 type="button"
-                class="flex w-full items-center gap-2 bg-gray-50 px-3 py-2 text-left text-xs hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-750"
+                class="flex w-full items-center gap-2 bg-cf-bg-surface-alt px-3 py-2 text-left text-xs hover:bg-cf-bg-inset"
                 onClick={() => toggleFile(idx())}
                 aria-expanded={!collapsed()[idx()]}
               >
-                <span class="font-mono font-medium text-gray-700 dark:text-gray-300">
+                <span class="font-mono font-medium text-cf-text-secondary">
                   {file.newPath || file.oldPath}
                 </span>
                 <span class="flex-1" />
-                <span class="text-green-600 dark:text-green-400">+{addCount(file)}</span>
-                <span class="text-red-500 dark:text-red-400">-{removeCount(file)}</span>
-                <span class="text-gray-400">{collapsed()[idx()] ? "\u25B6" : "\u25BC"}</span>
+                <span class="text-cf-success">+{addCount(file)}</span>
+                <span class="text-cf-danger">-{removeCount(file)}</span>
+                <span class="text-cf-text-muted">{collapsed()[idx()] ? "\u25B6" : "\u25BC"}</span>
               </button>
 
               {/* Hunks */}
@@ -132,20 +132,20 @@ export function DiffPreview(props: DiffPreviewProps) {
                         {(line) => {
                           const bg =
                             line.type === "add"
-                              ? "bg-green-50 dark:bg-green-900/20"
+                              ? "bg-cf-success-bg"
                               : line.type === "remove"
-                                ? "bg-red-50 dark:bg-red-900/20"
+                                ? "bg-cf-danger-bg"
                                 : line.type === "header"
-                                  ? "bg-blue-50 dark:bg-blue-900/10"
+                                  ? "bg-cf-info-bg"
                                   : "";
                           const textColor =
                             line.type === "add"
-                              ? "text-green-800 dark:text-green-300"
+                              ? "text-cf-success-fg"
                               : line.type === "remove"
-                                ? "text-red-800 dark:text-red-300"
+                                ? "text-cf-danger-fg"
                                 : line.type === "header"
-                                  ? "text-blue-600 dark:text-blue-400"
-                                  : "text-gray-600 dark:text-gray-400";
+                                  ? "text-cf-accent"
+                                  : "text-cf-text-tertiary";
                           const prefix =
                             line.type === "add"
                               ? "+"
@@ -158,10 +158,10 @@ export function DiffPreview(props: DiffPreviewProps) {
                           return (
                             <div class={`flex ${bg}`}>
                               <Show when={line.type !== "header"}>
-                                <span class="w-10 flex-shrink-0 select-none text-right text-gray-400 dark:text-gray-600">
+                                <span class="w-10 flex-shrink-0 select-none text-right text-cf-text-muted">
                                   {line.oldNum ?? ""}
                                 </span>
-                                <span class="w-10 flex-shrink-0 select-none text-right text-gray-400 dark:text-gray-600">
+                                <span class="w-10 flex-shrink-0 select-none text-right text-cf-text-muted">
                                   {line.newNum ?? ""}
                                 </span>
                               </Show>

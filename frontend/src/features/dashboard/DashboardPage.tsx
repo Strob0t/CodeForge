@@ -5,6 +5,21 @@ import type { CreateProjectRequest, Mode, StackDetectionResult } from "~/api/typ
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  FormField,
+  Input,
+  LoadingState,
+  PageLayout,
+  Select,
+  Tabs,
+  Textarea,
+} from "~/ui";
 
 import ProjectCard from "./ProjectCard";
 
@@ -285,13 +300,17 @@ export default function DashboardPage() {
     }, 500);
   }
 
+  const formModeTabs = () => [
+    { value: "remote", label: t("dashboard.form.modeRemote") },
+    { value: "local", label: t("dashboard.form.modeLocal") },
+  ];
+
   return (
-    <div>
-      <div class="mb-6 flex items-center justify-between">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.title")}</h2>
-        <button
-          type="button"
-          class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+    <PageLayout
+      title={t("dashboard.title")}
+      action={
+        <Button
+          variant={showForm() ? "secondary" : "primary"}
           onClick={() => {
             if (showForm()) {
               handleCancelForm();
@@ -301,304 +320,234 @@ export default function DashboardPage() {
           }}
         >
           {showForm() ? t("common.cancel") : t("dashboard.addProject")}
-        </button>
-      </div>
-
+        </Button>
+      }
+    >
       <Show when={error()}>
-        <div
-          class="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-400"
-          role="alert"
-        >
+        <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
           {error()}
-        </div>
+        </Alert>
       </Show>
 
       <Show when={showForm()}>
-        <form
-          onSubmit={handleSubmit}
-          class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5"
-        >
-          {/* Mode tab toggle (hidden when editing) */}
-          <Show when={!isEditing()}>
-            <div class="mb-4 flex gap-0 rounded-md border border-gray-300 dark:border-gray-600 w-fit overflow-hidden">
-              <button
-                type="button"
-                class={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                  formMode() === "remote"
-                    ? "bg-blue-600 text-white"
-                    : "bg-transparent text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                }`}
-                onClick={() => setFormMode("remote")}
-              >
-                {t("dashboard.form.modeRemote")}
-              </button>
-              <button
-                type="button"
-                class={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                  formMode() === "local"
-                    ? "bg-blue-600 text-white"
-                    : "bg-transparent text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                }`}
-                onClick={() => setFormMode("local")}
-              >
-                {t("dashboard.form.modeLocal")}
-              </button>
-            </div>
-          </Show>
+        <Card class="mb-6">
+          <Card.Body>
+            <form onSubmit={handleSubmit}>
+              {/* Mode tab toggle (hidden when editing) */}
+              <Show when={!isEditing()}>
+                <div class="mb-4">
+                  <Tabs
+                    items={formModeTabs()}
+                    value={formMode()}
+                    onChange={(v) => setFormMode(v as "remote" | "local")}
+                    variant="pills"
+                  />
+                </div>
+              </Show>
 
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {/* Local mode: path field */}
-            <Show when={formMode() === "local" && !isEditing()}>
-              <div class="sm:col-span-2">
-                <label
-                  for="local_path"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("dashboard.form.path")} <span aria-hidden="true">*</span>
-                  <span class="sr-only">(required)</span>
-                </label>
-                <input
-                  id="local_path"
-                  type="text"
-                  value={localPath()}
-                  onInput={(e) => setLocalPath(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder={t("dashboard.form.pathPlaceholder")}
-                  aria-required="true"
-                />
-              </div>
-            </Show>
-
-            <div>
-              <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t("dashboard.form.name")}
-                <Show when={formMode() === "remote" && !form().repo_url.trim()}>
-                  {" "}
-                  <span aria-hidden="true">*</span>
-                  <span class="sr-only">(required)</span>
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {/* Local mode: path field */}
+                <Show when={formMode() === "local" && !isEditing()}>
+                  <FormField
+                    label={t("dashboard.form.path")}
+                    id="local_path"
+                    required
+                    class="sm:col-span-2"
+                  >
+                    <Input
+                      id="local_path"
+                      type="text"
+                      value={localPath()}
+                      onInput={(e) => setLocalPath(e.currentTarget.value)}
+                      placeholder={t("dashboard.form.pathPlaceholder")}
+                      aria-required="true"
+                    />
+                  </FormField>
                 </Show>
-              </label>
-              <input
-                id="name"
-                type="text"
-                value={form().name}
-                onInput={(e) => updateField("name", e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder={t("dashboard.form.namePlaceholder")}
-                aria-required={
-                  formMode() === "remote" && !form().repo_url.trim() ? "true" : "false"
-                }
-              />
-            </div>
 
-            {/* Remote mode: provider dropdown */}
-            <Show when={formMode() === "remote" || isEditing()}>
-              <div>
-                <label
-                  for="provider"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                <FormField
+                  label={t("dashboard.form.name")}
+                  id="name"
+                  required={formMode() === "remote" && !form().repo_url.trim()}
                 >
-                  {t("dashboard.form.provider")}
-                </label>
-                <select
-                  id="provider"
-                  value={form().provider}
-                  onChange={(e) => updateField("provider", e.currentTarget.value)}
-                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  <Input
+                    id="name"
+                    type="text"
+                    value={form().name}
+                    onInput={(e) => updateField("name", e.currentTarget.value)}
+                    placeholder={t("dashboard.form.namePlaceholder")}
+                    aria-required={
+                      formMode() === "remote" && !form().repo_url.trim() ? "true" : "false"
+                    }
+                  />
+                </FormField>
+
+                {/* Remote mode: provider dropdown */}
+                <Show when={formMode() === "remote" || isEditing()}>
+                  <FormField label={t("dashboard.form.provider")} id="provider">
+                    <Select
+                      id="provider"
+                      value={form().provider}
+                      onChange={(e) => updateField("provider", e.currentTarget.value)}
+                    >
+                      <option value="">{t("dashboard.form.providerPlaceholder")}</option>
+                      <For each={providers() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
+                    </Select>
+                  </FormField>
+                </Show>
+
+                {/* Remote mode: repo URL field */}
+                <Show when={formMode() === "remote" || isEditing()}>
+                  <FormField
+                    label={t("dashboard.form.repoUrl")}
+                    id="repo_url"
+                    class="sm:col-span-2"
+                    help={parsingUrl() ? "detecting..." : undefined}
+                  >
+                    <Input
+                      id="repo_url"
+                      type="text"
+                      value={form().repo_url}
+                      onInput={(e) => handleRepoUrlInput(e.currentTarget.value)}
+                      placeholder={t("dashboard.form.repoUrlPlaceholder")}
+                    />
+                  </FormField>
+                </Show>
+
+                {/* Branch selector (visible when branches loaded or loading) */}
+                <Show
+                  when={
+                    (formMode() === "remote" || isEditing()) &&
+                    (branches().length > 0 || loadingBranches())
+                  }
                 >
-                  <option value="">{t("dashboard.form.providerPlaceholder")}</option>
-                  <For each={providers() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
-                </select>
+                  <FormField
+                    label={t("dashboard.form.branch")}
+                    id="branch"
+                    class="sm:col-span-2"
+                    help={loadingBranches() ? t("dashboard.form.branchLoading") : undefined}
+                  >
+                    <Select
+                      id="branch"
+                      value={selectedBranch()}
+                      onChange={(e) => setSelectedBranch(e.currentTarget.value)}
+                      disabled={loadingBranches()}
+                    >
+                      <option value="">{t("dashboard.form.branchPlaceholder")}</option>
+                      <For each={branches()}>{(b) => <option value={b}>{b}</option>}</For>
+                    </Select>
+                  </FormField>
+                </Show>
+
+                <FormField
+                  label={t("dashboard.form.description")}
+                  id="description"
+                  class="sm:col-span-2"
+                >
+                  <Textarea
+                    id="description"
+                    value={form().description}
+                    onInput={(e) => updateField("description", e.currentTarget.value)}
+                    rows={2}
+                    placeholder={t("dashboard.form.descriptionPlaceholder")}
+                  />
+                </FormField>
               </div>
-            </Show>
 
-            {/* Remote mode: repo URL field */}
-            <Show when={formMode() === "remote" || isEditing()}>
-              <div class="sm:col-span-2">
-                <label
-                  for="repo_url"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+              {/* Advanced Settings Toggle */}
+              <div class="mt-4 border-t border-cf-border pt-3">
+                <button
+                  type="button"
+                  class="flex items-center gap-1 text-sm font-medium text-cf-text-secondary hover:text-cf-text-primary transition-colors"
+                  onClick={() => setShowAdvanced(!showAdvanced())}
+                  aria-expanded={showAdvanced()}
                 >
-                  {t("dashboard.form.repoUrl")}
-                  <Show when={parsingUrl()}>
-                    <span class="ml-2 text-xs text-gray-400">detecting...</span>
-                  </Show>
-                </label>
-                <input
-                  id="repo_url"
-                  type="text"
-                  value={form().repo_url}
-                  onInput={(e) => handleRepoUrlInput(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder={t("dashboard.form.repoUrlPlaceholder")}
-                />
-              </div>
-            </Show>
-
-            {/* Branch selector (visible when branches loaded or loading) */}
-            <Show
-              when={
-                (formMode() === "remote" || isEditing()) &&
-                (branches().length > 0 || loadingBranches())
-              }
-            >
-              <div class="sm:col-span-2">
-                <label
-                  for="branch"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("dashboard.form.branch")}
-                  <Show when={loadingBranches()}>
-                    <span class="ml-2 text-xs text-gray-400">
-                      {t("dashboard.form.branchLoading")}
-                    </span>
-                  </Show>
-                </label>
-                <select
-                  id="branch"
-                  value={selectedBranch()}
-                  onChange={(e) => setSelectedBranch(e.currentTarget.value)}
-                  disabled={loadingBranches()}
-                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-                >
-                  <option value="">{t("dashboard.form.branchPlaceholder")}</option>
-                  <For each={branches()}>{(b) => <option value={b}>{b}</option>}</For>
-                </select>
-              </div>
-            </Show>
-
-            <div class="sm:col-span-2">
-              <label
-                for="description"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("dashboard.form.description")}
-              </label>
-              <textarea
-                id="description"
-                value={form().description}
-                onInput={(e) => updateField("description", e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                rows={2}
-                placeholder={t("dashboard.form.descriptionPlaceholder")}
-              />
-            </div>
-          </div>
-
-          {/* Advanced Settings Toggle */}
-          <div class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3">
-            <button
-              type="button"
-              class="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-              onClick={() => setShowAdvanced(!showAdvanced())}
-              aria-expanded={showAdvanced()}
-            >
-              <span
-                class="inline-block transition-transform"
-                classList={{ "rotate-90": showAdvanced() }}
-              >
-                &#9654;
-              </span>
-              {t("dashboard.form.advanced")}
-            </button>
-
-            <Show when={showAdvanced()}>
-              <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {/* Mode selector */}
-                <div>
-                  <label
-                    for="adv_mode"
-                    class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  <span
+                    class="inline-block transition-transform"
+                    classList={{ "rotate-90": showAdvanced() }}
                   >
-                    {t("dashboard.form.defaultMode")}
-                  </label>
-                  <select
-                    id="adv_mode"
-                    value={selectedMode()}
-                    onChange={(e) => setSelectedMode(e.currentTarget.value)}
-                    class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="">{t("dashboard.form.defaultModePlaceholder")}</option>
-                    <For each={modes() ?? []}>
-                      {(m: Mode) => (
-                        <option value={m.id}>
-                          {m.name} {m.builtin ? `(${t("modes.builtin")})` : ""}
-                        </option>
-                      )}
-                    </For>
-                  </select>
-                </div>
-
-                {/* Autonomy level */}
-                <div>
-                  <label
-                    for="adv_autonomy"
-                    class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    {t("dashboard.form.autonomyLevel")}
-                  </label>
-                  <select
-                    id="adv_autonomy"
-                    value={selectedAutonomy()}
-                    onChange={(e) => setSelectedAutonomy(e.currentTarget.value)}
-                    class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="">{t("dashboard.form.autonomyPlaceholder")}</option>
-                    <For each={AUTONOMY_LEVELS}>
-                      {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
-                    </For>
-                  </select>
-                </div>
-
-                {/* Agent backends checkboxes */}
-                <div class="sm:col-span-2">
-                  <span class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t("dashboard.form.agentBackends")}
+                    &#9654;
                   </span>
-                  <div class="flex flex-wrap gap-3">
-                    <For each={AGENT_BACKENDS}>
-                      {(backend) => (
-                        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedBackends().includes(backend)}
-                            onChange={() => toggleBackend(backend)}
-                            class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                          />
-                          {backend}
-                        </label>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </div>
-            </Show>
-          </div>
+                  {t("dashboard.form.advanced")}
+                </button>
 
-          <div class="mt-4 flex justify-end">
-            <button
-              type="submit"
-              class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              {isEditing() ? t("common.save") : t("dashboard.form.create")}
-            </button>
-          </div>
-        </form>
+                <Show when={showAdvanced()}>
+                  <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {/* Mode selector */}
+                    <FormField label={t("dashboard.form.defaultMode")} id="adv_mode">
+                      <Select
+                        id="adv_mode"
+                        value={selectedMode()}
+                        onChange={(e) => setSelectedMode(e.currentTarget.value)}
+                      >
+                        <option value="">{t("dashboard.form.defaultModePlaceholder")}</option>
+                        <For each={modes() ?? []}>
+                          {(m: Mode) => (
+                            <option value={m.id}>
+                              {m.name} {m.builtin ? `(${t("modes.builtin")})` : ""}
+                            </option>
+                          )}
+                        </For>
+                      </Select>
+                    </FormField>
+
+                    {/* Autonomy level */}
+                    <FormField label={t("dashboard.form.autonomyLevel")} id="adv_autonomy">
+                      <Select
+                        id="adv_autonomy"
+                        value={selectedAutonomy()}
+                        onChange={(e) => setSelectedAutonomy(e.currentTarget.value)}
+                      >
+                        <option value="">{t("dashboard.form.autonomyPlaceholder")}</option>
+                        <For each={AUTONOMY_LEVELS}>
+                          {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
+                        </For>
+                      </Select>
+                    </FormField>
+
+                    {/* Agent backends checkboxes */}
+                    <div class="sm:col-span-2">
+                      <span class="block text-sm font-medium text-cf-text-secondary mb-2">
+                        {t("dashboard.form.agentBackends")}
+                      </span>
+                      <div class="flex flex-wrap gap-3">
+                        <For each={AGENT_BACKENDS}>
+                          {(backend) => (
+                            <label class="inline-flex items-center gap-1.5 text-sm text-cf-text-secondary cursor-pointer">
+                              <Checkbox
+                                checked={selectedBackends().includes(backend)}
+                                onChange={() => toggleBackend(backend)}
+                              />
+                              {backend}
+                            </label>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+
+              <div class="mt-4 flex justify-end">
+                <Button type="submit">
+                  {isEditing() ? t("common.save") : t("dashboard.form.create")}
+                </Button>
+              </div>
+            </form>
+          </Card.Body>
+        </Card>
       </Show>
 
       <Show when={projects.loading}>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{t("dashboard.loading")}</p>
+        <LoadingState message={t("dashboard.loading")} />
       </Show>
 
       <Show when={projects.error}>
-        <p class="text-sm text-red-500 dark:text-red-400">{t("dashboard.loadError")}</p>
+        <Alert variant="error">{t("dashboard.loadError")}</Alert>
       </Show>
 
       <Show when={!projects.loading && !projects.error}>
-        <Show
-          when={projects()?.length}
-          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("dashboard.empty")}</p>}
-        >
+        <Show when={projects()?.length} fallback={<EmptyState title={t("dashboard.empty")} />}>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <For each={projects()}>
               {(p) => (
@@ -618,56 +567,58 @@ export default function DashboardPage() {
       {/* Stack Detection Results Panel */}
       <Show when={stackResult()}>
         {(result) => (
-          <div class="mt-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-              {t("dashboard.detect.languages")}
-            </h3>
+          <Card class="mt-6">
+            <Card.Body>
+              <h3 class="text-lg font-semibold text-cf-text-primary mb-4">
+                {t("dashboard.detect.languages")}
+              </h3>
 
-            <Show
-              when={(result().languages ?? []).length > 0}
-              fallback={
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  {t("dashboard.detect.noLanguages")}
-                </p>
-              }
-            >
-              <div class="flex flex-wrap gap-2 mb-4">
-                <For each={result().languages ?? []}>
-                  {(lang) => (
-                    <div class="inline-flex items-center gap-2 rounded-full bg-blue-100 dark:bg-blue-900/30 px-3 py-1 text-sm text-blue-800 dark:text-blue-300">
-                      <span class="font-medium">{lang.name}</span>
-                      <span class="text-xs opacity-75">{Math.round(lang.confidence * 100)}%</span>
-                      <Show when={(lang.frameworks ?? []).length > 0}>
-                        <span class="text-xs opacity-60">
-                          ({(lang.frameworks ?? []).join(", ")})
+              <Show
+                when={(result().languages ?? []).length > 0}
+                fallback={
+                  <p class="text-sm text-cf-text-muted">{t("dashboard.detect.noLanguages")}</p>
+                }
+              >
+                <div class="flex flex-wrap gap-2 mb-4">
+                  <For each={result().languages ?? []}>
+                    {(lang) => (
+                      <Badge variant="info" pill>
+                        <span class="font-medium">{lang.name}</span>
+                        <span class="ml-2 text-xs opacity-75">
+                          {Math.round(lang.confidence * 100)}%
                         </span>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
+                        <Show when={(lang.frameworks ?? []).length > 0}>
+                          <span class="ml-1 text-xs opacity-60">
+                            ({(lang.frameworks ?? []).join(", ")})
+                          </span>
+                        </Show>
+                      </Badge>
+                    )}
+                  </For>
+                </div>
+              </Show>
 
-            <Show when={(result().recommendations ?? []).length > 0}>
-              <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                {t("dashboard.detect.recommendations")}
-              </h4>
-              <div class="flex flex-wrap gap-2">
-                <For each={result().recommendations}>
-                  {(rec) => (
-                    <div class="inline-flex items-center gap-1 rounded-md border border-gray-200 dark:border-gray-600 px-2 py-1 text-xs">
-                      <span class="font-medium text-gray-500 dark:text-gray-400">
-                        {t((categoryLabels[rec.category] ?? rec.category) as TranslationKey)}
-                      </span>
-                      <span class="text-gray-900 dark:text-gray-100">{rec.name}</span>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
+              <Show when={(result().recommendations ?? []).length > 0}>
+                <h4 class="text-sm font-semibold text-cf-text-secondary mb-2">
+                  {t("dashboard.detect.recommendations")}
+                </h4>
+                <div class="flex flex-wrap gap-2">
+                  <For each={result().recommendations}>
+                    {(rec) => (
+                      <Badge>
+                        <span class="font-medium text-cf-text-muted">
+                          {t((categoryLabels[rec.category] ?? rec.category) as TranslationKey)}
+                        </span>
+                        <span class="ml-1 text-cf-text-primary">{rec.name}</span>
+                      </Badge>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </Card.Body>
+          </Card>
         )}
       </Show>
-    </div>
+    </PageLayout>
   );
 }

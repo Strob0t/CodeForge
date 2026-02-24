@@ -3,6 +3,7 @@ import { createEffect, createResource, createSignal, For, on, onCleanup, Show } 
 import { api } from "~/api/client";
 import type { GraphNodeKind, GraphSearchHit, GraphStatus } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { Alert, Badge, Button, Card, Input } from "~/ui";
 
 interface ArchitectureGraphProps {
   projectId: string;
@@ -255,212 +256,215 @@ export default function ArchitectureGraph(props: ArchitectureGraphProps) {
   const nodeById = () => new Map(nodes().map((n) => [n.id, n]));
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-      <h3 class="mb-1 text-lg font-semibold">{t("archGraph.title")}</h3>
-      <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">{t("archGraph.description")}</p>
+    <Card>
+      <Card.Header>
+        <h3 class="text-lg font-semibold">{t("archGraph.title")}</h3>
+        <p class="text-xs text-cf-text-tertiary">{t("archGraph.description")}</p>
+      </Card.Header>
 
-      {/* Graph status */}
-      <Show when={graphStatus()}>
-        {(gs) => (
-          <div class="mb-3 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-            <span>
-              {fmt.compact(gs().node_count)} {t("archGraph.nodes")}
-            </span>
-            <span>
-              {fmt.compact(gs().edge_count)} {t("archGraph.edges")}
-            </span>
-            <Show when={gs().languages.length > 0}>
-              <span>{gs().languages.join(", ")}</span>
-            </Show>
-          </div>
-        )}
-      </Show>
+      <Card.Body>
+        {/* Graph status */}
+        <Show when={graphStatus()}>
+          {(gs) => (
+            <div class="mb-3 flex items-center gap-3 text-xs text-cf-text-tertiary">
+              <span>
+                {fmt.compact(gs().node_count)} {t("archGraph.nodes")}
+              </span>
+              <span>
+                {fmt.compact(gs().edge_count)} {t("archGraph.edges")}
+              </span>
+              <Show when={gs().languages.length > 0}>
+                <span>{gs().languages.join(", ")}</span>
+              </Show>
+            </div>
+          )}
+        </Show>
 
-      {/* Search form */}
-      <form class="mb-4 flex gap-2" onSubmit={handleSearch}>
-        <input
-          type="text"
-          class="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-          placeholder={t("archGraph.seedPlaceholder")}
-          value={seedSymbols()}
-          onInput={(e) => setSeedSymbols(e.currentTarget.value)}
-          aria-label={t("archGraph.seedLabel")}
-        />
-        <div class="flex items-center gap-1">
-          <label for="arch-hops" class="text-xs text-gray-500 dark:text-gray-400">
-            {t("archGraph.hops")}:
-          </label>
-          <input
-            id="arch-hops"
-            type="number"
-            min="1"
-            max="5"
-            class="w-14 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
-            value={maxHops()}
-            onInput={(e) => setMaxHops(parseInt(e.currentTarget.value) || 2)}
+        {/* Search form */}
+        <form class="mb-4 flex gap-2" onSubmit={handleSearch}>
+          <Input
+            type="text"
+            class="flex-1"
+            placeholder={t("archGraph.seedPlaceholder")}
+            value={seedSymbols()}
+            onInput={(e) => setSeedSymbols(e.currentTarget.value)}
+            aria-label={t("archGraph.seedLabel")}
           />
-        </div>
-        <button
-          type="submit"
-          class="rounded bg-violet-600 px-4 py-1.5 text-sm text-white hover:bg-violet-700 disabled:opacity-50"
-          disabled={searching() || !seedSymbols().trim() || graphStatus()?.status !== "ready"}
-        >
-          {searching() ? t("archGraph.searching") : t("archGraph.explore")}
-        </button>
-      </form>
-
-      <Show when={error()}>
-        <div class="mb-3 rounded bg-red-50 p-2 text-sm text-red-600 dark:bg-red-900/30 dark:text-red-400">
-          {error()}
-        </div>
-      </Show>
-
-      {/* Graph SVG */}
-      <Show
-        when={nodes().length > 0}
-        fallback={
-          <div class="flex h-48 items-center justify-center rounded bg-gray-50 text-sm text-gray-400 dark:bg-gray-700/50 dark:text-gray-500">
-            {graphStatus()?.status === "ready"
-              ? t("archGraph.enterSeeds")
-              : t("archGraph.buildFirst")}
+          <div class="flex items-center gap-1">
+            <label for="arch-hops" class="text-xs text-cf-text-tertiary">
+              {t("archGraph.hops")}:
+            </label>
+            <Input
+              id="arch-hops"
+              type="number"
+              min="1"
+              max="5"
+              class="w-14"
+              value={maxHops()}
+              onInput={(e) => setMaxHops(parseInt(e.currentTarget.value) || 2)}
+            />
           </div>
-        }
-      >
-        <div class="overflow-hidden rounded border border-gray-200 dark:border-gray-700">
-          <svg
-            viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-            class="h-96 w-full bg-gray-50 dark:bg-gray-900"
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            disabled={searching() || !seedSymbols().trim() || graphStatus()?.status !== "ready"}
+            loading={searching()}
           >
-            {/* Edges */}
-            <For each={edges()}>
-              {(edge) => {
-                const src = () => nodeById().get(edge.source);
-                const tgt = () => nodeById().get(edge.target);
-                return (
-                  <Show when={src() && tgt()}>
-                    <line
-                      x1={src()?.x ?? 0}
-                      y1={src()?.y ?? 0}
-                      x2={tgt()?.x ?? 0}
-                      y2={tgt()?.y ?? 0}
-                      stroke={
-                        hoveredNode() === edge.source || hoveredNode() === edge.target
-                          ? "#6366f1"
-                          : "#d1d5db"
-                      }
-                      stroke-width={
-                        hoveredNode() === edge.source || hoveredNode() === edge.target ? 2 : 1
-                      }
-                      stroke-opacity="0.6"
-                    />
-                  </Show>
-                );
-              }}
-            </For>
+            {searching() ? t("archGraph.searching") : t("archGraph.explore")}
+          </Button>
+        </form>
 
-            {/* Nodes */}
-            <For each={nodes()}>
-              {(node) => (
-                <g
-                  onMouseEnter={() => setHoveredNode(node.id)}
-                  onMouseLeave={() => setHoveredNode(null)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={KIND_RADIUS[node.kind]}
-                    fill={KIND_COLORS[node.kind]}
-                    opacity={hoveredNode() === null || hoveredNode() === node.id ? 1 : 0.4}
-                    stroke={hoveredNode() === node.id ? "#111827" : "none"}
-                    stroke-width="2"
+        <Show when={error()}>
+          <div class="mb-3">
+            <Alert variant="error">{error()}</Alert>
+          </div>
+        </Show>
+
+        {/* Graph SVG */}
+        <Show
+          when={nodes().length > 0}
+          fallback={
+            <div class="flex h-48 items-center justify-center rounded-cf-sm bg-cf-bg-inset text-sm text-cf-text-muted">
+              {graphStatus()?.status === "ready"
+                ? t("archGraph.enterSeeds")
+                : t("archGraph.buildFirst")}
+            </div>
+          }
+        >
+          <div class="overflow-hidden rounded-cf-sm border border-cf-border">
+            <svg viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} class="h-96 w-full bg-cf-bg-inset">
+              {/* Edges */}
+              <For each={edges()}>
+                {(edge) => {
+                  const src = () => nodeById().get(edge.source);
+                  const tgt = () => nodeById().get(edge.target);
+                  return (
+                    <Show when={src() && tgt()}>
+                      <line
+                        x1={src()?.x ?? 0}
+                        y1={src()?.y ?? 0}
+                        x2={tgt()?.x ?? 0}
+                        y2={tgt()?.y ?? 0}
+                        stroke={
+                          hoveredNode() === edge.source || hoveredNode() === edge.target
+                            ? "#6366f1"
+                            : "#d1d5db"
+                        }
+                        stroke-width={
+                          hoveredNode() === edge.source || hoveredNode() === edge.target ? 2 : 1
+                        }
+                        stroke-opacity="0.6"
+                      />
+                    </Show>
+                  );
+                }}
+              </For>
+
+              {/* Nodes */}
+              <For each={nodes()}>
+                {(node) => (
+                  <g
+                    onMouseEnter={() => setHoveredNode(node.id)}
+                    onMouseLeave={() => setHoveredNode(null)}
+                    style={{ cursor: "pointer" }}
                   >
-                    <title>
-                      {node.label} ({node.kind}) - {node.filepath}:{node.line}
-                    </title>
-                  </circle>
-                  <Show when={hoveredNode() === node.id || nodes().length <= 15}>
-                    <text
-                      x={node.x}
-                      y={node.y - KIND_RADIUS[node.kind] - 4}
-                      text-anchor="middle"
-                      class="fill-gray-700 text-[9px] dark:fill-gray-300"
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r={KIND_RADIUS[node.kind]}
+                      fill={KIND_COLORS[node.kind]}
+                      opacity={hoveredNode() === null || hoveredNode() === node.id ? 1 : 0.4}
+                      stroke={hoveredNode() === node.id ? "#111827" : "none"}
+                      stroke-width="2"
                     >
-                      {node.label}
-                    </text>
-                  </Show>
-                </g>
-              )}
-            </For>
-          </svg>
-        </div>
-
-        {/* Legend */}
-        <div class="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-          <span class="flex items-center gap-1">
-            <span
-              class="inline-block h-3 w-3 rounded-full"
-              style={{ background: KIND_COLORS.module }}
-            />
-            {t("archGraph.kind.module")}
-          </span>
-          <span class="flex items-center gap-1">
-            <span
-              class="inline-block h-3 w-3 rounded-full"
-              style={{ background: KIND_COLORS.class }}
-            />
-            {t("archGraph.kind.class")}
-          </span>
-          <span class="flex items-center gap-1">
-            <span
-              class="inline-block h-3 w-3 rounded-full"
-              style={{ background: KIND_COLORS.function }}
-            />
-            {t("archGraph.kind.function")}
-          </span>
-          <span class="flex items-center gap-1">
-            <span
-              class="inline-block h-3 w-3 rounded-full"
-              style={{ background: KIND_COLORS.method }}
-            />
-            {t("archGraph.kind.method")}
-          </span>
-          <span class="ml-auto">
-            {nodes().length} {t("archGraph.nodes")}, {edges().length} {t("archGraph.edges")}
-          </span>
-        </div>
-
-        {/* Hit list */}
-        <Show when={hits().length > 0}>
-          <details class="mt-3">
-            <summary class="cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">
-              {t("archGraph.rawResults")} ({hits().length})
-            </summary>
-            <div class="mt-1 max-h-40 space-y-1 overflow-y-auto">
-              <For each={hits()}>
-                {(hit) => (
-                  <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                    <span
-                      class="rounded px-1 py-0.5"
-                      style={{
-                        background: `${KIND_COLORS[hit.kind]}20`,
-                        color: KIND_COLORS[hit.kind],
-                      }}
-                    >
-                      {hit.kind}
-                    </span>
-                    <span class="font-mono">{hit.symbol_name}</span>
-                    <span class="text-gray-400">
-                      {hit.filepath}:{hit.start_line}
-                    </span>
-                    <span class="ml-auto">{fmt.score(hit.score)}</span>
-                  </div>
+                      <title>
+                        {node.label} ({node.kind}) - {node.filepath}:{node.line}
+                      </title>
+                    </circle>
+                    <Show when={hoveredNode() === node.id || nodes().length <= 15}>
+                      <text
+                        x={node.x}
+                        y={node.y - KIND_RADIUS[node.kind] - 4}
+                        text-anchor="middle"
+                        class="fill-cf-text-secondary text-[9px]"
+                      >
+                        {node.label}
+                      </text>
+                    </Show>
+                  </g>
                 )}
               </For>
-            </div>
-          </details>
+            </svg>
+          </div>
+
+          {/* Legend */}
+          <div class="mt-2 flex items-center gap-4 text-xs text-cf-text-tertiary">
+            <span class="flex items-center gap-1">
+              <span
+                class="inline-block h-3 w-3 rounded-full"
+                style={{ background: KIND_COLORS.module }}
+              />
+              {t("archGraph.kind.module")}
+            </span>
+            <span class="flex items-center gap-1">
+              <span
+                class="inline-block h-3 w-3 rounded-full"
+                style={{ background: KIND_COLORS.class }}
+              />
+              {t("archGraph.kind.class")}
+            </span>
+            <span class="flex items-center gap-1">
+              <span
+                class="inline-block h-3 w-3 rounded-full"
+                style={{ background: KIND_COLORS.function }}
+              />
+              {t("archGraph.kind.function")}
+            </span>
+            <span class="flex items-center gap-1">
+              <span
+                class="inline-block h-3 w-3 rounded-full"
+                style={{ background: KIND_COLORS.method }}
+              />
+              {t("archGraph.kind.method")}
+            </span>
+            <span class="ml-auto">
+              {nodes().length} {t("archGraph.nodes")}, {edges().length} {t("archGraph.edges")}
+            </span>
+          </div>
+
+          {/* Hit list */}
+          <Show when={hits().length > 0}>
+            <details class="mt-3">
+              <summary class="cursor-pointer text-xs text-cf-text-tertiary hover:text-cf-text-secondary">
+                {t("archGraph.rawResults")} ({hits().length})
+              </summary>
+              <div class="mt-1 max-h-40 space-y-1 overflow-y-auto">
+                <For each={hits()}>
+                  {(hit) => (
+                    <div class="flex items-center gap-2 text-xs text-cf-text-secondary">
+                      <Badge
+                        variant="default"
+                        style={{
+                          background: `${KIND_COLORS[hit.kind]}20`,
+                          color: KIND_COLORS[hit.kind],
+                        }}
+                      >
+                        {hit.kind}
+                      </Badge>
+                      <span class="font-mono">{hit.symbol_name}</span>
+                      <span class="text-cf-text-muted">
+                        {hit.filepath}:{hit.start_line}
+                      </span>
+                      <span class="ml-auto">{fmt.score(hit.score)}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </details>
+          </Show>
         </Show>
-      </Show>
-    </div>
+      </Card.Body>
+    </Card>
   );
 }

@@ -10,6 +10,8 @@ import type {
   ToolCostSummary,
 } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { Card, LoadingState, PageLayout, Table } from "~/ui";
+import type { TableColumn } from "~/ui/composites/Table";
 
 export default function CostDashboardPage() {
   const { t, fmt } = useI18n();
@@ -29,87 +31,95 @@ export default function CostDashboardPage() {
     );
   };
 
-  return (
-    <div>
-      <h2 class="mb-6 text-2xl font-bold">{t("costs.title")}</h2>
+  const projectColumns: TableColumn<ProjectCostSummary>[] = [
+    {
+      key: "project_name",
+      header: t("costs.table.project"),
+      render: (p) => (
+        <A href={`/projects/${p.project_id}`} class="text-cf-accent hover:underline">
+          {p.project_name || p.project_id}
+        </A>
+      ),
+    },
+    {
+      key: "total_cost_usd",
+      header: t("costs.table.cost"),
+      class: "text-right",
+      render: (p) => <span class="font-mono">{fmt.currency(p.total_cost_usd)}</span>,
+    },
+    {
+      key: "total_tokens_in",
+      header: t("costs.table.tokensIn"),
+      class: "text-right",
+      render: (p) => <span class="font-mono">{fmt.compact(p.total_tokens_in)}</span>,
+    },
+    {
+      key: "total_tokens_out",
+      header: t("costs.table.tokensOut"),
+      class: "text-right",
+      render: (p) => <span class="font-mono">{fmt.compact(p.total_tokens_out)}</span>,
+    },
+    {
+      key: "run_count",
+      header: t("costs.table.runs"),
+      class: "text-right",
+      render: (p) => <span>{p.run_count}</span>,
+    },
+  ];
 
+  return (
+    <PageLayout title={t("costs.title")}>
       {/* Global Totals */}
       <div class="mb-6 grid grid-cols-4 gap-4">
-        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.totalCost")}</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {fmt.currency(totals().cost)}
-          </p>
-        </div>
-        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.tokensIn")}</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {fmt.compact(totals().tokensIn)}
-          </p>
-        </div>
-        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.tokensOut")}</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {fmt.compact(totals().tokensOut)}
-          </p>
-        </div>
-        <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p class="text-sm text-gray-500 dark:text-gray-400">{t("costs.totalRuns")}</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">{totals().runs}</p>
-        </div>
+        <Card>
+          <Card.Body>
+            <p class="text-sm text-cf-text-muted">{t("costs.totalCost")}</p>
+            <p class="mt-1 text-2xl font-bold text-cf-text-primary">
+              {fmt.currency(totals().cost)}
+            </p>
+          </Card.Body>
+        </Card>
+        <Card>
+          <Card.Body>
+            <p class="text-sm text-cf-text-muted">{t("costs.tokensIn")}</p>
+            <p class="mt-1 text-2xl font-bold text-cf-text-primary">
+              {fmt.compact(totals().tokensIn)}
+            </p>
+          </Card.Body>
+        </Card>
+        <Card>
+          <Card.Body>
+            <p class="text-sm text-cf-text-muted">{t("costs.tokensOut")}</p>
+            <p class="mt-1 text-2xl font-bold text-cf-text-primary">
+              {fmt.compact(totals().tokensOut)}
+            </p>
+          </Card.Body>
+        </Card>
+        <Card>
+          <Card.Body>
+            <p class="text-sm text-cf-text-muted">{t("costs.totalRuns")}</p>
+            <p class="mt-1 text-2xl font-bold text-cf-text-primary">{totals().runs}</p>
+          </Card.Body>
+        </Card>
       </div>
 
       {/* Project Breakdown */}
-      <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        <h3 class="mb-3 text-lg font-semibold">{t("costs.byProject")}</h3>
-        <Show
-          when={(globalCosts() ?? []).length > 0}
-          fallback={<p class="text-sm text-gray-400 dark:text-gray-500">{t("costs.empty")}</p>}
-        >
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-gray-100 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400">
-                <th scope="col" class="pb-2 font-medium">
-                  {t("costs.table.project")}
-                </th>
-                <th scope="col" class="pb-2 text-right font-medium">
-                  {t("costs.table.cost")}
-                </th>
-                <th scope="col" class="pb-2 text-right font-medium">
-                  {t("costs.table.tokensIn")}
-                </th>
-                <th scope="col" class="pb-2 text-right font-medium">
-                  {t("costs.table.tokensOut")}
-                </th>
-                <th scope="col" class="pb-2 text-right font-medium">
-                  {t("costs.table.runs")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={globalCosts() ?? []}>
-                {(p: ProjectCostSummary) => (
-                  <tr class="border-b border-gray-50 dark:border-gray-700">
-                    <td class="py-2">
-                      <A
-                        href={`/projects/${p.project_id}`}
-                        class="text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        {p.project_name || p.project_id}
-                      </A>
-                    </td>
-                    <td class="py-2 text-right font-mono">{fmt.currency(p.total_cost_usd)}</td>
-                    <td class="py-2 text-right font-mono">{fmt.compact(p.total_tokens_in)}</td>
-                    <td class="py-2 text-right font-mono">{fmt.compact(p.total_tokens_out)}</td>
-                    <td class="py-2 text-right">{p.run_count}</td>
-                  </tr>
-                )}
-              </For>
-            </tbody>
-          </table>
-        </Show>
-      </div>
-    </div>
+      <Card class="mb-6">
+        <Card.Header>
+          <h3 class="text-lg font-semibold text-cf-text-primary">{t("costs.byProject")}</h3>
+        </Card.Header>
+        <Card.Body class="p-0">
+          <Show when={!globalCosts.loading} fallback={<LoadingState />}>
+            <Table<ProjectCostSummary>
+              columns={projectColumns}
+              data={globalCosts() ?? []}
+              rowKey={(p) => p.project_id}
+              emptyMessage={t("costs.empty")}
+            />
+          </Show>
+        </Card.Body>
+      </Card>
+    </PageLayout>
   );
 }
 
@@ -143,152 +153,153 @@ export function ProjectCostSection(props: { projectId: string }) {
   };
 
   return (
-    <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-      <h3 class="mb-3 text-lg font-semibold">{t("costs.overview")}</h3>
-
-      {/* Summary Cards */}
-      <Show when={summary()}>
-        {(s) => (
-          <div class="mb-4 grid grid-cols-4 gap-3">
-            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.totalCost")}</p>
-              <p class="text-lg font-bold">{fmt.currency(s().total_cost_usd)}</p>
+    <Card>
+      <Card.Header>
+        <h3 class="text-lg font-semibold text-cf-text-primary">{t("costs.overview")}</h3>
+      </Card.Header>
+      <Card.Body>
+        {/* Summary Cards */}
+        <Show when={summary()}>
+          {(s) => (
+            <div class="mb-4 grid grid-cols-4 gap-3">
+              <div class="rounded-cf-md bg-cf-bg-surface-alt p-3">
+                <p class="text-xs text-cf-text-muted">{t("costs.totalCost")}</p>
+                <p class="text-lg font-bold text-cf-text-primary">
+                  {fmt.currency(s().total_cost_usd)}
+                </p>
+              </div>
+              <div class="rounded-cf-md bg-cf-bg-surface-alt p-3">
+                <p class="text-xs text-cf-text-muted">{t("costs.tokensIn")}</p>
+                <p class="text-lg font-bold text-cf-text-primary">
+                  {fmt.compact(s().total_tokens_in)}
+                </p>
+              </div>
+              <div class="rounded-cf-md bg-cf-bg-surface-alt p-3">
+                <p class="text-xs text-cf-text-muted">{t("costs.tokensOut")}</p>
+                <p class="text-lg font-bold text-cf-text-primary">
+                  {fmt.compact(s().total_tokens_out)}
+                </p>
+              </div>
+              <div class="rounded-cf-md bg-cf-bg-surface-alt p-3">
+                <p class="text-xs text-cf-text-muted">{t("costs.table.runs")}</p>
+                <p class="text-lg font-bold text-cf-text-primary">{s().run_count}</p>
+              </div>
             </div>
-            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.tokensIn")}</p>
-              <p class="text-lg font-bold">{fmt.compact(s().total_tokens_in)}</p>
+          )}
+        </Show>
+
+        {/* Model Breakdown */}
+        <Show when={(byModel() ?? []).length > 0}>
+          <div class="mb-4">
+            <h4 class="mb-2 text-sm font-medium text-cf-text-muted">{t("costs.byModel")}</h4>
+            <div class="space-y-1">
+              <For each={byModel() ?? []}>
+                {(m: ModelCostSummary) => (
+                  <div class="flex items-center justify-between rounded-cf-md bg-cf-bg-surface-alt px-3 py-2 text-sm">
+                    <span class="font-mono text-xs">{m.model || t("costs.unknown")}</span>
+                    <div class="flex gap-4 text-xs text-cf-text-muted">
+                      <span>{fmt.currency(m.total_cost_usd)}</span>
+                      <span>
+                        {fmt.compact(m.total_tokens_in)} {t("costs.in")}
+                      </span>
+                      <span>
+                        {fmt.compact(m.total_tokens_out)} {t("costs.out")}
+                      </span>
+                      <span>{tp("costs.runs", m.run_count)}</span>
+                    </div>
+                  </div>
+                )}
+              </For>
             </div>
-            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.tokensOut")}</p>
-              <p class="text-lg font-bold">{fmt.compact(s().total_tokens_out)}</p>
+          </div>
+        </Show>
+
+        {/* Tool Breakdown */}
+        <Show when={(byTool() ?? []).length > 0}>
+          <div class="mb-4">
+            <h4 class="mb-2 text-sm font-medium text-cf-text-muted">{t("costs.byTool")}</h4>
+            <div class="space-y-1">
+              <For each={byTool() ?? []}>
+                {(item: ToolCostSummary) => (
+                  <div class="flex items-center justify-between rounded-cf-md bg-cf-bg-surface-alt px-3 py-2 text-sm">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-xs">{item.tool || t("costs.unknown")}</span>
+                      <span class="text-xs text-cf-text-tertiary">{item.model || ""}</span>
+                    </div>
+                    <div class="flex gap-4 text-xs text-cf-text-muted">
+                      <span>{fmt.currency(item.cost_usd)}</span>
+                      <span>
+                        {fmt.compact(item.tokens_in)} {t("costs.in")}
+                      </span>
+                      <span>
+                        {fmt.compact(item.tokens_out)} {t("costs.out")}
+                      </span>
+                      <span>{tp("costs.calls", item.call_count)}</span>
+                    </div>
+                  </div>
+                )}
+              </For>
             </div>
-            <div class="rounded bg-gray-50 dark:bg-gray-900 p-3">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{t("costs.table.runs")}</p>
-              <p class="text-lg font-bold">{s().run_count}</p>
+          </div>
+        </Show>
+
+        {/* Daily Cost Chart (CSS bars) */}
+        <Show when={(daily() ?? []).length > 0}>
+          <div class="mb-4">
+            <h4 class="mb-2 text-sm font-medium text-cf-text-muted">{t("costs.dailyChart")}</h4>
+            <div
+              class="flex items-end gap-0.5"
+              style={{ height: "80px" }}
+              role="img"
+              aria-label={t("costs.dailyChartAria")}
+            >
+              <For each={daily() ?? []}>
+                {(d: DailyCost) => {
+                  const pct = () => Math.max((d.cost_usd / maxDailyCost()) * 100, 2);
+                  return (
+                    <div
+                      class="flex-1 rounded-t bg-cf-accent hover:opacity-80"
+                      style={{ height: `${pct()}%` }}
+                      title={`${d.date}: ${fmt.currency(d.cost_usd)} (${d.run_count} runs)`}
+                    />
+                  );
+                }}
+              </For>
             </div>
           </div>
-        )}
-      </Show>
+        </Show>
 
-      {/* Model Breakdown */}
-      <Show when={(byModel() ?? []).length > 0}>
-        <div class="mb-4">
-          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-            {t("costs.byModel")}
-          </h4>
-          <div class="space-y-1">
-            <For each={byModel() ?? []}>
-              {(m: ModelCostSummary) => (
-                <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
-                  <span class="font-mono text-xs">{m.model || t("costs.unknown")}</span>
-                  <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-                    <span>{fmt.currency(m.total_cost_usd)}</span>
-                    <span>
-                      {fmt.compact(m.total_tokens_in)} {t("costs.in")}
-                    </span>
-                    <span>
-                      {fmt.compact(m.total_tokens_out)} {t("costs.out")}
-                    </span>
-                    <span>{tp("costs.runs", m.run_count)}</span>
+        {/* Recent Runs */}
+        <Show when={(recentRuns() ?? []).length > 0}>
+          <div>
+            <h4 class="mb-2 text-sm font-medium text-cf-text-muted">{t("costs.recentRuns")}</h4>
+            <div class="space-y-1">
+              <For each={recentRuns() ?? []}>
+                {(r: Run) => (
+                  <div class="flex items-center justify-between rounded-cf-md bg-cf-bg-surface-alt px-3 py-2 text-sm">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-xs text-cf-text-tertiary">
+                        {r.id.slice(0, 8)}
+                      </span>
+                      <span class="text-xs text-cf-text-muted">{r.model || "-"}</span>
+                    </div>
+                    <div class="flex gap-3 text-xs text-cf-text-muted">
+                      <span>{fmt.currency(r.cost_usd)}</span>
+                      <span>
+                        {fmt.compact(r.tokens_in)} {t("costs.in")}
+                      </span>
+                      <span>
+                        {fmt.compact(r.tokens_out)} {t("costs.out")}
+                      </span>
+                      <span>{tp("costs.steps", r.step_count)}</span>
+                    </div>
                   </div>
-                </div>
-              )}
-            </For>
+                )}
+              </For>
+            </div>
           </div>
-        </div>
-      </Show>
-
-      {/* Tool Breakdown */}
-      <Show when={(byTool() ?? []).length > 0}>
-        <div class="mb-4">
-          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-            {t("costs.byTool")}
-          </h4>
-          <div class="space-y-1">
-            <For each={byTool() ?? []}>
-              {(item: ToolCostSummary) => (
-                <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
-                  <div class="flex items-center gap-2">
-                    <span class="font-mono text-xs">{item.tool || t("costs.unknown")}</span>
-                    <span class="text-xs text-gray-400 dark:text-gray-500">{item.model || ""}</span>
-                  </div>
-                  <div class="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-                    <span>{fmt.currency(item.cost_usd)}</span>
-                    <span>
-                      {fmt.compact(item.tokens_in)} {t("costs.in")}
-                    </span>
-                    <span>
-                      {fmt.compact(item.tokens_out)} {t("costs.out")}
-                    </span>
-                    <span>{tp("costs.calls", item.call_count)}</span>
-                  </div>
-                </div>
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-
-      {/* Daily Cost Chart (CSS bars) */}
-      <Show when={(daily() ?? []).length > 0}>
-        <div class="mb-4">
-          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-            {t("costs.dailyChart")}
-          </h4>
-          <div
-            class="flex items-end gap-0.5"
-            style={{ height: "80px" }}
-            role="img"
-            aria-label={t("costs.dailyChartAria")}
-          >
-            <For each={daily() ?? []}>
-              {(d: DailyCost) => {
-                const pct = () => Math.max((d.cost_usd / maxDailyCost()) * 100, 2);
-                return (
-                  <div
-                    class="flex-1 rounded-t bg-blue-400 hover:bg-blue-500"
-                    style={{ height: `${pct()}%` }}
-                    title={`${d.date}: ${fmt.currency(d.cost_usd)} (${d.run_count} runs)`}
-                  />
-                );
-              }}
-            </For>
-          </div>
-        </div>
-      </Show>
-
-      {/* Recent Runs */}
-      <Show when={(recentRuns() ?? []).length > 0}>
-        <div>
-          <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-            {t("costs.recentRuns")}
-          </h4>
-          <div class="space-y-1">
-            <For each={recentRuns() ?? []}>
-              {(r: Run) => (
-                <div class="flex items-center justify-between rounded bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm">
-                  <div class="flex items-center gap-2">
-                    <span class="font-mono text-xs text-gray-400 dark:text-gray-500">
-                      {r.id.slice(0, 8)}
-                    </span>
-                    <span class="text-xs text-gray-500 dark:text-gray-400">{r.model || "-"}</span>
-                  </div>
-                  <div class="flex gap-3 text-xs text-gray-500 dark:text-gray-400">
-                    <span>{fmt.currency(r.cost_usd)}</span>
-                    <span>
-                      {fmt.compact(r.tokens_in)} {t("costs.in")}
-                    </span>
-                    <span>
-                      {fmt.compact(r.tokens_out)} {t("costs.out")}
-                    </span>
-                    <span>{tp("costs.steps", r.step_count)}</span>
-                  </div>
-                </div>
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-    </div>
+        </Show>
+      </Card.Body>
+    </Card>
   );
 }

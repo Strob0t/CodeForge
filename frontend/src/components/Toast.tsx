@@ -121,19 +121,19 @@ export function ToastProvider(props: ParentProps): JSX.Element {
 
 const levelStyles: Record<ToastLevel, { bg: string; icon: string }> = {
   success: {
-    bg: "border-green-400 bg-green-50 text-green-800 dark:border-green-600 dark:bg-green-900/30 dark:text-green-300",
+    bg: "border-cf-success-border bg-cf-success-bg text-cf-success-fg",
     icon: "\u2713",
   },
   error: {
-    bg: "border-red-400 bg-red-50 text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-300",
+    bg: "border-cf-danger-border bg-cf-danger-bg text-cf-danger-fg",
     icon: "\u2717",
   },
   warning: {
-    bg: "border-yellow-400 bg-yellow-50 text-yellow-800 dark:border-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-300",
+    bg: "border-cf-warning-border bg-cf-warning-bg text-cf-warning-fg",
     icon: "\u26A0",
   },
   info: {
-    bg: "border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-300",
+    bg: "border-cf-info-border bg-cf-info-bg text-cf-info-fg",
     icon: "\u2139",
   },
 };
@@ -145,7 +145,7 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }): JSX.Element 
   return (
     <div
       role={props.toast.level === "error" ? "alert" : "status"}
-      class={`pointer-events-auto flex items-start gap-2 rounded-lg border-l-4 p-3 shadow-md dark:shadow-gray-900/30 ${style().bg}`}
+      class={`pointer-events-auto flex items-start gap-2 rounded-cf-md border-l-4 p-3 shadow-cf-md ${style().bg}`}
     >
       <span class="mt-0.5 text-sm font-bold" aria-hidden="true">
         {style().icon}

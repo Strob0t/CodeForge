@@ -30,18 +30,18 @@ export function StepProgress(props: StepProgressProps): JSX.Element {
 
   const barColor = () => {
     const p = percent();
-    if (p >= 90) return "bg-red-500 dark:bg-red-400";
-    if (p >= 70) return "bg-yellow-500 dark:bg-yellow-400";
-    return "bg-blue-500 dark:bg-blue-400";
+    if (p >= 90) return "bg-cf-danger";
+    if (p >= 70) return "bg-cf-warning";
+    return "bg-cf-accent";
   };
 
   return (
     <div class="flex items-center gap-2">
-      <span class="whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
+      <span class="whitespace-nowrap text-xs text-cf-text-secondary">
         {props.label ?? t("progress.steps")}
       </span>
       <div
-        class="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+        class="relative h-2 flex-1 overflow-hidden rounded-full bg-cf-bg-inset"
         role="progressbar"
         aria-valuenow={props.current}
         aria-valuemin={0}
@@ -59,7 +59,7 @@ export function StepProgress(props: StepProgressProps): JSX.Element {
           when={hasMax()}
           fallback={
             <div
-              class="absolute inset-0 animate-pulse rounded-full bg-blue-400/50 dark:bg-blue-500/40"
+              class="absolute inset-0 animate-pulse rounded-full bg-cf-accent/40"
               style={{ width: "100%" }}
             />
           }
@@ -70,7 +70,7 @@ export function StepProgress(props: StepProgressProps): JSX.Element {
           />
         </Show>
       </div>
-      <span class="whitespace-nowrap text-xs font-medium tabular-nums text-gray-700 dark:text-gray-300">
+      <span class="whitespace-nowrap text-xs font-medium tabular-nums text-cf-text-secondary">
         <Show when={hasMax()} fallback={String(props.current)}>
           {props.current} / {props.max}
         </Show>

@@ -13,6 +13,22 @@ import type {
 import { useAuth } from "~/components/AuthProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  ConfirmDialog,
+  FormField,
+  Input,
+  PageLayout,
+  Section,
+  Select,
+  Table,
+  Textarea,
+} from "~/ui";
+import type { TableColumn } from "~/ui/composites/Table";
 
 const AUTONOMY_LEVELS = [
   { value: "supervised", label: "1 - Supervised" },
@@ -139,6 +155,7 @@ export default function SettingsPage() {
   const [vcsToken, setVcsToken] = createSignal("");
   const [vcsServerUrl, setVcsServerUrl] = createSignal("");
   const [testingId, setTestingId] = createSignal<string | null>(null);
+  const [vcsDeleteId, setVcsDeleteId] = createSignal<string | null>(null);
 
   const handleCreateVCS = async () => {
     const label = vcsLabel().trim();
@@ -163,13 +180,14 @@ export default function SettingsPage() {
   };
 
   const handleDeleteVCS = async (id: string) => {
-    if (!confirm(t("settings.vcs.deleteConfirm"))) return;
     try {
       await api.vcsAccounts.delete(id);
       refetchVCS();
       toast("success", t("settings.vcs.deleted"));
     } catch {
       toast("error", t("settings.vcs.deleteFailed"));
+    } finally {
+      setVcsDeleteId(null);
     }
   };
 
@@ -219,220 +237,242 @@ export default function SettingsPage() {
     }
   };
 
+  // -- User table columns --
+  const userColumns: TableColumn<User>[] = [
+    { key: "email", header: t("settings.users.email") },
+    { key: "name", header: t("settings.users.name") },
+    {
+      key: "role",
+      header: t("settings.users.role"),
+      render: (u) => (
+        <Badge
+          variant={u.role === "admin" ? "danger" : u.role === "editor" ? "primary" : "default"}
+          pill
+        >
+          {u.role}
+        </Badge>
+      ),
+    },
+    {
+      key: "status",
+      header: t("common.status"),
+      render: (u) => (
+        <button
+          type="button"
+          class="text-xs"
+          onClick={() => handleToggleUser(u)}
+          aria-label={
+            u.enabled
+              ? t("settings.users.disableAria", { name: u.name })
+              : t("settings.users.enableAria", { name: u.name })
+          }
+        >
+          <Badge variant={u.enabled ? "success" : "default"} pill>
+            {u.enabled ? t("settings.users.enabled") : t("settings.users.disabled")}
+          </Badge>
+        </button>
+      ),
+    },
+    {
+      key: "actions",
+      header: t("settings.users.actions"),
+      render: (u) => (
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={() => handleDeleteUser(u.id)}
+          aria-label={t("settings.users.deleteAria", { name: u.name })}
+        >
+          {t("common.delete")}
+        </Button>
+      ),
+    },
+  ];
+
+  const providerBadgeVariant = (provider: string) => {
+    switch (provider) {
+      case "github":
+        return "default" as const;
+      case "gitlab":
+        return "warning" as const;
+      case "gitea":
+        return "success" as const;
+      default:
+        return "info" as const;
+    }
+  };
+
   return (
-    <div>
-      <h2 class="mb-6 text-2xl font-bold">{t("settings.title")}</h2>
-
+    <PageLayout title={t("settings.title")}>
       {/* General Settings Section */}
-      <section class="mb-8">
-        <h3 class="mb-4 text-lg font-semibold">{t("settings.general.title")}</h3>
-        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <div class="space-y-4">
-            {/* Default Provider */}
+      <Section title={t("settings.general.title")} class="mb-8">
+        <div class="space-y-4">
+          <FormField
+            label={t("settings.general.defaultProvider")}
+            id="default-provider"
+            help={t("settings.general.defaultProviderHelp")}
+          >
+            <Input
+              id="default-provider"
+              type="text"
+              value={defaultProvider()}
+              onInput={(e) => setDefaultProvider(e.currentTarget.value)}
+              placeholder="e.g. openai/gpt-4o"
+              class="max-w-md"
+            />
+          </FormField>
+
+          <FormField
+            label={t("settings.general.defaultAutonomy")}
+            id="default-autonomy"
+            help={t("settings.general.defaultAutonomyHelp")}
+          >
+            <Select
+              id="default-autonomy"
+              value={defaultAutonomy()}
+              onChange={(e) => setDefaultAutonomy(e.currentTarget.value)}
+              class="max-w-md"
+            >
+              <For each={AUTONOMY_LEVELS}>
+                {(level) => <option value={level.value}>{level.label}</option>}
+              </For>
+            </Select>
+          </FormField>
+
+          <div class="flex items-center gap-3">
+            <Checkbox
+              id="auto-clone"
+              checked={autoClone()}
+              onChange={(checked) => setAutoClone(checked)}
+            />
             <div>
-              <label
-                for="default-provider"
-                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("settings.general.defaultProvider")}
+              <label for="auto-clone" class="text-sm font-medium text-cf-text-secondary">
+                {t("settings.general.autoClone")}
               </label>
-              <input
-                id="default-provider"
-                type="text"
-                value={defaultProvider()}
-                onInput={(e) => setDefaultProvider(e.currentTarget.value)}
-                placeholder="e.g. openai/gpt-4o"
-                class="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-              />
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {t("settings.general.defaultProviderHelp")}
-              </p>
-            </div>
-
-            {/* Default Autonomy */}
-            <div>
-              <label
-                for="default-autonomy"
-                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("settings.general.defaultAutonomy")}
-              </label>
-              <select
-                id="default-autonomy"
-                value={defaultAutonomy()}
-                onChange={(e) => setDefaultAutonomy(e.currentTarget.value)}
-                class="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-              >
-                <For each={AUTONOMY_LEVELS}>
-                  {(level) => <option value={level.value}>{level.label}</option>}
-                </For>
-              </select>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {t("settings.general.defaultAutonomyHelp")}
-              </p>
-            </div>
-
-            {/* Auto Clone */}
-            <div class="flex items-center gap-3">
-              <input
-                id="auto-clone"
-                type="checkbox"
-                checked={autoClone()}
-                onChange={(e) => setAutoClone(e.currentTarget.checked)}
-                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <div>
-                <label
-                  for="auto-clone"
-                  class="text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("settings.general.autoClone")}
-                </label>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {t("settings.general.autoCloneHelp")}
-                </p>
-              </div>
-            </div>
-
-            {/* Save Button */}
-            <div class="pt-2">
-              <button
-                type="button"
-                class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                onClick={handleSaveGeneral}
-                disabled={saving()}
-              >
-                {t("settings.general.save")}
-              </button>
+              <p class="text-xs text-cf-text-muted">{t("settings.general.autoCloneHelp")}</p>
             </div>
           </div>
+
+          <div class="pt-2">
+            <Button onClick={handleSaveGeneral} loading={saving()}>
+              {t("settings.general.save")}
+            </Button>
+          </div>
         </div>
-      </section>
+      </Section>
 
       {/* VCS Accounts Section */}
-      <section class="mb-8">
-        <h3 class="mb-4 text-lg font-semibold">{t("settings.vcs.title")}</h3>
-        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          {/* Add new account form */}
-          <div class="mb-4 space-y-3">
-            <div class="flex gap-2">
-              <select
-                value={vcsProvider()}
-                onChange={(e) => setVcsProvider(e.currentTarget.value as VCSProvider)}
-                class="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-                aria-label={t("settings.vcs.provider")}
-              >
-                <option value="github">GitHub</option>
-                <option value="gitlab">GitLab</option>
-                <option value="gitea">Gitea</option>
-                <option value="bitbucket">Bitbucket</option>
-              </select>
-              <input
-                type="text"
-                value={vcsLabel()}
-                onInput={(e) => setVcsLabel(e.currentTarget.value)}
-                placeholder={t("settings.vcs.labelPlaceholder")}
-                class="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-                aria-label={t("settings.vcs.label")}
-              />
-            </div>
-            <div class="flex gap-2">
-              <input
-                type="password"
-                value={vcsToken()}
-                onInput={(e) => setVcsToken(e.currentTarget.value)}
-                placeholder={t("settings.vcs.tokenPlaceholder")}
-                class="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-                aria-label={t("settings.vcs.token")}
-              />
-              <input
-                type="text"
-                value={vcsServerUrl()}
-                onInput={(e) => setVcsServerUrl(e.currentTarget.value)}
-                placeholder={t("settings.vcs.serverUrlPlaceholder")}
-                class="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-                aria-label={t("settings.vcs.serverUrl")}
-              />
-            </div>
-            <button
-              type="button"
-              class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-              onClick={handleCreateVCS}
-              disabled={!vcsLabel().trim() || !vcsToken().trim()}
+      <Section title={t("settings.vcs.title")} class="mb-8">
+        {/* Add new account form */}
+        <div class="mb-4 space-y-3">
+          <div class="flex gap-2">
+            <Select
+              value={vcsProvider()}
+              onChange={(e) => setVcsProvider(e.currentTarget.value as VCSProvider)}
+              aria-label={t("settings.vcs.provider")}
+              class="w-auto"
             >
-              {t("settings.vcs.add")}
-            </button>
+              <option value="github">GitHub</option>
+              <option value="gitlab">GitLab</option>
+              <option value="gitea">Gitea</option>
+              <option value="bitbucket">Bitbucket</option>
+            </Select>
+            <Input
+              type="text"
+              value={vcsLabel()}
+              onInput={(e) => setVcsLabel(e.currentTarget.value)}
+              placeholder={t("settings.vcs.labelPlaceholder")}
+              aria-label={t("settings.vcs.label")}
+              class="flex-1"
+            />
           </div>
-
-          {/* Account list */}
-          <Show
-            when={(vcsAccounts() ?? []).length > 0}
-            fallback={
-              <p class="text-sm text-gray-500 dark:text-gray-400">{t("settings.vcs.empty")}</p>
-            }
-          >
-            <ul class="divide-y divide-gray-200 dark:divide-gray-700">
-              <For each={vcsAccounts() ?? []}>
-                {(acct) => (
-                  <li class="flex items-center justify-between py-3">
-                    <div class="flex items-center gap-3">
-                      <span
-                        class={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                          acct.provider === "github"
-                            ? "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
-                            : acct.provider === "gitlab"
-                              ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"
-                              : acct.provider === "gitea"
-                                ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                                : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
-                        }`}
-                      >
-                        {acct.provider}
-                      </span>
-                      <div>
-                        <span class="text-sm font-medium">{acct.label}</span>
-                        <Show when={acct.server_url}>
-                          <span class="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                            {acct.server_url}
-                          </span>
-                        </Show>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs text-gray-400 dark:text-gray-500">
-                        {new Date(acct.created_at).toLocaleDateString()}
-                      </span>
-                      <button
-                        type="button"
-                        class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
-                        onClick={() => handleTestVCS(acct.id)}
-                        disabled={testingId() === acct.id}
-                        aria-label={t("settings.vcs.testAria", { name: acct.label })}
-                      >
-                        {testingId() === acct.id
-                          ? t("settings.vcs.testing")
-                          : t("settings.vcs.test")}
-                      </button>
-                      <button
-                        type="button"
-                        class="text-xs text-red-600 hover:underline dark:text-red-400"
-                        onClick={() => handleDeleteVCS(acct.id)}
-                        aria-label={t("settings.vcs.deleteAria", { name: acct.label })}
-                      >
-                        {t("common.delete")}
-                      </button>
-                    </div>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
+          <div class="flex gap-2">
+            <Input
+              type="password"
+              value={vcsToken()}
+              onInput={(e) => setVcsToken(e.currentTarget.value)}
+              placeholder={t("settings.vcs.tokenPlaceholder")}
+              aria-label={t("settings.vcs.token")}
+              class="flex-1"
+            />
+            <Input
+              type="text"
+              value={vcsServerUrl()}
+              onInput={(e) => setVcsServerUrl(e.currentTarget.value)}
+              placeholder={t("settings.vcs.serverUrlPlaceholder")}
+              aria-label={t("settings.vcs.serverUrl")}
+              class="flex-1"
+            />
+          </div>
+          <Button onClick={handleCreateVCS} disabled={!vcsLabel().trim() || !vcsToken().trim()}>
+            {t("settings.vcs.add")}
+          </Button>
         </div>
-      </section>
+
+        {/* Account list */}
+        <Show
+          when={(vcsAccounts() ?? []).length > 0}
+          fallback={<p class="text-sm text-cf-text-muted">{t("settings.vcs.empty")}</p>}
+        >
+          <ul class="divide-y divide-cf-border">
+            <For each={vcsAccounts() ?? []}>
+              {(acct) => (
+                <li class="flex items-center justify-between py-3">
+                  <div class="flex items-center gap-3">
+                    <Badge variant={providerBadgeVariant(acct.provider)} pill>
+                      {acct.provider}
+                    </Badge>
+                    <div>
+                      <span class="text-sm font-medium text-cf-text-primary">{acct.label}</span>
+                      <Show when={acct.server_url}>
+                        <span class="ml-2 text-xs text-cf-text-muted">{acct.server_url}</span>
+                      </Show>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-cf-text-muted">
+                      {new Date(acct.created_at).toLocaleDateString()}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleTestVCS(acct.id)}
+                      loading={testingId() === acct.id}
+                      aria-label={t("settings.vcs.testAria", { name: acct.label })}
+                    >
+                      {testingId() === acct.id ? t("settings.vcs.testing") : t("settings.vcs.test")}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => setVcsDeleteId(acct.id)}
+                      aria-label={t("settings.vcs.deleteAria", { name: acct.label })}
+                    >
+                      {t("common.delete")}
+                    </Button>
+                  </div>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+      </Section>
+
+      {/* VCS Delete Confirm Dialog */}
+      <ConfirmDialog
+        open={vcsDeleteId() !== null}
+        title={t("common.delete")}
+        message={t("settings.vcs.deleteConfirm")}
+        variant="danger"
+        onConfirm={() => {
+          const id = vcsDeleteId();
+          if (id) handleDeleteVCS(id);
+        }}
+        onCancel={() => setVcsDeleteId(null)}
+      />
 
       {/* Providers Section */}
-      <section class="mb-8">
-        <h3 class="mb-4 text-lg font-semibold">{t("settings.providers.title")}</h3>
+      <Section title={t("settings.providers.title")} class="mb-8">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <ProviderCard
             label={t("settings.providers.git")}
@@ -455,399 +495,250 @@ export default function SettingsPage() {
             loading={pmProviders.loading}
           />
         </div>
-      </section>
+      </Section>
 
       {/* LLM Health */}
-      <section class="mb-8">
-        <h3 class="mb-4 text-lg font-semibold">{t("settings.llm.title")}</h3>
-        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+      <Section title={t("settings.llm.title")} class="mb-8">
+        <Show
+          when={!llmHealth.loading}
+          fallback={<p class="text-sm text-cf-text-muted">{t("settings.llm.checking")}</p>}
+        >
           <Show
-            when={!llmHealth.loading}
-            fallback={
-              <p class="text-sm text-gray-500 dark:text-gray-400">{t("settings.llm.checking")}</p>
-            }
+            when={llmHealth()}
+            fallback={<Alert variant="error">{t("settings.llm.unavailable")}</Alert>}
           >
-            <Show
-              when={llmHealth()}
-              fallback={
-                <p class="text-sm text-red-600 dark:text-red-400">
-                  {t("settings.llm.unavailable")}
-                </p>
-              }
-            >
-              <p class="text-sm text-green-600 dark:text-green-400">
-                {t("settings.llm.connected")}
-              </p>
-            </Show>
+            <Alert variant="success">{t("settings.llm.connected")}</Alert>
           </Show>
-        </div>
-      </section>
+        </Show>
+      </Section>
 
       {/* API Keys Section */}
-      <section class="mb-8">
-        <h3 class="mb-4 text-lg font-semibold">{t("settings.apiKey.title")}</h3>
-        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          {/* Create new key */}
-          <div class="mb-4 flex gap-2">
-            <input
-              type="text"
-              value={newKeyName()}
-              onInput={(e) => setNewKeyName(e.currentTarget.value)}
-              placeholder={t("settings.apiKey.namePlaceholder")}
-              class="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-              aria-label={t("settings.apiKey.nameLabel")}
-            />
-            <button
-              type="button"
-              class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-              onClick={handleCreateKey}
-              disabled={!newKeyName().trim()}
-            >
-              {t("settings.apiKey.create")}
-            </button>
-          </div>
-
-          {/* Show newly created key */}
-          <Show when={createdKey()}>
-            {(key) => (
-              <div class="mb-4 rounded bg-green-50 p-3 text-sm dark:bg-green-900/20" role="alert">
-                <p class="mb-1 font-medium text-green-800 dark:text-green-300">
-                  {t("settings.apiKey.copyWarning")}
-                </p>
-                <code class="block break-all rounded bg-white p-2 font-mono text-xs dark:bg-gray-800">
-                  {key()}
-                </code>
-                <button
-                  type="button"
-                  class="mt-2 text-xs text-green-600 hover:underline dark:text-green-400"
-                  onClick={() => setCreatedKey(null)}
-                >
-                  {t("common.dismiss")}
-                </button>
-              </div>
-            )}
-          </Show>
-
-          {/* Key list */}
-          <Show
-            when={(apiKeys() ?? []).length > 0}
-            fallback={
-              <p class="text-sm text-gray-500 dark:text-gray-400">{t("settings.apiKey.empty")}</p>
-            }
-          >
-            <ul class="divide-y divide-gray-200 dark:divide-gray-700">
-              <For each={apiKeys() ?? []}>
-                {(key) => (
-                  <li class="flex items-center justify-between py-2">
-                    <div>
-                      <span class="text-sm font-medium">{key.name}</span>
-                      <span class="ml-2 font-mono text-xs text-gray-500 dark:text-gray-400">
-                        {key.prefix}...
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      class="text-xs text-red-600 hover:underline dark:text-red-400"
-                      onClick={() => handleDeleteKey(key.id)}
-                      aria-label={t("settings.apiKey.deleteAria", { name: key.name })}
-                    >
-                      {t("common.delete")}
-                    </button>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
+      <Section title={t("settings.apiKey.title")} class="mb-8">
+        {/* Create new key */}
+        <div class="mb-4 flex gap-2">
+          <Input
+            type="text"
+            value={newKeyName()}
+            onInput={(e) => setNewKeyName(e.currentTarget.value)}
+            placeholder={t("settings.apiKey.namePlaceholder")}
+            aria-label={t("settings.apiKey.nameLabel")}
+            class="flex-1"
+          />
+          <Button onClick={handleCreateKey} disabled={!newKeyName().trim()}>
+            {t("settings.apiKey.create")}
+          </Button>
         </div>
-      </section>
+
+        {/* Show newly created key */}
+        <Show when={createdKey()}>
+          {(key) => (
+            <Alert variant="success" onDismiss={() => setCreatedKey(null)} class="mb-4">
+              <p class="mb-1 font-medium">{t("settings.apiKey.copyWarning")}</p>
+              <code class="block break-all rounded bg-cf-bg-surface p-2 font-mono text-xs">
+                {key()}
+              </code>
+            </Alert>
+          )}
+        </Show>
+
+        {/* Key list */}
+        <Show
+          when={(apiKeys() ?? []).length > 0}
+          fallback={<p class="text-sm text-cf-text-muted">{t("settings.apiKey.empty")}</p>}
+        >
+          <ul class="divide-y divide-cf-border">
+            <For each={apiKeys() ?? []}>
+              {(key) => (
+                <li class="flex items-center justify-between py-2">
+                  <div>
+                    <span class="text-sm font-medium text-cf-text-primary">{key.name}</span>
+                    <span class="ml-2 font-mono text-xs text-cf-text-muted">{key.prefix}...</span>
+                  </div>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => handleDeleteKey(key.id)}
+                    aria-label={t("settings.apiKey.deleteAria", { name: key.name })}
+                  >
+                    {t("common.delete")}
+                  </Button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+      </Section>
 
       {/* User Management (admin only) */}
       <Show when={auth.user()?.role === "admin"}>
-        <section class="mb-8">
-          <h3 class="mb-4 text-lg font-semibold">{t("settings.users.title")}</h3>
-          <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-            <Show
-              when={(users() ?? []).length > 0}
-              fallback={
-                <p class="text-sm text-gray-500 dark:text-gray-400">{t("settings.users.empty")}</p>
-              }
-            >
-              <table class="w-full text-left text-sm">
-                <thead>
-                  <tr class="border-b border-gray-200 dark:border-gray-700">
-                    <th scope="col" class="pb-2 font-medium">
-                      {t("settings.users.email")}
-                    </th>
-                    <th scope="col" class="pb-2 font-medium">
-                      {t("settings.users.name")}
-                    </th>
-                    <th scope="col" class="pb-2 font-medium">
-                      {t("settings.users.role")}
-                    </th>
-                    <th scope="col" class="pb-2 font-medium">
-                      {t("common.status")}
-                    </th>
-                    <th scope="col" class="pb-2 font-medium">
-                      {t("settings.users.actions")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={users() ?? []}>
-                    {(u) => (
-                      <tr class="border-b border-gray-100 dark:border-gray-700/50">
-                        <td class="py-2">{u.email}</td>
-                        <td class="py-2">{u.name}</td>
-                        <td class="py-2">
-                          <span
-                            class={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                              u.role === "admin"
-                                ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
-                                : u.role === "editor"
-                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                  : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400"
-                            }`}
-                          >
-                            {u.role}
-                          </span>
-                        </td>
-                        <td class="py-2">
-                          <button
-                            type="button"
-                            class={`text-xs ${
-                              u.enabled
-                                ? "text-green-600 dark:text-green-400"
-                                : "text-gray-400 dark:text-gray-500"
-                            }`}
-                            onClick={() => handleToggleUser(u)}
-                            aria-label={
-                              u.enabled
-                                ? t("settings.users.disableAria", { name: u.name })
-                                : t("settings.users.enableAria", { name: u.name })
-                            }
-                          >
-                            {u.enabled ? t("settings.users.enabled") : t("settings.users.disabled")}
-                          </button>
-                        </td>
-                        <td class="py-2">
-                          <button
-                            type="button"
-                            class="text-xs text-red-600 hover:underline dark:text-red-400"
-                            onClick={() => handleDeleteUser(u.id)}
-                            aria-label={t("settings.users.deleteAria", { name: u.name })}
-                          >
-                            {t("common.delete")}
-                          </button>
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
-            </Show>
-          </div>
-        </section>
+        <Section title={t("settings.users.title")} class="mb-8">
+          <Table<User>
+            columns={userColumns}
+            data={users() ?? []}
+            rowKey={(u) => u.id}
+            emptyMessage={t("settings.users.empty")}
+          />
+        </Section>
       </Show>
 
       {/* Developer Tools Section */}
-      <section class="mb-8">
-        <h3 class="mb-4 text-lg font-semibold">{t("settings.devTools")}</h3>
-        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-          <h4 class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
-            {t("settings.benchmark.title")}
-          </h4>
-          <div class="space-y-3">
-            {/* Model */}
-            <div>
-              <label
-                for="bench-model"
-                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("settings.benchmark.model")}
+      <Section title={t("settings.devTools")} class="mb-8">
+        <h4 class="mb-3 text-sm font-medium text-cf-text-secondary">
+          {t("settings.benchmark.title")}
+        </h4>
+        <div class="space-y-3">
+          <FormField label={t("settings.benchmark.model")} id="bench-model">
+            <Input
+              id="bench-model"
+              type="text"
+              value={benchModel()}
+              onInput={(e) => setBenchModel(e.currentTarget.value)}
+              placeholder="e.g. openai/gpt-4o"
+              class="max-w-md"
+            />
+          </FormField>
+
+          <FormField label={t("settings.benchmark.systemPrompt")} id="bench-system">
+            <Textarea
+              id="bench-system"
+              value={benchSystemPrompt()}
+              onInput={(e) => setBenchSystemPrompt(e.currentTarget.value)}
+              placeholder="Optional system instructions..."
+              rows={2}
+            />
+          </FormField>
+
+          <FormField label={t("settings.benchmark.prompt")} id="bench-prompt">
+            <Textarea
+              id="bench-prompt"
+              value={benchPrompt()}
+              onInput={(e) => setBenchPrompt(e.currentTarget.value)}
+              placeholder="Enter your prompt..."
+              rows={4}
+            />
+          </FormField>
+
+          {/* Temperature + Max Tokens */}
+          <div class="flex gap-4">
+            <div class="flex-1">
+              <label for="bench-temp" class="mb-1 block text-sm font-medium text-cf-text-secondary">
+                {t("settings.benchmark.temperature")}: {benchTemp().toFixed(1)}
               </label>
               <input
-                id="bench-model"
-                type="text"
-                value={benchModel()}
-                onInput={(e) => setBenchModel(e.currentTarget.value)}
-                placeholder="e.g. openai/gpt-4o"
-                class="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                id="bench-temp"
+                type="range"
+                min="0"
+                max="2"
+                step="0.1"
+                value={benchTemp()}
+                onInput={(e) => setBenchTemp(parseFloat(e.currentTarget.value))}
+                class="w-full max-w-md"
               />
             </div>
-
-            {/* System Prompt */}
-            <div>
-              <label
-                for="bench-system"
-                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("settings.benchmark.systemPrompt")}
-              </label>
-              <textarea
-                id="bench-system"
-                value={benchSystemPrompt()}
-                onInput={(e) => setBenchSystemPrompt(e.currentTarget.value)}
-                placeholder="Optional system instructions..."
-                rows={2}
-                class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-              />
-            </div>
-
-            {/* Prompt */}
-            <div>
-              <label
-                for="bench-prompt"
-                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("settings.benchmark.prompt")}
-              </label>
-              <textarea
-                id="bench-prompt"
-                value={benchPrompt()}
-                onInput={(e) => setBenchPrompt(e.currentTarget.value)}
-                placeholder="Enter your prompt..."
-                rows={4}
-                class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-              />
-            </div>
-
-            {/* Temperature + Max Tokens */}
-            <div class="flex gap-4">
-              <div class="flex-1">
-                <label
-                  for="bench-temp"
-                  class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("settings.benchmark.temperature")}: {benchTemp().toFixed(1)}
-                </label>
-                <input
-                  id="bench-temp"
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={benchTemp()}
-                  onInput={(e) => setBenchTemp(parseFloat(e.currentTarget.value))}
-                  class="w-full max-w-md"
-                />
-              </div>
-              <div class="w-40">
-                <label
-                  for="bench-tokens"
-                  class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("settings.benchmark.maxTokens")}
-                </label>
-                <input
+            <div class="w-40">
+              <FormField label={t("settings.benchmark.maxTokens")} id="bench-tokens">
+                <Input
                   id="bench-tokens"
                   type="number"
                   min="1"
                   max="128000"
                   value={benchMaxTokens()}
                   onInput={(e) => setBenchMaxTokens(parseInt(e.currentTarget.value, 10) || 1000)}
-                  class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                 />
-              </div>
+              </FormField>
             </div>
+          </div>
 
-            {/* Run button */}
-            <div class="pt-2">
-              <button
-                type="button"
-                class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                onClick={handleRunBenchmark}
-                disabled={benchRunning() || !benchModel().trim() || !benchPrompt().trim()}
-              >
-                {benchRunning() ? t("settings.benchmark.running") : t("settings.benchmark.run")}
-              </button>
-            </div>
+          {/* Run button */}
+          <div class="pt-2">
+            <Button
+              onClick={handleRunBenchmark}
+              loading={benchRunning()}
+              disabled={!benchModel().trim() || !benchPrompt().trim()}
+            >
+              {benchRunning() ? t("settings.benchmark.running") : t("settings.benchmark.run")}
+            </Button>
+          </div>
 
-            {/* Error */}
-            <Show when={benchError()}>
-              {(err) => (
-                <div class="rounded bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
-                  {err()}
-                </div>
-              )}
-            </Show>
+          {/* Error */}
+          <Show when={benchError()}>{(err) => <Alert variant="error">{err()}</Alert>}</Show>
 
-            {/* Results */}
-            <Show when={benchResult()}>
-              {(result) => (
-                <div class="space-y-3 rounded border border-gray-200 p-3 dark:border-gray-700">
+          {/* Results */}
+          <Show when={benchResult()}>
+            {(result) => (
+              <Card>
+                <Card.Body>
                   <div class="flex flex-wrap gap-4 text-sm">
                     <div>
-                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                      <span class="font-medium text-cf-text-tertiary">
                         {t("settings.benchmark.model")}:
                       </span>{" "}
                       <span class="font-mono">{result().model}</span>
                     </div>
                     <div>
-                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                      <span class="font-medium text-cf-text-tertiary">
                         {t("settings.benchmark.latency")}:
                       </span>{" "}
                       {result().latency_ms} ms
                     </div>
                     <div>
-                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                      <span class="font-medium text-cf-text-tertiary">
                         {t("settings.benchmark.tokensIn")}:
                       </span>{" "}
                       {result().tokens_in}
                     </div>
                     <div>
-                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                      <span class="font-medium text-cf-text-tertiary">
                         {t("settings.benchmark.tokensOut")}:
                       </span>{" "}
                       {result().tokens_out}
                     </div>
                   </div>
-                  <div>
-                    <p class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">
+                  <div class="mt-3">
+                    <p class="mb-1 text-sm font-medium text-cf-text-tertiary">
                       {t("settings.benchmark.response")}:
                     </p>
-                    <pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm dark:bg-gray-900">
+                    <pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-cf-bg-surface-alt p-3 text-sm">
                       {result().content}
                     </pre>
                   </div>
-                </div>
-              )}
-            </Show>
-          </div>
+                </Card.Body>
+              </Card>
+            )}
+          </Show>
         </div>
-      </section>
-    </div>
+      </Section>
+    </PageLayout>
   );
 }
 
 function ProviderCard(props: { label: string; items: string[]; loading: boolean }) {
   const { t } = useI18n();
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-      <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">{props.label}</h4>
-      <Show
-        when={!props.loading}
-        fallback={
-          <p class="text-xs text-gray-400 dark:text-gray-500">{t("settings.providers.loading")}</p>
-        }
-      >
+    <Card>
+      <Card.Body>
+        <h4 class="mb-2 text-sm font-medium text-cf-text-tertiary">{props.label}</h4>
         <Show
-          when={props.items.length > 0}
-          fallback={
-            <p class="text-xs text-gray-400 dark:text-gray-500">{t("settings.providers.none")}</p>
-          }
+          when={!props.loading}
+          fallback={<p class="text-xs text-cf-text-muted">{t("settings.providers.loading")}</p>}
         >
-          <ul class="space-y-1">
-            <For each={props.items}>
-              {(item) => (
-                <li class="flex items-center gap-1.5 text-sm">
-                  <span class="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden="true" />
-                  {item}
-                </li>
-              )}
-            </For>
-          </ul>
+          <Show
+            when={props.items.length > 0}
+            fallback={<p class="text-xs text-cf-text-muted">{t("settings.providers.none")}</p>}
+          >
+            <ul class="space-y-1">
+              <For each={props.items}>
+                {(item) => (
+                  <li class="flex items-center gap-1.5 text-sm text-cf-text-primary">
+                    <span class="h-1.5 w-1.5 rounded-full bg-cf-success-fg" aria-hidden="true" />
+                    {item}
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
         </Show>
-      </Show>
-    </div>
+      </Card.Body>
+    </Card>
   );
 }

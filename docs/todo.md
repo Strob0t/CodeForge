@@ -1122,9 +1122,66 @@ Bug Fixes --- independent, anytime
 
 ---
 
+### Phase 16: Frontend Design System Rework
+
+> Custom design system with theme engine, 23 reusable components, full page migration.
+
+#### 16A. Foundation — Theme Engine + Design Tokens
+
+- [x] (2026-02-24) Expand CSS design tokens: ~25 new tokens (semantic colors, shadows, radii, interactive states) in `:root` and `.dark`
+- [x] (2026-02-24) Register tokens as Tailwind v4 `@theme` values (enables `bg-cf-accent`, `text-cf-danger`, etc.)
+- [x] (2026-02-24) Custom theme engine: `ThemeDefinition` type, `applyCustomTheme()`, `registerTheme()`, localStorage persistence
+- [x] (2026-02-24) Built-in themes: Nord and Solarized Dark with full token overrides
+- [x] (2026-02-24) Directory structure: `src/ui/{tokens,primitives,composites,layout}/` with barrel exports
+
+#### 16B. Primitives — 11 Atomic Components (`src/ui/primitives/`)
+
+- [x] (2026-02-24) Button (primary/secondary/danger/ghost, sm/md/lg, loading, fullWidth)
+- [x] (2026-02-24) Input, Select, Textarea (error state, mono font, token-based styling)
+- [x] (2026-02-24) Checkbox (checked/onChange/disabled)
+- [x] (2026-02-24) Label (required indicator with sr-only text)
+- [x] (2026-02-24) Badge (6 variants: default/primary/success/warning/danger/info, pill mode)
+- [x] (2026-02-24) Alert (4 variants with icon, dismissible)
+- [x] (2026-02-24) Spinner (CSS animation, respects reduced-motion, 3 sizes)
+- [x] (2026-02-24) StatusDot (color prop, pulse animation, accessibility label)
+- [x] (2026-02-24) FormField (label + input + help + error wrapper with aria-describedby)
+
+#### 16C. Composites — 8 Compound Components (`src/ui/composites/`)
+
+- [x] (2026-02-24) Card (compound: Header/Body/Footer sub-components)
+- [x] (2026-02-24) Modal (Portal, focus trap, Escape close, aria-modal, body scroll lock)
+- [x] (2026-02-24) Table (generic typed columns, loading/empty states)
+- [x] (2026-02-24) Tabs (underline/pills variants, keyboard accessible)
+- [x] (2026-02-24) EmptyState, LoadingState, ConfirmDialog, SectionHeader
+
+#### 16D. Layout — 4 App Shell Components (`src/ui/layout/`)
+
+- [x] (2026-02-24) Sidebar (compound: Header/Nav/Footer)
+- [x] (2026-02-24) NavLink (active state styling with @solidjs/router)
+- [x] (2026-02-24) PageLayout (title + description + action + content)
+- [x] (2026-02-24) Section (SectionHeader + Card wrapper)
+
+#### 16E. Page Migration — All 40+ Files
+
+- [x] (2026-02-24) Batch 1: App.tsx (Sidebar, NavLink, StatusDot), NotFoundPage, LoginPage
+- [x] (2026-02-24) Batch 2: DashboardPage, ProjectCard, ModesPage, MCPServersPage, CostDashboardPage
+- [x] (2026-02-24) Batch 3: SettingsPage, ScopesPage, TeamsPage, KnowledgeBasesPage, ActivityPage, ModelsPage
+- [x] (2026-02-24) Batch 4: ProjectDetailPage + 20 sub-panels (PolicyPanel, PlanPanel, RoadmapPanel, etc.)
+- [x] (2026-02-24) Batch 5: Toast, CommandPalette, OfflineBanner, StepProgress, DiffPreview
+
+#### 16F. Polish — WCAG 2.2 AA + Cleanup
+
+- [x] (2026-02-24) Fix `--cf-text-muted` contrast: gray-400 -> gray-500 (4.6:1 on white, WCAG AA compliant)
+- [x] (2026-02-24) Eliminate all hardcoded color classes: 0 remaining `bg-gray-*`/`text-gray-*` in .tsx files
+- [x] (2026-02-24) ESLint: 0 errors (11 pre-existing warnings only)
+- [x] (2026-02-24) Production build: CSS reduced from 62KB to 40KB (-35%)
+- [x] (2026-02-24) All 37 unit tests pass
+
+---
+
 ### Notes
 
-- Phases 0-15 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91). Frontend E2E QA: 13/13 test areas pass (5 bugs found and fixed: detect stack nil-slice, settings popover dismiss, sync-to-file stale binary, cascade deletes, WS auth). Phase 15: MCP + LSP protocol integrations complete (mcp-go server, Python workbench, DB registry, frontend, policy integration).
+- Phases 0-16 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91). Frontend E2E QA: 13/13 test areas pass (5 bugs found and fixed: detect stack nil-slice, settings popover dismiss, sync-to-file stale binary, cascade deletes, WS auth). Phase 15: MCP + LSP protocol integrations complete (mcp-go server, Python workbench, DB registry, frontend, policy integration).
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
 - **Completed Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
 - Completed: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy

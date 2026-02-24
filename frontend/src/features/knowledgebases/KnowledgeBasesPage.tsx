@@ -4,6 +4,18 @@ import { api } from "~/api/client";
 import type { CreateKnowledgeBaseRequest, KnowledgeBase } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  FormField,
+  Input,
+  LoadingState,
+  PageLayout,
+  Select,
+} from "~/ui";
+import type { BadgeVariant } from "~/ui/primitives/Badge";
 
 const CATEGORIES = ["framework", "paradigm", "language", "security", "custom"] as const;
 
@@ -82,134 +94,85 @@ export default function KnowledgeBasesPage() {
   };
 
   return (
-    <div>
-      <div class="mb-6 flex items-center justify-between">
-        <div>
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("kb.title")}</h2>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t("kb.description")}</p>
-        </div>
-        <button
-          type="button"
-          class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          onClick={() => setShowForm((v) => !v)}
-        >
+    <PageLayout
+      title={t("kb.title")}
+      description={t("kb.description")}
+      action={
+        <Button onClick={() => setShowForm((v) => !v)}>
           {showForm() ? "Cancel" : t("kb.form.create")}
-        </button>
-      </div>
-
+        </Button>
+      }
+    >
       <Show when={showForm()}>
-        <form
-          onSubmit={handleCreate}
-          class="mb-6 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800"
-          aria-label={t("kb.form.create")}
-        >
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label
-                for="kb-name"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("kb.form.name")} *
-              </label>
-              <input
-                id="kb-name"
-                type="text"
-                value={formName()}
-                onInput={(e) => setFormName(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                required
-              />
-            </div>
-            <div>
-              <label
-                for="kb-category"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("kb.form.category")}
-              </label>
-              <select
-                id="kb-category"
-                value={formCategory()}
-                onChange={(e) => setFormCategory(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-              >
-                <For each={[...CATEGORIES]}>
-                  {(cat) => (
-                    <option value={cat}>
-                      {t(`kb.category.${cat}` as keyof typeof import("~/i18n/en").default)}
-                    </option>
-                  )}
-                </For>
-              </select>
-            </div>
-            <div class="sm:col-span-2">
-              <label
-                for="kb-desc"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("kb.form.description")}
-              </label>
-              <input
-                id="kb-desc"
-                type="text"
-                value={formDesc()}
-                onInput={(e) => setFormDesc(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-              />
-            </div>
-            <div>
-              <label
-                for="kb-tags"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("kb.form.tags")}
-              </label>
-              <input
-                id="kb-tags"
-                type="text"
-                value={formTags()}
-                onInput={(e) => setFormTags(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                placeholder="tag1, tag2, tag3"
-              />
-            </div>
-            <div>
-              <label
-                for="kb-content-path"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("kb.form.contentPath")}
-              </label>
-              <input
-                id="kb-content-path"
-                type="text"
-                value={formContentPath()}
-                onInput={(e) => setFormContentPath(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                placeholder="/path/to/content"
-              />
-            </div>
-          </div>
-          <div class="mt-4 flex justify-end">
-            <button
-              type="submit"
-              class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              {t("kb.form.create")}
-            </button>
-          </div>
+        <form onSubmit={handleCreate} class="mb-6" aria-label={t("kb.form.create")}>
+          <Card>
+            <Card.Body>
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField label={t("kb.form.name")} id="kb-name" required>
+                  <Input
+                    id="kb-name"
+                    type="text"
+                    value={formName()}
+                    onInput={(e) => setFormName(e.currentTarget.value)}
+                    required
+                  />
+                </FormField>
+                <FormField label={t("kb.form.category")} id="kb-category">
+                  <Select
+                    id="kb-category"
+                    value={formCategory()}
+                    onChange={(e) => setFormCategory(e.currentTarget.value)}
+                  >
+                    <For each={[...CATEGORIES]}>
+                      {(cat) => (
+                        <option value={cat}>
+                          {t(`kb.category.${cat}` as keyof typeof import("~/i18n/en").default)}
+                        </option>
+                      )}
+                    </For>
+                  </Select>
+                </FormField>
+                <FormField label={t("kb.form.description")} id="kb-desc" class="sm:col-span-2">
+                  <Input
+                    id="kb-desc"
+                    type="text"
+                    value={formDesc()}
+                    onInput={(e) => setFormDesc(e.currentTarget.value)}
+                  />
+                </FormField>
+                <FormField label={t("kb.form.tags")} id="kb-tags">
+                  <Input
+                    id="kb-tags"
+                    type="text"
+                    value={formTags()}
+                    onInput={(e) => setFormTags(e.currentTarget.value)}
+                    placeholder="tag1, tag2, tag3"
+                  />
+                </FormField>
+                <FormField label={t("kb.form.contentPath")} id="kb-content-path">
+                  <Input
+                    id="kb-content-path"
+                    type="text"
+                    value={formContentPath()}
+                    onInput={(e) => setFormContentPath(e.currentTarget.value)}
+                    placeholder="/path/to/content"
+                  />
+                </FormField>
+              </div>
+              <div class="mt-4 flex justify-end">
+                <Button type="submit">{t("kb.form.create")}</Button>
+              </div>
+            </Card.Body>
+          </Card>
         </form>
       </Show>
 
       <Show when={kbs.loading}>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{t("kb.loading")}</p>
+        <LoadingState message={t("kb.loading")} />
       </Show>
 
       <Show when={!kbs.loading}>
-        <Show
-          when={sorted().length}
-          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("kb.empty")}</p>}
-        >
+        <Show when={sorted().length} fallback={<EmptyState title={t("kb.empty")} />}>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <For each={sorted()}>
               {(kb) => <KBCard kb={kb} onDelete={handleDelete} onIndex={handleIndex} />}
@@ -217,22 +180,22 @@ export default function KnowledgeBasesPage() {
           </div>
         </Show>
       </Show>
-    </div>
+    </PageLayout>
   );
 }
 
-const statusColors: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  indexed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+const statusVariants: Record<string, BadgeVariant> = {
+  pending: "warning",
+  indexed: "success",
+  error: "danger",
 };
 
-const categoryColors: Record<string, string> = {
-  framework: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  paradigm: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-  language: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  security: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  custom: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400",
+const categoryVariants: Record<string, BadgeVariant> = {
+  framework: "info",
+  paradigm: "primary",
+  language: "success",
+  security: "danger",
+  custom: "default",
 };
 
 function KBCard(props: {
@@ -248,69 +211,51 @@ function KBCard(props: {
     `kb.category.${props.kb.category}` as keyof typeof import("~/i18n/en").default;
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:shadow-gray-900/30 dark:hover:shadow-gray-900/30">
-      <div class="flex items-start justify-between">
-        <div class="min-w-0 flex-1">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{props.kb.name}</h3>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{props.kb.description}</p>
+    <Card class="transition-shadow hover:shadow-md">
+      <Card.Body>
+        <div class="flex items-start justify-between">
+          <div class="min-w-0 flex-1">
+            <h3 class="text-lg font-semibold text-cf-text-primary">{props.kb.name}</h3>
+            <p class="mt-1 text-sm text-cf-text-muted">{props.kb.description}</p>
+          </div>
+          <div class="ml-2 flex flex-shrink-0 gap-1">
+            <Show when={props.kb.builtin}>
+              <Badge variant="default">{t("kb.builtin")}</Badge>
+            </Show>
+          </div>
         </div>
-        <div class="ml-2 flex flex-shrink-0 gap-1">
-          <Show when={props.kb.builtin}>
-            <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-              {t("kb.builtin")}
+
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <Badge variant={categoryVariants[props.kb.category] ?? "default"} pill>
+            {t(categoryKey())}
+          </Badge>
+          <Badge variant={statusVariants[props.kb.status] ?? "warning"} pill>
+            {t(statusKey())}
+          </Badge>
+          <Show when={props.kb.chunk_count > 0}>
+            <span class="text-xs text-cf-text-muted">
+              {props.kb.chunk_count} {t("kb.chunks")}
             </span>
           </Show>
         </div>
-      </div>
 
-      <div class="mt-3 flex flex-wrap items-center gap-2">
-        <span
-          class={`rounded-full px-2 py-0.5 text-xs font-medium ${categoryColors[props.kb.category] ?? categoryColors.custom}`}
-        >
-          {t(categoryKey())}
-        </span>
-        <span
-          class={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[props.kb.status] ?? statusColors.pending}`}
-        >
-          {t(statusKey())}
-        </span>
-        <Show when={props.kb.chunk_count > 0}>
-          <span class="text-xs text-gray-500 dark:text-gray-400">
-            {props.kb.chunk_count} {t("kb.chunks")}
-          </span>
+        <Show when={props.kb.tags?.length}>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <For each={props.kb.tags}>{(tag) => <Badge variant="default">{tag}</Badge>}</For>
+          </div>
         </Show>
-      </div>
 
-      <Show when={props.kb.tags?.length}>
-        <div class="mt-2 flex flex-wrap gap-1">
-          <For each={props.kb.tags}>
-            {(tag) => (
-              <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                {tag}
-              </span>
-            )}
-          </For>
+        <div class="mt-4 flex gap-2">
+          <Button variant="secondary" size="sm" onClick={() => props.onIndex(props.kb.id)}>
+            {props.kb.status === "indexed" ? t("kb.index.reindex") : t("kb.index.button")}
+          </Button>
+          <Show when={!props.kb.builtin}>
+            <Button variant="danger" size="sm" onClick={() => props.onDelete(props.kb.id)}>
+              Delete
+            </Button>
+          </Show>
         </div>
-      </Show>
-
-      <div class="mt-4 flex gap-2">
-        <button
-          type="button"
-          class="rounded-md bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40"
-          onClick={() => props.onIndex(props.kb.id)}
-        >
-          {props.kb.status === "indexed" ? t("kb.index.reindex") : t("kb.index.button")}
-        </button>
-        <Show when={!props.kb.builtin}>
-          <button
-            type="button"
-            class="rounded-md bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-            onClick={() => props.onDelete(props.kb.id)}
-          >
-            Delete
-          </button>
-        </Show>
-      </div>
-    </div>
+      </Card.Body>
+    </Card>
   );
 }

@@ -11,6 +11,7 @@ import {
 
 import type { TranslationKey } from "~/i18n";
 import { useI18n } from "~/i18n";
+import { builtInThemes, type ThemeDefinition } from "~/ui/tokens";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,10 +24,18 @@ interface ThemeContextValue {
   theme: () => Theme;
   /** Resolved value after applying system preference (never "system"). */
   resolved: () => "light" | "dark";
+  /** Active custom theme ID, or null if using default light/dark. */
+  customTheme: () => string | null;
+  /** All registered custom themes. */
+  customThemes: () => ThemeDefinition[];
   /** Switch theme preference. */
   setTheme: (t: Theme) => void;
   /** Cycle through light -> dark -> system. */
   toggle: () => void;
+  /** Apply a custom theme by ID (null to clear). */
+  applyCustomTheme: (themeId: string | null) => void;
+  /** Register a user-defined theme. */
+  registerTheme: (theme: ThemeDefinition) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -34,6 +43,8 @@ interface ThemeContextValue {
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = "codeforge-theme";
+const CUSTOM_THEME_KEY = "codeforge-custom-theme";
+const USER_THEMES_KEY = "codeforge-user-themes";
 const DARK_CLASS = "dark";
 
 function getSystemPreference(): "light" | "dark" {
@@ -46,6 +57,22 @@ function loadStoredTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored === "light" || stored === "dark" || stored === "system") return stored;
   return "system";
+}
+
+function loadStoredCustomTheme(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(CUSTOM_THEME_KEY);
+}
+
+function loadUserThemes(): ThemeDefinition[] {
+  if (typeof window === "undefined") return [];
+  const raw = localStorage.getItem(USER_THEMES_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as ThemeDefinition[];
+  } catch {
+    return [];
+  }
 }
 
 function resolve(theme: Theme): "light" | "dark" {
@@ -72,6 +99,10 @@ export function ThemeProvider(props: ParentProps): JSX.Element {
   const initialTheme = loadStoredTheme();
   const [theme, setThemeSignal] = createSignal<Theme>(initialTheme);
   const [resolved, setResolved] = createSignal<"light" | "dark">(resolve(initialTheme));
+  const [customTheme, setCustomThemeSignal] = createSignal<string | null>(loadStoredCustomTheme());
+  const [userThemes, setUserThemes] = createSignal<ThemeDefinition[]>(loadUserThemes());
+
+  const allCustomThemes = (): ThemeDefinition[] => [...builtInThemes, ...userThemes()];
 
   function applyToDOM(r: "light" | "dark") {
     const root = document.documentElement;
@@ -79,6 +110,29 @@ export function ThemeProvider(props: ParentProps): JSX.Element {
       root.classList.add(DARK_CLASS);
     } else {
       root.classList.remove(DARK_CLASS);
+    }
+  }
+
+  function applyCustomTokens(themeId: string | null) {
+    const root = document.documentElement;
+    // Clear any previously applied custom tokens
+    root.removeAttribute("data-cf-theme");
+    const existing = root.getAttribute("style") ?? "";
+    const cleaned = existing
+      .split(";")
+      .filter((s) => !s.trim().startsWith("--cf-"))
+      .join(";")
+      .trim();
+    root.setAttribute("style", cleaned || "");
+
+    if (!themeId) return;
+
+    const def = allCustomThemes().find((t) => t.id === themeId);
+    if (!def) return;
+
+    root.setAttribute("data-cf-theme", themeId);
+    for (const [prop, value] of Object.entries(def.tokens)) {
+      root.style.setProperty(prop, value);
     }
   }
 
@@ -93,11 +147,37 @@ export function ThemeProvider(props: ParentProps): JSX.Element {
     setTheme(order[(idx + 1) % order.length]);
   }
 
+  function applyCustomTheme(themeId: string | null) {
+    setCustomThemeSignal(themeId);
+    if (themeId) {
+      localStorage.setItem(CUSTOM_THEME_KEY, themeId);
+      // Switch base mode to match custom theme
+      const def = allCustomThemes().find((t) => t.id === themeId);
+      if (def) {
+        setTheme(def.mode);
+      }
+    } else {
+      localStorage.removeItem(CUSTOM_THEME_KEY);
+    }
+  }
+
+  function registerTheme(themeDef: ThemeDefinition) {
+    const existing = userThemes().filter((t) => t.id !== themeDef.id);
+    const updated = [...existing, themeDef];
+    setUserThemes(updated);
+    localStorage.setItem(USER_THEMES_KEY, JSON.stringify(updated));
+  }
+
   // Re-resolve whenever theme preference changes
   createEffect(() => {
     const r = resolve(theme());
     setResolved(r);
     applyToDOM(r);
+  });
+
+  // Apply custom theme tokens whenever customTheme changes
+  createEffect(() => {
+    applyCustomTokens(customTheme());
   });
 
   // Listen for system preference changes (only matters when theme === "system")
@@ -116,7 +196,16 @@ export function ThemeProvider(props: ParentProps): JSX.Element {
     onCleanup(() => mq.removeEventListener("change", handler));
   });
 
-  const ctx: ThemeContextValue = { theme, resolved, setTheme, toggle };
+  const ctx: ThemeContextValue = {
+    theme,
+    resolved,
+    customTheme,
+    customThemes: allCustomThemes,
+    setTheme,
+    toggle,
+    applyCustomTheme,
+    registerTheme,
+  };
 
   return <ThemeContext.Provider value={ctx}>{props.children}</ThemeContext.Provider>;
 }
@@ -144,7 +233,7 @@ export function ThemeToggle(): JSX.Element {
   return (
     <button
       type="button"
-      class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+      class="flex items-center gap-1.5 rounded-cf-md px-2 py-1 text-xs text-cf-text-muted hover:bg-cf-bg-surface-alt hover:text-cf-text-secondary"
       onClick={toggle}
       aria-label={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}
       title={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}

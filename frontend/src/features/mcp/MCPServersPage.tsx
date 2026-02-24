@@ -4,6 +4,23 @@ import { api } from "~/api/client";
 import type { CreateMCPServerRequest, MCPServer, MCPServerTool } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  ConfirmDialog,
+  EmptyState,
+  FormField,
+  Input,
+  LoadingState,
+  PageLayout,
+  Select,
+  Table,
+  Textarea,
+} from "~/ui";
+import type { TableColumn } from "~/ui/composites/Table";
 
 // ---------------------------------------------------------------------------
 // MCP Servers Page
@@ -16,6 +33,9 @@ export default function MCPServersPage() {
   const [showForm, setShowForm] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [error, setError] = createSignal("");
+
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = createSignal<MCPServer | null>(null);
 
   // -- Form state --
   const [formName, setFormName] = createSignal("");
@@ -130,8 +150,10 @@ export default function MCPServersPage() {
     }
   };
 
-  const handleDelete = async (server: MCPServer) => {
-    if (!confirm(t("mcp.deleteConfirm"))) return;
+  const handleDeleteConfirm = async () => {
+    const server = deleteTarget();
+    if (!server) return;
+    setDeleteTarget(null);
     try {
       await api.mcp.deleteServer(server.id);
       toast("success", t("mcp.toast.deleted"));
@@ -141,16 +163,59 @@ export default function MCPServersPage() {
     }
   };
 
-  return (
-    <div>
-      <div class="mb-6 flex items-center justify-between">
+  const serverColumns: TableColumn<MCPServer>[] = [
+    {
+      key: "name",
+      header: t("mcp.table.name"),
+      render: (server) => (
         <div>
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("mcp.title")}</h2>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t("mcp.description")}</p>
+          <span class="font-medium text-cf-text-primary">{server.name}</span>
+          <Show when={server.description}>
+            <p class="mt-0.5 text-xs text-cf-text-muted">{server.description}</p>
+          </Show>
         </div>
-        <button
-          type="button"
-          class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+      ),
+    },
+    {
+      key: "transport",
+      header: t("mcp.table.transport"),
+      render: (server) => <Badge class="font-mono">{server.transport}</Badge>,
+    },
+    {
+      key: "status",
+      header: t("mcp.table.status"),
+      render: (server) => <StatusBadge status={server.status} />,
+    },
+    {
+      key: "enabled",
+      header: t("mcp.table.enabled"),
+      render: (server) => (
+        <Badge variant={server.enabled ? "success" : "default"}>
+          {server.enabled ? t("mcp.table.enabled") : "Disabled"}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: t("mcp.table.actions"),
+      render: (server) => (
+        <MCPServerActions
+          server={server}
+          onEdit={handleEdit}
+          onDelete={(s) => setDeleteTarget(s)}
+          onRefetch={refetch}
+        />
+      ),
+    },
+  ];
+
+  return (
+    <PageLayout
+      title={t("mcp.title")}
+      description={t("mcp.description")}
+      action={
+        <Button
+          variant={showForm() ? "secondary" : "primary"}
           onClick={() => {
             if (showForm()) {
               handleCancelForm();
@@ -160,272 +225,197 @@ export default function MCPServersPage() {
           }}
         >
           {showForm() ? t("common.cancel") : t("mcp.addServer")}
-        </button>
-      </div>
-
+        </Button>
+      }
+    >
       <Show when={error()}>
-        <div
-          class="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400"
-          role="alert"
-        >
+        <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
           {error()}
-        </div>
+        </Alert>
       </Show>
 
       {/* Add / Edit Form */}
       <Show when={showForm()}>
-        <form
-          onSubmit={handleSubmit}
-          class="mb-6 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800"
-          aria-label={isEditing() ? t("mcp.editServer") : t("mcp.addServer")}
-        >
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {/* Name */}
-            <div>
-              <label
-                for="mcp-name"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("mcp.form.name")} <span aria-hidden="true">*</span>
-                <span class="sr-only">(required)</span>
-              </label>
-              <input
-                id="mcp-name"
-                type="text"
-                value={formName()}
-                onInput={(e) => setFormName(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                placeholder={t("mcp.form.namePlaceholder")}
-                aria-required="true"
-              />
-            </div>
+        <Card class="mb-6">
+          <Card.Body>
+            <form
+              onSubmit={handleSubmit}
+              aria-label={isEditing() ? t("mcp.editServer") : t("mcp.addServer")}
+            >
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {/* Name */}
+                <FormField label={t("mcp.form.name")} id="mcp-name" required>
+                  <Input
+                    id="mcp-name"
+                    type="text"
+                    value={formName()}
+                    onInput={(e) => setFormName(e.currentTarget.value)}
+                    placeholder={t("mcp.form.namePlaceholder")}
+                    aria-required="true"
+                  />
+                </FormField>
 
-            {/* Transport */}
-            <div>
-              <label
-                for="mcp-transport"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("mcp.form.transport")}
-              </label>
-              <select
-                id="mcp-transport"
-                value={formTransport()}
-                onChange={(e) => setFormTransport(e.currentTarget.value as "stdio" | "sse")}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-              >
-                <option value="stdio">{t("mcp.transport.stdio")}</option>
-                <option value="sse">{t("mcp.transport.sse")}</option>
-              </select>
-            </div>
+                {/* Transport */}
+                <FormField label={t("mcp.form.transport")} id="mcp-transport">
+                  <Select
+                    id="mcp-transport"
+                    value={formTransport()}
+                    onChange={(e) => setFormTransport(e.currentTarget.value as "stdio" | "sse")}
+                  >
+                    <option value="stdio">{t("mcp.transport.stdio")}</option>
+                    <option value="sse">{t("mcp.transport.sse")}</option>
+                  </Select>
+                </FormField>
 
-            {/* Description */}
-            <div class="sm:col-span-2">
-              <label
-                for="mcp-desc"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("mcp.form.description")}
-              </label>
-              <input
-                id="mcp-desc"
-                type="text"
-                value={formDesc()}
-                onInput={(e) => setFormDesc(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                placeholder={t("mcp.form.descriptionPlaceholder")}
-              />
-            </div>
+                {/* Description */}
+                <FormField label={t("mcp.form.description")} id="mcp-desc" class="sm:col-span-2">
+                  <Input
+                    id="mcp-desc"
+                    type="text"
+                    value={formDesc()}
+                    onInput={(e) => setFormDesc(e.currentTarget.value)}
+                    placeholder={t("mcp.form.descriptionPlaceholder")}
+                  />
+                </FormField>
 
-            {/* Command (stdio only) */}
-            <Show when={formTransport() === "stdio"}>
-              <div class="sm:col-span-2">
-                <label
-                  for="mcp-command"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("mcp.form.command")}
-                </label>
-                <input
-                  id="mcp-command"
-                  type="text"
-                  value={formCommand()}
-                  onInput={(e) => setFormCommand(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                  placeholder={t("mcp.form.commandPlaceholder")}
-                />
-              </div>
-              <div class="sm:col-span-2">
-                <label
-                  for="mcp-args"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("mcp.form.args")}
-                </label>
-                <textarea
-                  id="mcp-args"
-                  value={formArgs()}
-                  onInput={(e) => setFormArgs(e.currentTarget.value)}
-                  rows={3}
-                  class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                  placeholder={t("mcp.form.argsPlaceholder")}
-                />
-              </div>
-            </Show>
-
-            {/* URL (sse only) */}
-            <Show when={formTransport() === "sse"}>
-              <div class="sm:col-span-2">
-                <label
-                  for="mcp-url"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("mcp.form.url")}
-                </label>
-                <input
-                  id="mcp-url"
-                  type="text"
-                  value={formUrl()}
-                  onInput={(e) => setFormUrl(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                  placeholder={t("mcp.form.urlPlaceholder")}
-                />
-              </div>
-            </Show>
-
-            {/* Environment Variables */}
-            <div class="sm:col-span-2">
-              <div class="mb-2 flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {t("mcp.form.env")}
-                </span>
-                <button
-                  type="button"
-                  class="text-xs text-blue-600 hover:underline dark:text-blue-400"
-                  onClick={addEnvRow}
-                >
-                  {t("mcp.form.addEnv")}
-                </button>
-              </div>
-              <For each={formEnv()}>
-                {(row, index) => (
-                  <div class="mb-2 flex gap-2">
-                    <input
+                {/* Command (stdio only) */}
+                <Show when={formTransport() === "stdio"}>
+                  <FormField label={t("mcp.form.command")} id="mcp-command" class="sm:col-span-2">
+                    <Input
+                      id="mcp-command"
                       type="text"
-                      value={row.key}
-                      onInput={(e) => updateEnvRow(index(), "key", e.currentTarget.value)}
-                      class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                      placeholder={t("mcp.form.envKey")}
-                      aria-label={`${t("mcp.form.envKey")} ${index() + 1}`}
+                      value={formCommand()}
+                      onInput={(e) => setFormCommand(e.currentTarget.value)}
+                      mono
+                      placeholder={t("mcp.form.commandPlaceholder")}
                     />
-                    <input
+                  </FormField>
+                  <FormField label={t("mcp.form.args")} id="mcp-args" class="sm:col-span-2">
+                    <Textarea
+                      id="mcp-args"
+                      value={formArgs()}
+                      onInput={(e) => setFormArgs(e.currentTarget.value)}
+                      rows={3}
+                      mono
+                      placeholder={t("mcp.form.argsPlaceholder")}
+                    />
+                  </FormField>
+                </Show>
+
+                {/* URL (sse only) */}
+                <Show when={formTransport() === "sse"}>
+                  <FormField label={t("mcp.form.url")} id="mcp-url" class="sm:col-span-2">
+                    <Input
+                      id="mcp-url"
                       type="text"
-                      value={row.value}
-                      onInput={(e) => updateEnvRow(index(), "value", e.currentTarget.value)}
-                      class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                      placeholder={t("mcp.form.envValue")}
-                      aria-label={`${t("mcp.form.envValue")} ${index() + 1}`}
+                      value={formUrl()}
+                      onInput={(e) => setFormUrl(e.currentTarget.value)}
+                      mono
+                      placeholder={t("mcp.form.urlPlaceholder")}
                     />
-                    <button
-                      type="button"
-                      class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                      onClick={() => removeEnvRow(index())}
-                      aria-label={`Remove variable ${index() + 1}`}
-                    >
-                      {t("common.delete")}
-                    </button>
+                  </FormField>
+                </Show>
+
+                {/* Environment Variables */}
+                <div class="sm:col-span-2">
+                  <div class="mb-2 flex items-center justify-between">
+                    <span class="text-sm font-medium text-cf-text-secondary">
+                      {t("mcp.form.env")}
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={addEnvRow}>
+                      {t("mcp.form.addEnv")}
+                    </Button>
                   </div>
-                )}
-              </For>
-            </div>
+                  <For each={formEnv()}>
+                    {(row, index) => (
+                      <div class="mb-2 flex gap-2">
+                        <Input
+                          type="text"
+                          value={row.key}
+                          onInput={(e) => updateEnvRow(index(), "key", e.currentTarget.value)}
+                          mono
+                          placeholder={t("mcp.form.envKey")}
+                          aria-label={`${t("mcp.form.envKey")} ${index() + 1}`}
+                        />
+                        <Input
+                          type="text"
+                          value={row.value}
+                          onInput={(e) => updateEnvRow(index(), "value", e.currentTarget.value)}
+                          mono
+                          placeholder={t("mcp.form.envValue")}
+                          aria-label={`${t("mcp.form.envValue")} ${index() + 1}`}
+                        />
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => removeEnvRow(index())}
+                          aria-label={`Remove variable ${index() + 1}`}
+                        >
+                          {t("common.delete")}
+                        </Button>
+                      </div>
+                    )}
+                  </For>
+                </div>
 
-            {/* Enabled toggle */}
-            <div class="flex items-center gap-3 sm:col-span-2">
-              <input
-                id="mcp-enabled"
-                type="checkbox"
-                checked={formEnabled()}
-                onChange={(e) => setFormEnabled(e.currentTarget.checked)}
-                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <label for="mcp-enabled" class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t("mcp.form.enabled")}
-              </label>
-            </div>
-          </div>
+                {/* Enabled toggle */}
+                <div class="flex items-center gap-3 sm:col-span-2">
+                  <Checkbox
+                    id="mcp-enabled"
+                    checked={formEnabled()}
+                    onChange={(checked) => setFormEnabled(checked)}
+                  />
+                  <label for="mcp-enabled" class="text-sm font-medium text-cf-text-secondary">
+                    {t("mcp.form.enabled")}
+                  </label>
+                </div>
+              </div>
 
-          <div class="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-              onClick={handleCancelForm}
-            >
-              {t("common.cancel")}
-            </button>
-            <button
-              type="submit"
-              class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              {isEditing() ? t("mcp.form.update") : t("mcp.form.create")}
-            </button>
-          </div>
-        </form>
+              <div class="mt-4 flex justify-end gap-2">
+                <Button variant="secondary" onClick={handleCancelForm}>
+                  {t("common.cancel")}
+                </Button>
+                <Button type="submit">
+                  {isEditing() ? t("mcp.form.update") : t("mcp.form.create")}
+                </Button>
+              </div>
+            </form>
+          </Card.Body>
+        </Card>
       </Show>
 
       {/* Loading state */}
       <Show when={servers.loading}>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{t("mcp.loading")}</p>
+        <LoadingState message={t("mcp.loading")} />
       </Show>
 
       {/* Error state */}
       <Show when={servers.error}>
-        <p class="text-sm text-red-500 dark:text-red-400">{t("mcp.loadError")}</p>
+        <Alert variant="error">{t("mcp.loadError")}</Alert>
       </Show>
 
       {/* Server list */}
       <Show when={!servers.loading && !servers.error}>
-        <Show
-          when={(servers() ?? []).length > 0}
-          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("mcp.empty")}</p>}
-        >
-          <div class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
-            <table class="w-full text-left text-sm">
-              <thead>
-                <tr class="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50">
-                  <th scope="col" class="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">
-                    {t("mcp.table.name")}
-                  </th>
-                  <th scope="col" class="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">
-                    {t("mcp.table.transport")}
-                  </th>
-                  <th scope="col" class="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">
-                    {t("mcp.table.status")}
-                  </th>
-                  <th scope="col" class="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">
-                    {t("mcp.table.enabled")}
-                  </th>
-                  <th scope="col" class="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">
-                    {t("mcp.table.actions")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <For each={servers() ?? []}>
-                  {(server) => (
-                    <MCPServerRow
-                      server={server}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
-                      onRefetch={refetch}
-                    />
-                  )}
-                </For>
-              </tbody>
-            </table>
-          </div>
+        <Show when={(servers() ?? []).length > 0} fallback={<EmptyState title={t("mcp.empty")} />}>
+          <Table<MCPServer> columns={serverColumns} data={servers() ?? []} rowKey={(s) => s.id} />
+
+          {/* Expandable tools sections below the table */}
+          <For each={servers() ?? []}>{(server) => <MCPServerToolsPanel server={server} />}</For>
         </Show>
       </Show>
-    </div>
+
+      {/* Delete confirm dialog */}
+      <ConfirmDialog
+        open={deleteTarget() !== null}
+        title={t("common.delete")}
+        message={t("mcp.deleteConfirm")}
+        variant="danger"
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </PageLayout>
   );
 }
 
@@ -436,44 +426,32 @@ export default function MCPServersPage() {
 function StatusBadge(props: { status: MCPServer["status"] }) {
   const { t } = useI18n();
 
-  const config = () => {
+  const config = (): { label: string; variant: "success" | "default" | "danger" | "info" } => {
     switch (props.status) {
       case "connected":
-        return {
-          label: t("mcp.status.connected"),
-          classes: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-        };
+        return { label: t("mcp.status.connected"), variant: "success" };
       case "disconnected":
-        return {
-          label: t("mcp.status.disconnected"),
-          classes: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
-        };
+        return { label: t("mcp.status.disconnected"), variant: "default" };
       case "error":
-        return {
-          label: t("mcp.status.error"),
-          classes: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-        };
+        return { label: t("mcp.status.error"), variant: "danger" };
       case "registered":
       default:
-        return {
-          label: t("mcp.status.registered"),
-          classes: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-        };
+        return { label: t("mcp.status.registered"), variant: "info" };
     }
   };
 
   return (
-    <span class={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${config().classes}`}>
+    <Badge variant={config().variant} pill>
       {config().label}
-    </span>
+    </Badge>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Server table row with expandable tools section
+// Server action buttons (used inside table row)
 // ---------------------------------------------------------------------------
 
-function MCPServerRow(props: {
+function MCPServerActions(props: {
   server: MCPServer;
   onEdit: (server: MCPServer) => void;
   onDelete: (server: MCPServer) => void;
@@ -482,9 +460,6 @@ function MCPServerRow(props: {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [testing, setTesting] = createSignal(false);
-  const [showTools, setShowTools] = createSignal(false);
-  const [tools, setTools] = createSignal<MCPServerTool[] | null>(null);
-  const [toolsLoading, setToolsLoading] = createSignal(false);
 
   const handleTest = async () => {
     setTesting(true);
@@ -498,6 +473,49 @@ function MCPServerRow(props: {
       setTesting(false);
     }
   };
+
+  return (
+    <div class="flex items-center gap-2">
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={handleTest}
+        disabled={testing()}
+        loading={testing()}
+        aria-label={t("mcp.testAria", { name: props.server.name })}
+      >
+        {testing() ? t("mcp.testing") : t("mcp.test")}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => props.onEdit(props.server)}
+        aria-label={t("mcp.editAria", { name: props.server.name })}
+      >
+        {t("mcp.editServer")}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        class="text-cf-danger-fg hover:text-cf-danger-fg"
+        onClick={() => props.onDelete(props.server)}
+        aria-label={t("mcp.deleteAria", { name: props.server.name })}
+      >
+        {t("common.delete")}
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Expandable tools panel per server
+// ---------------------------------------------------------------------------
+
+function MCPServerToolsPanel(props: { server: MCPServer }) {
+  const { t } = useI18n();
+  const [showTools, setShowTools] = createSignal(false);
+  const [tools, setTools] = createSignal<MCPServerTool[] | null>(null);
+  const [toolsLoading, setToolsLoading] = createSignal(false);
 
   const handleToggleTools = async () => {
     if (showTools()) {
@@ -519,113 +537,49 @@ function MCPServerRow(props: {
   };
 
   return (
-    <>
-      <tr class="border-b border-gray-100 dark:border-gray-700/50">
-        <td class="px-4 py-3">
-          <div>
-            <span class="font-medium text-gray-900 dark:text-gray-100">{props.server.name}</span>
-            <Show when={props.server.description}>
-              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                {props.server.description}
-              </p>
-            </Show>
-          </div>
-        </td>
-        <td class="px-4 py-3">
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-            {props.server.transport}
-          </span>
-        </td>
-        <td class="px-4 py-3">
-          <StatusBadge status={props.server.status} />
-        </td>
-        <td class="px-4 py-3">
-          <span
-            class={`text-xs font-medium ${
-              props.server.enabled
-                ? "text-green-600 dark:text-green-400"
-                : "text-gray-400 dark:text-gray-500"
-            }`}
-          >
-            {props.server.enabled ? t("mcp.table.enabled") : "Disabled"}
-          </span>
-        </td>
-        <td class="px-4 py-3">
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
-              onClick={handleTest}
-              disabled={testing()}
-              aria-label={t("mcp.testAria", { name: props.server.name })}
-            >
-              {testing() ? t("mcp.testing") : t("mcp.test")}
-            </button>
-            <button
-              type="button"
-              class="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
-              onClick={handleToggleTools}
-              aria-label={
-                showTools()
-                  ? t("mcp.tools.hideToolsAria", { name: props.server.name })
-                  : t("mcp.tools.showToolsAria", { name: props.server.name })
-              }
-            >
-              {showTools() ? t("mcp.tools.hideTools") : t("mcp.tools.showTools")}
-            </button>
-            <button
-              type="button"
-              class="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
-              onClick={() => props.onEdit(props.server)}
-              aria-label={t("mcp.editAria", { name: props.server.name })}
-            >
-              {t("mcp.editServer")}
-            </button>
-            <button
-              type="button"
-              class="text-xs text-red-600 hover:underline dark:text-red-400"
-              onClick={() => props.onDelete(props.server)}
-              aria-label={t("mcp.deleteAria", { name: props.server.name })}
-            >
-              {t("common.delete")}
-            </button>
-          </div>
-        </td>
-      </tr>
-
-      {/* Expandable tools row */}
-      <Show when={showTools()}>
-        <tr class="border-b border-gray-100 dark:border-gray-700/50">
-          <td colspan="5" class="bg-gray-50 px-4 py-3 dark:bg-gray-800/50">
-            <div class="ml-4">
-              <h4 class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t("mcp.tools")}
-              </h4>
+    <Show when={true}>
+      <div class="mt-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleToggleTools}
+          aria-label={
+            showTools()
+              ? t("mcp.tools.hideToolsAria", { name: props.server.name })
+              : t("mcp.tools.showToolsAria", { name: props.server.name })
+          }
+        >
+          {showTools()
+            ? t("mcp.tools.hideTools") + " - " + props.server.name
+            : t("mcp.tools.showTools") + " - " + props.server.name}
+        </Button>
+        <Show when={showTools()}>
+          <Card class="mt-2">
+            <Card.Body>
+              <h4 class="mb-2 text-sm font-medium text-cf-text-secondary">{t("mcp.tools")}</h4>
               <Show when={toolsLoading()}>
-                <p class="text-xs text-gray-500 dark:text-gray-400">{t("mcp.tools.loading")}</p>
+                <LoadingState message={t("mcp.tools.loading")} />
               </Show>
               <Show when={!toolsLoading()}>
                 <Show
                   when={(tools() ?? []).length > 0}
-                  fallback={
-                    <p class="text-xs text-gray-500 dark:text-gray-400">{t("mcp.tools.empty")}</p>
-                  }
+                  fallback={<EmptyState title={t("mcp.tools.empty")} />}
                 >
                   <div class="space-y-2">
                     <For each={tools() ?? []}>{(tool) => <ToolCard tool={tool} />}</For>
                   </div>
                 </Show>
               </Show>
-            </div>
-          </td>
-        </tr>
-      </Show>
-    </>
+            </Card.Body>
+          </Card>
+        </Show>
+      </div>
+    </Show>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Tool card within expandable row
+// Tool card within expandable panel
 // ---------------------------------------------------------------------------
 
 function ToolCard(props: { tool: MCPServerTool }) {
@@ -633,31 +587,29 @@ function ToolCard(props: { tool: MCPServerTool }) {
   const [showSchema, setShowSchema] = createSignal(false);
 
   return (
-    <div class="rounded border border-gray-200 bg-white p-3 dark:border-gray-600 dark:bg-gray-700">
-      <div class="flex items-start justify-between">
-        <div>
-          <span class="font-mono text-sm font-medium text-gray-900 dark:text-gray-100">
-            {props.tool.name}
-          </span>
-          <Show when={props.tool.description}>
-            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{props.tool.description}</p>
+    <Card>
+      <Card.Body class="p-3">
+        <div class="flex items-start justify-between">
+          <div>
+            <span class="font-mono text-sm font-medium text-cf-text-primary">
+              {props.tool.name}
+            </span>
+            <Show when={props.tool.description}>
+              <p class="mt-0.5 text-xs text-cf-text-muted">{props.tool.description}</p>
+            </Show>
+          </div>
+          <Show when={props.tool.input_schema && Object.keys(props.tool.input_schema).length > 0}>
+            <Button variant="ghost" size="sm" onClick={() => setShowSchema((v) => !v)}>
+              {showSchema() ? t("common.close") : t("mcp.tools.inputSchema")}
+            </Button>
           </Show>
         </div>
-        <Show when={props.tool.input_schema && Object.keys(props.tool.input_schema).length > 0}>
-          <button
-            type="button"
-            class="text-xs text-blue-600 hover:underline dark:text-blue-400"
-            onClick={() => setShowSchema((v) => !v)}
-          >
-            {showSchema() ? t("common.close") : t("mcp.tools.inputSchema")}
-          </button>
+        <Show when={showSchema()}>
+          <pre class="mt-2 max-h-48 overflow-auto rounded-cf-md bg-cf-bg-surface-alt p-2 text-xs text-cf-text-secondary">
+            {JSON.stringify(props.tool.input_schema, null, 2)}
+          </pre>
         </Show>
-      </div>
-      <Show when={showSchema()}>
-        <pre class="mt-2 max-h-48 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-400">
-          {JSON.stringify(props.tool.input_schema, null, 2)}
-        </pre>
-      </Show>
-    </div>
+      </Card.Body>
+    </Card>
   );
 }

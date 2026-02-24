@@ -122,6 +122,12 @@ CodeForge/
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
 │   ├── playwright.config.ts  # Playwright configuration
 │   └── src/
+│       ├── ui/               # Design system (Phase 16)
+│       │   ├── tokens/       # ThemeDefinition, built-in themes (Nord, Solarized)
+│       │   ├── primitives/   # Button, Input, Select, Badge, Alert, Spinner, etc.
+│       │   ├── composites/   # Card, Modal, Table, Tabs, ConfirmDialog, etc.
+│       │   ├── layout/       # Sidebar, NavLink, PageLayout, Section
+│       │   └── index.ts      # Barrel: import { Button, Card } from "~/ui"
 │       ├── features/
 │       │   ├── dashboard/    # Project list, ProjectCard
 │       │   ├── project/      # ProjectDetailPage, AgentPanel, TaskPanel, RunPanel,

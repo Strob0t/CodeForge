@@ -12,6 +12,7 @@ import { api } from "~/api/client";
 import type { Conversation, ConversationMessage } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useI18n } from "~/i18n";
+import { Badge, Button } from "~/ui";
 
 import Markdown from "./Markdown";
 import ToolCallCard from "./ToolCallCard";
@@ -219,12 +220,18 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   };
 
+  function stepBadgeVariant(status: string): "info" | "success" | "danger" {
+    if (status === "running") return "info";
+    if (status === "completed") return "success";
+    return "danger";
+  }
+
   return (
-    <div class="flex flex-col h-full bg-white dark:bg-gray-800">
+    <div class="flex flex-col h-full bg-cf-bg-surface">
       <Show
         when={activeConversation()}
         fallback={
-          <div class="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500">
+          <div class="flex-1 flex items-center justify-center text-cf-text-muted">
             <p>{t("common.loading")}</p>
           </div>
         }
@@ -235,10 +242,10 @@ export default function ChatPanel(props: ChatPanelProps) {
             {(msg) => (
               <div class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  class={`max-w-[75%] rounded-lg px-4 py-2 text-sm ${
+                  class={`max-w-[75%] rounded-cf-md px-4 py-2 text-sm ${
                     msg.role === "user"
-                      ? "bg-blue-600 text-white whitespace-pre-wrap"
-                      : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      ? "bg-cf-accent text-white whitespace-pre-wrap"
+                      : "bg-cf-bg-surface-alt text-cf-text-primary"
                   }`}
                 >
                   <Show when={msg.role === "assistant"} fallback={msg.content}>
@@ -257,26 +264,9 @@ export default function ChatPanel(props: ChatPanelProps) {
             <div class="flex flex-wrap gap-2 px-1">
               <For each={planSteps()}>
                 {(step) => (
-                  <span
-                    class={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      step.status === "running"
-                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                        : step.status === "completed"
-                          ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                          : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
-                    }`}
-                  >
-                    <span
-                      class={`h-1.5 w-1.5 rounded-full ${
-                        step.status === "running"
-                          ? "bg-blue-500 animate-pulse"
-                          : step.status === "completed"
-                            ? "bg-green-500"
-                            : "bg-red-500"
-                      }`}
-                    />
+                  <Badge variant={stepBadgeVariant(step.status)} pill>
                     {step.name}
-                  </span>
+                  </Badge>
                 )}
               </For>
             </div>
@@ -304,7 +294,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           <Show when={streamingContent()}>
             {(content) => (
               <div class="flex justify-start">
-                <div class="max-w-[75%] rounded-lg px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                <div class="max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-primary">
                   <Markdown content={content()} />
                   <div class="mt-1 text-xs opacity-60">{t("chat.streaming")}</div>
                 </div>
@@ -315,7 +305,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
           <Show when={(sending() || agentRunning()) && !streamingContent()}>
             <div class="flex justify-start">
-              <div class="bg-gray-100 dark:bg-gray-700 rounded-lg px-4 py-2 text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+              <div class="bg-cf-bg-surface-alt rounded-cf-md px-4 py-2 text-sm text-cf-text-tertiary animate-pulse">
                 {t("chat.thinking")}
               </div>
             </div>
@@ -324,10 +314,10 @@ export default function ChatPanel(props: ChatPanelProps) {
         </div>
 
         {/* Input area */}
-        <div class="border-t border-gray-200 dark:border-gray-700 p-3 flex-shrink-0">
+        <div class="border-t border-cf-border p-3 flex-shrink-0">
           <div class="flex gap-2">
             <textarea
-              class="flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
+              class="flex-1 rounded-cf-md border border-cf-border bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder-cf-text-muted focus:border-cf-accent focus:ring-1 focus:ring-cf-accent resize-none"
               rows={2}
               placeholder={t("chat.placeholder")}
               value={input()}
@@ -335,14 +325,15 @@ export default function ChatPanel(props: ChatPanelProps) {
               onKeyDown={handleKeyDown}
               disabled={sending()}
             />
-            <button
-              type="button"
-              class="self-end rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            <Button
+              variant="primary"
+              size="sm"
+              class="self-end"
               onClick={handleSend}
               disabled={sending() || !input().trim()}
             >
               {t("chat.send")}
-            </button>
+            </Button>
           </div>
         </div>
       </Show>

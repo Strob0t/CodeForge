@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-02-19
+> Last update: 2026-02-24
 
 ### Phase 0: Project Setup (COMPLETED)
 
@@ -931,3 +931,13 @@ Full MCP (Model Context Protocol) integration across all layers plus LSP code in
 #### Phase 15D: Tool Routing + LSP
 - [x] (2026-02-24) Policy integration for `mcp:server:tool` namespaced tool calls
 - [x] (2026-02-24) LSP client, service, 8 endpoints, frontend LSPPanel
+
+### Phase 16: Frontend Design System Rework (COMPLETED)
+
+- [x] (2026-02-24) Foundation: ~25 new CSS design tokens, Tailwind v4 `@theme` block, custom theme engine (Nord, Solarized Dark)
+- [x] (2026-02-24) 11 primitive components: Button, Input, Select, Textarea, Checkbox, Label, Badge, Alert, Spinner, StatusDot, FormField
+- [x] (2026-02-24) 8 composite components: Card, Modal, Table, Tabs, EmptyState, LoadingState, ConfirmDialog, SectionHeader
+- [x] (2026-02-24) 4 layout components: Sidebar, NavLink, PageLayout, Section
+- [x] (2026-02-24) Full page migration: 42 files migrated, 29 new component files created
+- [x] (2026-02-24) WCAG 2.2 AA: contrast fix (`--cf-text-muted` gray-500), zero hardcoded colors remaining
+- [x] (2026-02-24) Result: CSS -35% (62KB -> 40KB), 0 lint errors, 37/37 tests pass

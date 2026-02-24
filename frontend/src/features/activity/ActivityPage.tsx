@@ -2,6 +2,8 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 
 import { createCodeForgeWS, type WSMessage } from "~/api/websocket";
 import { useI18n } from "~/i18n";
+import { Badge, Button, Card, EmptyState, PageLayout, Select } from "~/ui";
+import type { BadgeVariant } from "~/ui/primitives/Badge";
 
 /** A single activity entry shown in the stream */
 interface ActivityEntry {
@@ -17,11 +19,11 @@ const MAX_ENTRIES = 200;
 
 let nextId = 0;
 
-const SEVERITY_COLORS: Record<ActivityEntry["severity"], string> = {
-  info: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  success: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  warning: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+const SEVERITY_VARIANTS: Record<ActivityEntry["severity"], BadgeVariant> = {
+  info: "info",
+  success: "success",
+  warning: "warning",
+  error: "danger",
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -202,100 +204,85 @@ export default function ActivityPage() {
   };
 
   return (
-    <div>
-      <div class="mb-6 flex items-center justify-between">
+    <PageLayout
+      title={t("activity.title")}
+      action={
         <div class="flex items-center gap-3">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("activity.title")}</h2>
-          <span
-            class={`rounded-full px-2 py-0.5 text-xs ${
-              connected()
-                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-            }`}
-            role="status"
-          >
+          <Badge variant={connected() ? "success" : "danger"} pill>
             {connected() ? t("activity.connected") : t("activity.disconnected")}
-          </span>
-        </div>
-        <div class="flex items-center gap-2">
-          <select
-            class="rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+          </Badge>
+          <Select
             value={filterType()}
             aria-label={t("activity.filterLabel")}
             onChange={(e) => setFilterType(e.currentTarget.value)}
+            class="w-auto"
           >
             <option value="">{t("activity.allEvents")}</option>
             <For each={eventTypes()}>{(type) => <option value={type}>{type}</option>}</For>
-          </select>
-          <button
-            type="button"
-            class={`rounded px-3 py-1.5 text-sm font-medium ${
-              paused()
-                ? "bg-green-600 text-white hover:bg-green-700"
-                : "bg-yellow-600 text-white hover:bg-yellow-700"
-            }`}
+          </Select>
+          <Button
+            variant={paused() ? "primary" : "secondary"}
+            size="sm"
             onClick={() => setPaused((v) => !v)}
           >
             {paused() ? t("activity.resume") : t("activity.pause")}
-          </button>
-          <button
-            type="button"
-            class="rounded bg-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-            onClick={() => setEntries([])}
-          >
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setEntries([])}>
             {t("activity.clear")}
-          </button>
+          </Button>
         </div>
-      </div>
-
+      }
+    >
       <Show
         when={filtered().length > 0}
         fallback={
-          <div class="rounded-lg border border-gray-200 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-800">
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              {entries().length === 0 ? t("activity.empty") : t("activity.noMatch")}
-            </p>
-          </div>
+          <Card>
+            <Card.Body>
+              <EmptyState
+                title={entries().length === 0 ? t("activity.empty") : t("activity.noMatch")}
+              />
+            </Card.Body>
+          </Card>
         }
       >
         <div class="space-y-1" role="log" aria-label={t("activity.streamLabel")} aria-live="polite">
           <For each={filtered()}>
             {(entry) => (
-              <div class="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-4 py-2 dark:border-gray-700/50 dark:bg-gray-800">
-                <span class="text-sm" aria-hidden="true">
-                  {TYPE_ICONS[entry.type] ?? "\u2022"}
-                </span>
-                <span class="whitespace-nowrap text-xs tabular-nums text-gray-400 dark:text-gray-500">
-                  {fmt.time(entry.time.toISOString())}
-                </span>
-                <span
-                  class={`rounded px-1.5 py-0.5 text-xs font-medium ${SEVERITY_COLORS[entry.severity]}`}
-                >
-                  {entry.type.split(".").pop()}
-                </span>
-                <span class="flex-1 text-sm text-gray-700 dark:text-gray-300">{entry.summary}</span>
-                <Show when={entry.projectId}>
-                  <a
-                    href={`/projects/${entry.projectId}`}
-                    class="whitespace-nowrap text-xs text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    {entry.projectId.slice(0, 8)}
-                  </a>
-                </Show>
-              </div>
+              <Card>
+                <div class="flex items-center gap-3 px-4 py-2">
+                  <span class="text-sm" aria-hidden="true">
+                    {TYPE_ICONS[entry.type] ?? "\u2022"}
+                  </span>
+                  <span class="whitespace-nowrap text-xs tabular-nums text-cf-text-muted">
+                    {fmt.time(entry.time.toISOString())}
+                  </span>
+                  <Badge variant={SEVERITY_VARIANTS[entry.severity]} pill>
+                    {entry.type.split(".").pop()}
+                  </Badge>
+                  <span class="flex-1 text-sm text-cf-text-secondary">{entry.summary}</span>
+                  <Show when={entry.projectId}>
+                    <a
+                      href={`/projects/${entry.projectId}`}
+                      class="whitespace-nowrap text-xs text-cf-accent hover:underline"
+                    >
+                      {entry.projectId.slice(0, 8)}
+                    </a>
+                  </Show>
+                </div>
+              </Card>
             )}
           </For>
         </div>
       </Show>
 
       <Show when={filtered().length > 0}>
-        <p class="mt-3 text-xs text-gray-400 dark:text-gray-500">
+        <p class="mt-3 text-xs text-cf-text-muted">
           {t("activity.showing", {
             count: String(filtered().length),
             total: String(entries().length),
           })}
         </p>
       </Show>
-    </div>
+    </PageLayout>
   );
 }

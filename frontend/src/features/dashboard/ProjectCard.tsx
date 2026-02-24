@@ -3,6 +3,7 @@ import { Show } from "solid-js";
 
 import type { Project } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { Badge, Button, Card } from "~/ui";
 
 interface ProjectCardProps {
   project: Project;
@@ -15,67 +16,64 @@ interface ProjectCardProps {
 export default function ProjectCard(props: ProjectCardProps) {
   const { t, fmt } = useI18n();
   return (
-    <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm dark:shadow-gray-900/30 transition-shadow hover:shadow-md dark:hover:shadow-gray-900/30">
-      <div class="flex items-start justify-between">
-        <div>
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            <A
-              href={`/projects/${props.project.id}`}
-              class="hover:text-blue-600 dark:hover:text-blue-400"
+    <Card class="transition-shadow hover:shadow-md">
+      <Card.Body>
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="text-lg font-semibold text-cf-text-primary">
+              <A href={`/projects/${props.project.id}`} class="hover:text-cf-accent">
+                {props.project.name}
+              </A>
+            </h3>
+            {props.project.description && (
+              <p class="mt-1 text-sm text-cf-text-muted">{props.project.description}</p>
+            )}
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Show when={props.onDetectStack && props.project.workspace_path}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => props.onDetectStack?.(props.project.id)}
+                disabled={props.detecting}
+                loading={props.detecting}
+              >
+                {props.detecting ? t("dashboard.detect.detecting") : t("dashboard.detect.button")}
+              </Button>
+            </Show>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => props.onEdit(props.project.id)}
+              aria-label={t("project.editAria", { name: props.project.name })}
             >
-              {props.project.name}
-            </A>
-          </h3>
-          {props.project.description && (
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{props.project.description}</p>
+              {t("project.edit")}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              class="text-cf-danger-fg hover:text-cf-danger-fg"
+              onClick={() => props.onDelete(props.project.id)}
+              aria-label={t("project.deleteAria", { name: props.project.name })}
+            >
+              {t("project.delete")}
+            </Button>
+          </div>
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-3 text-xs text-cf-text-muted">
+          {props.project.provider && <Badge>{props.project.provider}</Badge>}
+          {props.project.repo_url && (
+            <span class="truncate" title={props.project.repo_url}>
+              {props.project.repo_url}
+            </span>
           )}
+          <span>{t("project.created", { date: fmt.date(props.project.created_at) })}</span>
         </div>
-
-        <div class="flex items-center gap-2">
-          <Show when={props.onDetectStack && props.project.workspace_path}>
-            <button
-              type="button"
-              class="rounded px-2 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-              onClick={() => props.onDetectStack?.(props.project.id)}
-              disabled={props.detecting}
-            >
-              {props.detecting ? t("dashboard.detect.detecting") : t("dashboard.detect.button")}
-            </button>
-          </Show>
-
-          <button
-            type="button"
-            class="rounded px-2 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-            onClick={() => props.onEdit(props.project.id)}
-            aria-label={t("project.editAria", { name: props.project.name })}
-          >
-            {t("project.edit")}
-          </button>
-
-          <button
-            type="button"
-            class="rounded px-2 py-1 text-sm text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400"
-            onClick={() => props.onDelete(props.project.id)}
-            aria-label={t("project.deleteAria", { name: props.project.name })}
-          >
-            {t("project.delete")}
-          </button>
-        </div>
-      </div>
-
-      <div class="mt-3 flex flex-wrap gap-3 text-xs text-gray-400 dark:text-gray-500">
-        {props.project.provider && (
-          <span class="rounded bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-gray-600 dark:text-gray-400">
-            {props.project.provider}
-          </span>
-        )}
-        {props.project.repo_url && (
-          <span class="truncate" title={props.project.repo_url}>
-            {props.project.repo_url}
-          </span>
-        )}
-        <span>{t("project.created", { date: fmt.date(props.project.created_at) })}</span>
-      </div>
-    </div>
+      </Card.Body>
+    </Card>
   );
 }

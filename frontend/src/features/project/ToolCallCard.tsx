@@ -1,5 +1,7 @@
 import { createSignal, Show } from "solid-js";
 
+import { Card } from "~/ui";
+
 interface ToolCallCardProps {
   name: string;
   args?: Record<string, unknown>;
@@ -26,9 +28,9 @@ export default function ToolCallCard(props: ToolCallCardProps) {
   const statusColor = () => {
     switch (props.status) {
       case "pending":
-        return "text-gray-400";
+        return "text-cf-text-muted";
       case "running":
-        return "text-blue-500 animate-pulse";
+        return "text-cf-accent animate-pulse";
       case "completed":
         return "text-green-500";
       case "failed":
@@ -37,23 +39,23 @@ export default function ToolCallCard(props: ToolCallCardProps) {
   };
 
   return (
-    <div class="my-1 rounded border border-gray-200 bg-gray-50 text-sm dark:border-gray-700 dark:bg-gray-800/50">
+    <Card class="my-1 text-sm">
       <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700/50"
+        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-cf-bg-surface-alt"
         onClick={() => setExpanded(!expanded())}
         aria-expanded={expanded()}
       >
         <span class={statusColor()}>{statusIcon()}</span>
-        <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{props.name}</span>
-        <span class="ml-auto text-xs text-gray-400">{expanded() ? "\u25B2" : "\u25BC"}</span>
+        <span class="font-mono text-xs text-cf-text-primary">{props.name}</span>
+        <span class="ml-auto text-xs text-cf-text-muted">{expanded() ? "\u25B2" : "\u25BC"}</span>
       </button>
 
       <Show when={expanded()}>
-        <div class="border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+        <div class="border-t border-cf-border px-3 py-2">
           <Show when={props.args && Object.keys(props.args).length > 0}>
             <div class="mb-1">
-              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Arguments:</span>
-              <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">
+              <span class="text-xs font-medium text-cf-text-tertiary">Arguments:</span>
+              <pre class="mt-0.5 max-h-32 overflow-auto rounded-cf-sm bg-cf-bg-inset p-2 text-xs">
                 {JSON.stringify(props.args, null, 2)}
               </pre>
             </div>
@@ -61,14 +63,14 @@ export default function ToolCallCard(props: ToolCallCardProps) {
 
           <Show when={props.result}>
             <div>
-              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Result:</span>
-              <pre class="mt-0.5 max-h-32 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">
+              <span class="text-xs font-medium text-cf-text-tertiary">Result:</span>
+              <pre class="mt-0.5 max-h-32 overflow-auto rounded-cf-sm bg-cf-bg-inset p-2 text-xs">
                 {props.result}
               </pre>
             </div>
           </Show>
         </div>
       </Show>
-    </div>
+    </Card>
   );
 }

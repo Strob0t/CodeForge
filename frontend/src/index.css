@@ -24,11 +24,50 @@
   --cf-text-primary: #111827; /* gray-900 */
   --cf-text-secondary: #374151; /* gray-700 */
   --cf-text-tertiary: #6b7280; /* gray-500 */
-  --cf-text-muted: #9ca3af; /* gray-400 */
+  --cf-text-muted: #6b7280; /* gray-500 (WCAG 2.2 AA: 4.6:1 on white) */
 
   /* Accent */
   --cf-accent: #2563eb; /* blue-600 */
   --cf-accent-hover: #1d4ed8; /* blue-700 */
+  --cf-accent-fg: #ffffff; /* white text on accent */
+
+  /* Semantic colors — success */
+  --cf-success: #16a34a; /* green-600 */
+  --cf-success-bg: #f0fdf4; /* green-50  */
+  --cf-success-fg: #15803d; /* green-700 */
+  --cf-success-border: #86efac; /* green-300 */
+
+  /* Semantic colors — warning */
+  --cf-warning: #ca8a04; /* yellow-600 */
+  --cf-warning-bg: #fefce8; /* yellow-50  */
+  --cf-warning-fg: #a16207; /* yellow-700 */
+  --cf-warning-border: #fde047; /* yellow-300 */
+
+  /* Semantic colors — danger */
+  --cf-danger: #dc2626; /* red-600 */
+  --cf-danger-bg: #fef2f2; /* red-50  */
+  --cf-danger-fg: #b91c1c; /* red-700 */
+  --cf-danger-border: #fca5a5; /* red-300 */
+
+  /* Semantic colors — info */
+  --cf-info: #2563eb; /* blue-600 */
+  --cf-info-bg: #eff6ff; /* blue-50  */
+  --cf-info-fg: #1d4ed8; /* blue-700 */
+  --cf-info-border: #93c5fd; /* blue-300 */
+
+  /* Interactive states */
+  --cf-focus-ring: #2563eb; /* blue-600 */
+  --cf-disabled-opacity: 0.5;
+
+  /* Shadows */
+  --cf-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --cf-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --cf-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* Radii */
+  --cf-radius-sm: 0.25rem;
+  --cf-radius-md: 0.375rem;
+  --cf-radius-lg: 0.5rem;
 
   /* Agent status design tokens (semantic) */
   --cf-status-running: #3b82f6; /* blue-500  */
@@ -55,6 +94,45 @@
 
   --cf-accent: #3b82f6; /* blue-500 */
   --cf-accent-hover: #2563eb; /* blue-600 */
+  --cf-accent-fg: #ffffff; /* white text on accent */
+
+  /* Semantic colors — success */
+  --cf-success: #22c55e; /* green-500 */
+  --cf-success-bg: #052e16; /* green-950 */
+  --cf-success-fg: #4ade80; /* green-400 */
+  --cf-success-border: #166534; /* green-800 */
+
+  /* Semantic colors — warning */
+  --cf-warning: #eab308; /* yellow-500 */
+  --cf-warning-bg: #422006; /* yellow-950 */
+  --cf-warning-fg: #facc15; /* yellow-400 */
+  --cf-warning-border: #854d0e; /* yellow-800 */
+
+  /* Semantic colors — danger */
+  --cf-danger: #ef4444; /* red-500 */
+  --cf-danger-bg: #450a0a; /* red-950 */
+  --cf-danger-fg: #f87171; /* red-400 */
+  --cf-danger-border: #991b1b; /* red-800 */
+
+  /* Semantic colors — info */
+  --cf-info: #3b82f6; /* blue-500 */
+  --cf-info-bg: #172554; /* blue-950 */
+  --cf-info-fg: #60a5fa; /* blue-400 */
+  --cf-info-border: #1e3a8a; /* blue-800 */
+
+  /* Interactive states */
+  --cf-focus-ring: #3b82f6; /* blue-500 */
+  --cf-disabled-opacity: 0.5;
+
+  /* Shadows */
+  --cf-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.1);
+  --cf-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --cf-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+
+  /* Radii */
+  --cf-radius-sm: 0.25rem;
+  --cf-radius-md: 0.375rem;
+  --cf-radius-lg: 0.5rem;
 
   --cf-status-running: #60a5fa; /* blue-400  */
   --cf-status-idle: #4ade80; /* green-400 */
@@ -67,8 +145,85 @@
    Focus-visible — consistent keyboard focus indicator (WCAG 2.4.7)
    --------------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------------
+   Tailwind v4 @theme — register design tokens as first-class utilities
+   Enables class="bg-cf-accent text-cf-danger" etc.
+   --------------------------------------------------------------------------- */
+
+@theme {
+  /* Accent */
+  --color-cf-accent: var(--cf-accent);
+  --color-cf-accent-hover: var(--cf-accent-hover);
+  --color-cf-accent-fg: var(--cf-accent-fg);
+
+  /* Surfaces */
+  --color-cf-bg-primary: var(--cf-bg-primary);
+  --color-cf-bg-surface: var(--cf-bg-surface);
+  --color-cf-bg-surface-alt: var(--cf-bg-surface-alt);
+  --color-cf-bg-inset: var(--cf-bg-inset);
+
+  /* Borders */
+  --color-cf-border: var(--cf-border);
+  --color-cf-border-subtle: var(--cf-border-subtle);
+  --color-cf-border-input: var(--cf-border-input);
+
+  /* Text */
+  --color-cf-text-primary: var(--cf-text-primary);
+  --color-cf-text-secondary: var(--cf-text-secondary);
+  --color-cf-text-tertiary: var(--cf-text-tertiary);
+  --color-cf-text-muted: var(--cf-text-muted);
+
+  /* Semantic — success */
+  --color-cf-success: var(--cf-success);
+  --color-cf-success-bg: var(--cf-success-bg);
+  --color-cf-success-fg: var(--cf-success-fg);
+  --color-cf-success-border: var(--cf-success-border);
+
+  /* Semantic — warning */
+  --color-cf-warning: var(--cf-warning);
+  --color-cf-warning-bg: var(--cf-warning-bg);
+  --color-cf-warning-fg: var(--cf-warning-fg);
+  --color-cf-warning-border: var(--cf-warning-border);
+
+  /* Semantic — danger */
+  --color-cf-danger: var(--cf-danger);
+  --color-cf-danger-bg: var(--cf-danger-bg);
+  --color-cf-danger-fg: var(--cf-danger-fg);
+  --color-cf-danger-border: var(--cf-danger-border);
+
+  /* Semantic — info */
+  --color-cf-info: var(--cf-info);
+  --color-cf-info-bg: var(--cf-info-bg);
+  --color-cf-info-fg: var(--cf-info-fg);
+  --color-cf-info-border: var(--cf-info-border);
+
+  /* Focus ring */
+  --color-cf-focus-ring: var(--cf-focus-ring);
+
+  /* Status */
+  --color-cf-status-running: var(--cf-status-running);
+  --color-cf-status-idle: var(--cf-status-idle);
+  --color-cf-status-waiting: var(--cf-status-waiting);
+  --color-cf-status-error: var(--cf-status-error);
+  --color-cf-status-planning: var(--cf-status-planning);
+
+  /* Shadows */
+  --shadow-cf-sm: var(--cf-shadow-sm);
+  --shadow-cf-md: var(--cf-shadow-md);
+  --shadow-cf-lg: var(--cf-shadow-lg);
+
+  /* Radii */
+  --radius-cf-sm: var(--cf-radius-sm);
+  --radius-cf-md: var(--cf-radius-md);
+  --radius-cf-lg: var(--cf-radius-lg);
+}
+
+/* ---------------------------------------------------------------------------
+   Focus-visible — consistent keyboard focus indicator (WCAG 2.4.7)
+   --------------------------------------------------------------------------- */
+
 *:focus-visible {
-  outline: 2px solid var(--cf-accent);
+  outline: 2px solid var(--cf-focus-ring);
   outline-offset: 2px;
 }
 
@@ -112,4 +267,21 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Spinner animation — used by ui/primitives/Spinner
+   --------------------------------------------------------------------------- */
+
+@keyframes cf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cf-spinner {
+  animation: cf-spin 0.75s linear infinite;
+  border-radius: 9999px;
+  border: 2px solid var(--cf-border);
+  border-top-color: var(--cf-accent);
 }

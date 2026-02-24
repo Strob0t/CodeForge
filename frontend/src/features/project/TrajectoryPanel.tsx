@@ -4,18 +4,19 @@ import { api } from "~/api/client";
 import type { AgentEvent, AgentEventType, TrajectorySummary } from "~/api/types";
 import { DiffPreview } from "~/components/DiffPreview";
 import { useI18n } from "~/i18n";
+import { Button, Card } from "~/ui";
 
 interface TrajectoryPanelProps {
   runId: string;
 }
 
 const EVENT_COLORS: Record<string, string> = {
-  "agent.started": "bg-blue-400",
-  "agent.step_done": "bg-blue-300",
-  "agent.tool_called": "bg-yellow-400",
-  "agent.tool_result": "bg-yellow-300",
-  "agent.finished": "bg-green-400",
-  "agent.error": "bg-red-400",
+  "agent.started": "bg-cf-info",
+  "agent.step_done": "bg-cf-accent",
+  "agent.tool_called": "bg-cf-warning",
+  "agent.tool_result": "bg-cf-warning",
+  "agent.finished": "bg-cf-success",
+  "agent.error": "bg-cf-danger",
 };
 
 const EVENT_TYPES: AgentEventType[] = [
@@ -61,19 +62,15 @@ function EventDetail(props: { event: AgentEvent }) {
     <div class="space-y-2">
       <Show when={isToolCall()}>
         <div>
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
-            {t("trajectory.tool")}
-          </span>
-          <span class="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 font-mono text-xs text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
+          <span class="text-xs font-medium text-cf-text-tertiary">{t("trajectory.tool")}</span>
+          <span class="ml-2 rounded bg-cf-warning-bg px-1.5 py-0.5 font-mono text-xs text-cf-warning-fg">
             {(payload().tool as string) ?? "?"}
           </span>
         </div>
         <Show when={payload().input}>
           <div>
-            <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t("trajectory.input")}
-            </p>
-            <pre class="max-h-40 overflow-auto rounded bg-gray-100 p-2 text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+            <p class="mb-1 text-xs font-medium text-cf-text-tertiary">{t("trajectory.input")}</p>
+            <pre class="max-h-40 overflow-auto rounded-cf-sm bg-cf-bg-inset p-2 text-xs text-cf-text-secondary">
               {typeof payload().input === "string"
                 ? (payload().input as string)
                 : JSON.stringify(payload().input, null, 2)}
@@ -85,10 +82,8 @@ function EventDetail(props: { event: AgentEvent }) {
       <Show when={isToolResult()}>
         <Show when={payload().tool}>
           <div>
-            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t("trajectory.tool")}
-            </span>
-            <span class="ml-2 rounded bg-yellow-100 px-1.5 py-0.5 font-mono text-xs text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
+            <span class="text-xs font-medium text-cf-text-tertiary">{t("trajectory.tool")}</span>
+            <span class="ml-2 rounded bg-cf-warning-bg px-1.5 py-0.5 font-mono text-xs text-cf-warning-fg">
               {payload().tool as string}
             </span>
           </div>
@@ -98,9 +93,7 @@ function EventDetail(props: { event: AgentEvent }) {
         <Show when={diffContent()}>
           {(diff) => (
             <div>
-              <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-                {t("diff.title")}
-              </p>
+              <p class="mb-1 text-xs font-medium text-cf-text-tertiary">{t("diff.title")}</p>
               <DiffPreview diff={diff()} maxHeight={300} />
             </div>
           )}
@@ -109,10 +102,8 @@ function EventDetail(props: { event: AgentEvent }) {
         {/* Regular output (only if no diff was detected) */}
         <Show when={!diffContent() && payload().output}>
           <div>
-            <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t("trajectory.output")}
-            </p>
-            <pre class="max-h-40 overflow-auto rounded bg-gray-100 p-2 text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+            <p class="mb-1 text-xs font-medium text-cf-text-tertiary">{t("trajectory.output")}</p>
+            <pre class="max-h-40 overflow-auto rounded-cf-sm bg-cf-bg-inset p-2 text-xs text-cf-text-secondary">
               {typeof payload().output === "string"
                 ? (payload().output as string)
                 : JSON.stringify(payload().output, null, 2)}
@@ -121,10 +112,8 @@ function EventDetail(props: { event: AgentEvent }) {
         </Show>
         <Show when={payload().error}>
           <div>
-            <p class="mb-1 text-xs font-medium text-red-500 dark:text-red-400">
-              {t("trajectory.errorOutput")}
-            </p>
-            <pre class="max-h-32 overflow-auto rounded bg-red-50 p-2 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300">
+            <p class="mb-1 text-xs font-medium text-cf-danger-fg">{t("trajectory.errorOutput")}</p>
+            <pre class="max-h-32 overflow-auto rounded-cf-sm bg-cf-danger-bg p-2 text-xs text-cf-danger-fg">
               {payload().error as string}
             </pre>
           </div>
@@ -135,16 +124,14 @@ function EventDetail(props: { event: AgentEvent }) {
       <Show when={!isToolCall() && !isToolResult() && diffContent()}>
         {(diff) => (
           <div>
-            <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-              {t("diff.title")}
-            </p>
+            <p class="mb-1 text-xs font-medium text-cf-text-tertiary">{t("diff.title")}</p>
             <DiffPreview diff={diff()} maxHeight={300} />
           </div>
         )}
       </Show>
 
       <Show when={!isToolCall() && !isToolResult() && !diffContent()}>
-        <pre class="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">
+        <pre class="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-cf-text-secondary">
           {JSON.stringify(payload(), null, 2)}
         </pre>
       </Show>
@@ -266,281 +253,260 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
   };
 
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
-      <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">{t("trajectory.title")}</h3>
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class={`rounded px-3 py-1 text-xs ${
-              replayMode()
-                ? "bg-blue-600 text-white hover:bg-blue-700"
-                : "bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
-            }`}
-            onClick={() => (replayMode() ? exitReplay() : enterReplay())}
-            aria-pressed={replayMode()}
-          >
-            {replayMode() ? t("trajectory.exitReplay") : t("trajectory.replay")}
-          </button>
-          <button
-            class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
-            onClick={handleExport}
-          >
-            {t("trajectory.exportJson")}
-          </button>
-        </div>
-      </div>
-
-      {/* Stats Summary */}
-      <Show when={stats()}>
-        {(s) => (
-          <div class="mb-4 flex flex-wrap gap-4 rounded bg-gray-50 p-3 text-sm dark:bg-gray-700">
-            <span>{tp("trajectory.events", s().total_events)}</span>
-            <span>
-              <span class="text-gray-500 dark:text-gray-400">{t("trajectory.duration")}</span>{" "}
-              {fmt.duration(s().duration_ms)}
-            </span>
-            <span>{tp("trajectory.toolCalls", s().tool_call_count)}</span>
-            <span class={s().error_count > 0 ? "text-red-600 dark:text-red-400" : ""}>
-              {tp("trajectory.errors", s().error_count)}
-            </span>
-          </div>
-        )}
-      </Show>
-
-      {/* Filters (hidden in replay mode) */}
-      <Show when={!replayMode()}>
-        <div class="mb-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            class={`rounded px-2 py-1 text-xs ${!typeFilter() ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
-            onClick={() => {
-              setTypeFilter("");
-              setCursor("");
-            }}
-            aria-pressed={!typeFilter()}
-            aria-label={t("trajectory.filterAllAria")}
-          >
-            {t("trajectory.filterAll")}
-          </button>
-          <For each={EVENT_TYPES}>
-            {(evType) => (
-              <button
-                type="button"
-                class={`rounded px-2 py-1 text-xs ${typeFilter() === evType ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"}`}
-                onClick={() => {
-                  setTypeFilter(evType);
-                  setCursor("");
-                }}
-                aria-pressed={typeFilter() === evType}
-                aria-label={t("trajectory.filterAria", { type: evType.replace("agent.", "") })}
-              >
-                {evType.replace("agent.", "")}
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      {/* Replay Mode */}
-      <Show when={replayMode() && events().length > 0}>
-        {/* Replay controls */}
-        <div class="mb-3 rounded bg-gray-50 p-3 dark:bg-gray-700">
-          {/* Scrubber bar */}
-          <div class="mb-2">
-            <input
-              type="range"
-              min="0"
-              max={Math.max(0, events().length - 1)}
-              value={replayIndex()}
-              onInput={(e) => {
-                stopPlayback();
-                setReplayIndex(parseInt(e.currentTarget.value, 10));
-              }}
-              class="w-full accent-blue-600"
-              aria-label={t("trajectory.scrubberAria")}
-            />
-            {/* Mini timeline dots */}
-            <div class="mt-1 flex gap-px">
-              <For each={events()}>
-                {(ev, i) => (
-                  <div
-                    class={`h-1 flex-1 rounded-sm transition-colors ${
-                      i() <= replayIndex()
-                        ? (EVENT_COLORS[ev.type] ?? "bg-gray-400")
-                        : "bg-gray-200 dark:bg-gray-600"
-                    }`}
-                  />
-                )}
-              </For>
-            </div>
-          </div>
-
-          {/* Control buttons */}
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="rounded bg-gray-200 px-2 py-1 text-xs font-medium hover:bg-gray-300 disabled:opacity-50 dark:bg-gray-600 dark:hover:bg-gray-500"
-                onClick={stepPrev}
-                disabled={replayIndex() <= 0}
-                aria-label={t("trajectory.prevStep")}
-              >
-                {"\u25C0"}
-              </button>
-              <button
-                type="button"
-                class={`rounded px-3 py-1 text-xs font-medium text-white ${
-                  playing()
-                    ? "bg-yellow-500 hover:bg-yellow-600"
-                    : "bg-green-600 hover:bg-green-700"
-                }`}
-                onClick={togglePlayback}
-                aria-label={playing() ? t("trajectory.pauseReplay") : t("trajectory.playReplay")}
-              >
-                {playing() ? "\u23F8" : "\u25B6"}
-              </button>
-              <button
-                type="button"
-                class="rounded bg-gray-200 px-2 py-1 text-xs font-medium hover:bg-gray-300 disabled:opacity-50 dark:bg-gray-600 dark:hover:bg-gray-500"
-                onClick={stepNext}
-                disabled={replayIndex() >= events().length - 1}
-                aria-label={t("trajectory.nextStep")}
-              >
-                {"\u25B6"}
-              </button>
-              <button
-                type="button"
-                class="rounded bg-gray-200 px-2 py-1 text-xs hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500"
-                onClick={cycleSpeed}
-                title={t("trajectory.speedLabel")}
-              >
-                {PLAYBACK_SPEEDS[speedIdx()]}x
-              </button>
-            </div>
-            <span class="text-xs text-gray-500 dark:text-gray-400">
-              {t("trajectory.stepOf", {
-                current: String(replayIndex() + 1),
-                total: String(events().length),
-              })}
-            </span>
-          </div>
-        </div>
-
-        {/* Current event detail */}
-        <Show when={currentEvent()}>
-          {(ev) => (
-            <div
-              class="rounded border border-gray-200 dark:border-gray-700"
-              aria-live="polite"
-              aria-label={t("trajectory.eventAria", {
-                type: ev().type,
-                time: fmt.time(ev().created_at),
-              })}
+    <Card>
+      <Card.Header>
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold">{t("trajectory.title")}</h3>
+          <div class="flex items-center gap-2">
+            <Button
+              variant={replayMode() ? "primary" : "secondary"}
+              size="sm"
+              onClick={() => (replayMode() ? exitReplay() : enterReplay())}
+              aria-pressed={replayMode()}
             >
-              <div class="flex items-center gap-2 border-b border-gray-100 px-4 py-3 dark:border-gray-700">
-                <span
-                  class={`h-3 w-3 rounded-full ${EVENT_COLORS[ev().type] ?? "bg-gray-300"}`}
-                  aria-hidden="true"
-                />
-                <span class="font-mono text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {ev().type}
-                </span>
-                <span class="flex-1" />
-                <span class="text-xs text-gray-400 dark:text-gray-500">
-                  {fmt.time(ev().created_at)}
-                </span>
-                <span class="text-xs text-gray-400 dark:text-gray-500">v{ev().version}</span>
-              </div>
-              <div class="px-4 py-3">
-                <EventDetail event={ev()} />
-              </div>
+              {replayMode() ? t("trajectory.exitReplay") : t("trajectory.replay")}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={handleExport}>
+              {t("trajectory.exportJson")}
+            </Button>
+          </div>
+        </div>
+      </Card.Header>
+
+      <Card.Body>
+        {/* Stats Summary */}
+        <Show when={stats()}>
+          {(s) => (
+            <div class="mb-4 flex flex-wrap gap-4 rounded-cf-sm bg-cf-bg-inset p-3 text-sm">
+              <span>{tp("trajectory.events", s().total_events)}</span>
+              <span>
+                <span class="text-cf-text-tertiary">{t("trajectory.duration")}</span>{" "}
+                {fmt.duration(s().duration_ms)}
+              </span>
+              <span>{tp("trajectory.toolCalls", s().tool_call_count)}</span>
+              <span class={s().error_count > 0 ? "text-cf-danger-fg" : ""}>
+                {tp("trajectory.errors", s().error_count)}
+              </span>
             </div>
           )}
         </Show>
-      </Show>
 
-      {/* Browse Mode (existing timeline) */}
-      <Show when={!replayMode()}>
-        <Show
-          when={trajectory()}
-          fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("common.loading")}</p>}
-        >
-          <div class="space-y-1">
-            <For each={events()}>
-              {(ev: AgentEvent) => (
-                <div
-                  class={`cursor-pointer rounded border hover:border-gray-200 dark:hover:border-gray-600 ${
-                    expandedId() === ev.id
-                      ? "border-blue-200 dark:border-blue-700"
-                      : "border-gray-100 dark:border-gray-700"
-                  }`}
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={expandedId() === ev.id}
-                  aria-label={t("trajectory.eventAria", {
-                    type: ev.type,
-                    time: fmt.time(ev.created_at),
-                  })}
-                  onClick={() => toggleExpand(ev.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      toggleExpand(ev.id);
-                    }
+        {/* Filters (hidden in replay mode) */}
+        <Show when={!replayMode()}>
+          <div class="mb-4 flex flex-wrap gap-2">
+            <Button
+              variant={!typeFilter() ? "primary" : "secondary"}
+              size="sm"
+              onClick={() => {
+                setTypeFilter("");
+                setCursor("");
+              }}
+              aria-pressed={!typeFilter()}
+              aria-label={t("trajectory.filterAllAria")}
+            >
+              {t("trajectory.filterAll")}
+            </Button>
+            <For each={EVENT_TYPES}>
+              {(evType) => (
+                <Button
+                  variant={typeFilter() === evType ? "primary" : "secondary"}
+                  size="sm"
+                  onClick={() => {
+                    setTypeFilter(evType);
+                    setCursor("");
                   }}
+                  aria-pressed={typeFilter() === evType}
+                  aria-label={t("trajectory.filterAria", { type: evType.replace("agent.", "") })}
                 >
-                  <div class="flex items-center gap-2 px-3 py-2">
-                    <span
-                      class={`h-2.5 w-2.5 rounded-full ${EVENT_COLORS[ev.type] ?? "bg-gray-300"}`}
-                      aria-hidden="true"
-                    />
-                    <span class="font-mono text-xs text-gray-600 dark:text-gray-400">
-                      {ev.type}
-                    </span>
-                    <span class="flex-1" />
-                    <span class="text-xs text-gray-400 dark:text-gray-500">
-                      {fmt.time(ev.created_at)}
-                    </span>
-                    <span class="text-xs text-gray-400 dark:text-gray-500">v{ev.version}</span>
-                  </div>
-
-                  <Show when={expandedId() === ev.id}>
-                    <div class="border-t border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-700">
-                      <EventDetail event={ev} />
-                    </div>
-                  </Show>
-                </div>
+                  {evType.replace("agent.", "")}
+                </Button>
               )}
             </For>
           </div>
+        </Show>
 
-          {/* Pagination */}
-          <div class="mt-3 flex items-center justify-between text-sm">
-            <span class="text-xs text-gray-500 dark:text-gray-400">
-              {t("trajectory.total", { n: trajectory()?.total ?? 0 })}
-            </span>
-            <div class="flex gap-2">
-              <Show when={cursor()}>
-                <button
-                  class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
-                  onClick={handlePrevPage}
+        {/* Replay Mode */}
+        <Show when={replayMode() && events().length > 0}>
+          {/* Replay controls */}
+          <div class="mb-3 rounded-cf-sm bg-cf-bg-inset p-3">
+            {/* Scrubber bar */}
+            <div class="mb-2">
+              <input
+                type="range"
+                min="0"
+                max={Math.max(0, events().length - 1)}
+                value={replayIndex()}
+                onInput={(e) => {
+                  stopPlayback();
+                  setReplayIndex(parseInt(e.currentTarget.value, 10));
+                }}
+                class="w-full accent-cf-accent"
+                aria-label={t("trajectory.scrubberAria")}
+              />
+              {/* Mini timeline dots */}
+              <div class="mt-1 flex gap-px">
+                <For each={events()}>
+                  {(ev, i) => (
+                    <div
+                      class={`h-1 flex-1 rounded-sm transition-colors ${
+                        i() <= replayIndex()
+                          ? (EVENT_COLORS[ev.type] ?? "bg-cf-text-muted")
+                          : "bg-cf-bg-inset"
+                      }`}
+                    />
+                  )}
+                </For>
+              </div>
+            </div>
+
+            {/* Control buttons */}
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={stepPrev}
+                  disabled={replayIndex() <= 0}
+                  aria-label={t("trajectory.prevStep")}
                 >
-                  {t("trajectory.first")}
-                </button>
-              </Show>
-              <Show when={trajectory()?.has_more}>
-                <button
-                  class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
-                  onClick={handleNextPage}
+                  {"\u25C0"}
+                </Button>
+                <Button
+                  variant={playing() ? "danger" : "primary"}
+                  size="sm"
+                  onClick={togglePlayback}
+                  aria-label={playing() ? t("trajectory.pauseReplay") : t("trajectory.playReplay")}
                 >
-                  {t("trajectory.next")}
-                </button>
-              </Show>
+                  {playing() ? "\u23F8" : "\u25B6"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={stepNext}
+                  disabled={replayIndex() >= events().length - 1}
+                  aria-label={t("trajectory.nextStep")}
+                >
+                  {"\u25B6"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={cycleSpeed}
+                  title={t("trajectory.speedLabel")}
+                >
+                  {PLAYBACK_SPEEDS[speedIdx()]}x
+                </Button>
+              </div>
+              <span class="text-xs text-cf-text-tertiary">
+                {t("trajectory.stepOf", {
+                  current: String(replayIndex() + 1),
+                  total: String(events().length),
+                })}
+              </span>
             </div>
           </div>
+
+          {/* Current event detail */}
+          <Show when={currentEvent()}>
+            {(ev) => (
+              <div
+                class="rounded-cf-sm border border-cf-border"
+                aria-live="polite"
+                aria-label={t("trajectory.eventAria", {
+                  type: ev().type,
+                  time: fmt.time(ev().created_at),
+                })}
+              >
+                <div class="flex items-center gap-2 border-b border-cf-border-subtle px-4 py-3">
+                  <span
+                    class={`h-3 w-3 rounded-full ${EVENT_COLORS[ev().type] ?? "bg-cf-border-input"}`}
+                    aria-hidden="true"
+                  />
+                  <span class="font-mono text-sm font-medium text-cf-text-secondary">
+                    {ev().type}
+                  </span>
+                  <span class="flex-1" />
+                  <span class="text-xs text-cf-text-muted">{fmt.time(ev().created_at)}</span>
+                  <span class="text-xs text-cf-text-muted">v{ev().version}</span>
+                </div>
+                <div class="px-4 py-3">
+                  <EventDetail event={ev()} />
+                </div>
+              </div>
+            )}
+          </Show>
         </Show>
-      </Show>
-    </div>
+
+        {/* Browse Mode (existing timeline) */}
+        <Show when={!replayMode()}>
+          <Show
+            when={trajectory()}
+            fallback={<p class="text-sm text-cf-text-muted">{t("common.loading")}</p>}
+          >
+            <div class="space-y-1">
+              <For each={events()}>
+                {(ev: AgentEvent) => (
+                  <div
+                    class={`cursor-pointer rounded-cf-sm border hover:border-cf-border ${
+                      expandedId() === ev.id ? "border-cf-accent" : "border-cf-border-subtle"
+                    }`}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={expandedId() === ev.id}
+                    aria-label={t("trajectory.eventAria", {
+                      type: ev.type,
+                      time: fmt.time(ev.created_at),
+                    })}
+                    onClick={() => toggleExpand(ev.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleExpand(ev.id);
+                      }
+                    }}
+                  >
+                    <div class="flex items-center gap-2 px-3 py-2">
+                      <span
+                        class={`h-2.5 w-2.5 rounded-full ${EVENT_COLORS[ev.type] ?? "bg-cf-border-input"}`}
+                        aria-hidden="true"
+                      />
+                      <span class="font-mono text-xs text-cf-text-tertiary">{ev.type}</span>
+                      <span class="flex-1" />
+                      <span class="text-xs text-cf-text-muted">{fmt.time(ev.created_at)}</span>
+                      <span class="text-xs text-cf-text-muted">v{ev.version}</span>
+                    </div>
+
+                    <Show when={expandedId() === ev.id}>
+                      <div class="border-t border-cf-border-subtle bg-cf-bg-inset px-3 py-2">
+                        <EventDetail event={ev} />
+                      </div>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </div>
+
+            {/* Pagination */}
+            <div class="mt-3 flex items-center justify-between text-sm">
+              <span class="text-xs text-cf-text-muted">
+                {t("trajectory.total", { n: trajectory()?.total ?? 0 })}
+              </span>
+              <div class="flex gap-2">
+                <Show when={cursor()}>
+                  <Button variant="secondary" size="sm" onClick={handlePrevPage}>
+                    {t("trajectory.first")}
+                  </Button>
+                </Show>
+                <Show when={trajectory()?.has_more}>
+                  <Button variant="secondary" size="sm" onClick={handleNextPage}>
+                    {t("trajectory.next")}
+                  </Button>
+                </Show>
+              </div>
+            </div>
+          </Show>
+        </Show>
+      </Card.Body>
+    </Card>
   );
 }

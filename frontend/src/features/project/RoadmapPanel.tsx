@@ -11,6 +11,7 @@ import type {
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { Badge, Button, Input, Select } from "~/ui";
 
 import DragList, { type DragHandleProps } from "./DragList";
 
@@ -19,20 +20,35 @@ interface RoadmapPanelProps {
   onError: (msg: string) => void;
 }
 
-const STATUS_COLORS: Record<RoadmapStatus, string> = {
-  draft: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300",
-  active: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  complete: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  archived: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-};
+function roadmapStatusVariant(status: RoadmapStatus): "default" | "info" | "success" | "warning" {
+  switch (status) {
+    case "draft":
+      return "default";
+    case "active":
+      return "info";
+    case "complete":
+      return "success";
+    case "archived":
+      return "warning";
+  }
+}
 
-const FEATURE_COLORS: Record<FeatureStatus, string> = {
-  backlog: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
-  planned: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-  in_progress: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  done: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  cancelled: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-};
+function featureStatusVariant(
+  status: FeatureStatus,
+): "default" | "info" | "warning" | "success" | "danger" {
+  switch (status) {
+    case "backlog":
+      return "default";
+    case "planned":
+      return "info";
+    case "in_progress":
+      return "warning";
+    case "done":
+      return "success";
+    case "cancelled":
+      return "danger";
+  }
+}
 
 export default function RoadmapPanel(props: RoadmapPanelProps) {
   const { t } = useI18n();
@@ -220,23 +236,22 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
   };
 
   return (
-    <div class="h-full overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+    <div class="h-full overflow-y-auto rounded-cf-md border border-cf-border bg-cf-bg-surface p-4">
       <h3 class="mb-3 text-lg font-semibold">{t("roadmap.title")}</h3>
 
       <Show
         when={roadmap()}
         fallback={
           <div>
-            <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">{t("roadmap.empty")}</p>
+            <p class="mb-3 text-sm text-cf-text-tertiary">{t("roadmap.empty")}</p>
             <div class="flex flex-col gap-2">
               <div>
                 <label for="roadmap-title" class="sr-only">
                   {t("roadmap.titleLabel")}
                 </label>
-                <input
+                <Input
                   id="roadmap-title"
                   type="text"
-                  class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                   placeholder={t("roadmap.form.titlePlaceholder")}
                   value={title()}
                   onInput={(e) => setTitle(e.currentTarget.value)}
@@ -247,44 +262,44 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                 <label for="roadmap-description" class="sr-only">
                   {t("roadmap.descriptionLabel")}
                 </label>
-                <input
+                <Input
                   id="roadmap-description"
                   type="text"
-                  class="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                   placeholder={t("roadmap.form.descriptionPlaceholder")}
                   value={description()}
                   onInput={(e) => setDescription(e.currentTarget.value)}
                 />
               </div>
               <div class="flex gap-2">
-                <button
-                  class="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={handleCreate}
                   disabled={creating() || !title()}
+                  loading={creating()}
                 >
                   {creating() ? t("common.creating") : t("roadmap.createRoadmap")}
-                </button>
-                <button
-                  class="rounded bg-emerald-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={handleDetect}
                   disabled={detecting()}
+                  loading={detecting()}
                 >
                   {detecting() ? t("roadmap.detecting") : t("roadmap.autoDetect")}
-                </button>
+                </Button>
               </div>
               <Show when={detectionResult()}>
                 {(dr) => (
-                  <div class="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/30">
+                  <div class="mt-3 rounded-cf-sm border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/30">
                     <div class="mb-1 flex items-center justify-between">
                       <span class="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                         {t("roadmap.toast.detected", { format: dr().format, path: dr().path })}
                       </span>
-                      <button
-                        class="text-xs text-emerald-500 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
-                        onClick={() => setDetectionResult(null)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => setDetectionResult(null)}>
                         {t("common.dismiss")}
-                      </button>
+                      </Button>
                     </div>
                     <Show when={(dr().file_markers ?? []).length > 0}>
                       <ul class="mt-1 list-disc pl-4 text-xs text-emerald-600 dark:text-emerald-400">
@@ -303,69 +318,66 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
             <div class="mb-4 flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="text-base font-medium">{rm().title}</span>
-                <span
-                  class={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[rm().status]}`}
-                >
+                <Badge variant={roadmapStatusVariant(rm().status)} pill>
                   {rm().status}
-                </span>
+                </Badge>
               </div>
               <div class="flex gap-2">
-                <button
-                  class="rounded bg-green-100 px-3 py-1 text-xs text-green-700 hover:bg-green-200 disabled:opacity-50 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={handleImportSpecs}
                   disabled={importing()}
+                  loading={importing()}
                 >
                   {importing() ? t("common.importing") : t("roadmap.importSpecs")}
-                </button>
-                <button
-                  class="rounded bg-indigo-100 px-3 py-1 text-xs text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setShowPMImport(!showPMImport())}
                 >
                   {t("roadmap.importPM")}
-                </button>
-                <button
-                  class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
-                  onClick={handleAIView}
-                >
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleAIView}>
                   {t("roadmap.aiView")}
-                </button>
-                <button
-                  class="rounded bg-amber-100 px-3 py-1 text-xs text-amber-700 hover:bg-amber-200 disabled:opacity-50 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={handleSyncToFile}
                   disabled={syncing()}
+                  loading={syncing()}
                 >
                   {syncing() ? t("roadmap.syncing") : t("roadmap.syncToFile")}
-                </button>
-                <button
-                  type="button"
-                  class="rounded bg-red-50 px-3 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
                   onClick={handleDeleteRoadmap}
                   aria-label={t("roadmap.deleteAria")}
                 >
                   {t("common.delete")}
-                </button>
+                </Button>
               </div>
             </div>
 
             <Show when={rm().description}>
-              <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">{rm().description}</p>
+              <p class="mb-3 text-sm text-cf-text-tertiary">{rm().description}</p>
             </Show>
 
             {/* AI Preview */}
             <Show when={aiPreview()}>
-              <div class="mb-4 rounded border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/30">
+              <div class="mb-4 rounded-cf-sm border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/30">
                 <div class="mb-2 flex items-center justify-between">
                   <span class="text-xs font-medium text-purple-700 dark:text-purple-400">
                     {t("roadmap.aiViewMarkdown")}
                   </span>
-                  <button
-                    class="text-xs text-purple-500 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
-                    onClick={() => setAiPreview(null)}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setAiPreview(null)}>
                     {t("common.close")}
-                  </button>
+                  </Button>
                 </div>
-                <pre class="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">
+                <pre class="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-cf-text-secondary">
                   {aiPreview()}
                 </pre>
               </div>
@@ -373,13 +385,12 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
 
             {/* PM Import Form */}
             <Show when={showPMImport()}>
-              <div class="mb-4 rounded border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-900/30">
+              <div class="mb-4 rounded-cf-sm border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-900/30">
                 <div class="mb-2 text-xs font-medium text-indigo-700 dark:text-indigo-400">
                   {t("roadmap.importPMTool")}
                 </div>
                 <div class="flex flex-col gap-2">
-                  <select
-                    class="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                  <Select
                     value={selectedPM()}
                     onChange={(e) => setSelectedPM(e.currentTarget.value)}
                     aria-label={t("roadmap.pmProviderLabel")}
@@ -388,29 +399,27 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     <For each={pmProviders() ?? []}>
                       {(p: ProviderInfo) => <option value={p.name}>{p.name}</option>}
                     </For>
-                  </select>
-                  <input
+                  </Select>
+                  <Input
                     type="text"
-                    class="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
                     placeholder={t("roadmap.projectRefPlaceholder")}
                     value={pmProjectRef()}
                     onInput={(e) => setPmProjectRef(e.currentTarget.value)}
                     aria-label={t("roadmap.pmProjectRefLabel")}
                   />
                   <div class="flex gap-2">
-                    <button
-                      class="rounded bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700 disabled:opacity-50"
+                    <Button
+                      variant="primary"
+                      size="sm"
                       onClick={handleImportPM}
                       disabled={importing() || !selectedPM() || !pmProjectRef()}
+                      loading={importing()}
                     >
                       {importing() ? t("common.importing") : t("common.import")}
-                    </button>
-                    <button
-                      class="rounded bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
-                      onClick={() => setShowPMImport(false)}
-                    >
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setShowPMImport(false)}>
                       {t("common.cancel")}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -419,26 +428,23 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
             {/* Import Result */}
             <Show when={importResult()}>
               {(result: () => ImportResult) => (
-                <div class="mb-4 rounded border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/30">
+                <div class="mb-4 rounded-cf-sm border border-cf-success-border bg-cf-success-bg p-3">
                   <div class="mb-1 flex items-center justify-between">
-                    <span class="text-xs font-medium text-green-700 dark:text-green-400">
+                    <span class="text-xs font-medium text-cf-success-fg">
                       {t("roadmap.importComplete", { source: result().source })}
                     </span>
-                    <button
-                      class="text-xs text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
-                      onClick={() => setImportResult(null)}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setImportResult(null)}>
                       {t("common.dismiss")}
-                    </button>
+                    </Button>
                   </div>
-                  <p class="text-xs text-green-600 dark:text-green-400">
+                  <p class="text-xs text-cf-success-fg">
                     {t("roadmap.importStats", {
                       milestones: result().milestones_created,
                       features: result().features_created,
                     })}
                   </p>
                   <Show when={(result().errors ?? []).length > 0}>
-                    <div class="mt-1 text-xs text-red-600 dark:text-red-400">
+                    <div class="mt-1 text-xs text-cf-danger-fg">
                       <For each={result().errors ?? []}>{(err) => <p>{err}</p>}</For>
                     </div>
                   </Show>
@@ -466,36 +472,36 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                 }
               }}
               renderItem={(m: Milestone, dragHandleProps: DragHandleProps) => (
-                <div class="mb-3 rounded border border-gray-100 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700">
+                <div class="mb-3 rounded-cf-sm border border-cf-border-subtle bg-cf-bg-surface-alt p-3">
                   <div class="mb-2 flex items-center gap-2">
                     <span
-                      class="cursor-grab text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                      class="cursor-grab text-cf-text-muted hover:text-cf-text-secondary"
                       {...dragHandleProps}
                       title={t("roadmap.dragToReorder")}
                     >
                       &#x2630;
                     </span>
                     <span class="text-sm font-medium">{m.title}</span>
-                    <span class={`rounded px-1.5 py-0.5 text-xs ${STATUS_COLORS[m.status]}`}>
+                    <Badge variant={roadmapStatusVariant(m.status)} pill>
                       {m.status}
-                    </span>
+                    </Badge>
                   </div>
 
                   <Show when={m.description}>
-                    <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">{m.description}</p>
+                    <p class="mb-2 text-xs text-cf-text-tertiary">{m.description}</p>
                   </Show>
 
                   {/* Features with inline status toggle */}
                   <div class="space-y-1">
                     <For each={m.features ?? []}>
                       {(f: RoadmapFeature) => (
-                        <div class="flex items-center justify-between rounded bg-white px-2 py-1.5 text-sm dark:bg-gray-800">
+                        <div class="flex items-center justify-between rounded-cf-sm bg-cf-bg-surface px-2 py-1.5 text-sm">
                           <div class="flex items-center gap-2">
                             <button
                               class={`flex h-4 w-4 items-center justify-center rounded border text-xs ${
                                 f.status === "done"
-                                  ? "border-green-500 bg-green-500 text-white"
-                                  : "border-gray-400 text-transparent hover:border-green-400 dark:border-gray-500"
+                                  ? "border-cf-success bg-cf-success text-white"
+                                  : "border-cf-border text-transparent hover:border-cf-success"
                               }`}
                               title={
                                 f.status === "done" ? t("roadmap.markTodo") : t("roadmap.markDone")
@@ -520,11 +526,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                               {f.status === "done" ? "\u2713" : "\u00A0"}
                             </button>
                             <span
-                              class={
-                                f.status === "done"
-                                  ? "text-gray-400 line-through dark:text-gray-500"
-                                  : ""
-                              }
+                              class={f.status === "done" ? "text-cf-text-muted line-through" : ""}
                             >
                               {f.title}
                             </span>
@@ -532,18 +534,10 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                           <div class="flex items-center gap-1">
                             <Show when={(f.labels ?? []).length > 0}>
                               <For each={f.labels}>
-                                {(label) => (
-                                  <span class="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-600 dark:text-gray-300">
-                                    {label}
-                                  </span>
-                                )}
+                                {(label) => <Badge variant="default">{label}</Badge>}
                               </For>
                             </Show>
-                            <span
-                              class={`rounded px-1.5 py-0.5 text-xs ${FEATURE_COLORS[f.status]}`}
-                            >
-                              {f.status}
-                            </span>
+                            <Badge variant={featureStatusVariant(f.status)}>{f.status}</Badge>
                           </div>
                         </div>
                       )}
@@ -555,7 +549,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     when={featureMilestoneId() === m.id}
                     fallback={
                       <button
-                        class="mt-2 text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                        class="mt-2 text-xs text-cf-accent hover:underline"
                         onClick={() => setFeatureMilestoneId(m.id)}
                       >
                         {t("roadmap.addFeature")}
@@ -563,29 +557,27 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     }
                   >
                     <div class="mt-2 flex gap-2">
-                      <input
+                      <Input
                         type="text"
-                        class="flex-1 rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                        class="flex-1"
                         placeholder={t("roadmap.featurePlaceholder")}
                         value={featureTitle()}
                         onInput={(e) => setFeatureTitle(e.currentTarget.value)}
                         aria-label={t("roadmap.featureLabel")}
                       />
-                      <button
-                        class="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
-                        onClick={() => handleAddFeature(m.id)}
-                      >
+                      <Button variant="primary" size="sm" onClick={() => handleAddFeature(m.id)}>
                         {t("common.add")}
-                      </button>
-                      <button
-                        class="rounded bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500"
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => {
                           setFeatureMilestoneId(null);
                           setFeatureTitle("");
                         }}
                       >
                         {t("common.cancel")}
-                      </button>
+                      </Button>
                     </div>
                   </Show>
                 </div>
@@ -597,7 +589,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
               when={showMilestoneForm()}
               fallback={
                 <button
-                  class="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                  class="mt-2 text-sm text-cf-accent hover:underline"
                   onClick={() => setShowMilestoneForm(true)}
                 >
                   {t("roadmap.addMilestone")}
@@ -605,29 +597,27 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
               }
             >
               <div class="mt-2 flex gap-2">
-                <input
+                <Input
                   type="text"
-                  class="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                  class="flex-1"
                   placeholder={t("roadmap.milestonePlaceholder")}
                   value={milestoneTitle()}
                   onInput={(e) => setMilestoneTitle(e.currentTarget.value)}
                   aria-label={t("roadmap.milestoneLabel")}
                 />
-                <button
-                  class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
-                  onClick={handleAddMilestone}
-                >
+                <Button variant="primary" size="sm" onClick={handleAddMilestone}>
                   {t("common.add")}
-                </button>
-                <button
-                  class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => {
                     setShowMilestoneForm(false);
                     setMilestoneTitle("");
                   }}
                 >
                   {t("common.cancel")}
-                </button>
+                </Button>
               </div>
             </Show>
           </>
