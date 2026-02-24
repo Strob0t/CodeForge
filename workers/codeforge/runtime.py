@@ -74,7 +74,7 @@ class RuntimeClient:
         async def _listen() -> None:
             while not self._cancelled:
                 try:
-                    msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)
+                    msg = await sub.next_msg(timeout=1.0)
                     data = json.loads(msg.data)
                     if data.get("run_id") == self.run_id:
                         self._cancelled = True
@@ -176,7 +176,14 @@ class RuntimeClient:
                         reason="response timeout",
                     )
 
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=remaining)
+                try:
+                    msg = await sub.next_msg(timeout=remaining)
+                except TimeoutError:
+                    # next_msg() raises nats.errors.TimeoutError (subclass of
+                    # TimeoutError) when no message arrives before the timeout.
+                    # Retry until the overall deadline expires.
+                    continue
+
                 data = json.loads(msg.data)
                 if data.get("call_id") == call_id:
                     return ToolCallDecision(
