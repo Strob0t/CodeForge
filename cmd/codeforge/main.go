@@ -346,6 +346,7 @@ func run() error {
 
 	// --- Roadmap Service (Phase 8) ---
 	roadmapSvc := service.NewRoadmapService(store, hub, specProvs, pmProvs)
+	projectSvc.SetSpecDetector(service.NewRoadmapSpecDetector(roadmapSvc))
 	slog.Info("roadmap service initialized")
 
 	// --- Tenant Service ---

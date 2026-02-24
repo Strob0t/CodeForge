@@ -1091,6 +1091,24 @@ export interface Review {
   completed_at?: string;
 }
 
+// Phase 6: Automatic Orchestration
+
+/** Matches Go domain/project.SetupStep */
+export interface SetupStep {
+  name: string;
+  status: "completed" | "skipped" | "failed";
+  error?: string;
+}
+
+/** Matches Go domain/project.SetupResult */
+export interface SetupResult {
+  cloned: boolean;
+  stack_detected: boolean;
+  stack?: StackDetectionResult;
+  specs_detected: boolean;
+  steps: SetupStep[];
+}
+
 // Phase 12J: Stack Detection
 
 /** Matches Go domain/project.Language */

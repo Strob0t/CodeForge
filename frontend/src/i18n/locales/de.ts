@@ -90,6 +90,8 @@ const de: Translations = {
   "dashboard.toast.nameRequired": "Projektname ist erforderlich.",
   "dashboard.toast.created": "Projekt erstellt",
   "dashboard.toast.createFailed": "Projekt konnte nicht erstellt werden",
+  "dashboard.toast.setupStarted":
+    "Projekt wird eingerichtet (Klonen, Stack erkennen, Specs importieren)...",
   "dashboard.toast.deleted": "Projekt gel\u00f6scht",
   "dashboard.toast.deleteFailed": "Projekt konnte nicht gel\u00f6scht werden",
 
@@ -938,6 +940,7 @@ const de: Translations = {
     "Nachricht eingeben... (Enter zum Senden, Shift+Enter f\u00fcr Zeilenumbruch)",
   "chat.send": "Senden",
   "chat.thinking": "Denkt nach...",
+  "chat.streaming": "Streamt...",
   "chat.deleteAria": "Unterhaltung l\u00f6schen",
 
   // -- Modes Edit --

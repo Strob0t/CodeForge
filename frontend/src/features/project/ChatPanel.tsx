@@ -1,7 +1,8 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage } from "~/api/types";
+import { createCodeForgeWS } from "~/api/websocket";
 import { useI18n } from "~/i18n";
 
 interface ChatPanelProps {
@@ -10,6 +11,8 @@ interface ChatPanelProps {
 
 export default function ChatPanel(props: ChatPanelProps) {
   const { t } = useI18n();
+  const { onAGUIEvent } = createCodeForgeWS();
+
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
     () => props.projectId,
@@ -20,6 +23,11 @@ export default function ChatPanel(props: ChatPanelProps) {
   );
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
+
+  // Streaming text from AG-UI text_message events, appended to the bottom of the chat
+  const [streamingContent, setStreamingContent] = createSignal("");
+  // Track whether the assistant is actively processing via run_started / run_finished
+  const [agentRunning, setAgentRunning] = createSignal(false);
 
   let messagesEndRef: HTMLDivElement | undefined;
 
@@ -36,6 +44,45 @@ export default function ChatPanel(props: ChatPanelProps) {
   onMount(() => {
     trackMessages();
   });
+
+  // --- AG-UI event subscriptions ---
+
+  // When a run starts for the active conversation, show the thinking indicator
+  const cleanupRunStarted = onAGUIEvent("agui.run_started", (payload) => {
+    const runId = payload.run_id as string;
+    if (runId === activeConversation()) {
+      setAgentRunning(true);
+      setStreamingContent("");
+    }
+  });
+
+  // When a text_message arrives for the active conversation, update streaming content
+  const cleanupTextMessage = onAGUIEvent("agui.text_message", (payload) => {
+    const runId = payload.run_id as string;
+    if (runId === activeConversation()) {
+      const content = payload.content as string;
+      setStreamingContent(content);
+      scrollToBottom();
+    }
+  });
+
+  // When a run finishes, clear streaming state and refetch persisted messages
+  const cleanupRunFinished = onAGUIEvent("agui.run_finished", (payload) => {
+    const runId = payload.run_id as string;
+    if (runId === activeConversation()) {
+      setAgentRunning(false);
+      setStreamingContent("");
+      void refetchMessages();
+    }
+  });
+
+  onCleanup(() => {
+    cleanupRunStarted();
+    cleanupTextMessage();
+    cleanupRunFinished();
+  });
+
+  // --- Handlers ---
 
   const handleNewConversation = async () => {
     try {
@@ -173,7 +220,19 @@ export default function ChatPanel(props: ChatPanelProps) {
                 </div>
               )}
             </For>
-            <Show when={sending()}>
+
+            {/* Streaming assistant message from AG-UI text_message events */}
+            <Show when={streamingContent()}>
+              <div class="flex justify-start">
+                <div class="max-w-[75%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                  {streamingContent()}
+                  <div class="mt-1 text-xs opacity-60">{t("chat.streaming")}</div>
+                </div>
+              </div>
+            </Show>
+
+            {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
+            <Show when={(sending() || agentRunning()) && !streamingContent()}>
               <div class="flex justify-start">
                 <div class="bg-gray-100 dark:bg-gray-700 rounded-lg px-4 py-2 text-sm text-gray-500 dark:text-gray-400 animate-pulse">
                   {t("chat.thinking")}

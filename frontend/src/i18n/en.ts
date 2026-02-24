@@ -88,6 +88,7 @@ const en = {
   "dashboard.toast.nameRequired": "Project name is required.",
   "dashboard.toast.created": "Project created",
   "dashboard.toast.createFailed": "Failed to create project",
+  "dashboard.toast.setupStarted": "Setting up project (clone, detect stack, import specs)...",
   "dashboard.toast.deleted": "Project deleted",
   "dashboard.toast.deleteFailed": "Failed to delete project",
 
@@ -926,6 +927,7 @@ const en = {
   "chat.placeholder": "Type a message... (Enter to send, Shift+Enter for newline)",
   "chat.send": "Send",
   "chat.thinking": "Thinking...",
+  "chat.streaming": "Streaming...",
   "chat.deleteAria": "Delete conversation",
 
   // -- Modes Edit --

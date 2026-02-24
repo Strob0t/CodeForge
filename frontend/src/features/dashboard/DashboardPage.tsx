@@ -64,8 +64,17 @@ export default function DashboardPage() {
         });
         toast("success", t("dashboard.toast.updated"));
       } else {
-        await api.projects.create(data);
+        const created = await api.projects.create(data);
         toast("success", t("dashboard.toast.created"));
+
+        // Fire-and-forget: auto-setup (clone + detect stack + import specs)
+        if (created.repo_url) {
+          toast("info", t("dashboard.toast.setupStarted"));
+          api.projects.setup(created.id).catch((setupErr) => {
+            const setupMsg = setupErr instanceof Error ? setupErr.message : "setup failed";
+            toast("error", setupMsg);
+          });
+        }
       }
       setForm({ ...emptyForm });
       setShowForm(false);

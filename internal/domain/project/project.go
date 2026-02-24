@@ -43,6 +43,22 @@ type AdoptRequest struct {
 	Path string `json:"path"`
 }
 
+// SetupResult holds the outcome of the automated project setup chain.
+type SetupResult struct {
+	Cloned        bool                  `json:"cloned"`
+	StackDetected bool                  `json:"stack_detected"`
+	Stack         *StackDetectionResult `json:"stack,omitempty"`
+	SpecsDetected bool                  `json:"specs_detected"`
+	Steps         []SetupStep           `json:"steps"`
+}
+
+// SetupStep records the outcome of a single step in the setup chain.
+type SetupStep struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "completed", "skipped", "failed"
+	Error  string `json:"error,omitempty"`
+}
+
 // WorkspaceInfo holds health and status information about a project's workspace.
 type WorkspaceInfo struct {
 	Exists         bool      `json:"exists"`

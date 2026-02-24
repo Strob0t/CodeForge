@@ -50,6 +50,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Workspace operations (nested under projects)
 		r.Post("/projects/{id}/clone", h.CloneProject)
 		r.Post("/projects/{id}/adopt", h.AdoptProject)
+		r.Post("/projects/{id}/setup", h.SetupProject)
 		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
 
 		// Stack Detection

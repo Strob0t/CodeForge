@@ -15,15 +15,27 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
+// SpecDetector is an optional interface for detecting and importing roadmap specs
+// during automated project setup. Implemented by RoadmapService via specDetectorAdapter.
+type SpecDetector interface {
+	DetectAndImport(ctx context.Context, projectID string) (detected bool, importErr error)
+}
+
 // ProjectService handles project business logic.
 type ProjectService struct {
 	store         database.Store
 	workspaceRoot string
+	specDetector  SpecDetector
 }
 
 // NewProjectService creates a new ProjectService.
 func NewProjectService(store database.Store, workspaceRoot string) *ProjectService {
 	return &ProjectService{store: store, workspaceRoot: workspaceRoot}
+}
+
+// SetSpecDetector sets the optional spec detector for automated setup.
+func (s *ProjectService) SetSpecDetector(sd SpecDetector) {
+	s.specDetector = sd
 }
 
 // List returns all projects.
@@ -324,4 +336,115 @@ func (s *ProjectService) isUnderWorkspaceRoot(path string) bool {
 		return false
 	}
 	return strings.HasPrefix(absPath, absRoot+string(filepath.Separator))
+}
+
+// SetupProject chains: clone -> detect stack -> detect specs -> import specs.
+// Each step is idempotent; failures are logged but don't abort the chain.
+func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID string) (*project.SetupResult, error) {
+	result := &project.SetupResult{}
+
+	// Step 1: Clone (skip if workspace already exists).
+	p, err := s.store.GetProject(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+
+	switch {
+	case p.WorkspacePath != "":
+		result.Cloned = true
+		result.Steps = append(result.Steps, project.SetupStep{
+			Name:   "clone",
+			Status: "skipped",
+		})
+	case p.RepoURL == "":
+		result.Steps = append(result.Steps, project.SetupStep{
+			Name:   "clone",
+			Status: "skipped",
+			Error:  "no repo_url configured",
+		})
+	default:
+		cloned, cloneErr := s.Clone(ctx, id, tenantID)
+		if cloneErr != nil {
+			slog.Warn("setup: clone failed", "project_id", id, "error", cloneErr)
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "clone",
+				Status: "failed",
+				Error:  cloneErr.Error(),
+			})
+		} else {
+			result.Cloned = true
+			p = cloned
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "clone",
+				Status: "completed",
+			})
+		}
+	}
+
+	// Step 2: Detect stack (requires workspace).
+	if p.WorkspacePath != "" {
+		stack, stackErr := project.ScanWorkspace(p.WorkspacePath)
+		if stackErr != nil {
+			slog.Warn("setup: stack detection failed", "project_id", id, "error", stackErr)
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "detect_stack",
+				Status: "failed",
+				Error:  stackErr.Error(),
+			})
+		} else {
+			result.StackDetected = true
+			result.Stack = stack
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "detect_stack",
+				Status: "completed",
+			})
+		}
+	} else {
+		result.Steps = append(result.Steps, project.SetupStep{
+			Name:   "detect_stack",
+			Status: "skipped",
+			Error:  "no workspace available",
+		})
+	}
+
+	// Step 3: Detect and import specs (requires workspace + spec detector).
+	switch {
+	case p.WorkspacePath != "" && s.specDetector != nil:
+		detected, importErr := s.specDetector.DetectAndImport(ctx, id)
+		switch {
+		case importErr != nil:
+			slog.Warn("setup: spec import failed", "project_id", id, "error", importErr)
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "import_specs",
+				Status: "failed",
+				Error:  importErr.Error(),
+			})
+		case detected:
+			result.SpecsDetected = true
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "import_specs",
+				Status: "completed",
+			})
+		default:
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "import_specs",
+				Status: "skipped",
+				Error:  "no specs found",
+			})
+		}
+	case s.specDetector == nil:
+		result.Steps = append(result.Steps, project.SetupStep{
+			Name:   "import_specs",
+			Status: "skipped",
+			Error:  "spec detector not configured",
+		})
+	default:
+		result.Steps = append(result.Steps, project.SetupStep{
+			Name:   "import_specs",
+			Status: "skipped",
+			Error:  "no workspace available",
+		})
+	}
+
+	return result, nil
 }

@@ -287,6 +287,12 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		Status:    string(r.Status),
 	})
 
+	// Broadcast AG-UI run_started alongside native event
+	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
+		RunID:     r.ID,
+		AgentName: ag.Name,
+	})
+
 	// Start context-level timeout goroutine
 	if profile.Termination.TimeoutSeconds > 0 {
 		timeoutDur := time.Duration(profile.Termination.TimeoutSeconds) * time.Second
@@ -403,6 +409,14 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		Tool:     req.Tool,
 		Decision: string(decision),
 		Phase:    phase,
+	})
+
+	// Broadcast AG-UI tool_call alongside native event
+	s.hub.BroadcastEvent(ctx, ws.AGUIToolCall, ws.AGUIToolCallEvent{
+		RunID:  r.ID,
+		CallID: req.CallID,
+		Name:   req.Tool,
+		Args:   req.Command,
 	})
 
 	// Create checkpoint for file-modifying tools
@@ -533,6 +547,18 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		CallID: result.CallID,
 		Tool:   result.Tool,
 		Phase:  "result",
+	})
+
+	// Broadcast AG-UI tool_result alongside native event
+	toolResultErr := ""
+	if !result.Success {
+		toolResultErr = result.Output
+	}
+	s.hub.BroadcastEvent(ctx, ws.AGUIToolResult, ws.AGUIToolResultEvent{
+		RunID:  r.ID,
+		CallID: result.CallID,
+		Result: result.Output,
+		Error:  toolResultErr,
 	})
 
 	return nil
@@ -859,6 +885,19 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		AgentID:   r.AgentID,
 		ProjectID: r.ProjectID,
 		Status:    string(agent.StatusIdle),
+	})
+
+	// Broadcast AG-UI run_finished alongside native event
+	aguiStatus := "completed"
+	switch status {
+	case run.StatusFailed, run.StatusTimeout:
+		aguiStatus = "failed"
+	case run.StatusCancelled:
+		aguiStatus = "cancelled"
+	}
+	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+		RunID:  r.ID,
+		Status: aguiStatus,
 	})
 
 	// Clean up checkpoints (remove shadow commits, keep working state)

@@ -322,6 +322,19 @@ func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+// SetupProject handles POST /api/v1/projects/{id}/setup
+// It chains clone, stack detection, and spec import in a single request.
+func (h *Handlers) SetupProject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	tenantID := middleware.TenantIDFromContext(r.Context())
+	result, err := h.Projects.SetupProject(r.Context(), id, tenantID)
+	if err != nil {
+		writeDomainError(w, err, "setup failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // GetWorkspaceInfo handles GET /api/v1/projects/{id}/workspace
 func (h *Handlers) GetWorkspaceInfo(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

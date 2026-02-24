@@ -259,6 +259,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ path }),
       }),
+
+    setup: (id: string) =>
+      request<import("./types").SetupResult>(`/projects/${encodeURIComponent(id)}/setup`, {
+        method: "POST",
+      }),
   },
 
   agents: {
