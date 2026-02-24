@@ -87,6 +87,13 @@ class RunStartMessage(BaseModel):
     mode: ModeConfig = Field(default_factory=ModeConfig)
     config: dict[str, str] = Field(default_factory=dict)
     termination: TerminationConfig = Field(default_factory=TerminationConfig)
+
+    @field_validator("config", mode="before")
+    @classmethod
+    def _coerce_config_none(cls, v: dict[str, str] | None) -> dict[str, str]:
+        """Go serializes nil maps as null; coerce to empty dict."""
+        return v if v is not None else {}
+
     context: list[ContextEntry] = Field(default_factory=list)
 
 

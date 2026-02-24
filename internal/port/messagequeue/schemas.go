@@ -65,7 +65,7 @@ type RunStartPayload struct {
 	ExecMode      string                `json:"exec_mode"`
 	DeliverMode   string                `json:"deliver_mode,omitempty"`
 	Mode          *ModePayload          `json:"mode,omitempty"`
-	Config        map[string]string     `json:"config"`
+	Config        map[string]string     `json:"config,omitempty"`
 	Termination   TerminationPayload    `json:"termination"`
 	Context       []ContextEntryPayload `json:"context,omitempty"` // Pre-packed context entries (Phase 5D)
 }
