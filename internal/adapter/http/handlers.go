@@ -170,7 +170,7 @@ func (h *Handlers) CreateProject(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.Projects.Create(r.Context(), &req)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project creation failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
@@ -227,7 +227,7 @@ func (h *Handlers) ListTasks(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	tasks, err := h.Tasks.List(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if tasks == nil {
@@ -253,7 +253,7 @@ func (h *Handlers) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	t, err := h.Tasks.Create(r.Context(), req)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "task creation failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
@@ -406,7 +406,7 @@ func (h *Handlers) ProjectGitStatus(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	status, err := h.Projects.Status(r.Context(), id)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -416,7 +416,7 @@ func (h *Handlers) ProjectGitStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) PullProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Projects.Pull(r.Context(), id); err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -427,7 +427,7 @@ func (h *Handlers) ListProjectBranches(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	branches, err := h.Projects.ListBranches(r.Context(), id)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, branches)
@@ -449,7 +449,7 @@ func (h *Handlers) CheckoutBranch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Projects.Checkout(r.Context(), id, req.Branch); err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "branch": req.Branch})
@@ -513,7 +513,7 @@ func (h *Handlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	agents, err := h.Agents.List(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if agents == nil {
@@ -589,7 +589,7 @@ func (h *Handlers) DispatchTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Agents.Dispatch(r.Context(), agentID, req.TaskID); err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "agent or task not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "dispatched"})
@@ -611,7 +611,7 @@ func (h *Handlers) StopAgentTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Agents.StopTask(r.Context(), agentID, req.TaskID); err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "agent or task not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
@@ -846,7 +846,7 @@ func (h *Handlers) GetRun(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CancelRun(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Runtime.CancelRun(r.Context(), id); err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "run not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
@@ -857,7 +857,7 @@ func (h *Handlers) ListTaskRuns(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 	runs, err := h.Runtime.ListRunsByTask(r.Context(), taskID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "task not found")
 		return
 	}
 	if runs == nil {
@@ -875,7 +875,7 @@ func (h *Handlers) ListRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := h.Events.LoadByRun(r.Context(), runID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "run not found")
 		return
 	}
 	if events == nil {
@@ -909,7 +909,7 @@ func (h *Handlers) ListPlans(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	plans, err := h.Orchestrator.ListPlans(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if plans == nil {
@@ -977,7 +977,7 @@ func (h *Handlers) ListTeams(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	teams, err := h.PoolManager.ListTeams(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if teams == nil {
@@ -1076,7 +1076,7 @@ func (h *Handlers) BuildContextPack(w http.ResponseWriter, r *http.Request) {
 
 	pack, err := h.ContextOptimizer.BuildContextPack(r.Context(), taskID, req.ProjectID, req.TeamID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "task or project not found")
 		return
 	}
 	writeJSON(w, http.StatusCreated, pack)
@@ -1420,7 +1420,7 @@ func (h *Handlers) ProjectCostSummary(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	summary, err := h.Cost.ProjectSummary(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
@@ -1431,7 +1431,7 @@ func (h *Handlers) ProjectCostByModel(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	models, err := h.Cost.ByModel(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if models == nil {
@@ -1451,7 +1451,7 @@ func (h *Handlers) ProjectCostTimeSeries(w http.ResponseWriter, r *http.Request)
 	}
 	series, err := h.Cost.TimeSeries(r.Context(), projectID, days)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if series == nil {
@@ -1471,7 +1471,7 @@ func (h *Handlers) ProjectRecentRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, err := h.Cost.RecentRuns(r.Context(), projectID, limit)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if runs == nil {
@@ -1485,7 +1485,7 @@ func (h *Handlers) ProjectCostByTool(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	tools, err := h.Cost.ByTool(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if tools == nil {
@@ -1499,7 +1499,7 @@ func (h *Handlers) RunCostByTool(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "id")
 	tools, err := h.Cost.ByToolForRun(r.Context(), runID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "run not found")
 		return
 	}
 	if tools == nil {
@@ -1538,7 +1538,7 @@ func (h *Handlers) CreateProjectRoadmap(w http.ResponseWriter, r *http.Request) 
 
 	rm, err := h.Roadmap.Create(r.Context(), req)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "roadmap creation failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, rm)
@@ -1652,7 +1652,7 @@ func (h *Handlers) CreateMilestone(w http.ResponseWriter, r *http.Request) {
 
 	m, err := h.Roadmap.CreateMilestone(r.Context(), req)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "milestone creation failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
@@ -1929,14 +1929,14 @@ func (h *Handlers) GetTrajectory(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.Events.LoadTrajectory(r.Context(), runID, filter, cursor, limit)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "run not found")
 		return
 	}
 
 	// Include stats in the response.
 	stats, err := h.Events.TrajectoryStats(r.Context(), runID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "run not found")
 		return
 	}
 
@@ -1959,7 +1959,7 @@ func (h *Handlers) ExportTrajectory(w http.ResponseWriter, r *http.Request) {
 
 	events, err := h.Events.LoadByRun(r.Context(), runID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "run not found")
 		return
 	}
 	if events == nil {
@@ -2059,7 +2059,7 @@ func (h *Handlers) ListBranchProtectionRules(w http.ResponseWriter, r *http.Requ
 	projectID := chi.URLParam(r, "id")
 	rules, err := h.BranchProtection.ListRules(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if rules == nil {
@@ -2195,7 +2195,7 @@ func (h *Handlers) ProjectAuditTrail(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.Replay.AuditTrail(r.Context(), &filter, cursor, limit)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -2262,7 +2262,7 @@ func (h *Handlers) ListProjectSessions(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	sessions, err := h.Sessions.ListSessions(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if sessions == nil {
@@ -2361,7 +2361,7 @@ func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Sync.Sync(r.Context(), req)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "sync failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -2505,7 +2505,7 @@ func (h *Handlers) ListReviewPolicies(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	policies, err := h.Review.ListPolicies(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, policies)
@@ -2570,7 +2570,7 @@ func (h *Handlers) TriggerReview(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	rev, err := h.Review.ManualTrigger(r.Context(), id)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "review policy not found")
 		return
 	}
 	writeJSON(w, http.StatusCreated, rev)
@@ -2581,7 +2581,7 @@ func (h *Handlers) ListReviews(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	reviews, err := h.Review.ListReviews(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, reviews)
@@ -2728,7 +2728,7 @@ func (h *Handlers) ListConversations(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	conversations, err := h.Conversations.ListByProject(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if conversations == nil {
@@ -2763,7 +2763,7 @@ func (h *Handlers) ListConversationMessages(w http.ResponseWriter, r *http.Reque
 	id := chi.URLParam(r, "id")
 	messages, err := h.Conversations.ListMessages(r.Context(), id)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "conversation not found")
 		return
 	}
 	if messages == nil {
