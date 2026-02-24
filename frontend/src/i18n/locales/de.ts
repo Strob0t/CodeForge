@@ -99,6 +99,9 @@ const de: Translations = {
   "dashboard.form.autonomy.4": "4: Voll-Auto",
   "dashboard.form.autonomy.5": "5: Headless",
   "dashboard.form.autonomyPlaceholder": "Stufe auswahlen...",
+  "dashboard.form.branch": "Branch",
+  "dashboard.form.branchPlaceholder": "Standard-Branch",
+  "dashboard.form.branchLoading": "Branches werden geladen...",
   "dashboard.loading": "Projekte werden geladen\u2026",
   "dashboard.loadError": "Projekte konnten nicht geladen werden.",
   "dashboard.empty": "Noch keine Projekte. Erstellen Sie ein neues, um zu beginnen.",
@@ -491,6 +494,13 @@ const de: Translations = {
   "roadmap.toast.detectFailed": "Erkennung fehlgeschlagen",
   "roadmap.toast.aiFailed": "KI-Ansicht konnte nicht geladen werden",
   "roadmap.deleteAria": "Roadmap l\u00f6schen",
+  "roadmap.dragToReorder": "Ziehen zum Umsortieren",
+  "roadmap.markDone": "Als erledigt markieren",
+  "roadmap.markTodo": "Als offen markieren",
+  "roadmap.syncToFile": "In Datei synchronisieren",
+  "roadmap.syncing": "Synchronisiere...",
+  "roadmap.toast.synced": "In Datei synchronisiert",
+  "roadmap.toast.syncFailed": "Synchronisierung fehlgeschlagen",
 
   // -- Project detail -------------------------------------------------------
   "detail.loading": "Laden\u2026",
@@ -547,6 +557,8 @@ const de: Translations = {
   "detail.settings.autonomyPlaceholder": "Stufe auswahlen...",
   "detail.settings.save": "Einstellungen speichern",
   "detail.settings.saving": "Speichern...",
+  "detail.settings.gearTooltip": "Projekteinstellungen",
+  "detail.settings.costSummary": "Kostenübersicht",
   "detail.toast.settingsSaved": "Projekteinstellungen gespeichert",
   "detail.toast.settingsFailed": "Fehler beim Speichern der Projekteinstellungen",
 
@@ -1002,6 +1014,13 @@ const de: Translations = {
   "settings.benchmark.response": "Antwort",
   "settings.benchmark.devModeRequired":
     "Dev-Modus ist nicht aktiviert. Setzen Sie DEV_MODE=true, um Entwicklerwerkzeuge zu nutzen.",
+
+  // -- Not Found / Error pages ------------------------------------------------
+  "notFound.title": "Seite nicht gefunden",
+  "notFound.message": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
+  "notFound.backToDashboard": "Zurueck zum Dashboard",
+  "notFound.projectTitle": "Projekt nicht gefunden",
+  "notFound.projectMessage": "Das gesuchte Projekt existiert nicht oder wurde geloescht.",
 };
 
 export default de;

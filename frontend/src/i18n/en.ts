@@ -97,6 +97,9 @@ const en = {
   "dashboard.form.autonomy.4": "4: Full-Auto",
   "dashboard.form.autonomy.5": "5: Headless",
   "dashboard.form.autonomyPlaceholder": "Select level...",
+  "dashboard.form.branch": "Branch",
+  "dashboard.form.branchPlaceholder": "Default branch",
+  "dashboard.form.branchLoading": "Loading branches...",
   "dashboard.loading": "Loading projects...",
   "dashboard.loadError": "Failed to load projects.",
   "dashboard.empty": "No projects yet. Create one to get started.",
@@ -484,6 +487,13 @@ const en = {
   "roadmap.toast.importSpecsFailed": "Spec import failed",
   "roadmap.toast.importPMFailed": "PM import failed",
   "roadmap.toast.detectFailed": "Detection failed",
+  "roadmap.dragToReorder": "Drag to reorder",
+  "roadmap.markDone": "Mark as done",
+  "roadmap.markTodo": "Mark as todo",
+  "roadmap.syncToFile": "Sync to file",
+  "roadmap.syncing": "Syncing...",
+  "roadmap.toast.synced": "Synced to file",
+  "roadmap.toast.syncFailed": "Sync failed",
   "roadmap.toast.aiFailed": "Failed to load AI view",
   "roadmap.deleteAria": "Delete roadmap",
 
@@ -542,6 +552,8 @@ const en = {
   "detail.settings.autonomyPlaceholder": "Select level...",
   "detail.settings.save": "Save Settings",
   "detail.settings.saving": "Saving...",
+  "detail.settings.gearTooltip": "Project Settings",
+  "detail.settings.costSummary": "Cost Summary",
   "detail.toast.settingsSaved": "Project settings saved",
   "detail.toast.settingsFailed": "Failed to save project settings",
 
@@ -989,6 +1001,14 @@ const en = {
   "settings.benchmark.response": "Response",
   "settings.benchmark.devModeRequired":
     "Dev mode is not enabled. Set DEV_MODE=true to use developer tools.",
+
+  // -- Not Found / Error pages ------------------------------------------------
+  "notFound.title": "Page not found",
+  "notFound.message": "The page you are looking for does not exist or has been moved.",
+  "notFound.backToDashboard": "Back to Dashboard",
+  "notFound.projectTitle": "Project not found",
+  "notFound.projectMessage":
+    "The project you are looking for does not exist or may have been deleted.",
 } as const;
 
 export type TranslationKey = keyof typeof en;

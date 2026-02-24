@@ -1,9 +1,20 @@
-import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useI18n } from "~/i18n";
+
+import Markdown from "./Markdown";
+import ToolCallCard from "./ToolCallCard";
 
 interface ChatPanelProps {
   projectId: string;
@@ -29,6 +40,16 @@ export default function ChatPanel(props: ChatPanelProps) {
   // Track whether the assistant is actively processing via run_started / run_finished
   const [agentRunning, setAgentRunning] = createSignal(false);
 
+  // Tool call tracking from AG-UI events
+  interface ToolCallState {
+    callId: string;
+    name: string;
+    args?: Record<string, unknown>;
+    result?: string;
+    status: "pending" | "running" | "completed" | "failed";
+  }
+  const [toolCalls, setToolCalls] = createSignal<ToolCallState[]>([]);
+
   let messagesEndRef: HTMLDivElement | undefined;
 
   const scrollToBottom = () => {
@@ -43,6 +64,31 @@ export default function ChatPanel(props: ChatPanelProps) {
 
   onMount(() => {
     trackMessages();
+  });
+
+  // Auto-create conversation on mount if none exists
+  createEffect(() => {
+    const convList = conversations();
+    if (convList === undefined) return; // still loading
+    if (activeConversation()) return; // already have one
+
+    if (convList.length > 0) {
+      // Select the first existing conversation
+      setActiveConversation(convList[0].id);
+    } else {
+      // Create a new conversation automatically
+      void (async () => {
+        try {
+          const conv: Conversation = await api.conversations.create(props.projectId, {
+            title: t("chat.newConversation"),
+          });
+          await refetchConversations();
+          setActiveConversation(conv.id);
+        } catch {
+          // toast handled by API layer
+        }
+      })();
+    }
   });
 
   // --- AG-UI event subscriptions ---
@@ -66,12 +112,48 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   });
 
+  // When a tool call starts, add it to the tool calls list
+  const cleanupToolCall = onAGUIEvent("agui.tool_call", (payload) => {
+    const runId = payload.run_id as string;
+    if (runId === activeConversation()) {
+      const callId = payload.call_id as string;
+      let args: Record<string, unknown> | undefined;
+      try {
+        args = JSON.parse(payload.args as string) as Record<string, unknown>;
+      } catch {
+        // args may not be valid JSON
+      }
+      setToolCalls((prev) => [
+        ...prev,
+        { callId, name: payload.name as string, args, status: "running" },
+      ]);
+      scrollToBottom();
+    }
+  });
+
+  // When a tool result arrives, update the corresponding tool call
+  const cleanupToolResult = onAGUIEvent("agui.tool_result", (payload) => {
+    const runId = payload.run_id as string;
+    if (runId === activeConversation()) {
+      const callId = payload.call_id as string;
+      const error = payload.error as string | undefined;
+      setToolCalls((prev) =>
+        prev.map((tc) =>
+          tc.callId === callId
+            ? { ...tc, result: payload.result as string, status: error ? "failed" : "completed" }
+            : tc,
+        ),
+      );
+    }
+  });
+
   // When a run finishes, clear streaming state and refetch persisted messages
   const cleanupRunFinished = onAGUIEvent("agui.run_finished", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
       setAgentRunning(false);
       setStreamingContent("");
+      setToolCalls([]);
       void refetchMessages();
     }
   });
@@ -79,34 +161,12 @@ export default function ChatPanel(props: ChatPanelProps) {
   onCleanup(() => {
     cleanupRunStarted();
     cleanupTextMessage();
+    cleanupToolCall();
+    cleanupToolResult();
     cleanupRunFinished();
   });
 
   // --- Handlers ---
-
-  const handleNewConversation = async () => {
-    try {
-      const conv: Conversation = await api.conversations.create(props.projectId, {
-        title: t("chat.newConversation"),
-      });
-      await refetchConversations();
-      setActiveConversation(conv.id);
-    } catch {
-      // toast handled by API layer
-    }
-  };
-
-  const handleDeleteConversation = async (id: string) => {
-    try {
-      await api.conversations.delete(id);
-      if (activeConversation() === id) {
-        setActiveConversation(null);
-      }
-      await refetchConversations();
-    } catch {
-      // toast handled by API layer
-    }
-  };
 
   const handleSend = async () => {
     const content = input().trim();
@@ -135,137 +195,102 @@ export default function ChatPanel(props: ChatPanelProps) {
   };
 
   return (
-    <div class="flex h-[600px] border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-      {/* Sidebar - Conversation list */}
-      <div class="w-64 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex flex-col">
-        <div class="p-3 border-b border-gray-200 dark:border-gray-700">
-          <button
-            type="button"
-            class="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-            onClick={handleNewConversation}
-          >
-            {t("chat.new")}
-          </button>
-        </div>
-        <div class="flex-1 overflow-y-auto">
-          <Show
-            when={!conversations.loading}
-            fallback={<p class="p-3 text-sm text-gray-500">{t("common.loading")}</p>}
-          >
-            <For
-              each={conversations() ?? []}
-              fallback={
-                <p class="p-3 text-sm text-gray-400 dark:text-gray-500">
-                  {t("chat.noConversations")}
-                </p>
-              }
-            >
-              {(conv) => (
+    <div class="flex flex-col h-full bg-white dark:bg-gray-800">
+      <Show
+        when={activeConversation()}
+        fallback={
+          <div class="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500">
+            <p>{t("common.loading")}</p>
+          </div>
+        }
+      >
+        {/* Messages */}
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+          <For each={messages() ?? []}>
+            {(msg) => (
+              <div class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  class={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 ${
-                    activeConversation() === conv.id
-                      ? "bg-blue-50 dark:bg-blue-900/30 border-l-2 border-blue-600"
-                      : ""
+                  class={`max-w-[75%] rounded-lg px-4 py-2 text-sm ${
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white whitespace-pre-wrap"
+                      : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   }`}
-                  onClick={() => setActiveConversation(conv.id)}
                 >
-                  <span class="text-sm truncate text-gray-700 dark:text-gray-300">
-                    {conv.title}
-                  </span>
-                  <button
-                    type="button"
-                    class="ml-1 text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteConversation(conv.id);
-                    }}
-                    aria-label={t("chat.deleteAria")}
-                  >
-                    ×
-                  </button>
+                  <Show when={msg.role === "assistant"} fallback={msg.content}>
+                    <Markdown content={msg.content} />
+                  </Show>
+                  <Show when={msg.model}>
+                    <div class="mt-1 text-xs opacity-60">{msg.model}</div>
+                  </Show>
                 </div>
-              )}
-            </For>
-          </Show>
-        </div>
-      </div>
+              </div>
+            )}
+          </For>
 
-      {/* Main chat area */}
-      <div class="flex-1 flex flex-col bg-white dark:bg-gray-800">
-        <Show
-          when={activeConversation()}
-          fallback={
-            <div class="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500">
-              <p>{t("chat.selectOrNew")}</p>
+          {/* Active tool calls from AG-UI events */}
+          <Show when={toolCalls().length > 0}>
+            <div class="flex justify-start">
+              <div class="max-w-[75%] w-full">
+                <For each={toolCalls()}>
+                  {(tc) => (
+                    <ToolCallCard
+                      name={tc.name}
+                      args={tc.args}
+                      result={tc.result}
+                      status={tc.status}
+                    />
+                  )}
+                </For>
+              </div>
             </div>
-          }
-        >
-          {/* Messages */}
-          <div class="flex-1 overflow-y-auto p-4 space-y-4">
-            <For each={messages() ?? []}>
-              {(msg) => (
-                <div class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    class={`max-w-[75%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap ${
-                      msg.role === "user"
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    }`}
-                  >
-                    {msg.content}
-                    <Show when={msg.model}>
-                      <div class="mt-1 text-xs opacity-60">{msg.model}</div>
-                    </Show>
-                  </div>
-                </div>
-              )}
-            </For>
+          </Show>
 
-            {/* Streaming assistant message from AG-UI text_message events */}
-            <Show when={streamingContent()}>
+          {/* Streaming assistant message from AG-UI text_message events */}
+          <Show when={streamingContent()}>
+            {(content) => (
               <div class="flex justify-start">
-                <div class="max-w-[75%] rounded-lg px-4 py-2 text-sm whitespace-pre-wrap bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
-                  {streamingContent()}
+                <div class="max-w-[75%] rounded-lg px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                  <Markdown content={content()} />
                   <div class="mt-1 text-xs opacity-60">{t("chat.streaming")}</div>
                 </div>
               </div>
-            </Show>
+            )}
+          </Show>
 
-            {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
-            <Show when={(sending() || agentRunning()) && !streamingContent()}>
-              <div class="flex justify-start">
-                <div class="bg-gray-100 dark:bg-gray-700 rounded-lg px-4 py-2 text-sm text-gray-500 dark:text-gray-400 animate-pulse">
-                  {t("chat.thinking")}
-                </div>
+          {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
+          <Show when={(sending() || agentRunning()) && !streamingContent()}>
+            <div class="flex justify-start">
+              <div class="bg-gray-100 dark:bg-gray-700 rounded-lg px-4 py-2 text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+                {t("chat.thinking")}
               </div>
-            </Show>
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input area */}
-          <div class="border-t border-gray-200 dark:border-gray-700 p-3">
-            <div class="flex gap-2">
-              <textarea
-                class="flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
-                rows={2}
-                placeholder={t("chat.placeholder")}
-                value={input()}
-                onInput={(e) => setInput(e.currentTarget.value)}
-                onKeyDown={handleKeyDown}
-                disabled={sending()}
-              />
-              <button
-                type="button"
-                class="self-end rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={handleSend}
-                disabled={sending() || !input().trim()}
-              >
-                {t("chat.send")}
-              </button>
             </div>
+          </Show>
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input area */}
+        <div class="border-t border-gray-200 dark:border-gray-700 p-3 flex-shrink-0">
+          <div class="flex gap-2">
+            <textarea
+              class="flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
+              rows={2}
+              placeholder={t("chat.placeholder")}
+              value={input()}
+              onInput={(e) => setInput(e.currentTarget.value)}
+              onKeyDown={handleKeyDown}
+              disabled={sending()}
+            />
+            <button
+              type="button"
+              class="self-end rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleSend}
+              disabled={sending() || !input().trim()}
+            >
+              {t("chat.send")}
+            </button>
           </div>
-        </Show>
-      </div>
+        </div>
+      </Show>
     </div>
   );
 }

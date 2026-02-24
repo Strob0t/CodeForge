@@ -49,7 +49,7 @@ func (s *ProjectService) Get(ctx context.Context, id string) (*project.Project, 
 }
 
 // Create creates a new project after validating the request.
-func (s *ProjectService) Create(ctx context.Context, req project.CreateRequest) (*project.Project, error) {
+func (s *ProjectService) Create(ctx context.Context, req *project.CreateRequest) (*project.Project, error) {
 	if err := project.ValidateCreateRequest(req, gitprovider.Available()); err != nil {
 		return nil, err
 	}
@@ -117,7 +117,8 @@ func (s *ProjectService) Delete(ctx context.Context, id string) error {
 
 // Clone clones a project's repository to the workspace directory.
 // The tenantID is used to isolate workspaces per tenant.
-func (s *ProjectService) Clone(ctx context.Context, id, tenantID string) (*project.Project, error) {
+// An optional branch can be specified to clone only that branch.
+func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string) (*project.Project, error) {
 	p, err := s.store.GetProject(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
@@ -131,8 +132,13 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID string) (*proje
 		return nil, fmt.Errorf("create git provider: %w", err)
 	}
 
+	var opts []gitprovider.CloneOption
+	if branch != "" {
+		opts = append(opts, gitprovider.WithBranch(branch))
+	}
+
 	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
-	if err := provider.Clone(ctx, p.RepoURL, destPath); err != nil {
+	if err := provider.Clone(ctx, p.RepoURL, destPath, opts...); err != nil {
 		return nil, fmt.Errorf("clone: %w", err)
 	}
 
@@ -340,7 +346,8 @@ func (s *ProjectService) isUnderWorkspaceRoot(path string) bool {
 
 // SetupProject chains: clone -> detect stack -> detect specs -> import specs.
 // Each step is idempotent; failures are logged but don't abort the chain.
-func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID string) (*project.SetupResult, error) {
+// An optional branch can be specified to clone only that branch.
+func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch string) (*project.SetupResult, error) {
 	result := &project.SetupResult{}
 
 	// Step 1: Clone (skip if workspace already exists).
@@ -363,7 +370,7 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID string) 
 			Error:  "no repo_url configured",
 		})
 	default:
-		cloned, cloneErr := s.Clone(ctx, id, tenantID)
+		cloned, cloneErr := s.Clone(ctx, id, tenantID, branch)
 		if cloneErr != nil {
 			slog.Warn("setup: clone failed", "project_id", id, "error", cloneErr)
 			result.Steps = append(result.Steps, project.SetupStep{

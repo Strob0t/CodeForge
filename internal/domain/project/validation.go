@@ -13,7 +13,7 @@ var sshURLPattern = regexp.MustCompile(`^git@[^:]+:.+`)
 
 // ValidateCreateRequest validates the fields of a project creation request.
 // availableProviders should be the list from gitprovider.Available() to avoid import cycles.
-func ValidateCreateRequest(req CreateRequest, availableProviders []string) error {
+func ValidateCreateRequest(req *CreateRequest, availableProviders []string) error {
 	// Name: non-empty, max 255 chars, no control characters.
 	if req.Name == "" && req.RepoURL == "" {
 		return fmt.Errorf("name is required (or provide repo_url): %w", domain.ErrValidation)

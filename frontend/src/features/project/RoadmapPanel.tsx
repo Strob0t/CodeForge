@@ -12,6 +12,8 @@ import type {
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 
+import DragList, { type DragHandleProps } from "./DragList";
+
 interface RoadmapPanelProps {
   projectId: string;
   onError: (msg: string) => void;
@@ -56,6 +58,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
   // Feature form
   const [featureMilestoneId, setFeatureMilestoneId] = createSignal<string | null>(null);
   const [featureTitle, setFeatureTitle] = createSignal("");
+
+  // Sync-to-file state
+  const [syncing, setSyncing] = createSignal(false);
 
   // Import state
   const [importing, setImporting] = createSignal(false);
@@ -200,8 +205,22 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
     }
   };
 
+  const handleSyncToFile = async () => {
+    setSyncing(true);
+    try {
+      await api.roadmap.syncToFile(props.projectId);
+      toast("success", t("roadmap.toast.synced"));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : t("roadmap.toast.syncFailed");
+      props.onError(msg);
+      toast("error", msg);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
-    <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+    <div class="h-full overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
       <h3 class="mb-3 text-lg font-semibold">{t("roadmap.title")}</h3>
 
       <Show
@@ -309,6 +328,13 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   onClick={handleAIView}
                 >
                   {t("roadmap.aiView")}
+                </button>
+                <button
+                  class="rounded bg-amber-100 px-3 py-1 text-xs text-amber-700 hover:bg-amber-200 disabled:opacity-50 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
+                  onClick={handleSyncToFile}
+                  disabled={syncing()}
+                >
+                  {syncing() ? t("roadmap.syncing") : t("roadmap.syncToFile")}
                 </button>
                 <button
                   type="button"
@@ -420,11 +446,35 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
               )}
             </Show>
 
-            {/* Milestones */}
-            <For each={rm().milestones ?? []}>
-              {(m: Milestone) => (
+            {/* Milestones (drag-to-reorder) */}
+            <DragList
+              items={rm().milestones ?? []}
+              getId={(m: Milestone) => m.id}
+              onReorder={async (reordered: Milestone[]) => {
+                try {
+                  for (let i = 0; i < reordered.length; i++) {
+                    if (reordered[i].sort_order !== i) {
+                      await api.roadmap.updateMilestone(reordered[i].id, {
+                        sort_order: i,
+                        version: reordered[i].version,
+                      });
+                    }
+                  }
+                  refetch();
+                } catch (e) {
+                  toast("error", e instanceof Error ? e.message : "Reorder failed");
+                }
+              }}
+              renderItem={(m: Milestone, dragHandleProps: DragHandleProps) => (
                 <div class="mb-3 rounded border border-gray-100 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-700">
                   <div class="mb-2 flex items-center gap-2">
+                    <span
+                      class="cursor-grab text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                      {...dragHandleProps}
+                      title={t("roadmap.dragToReorder")}
+                    >
+                      &#x2630;
+                    </span>
                     <span class="text-sm font-medium">{m.title}</span>
                     <span class={`rounded px-1.5 py-0.5 text-xs ${STATUS_COLORS[m.status]}`}>
                       {m.status}
@@ -435,21 +485,52 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">{m.description}</p>
                   </Show>
 
-                  {/* Features */}
+                  {/* Features with inline status toggle */}
                   <div class="space-y-1">
                     <For each={m.features ?? []}>
                       {(f: RoadmapFeature) => (
                         <div class="flex items-center justify-between rounded bg-white px-2 py-1.5 text-sm dark:bg-gray-800">
                           <div class="flex items-center gap-2">
-                            <span
-                              class={`rounded px-1.5 py-0.5 text-xs ${FEATURE_COLORS[f.status]}`}
+                            <button
+                              class={`flex h-4 w-4 items-center justify-center rounded border text-xs ${
+                                f.status === "done"
+                                  ? "border-green-500 bg-green-500 text-white"
+                                  : "border-gray-400 text-transparent hover:border-green-400 dark:border-gray-500"
+                              }`}
+                              title={
+                                f.status === "done" ? t("roadmap.markTodo") : t("roadmap.markDone")
+                              }
+                              onClick={async () => {
+                                const newStatus: FeatureStatus =
+                                  f.status === "done" ? "backlog" : "done";
+                                try {
+                                  await api.roadmap.updateFeature(f.id, {
+                                    status: newStatus,
+                                    version: f.version,
+                                  });
+                                  refetch();
+                                } catch (e) {
+                                  toast(
+                                    "error",
+                                    e instanceof Error ? e.message : "Status update failed",
+                                  );
+                                }
+                              }}
                             >
-                              {f.status}
+                              {f.status === "done" ? "\u2713" : "\u00A0"}
+                            </button>
+                            <span
+                              class={
+                                f.status === "done"
+                                  ? "text-gray-400 line-through dark:text-gray-500"
+                                  : ""
+                              }
+                            >
+                              {f.title}
                             </span>
-                            <span>{f.title}</span>
                           </div>
-                          <Show when={(f.labels ?? []).length > 0}>
-                            <div class="flex gap-1">
+                          <div class="flex items-center gap-1">
+                            <Show when={(f.labels ?? []).length > 0}>
                               <For each={f.labels}>
                                 {(label) => (
                                   <span class="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-600 dark:text-gray-300">
@@ -457,8 +538,13 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                                   </span>
                                 )}
                               </For>
-                            </div>
-                          </Show>
+                            </Show>
+                            <span
+                              class={`rounded px-1.5 py-0.5 text-xs ${FEATURE_COLORS[f.status]}`}
+                            >
+                              {f.status}
+                            </span>
+                          </div>
                         </div>
                       )}
                     </For>
@@ -504,7 +590,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   </Show>
                 </div>
               )}
-            </For>
+            />
 
             {/* Add Milestone */}
             <Show

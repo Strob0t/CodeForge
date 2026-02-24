@@ -66,7 +66,7 @@ func (m *mockStore) GetProject(_ context.Context, id string) (*project.Project, 
 	return nil, domain.ErrNotFound
 }
 
-func (m *mockStore) CreateProject(_ context.Context, req project.CreateRequest) (*project.Project, error) {
+func (m *mockStore) CreateProject(_ context.Context, req *project.CreateRequest) (*project.Project, error) {
 	if m.createProjectErr != nil {
 		return nil, m.createProjectErr
 	}
@@ -670,7 +670,7 @@ func TestProjectServiceCreate(t *testing.T) {
 	store := &mockStore{}
 	svc := NewProjectService(store, t.TempDir())
 
-	req := project.CreateRequest{Name: "New", Provider: "local"}
+	req := &project.CreateRequest{Name: "New", Provider: "local"}
 	p, err := svc.Create(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -687,7 +687,7 @@ func TestProjectServiceCreateError(t *testing.T) {
 	store := &mockStore{createProjectErr: errors.New("constraint violation")}
 	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Create(context.Background(), project.CreateRequest{Name: "X"})
+	_, err := svc.Create(context.Background(), &project.CreateRequest{Name: "X"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -723,7 +723,7 @@ func TestProjectServiceCloneNoRepoURL(t *testing.T) {
 	}
 	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Clone(context.Background(), "p1", "test-tenant")
+	_, err := svc.Clone(context.Background(), "p1", "test-tenant", "")
 	if err == nil {
 		t.Fatal("expected error for project without repo_url")
 	}
@@ -736,7 +736,7 @@ func TestProjectServiceCloneNotFound(t *testing.T) {
 	store := &mockStore{}
 	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Clone(context.Background(), "nonexistent", "test-tenant")
+	_, err := svc.Clone(context.Background(), "nonexistent", "test-tenant", "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

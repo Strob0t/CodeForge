@@ -1,51 +1,15 @@
 import { useParams } from "@solidjs/router";
-import { createResource, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createResource, createSignal, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { BudgetAlertEvent, Mode } from "~/api/types";
+import type { BudgetAlertEvent } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 
-import { ProjectCostSection } from "../costs/CostDashboardPage";
-import AgentNetwork from "./AgentNetwork";
-import AgentPanel from "./AgentPanel";
-import ArchitectureGraph from "./ArchitectureGraph";
 import ChatPanel from "./ChatPanel";
-import type { OutputLine } from "./LiveOutput";
-import LiveOutput from "./LiveOutput";
-import type { AgentTerminal, TerminalLine } from "./MultiTerminal";
-import MultiTerminal from "./MultiTerminal";
-import PlanPanel from "./PlanPanel";
-import PolicyPanel from "./PolicyPanel";
-import RepoMapPanel from "./RepoMapPanel";
-import RetrievalPanel from "./RetrievalPanel";
+import CompactSettingsPopover from "./CompactSettingsPopover";
 import RoadmapPanel from "./RoadmapPanel";
-import RunPanel from "./RunPanel";
-import { SearchSimulator } from "./SearchSimulator";
-import TaskPanel from "./TaskPanel";
-
-type Tab = "overview" | "tasks" | "agents" | "context" | "costs" | "chat" | "settings";
-
-const TABS: readonly Tab[] = [
-  "overview",
-  "tasks",
-  "agents",
-  "context",
-  "costs",
-  "chat",
-  "settings",
-];
-
-const AGENT_BACKENDS = ["aider", "goose", "opencode", "openhands", "plandex"] as const;
-
-const AUTONOMY_LEVELS = [
-  { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
-  { value: "2", labelKey: "dashboard.form.autonomy.2" as const },
-  { value: "3", labelKey: "dashboard.form.autonomy.3" as const },
-  { value: "4", labelKey: "dashboard.form.autonomy.4" as const },
-  { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
-];
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
@@ -57,7 +21,7 @@ export default function ProjectDetailPage() {
     () => params.id,
     (id) => api.projects.get(id),
   );
-  const [tasks, { refetch: refetchTasks }] = createResource(
+  const [, { refetch: refetchTasks }] = createResource(
     () => params.id,
     (id) => api.tasks.list(id),
   );
@@ -65,32 +29,23 @@ export default function ProjectDetailPage() {
     () => (project()?.workspace_path ? params.id : undefined),
     (id: string) => api.projects.gitStatus(id),
   );
-  const [branches, { refetch: refetchBranches }] = createResource(
+  const [, { refetch: refetchBranches }] = createResource(
     () => (project()?.workspace_path ? params.id : undefined),
     (id: string) => api.projects.branches(id),
   );
 
-  const [agents, { refetch: refetchAgents }] = createResource(
+  const [, { refetch: refetchAgents }] = createResource(
     () => params.id,
     (id) => api.agents.list(id),
   );
 
   const [allModes] = createResource(() => api.modes.list());
 
-  // Settings tab state
-  const [settingsMode, setSettingsMode] = createSignal("");
-  const [settingsBackends, setSettingsBackends] = createSignal<string[]>([]);
-  const [settingsAutonomy, setSettingsAutonomy] = createSignal("");
-  const [savingSettings, setSavingSettings] = createSignal(false);
-
   const [cloning, setCloning] = createSignal(false);
   const [pulling, setPulling] = createSignal(false);
   const [error, setError] = createSignal("");
-  const [outputLines, setOutputLines] = createSignal<OutputLine[]>([]);
-  const [activeTaskId, setActiveTaskId] = createSignal<string | null>(null);
   const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
-  const [activeTab, setActiveTab] = createSignal<Tab>("overview");
-  const [agentTerminals, setAgentTerminals] = createSignal<Record<string, TerminalLine[]>>({});
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // WebSocket event handling
   const cleanup = onMessage((msg) => {
@@ -194,21 +149,7 @@ export default function ProjectDetailPage() {
         break;
       }
       case "task.output": {
-        const taskId = payload.task_id as string;
-        const agentId = payload.agent_id as string | undefined;
-        const newLine: TerminalLine = {
-          line: payload.line as string,
-          stream: (payload.stream as "stdout" | "stderr") || "stdout",
-          timestamp: Date.now(),
-        };
-        setActiveTaskId(taskId);
-        setOutputLines((prev) => [...prev, newLine]);
-        if (agentId) {
-          setAgentTerminals((prev) => ({
-            ...prev,
-            [agentId]: [...(prev[agentId] ?? []), newLine],
-          }));
-        }
+        // Task output handled by individual panels
         break;
       }
     }
@@ -249,387 +190,110 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleSaveSettings = async () => {
-    setSavingSettings(true);
-    setError("");
-    try {
-      const config: Record<string, string> = {};
-      const m = settingsMode();
-      if (m) config["default_mode"] = m;
-      const backends = settingsBackends();
-      if (backends.length > 0) config["agent_backends"] = backends.join(",");
-      const autonomy = settingsAutonomy();
-      if (autonomy) config["autonomy_level"] = autonomy;
-
-      await api.projects.update(params.id, { config });
-      refetchProject();
-      toast("success", t("detail.toast.settingsSaved"));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("detail.toast.settingsFailed");
-      setError(msg);
-      toast("error", msg);
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  function toggleSettingsBackend(backend: string) {
-    setSettingsBackends((prev) =>
-      prev.includes(backend) ? prev.filter((b) => b !== backend) : [...prev, backend],
-    );
-  }
-
-  const handleCheckout = async (branch: string) => {
-    setError("");
-    try {
-      await api.projects.checkout(params.id, branch);
-      refetchGitStatus();
-      refetchBranches();
-      toast("success", t("detail.toast.switched", { name: branch }));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("detail.toast.checkoutFailed");
-      setError(msg);
-      toast("error", msg);
-    }
-  };
-
-  function switchTab(tab: Tab) {
-    if (tab === "settings") {
-      const p = project();
-      if (p) {
-        const cfg = p.config ?? {};
-        setSettingsMode(cfg["default_mode"] ?? "");
-        setSettingsBackends(
-          cfg["agent_backends"] ? cfg["agent_backends"].split(",").filter(Boolean) : [],
-        );
-        setSettingsAutonomy(cfg["autonomy_level"] ?? "");
-      }
-    }
-    setActiveTab(tab);
-  }
-
-  function tabLabel(tab: Tab): string {
-    return t(`detail.tab.${tab}` as Parameters<typeof t>[0]);
-  }
-
-  function renderTabContent(p: () => NonNullable<ReturnType<typeof project>>): JSX.Element {
-    return (
-      <>
-        <Show when={activeTab() === "overview"}>
-          {/* Git Section */}
-          <div class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-            <h3 class="mb-3 text-lg font-semibold">{t("detail.git")}</h3>
-
-            <Show
-              when={p().workspace_path}
-              fallback={
-                <div>
-                  <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">
-                    {t("detail.notCloned")}
-                  </p>
-                  <Show when={p().repo_url}>
-                    <button
-                      type="button"
-                      class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                      onClick={handleClone}
-                      disabled={cloning()}
-                      aria-label={t("detail.cloneAria")}
-                    >
-                      {cloning() ? t("detail.cloning") : t("detail.cloneRepo")}
-                    </button>
-                  </Show>
-                </div>
-              }
-            >
-              {/* Git Status */}
-              <Show when={gitStatus()}>
-                {(gs) => (
-                  <div class="mb-4 grid grid-cols-2 gap-4 text-sm" aria-live="polite">
-                    <div>
-                      <span class="text-gray-500 dark:text-gray-400">{t("detail.branch")}</span>{" "}
-                      <span class="font-mono font-medium">{gs().branch}</span>
-                    </div>
-                    <div>
-                      <span class="text-gray-500 dark:text-gray-400">{t("common.status")}</span>{" "}
-                      <span
-                        class={
-                          gs().dirty
-                            ? "text-yellow-600 dark:text-yellow-400"
-                            : "text-green-600 dark:text-green-400"
-                        }
-                      >
-                        {gs().dirty ? t("detail.dirty") : t("detail.clean")}
-                      </span>
-                    </div>
-                    <div class="col-span-2">
-                      <span class="text-gray-500 dark:text-gray-400">{t("detail.lastCommit")}</span>{" "}
-                      <span class="font-mono text-xs">{gs().commit_hash.slice(0, 8)}</span>{" "}
-                      {gs().commit_message}
-                    </div>
-                    <Show when={gs().ahead > 0 || gs().behind > 0}>
-                      <div>
-                        <span class="text-gray-500 dark:text-gray-400">{t("detail.ahead")}</span>{" "}
-                        {gs().ahead}{" "}
-                        <span class="text-gray-500 dark:text-gray-400">{t("detail.behind")}</span>{" "}
-                        {gs().behind}
-                      </div>
-                    </Show>
-                  </div>
-                )}
-              </Show>
-
-              {/* Git Actions */}
-              <div class="flex gap-2">
-                <button
-                  type="button"
-                  class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
-                  onClick={handlePull}
-                  disabled={pulling()}
-                  aria-label={t("detail.pullAria")}
-                >
-                  {pulling() ? t("detail.pulling") : t("detail.pull")}
-                </button>
-                <button
-                  type="button"
-                  class="rounded bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-200 dark:hover:bg-gray-600"
-                  onClick={() => refetchGitStatus()}
-                  aria-label={t("detail.refreshAria")}
-                >
-                  {t("detail.refresh")}
-                </button>
-              </div>
-
-              {/* Branches */}
-              <Show when={(branches() ?? []).length > 0}>
-                <div class="mt-4">
-                  <h4 class="mb-2 text-sm font-medium text-gray-500 dark:text-gray-400">
-                    {t("detail.branches")}
-                  </h4>
-                  <div class="flex flex-wrap gap-2">
-                    <For each={branches() ?? []}>
-                      {(b) => (
-                        <button
-                          type="button"
-                          class={`rounded px-2 py-1 text-xs ${
-                            b.current
-                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-gray-600"
-                          }`}
-                          onClick={() => !b.current && handleCheckout(b.name)}
-                          disabled={b.current}
-                          aria-label={
-                            b.current
-                              ? t("detail.currentBranchAria", { name: b.name })
-                              : t("detail.switchBranchAria", { name: b.name })
-                          }
-                          aria-current={b.current ? "true" : undefined}
-                        >
-                          {b.name}
-                          {b.current ? ` ${t("detail.current")}` : ""}
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </Show>
-            </Show>
-          </div>
-        </Show>
-
-        <Show when={activeTab() === "tasks"}>
-          <div class="space-y-6">
-            <TaskPanel
-              projectId={params.id}
-              tasks={tasks() ?? []}
-              onRefetch={() => refetchTasks()}
-              onError={setError}
-            />
-            <RoadmapPanel projectId={params.id} onError={setError} />
-          </div>
-        </Show>
-
-        <Show when={activeTab() === "agents"}>
-          <div class="space-y-6">
-            <AgentPanel projectId={params.id} tasks={tasks() ?? []} onError={setError} />
-            <PolicyPanel projectId={params.id} onError={setError} />
-            <RunPanel
-              projectId={params.id}
-              tasks={tasks() ?? []}
-              agents={agents() ?? []}
-              onError={setError}
-            />
-            <PlanPanel
-              projectId={params.id}
-              tasks={tasks() ?? []}
-              agents={agents() ?? []}
-              onError={setError}
-            />
-            <AgentNetwork projectId={params.id} />
-            <Show when={outputLines().length > 0 || activeTaskId()}>
-              <Show
-                when={Object.keys(agentTerminals()).length > 1}
-                fallback={<LiveOutput taskId={activeTaskId()} lines={outputLines()} />}
-              >
-                <MultiTerminal
-                  terminals={Object.entries(agentTerminals()).map(
-                    ([id, lines]): AgentTerminal => ({
-                      agentId: id,
-                      agentName: (agents() ?? []).find((a) => a.id === id)?.name ?? id.slice(0, 8),
-                      lines,
-                    }),
-                  )}
-                />
-              </Show>
-            </Show>
-          </div>
-        </Show>
-
-        <Show when={activeTab() === "context"}>
-          <Show
-            when={p().workspace_path}
-            fallback={
-              <p class="text-sm text-gray-500 dark:text-gray-400">{t("detail.notCloned")}</p>
-            }
-          >
-            <div class="space-y-6">
-              <RepoMapPanel projectId={params.id} />
-              <RetrievalPanel projectId={params.id} />
-              <SearchSimulator projectId={params.id} />
-              <ArchitectureGraph projectId={params.id} />
-            </div>
-          </Show>
-        </Show>
-
-        <Show when={activeTab() === "costs"}>
-          <ProjectCostSection projectId={params.id} />
-        </Show>
-
-        <Show when={activeTab() === "chat"}>
-          <ChatPanel projectId={params.id} />
-        </Show>
-
-        <Show when={activeTab() === "settings"}>
-          <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-              {t("detail.settings.title")}
-            </h3>
-
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {/* Default Mode */}
-              <div>
-                <label
-                  for="settings_mode"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("detail.settings.defaultMode")}
-                </label>
-                <select
-                  id="settings_mode"
-                  value={settingsMode()}
-                  onChange={(e) => setSettingsMode(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">{t("detail.settings.defaultModePlaceholder")}</option>
-                  <For each={allModes() ?? []}>
-                    {(m: Mode) => (
-                      <option value={m.id}>
-                        {m.name} {m.builtin ? `(${t("modes.builtin")})` : ""}
-                      </option>
-                    )}
-                  </For>
-                </select>
-              </div>
-
-              {/* Autonomy Level */}
-              <div>
-                <label
-                  for="settings_autonomy"
-                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                >
-                  {t("detail.settings.autonomyLevel")}
-                </label>
-                <select
-                  id="settings_autonomy"
-                  value={settingsAutonomy()}
-                  onChange={(e) => setSettingsAutonomy(e.currentTarget.value)}
-                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">{t("detail.settings.autonomyPlaceholder")}</option>
-                  <For each={AUTONOMY_LEVELS}>
-                    {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
-                  </For>
-                </select>
-              </div>
-
-              {/* Agent Backends */}
-              <div class="sm:col-span-2">
-                <span class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  {t("detail.settings.agentBackends")}
-                </span>
-                <div class="flex flex-wrap gap-3">
-                  <For each={AGENT_BACKENDS}>
-                    {(backend) => (
-                      <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={settingsBackends().includes(backend)}
-                          onChange={() => toggleSettingsBackend(backend)}
-                          class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                        />
-                        {backend}
-                      </label>
-                    )}
-                  </For>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-5 flex justify-end">
-              <button
-                type="button"
-                class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                onClick={handleSaveSettings}
-                disabled={savingSettings()}
-              >
-                {savingSettings() ? t("detail.settings.saving") : t("detail.settings.save")}
-              </button>
-            </div>
-          </div>
-        </Show>
-      </>
-    );
-  }
-
   return (
-    <div>
+    <div class="flex flex-col h-[calc(100vh-4rem)]">
       <Show
         when={project()}
         fallback={<p class="text-gray-500 dark:text-gray-400">{t("detail.loading")}</p>}
       >
         {(p) => (
           <>
-            {/* Header */}
-            <div class="mb-6">
-              <h2 class="text-2xl font-bold">{p().name}</h2>
-              <p class="mt-1 text-gray-500 dark:text-gray-400">
-                {p().description || t("detail.noDescription")}
-              </p>
-              <div class="mt-2 flex gap-4 text-sm text-gray-400 dark:text-gray-500">
-                <span>
-                  {t("detail.provider")} {p().provider}
-                </span>
-                <Show when={p().repo_url}>
-                  <span>
-                    {t("detail.repo")} {p().repo_url}
-                  </span>
+            {/* Header Bar */}
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+              <div class="flex items-center gap-3">
+                <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{p().name}</h2>
+
+                {/* Git Status Badge */}
+                <Show when={gitStatus()}>
+                  {(gs) => (
+                    <span
+                      class={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                        gs().dirty
+                          ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                          : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      }`}
+                    >
+                      <span class="font-mono">{gs().branch}</span>
+                      <span>{gs().dirty ? t("detail.dirty") : t("detail.clean")}</span>
+                    </span>
+                  )}
                 </Show>
+              </div>
+
+              <div class="flex items-center gap-2">
+                {/* Clone Button */}
+                <Show when={!p().workspace_path && p().repo_url}>
+                  <button
+                    type="button"
+                    class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    onClick={handleClone}
+                    disabled={cloning()}
+                    aria-label={t("detail.cloneAria")}
+                  >
+                    {cloning() ? t("detail.cloning") : t("detail.cloneRepo")}
+                  </button>
+                </Show>
+
+                {/* Pull Button */}
+                <Show when={p().workspace_path}>
+                  <button
+                    type="button"
+                    class="rounded-md bg-gray-100 dark:bg-gray-700 px-3 py-1.5 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                    onClick={handlePull}
+                    disabled={pulling()}
+                    aria-label={t("detail.pullAria")}
+                  >
+                    {pulling() ? t("detail.pulling") : t("detail.pull")}
+                  </button>
+                </Show>
+
+                {/* Settings Gear Icon */}
+                <div class="relative">
+                  <button
+                    type="button"
+                    class="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                    onClick={() => setSettingsOpen(!settingsOpen())}
+                    aria-label={t("detail.settings.gearTooltip")}
+                    title={t("detail.settings.gearTooltip")}
+                  >
+                    <svg
+                      class="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"
+                      />
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                      />
+                    </svg>
+                  </button>
+                  <CompactSettingsPopover
+                    projectId={params.id}
+                    config={p().config ?? {}}
+                    allModes={allModes() ?? []}
+                    open={settingsOpen()}
+                    onClose={() => setSettingsOpen(false)}
+                    onSaved={() => {
+                      refetchProject();
+                      setSettingsOpen(false);
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
             {/* Error Banner */}
             <Show when={error()}>
               <div
-                class="mb-4 rounded bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400"
+                class="mx-4 mt-2 rounded bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-600 dark:text-red-400 flex-shrink-0"
                 role="alert"
               >
                 {error()}
@@ -640,7 +304,7 @@ export default function ProjectDetailPage() {
             <Show when={budgetAlert()}>
               {(alert) => (
                 <div
-                  class="mb-4 flex items-center justify-between rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-300"
+                  class="mx-4 mt-2 flex items-center justify-between rounded bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 p-3 text-sm text-yellow-800 dark:text-yellow-300 flex-shrink-0"
                   role="alert"
                   aria-live="assertive"
                 >
@@ -664,35 +328,14 @@ export default function ProjectDetailPage() {
               )}
             </Show>
 
-            {/* Tab Bar */}
-            <nav
-              class="mb-6 flex gap-1 border-b border-gray-200 dark:border-gray-700"
-              role="tablist"
-              aria-label="Project sections"
-            >
-              <For each={TABS}>
-                {(tab) => (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeTab() === tab}
-                    aria-controls={`panel-${tab}`}
-                    class={`px-4 py-2 text-sm font-medium transition-colors ${
-                      activeTab() === tab
-                        ? "border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-                        : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                    }`}
-                    onClick={() => switchTab(tab)}
-                  >
-                    {tabLabel(tab)}
-                  </button>
-                )}
-              </For>
-            </nav>
-
-            {/* Tab Content */}
-            <div id={`panel-${activeTab()}`} role="tabpanel">
-              {renderTabContent(p)}
+            {/* Side-by-side Layout: Roadmap (left) | Chat (right) */}
+            <div class="flex flex-1 min-h-0">
+              <div class="w-1/2 border-r border-gray-200 dark:border-gray-700 overflow-y-auto p-4">
+                <RoadmapPanel projectId={params.id} onError={setError} />
+              </div>
+              <div class="w-1/2 flex flex-col min-h-0">
+                <ChatPanel projectId={params.id} />
+              </div>
             </div>
           </>
         )}

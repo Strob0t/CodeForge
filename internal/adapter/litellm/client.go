@@ -3,12 +3,14 @@
 package litellm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/resilience"
@@ -196,6 +198,136 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 		TokensIn:  raw.Usage.PromptTokens,
 		TokensOut: raw.Usage.CompletionTokens,
 		Model:     raw.Model,
+	}, nil
+}
+
+// StreamChunk represents a single chunk from a streaming completion response.
+type StreamChunk struct {
+	Content   string // The text content of this chunk (may be empty for non-content chunks).
+	Done      bool   // True when the stream is complete (final chunk or [DONE]).
+	Model     string // Model name from the response.
+	TokensIn  int    // Prompt tokens (only set on the final chunk with usage data).
+	TokensOut int    // Completion tokens (only set on the final chunk with usage data).
+}
+
+// ChatCompletionStream sends a streaming chat completion request. It calls
+// onChunk for each SSE chunk received from the LiteLLM Proxy. The caller
+// should accumulate content from chunks where Done is false.
+func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionRequest, onChunk func(StreamChunk)) (*ChatCompletionResponse, error) {
+	// Force stream mode.
+	type streamReq struct {
+		ChatCompletionRequest
+		Stream        bool `json:"stream"`
+		StreamOptions *struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options,omitempty"`
+	}
+	sr := streamReq{
+		ChatCompletionRequest: req,
+		Stream:                true,
+		StreamOptions: &struct {
+			IncludeUsage bool `json:"include_usage"`
+		}{IncludeUsage: true},
+	}
+
+	body, err := json.Marshal(sr)
+	if err != nil {
+		return nil, fmt.Errorf("marshal stream request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create stream request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if key := c.activeMasterKey(); key != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+key)
+	}
+
+	// Use a client without the default timeout for streaming.
+	streamClient := &http.Client{}
+	resp, err := streamClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("stream request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		data, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("litellm stream API error %d: %s", resp.StatusCode, string(data))
+	}
+
+	// Parse SSE stream.
+	var fullContent strings.Builder
+	var model string
+	var tokensIn, tokensOut int
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// SSE format: "data: {json}" or "data: [DONE]"
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+
+		if data == "[DONE]" {
+			if onChunk != nil {
+				onChunk(StreamChunk{Done: true, Model: model, TokensIn: tokensIn, TokensOut: tokensOut})
+			}
+			break
+		}
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
+			} `json:"choices"`
+			Model string `json:"model"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue // Skip malformed chunks.
+		}
+
+		if chunk.Model != "" {
+			model = chunk.Model
+		}
+		if chunk.Usage != nil {
+			tokensIn = chunk.Usage.PromptTokens
+			tokensOut = chunk.Usage.CompletionTokens
+		}
+
+		content := ""
+		if len(chunk.Choices) > 0 {
+			content = chunk.Choices[0].Delta.Content
+		}
+		if content != "" {
+			fullContent.WriteString(content)
+		}
+
+		if onChunk != nil {
+			onChunk(StreamChunk{
+				Content: content,
+				Model:   model,
+			})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read stream: %w", err)
+	}
+
+	return &ChatCompletionResponse{
+		Content:   fullContent.String(),
+		TokensIn:  tokensIn,
+		TokensOut: tokensOut,
+		Model:     model,
 	}, nil
 }
 

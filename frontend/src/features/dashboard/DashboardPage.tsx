@@ -52,6 +52,9 @@ export default function DashboardPage() {
   const [selectedBackends, setSelectedBackends] = createSignal<string[]>([]);
   const [selectedMode, setSelectedMode] = createSignal("");
   const [selectedAutonomy, setSelectedAutonomy] = createSignal("");
+  const [branches, setBranches] = createSignal<string[]>([]);
+  const [selectedBranch, setSelectedBranch] = createSignal("");
+  const [loadingBranches, setLoadingBranches] = createSignal(false);
 
   let urlDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(urlDebounceTimer));
@@ -94,6 +97,8 @@ export default function DashboardPage() {
         setSelectedMode("");
         setSelectedBackends([]);
         setSelectedAutonomy("");
+        setBranches([]);
+        setSelectedBranch("");
         await refetch();
       } catch (err) {
         const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -120,8 +125,10 @@ export default function DashboardPage() {
         });
         toast("success", t("dashboard.toast.updated"));
       } else {
+        const branch = selectedBranch() || undefined;
         const created = await api.projects.create({
           ...data,
+          branch,
           config: buildAdvancedConfig(),
         });
         toast("success", t("dashboard.toast.created"));
@@ -129,7 +136,7 @@ export default function DashboardPage() {
         // Fire-and-forget: auto-setup (clone + detect stack + import specs)
         if (created.repo_url) {
           toast("info", t("dashboard.toast.setupStarted"));
-          api.projects.setup(created.id).catch((setupErr) => {
+          api.projects.setup(created.id, branch).catch((setupErr) => {
             const setupMsg = setupErr instanceof Error ? setupErr.message : "setup failed";
             toast("error", setupMsg);
           });
@@ -143,6 +150,8 @@ export default function DashboardPage() {
       setSelectedMode("");
       setSelectedBackends([]);
       setSelectedAutonomy("");
+      setBranches([]);
+      setSelectedBranch("");
       await refetch();
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -185,6 +194,8 @@ export default function DashboardPage() {
     setSelectedMode("");
     setSelectedBackends([]);
     setSelectedAutonomy("");
+    setBranches([]);
+    setSelectedBranch("");
   }
 
   async function handleDelete(id: string) {
@@ -240,7 +251,11 @@ export default function DashboardPage() {
   function handleRepoUrlInput(url: string) {
     updateField("repo_url", url);
     clearTimeout(urlDebounceTimer);
-    if (!url.trim()) return;
+    if (!url.trim()) {
+      setBranches([]);
+      setSelectedBranch("");
+      return;
+    }
     urlDebounceTimer = setTimeout(async () => {
       try {
         setParsingUrl(true);
@@ -254,6 +269,18 @@ export default function DashboardPage() {
         // silently ignore parse errors during typing
       } finally {
         setParsingUrl(false);
+      }
+
+      // Fetch remote branches
+      try {
+        setLoadingBranches(true);
+        const branchList = await api.projects.remoteBranches(url);
+        setBranches(branchList);
+        setSelectedBranch("");
+      } catch {
+        setBranches([]);
+      } finally {
+        setLoadingBranches(false);
       }
     }, 500);
   }
@@ -405,6 +432,38 @@ export default function DashboardPage() {
                   class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   placeholder={t("dashboard.form.repoUrlPlaceholder")}
                 />
+              </div>
+            </Show>
+
+            {/* Branch selector (visible when branches loaded or loading) */}
+            <Show
+              when={
+                (formMode() === "remote" || isEditing()) &&
+                (branches().length > 0 || loadingBranches())
+              }
+            >
+              <div class="sm:col-span-2">
+                <label
+                  for="branch"
+                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("dashboard.form.branch")}
+                  <Show when={loadingBranches()}>
+                    <span class="ml-2 text-xs text-gray-400">
+                      {t("dashboard.form.branchLoading")}
+                    </span>
+                  </Show>
+                </label>
+                <select
+                  id="branch"
+                  value={selectedBranch()}
+                  onChange={(e) => setSelectedBranch(e.currentTarget.value)}
+                  disabled={loadingBranches()}
+                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  <option value="">{t("dashboard.form.branchPlaceholder")}</option>
+                  <For each={branches()}>{(b) => <option value={b}>{b}</option>}</For>
+                </select>
               </div>
             </Show>
 

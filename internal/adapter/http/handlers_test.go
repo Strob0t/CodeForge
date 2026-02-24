@@ -63,7 +63,7 @@ func (m *mockStore) GetProject(_ context.Context, id string) (*project.Project, 
 	return nil, errNotFound
 }
 
-func (m *mockStore) CreateProject(_ context.Context, req project.CreateRequest) (*project.Project, error) {
+func (m *mockStore) CreateProject(_ context.Context, req *project.CreateRequest) (*project.Project, error) {
 	p := project.Project{
 		ID:       "test-id",
 		Name:     req.Name,

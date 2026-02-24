@@ -52,7 +52,8 @@ func (p *Provider) ListRepos(_ context.Context) ([]string, error) {
 }
 
 // Clone checks out an SVN repository to the given local path.
-func (p *Provider) Clone(ctx context.Context, url, destPath string) error {
+// CloneOption is accepted for interface compatibility but ignored (SVN has no branch concept in clone).
+func (p *Provider) Clone(ctx context.Context, url, destPath string, _ ...gitprovider.CloneOption) error {
 	absPath, err := filepath.Abs(destPath)
 	if err != nil {
 		return fmt.Errorf("svn: resolve path: %w", err)

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -161,12 +163,12 @@ func (h *Handlers) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := project.ValidateCreateRequest(req, gitprovider.Available()); err != nil {
+	if err := project.ValidateCreateRequest(&req, gitprovider.Available()); err != nil {
 		writeDomainError(w, err, "invalid project request")
 		return
 	}
 
-	p, err := h.Projects.Create(r.Context(), req)
+	p, err := h.Projects.Create(r.Context(), &req)
 	if err != nil {
 		writeInternalError(w, err)
 		return
@@ -272,7 +274,15 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	tenantID := middleware.TenantIDFromContext(r.Context())
-	p, err := h.Projects.Clone(r.Context(), id, tenantID)
+
+	// Optionally accept a branch in the request body.
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	// Ignore decode errors — body is optional for backward compatibility.
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	p, err := h.Projects.Clone(r.Context(), id, tenantID, body.Branch)
 	if err != nil {
 		writeDomainError(w, err, "clone failed")
 		return
@@ -328,7 +338,14 @@ func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SetupProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	tenantID := middleware.TenantIDFromContext(r.Context())
-	result, err := h.Projects.SetupProject(r.Context(), id, tenantID)
+
+	// Optionally accept a branch in the request body.
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	result, err := h.Projects.SetupProject(r.Context(), id, tenantID, body.Branch)
 	if err != nil {
 		writeDomainError(w, err, "setup failed")
 		return
@@ -436,6 +453,59 @@ func (h *Handlers) CheckoutBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "branch": req.Branch})
+}
+
+// ListRemoteBranches handles GET /api/v1/projects/remote-branches?url=<repo-url>
+// It runs `git ls-remote --heads <url>` and returns the branch names.
+func (h *Handlers) ListRemoteBranches(w http.ResponseWriter, r *http.Request) {
+	repoURL := r.URL.Query().Get("url")
+	if repoURL == "" {
+		writeError(w, http.StatusBadRequest, "url query parameter is required")
+		return
+	}
+
+	// Basic validation: reject obviously invalid URLs (must contain a host-like segment).
+	if !strings.Contains(repoURL, "/") {
+		writeError(w, http.StatusBadRequest, "invalid repository URL")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", repoURL) //nolint:gosec // repoURL is validated above as a safe git URL.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		slog.Warn("git ls-remote failed", "url", repoURL, "error", err, "stderr", stderr.String())
+		writeError(w, http.StatusBadGateway, "failed to list remote branches")
+		return
+	}
+
+	var branches []string
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: <sha>\trefs/heads/<branch-name>
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		ref := parts[1]
+		branch := strings.TrimPrefix(ref, "refs/heads/")
+		if branch != ref {
+			branches = append(branches, branch)
+		}
+	}
+
+	if branches == nil {
+		branches = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string][]string{"branches": branches})
 }
 
 // ListAgents handles GET /api/v1/projects/{id}/agents
@@ -1771,6 +1841,17 @@ func (h *Handlers) ImportPMItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// SyncToSpecFile handles POST /api/v1/projects/{id}/roadmap/sync-to-file
+func (h *Handlers) SyncToSpecFile(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	if err := h.Roadmap.SyncToSpecFile(r.Context(), projectID); err != nil {
+		writeDomainError(w, err, "sync to spec file failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "synced"})
 }
 
 // ListSpecProviders handles GET /api/v1/providers/spec

@@ -17,6 +17,7 @@ export interface CreateProjectRequest {
   description: string;
   repo_url: string;
   provider: string;
+  branch?: string;
   config: Record<string, string>;
 }
 

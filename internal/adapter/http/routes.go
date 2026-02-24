@@ -43,6 +43,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Projects
 		r.Get("/projects", h.ListProjects)
 		r.Post("/projects", h.CreateProject)
+		r.Get("/projects/remote-branches", h.ListRemoteBranches)
 		r.Get("/projects/{id}", h.GetProject)
 		r.Delete("/projects/{id}", h.DeleteProject)
 		r.Put("/projects/{id}", h.UpdateProject)
@@ -267,6 +268,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Bidirectional Sync (nested under projects)
 		r.Post("/projects/{id}/roadmap/sync", h.SyncRoadmap)
+		r.Post("/projects/{id}/roadmap/sync-to-file", h.SyncToSpecFile)
 
 		// Settings
 		r.Get("/settings", h.GetSettings)

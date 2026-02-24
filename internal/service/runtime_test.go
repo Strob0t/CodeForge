@@ -60,7 +60,7 @@ func (m *runtimeMockStore) GetProject(_ context.Context, id string) (*project.Pr
 	}
 	return nil, errMockNotFound
 }
-func (m *runtimeMockStore) CreateProject(_ context.Context, req project.CreateRequest) (*project.Project, error) {
+func (m *runtimeMockStore) CreateProject(_ context.Context, req *project.CreateRequest) (*project.Project, error) {
 	p := project.Project{ID: "proj-id", Name: req.Name, Provider: req.Provider}
 	m.projects = append(m.projects, p)
 	return &p, nil

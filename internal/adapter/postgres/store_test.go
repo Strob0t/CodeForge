@@ -91,7 +91,7 @@ func TestStore_ProjectCRUD(t *testing.T) {
 	ctx := ctxWithTenant(t, tenantID)
 
 	// Create
-	created, err := store.CreateProject(ctx, project.CreateRequest{
+	created, err := store.CreateProject(ctx, &project.CreateRequest{
 		Name:        "integration-test-project",
 		Description: "A project for integration testing",
 		RepoURL:     "https://github.com/test/repo",
@@ -135,7 +135,7 @@ func TestStore_ProjectCRUD(t *testing.T) {
 		otherTenantID := createTestTenant(t, store)
 		otherCtx := ctxWithTenant(t, otherTenantID)
 
-		otherProj, err := store.CreateProject(otherCtx, project.CreateRequest{
+		otherProj, err := store.CreateProject(otherCtx, &project.CreateRequest{
 			Name:     "other-tenant-project",
 			RepoURL:  "https://github.com/other/repo",
 			Provider: "github",
@@ -180,7 +180,7 @@ func TestStore_ProjectCRUD(t *testing.T) {
 
 	// Delete
 	t.Run("Delete", func(t *testing.T) {
-		toDelete, err := store.CreateProject(ctx, project.CreateRequest{
+		toDelete, err := store.CreateProject(ctx, &project.CreateRequest{
 			Name:     "to-delete",
 			Provider: "local",
 		})
@@ -226,7 +226,7 @@ func TestStore_GetProjectByRepoName_TenantIsolation(t *testing.T) {
 	repoName := "shared-repo-" + uuid.New().String()[:8]
 
 	// Create a project in tenant A with a distinctive repo URL.
-	projA, err := store.CreateProject(ctxA, project.CreateRequest{
+	projA, err := store.CreateProject(ctxA, &project.CreateRequest{
 		Name:     "project-a",
 		RepoURL:  "https://github.com/orgA/" + repoName,
 		Provider: "github",
@@ -238,7 +238,7 @@ func TestStore_GetProjectByRepoName_TenantIsolation(t *testing.T) {
 
 	// Create a project in tenant B with a different repo URL that shares no
 	// substring with repoName.
-	projB, err := store.CreateProject(ctxB, project.CreateRequest{
+	projB, err := store.CreateProject(ctxB, &project.CreateRequest{
 		Name:     "project-b",
 		RepoURL:  "https://github.com/orgB/unrelated-repo",
 		Provider: "github",
@@ -269,7 +269,7 @@ func TestStore_GetProjectByRepoName_TenantIsolation(t *testing.T) {
 
 	// Create a project in tenant B with the same repo name.
 	t.Run("TenantB_OwnProject", func(t *testing.T) {
-		projB2, err := store.CreateProject(ctxB, project.CreateRequest{
+		projB2, err := store.CreateProject(ctxB, &project.CreateRequest{
 			Name:     "project-b2",
 			RepoURL:  "https://github.com/orgB/" + repoName,
 			Provider: "github",

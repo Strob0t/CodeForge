@@ -1,5 +1,7 @@
+import { useNavigate } from "@solidjs/router";
 import { createContext, createEffect, createSignal, type JSX, onMount, useContext } from "solid-js";
 
+import { clearCache } from "~/api/cache";
 import { api, setAccessTokenGetter } from "~/api/client";
 import type { User, UserRole } from "~/api/types";
 
@@ -14,6 +16,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue>();
 
 export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
+  const navigate = useNavigate();
   const [user, setUser] = createSignal<User | null>(null);
   const [accessToken, setAccessToken] = createSignal<string | null>(null);
 
@@ -59,6 +62,8 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
     } finally {
       setAccessToken(null);
       setUser(null);
+      clearCache();
+      navigate("/login", { replace: true });
     }
   };
 

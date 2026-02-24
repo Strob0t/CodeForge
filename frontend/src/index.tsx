@@ -12,6 +12,7 @@ import DashboardPage from "./features/dashboard/DashboardPage.tsx";
 import KnowledgeBasesPage from "./features/knowledgebases/KnowledgeBasesPage.tsx";
 import ModelsPage from "./features/llm/ModelsPage.tsx";
 import ModesPage from "./features/modes/ModesPage.tsx";
+import NotFoundPage from "./features/NotFoundPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import ScopesPage from "./features/scopes/ScopesPage.tsx";
 import SettingsPage from "./features/settings/SettingsPage.tsx";
@@ -38,6 +39,7 @@ render(
       <Route path="/scopes" component={ScopesPage} />
       <Route path="/teams" component={TeamsPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="*404" component={NotFoundPage} />
     </Router>
   ),
   root,

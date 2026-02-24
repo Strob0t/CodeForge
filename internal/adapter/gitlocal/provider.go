@@ -47,14 +47,21 @@ func (p *Provider) ListRepos(_ context.Context) ([]string, error) {
 }
 
 // Clone clones a repository to the given local path.
-func (p *Provider) Clone(ctx context.Context, url, destPath string) error {
+func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitprovider.CloneOption) error {
 	absPath, err := filepath.Abs(destPath)
 	if err != nil {
 		return fmt.Errorf("gitlocal: resolve path: %w", err)
 	}
 
+	o := gitprovider.ApplyCloneOptions(opts)
+
 	return p.pool.Run(ctx, func() error {
-		if _, execErr := runGit(ctx, "", "clone", url, absPath); execErr != nil {
+		args := []string{"clone"}
+		if o.Branch != "" {
+			args = append(args, "--branch", o.Branch, "--single-branch")
+		}
+		args = append(args, url, absPath)
+		if _, execErr := runGit(ctx, "", args...); execErr != nil {
 			return fmt.Errorf("gitlocal: clone: %w", execErr)
 		}
 		return nil

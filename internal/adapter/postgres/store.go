@@ -84,7 +84,7 @@ func (s *Store) GetProjectByRepoName(ctx context.Context, repoName string) (*pro
 	return &p, nil
 }
 
-func (s *Store) CreateProject(ctx context.Context, req project.CreateRequest) (*project.Project, error) {
+func (s *Store) CreateProject(ctx context.Context, req *project.CreateRequest) (*project.Project, error) {
 	configJSON, err := json.Marshal(req.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)

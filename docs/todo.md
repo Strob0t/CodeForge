@@ -972,6 +972,78 @@ Comprehensive browser-based QA testing via Playwright MCP.
 
 ---
 
+### Phase 14: UX Simplification — Claude Code-Inspired Workflow
+
+Replace the 7-tab project detail page with a side-by-side layout (Roadmap left, Chat right). Simplify project creation. Add structured markdown parsing, drag-to-reorder, bidirectional sync, and production-quality chat.
+
+#### Phase 14A: New Project View Layout (Side-by-Side)
+
+- [x] Refactor `ProjectDetailPage.tsx`: remove Tab type, TABS array, tab navigation bar (2026-02-24)
+- [x] Replace tab content with permanent two-column layout (Roadmap left w-1/2, Chat right w-1/2) (2026-02-24)
+- [x] Keep header bar with: project name, git status badge, clone/pull buttons, gear icon (2026-02-24)
+- [x] Create `CompactSettingsPopover.tsx` (NEW): gear icon popover with mode selection, autonomy level, agent backends, cost summary (2026-02-24)
+- [x] Modify `ChatPanel.tsx`: change `h-[600px]` to `flex flex-col h-full`, remove conversation sidebar, auto-create conversation on mount (2026-02-24)
+- [x] Modify `RoadmapPanel.tsx`: change to full-height layout (`h-full overflow-y-auto`) (2026-02-24)
+- [x] Add i18n keys (en + de) for gear icon tooltip, compact settings section headers (2026-02-24)
+
+#### Phase 14B: Simplified Project Creation with Branch Selection
+
+- [x] Add `ListRemoteBranches` handler: `git ls-remote --heads <url>`, parse refs, return branch list (2026-02-24)
+- [x] Add route `GET /projects/remote-branches` (before `/{id}` wildcard) (2026-02-24)
+- [x] Modify `gitlocal.Provider.Clone()`: accept optional branch param, use `--branch <branch> --single-branch` if set (2026-02-24)
+- [x] Add `Branch string` field to `project.CreateRequest` (2026-02-24)
+- [x] Pass branch to `Clone()` in `ProjectService` (2026-02-24)
+- [x] Frontend: add branch `<select>` in DashboardPage, fetch branches on URL input (debounced) (2026-02-24)
+- [x] Frontend: add `projects.remoteBranches()` to API client (2026-02-24)
+- [x] Add i18n keys (en + de) for branch label, placeholder, loading state (2026-02-24)
+
+#### Phase 14C: Roadmap Structured Parsing + Drag-to-Reorder
+
+- [x] Create `internal/adapter/markdownspec/parser.go`: `ParseMarkdown(content) -> []SpecItem` (headings, checkboxes, plain lists) (2026-02-24)
+- [x] Create `internal/adapter/markdownspec/parser_test.go`: test nested checkboxes, mixed headings, edge cases (2026-02-24)
+- [x] Modify `markdownspec/provider.go`: call `ParseMarkdown` in Detect/Import, map SpecItem to Milestone + Feature (2026-02-24)
+- [x] Create `frontend/src/features/project/DragList.tsx`: generic drag-to-reorder using native HTML Drag and Drop API (2026-02-24)
+- [x] Modify `RoadmapPanel.tsx`: wrap milestone/feature lists with DragList, add inline status toggle (2026-02-24)
+- [x] Add API client methods: `roadmap.updateMilestoneOrder()`, `roadmap.updateFeatureStatus()` (2026-02-24)
+- [x] Add backend handlers for milestone reorder + feature status update (if not existing) (2026-02-24)
+
+#### Phase 14D: Bidirectional Sync (UI Changes -> Repo Files)
+
+- [x] Create `internal/adapter/markdownspec/writer.go`: `RenderMarkdown(items) -> []byte` (inverse of parser) (2026-02-24)
+- [x] Create `internal/adapter/markdownspec/writer_test.go`: round-trip tests (parse -> modify -> render) (2026-02-24)
+- [x] Modify `markdownspec/provider.go`: set `Write: true` in Capabilities, implement Write method (2026-02-24)
+- [x] Modify `roadmap.go`: add `SyncToSpecFile()` — load DB items, render markdown, write to detected file (2026-02-24)
+- [x] Add `SyncToSpecFile` handler + route at `POST /projects/{id}/roadmap/sync-to-file` (2026-02-24)
+- [x] Frontend: add "Sync to file" button in RoadmapPanel (2026-02-24)
+
+#### Phase 14E: Chat Enhancements (Streaming + Markdown + Tool Calls)
+
+- [x] Convert `conversation.go` SendMessage from non-streaming to `ChatCompletionStream` (LiteLLM streaming) (2026-02-24)
+- [x] Broadcast `agui.text_message` chunks via WebSocket during streaming (2026-02-24)
+- [x] Enrich system prompt with: detected roadmap items, project metadata, recent conversation context (2026-02-24)
+- [x] Create `frontend/src/features/project/Markdown.tsx`: lightweight markdown renderer (headers, bold/italic, code blocks, links, lists) (2026-02-24)
+- [x] Create `frontend/src/features/project/ToolCallCard.tsx`: collapsible tool call card with name, args, result (2026-02-24)
+- [x] Modify `ChatPanel.tsx`: use Markdown component for assistant messages, integrate ToolCallCard inline (2026-02-24)
+
+#### Phase 14 Frontend Bug Fixes (from E2E QA)
+
+- [x] Fix sign-out redirect: ensure logout navigates to `/login` and clears cached data (2026-02-24)
+- [x] Fix non-existent project crash: add error handling in ProjectDetailPage, show "Project not found" inside I18nProvider (2026-02-24)
+- [x] Fix 404 page: add catch-all route with "Page not found" message and link back to dashboard (2026-02-24)
+
+#### Phase 14 Dependencies
+
+```text
+14A (Layout)  -----> 14C (Drag Reorder)  -----> 14D (Bidirectional Sync)
+     |
+     +-------------> 14E (Chat Enhancements)
+     |
+14B (Creation) --- independent, can parallel with 14A
+Bug Fixes --- independent, anytime
+```
+
+---
+
 ### Notes
 
 - Phases 0-11 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91). Frontend E2E QA: 16/19 modules pass.

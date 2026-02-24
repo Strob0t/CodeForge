@@ -265,9 +265,10 @@ export const api = {
         body: JSON.stringify({ path }),
       }),
 
-    setup: (id: string) =>
+    setup: (id: string, branch?: string) =>
       request<import("./types").SetupResult>(`/projects/${encodeURIComponent(id)}/setup`, {
         method: "POST",
+        body: JSON.stringify(branch ? { branch } : {}),
       }),
 
     adopt: (id: string, body: { path: string }) =>
@@ -275,6 +276,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+
+    remoteBranches: (url: string) =>
+      request<{ branches: string[] }>(
+        `/projects/remote-branches?url=${encodeURIComponent(url)}`,
+      ).then((r) => r.branches),
   },
 
   agents: {
@@ -609,6 +615,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+
+    syncToFile: (projectId: string) =>
+      request<{ status: string }>(
+        `/projects/${encodeURIComponent(projectId)}/roadmap/sync-to-file`,
+        { method: "POST" },
+      ),
   },
 
   trajectory: {

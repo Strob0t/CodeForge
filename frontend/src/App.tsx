@@ -216,8 +216,8 @@ export default function App(props: RouteSectionProps) {
   const isLoginPage = (): boolean => location.pathname === "/login";
 
   return (
-    <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
-      <I18nProvider>
+    <I18nProvider>
+      <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>
@@ -229,7 +229,7 @@ export default function App(props: RouteSectionProps) {
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
-      </I18nProvider>
-    </ErrorBoundary>
+      </ErrorBoundary>
+    </I18nProvider>
   );
 }

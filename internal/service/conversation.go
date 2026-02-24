@@ -151,14 +151,24 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		AgentName: "assistant",
 	})
 
-	// Call LiteLLM (non-streaming for now; streaming will be added in Phase 8)
-	llmResp, err := s.llm.ChatCompletion(ctx, litellm.ChatCompletionRequest{
+	// Call LiteLLM with streaming — each chunk is broadcast via AG-UI text_message.
+	llmResp, err := s.llm.ChatCompletionStream(ctx, litellm.ChatCompletionRequest{
 		Model:    s.model,
 		Messages: chatMessages,
+	}, func(chunk litellm.StreamChunk) {
+		if chunk.Done {
+			return
+		}
+		if chunk.Content != "" {
+			s.hub.BroadcastEvent(ctx, ws.AGUITextMessage, ws.AGUITextMessageEvent{
+				RunID:   conversationID,
+				Role:    "assistant",
+				Content: chunk.Content,
+			})
+		}
 	})
 	if err != nil {
-		slog.Error("llm chat completion failed", "conversation_id", conversationID, "error", err)
-		// Broadcast run finished with error
+		slog.Error("llm chat completion stream failed", "conversation_id", conversationID, "error", err)
 		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 			RunID:  conversationID,
 			Status: "failed",
@@ -166,7 +176,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		return nil, fmt.Errorf("llm completion: %w", err)
 	}
 
-	// Store assistant message
+	// Store assistant message with the full accumulated response.
 	assistantMsg := &conversation.Message{
 		ConversationID: conversationID,
 		Role:           "assistant",
@@ -180,14 +190,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		return nil, fmt.Errorf("store assistant message: %w", err)
 	}
 
-	// Broadcast the response via AG-UI text message event
-	s.hub.BroadcastEvent(ctx, ws.AGUITextMessage, ws.AGUITextMessageEvent{
-		RunID:   conversationID,
-		Role:    "assistant",
-		Content: llmResp.Content,
-	})
-
-	// Broadcast run finished
+	// Broadcast run finished.
 	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 		RunID:  conversationID,
 		Status: "completed",
@@ -257,15 +260,32 @@ func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID s
 		}
 	}
 
-	// Fetch roadmap summary (optional).
+	// Fetch roadmap summary with milestones and features (optional).
 	rm, err := s.db.GetRoadmapByProject(ctx, projectID)
 	if err == nil && rm != nil {
-		var parts []string
-		parts = append(parts, rm.Title)
+		var sb strings.Builder
+		sb.WriteString(rm.Title)
 		if rm.Description != "" {
-			parts = append(parts, rm.Description)
+			sb.WriteString(" - ")
+			sb.WriteString(rm.Description)
 		}
-		data.RoadmapSummary = strings.Join(parts, " - ")
+		for i := range rm.Milestones {
+			ms := &rm.Milestones[i]
+			sb.WriteString("\n  ")
+			sb.WriteString(ms.Title)
+			sb.WriteString(" [")
+			sb.WriteString(string(ms.Status))
+			sb.WriteString("]")
+			for j := range ms.Features {
+				f := &ms.Features[j]
+				sb.WriteString("\n    - ")
+				sb.WriteString(f.Title)
+				sb.WriteString(" (")
+				sb.WriteString(string(f.Status))
+				sb.WriteString(")")
+			}
+		}
+		data.RoadmapSummary = sb.String()
 	}
 
 	// Detect tech stack summary if workspace path is available.

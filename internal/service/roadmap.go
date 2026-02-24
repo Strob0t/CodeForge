@@ -551,6 +551,53 @@ func renderYAML(r *roadmap.Roadmap) string {
 	return b.String()
 }
 
+// SyncToSpecFile writes the current roadmap state back to a markdown spec file
+// in the project's workspace. It finds the original detected spec file path and
+// renders milestones/features as markdown checkboxes.
+func (s *RoadmapService) SyncToSpecFile(ctx context.Context, projectID string) error {
+	proj, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+	if proj.WorkspacePath == "" {
+		return fmt.Errorf("project has no workspace path")
+	}
+
+	// Load roadmap with milestones and features.
+	rm, err := s.GetByProject(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("get roadmap: %w", err)
+	}
+
+	// Find target spec file: check known candidates for existence.
+	var targetPath string
+	for _, name := range []string{
+		"ROADMAP.md", "roadmap.md", "TODO.md", "todo.md",
+		"docs/ROADMAP.md", "docs/roadmap.md", "docs/TODO.md", "docs/todo.md",
+	} {
+		fp := filepath.Join(proj.WorkspacePath, name)
+		info, statErr := os.Stat(fp)
+		if statErr == nil && !info.IsDir() {
+			targetPath = fp
+			break
+		}
+	}
+	if targetPath == "" {
+		// Default to ROADMAP.md in workspace root.
+		targetPath = filepath.Join(proj.WorkspacePath, "ROADMAP.md")
+	}
+
+	// Render roadmap as markdown.
+	content := renderMarkdown(rm)
+
+	if err := os.WriteFile(targetPath, []byte(content), 0o644); err != nil { //nolint:gosec // workspace path is trusted
+		return fmt.Errorf("write spec file: %w", err)
+	}
+
+	slog.Info("synced roadmap to spec file", "project", projectID, "path", targetPath)
+	return nil
+}
+
 func (s *RoadmapService) broadcastStatus(ctx context.Context, r *roadmap.Roadmap) {
 	if s.hub == nil {
 		return

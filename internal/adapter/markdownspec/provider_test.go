@@ -29,8 +29,11 @@ func TestRegistration(t *testing.T) {
 	if !caps.Read {
 		t.Fatal("expected Read capability")
 	}
-	if caps.Write || caps.Sync {
-		t.Fatal("expected Write=false, Sync=false")
+	if !caps.Write {
+		t.Fatal("expected Write=true")
+	}
+	if caps.Sync {
+		t.Fatal("expected Sync=false")
 	}
 }
 
