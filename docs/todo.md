@@ -586,8 +586,17 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Fix shared context author UUID: DB column `UUID NOT NULL` but no Go-side format validation — added regex check in `shared.go`
 - [x] (2026-02-24) Fix KB index 500: "no content path" error missing `domain.ErrValidation` wrapping — fixed in `knowledgebase.go`
 
+#### Phase 3: Bug Diagnosis & Fix — Round 3 (Domain Error Handling Audit)
+- [x] (2026-02-24) Fix git handlers: `ProjectGitStatus`, `PullProject`, `ListProjectBranches`, `CheckoutBranch` returned HTTP 500 for nonexistent projects instead of 404 — changed `writeInternalError` to `writeDomainError` in `handlers.go`
+- [x] (2026-02-24) Fix `CancelRun` handler: returned HTTP 500 for nonexistent runs instead of 404 — changed to `writeDomainError`
+- [x] (2026-02-24) Fix `DispatchTask` and `StopAgentTask`: returned HTTP 500 for nonexistent agents/tasks — changed to `writeDomainError`
+- [x] (2026-02-24) Systematic audit: changed 35 handlers from `writeInternalError` to `writeDomainError` where resource IDs are involved (tasks, agents, runs, plans, teams, costs, sessions, branch-rules, reviews, conversations, roadmap, milestones, trajectory, context packs, sync)
+- [x] (2026-02-24) Kept `writeInternalError` only for 8 truly global operations (ListProjects, GlobalCostSummary, ListTenants, GlobalAuditTrail, GetSettings, UpdateSettings, ListVCSAccounts, RequestGraphBuild after project verified)
+- [x] (2026-02-24) Verified: all single-resource 404 tests pass, invalid UUID returns 400, existing resources unaffected
+
 #### Final Results
 - [x] (2026-02-24) **262/266 PASS (98.5%)** — 42/44 modules at 100%, 4 remaining failures are infrastructure timeouts (Python retrieval workers not running)
+- [x] (2026-02-24) **Round 3**: 44/44 regression tests PASS (26 domain-error + 18 sanity tests) — all resource-scoped handlers now return proper HTTP status codes
 - [ ] BLOCKED: 4 search/graph endpoint tests require running Python retrieval workers (search project, agent search, graph search, SQLi in search)
 
 ---
@@ -887,7 +896,9 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Emit `agui.tool_call` / `agui.tool_result` / `agui.run_started` / `agui.run_finished` in `internal/service/runtime.go`
 - [x] (2026-02-24) Add AG-UI event types + `onAGUIEvent()` handler to `frontend/src/api/websocket.ts`
 - [x] (2026-02-24) Consume AG-UI events in `ChatPanel.tsx` — streaming content display, thinking indicator, auto-refetch on run_finished
-- [ ] Wire remaining events: `agui.state_delta`, `agui.step_started`/`step_finished` (deferred — requires plan step lifecycle)
+- [x] (2026-02-24) Emit `agui.step_started` in orchestrator `startStep()` and `agui.step_finished` in `broadcastStepStatus()` for terminal statuses
+- [x] (2026-02-24) Subscribe to step events in `ChatPanel.tsx` — plan step status badges (running/completed/failed)
+- `agui.state_delta` intentionally deferred — no natural emission point in current architecture (CodeForge uses DB-backed state + native WS events, not CopilotKit shared mutable state)
 
 #### 13.9 Outstanding Items (Phase 9)
 

@@ -429,11 +429,21 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		slog.Error("start step run", "step_id", stepID, "error", err)
 		_ = s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", err.Error())
 		s.broadcastStepStatus(ctx, p, step, plan.StepStatusFailed)
+		s.hub.BroadcastEvent(ctx, ws.AGUIStepFinished, ws.AGUIStepFinishedEvent{
+			RunID:  "",
+			StepID: step.ID,
+			Status: string(plan.StepStatusFailed),
+		})
 		return
 	}
 
 	_ = s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusRunning, r.ID, "")
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusRunning)
+	s.hub.BroadcastEvent(ctx, ws.AGUIStepStarted, ws.AGUIStepStartedEvent{
+		RunID:  r.ID,
+		StepID: step.ID,
+		Name:   step.TaskID,
+	})
 	slog.Info("plan step started", "plan_id", p.ID, "step_id", stepID, "run_id", r.ID)
 }
 
@@ -493,6 +503,16 @@ func (s *OrchestratorService) broadcastStepStatus(ctx context.Context, p *plan.E
 		RunID:     step.RunID,
 		Error:     step.Error,
 	})
+
+	// Emit AG-UI step_finished for terminal statuses.
+	switch status {
+	case plan.StepStatusCompleted, plan.StepStatusFailed, plan.StepStatusCancelled, plan.StepStatusSkipped:
+		s.hub.BroadcastEvent(ctx, ws.AGUIStepFinished, ws.AGUIStepFinishedEvent{
+			RunID:  step.RunID,
+			StepID: step.ID,
+			Status: string(status),
+		})
+	}
 }
 
 func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event.Type, p *plan.ExecutionPlan) {

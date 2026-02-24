@@ -50,6 +50,14 @@ export default function ChatPanel(props: ChatPanelProps) {
   }
   const [toolCalls, setToolCalls] = createSignal<ToolCallState[]>([]);
 
+  // Plan step tracking from AG-UI events
+  interface PlanStepState {
+    stepId: string;
+    name: string;
+    status: "running" | "completed" | "failed" | "cancelled" | "skipped";
+  }
+  const [planSteps, setPlanSteps] = createSignal<PlanStepState[]>([]);
+
   let messagesEndRef: HTMLDivElement | undefined;
 
   const scrollToBottom = () => {
@@ -154,8 +162,23 @@ export default function ChatPanel(props: ChatPanelProps) {
       setAgentRunning(false);
       setStreamingContent("");
       setToolCalls([]);
+      setPlanSteps([]);
       void refetchMessages();
     }
+  });
+
+  // When a plan step starts, add it to the step tracker
+  const cleanupStepStarted = onAGUIEvent("agui.step_started", (payload) => {
+    const stepId = payload.step_id as string;
+    const name = payload.name as string;
+    setPlanSteps((prev) => [...prev, { stepId, name, status: "running" }]);
+  });
+
+  // When a plan step finishes, update its status
+  const cleanupStepFinished = onAGUIEvent("agui.step_finished", (payload) => {
+    const stepId = payload.step_id as string;
+    const status = payload.status as PlanStepState["status"];
+    setPlanSteps((prev) => prev.map((s) => (s.stepId === stepId ? { ...s, status } : s)));
   });
 
   onCleanup(() => {
@@ -164,6 +187,8 @@ export default function ChatPanel(props: ChatPanelProps) {
     cleanupToolCall();
     cleanupToolResult();
     cleanupRunFinished();
+    cleanupStepStarted();
+    cleanupStepFinished();
   });
 
   // --- Handlers ---
@@ -226,6 +251,36 @@ export default function ChatPanel(props: ChatPanelProps) {
               </div>
             )}
           </For>
+
+          {/* Plan step status badges from AG-UI events */}
+          <Show when={planSteps().length > 0}>
+            <div class="flex flex-wrap gap-2 px-1">
+              <For each={planSteps()}>
+                {(step) => (
+                  <span
+                    class={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      step.status === "running"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                        : step.status === "completed"
+                          ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                          : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                    }`}
+                  >
+                    <span
+                      class={`h-1.5 w-1.5 rounded-full ${
+                        step.status === "running"
+                          ? "bg-blue-500 animate-pulse"
+                          : step.status === "completed"
+                            ? "bg-green-500"
+                            : "bg-red-500"
+                      }`}
+                    />
+                    {step.name}
+                  </span>
+                )}
+              </For>
+            </div>
+          </Show>
 
           {/* Active tool calls from AG-UI events */}
           <Show when={toolCalls().length > 0}>
