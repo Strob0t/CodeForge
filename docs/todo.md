@@ -563,6 +563,33 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) RBAC for tenant management: `/tenants` routes wrapped in `RequireRole(admin)` middleware
 - [x] (2026-02-23) Request body size limits: generic `readJSON[T]` helper with 1MB `http.MaxBytesReader` on all JSON decode handlers (~35+ endpoints)
 
+### Backend QA — Comprehensive Test Suite (2026-02-24)
+
+> 266-test automated suite covering 44 modules across the entire Go backend API surface (177+ routes).
+
+#### Phase 1: Discovery & Test Plan
+- [x] (2026-02-24) Mapped all 177+ REST/WebSocket endpoints from `routes.go`
+- [x] (2026-02-24) Identified 44 testable modules covering auth, CRUD, middleware, business logic, error handling
+
+#### Phase 2: Test Execution
+- [x] (2026-02-24) Executed 266 tests against live server with auth, NATS, PostgreSQL, LiteLLM
+
+#### Phase 3: Bug Diagnosis & Fix — Commit `1e2afd6` (Round 1)
+- [x] (2026-02-24) Fix context_optimizer.go: missing mutex unlock on early return path
+- [x] (2026-02-24) Fix knowledgebase.go: CreateRequest validation missing required fields
+- [x] (2026-02-24) Fix store.go: `depends_on` column scan error on plan step queries
+
+#### Phase 3: Bug Diagnosis & Fix — Commit `192a579` (Round 2)
+- [x] (2026-02-24) Fix webhook auth bypass: `/api/v1/webhooks/*` blocked by JWT middleware — added `publicPrefixes` in `auth.go`
+- [x] (2026-02-24) Fix unique constraint 500: SQLSTATE 23505 unhandled in `writeDomainError` — added 409 Conflict mapping in `handlers.go`
+- [x] (2026-02-24) Fix run validation 500: `StartRequest.Validate()` missing `domain.ErrValidation` wrapping + handler used `writeInternalError` — fixed in `validate.go` + `handlers.go`
+- [x] (2026-02-24) Fix shared context author UUID: DB column `UUID NOT NULL` but no Go-side format validation — added regex check in `shared.go`
+- [x] (2026-02-24) Fix KB index 500: "no content path" error missing `domain.ErrValidation` wrapping — fixed in `knowledgebase.go`
+
+#### Final Results
+- [x] (2026-02-24) **262/266 PASS (98.5%)** — 42/44 modules at 100%, 4 remaining failures are infrastructure timeouts (Python retrieval workers not running)
+- [ ] BLOCKED: 4 search/graph endpoint tests require running Python retrieval workers (search project, agent search, graph search, SQLi in search)
+
 ---
 
 ### Phase 12+ — Architecture Evolution
