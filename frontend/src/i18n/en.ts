@@ -359,6 +359,16 @@ const en = {
   "policy.decision.allow": "allow",
   "policy.decision.deny": "deny",
   "policy.decision.ask": "ask",
+  "policy.preview.title": "Effective Permission Preview",
+  "policy.preview.description":
+    "Test what decision a policy would make for a given tool call. Select a policy and enter tool details to preview the effective permission.",
+  "policy.preview.selectPolicy": "Select policy...",
+  "policy.preview.result.decision": "Decision:",
+  "policy.preview.result.scope": "Scope:",
+  "policy.preview.result.profile": "Profile:",
+  "policy.preview.result.matchedRule": "Matched Rule:",
+  "policy.preview.result.reason": "Reason:",
+  "policy.preview.result.noRuleMatched": "(mode default)",
   "policy.toast.nameRequired": "Policy name is required",
   "policy.toast.saveFailed": "Failed to save policy",
   "policy.toast.deleteFailed": "Failed to delete policy",
@@ -940,6 +950,23 @@ const en = {
   "modes.toast.updateFailed": "Failed to update mode",
   "modes.edit": "Edit",
   "modes.editAria": "Edit mode {{name}}",
+
+  // -- Developer Tools (Phase 13.7B) --
+  "settings.devTools": "Developer Tools",
+  "settings.benchmark.title": "Prompt Benchmark",
+  "settings.benchmark.model": "Model",
+  "settings.benchmark.systemPrompt": "System Prompt",
+  "settings.benchmark.prompt": "Prompt",
+  "settings.benchmark.temperature": "Temperature",
+  "settings.benchmark.maxTokens": "Max Tokens",
+  "settings.benchmark.run": "Run Benchmark",
+  "settings.benchmark.running": "Running...",
+  "settings.benchmark.latency": "Latency",
+  "settings.benchmark.tokensIn": "Tokens In",
+  "settings.benchmark.tokensOut": "Tokens Out",
+  "settings.benchmark.response": "Response",
+  "settings.benchmark.devModeRequired":
+    "Dev mode is not enabled. Set DEV_MODE=true to use developer tools.",
 } as const;
 
 export type TranslationKey = keyof typeof en;

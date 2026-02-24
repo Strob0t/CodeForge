@@ -733,6 +733,16 @@ export interface PolicyToolCall {
   path?: string;
 }
 
+/** Matches Go domain/policy.EvaluationResult */
+export interface EvaluationResult {
+  decision: PolicyDecision;
+  profile: string;
+  scope: string;
+  rule_index: number;
+  matched_rule: string;
+  reason: string;
+}
+
 // --- Cost Aggregation types (Phase 7) ---
 
 /** Matches Go domain/cost.Summary */
@@ -1249,4 +1259,24 @@ export interface CreateVCSAccountRequest {
   server_url?: string;
   auth_method?: string;
   token: string;
+}
+
+// --- Dev Tools (Phase 13.7B) ---
+
+/** Prompt benchmark request body */
+export interface BenchmarkRequest {
+  model: string;
+  prompt: string;
+  system_prompt?: string;
+  temperature?: number;
+  max_tokens?: number;
+}
+
+/** Prompt benchmark result */
+export interface BenchmarkResult {
+  content: string;
+  model: string;
+  tokens_in: number;
+  tokens_out: number;
+  latency_ms: number;
 }

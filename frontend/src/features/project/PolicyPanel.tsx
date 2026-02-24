@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type {
+  EvaluationResult,
   PermissionMode,
   PermissionRule,
   PolicyDecision,
@@ -17,7 +18,7 @@ interface PolicyPanelProps {
   onError: (msg: string) => void;
 }
 
-type View = "list" | "detail" | "editor";
+type View = "list" | "detail" | "editor" | "preview";
 
 const PRESET_NAMES = new Set([
   "plan-readonly",
@@ -79,8 +80,16 @@ export default function PolicyPanel(props: PolicyPanelProps) {
   const [evalTool, setEvalTool] = createSignal("");
   const [evalCommand, setEvalCommand] = createSignal("");
   const [evalPath, setEvalPath] = createSignal("");
-  const [evalResult, setEvalResult] = createSignal<PolicyDecision | null>(null);
+  const [evalResult, setEvalResult] = createSignal<EvaluationResult | null>(null);
   const [evaluating, setEvaluating] = createSignal(false);
+
+  // Preview state (standalone from list view)
+  const [previewPolicy, setPreviewPolicy] = createSignal<string>("");
+  const [previewTool, setPreviewTool] = createSignal("");
+  const [previewCommand, setPreviewCommand] = createSignal("");
+  const [previewPath, setPreviewPath] = createSignal("");
+  const [previewResult, setPreviewResult] = createSignal<EvaluationResult | null>(null);
+  const [previewing, setPreviewing] = createSignal(false);
 
   const handleSelect = (name: string) => {
     setSelectedName(name);
@@ -148,11 +157,31 @@ export default function PolicyPanel(props: PolicyPanelProps) {
         path: evalPath() || undefined,
       };
       const res = await api.policies.evaluate(name, call);
-      setEvalResult(res.decision);
+      setEvalResult(res);
     } catch (e) {
       props.onError(e instanceof Error ? e.message : t("policy.toast.evalFailed"));
     } finally {
       setEvaluating(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    const name = previewPolicy();
+    if (!name || !previewTool()) return;
+    setPreviewing(true);
+    setPreviewResult(null);
+    try {
+      const call: PolicyToolCall = {
+        tool: previewTool(),
+        command: previewCommand() || undefined,
+        path: previewPath() || undefined,
+      };
+      const res = await api.policies.evaluate(name, call);
+      setPreviewResult(res);
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : t("policy.toast.evalFailed"));
+    } finally {
+      setPreviewing(false);
     }
   };
 
@@ -236,6 +265,15 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             </button>
           </Show>
           <Show when={view() === "list"}>
+            <button
+              class="rounded bg-gray-100 px-3 py-1.5 text-sm hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
+              onClick={() => {
+                setPreviewResult(null);
+                setView("preview");
+              }}
+            >
+              {t("policy.preview.title")}
+            </button>
             <button
               class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
               onClick={handleNewPolicy}
@@ -496,16 +534,43 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 >
                   {evaluating() ? "..." : t("policy.evaluate")}
                 </button>
-                <Show when={evalResult()}>
-                  {(decision) => (
-                    <span
-                      class={`rounded px-2 py-1 text-sm font-medium ${DECISION_COLORS[decision()]}`}
-                    >
-                      {decision()}
-                    </span>
-                  )}
-                </Show>
               </div>
+              <Show when={evalResult()}>
+                {(result) => (
+                  <div class="mt-3 space-y-1 text-sm">
+                    <div class="flex items-center gap-2">
+                      <span class="text-gray-500 dark:text-gray-400">
+                        {t("policy.preview.result.decision")}
+                      </span>
+                      <span
+                        class={`rounded px-2 py-0.5 text-xs font-medium ${DECISION_COLORS[result().decision]}`}
+                      >
+                        {result().decision}
+                      </span>
+                    </div>
+                    <div>
+                      <span class="text-gray-500 dark:text-gray-400">
+                        {t("policy.preview.result.scope")}
+                      </span>{" "}
+                      <span class="font-mono text-xs">{result().scope}</span>
+                    </div>
+                    <div>
+                      <span class="text-gray-500 dark:text-gray-400">
+                        {t("policy.preview.result.matchedRule")}
+                      </span>{" "}
+                      <span class="font-mono text-xs">
+                        {result().matched_rule || t("policy.preview.result.noRuleMatched")}
+                      </span>
+                    </div>
+                    <div>
+                      <span class="text-gray-500 dark:text-gray-400">
+                        {t("policy.preview.result.reason")}
+                      </span>{" "}
+                      <span class="text-xs">{result().reason}</span>
+                    </div>
+                  </div>
+                )}
+              </Show>
             </div>
 
             {/* Clone button */}
@@ -519,6 +584,127 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             </div>
           </div>
         )}
+      </Show>
+
+      {/* Preview View */}
+      <Show when={view() === "preview"}>
+        <div class="space-y-4">
+          <p class="text-sm text-gray-500 dark:text-gray-400">{t("policy.preview.description")}</p>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                for="preview-policy"
+                class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+              >
+                {t("policy.title")}
+              </label>
+              <select
+                id="preview-policy"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+                value={previewPolicy()}
+                onChange={(e) => {
+                  setPreviewPolicy(e.currentTarget.value);
+                  setPreviewResult(null);
+                }}
+              >
+                <option value="">{t("policy.preview.selectPolicy")}</option>
+                <For each={profiles()?.profiles ?? []}>
+                  {(name) => <option value={name}>{name}</option>}
+                </For>
+              </select>
+            </div>
+            <div>
+              <label
+                for="preview-tool"
+                class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+              >
+                {t("policy.table.tool")}
+              </label>
+              <input
+                id="preview-tool"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+                placeholder={t("policy.toolPlaceholder")}
+                value={previewTool()}
+                onInput={(e) => setPreviewTool(e.currentTarget.value)}
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                for="preview-command"
+                class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+              >
+                {t("policy.commandPlaceholder")}
+              </label>
+              <input
+                id="preview-command"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+                placeholder={t("policy.commandPlaceholder")}
+                value={previewCommand()}
+                onInput={(e) => setPreviewCommand(e.currentTarget.value)}
+              />
+            </div>
+            <div>
+              <label
+                for="preview-path"
+                class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+              >
+                {t("policy.pathPlaceholder")}
+              </label>
+              <input
+                id="preview-path"
+                class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700"
+                placeholder={t("policy.pathPlaceholder")}
+                value={previewPath()}
+                onInput={(e) => setPreviewPath(e.currentTarget.value)}
+              />
+            </div>
+          </div>
+
+          <button
+            class="rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            onClick={handlePreview}
+            disabled={previewing() || !previewPolicy() || !previewTool()}
+          >
+            {previewing() ? "..." : t("policy.evaluate")}
+          </button>
+
+          <Show when={previewResult()}>
+            {(result) => (
+              <div class="rounded border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+                <div class="mb-3 flex items-center gap-3">
+                  <span
+                    class={`rounded px-3 py-1 text-sm font-semibold ${DECISION_COLORS[result().decision]}`}
+                  >
+                    {result().decision.toUpperCase()}
+                  </span>
+                  <span class="text-sm text-gray-500 dark:text-gray-400">{result().profile}</span>
+                </div>
+                <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
+                  <dt class="text-gray-500 dark:text-gray-400">
+                    {t("policy.preview.result.scope")}
+                  </dt>
+                  <dd class="font-mono text-xs">{result().scope}</dd>
+
+                  <dt class="text-gray-500 dark:text-gray-400">
+                    {t("policy.preview.result.matchedRule")}
+                  </dt>
+                  <dd class="font-mono text-xs">
+                    {result().matched_rule || t("policy.preview.result.noRuleMatched")}
+                  </dd>
+
+                  <dt class="text-gray-500 dark:text-gray-400">
+                    {t("policy.preview.result.reason")}
+                  </dt>
+                  <dd class="text-xs">{result().reason}</dd>
+                </dl>
+              </div>
+            )}
+          </Show>
+        </div>
       </Show>
 
       {/* Editor View */}

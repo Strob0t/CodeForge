@@ -306,5 +306,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Put("/{id}", h.UpdateUserHandler)
 			r.Delete("/{id}", h.DeleteUserHandler)
 		})
+
+		// Dev tools (behind DEV_MODE env var)
+		r.Post("/dev/benchmark", h.BenchmarkPrompt)
 	})
 }

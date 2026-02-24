@@ -367,6 +367,16 @@ const de: Translations = {
   "policy.toast.nameRequired": "Richtlinienname ist erforderlich",
   "policy.toast.saveFailed": "Richtlinie konnte nicht gespeichert werden",
   "policy.toast.deleteFailed": "Richtlinie konnte nicht gel\u00f6scht werden",
+  "policy.preview.title": "Effektive Berechtigungsvorschau",
+  "policy.preview.description":
+    "Testen Sie, welche Entscheidung eine Richtlinie fuer einen bestimmten Tool-Aufruf treffen wuerde. Waehlen Sie eine Richtlinie und geben Sie Tool-Details ein, um die effektive Berechtigung zu sehen.",
+  "policy.preview.selectPolicy": "Richtlinie waehlen...",
+  "policy.preview.result.decision": "Entscheidung:",
+  "policy.preview.result.scope": "Geltungsbereich:",
+  "policy.preview.result.profile": "Profil:",
+  "policy.preview.result.matchedRule": "Passende Regel:",
+  "policy.preview.result.reason": "Grund:",
+  "policy.preview.result.noRuleMatched": "(Modus-Standard)",
   "policy.toast.evalFailed": "Auswertung fehlgeschlagen",
 
   // -- Repo Map -------------------------------------------------------------
@@ -953,6 +963,23 @@ const de: Translations = {
   "modes.toast.updateFailed": "Modus konnte nicht aktualisiert werden",
   "modes.edit": "Bearbeiten",
   "modes.editAria": "Modus {{name}} bearbeiten",
+
+  // -- Developer Tools (Phase 13.7B) --
+  "settings.devTools": "Entwicklerwerkzeuge",
+  "settings.benchmark.title": "Prompt-Benchmark",
+  "settings.benchmark.model": "Modell",
+  "settings.benchmark.systemPrompt": "System-Prompt",
+  "settings.benchmark.prompt": "Prompt",
+  "settings.benchmark.temperature": "Temperatur",
+  "settings.benchmark.maxTokens": "Max Tokens",
+  "settings.benchmark.run": "Benchmark starten",
+  "settings.benchmark.running": "Laeuft...",
+  "settings.benchmark.latency": "Latenz",
+  "settings.benchmark.tokensIn": "Tokens ein",
+  "settings.benchmark.tokensOut": "Tokens aus",
+  "settings.benchmark.response": "Antwort",
+  "settings.benchmark.devModeRequired":
+    "Dev-Modus ist nicht aktiviert. Setzen Sie DEV_MODE=true, um Entwicklerwerkzeuge zu nutzen.",
 };
 
 export default de;

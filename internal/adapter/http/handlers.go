@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -2694,6 +2695,68 @@ func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusCreated, msg)
+}
+
+// --- Dev Tools ---
+
+// BenchmarkPrompt handles POST /api/v1/dev/benchmark
+// Sends a prompt to LiteLLM and returns the response with timing/token metrics.
+// Guarded by the DEV_MODE environment variable.
+func (h *Handlers) BenchmarkPrompt(w http.ResponseWriter, r *http.Request) {
+	if strings.ToLower(os.Getenv("DEV_MODE")) != "true" {
+		writeError(w, http.StatusForbidden, "dev mode not enabled")
+		return
+	}
+
+	type benchmarkRequest struct {
+		Model        string  `json:"model"`
+		Prompt       string  `json:"prompt"`
+		SystemPrompt string  `json:"system_prompt"`
+		Temperature  float64 `json:"temperature"`
+		MaxTokens    int     `json:"max_tokens"`
+	}
+
+	req, ok := readJSON[benchmarkRequest](w, r)
+	if !ok {
+		return
+	}
+	if req.Model == "" {
+		writeError(w, http.StatusBadRequest, "model is required")
+		return
+	}
+	if req.Prompt == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	messages := []litellm.ChatMessage{}
+	if req.SystemPrompt != "" {
+		messages = append(messages, litellm.ChatMessage{Role: "system", Content: req.SystemPrompt})
+	}
+	messages = append(messages, litellm.ChatMessage{Role: "user", Content: req.Prompt})
+
+	start := time.Now()
+	resp, err := h.LiteLLM.ChatCompletion(r.Context(), litellm.ChatCompletionRequest{
+		Model:       req.Model,
+		Messages:    messages,
+		Temperature: req.Temperature,
+		MaxTokens:   req.MaxTokens,
+	})
+	latencyMs := time.Since(start).Milliseconds()
+
+	if err != nil {
+		slog.Error("benchmark prompt failed", "error", err)
+		writeError(w, http.StatusBadGateway, "LLM call failed: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"content":    resp.Content,
+		"model":      resp.Model,
+		"tokens_in":  resp.TokensIn,
+		"tokens_out": resp.TokensOut,
+		"latency_ms": latencyMs,
+	})
 }
 
 // writeInternalError logs the actual error server-side and returns a generic message to the client.

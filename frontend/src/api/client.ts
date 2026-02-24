@@ -27,6 +27,7 @@ import type {
   DailyCost,
   DecomposeRequest,
   DetectionResult,
+  EvaluationResult,
   ExecutionPlan,
   GitStatus,
   GraphSearchRequest,
@@ -42,7 +43,6 @@ import type {
   ModelCostSummary,
   PlanFeatureRequest,
   PMImportRequest,
-  PolicyDecision,
   PolicyProfile,
   PolicyToolCall,
   Project,
@@ -506,7 +506,7 @@ export const api = {
       }),
 
     evaluate: (name: string, call: PolicyToolCall) =>
-      request<{ decision: PolicyDecision }>(`/policies/${encodeURIComponent(name)}/evaluate`, {
+      request<EvaluationResult>(`/policies/${encodeURIComponent(name)}/evaluate`, {
         method: "POST",
         body: JSON.stringify(call),
       }),
@@ -866,6 +866,14 @@ export const api = {
     test: (id: string) =>
       request<{ status: string }>(`/vcs-accounts/${encodeURIComponent(id)}/test`, {
         method: "POST",
+      }),
+  },
+
+  dev: {
+    benchmark: (body: import("./types").BenchmarkRequest) =>
+      request<import("./types").BenchmarkResult>("/dev/benchmark", {
+        method: "POST",
+        body: JSON.stringify(body),
       }),
   },
 } as const;

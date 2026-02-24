@@ -1,8 +1,9 @@
 import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
-import { api } from "~/api/client";
+import { api, FetchError } from "~/api/client";
 import type {
   APIKeyInfo,
+  BenchmarkResult,
   CreateAPIKeyRequest,
   CreateVCSAccountRequest,
   User,
@@ -181,6 +182,40 @@ export default function SettingsPage() {
       toast("error", t("settings.vcs.testFailed"));
     } finally {
       setTestingId(null);
+    }
+  };
+
+  // -- Benchmark (dev tools) -------------------------------------------------
+  const [benchModel, setBenchModel] = createSignal("");
+  const [benchSystemPrompt, setBenchSystemPrompt] = createSignal("");
+  const [benchPrompt, setBenchPrompt] = createSignal("");
+  const [benchTemp, setBenchTemp] = createSignal(0.7);
+  const [benchMaxTokens, setBenchMaxTokens] = createSignal(1000);
+  const [benchRunning, setBenchRunning] = createSignal(false);
+  const [benchResult, setBenchResult] = createSignal<BenchmarkResult | null>(null);
+  const [benchError, setBenchError] = createSignal<string | null>(null);
+
+  const handleRunBenchmark = async () => {
+    setBenchRunning(true);
+    setBenchResult(null);
+    setBenchError(null);
+    try {
+      const result = await api.dev.benchmark({
+        model: benchModel(),
+        prompt: benchPrompt(),
+        system_prompt: benchSystemPrompt() || undefined,
+        temperature: benchTemp(),
+        max_tokens: benchMaxTokens(),
+      });
+      setBenchResult(result);
+    } catch (err) {
+      if (err instanceof FetchError && err.status === 403) {
+        setBenchError(t("settings.benchmark.devModeRequired"));
+      } else {
+        setBenchError(err instanceof Error ? err.message : "Benchmark failed");
+      }
+    } finally {
+      setBenchRunning(false);
     }
   };
 
@@ -613,6 +648,173 @@ export default function SettingsPage() {
           </div>
         </section>
       </Show>
+
+      {/* Developer Tools Section */}
+      <section class="mb-8">
+        <h3 class="mb-4 text-lg font-semibold">{t("settings.devTools")}</h3>
+        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <h4 class="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+            {t("settings.benchmark.title")}
+          </h4>
+          <div class="space-y-3">
+            {/* Model */}
+            <div>
+              <label
+                for="bench-model"
+                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("settings.benchmark.model")}
+              </label>
+              <input
+                id="bench-model"
+                type="text"
+                value={benchModel()}
+                onInput={(e) => setBenchModel(e.currentTarget.value)}
+                placeholder="e.g. openai/gpt-4o"
+                class="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              />
+            </div>
+
+            {/* System Prompt */}
+            <div>
+              <label
+                for="bench-system"
+                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("settings.benchmark.systemPrompt")}
+              </label>
+              <textarea
+                id="bench-system"
+                value={benchSystemPrompt()}
+                onInput={(e) => setBenchSystemPrompt(e.currentTarget.value)}
+                placeholder="Optional system instructions..."
+                rows={2}
+                class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              />
+            </div>
+
+            {/* Prompt */}
+            <div>
+              <label
+                for="bench-prompt"
+                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("settings.benchmark.prompt")}
+              </label>
+              <textarea
+                id="bench-prompt"
+                value={benchPrompt()}
+                onInput={(e) => setBenchPrompt(e.currentTarget.value)}
+                placeholder="Enter your prompt..."
+                rows={4}
+                class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              />
+            </div>
+
+            {/* Temperature + Max Tokens */}
+            <div class="flex gap-4">
+              <div class="flex-1">
+                <label
+                  for="bench-temp"
+                  class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("settings.benchmark.temperature")}: {benchTemp().toFixed(1)}
+                </label>
+                <input
+                  id="bench-temp"
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={benchTemp()}
+                  onInput={(e) => setBenchTemp(parseFloat(e.currentTarget.value))}
+                  class="w-full max-w-md"
+                />
+              </div>
+              <div class="w-40">
+                <label
+                  for="bench-tokens"
+                  class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("settings.benchmark.maxTokens")}
+                </label>
+                <input
+                  id="bench-tokens"
+                  type="number"
+                  min="1"
+                  max="128000"
+                  value={benchMaxTokens()}
+                  onInput={(e) => setBenchMaxTokens(parseInt(e.currentTarget.value, 10) || 1000)}
+                  class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                />
+              </div>
+            </div>
+
+            {/* Run button */}
+            <div class="pt-2">
+              <button
+                type="button"
+                class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                onClick={handleRunBenchmark}
+                disabled={benchRunning() || !benchModel().trim() || !benchPrompt().trim()}
+              >
+                {benchRunning() ? t("settings.benchmark.running") : t("settings.benchmark.run")}
+              </button>
+            </div>
+
+            {/* Error */}
+            <Show when={benchError()}>
+              {(err) => (
+                <div class="rounded bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
+                  {err()}
+                </div>
+              )}
+            </Show>
+
+            {/* Results */}
+            <Show when={benchResult()}>
+              {(result) => (
+                <div class="space-y-3 rounded border border-gray-200 p-3 dark:border-gray-700">
+                  <div class="flex flex-wrap gap-4 text-sm">
+                    <div>
+                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                        {t("settings.benchmark.model")}:
+                      </span>{" "}
+                      <span class="font-mono">{result().model}</span>
+                    </div>
+                    <div>
+                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                        {t("settings.benchmark.latency")}:
+                      </span>{" "}
+                      {result().latency_ms} ms
+                    </div>
+                    <div>
+                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                        {t("settings.benchmark.tokensIn")}:
+                      </span>{" "}
+                      {result().tokens_in}
+                    </div>
+                    <div>
+                      <span class="font-medium text-gray-500 dark:text-gray-400">
+                        {t("settings.benchmark.tokensOut")}:
+                      </span>{" "}
+                      {result().tokens_out}
+                    </div>
+                  </div>
+                  <div>
+                    <p class="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">
+                      {t("settings.benchmark.response")}:
+                    </p>
+                    <pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm dark:bg-gray-900">
+                      {result().content}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </Show>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
