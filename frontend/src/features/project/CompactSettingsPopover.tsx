@@ -47,23 +47,31 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
     }
   });
 
-  // Click-outside-to-close
+  // Dismiss: click-outside and Escape key.
+  // Listeners are registered once on mount and check props.open in the handler
+  // to avoid SolidJS createEffect timing issues with addEventListener/removeEventListener.
   const handleClickOutside = (e: MouseEvent) => {
-    if (props.open && popoverRef && !popoverRef.contains(e.target as Node)) {
+    // Check the parent container (which also holds the toggle button) so that
+    // clicking the gear icon counts as "inside" and lets the toggle handler work.
+    const container = popoverRef?.parentElement;
+    if (props.open && container && !container.contains(e.target as Node)) {
       props.onClose();
     }
   };
 
-  createEffect(() => {
-    if (props.open) {
-      document.addEventListener("mousedown", handleClickOutside);
-    } else {
-      document.removeEventListener("mousedown", handleClickOutside);
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (props.open && e.key === "Escape") {
+      e.preventDefault();
+      props.onClose();
     }
-  });
+  };
+
+  document.addEventListener("mousedown", handleClickOutside);
+  document.addEventListener("keydown", handleKeyDown);
 
   onCleanup(() => {
     document.removeEventListener("mousedown", handleClickOutside);
+    document.removeEventListener("keydown", handleKeyDown);
   });
 
   function toggleBackend(backend: string) {

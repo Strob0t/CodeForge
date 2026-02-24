@@ -108,11 +108,11 @@ func manifestConfidence(count int) float64 {
 func detectFrameworks(lang string, contents map[string]string) []string {
 	rules, ok := frameworkDetectors[lang]
 	if !ok {
-		return nil
+		return []string{}
 	}
 
 	seen := make(map[string]bool)
-	var frameworks []string
+	frameworks := make([]string, 0)
 	for _, rule := range rules {
 		content, ok := contents[rule.Manifest]
 		if !ok || content == "" {

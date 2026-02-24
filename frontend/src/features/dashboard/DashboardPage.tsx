@@ -624,7 +624,7 @@ export default function DashboardPage() {
             </h3>
 
             <Show
-              when={result().languages.length > 0}
+              when={(result().languages ?? []).length > 0}
               fallback={
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                   {t("dashboard.detect.noLanguages")}
@@ -632,13 +632,15 @@ export default function DashboardPage() {
               }
             >
               <div class="flex flex-wrap gap-2 mb-4">
-                <For each={result().languages}>
+                <For each={result().languages ?? []}>
                   {(lang) => (
                     <div class="inline-flex items-center gap-2 rounded-full bg-blue-100 dark:bg-blue-900/30 px-3 py-1 text-sm text-blue-800 dark:text-blue-300">
                       <span class="font-medium">{lang.name}</span>
                       <span class="text-xs opacity-75">{Math.round(lang.confidence * 100)}%</span>
-                      <Show when={lang.frameworks.length > 0}>
-                        <span class="text-xs opacity-60">({lang.frameworks.join(", ")})</span>
+                      <Show when={(lang.frameworks ?? []).length > 0}>
+                        <span class="text-xs opacity-60">
+                          ({(lang.frameworks ?? []).join(", ")})
+                        </span>
                       </Show>
                     </div>
                   )}
@@ -646,7 +648,7 @@ export default function DashboardPage() {
               </div>
             </Show>
 
-            <Show when={result().recommendations.length > 0}>
+            <Show when={(result().recommendations ?? []).length > 0}>
               <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                 {t("dashboard.detect.recommendations")}
               </h4>
