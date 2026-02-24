@@ -416,7 +416,7 @@ func run() error {
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
 	// --- Conversation Service ---
-	conversationSvc := service.NewConversationService(store, llmClient, hub, "", modeSvc)
+	conversationSvc := service.NewConversationService(store, llmClient, hub, cfg.LiteLLM.ConversationModel, modeSvc)
 
 	// --- Auth Service (Phase 10C) ---
 	authSvc := service.NewAuthService(store, &cfg.Auth)

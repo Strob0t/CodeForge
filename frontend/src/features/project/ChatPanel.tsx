@@ -107,7 +107,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
       const content = payload.content as string;
-      setStreamingContent(content);
+      setStreamingContent((prev) => prev + content);
       scrollToBottom();
     }
   });

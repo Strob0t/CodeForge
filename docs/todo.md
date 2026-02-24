@@ -1031,6 +1031,11 @@ Replace the 7-tab project detail page with a side-by-side layout (Roadmap left, 
 - [x] Fix non-existent project crash: add error handling in ProjectDetailPage, show "Project not found" inside I18nProvider (2026-02-24)
 - [x] Fix 404 page: add catch-all route with "Page not found" message and link back to dashboard (2026-02-24)
 
+#### LLM Streaming E2E Bug Fixes
+
+- [x] (2026-02-24) Fix wrong model name: `ConversationService` sent `model="default"` to LiteLLM causing 400 Bad Request. Added `ConversationModel` config field (`CODEFORGE_CONVERSATION_MODEL` env var), default fallback changed to `groq/llama-3.1-8b`. (`internal/config/config.go`, `internal/config/loader.go`, `cmd/codeforge/main.go`, `internal/service/conversation.go`)
+- [x] (2026-02-24) Fix streaming accumulation bug: `ChatPanel.tsx` `setStreamingContent(content)` replaced signal with each chunk delta instead of appending. Changed to `setStreamingContent((prev) => prev + content)`. (`frontend/src/features/project/ChatPanel.tsx`)
+
 #### Phase 14 Dependencies
 
 ```text

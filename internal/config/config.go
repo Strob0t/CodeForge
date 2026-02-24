@@ -225,8 +225,9 @@ type NATS struct {
 
 // LiteLLM holds LiteLLM proxy configuration.
 type LiteLLM struct {
-	URL       string `yaml:"url"`
-	MasterKey string `yaml:"master_key"`
+	URL               string `yaml:"url"`
+	MasterKey         string `yaml:"master_key"`
+	ConversationModel string `yaml:"conversation_model"` // Model for chat conversations (default: resolved at init)
 }
 
 // Logging holds structured logging configuration.

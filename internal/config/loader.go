@@ -159,6 +159,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.NATS.URL, "NATS_URL")
 	setString(&cfg.LiteLLM.URL, "LITELLM_URL")
 	setString(&cfg.LiteLLM.MasterKey, "LITELLM_MASTER_KEY")
+	setString(&cfg.LiteLLM.ConversationModel, "CODEFORGE_CONVERSATION_MODEL")
 	setString(&cfg.Logging.Level, "CODEFORGE_LOG_LEVEL")
 	setString(&cfg.Logging.Service, "CODEFORGE_LOG_SERVICE")
 	setBool(&cfg.Logging.Async, "CODEFORGE_LOG_ASYNC")

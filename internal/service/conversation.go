@@ -57,7 +57,7 @@ type ConversationService struct {
 // NewConversationService creates a new ConversationService.
 func NewConversationService(db database.Store, llm *litellm.Client, hub broadcast.Broadcaster, defaultModel string, modeSvc *ModeService) *ConversationService {
 	if defaultModel == "" {
-		defaultModel = "default"
+		defaultModel = "groq/llama-3.1-8b"
 	}
 	return &ConversationService{db: db, llm: llm, hub: hub, model: defaultModel, modeSvc: modeSvc}
 }
