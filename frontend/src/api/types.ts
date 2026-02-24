@@ -20,6 +20,23 @@ export interface CreateProjectRequest {
   config: Record<string, string>;
 }
 
+/** Partial update request for projects */
+export interface UpdateProjectRequest {
+  name?: string;
+  description?: string;
+  repo_url?: string;
+  provider?: string;
+  config?: Record<string, string>;
+}
+
+/** Matches Go domain/project.ParsedRepoURL */
+export interface ParsedRepoURL {
+  owner: string;
+  repo: string;
+  provider: string;
+  host: string;
+}
+
 /** Task status enum matching Go domain/task.Status */
 export type TaskStatus = "pending" | "queued" | "running" | "completed" | "failed" | "cancelled";
 
@@ -1154,4 +1171,64 @@ export interface UpdateScopeRequest {
   name?: string;
   description?: string;
   project_ids?: string[];
+}
+
+// --- Conversation types ---
+
+/** Matches Go domain/conversation.Conversation */
+export interface Conversation {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/conversation.Message */
+export interface ConversationMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  tokens_in: number;
+  tokens_out: number;
+  model: string;
+  created_at: string;
+}
+
+/** Create conversation request */
+export interface CreateConversationRequest {
+  title?: string;
+}
+
+/** Send message request */
+export interface SendMessageRequest {
+  content: string;
+}
+
+// --- VCS Account types ---
+
+/** VCS provider type */
+export type VCSProvider = "github" | "gitlab" | "gitea" | "bitbucket";
+
+/** Matches Go domain/vcsaccount.VCSAccount */
+export interface VCSAccount {
+  id: string;
+  tenant_id: string;
+  provider: VCSProvider;
+  label: string;
+  server_url: string;
+  auth_method: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/vcsaccount.CreateRequest */
+export interface CreateVCSAccountRequest {
+  provider: VCSProvider;
+  label: string;
+  server_url?: string;
+  auth_method?: string;
+  token: string;
 }

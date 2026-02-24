@@ -10,16 +10,18 @@ Coordination of various AI coding agents through a **unified** orchestration lay
 
 ### Agent Backends
 
-| Agent | Adapter | Priority | Type |
+| Agent | Adapter | Status | Type |
 |---|---|---|---|
-| Aider | `adapter/aider/` | Existing | Full-featured (own tools) |
-| OpenHands | `adapter/openhands/` | Existing | Full-featured (own tools) |
-| SWE-agent | `adapter/sweagent/` | Existing | ReAct loop, ACI |
-| Goose | `adapter/goose/` | Priority 1 | MCP-native, Rust |
-| OpenCode | `adapter/opencode/` | Priority 1 | Go, LSP-aware |
-| Plandex | `adapter/plandex/` | Priority 1 | Planning-first, diff sandbox |
+| Aider | `adapter/aider/` | Registered | Generic NATS-to-LLM dispatcher |
+| OpenHands | `adapter/openhands/` | Phase 9+ | Not yet implemented |
+| SWE-agent | `adapter/sweagent/` | Phase 9+ | Not yet implemented |
+| Goose | `adapter/goose/` | Phase 9+ | Not yet implemented |
+| OpenCode | `adapter/opencode/` | Phase 9+ | Not yet implemented |
+| Plandex | `adapter/plandex/` | Phase 9+ | Not yet implemented |
 
 All backends implement the `agentbackend.Backend` interface with capability declarations.
+
+> **Current status:** Only the Aider backend is registered. It operates as a generic NATS-to-LLM dispatcher (receives tasks via NATS, calls LiteLLM, returns results) rather than integrating directly with the Aider CLI. Direct CLI integrations for each agent tool are planned for Phase 9+.
 
 ### Execution Modes
 

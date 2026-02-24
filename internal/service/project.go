@@ -36,9 +36,45 @@ func (s *ProjectService) Get(ctx context.Context, id string) (*project.Project, 
 	return s.store.GetProject(ctx, id)
 }
 
-// Create creates a new project.
+// Create creates a new project after validating the request.
 func (s *ProjectService) Create(ctx context.Context, req project.CreateRequest) (*project.Project, error) {
+	if err := project.ValidateCreateRequest(req, gitprovider.Available()); err != nil {
+		return nil, err
+	}
 	return s.store.CreateProject(ctx, req)
+}
+
+// Update applies partial updates to a project.
+func (s *ProjectService) Update(ctx context.Context, id string, req project.UpdateRequest) (*project.Project, error) {
+	if err := project.ValidateUpdateRequest(req); err != nil {
+		return nil, err
+	}
+
+	p, err := s.store.GetProject(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Name != nil {
+		p.Name = *req.Name
+	}
+	if req.Description != nil {
+		p.Description = *req.Description
+	}
+	if req.RepoURL != nil {
+		p.RepoURL = *req.RepoURL
+	}
+	if req.Provider != nil {
+		p.Provider = *req.Provider
+	}
+	if req.Config != nil {
+		p.Config = req.Config
+	}
+
+	if err := s.store.UpdateProject(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // Delete removes a project and cleans up its workspace directory.

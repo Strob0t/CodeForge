@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -20,9 +22,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -567,6 +571,43 @@ func (m *mockStore) UpdateKnowledgeBaseStatus(_ context.Context, _, _ string, _ 
 func (m *mockStore) AddKnowledgeBaseToScope(_ context.Context, _, _ string) error      { return nil }
 func (m *mockStore) RemoveKnowledgeBaseFromScope(_ context.Context, _, _ string) error { return nil }
 func (m *mockStore) ListKnowledgeBasesByScope(_ context.Context, _ string) ([]knowledgebase.KnowledgeBase, error) {
+	return nil, nil
+}
+
+// Settings stubs
+func (m *mockStore) ListSettings(_ context.Context) ([]settings.Setting, error) { return nil, nil }
+func (m *mockStore) GetSetting(_ context.Context, _ string) (*settings.Setting, error) {
+	return nil, nil
+}
+func (m *mockStore) UpsertSetting(_ context.Context, _ string, _ json.RawMessage) error { return nil }
+
+// VCS Account stubs
+func (m *mockStore) ListVCSAccounts(_ context.Context) ([]vcsaccount.VCSAccount, error) {
+	return nil, nil
+}
+func (m *mockStore) CreateVCSAccount(_ context.Context, _ *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error) {
+	return nil, nil
+}
+func (m *mockStore) GetVCSAccount(_ context.Context, _ string) (*vcsaccount.VCSAccount, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteVCSAccount(_ context.Context, _ string) error { return nil }
+
+// Conversation stubs
+func (m *mockStore) CreateConversation(_ context.Context, _ *conversation.Conversation) (*conversation.Conversation, error) {
+	return nil, nil
+}
+func (m *mockStore) GetConversation(_ context.Context, _ string) (*conversation.Conversation, error) {
+	return nil, nil
+}
+func (m *mockStore) ListConversationsByProject(_ context.Context, _ string) ([]conversation.Conversation, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteConversation(_ context.Context, _ string) error { return nil }
+func (m *mockStore) CreateMessage(_ context.Context, _ *conversation.Message) (*conversation.Message, error) {
+	return nil, nil
+}
+func (m *mockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
 	return nil, nil
 }
 

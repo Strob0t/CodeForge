@@ -103,7 +103,7 @@ export function ToastProvider(props: ParentProps): JSX.Element {
       {props.children}
       <Portal>
         <div
-          class="pointer-events-none fixed right-4 top-4 z-50 flex w-80 flex-col gap-2"
+          class="pointer-events-none fixed right-4 top-16 z-[60] flex w-80 flex-col gap-2"
           aria-live="polite"
         >
           <For each={toasts()}>

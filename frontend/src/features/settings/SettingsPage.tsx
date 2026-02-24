@@ -1,15 +1,65 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { APIKeyInfo, CreateAPIKeyRequest, User } from "~/api/types";
+import type {
+  APIKeyInfo,
+  CreateAPIKeyRequest,
+  CreateVCSAccountRequest,
+  User,
+  VCSAccount,
+  VCSProvider,
+} from "~/api/types";
 import { useAuth } from "~/components/AuthProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+
+const AUTONOMY_LEVELS = [
+  { value: "supervised", label: "1 - Supervised" },
+  { value: "semi-auto", label: "2 - Semi-Auto" },
+  { value: "auto-edit", label: "3 - Auto-Edit" },
+  { value: "full-auto", label: "4 - Full-Auto" },
+  { value: "headless", label: "5 - Headless" },
+];
 
 export default function SettingsPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const auth = useAuth();
+
+  // -- General settings -------------------------------------------------------
+  const [defaultProvider, setDefaultProvider] = createSignal("");
+  const [defaultAutonomy, setDefaultAutonomy] = createSignal("supervised");
+  const [autoClone, setAutoClone] = createSignal(false);
+  const [saving, setSaving] = createSignal(false);
+
+  onMount(async () => {
+    try {
+      const data = await api.settings.get();
+      if (data.default_provider) setDefaultProvider(data.default_provider as string);
+      if (data.default_autonomy) setDefaultAutonomy(data.default_autonomy as string);
+      if (data.auto_clone !== undefined) setAutoClone(data.auto_clone as boolean);
+    } catch {
+      // Settings may not exist yet, use defaults
+    }
+  });
+
+  const handleSaveGeneral = async () => {
+    setSaving(true);
+    try {
+      await api.settings.update({
+        settings: {
+          default_provider: defaultProvider(),
+          default_autonomy: defaultAutonomy(),
+          auto_clone: autoClone(),
+        },
+      });
+      toast("success", t("settings.general.saved"));
+    } catch {
+      toast("error", t("settings.general.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // -- Provider info (read-only) -------------------------------------------
   const [gitProviders] = createResource(() => api.providers.git().then((r) => r.providers));
@@ -79,9 +129,271 @@ export default function SettingsPage() {
     }
   };
 
+  // -- VCS Accounts ----------------------------------------------------------
+  const [vcsAccounts, { refetch: refetchVCS }] = createResource<VCSAccount[]>(() =>
+    api.vcsAccounts.list(),
+  );
+  const [vcsProvider, setVcsProvider] = createSignal<VCSProvider>("github");
+  const [vcsLabel, setVcsLabel] = createSignal("");
+  const [vcsToken, setVcsToken] = createSignal("");
+  const [vcsServerUrl, setVcsServerUrl] = createSignal("");
+  const [testingId, setTestingId] = createSignal<string | null>(null);
+
+  const handleCreateVCS = async () => {
+    const label = vcsLabel().trim();
+    const token = vcsToken().trim();
+    if (!label || !token) return;
+    try {
+      const req: CreateVCSAccountRequest = {
+        provider: vcsProvider(),
+        label,
+        token,
+        server_url: vcsServerUrl().trim() || undefined,
+      };
+      await api.vcsAccounts.create(req);
+      setVcsLabel("");
+      setVcsToken("");
+      setVcsServerUrl("");
+      refetchVCS();
+      toast("success", t("settings.vcs.created"));
+    } catch {
+      toast("error", t("settings.vcs.createFailed"));
+    }
+  };
+
+  const handleDeleteVCS = async (id: string) => {
+    if (!confirm(t("settings.vcs.deleteConfirm"))) return;
+    try {
+      await api.vcsAccounts.delete(id);
+      refetchVCS();
+      toast("success", t("settings.vcs.deleted"));
+    } catch {
+      toast("error", t("settings.vcs.deleteFailed"));
+    }
+  };
+
+  const handleTestVCS = async (id: string) => {
+    setTestingId(id);
+    try {
+      await api.vcsAccounts.test(id);
+      toast("success", t("settings.vcs.testSuccess"));
+    } catch {
+      toast("error", t("settings.vcs.testFailed"));
+    } finally {
+      setTestingId(null);
+    }
+  };
+
   return (
     <div>
       <h2 class="mb-6 text-2xl font-bold">{t("settings.title")}</h2>
+
+      {/* General Settings Section */}
+      <section class="mb-8">
+        <h3 class="mb-4 text-lg font-semibold">{t("settings.general.title")}</h3>
+        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div class="space-y-4">
+            {/* Default Provider */}
+            <div>
+              <label
+                for="default-provider"
+                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("settings.general.defaultProvider")}
+              </label>
+              <input
+                id="default-provider"
+                type="text"
+                value={defaultProvider()}
+                onInput={(e) => setDefaultProvider(e.currentTarget.value)}
+                placeholder="e.g. openai/gpt-4o"
+                class="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {t("settings.general.defaultProviderHelp")}
+              </p>
+            </div>
+
+            {/* Default Autonomy */}
+            <div>
+              <label
+                for="default-autonomy"
+                class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                {t("settings.general.defaultAutonomy")}
+              </label>
+              <select
+                id="default-autonomy"
+                value={defaultAutonomy()}
+                onChange={(e) => setDefaultAutonomy(e.currentTarget.value)}
+                class="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              >
+                <For each={AUTONOMY_LEVELS}>
+                  {(level) => <option value={level.value}>{level.label}</option>}
+                </For>
+              </select>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {t("settings.general.defaultAutonomyHelp")}
+              </p>
+            </div>
+
+            {/* Auto Clone */}
+            <div class="flex items-center gap-3">
+              <input
+                id="auto-clone"
+                type="checkbox"
+                checked={autoClone()}
+                onChange={(e) => setAutoClone(e.currentTarget.checked)}
+                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label
+                  for="auto-clone"
+                  class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("settings.general.autoClone")}
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {t("settings.general.autoCloneHelp")}
+                </p>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div class="pt-2">
+              <button
+                type="button"
+                class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                onClick={handleSaveGeneral}
+                disabled={saving()}
+              >
+                {t("settings.general.save")}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* VCS Accounts Section */}
+      <section class="mb-8">
+        <h3 class="mb-4 text-lg font-semibold">{t("settings.vcs.title")}</h3>
+        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          {/* Add new account form */}
+          <div class="mb-4 space-y-3">
+            <div class="flex gap-2">
+              <select
+                value={vcsProvider()}
+                onChange={(e) => setVcsProvider(e.currentTarget.value as VCSProvider)}
+                class="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                aria-label={t("settings.vcs.provider")}
+              >
+                <option value="github">GitHub</option>
+                <option value="gitlab">GitLab</option>
+                <option value="gitea">Gitea</option>
+                <option value="bitbucket">Bitbucket</option>
+              </select>
+              <input
+                type="text"
+                value={vcsLabel()}
+                onInput={(e) => setVcsLabel(e.currentTarget.value)}
+                placeholder={t("settings.vcs.labelPlaceholder")}
+                class="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                aria-label={t("settings.vcs.label")}
+              />
+            </div>
+            <div class="flex gap-2">
+              <input
+                type="password"
+                value={vcsToken()}
+                onInput={(e) => setVcsToken(e.currentTarget.value)}
+                placeholder={t("settings.vcs.tokenPlaceholder")}
+                class="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                aria-label={t("settings.vcs.token")}
+              />
+              <input
+                type="text"
+                value={vcsServerUrl()}
+                onInput={(e) => setVcsServerUrl(e.currentTarget.value)}
+                placeholder={t("settings.vcs.serverUrlPlaceholder")}
+                class="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                aria-label={t("settings.vcs.serverUrl")}
+              />
+            </div>
+            <button
+              type="button"
+              class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              onClick={handleCreateVCS}
+              disabled={!vcsLabel().trim() || !vcsToken().trim()}
+            >
+              {t("settings.vcs.add")}
+            </button>
+          </div>
+
+          {/* Account list */}
+          <Show
+            when={(vcsAccounts() ?? []).length > 0}
+            fallback={
+              <p class="text-sm text-gray-500 dark:text-gray-400">{t("settings.vcs.empty")}</p>
+            }
+          >
+            <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+              <For each={vcsAccounts() ?? []}>
+                {(acct) => (
+                  <li class="flex items-center justify-between py-3">
+                    <div class="flex items-center gap-3">
+                      <span
+                        class={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                          acct.provider === "github"
+                            ? "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
+                            : acct.provider === "gitlab"
+                              ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"
+                              : acct.provider === "gitea"
+                                ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
+                        }`}
+                      >
+                        {acct.provider}
+                      </span>
+                      <div>
+                        <span class="text-sm font-medium">{acct.label}</span>
+                        <Show when={acct.server_url}>
+                          <span class="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                            {acct.server_url}
+                          </span>
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-gray-400 dark:text-gray-500">
+                        {new Date(acct.created_at).toLocaleDateString()}
+                      </span>
+                      <button
+                        type="button"
+                        class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
+                        onClick={() => handleTestVCS(acct.id)}
+                        disabled={testingId() === acct.id}
+                        aria-label={t("settings.vcs.testAria", { name: acct.label })}
+                      >
+                        {testingId() === acct.id
+                          ? t("settings.vcs.testing")
+                          : t("settings.vcs.test")}
+                      </button>
+                      <button
+                        type="button"
+                        class="text-xs text-red-600 hover:underline dark:text-red-400"
+                        onClick={() => handleDeleteVCS(acct.id)}
+                        aria-label={t("settings.vcs.deleteAria", { name: acct.label })}
+                      >
+                        {t("common.delete")}
+                      </button>
+                    </div>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </div>
+      </section>
 
       {/* Providers Section */}
       <section class="mb-8">

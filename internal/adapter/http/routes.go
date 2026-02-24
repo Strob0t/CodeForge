@@ -45,6 +45,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects", h.CreateProject)
 		r.Get("/projects/{id}", h.GetProject)
 		r.Delete("/projects/{id}", h.DeleteProject)
+		r.Put("/projects/{id}", h.UpdateProject)
 
 		// Workspace operations (nested under projects)
 		r.Post("/projects/{id}/clone", h.CloneProject)
@@ -100,6 +101,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/providers/spec", h.ListSpecProviders)
 		r.Get("/providers/pm", h.ListPMProviders)
 
+		// Parse repo URL
+		r.Post("/parse-repo-url", h.ParseRepoURL)
+
 		// Policy profiles
 		r.Get("/policies", h.ListPolicyProfiles)
 		r.Post("/policies", h.CreatePolicyProfile)
@@ -136,8 +140,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Modes
 		r.Get("/modes", h.ListModes)
+		r.Get("/modes/scenarios", h.ListScenarios)
 		r.Get("/modes/{id}", h.GetMode)
 		r.Post("/modes", h.CreateMode)
+		r.Put("/modes/{id}", h.UpdateMode)
 
 		// Pipeline Templates
 		r.Get("/pipelines", h.ListPipelines)
@@ -261,6 +267,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Bidirectional Sync (nested under projects)
 		r.Post("/projects/{id}/roadmap/sync", h.SyncRoadmap)
 
+		// Settings
+		r.Get("/settings", h.GetSettings)
+		r.Put("/settings", h.UpdateSettings)
+
 		// Auth (public routes handled by middleware exemption)
 		r.Post("/auth/login", h.Login)
 		r.Post("/auth/refresh", h.Refresh)
@@ -272,6 +282,20 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/auth/api-keys", h.CreateAPIKeyHandler)
 		r.Get("/auth/api-keys", h.ListAPIKeysHandler)
 		r.Delete("/auth/api-keys/{id}", h.DeleteAPIKeyHandler)
+
+		// VCS Accounts
+		r.Get("/vcs-accounts", h.ListVCSAccounts)
+		r.Post("/vcs-accounts", h.CreateVCSAccount)
+		r.Delete("/vcs-accounts/{id}", h.DeleteVCSAccount)
+		r.Post("/vcs-accounts/{id}/test", h.TestVCSAccount)
+
+		// Conversations
+		r.Post("/projects/{id}/conversations", h.CreateConversation)
+		r.Get("/projects/{id}/conversations", h.ListConversations)
+		r.Get("/conversations/{id}", h.GetConversation)
+		r.Delete("/conversations/{id}", h.DeleteConversation)
+		r.Get("/conversations/{id}/messages", h.ListConversationMessages)
+		r.Post("/conversations/{id}/messages", h.SendConversationMessage)
 
 		// Users (admin only)
 		r.Route("/users", func(r chi.Router) {

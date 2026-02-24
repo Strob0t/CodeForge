@@ -510,6 +510,7 @@ const de: Translations = {
   "detail.tab.agents": "Agenten & Läufe",
   "detail.tab.context": "Kontext",
   "detail.tab.costs": "Kosten",
+  "detail.tab.chat": "Chat",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live-Ausgabe",
@@ -794,6 +795,21 @@ const de: Translations = {
   "settings.users.updateFailed": "Benutzer konnte nicht aktualisiert werden",
   "settings.users.empty": "Keine Benutzer gefunden.",
 
+  // -- Allgemeine Einstellungen ------------------------------------------------
+  "settings.general.title": "Allgemein",
+  "settings.general.defaultProvider": "Standard LLM-Anbieter",
+  "settings.general.defaultProviderHelp":
+    "Anbieter, der bei neuen Agent-Runs verwendet wird, wenn keiner angegeben ist.",
+  "settings.general.defaultAutonomy": "Standard-Autonomiestufe",
+  "settings.general.defaultAutonomyHelp":
+    "Autonomiestufe, die bei neuen Agent-Runs angewendet wird.",
+  "settings.general.autoClone": "Automatisches Klonen bei Projekterstellung",
+  "settings.general.autoCloneHelp":
+    "Repository wird automatisch geklont, wenn ein Projekt erstellt wird.",
+  "settings.general.saved": "Einstellungen gespeichert",
+  "settings.general.saveFailed": "Einstellungen konnten nicht gespeichert werden",
+  "settings.general.save": "Einstellungen speichern",
+
   // -- Reviews (Phase 12I) ---------------------------------------------------
   "reviews.title": "Reviews",
   "reviews.policies": "Review-Richtlinien",
@@ -880,6 +896,56 @@ const de: Translations = {
   "scope.kbs.detach": "Trennen",
   "scope.kbs.none": "Keine Wissensbasen angeh\u00e4ngt",
   "app.nav.scopes": "Bereiche",
+
+  // -- VCS Accounts -----------------------------------------------------------
+  "settings.vcs.title": "VCS-Konten",
+  "settings.vcs.empty": "Keine VCS-Konten konfiguriert.",
+  "settings.vcs.provider": "Anbieter",
+  "settings.vcs.label": "Bezeichnung",
+  "settings.vcs.labelPlaceholder": "Mein GitHub-Konto",
+  "settings.vcs.token": "Token",
+  "settings.vcs.tokenPlaceholder": "ghp_... oder glpat-...",
+  "settings.vcs.serverUrl": "Server-URL (optional)",
+  "settings.vcs.serverUrlPlaceholder": "https://gitlab.example.com",
+  "settings.vcs.add": "Konto hinzuf\u00fcgen",
+  "settings.vcs.test": "Testen",
+  "settings.vcs.testing": "Teste...",
+  "settings.vcs.testSuccess": "Verbindung erfolgreich",
+  "settings.vcs.testFailed": "Verbindungstest fehlgeschlagen",
+  "settings.vcs.created": "VCS-Konto erstellt",
+  "settings.vcs.createFailed": "VCS-Konto konnte nicht erstellt werden",
+  "settings.vcs.deleted": "VCS-Konto gel\u00f6scht",
+  "settings.vcs.deleteFailed": "VCS-Konto konnte nicht gel\u00f6scht werden",
+  "settings.vcs.deleteConfirm": "Dieses VCS-Konto l\u00f6schen?",
+  "settings.vcs.deleteAria": "VCS-Konto {{name}} l\u00f6schen",
+  "settings.vcs.testAria": "Verbindung f\u00fcr {{name}} testen",
+
+  // -- Dashboard Edit --
+  "dashboard.toast.updated": "Projekt aktualisiert",
+  "dashboard.form.update": "Projekt aktualisieren",
+
+  // -- Project card edit --
+  "project.edit": "Bearbeiten",
+  "project.editAria": "Projekt {{name}} bearbeiten",
+
+  // -- Chat -----------------------------------------------------------------
+  "chat.tab": "Chat",
+  "chat.new": "Neuer Chat",
+  "chat.newConversation": "Neue Unterhaltung",
+  "chat.noConversations": "Noch keine Unterhaltungen",
+  "chat.selectOrNew": "Unterhaltung ausw\u00e4hlen oder neue starten",
+  "chat.placeholder":
+    "Nachricht eingeben... (Enter zum Senden, Shift+Enter f\u00fcr Zeilenumbruch)",
+  "chat.send": "Senden",
+  "chat.thinking": "Denkt nach...",
+  "chat.deleteAria": "Unterhaltung l\u00f6schen",
+
+  // -- Modes Edit --
+  "modes.form.update": "Modus aktualisieren",
+  "modes.toast.updated": "Modus aktualisiert",
+  "modes.toast.updateFailed": "Modus konnte nicht aktualisiert werden",
+  "modes.edit": "Bearbeiten",
+  "modes.editAria": "Modus {{name}} bearbeiten",
 };
 
 export default de;

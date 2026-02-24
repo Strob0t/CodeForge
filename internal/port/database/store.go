@@ -3,11 +3,13 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -16,9 +18,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 )
 
 // Store is the port interface for database operations.
@@ -204,4 +208,23 @@ type Store interface {
 	AddKnowledgeBaseToScope(ctx context.Context, scopeID, kbID string) error
 	RemoveKnowledgeBaseFromScope(ctx context.Context, scopeID, kbID string) error
 	ListKnowledgeBasesByScope(ctx context.Context, scopeID string) ([]knowledgebase.KnowledgeBase, error)
+
+	// Settings
+	ListSettings(ctx context.Context) ([]settings.Setting, error)
+	GetSetting(ctx context.Context, key string) (*settings.Setting, error)
+	UpsertSetting(ctx context.Context, key string, value json.RawMessage) error
+
+	// VCS Accounts
+	ListVCSAccounts(ctx context.Context) ([]vcsaccount.VCSAccount, error)
+	GetVCSAccount(ctx context.Context, id string) (*vcsaccount.VCSAccount, error)
+	CreateVCSAccount(ctx context.Context, a *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error)
+	DeleteVCSAccount(ctx context.Context, id string) error
+
+	// Conversations
+	CreateConversation(ctx context.Context, c *conversation.Conversation) (*conversation.Conversation, error)
+	GetConversation(ctx context.Context, id string) (*conversation.Conversation, error)
+	ListConversationsByProject(ctx context.Context, projectID string) ([]conversation.Conversation, error)
+	DeleteConversation(ctx context.Context, id string) error
+	CreateMessage(ctx context.Context, m *conversation.Message) (*conversation.Message, error)
+	ListMessages(ctx context.Context, conversationID string) ([]conversation.Message, error)
 }

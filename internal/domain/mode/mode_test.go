@@ -160,6 +160,33 @@ func TestBuiltinModes_UniqueIDs(t *testing.T) {
 	}
 }
 
+func TestValidate_ValidLLMScenario(t *testing.T) {
+	for _, scenario := range ValidScenarios {
+		m := Mode{ID: "test", Name: "Test", Autonomy: 3, LLMScenario: scenario}
+		if err := m.Validate(); err != nil {
+			t.Fatalf("scenario %q should be valid, got error: %v", scenario, err)
+		}
+	}
+}
+
+func TestValidate_EmptyLLMScenario(t *testing.T) {
+	m := Mode{ID: "test", Name: "Test", Autonomy: 3, LLMScenario: ""}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("empty llm_scenario should be valid, got error: %v", err)
+	}
+}
+
+func TestValidate_InvalidLLMScenario(t *testing.T) {
+	m := Mode{ID: "test", Name: "Test", Autonomy: 3, LLMScenario: "invalid-scenario"}
+	err := m.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid llm_scenario")
+	}
+	if !strings.Contains(err.Error(), "invalid llm_scenario") {
+		t.Fatalf("expected error to mention invalid llm_scenario, got: %v", err)
+	}
+}
+
 func TestBuiltinModes_ExpectedPresets(t *testing.T) {
 	expected := map[string]struct {
 		hasRequiredArtifact bool
@@ -171,7 +198,7 @@ func TestBuiltinModes_ExpectedPresets(t *testing.T) {
 		"debugger":   {false, false},
 		"tester":     {true, false},
 		"documenter": {false, true},
-		"refactorer": {true, true},
+		"refactorer": {true, false},
 		"security":   {true, true},
 	}
 

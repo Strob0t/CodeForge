@@ -506,6 +506,7 @@ const en = {
   "detail.tab.agents": "Agents & Runs",
   "detail.tab.context": "Context",
   "detail.tab.costs": "Costs",
+  "detail.tab.chat": "Chat",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live Output",
@@ -787,6 +788,19 @@ const en = {
   "settings.users.updateFailed": "Failed to update user",
   "settings.users.empty": "No users found.",
 
+  // -- General Settings -------------------------------------------------------
+  "settings.general.title": "General",
+  "settings.general.defaultProvider": "Default LLM Provider",
+  "settings.general.defaultProviderHelp":
+    "Provider used for new agent runs when none is specified.",
+  "settings.general.defaultAutonomy": "Default Autonomy Level",
+  "settings.general.defaultAutonomyHelp": "Autonomy level applied to new agent runs.",
+  "settings.general.autoClone": "Auto-Clone on Project Create",
+  "settings.general.autoCloneHelp": "Automatically clone the repository when a project is created.",
+  "settings.general.saved": "Settings saved",
+  "settings.general.saveFailed": "Failed to save settings",
+  "settings.general.save": "Save Settings",
+
   // Reviews (Phase 12I)
   "reviews.title": "Reviews",
   "reviews.policies": "Review Policies",
@@ -871,6 +885,55 @@ const en = {
   "scope.kbs.detach": "Detach",
   "scope.kbs.none": "No knowledge bases attached",
   "app.nav.scopes": "Scopes",
+
+  // -- VCS Accounts -----------------------------------------------------------
+  "settings.vcs.title": "VCS Accounts",
+  "settings.vcs.empty": "No VCS accounts configured.",
+  "settings.vcs.provider": "Provider",
+  "settings.vcs.label": "Label",
+  "settings.vcs.labelPlaceholder": "My GitHub Account",
+  "settings.vcs.token": "Token",
+  "settings.vcs.tokenPlaceholder": "ghp_... or glpat-...",
+  "settings.vcs.serverUrl": "Server URL (optional)",
+  "settings.vcs.serverUrlPlaceholder": "https://gitlab.example.com",
+  "settings.vcs.add": "Add Account",
+  "settings.vcs.test": "Test",
+  "settings.vcs.testing": "Testing...",
+  "settings.vcs.testSuccess": "Connection successful",
+  "settings.vcs.testFailed": "Connection test failed",
+  "settings.vcs.created": "VCS account created",
+  "settings.vcs.createFailed": "Failed to create VCS account",
+  "settings.vcs.deleted": "VCS account deleted",
+  "settings.vcs.deleteFailed": "Failed to delete VCS account",
+  "settings.vcs.deleteConfirm": "Delete this VCS account?",
+  "settings.vcs.deleteAria": "Delete VCS account {{name}}",
+  "settings.vcs.testAria": "Test connection for {{name}}",
+
+  // -- Dashboard Edit --
+  "dashboard.toast.updated": "Project updated",
+  "dashboard.form.update": "Update Project",
+
+  // -- Project card edit --
+  "project.edit": "Edit",
+  "project.editAria": "Edit project {{name}}",
+
+  // -- Chat -----------------------------------------------------------------
+  "chat.tab": "Chat",
+  "chat.new": "New Chat",
+  "chat.newConversation": "New Conversation",
+  "chat.noConversations": "No conversations yet",
+  "chat.selectOrNew": "Select a conversation or start a new one",
+  "chat.placeholder": "Type a message... (Enter to send, Shift+Enter for newline)",
+  "chat.send": "Send",
+  "chat.thinking": "Thinking...",
+  "chat.deleteAria": "Delete conversation",
+
+  // -- Modes Edit --
+  "modes.form.update": "Update Mode",
+  "modes.toast.updated": "Mode updated",
+  "modes.toast.updateFailed": "Failed to update mode",
+  "modes.edit": "Edit",
+  "modes.editAria": "Edit mode {{name}}",
 } as const;
 
 export type TranslationKey = keyof typeof en;

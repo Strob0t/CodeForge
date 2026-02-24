@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
@@ -27,34 +27,77 @@ export default function DashboardPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [projects, { refetch }] = createResource(() => api.projects.list());
+  const [providers] = createResource(() => api.providers.git().then((r) => r.providers));
   const [showForm, setShowForm] = createSignal(false);
   const [form, setForm] = createSignal<CreateProjectRequest>({ ...emptyForm });
   const [error, setError] = createSignal("");
   const [detecting, setDetecting] = createSignal(false);
   const [stackResult, setStackResult] = createSignal<StackDetectionResult | null>(null);
+  const [editingId, setEditingId] = createSignal<string | null>(null);
+  const [parsingUrl, setParsingUrl] = createSignal(false);
 
-  async function handleCreate(e: SubmitEvent) {
+  let urlDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(urlDebounceTimer));
+
+  function isEditing() {
+    return editingId() !== null;
+  }
+
+  async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     setError("");
 
     const data = form();
-    if (!data.name.trim()) {
+    if (!data.name.trim() && !data.repo_url.trim()) {
       setError(t("dashboard.toast.nameRequired"));
       return;
     }
 
     try {
-      await api.projects.create(data);
+      const eid = editingId();
+      if (isEditing() && eid) {
+        await api.projects.update(eid, {
+          name: data.name || undefined,
+          description: data.description || undefined,
+          repo_url: data.repo_url || undefined,
+          provider: data.provider || undefined,
+        });
+        toast("success", t("dashboard.toast.updated"));
+      } else {
+        await api.projects.create(data);
+        toast("success", t("dashboard.toast.created"));
+      }
       setForm({ ...emptyForm });
       setShowForm(false);
+      setEditingId(null);
       setStackResult(null);
       await refetch();
-      toast("success", t("dashboard.toast.created"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
       setError(msg);
       toast("error", msg);
     }
+  }
+
+  function handleEdit(id: string) {
+    const p = projects()?.find((proj) => proj.id === id);
+    if (!p) return;
+    setForm({
+      name: p.name,
+      description: p.description,
+      repo_url: p.repo_url,
+      provider: p.provider,
+      config: p.config ?? {},
+    });
+    setEditingId(id);
+    setShowForm(true);
+  }
+
+  function handleCancelForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ ...emptyForm });
+    setError("");
   }
 
   async function handleDelete(id: string) {
@@ -90,6 +133,27 @@ export default function DashboardPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function handleRepoUrlInput(url: string) {
+    updateField("repo_url", url);
+    clearTimeout(urlDebounceTimer);
+    if (!url.trim()) return;
+    urlDebounceTimer = setTimeout(async () => {
+      try {
+        setParsingUrl(true);
+        const parsed = await api.projects.parseRepoURL(url);
+        setForm((prev) => ({
+          ...prev,
+          name: prev.name || parsed.repo,
+          provider: prev.provider || parsed.provider,
+        }));
+      } catch {
+        // silently ignore parse errors during typing
+      } finally {
+        setParsingUrl(false);
+      }
+    }, 500);
+  }
+
   return (
     <div>
       <div class="mb-6 flex items-center justify-between">
@@ -97,7 +161,13 @@ export default function DashboardPage() {
         <button
           type="button"
           class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => {
+            if (showForm()) {
+              handleCancelForm();
+            } else {
+              setShowForm(true);
+            }
+          }}
         >
           {showForm() ? t("common.cancel") : t("dashboard.addProject")}
         </button>
@@ -114,14 +184,18 @@ export default function DashboardPage() {
 
       <Show when={showForm()}>
         <form
-          onSubmit={handleCreate}
+          onSubmit={handleSubmit}
           class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5"
         >
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {t("dashboard.form.name")} <span aria-hidden="true">*</span>
-                <span class="sr-only">(required)</span>
+                {t("dashboard.form.name")}
+                <Show when={!form().repo_url.trim()}>
+                  {" "}
+                  <span aria-hidden="true">*</span>
+                  <span class="sr-only">(required)</span>
+                </Show>
               </label>
               <input
                 id="name"
@@ -130,7 +204,7 @@ export default function DashboardPage() {
                 onInput={(e) => updateField("name", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder={t("dashboard.form.namePlaceholder")}
-                aria-required="true"
+                aria-required={!form().repo_url.trim() ? "true" : "false"}
               />
             </div>
 
@@ -141,14 +215,15 @@ export default function DashboardPage() {
               >
                 {t("dashboard.form.provider")}
               </label>
-              <input
+              <select
                 id="provider"
-                type="text"
                 value={form().provider}
-                onInput={(e) => updateField("provider", e.currentTarget.value)}
+                onChange={(e) => updateField("provider", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder={t("dashboard.form.providerPlaceholder")}
-              />
+              >
+                <option value="">{t("dashboard.form.providerPlaceholder")}</option>
+                <For each={providers() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
+              </select>
             </div>
 
             <div class="sm:col-span-2">
@@ -157,12 +232,15 @@ export default function DashboardPage() {
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
               >
                 {t("dashboard.form.repoUrl")}
+                <Show when={parsingUrl()}>
+                  <span class="ml-2 text-xs text-gray-400">detecting...</span>
+                </Show>
               </label>
               <input
                 id="repo_url"
                 type="text"
                 value={form().repo_url}
-                onInput={(e) => updateField("repo_url", e.currentTarget.value)}
+                onInput={(e) => handleRepoUrlInput(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder={t("dashboard.form.repoUrlPlaceholder")}
               />
@@ -191,7 +269,7 @@ export default function DashboardPage() {
               type="submit"
               class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              {t("dashboard.form.create")}
+              {isEditing() ? t("common.save") : t("dashboard.form.create")}
             </button>
           </div>
         </form>
@@ -216,6 +294,7 @@ export default function DashboardPage() {
                 <ProjectCard
                   project={p}
                   onDelete={handleDelete}
+                  onEdit={handleEdit}
                   onDetectStack={handleDetectStack}
                   detecting={detecting()}
                 />

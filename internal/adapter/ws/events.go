@@ -52,6 +52,9 @@ const (
 
 	// Phase 12I: review events
 	EventReviewStatus = "review.status"
+
+	// Phase 13.5A: conversation events
+	EventConversationMessage = "conversation.message"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.

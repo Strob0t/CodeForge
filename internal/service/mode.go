@@ -58,3 +58,22 @@ func (s *ModeService) Register(m *mode.Mode) error {
 	s.modes[m.ID] = *m
 	return nil
 }
+
+// Update modifies a custom mode. Built-in modes cannot be updated.
+func (s *ModeService) Update(id string, m *mode.Mode) error {
+	if err := m.Validate(); err != nil {
+		return fmt.Errorf("validate mode: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.modes[id]
+	if !ok {
+		return fmt.Errorf("mode %q not found", id)
+	}
+	if existing.Builtin {
+		return fmt.Errorf("cannot update built-in mode %q", id)
+	}
+	m.ID = id // ensure ID doesn't change
+	s.modes[id] = *m
+	return nil
+}

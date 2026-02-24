@@ -1,4 +1,4 @@
-"""Agent executor stub for processing tasks."""
+"""Agent executor for processing tasks."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentExecutor:
-    """Stub executor that receives a task, calls LLM, and returns a result."""
+    """Executor that receives a task, calls LLM, and returns a result."""
 
     def __init__(self, llm: LiteLLMClient) -> None:
         self._llm = llm

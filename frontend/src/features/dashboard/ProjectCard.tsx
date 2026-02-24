@@ -7,6 +7,7 @@ import { useI18n } from "~/i18n";
 interface ProjectCardProps {
   project: Project;
   onDelete: (id: string) => void;
+  onEdit: (id: string) => void;
   onDetectStack?: (id: string) => void;
   detecting?: boolean;
 }
@@ -41,6 +42,15 @@ export default function ProjectCard(props: ProjectCardProps) {
               {props.detecting ? t("dashboard.detect.detecting") : t("dashboard.detect.button")}
             </button>
           </Show>
+
+          <button
+            type="button"
+            class="rounded px-2 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+            onClick={() => props.onEdit(props.project.id)}
+            aria-label={t("project.editAria", { name: props.project.name })}
+          >
+            {t("project.edit")}
+          </button>
 
           <button
             type="button"

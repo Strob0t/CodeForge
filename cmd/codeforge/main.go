@@ -29,6 +29,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
@@ -397,6 +398,16 @@ func run() error {
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
 
+	// --- Settings Service ---
+	settingsSvc := service.NewSettingsService(store)
+
+	// --- VCS Account Service ---
+	vcsKey := vcsaccount.DeriveKey(cfg.Auth.JWTSecret)
+	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
+
+	// --- Conversation Service ---
+	conversationSvc := service.NewConversationService(store, llmClient, hub, "")
+
 	// --- Auth Service (Phase 10C) ---
 	authSvc := service.NewAuthService(store, &cfg.Auth)
 	if cfg.Auth.Enabled {
@@ -440,6 +451,9 @@ func run() error {
 		Pipelines:        pipelineSvc,
 		Review:           reviewSvc,
 		KnowledgeBases:   kbSvc,
+		Settings:         settingsSvc,
+		VCSAccounts:      vcsAccountSvc,
+		Conversations:    conversationSvc,
 	}
 
 	r := chi.NewRouter()

@@ -44,6 +44,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
   const [title, setTitle] = createSignal("");
   const [description, setDescription] = createSignal("");
   const [detecting, setDetecting] = createSignal(false);
+  const [detectionResult, setDetectionResult] = createSignal<
+    import("~/api/types").DetectionResult | null
+  >(null);
   const [aiPreview, setAiPreview] = createSignal<string | null>(null);
 
   // Milestone form
@@ -85,9 +88,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
 
   const handleDetect = async () => {
     setDetecting(true);
+    setDetectionResult(null);
     try {
       const result = await api.roadmap.detect(props.projectId);
       if (result.found) {
+        setDetectionResult(result);
         props.onError("");
         toast("success", t("roadmap.toast.detected", { format: result.format, path: result.path }));
       } else {
@@ -241,13 +246,35 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   {creating() ? t("common.creating") : t("roadmap.createRoadmap")}
                 </button>
                 <button
-                  class="rounded bg-gray-100 px-4 py-1.5 text-sm hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:hover:bg-gray-600"
+                  class="rounded bg-emerald-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
                   onClick={handleDetect}
                   disabled={detecting()}
                 >
                   {detecting() ? t("roadmap.detecting") : t("roadmap.autoDetect")}
                 </button>
               </div>
+              <Show when={detectionResult()}>
+                {(dr) => (
+                  <div class="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/30">
+                    <div class="mb-1 flex items-center justify-between">
+                      <span class="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                        {t("roadmap.toast.detected", { format: dr().format, path: dr().path })}
+                      </span>
+                      <button
+                        class="text-xs text-emerald-500 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                        onClick={() => setDetectionResult(null)}
+                      >
+                        {t("common.dismiss")}
+                      </button>
+                    </div>
+                    <Show when={(dr().file_markers ?? []).length > 0}>
+                      <ul class="mt-1 list-disc pl-4 text-xs text-emerald-600 dark:text-emerald-400">
+                        <For each={dr().file_markers}>{(marker) => <li>{marker}</li>}</For>
+                      </ul>
+                    </Show>
+                  </div>
+                )}
+              </Show>
             </div>
           </div>
         }

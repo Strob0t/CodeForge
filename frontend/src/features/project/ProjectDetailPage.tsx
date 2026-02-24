@@ -11,6 +11,7 @@ import { ProjectCostSection } from "../costs/CostDashboardPage";
 import AgentNetwork from "./AgentNetwork";
 import AgentPanel from "./AgentPanel";
 import ArchitectureGraph from "./ArchitectureGraph";
+import ChatPanel from "./ChatPanel";
 import type { OutputLine } from "./LiveOutput";
 import LiveOutput from "./LiveOutput";
 import type { AgentTerminal, TerminalLine } from "./MultiTerminal";
@@ -24,9 +25,9 @@ import RunPanel from "./RunPanel";
 import { SearchSimulator } from "./SearchSimulator";
 import TaskPanel from "./TaskPanel";
 
-type Tab = "overview" | "tasks" | "agents" | "context" | "costs";
+type Tab = "overview" | "tasks" | "agents" | "context" | "costs" | "chat";
 
-const TABS: readonly Tab[] = ["overview", "tasks", "agents", "context", "costs"];
+const TABS: readonly Tab[] = ["overview", "tasks", "agents", "context", "costs", "chat"];
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
@@ -430,6 +431,10 @@ export default function ProjectDetailPage() {
 
         <Show when={activeTab() === "costs"}>
           <ProjectCostSection projectId={params.id} />
+        </Show>
+
+        <Show when={activeTab() === "chat"}>
+          <ChatPanel projectId={params.id} />
         </Show>
       </>
     );

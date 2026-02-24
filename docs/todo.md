@@ -283,7 +283,7 @@
 #### Protocols
 
 - [x] (2026-02-19) A2A protocol stub (agent discovery via `/.well-known/agent.json`, task create/get via `/a2a/tasks`, AgentCard with 2 skills)
-- [x] (2026-02-19) AG-UI protocol event types (8 event types: run_started, run_finished, text_message, tool_call, tool_result, state_delta, step_started, step_finished)
+- [ ] AG-UI protocol integration (type definitions only — 8 event structs in `agui_events.go` + 8 TS interfaces, but no events emitted, no WebSocket wiring, no frontend integration)
 
 #### Integrations
 
@@ -720,6 +720,188 @@ For full completion history, see [project-status.md](project-status.md).
   - Phase 5: 21 PASS, 2 SKIP — Cross-pillar (scope, review policy, plans, costs, audit; repomap/search skipped — Python worker needed)
   - Phase 6: 1 PASS — WebSocket connection established
 - [ ] Start Python worker and re-run E2E tests to validate agent execution pipeline (Phase 4.15, 5.2, 5.5)
+
+---
+
+### Phase 13 — UI/UX Improvements & Orchestrator Chat
+
+> Frontend UX overhaul: validation, dropdowns, CRUD completeness, settings, spec detection,
+> orchestrator chat interface, automatic orchestration, dev tooling, AG-UI protocol integration.
+> Sources: 16 improvement requests + project-status.md + 04-agent-orchestration.md
+
+#### 13.1 Foundation Fixes (Phase 1)
+
+##### 13.1A Backend Input Validation
+- [x] (2026-02-24) Create `internal/domain/project/validation.go` with `ValidateCreateRequest()` and `ValidateUpdateRequest()`
+  - Name: non-empty, max 255 chars, no control chars
+  - Provider: must be in `gitprovider.Available()` or empty
+  - RepoURL: if non-empty, must be valid git URL (`https://...` or `git@...:...`)
+  - Description: max 2000 chars
+  - Return `domain.ErrValidation` wrapping specific field errors
+- [x] (2026-02-24) Create `internal/domain/project/validation_test.go` with table-driven tests
+- [x] (2026-02-24) Wire validation into `CreateProject` handler and `ProjectService.Create()`
+
+##### 13.1B Mode Scenario Validation
+- [x] (2026-02-24) Add `ValidScenarios` list to `internal/domain/mode/mode.go`, validate `LLMScenario` in `Validate()`
+  - Valid scenarios: `default`, `background`, `think`, `longContext`, `review`, `plan`
+- [x] (2026-02-24) Add `ListScenarios` handler in `internal/adapter/http/handlers.go`
+- [x] (2026-02-24) Add route `r.Get("/modes/scenarios", h.ListScenarios)` BEFORE `r.Get("/modes/{id}", ...)` in routes.go
+
+##### 13.1C Toast Positioning Fix
+- [x] (2026-02-24) Fix `frontend/src/components/Toast.tsx`: change `fixed right-4 top-4 z-50` to `fixed right-4 top-16 z-[60]`
+
+##### 13.1D Dropdowns for Known Options
+- [x] (2026-02-24) Dashboard: replace provider `<input>` with `<select>` populated from `api.providers.git()` data
+- [x] (2026-02-24) Modes: replace scenario `<input>` with `<select>` from `/modes/scenarios`
+- [x] (2026-02-24) Add `modes.scenarios()` method to `frontend/src/api/client.ts`
+- [x] (2026-02-24) Add dropdown labels to `frontend/src/i18n/en.ts`
+
+#### 13.2 CRUD Completeness (Phase 2)
+
+##### 13.2A Make Projects Editable
+- [x] (2026-02-24) Add `UpdateRequest` struct (pointer fields for partial updates) to `internal/domain/project/project.go`
+- [x] (2026-02-24) Add `ValidateUpdateRequest()` to `internal/domain/project/validation.go`
+- [x] (2026-02-24) Add `Update()` method to `internal/service/project.go` (fetch, merge, validate, save)
+- [x] (2026-02-24) Add `UpdateProject` handler to `internal/adapter/http/handlers.go`
+- [x] (2026-02-24) Add route `r.Put("/projects/{id}", h.UpdateProject)` in routes.go
+- [x] (2026-02-24) Frontend: add edit mode signal, "Edit" button on project cards, reuse form for create/edit in `DashboardPage.tsx`
+- [x] (2026-02-24) Add `projects.update()` to `frontend/src/api/client.ts`
+- [x] (2026-02-24) Add `UpdateProjectRequest` to `frontend/src/api/types.ts`
+
+##### 13.2B Make Modes Editable
+- [x] (2026-02-24) Add `Update()` method to `internal/service/mode.go` (reject builtin modes)
+- [x] (2026-02-24) Add `UpdateMode` handler to `internal/adapter/http/handlers.go`
+- [x] (2026-02-24) Add route `r.Put("/modes/{id}", h.UpdateMode)` in routes.go
+- [x] (2026-02-24) Frontend: "Edit" button on custom mode cards, populate form, switch submit target in `ModesPage.tsx`
+- [x] (2026-02-24) Add `modes.update()` to `frontend/src/api/client.ts`
+
+##### 13.2C Repo URL Auto-Detection
+- [x] (2026-02-24) Create `internal/domain/project/urlparse.go` with `ParseRepoURL(rawURL) -> (owner, repo, provider, error)`
+- [x] (2026-02-24) Create `internal/domain/project/urlparse_test.go` with GitHub/GitLab/Gitea/Bitbucket URL tests
+- [x] (2026-02-24) Add `ParseRepoURL` handler + route `r.Post("/parse-repo-url", h.ParseRepoURL)` in handlers/routes
+- [x] (2026-02-24) Update `ValidateCreateRequest()`: allow empty name if `RepoURL` is set (auto-generate from URL)
+- [x] (2026-02-24) Frontend: debounced `onInput` on repo_url field; auto-fill name+provider; remove required marker on name when URL present
+
+##### 13.2D Local Project Hint/Button
+- [ ] Frontend: add tab toggle `[Remote] [Local]` at top of project form in `DashboardPage.tsx`
+  - Local mode: path input + optional name; calls `POST /projects` then `POST /projects/{id}/adopt`
+  - Auto-detect name from directory basename
+
+#### 13.3 Settings & Account Management (Phase 3)
+
+##### 13.3A General Settings Page
+- [x] (2026-02-24) Create `internal/domain/settings/settings.go` with `Settings` struct (default provider, default autonomy, auto-clone, etc.)
+- [x] (2026-02-24) Create migration `032_create_settings.sql` — `settings` table (key TEXT PK, value JSONB)
+- [x] (2026-02-24) Add `GetSettings`, `UpdateSettings` handlers + routes
+- [x] (2026-02-24) Frontend: add "General" section to `SettingsPage.tsx` with editable form + save button
+- [x] (2026-02-24) Add `settings.get()`, `settings.update()` to API client
+
+##### 13.3B VCS Account Management
+- [x] (2026-02-24) Create `internal/domain/vcsaccount/account.go` — `VCSAccount` entity (id, tenant, provider, label, server_url, auth_method, encrypted_token)
+- [x] (2026-02-24) Create `internal/domain/vcsaccount/crypto.go` — AES-256-GCM encrypt/decrypt (SHA-256 hash of JWT secret -> 32-byte AES key)
+- [x] (2026-02-24) Create migration `033_create_vcs_accounts.sql` — `vcs_accounts` table with `encrypted_token BYTEA`
+- [x] (2026-02-24) Store + handler CRUD for VCS accounts + `TestVCSAccount` handler (tries listing repos with stored credentials)
+- [x] (2026-02-24) Frontend: "VCS Accounts" section in `SettingsPage.tsx` — list, add form (provider dropdown, label, token, optional server URL), test + delete buttons
+
+#### 13.4 Spec/Roadmap Detection Fix (Phase 4)
+
+- [x] (2026-02-24) Expand `fileMarkers` in `internal/service/roadmap.go`: add `TODO.md`, `todo.md`, `docs/TODO.md`, `docs/roadmap.md`, `CHANGELOG.md`
+- [x] (2026-02-24) After provider + marker checks: shallow-scan root and `docs/` for `.md` files containing "roadmap", "todo", "spec", "feature", "milestone" (case-insensitive)
+- [x] (2026-02-24) Return ALL matches in `DetectionResult.FileMarkers` (not just first)
+- [x] (2026-02-24) Frontend: make "Detect Specs" button more prominent in `ProjectDetailPage.tsx`, show all detected markers in a list
+
+#### 13.5 Chat Interface & Orchestrator Conversation (Phase 5)
+
+##### 13.5A Backend: Conversation API
+- [x] (2026-02-24) Create `internal/domain/conversation/conversation.go` — `Conversation` + `Message` entities
+- [x] (2026-02-24) Create migration `034_create_conversations.sql` — `conversations` + `conversation_messages` tables
+- [x] (2026-02-24) Create `internal/service/conversation.go` — `ConversationService` with `Create`, `List`, `Get`, `SendMessage`
+- [ ] Create `internal/service/templates/conversation_system.tmpl` — dynamic system prompt (project context, agents, roadmap, task history)
+- [x] (2026-02-24) Add conversation handlers + routes: `POST /projects/{id}/conversations`, `GET /conversations/{id}`, `POST /conversations/{id}/messages`
+- [x] (2026-02-24) Add `EventConversationMessage` to `internal/adapter/ws/events.go`
+- [x] (2026-02-24) Add conversation CRUD to PostgreSQL store
+- [x] (2026-02-24) `SendMessage` flow: store user msg → build context → LiteLLM call → WS broadcast AG-UI `agui.text_message` → store full response (streaming deferred to Phase 8)
+
+##### 13.5B Frontend: Chat Panel
+- [x] (2026-02-24) Create `frontend/src/features/project/ChatPanel.tsx`
+  - Message list (scrollable, auto-scroll), input textarea (Enter=send, Shift+Enter=newline)
+  - Message bubbles: user (right/blue), assistant (left/gray)
+  - Loading indicator ("Thinking..." animation)
+  - WebSocket subscription for `agui.text_message`, `agui.tool_call` (deferred to Phase 8)
+- [x] (2026-02-24) Add "Chat" tab to `ProjectDetailPage.tsx`
+- [x] (2026-02-24) Add `Conversation`, `Message`, `SendMessageRequest` to `frontend/src/api/types.ts`
+- [x] (2026-02-24) Add `conversations` namespace to `frontend/src/api/client.ts`
+
+#### 13.6 Automatic Orchestration (Phase 6)
+
+- [ ] Add `SetupProject(ctx, id)` to `internal/service/project.go` — chain: clone → detect stack → detect specs → import specs (each step idempotent)
+- [ ] Add `SetupProject` handler for `POST /api/v1/projects/{id}/setup`
+- [ ] Frontend: after project creation, call setup, show progress, navigate to project with chat open
+- [ ] Advanced settings toggle for fine-grained workflow configuration (mode selection, team composition, autonomy)
+
+#### 13.7 Dev Tooling & CI (Phase 7)
+
+##### 13.7A Lighthouse CI
+- [ ] Add `lighthouse` job to `.github/workflows/ci.yml` using `treosh/lighthouse-ci-action@v12`
+- [ ] Create `frontend/lighthouserc.yaml` — thresholds: performance warn >0.8, accessibility error >0.9
+
+##### 13.7B Prompt Benchmark (Dev Mode)
+- [ ] Add `BenchmarkPrompt` handler (behind `DEV_MODE` env check)
+- [ ] Add dev routes to routes.go
+- [ ] Frontend: "Developer Tools" section in `SettingsPage.tsx` with prompt benchmark form
+
+##### 13.7C Refactorer Mode Improvement
+- [x] (2026-02-24) Add `Bash` to refactorer tools in `internal/domain/mode/presets.go`
+- [x] (2026-02-24) Improve refactorer `PromptPrefix` with specific refactoring strategies
+
+#### 13.8 AG-UI Protocol Integration (Phase 8)
+
+- [ ] Wire existing 8 event types in `internal/adapter/ws/agui_events.go` into Hub broadcasts
+- [ ] Add `BroadcastAGUI()` method to `internal/adapter/ws/hub.go` for AG-UI formatted events
+- [ ] Emit `agui.text_message` during LLM response streaming in `internal/service/conversation.go`
+- [ ] Emit `agui.tool_call_start` / `agui.tool_call_end` during run execution in `internal/service/runtime.go`
+- [ ] Add AG-UI event handlers to `frontend/src/api/websocket.ts`
+- [ ] Consume AG-UI events in `ChatPanel.tsx` for real-time streaming
+- [ ] Wire remaining events: `agui.state_delta`, `agui.run_started`/`run_finished`, `agui.step_started`/`step_finished`
+
+#### 13.9 Outstanding Items (Phase 9)
+
+##### 13.9A E2E Auth + OWASP Security Tests
+- [ ] Create `frontend/e2e/auth.spec.ts` — Playwright tests: login, JWT refresh, role-based access, API key CRUD, forced password change, logout, session expiry
+- [ ] Create `frontend/e2e/security.spec.ts` — OWASP WSTG tests: injection, broken auth, IDOR, CORS, headers, CSRF, path traversal
+
+##### 13.9B Policy "Effective Permission Preview"
+- [ ] Add "Preview" mode to `PolicyPanel.tsx` showing matched rule + reason for a given tool call
+  - Reuses existing `POST /policies/{name}/evaluate` endpoint returning `EvaluationResult`
+
+##### 13.9C Retrieval Sub-Agent Enhancements
+- [ ] Add configurable `expansion_prompt` field to project config
+- [ ] Wire sub-agent LLM call costs into existing cost aggregation
+
+##### 13.9D Additional Agent Backends
+- [ ] Goose adapter implementing `agentbackend.Backend` with `init()` self-registration
+- [ ] OpenCode adapter implementing `agentbackend.Backend`
+- [ ] Plandex adapter implementing `agentbackend.Backend`
+- [ ] OpenHands adapter implementing `agentbackend.Backend`
+
+#### Phase 13 Dependencies
+
+```text
+13.1 (Foundation) → 13.2 (CRUD) → 13.5 (Chat) → 13.6 (Auto)
+                  ↘ 13.3 (Settings) ↗                 ↘ 13.8 (AG-UI)
+                  ↘ 13.4 (Spec Fix) ↗
+13.7 (Dev Tooling) — independent
+13.9A (E2E Auth) — independent, after 13.1
+13.9B-D — independent
+```
+
+#### Phase 13 DB Migrations
+
+| # | Phase | Table |
+|---|-------|-------|
+| 032 | 13.3A | `settings` |
+| 033 | 13.3B | `vcs_accounts` |
+| 034 | 13.5A | `conversations`, `conversation_messages` |
 
 ---
 

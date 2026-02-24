@@ -9,8 +9,10 @@ export default function ModesPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [modes, { refetch }] = createResource(() => api.modes.list());
+  const [scenarios] = createResource(() => api.modes.scenarios());
   const [showForm, setShowForm] = createSignal(false);
   const [error, setError] = createSignal("");
+  const [editingId, setEditingId] = createSignal<string | null>(null);
 
   // -- Form state --
   const [formId, setFormId] = createSignal("");
@@ -24,6 +26,10 @@ export default function ModesPage() {
   const [formAutonomy, setFormAutonomy] = createSignal(3);
   const [formPrompt, setFormPrompt] = createSignal("");
 
+  function isEditing() {
+    return editingId() !== null;
+  }
+
   const resetForm = () => {
     setFormId("");
     setFormName("");
@@ -35,9 +41,31 @@ export default function ModesPage() {
     setFormScenario("default");
     setFormAutonomy(3);
     setFormPrompt("");
+    setEditingId(null);
   };
 
-  const handleCreate = async (e: SubmitEvent) => {
+  function handleCancelForm() {
+    setShowForm(false);
+    resetForm();
+    setError("");
+  }
+
+  function handleEdit(mode: Mode) {
+    setFormId(mode.id);
+    setFormName(mode.name);
+    setFormDesc(mode.description);
+    setFormTools(mode.tools.join(", "));
+    setFormDeniedTools((mode.denied_tools ?? []).join(", "));
+    setFormDeniedActions((mode.denied_actions ?? []).join(", "));
+    setFormRequiredArtifact(mode.required_artifact ?? "");
+    setFormScenario(mode.llm_scenario || "default");
+    setFormAutonomy(mode.autonomy);
+    setFormPrompt(mode.prompt_prefix ?? "");
+    setEditingId(mode.id);
+    setShowForm(true);
+  }
+
+  const handleSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
     const id = formId().trim();
     const name = formName().trim();
@@ -72,13 +100,24 @@ export default function ModesPage() {
         autonomy: formAutonomy(),
         prompt_prefix: formPrompt().trim() || undefined,
       };
-      await api.modes.create(req);
+      const eid = editingId();
+      if (isEditing() && eid) {
+        await api.modes.update(eid, req);
+        toast("success", t("modes.toast.updated"));
+      } else {
+        await api.modes.create(req);
+        toast("success", t("modes.toast.created"));
+      }
       resetForm();
       setShowForm(false);
       refetch();
-      toast("success", t("modes.toast.created"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("modes.toast.createFailed");
+      const msg =
+        err instanceof Error
+          ? err.message
+          : isEditing()
+            ? t("modes.toast.updateFailed")
+            : t("modes.toast.createFailed");
       setError(msg);
       toast("error", msg);
     }
@@ -99,7 +138,13 @@ export default function ModesPage() {
         <button
           type="button"
           class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => {
+            if (showForm()) {
+              handleCancelForm();
+            } else {
+              setShowForm(true);
+            }
+          }}
         >
           {showForm() ? t("common.cancel") : t("modes.addMode")}
         </button>
@@ -116,9 +161,9 @@ export default function ModesPage() {
 
       <Show when={showForm()}>
         <form
-          onSubmit={handleCreate}
+          onSubmit={handleSubmit}
           class="mb-6 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-800"
-          aria-label={t("modes.addMode")}
+          aria-label={isEditing() ? t("modes.edit") : t("modes.addMode")}
         >
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
@@ -137,6 +182,7 @@ export default function ModesPage() {
                 class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
                 placeholder={t("modes.form.idPlaceholder")}
                 aria-required="true"
+                disabled={isEditing()}
               />
             </div>
             <div>
@@ -244,14 +290,15 @@ export default function ModesPage() {
               >
                 {t("modes.form.scenario")}
               </label>
-              <input
+              <select
                 id="mode-scenario"
-                type="text"
                 value={formScenario()}
-                onInput={(e) => setFormScenario(e.currentTarget.value)}
+                onChange={(e) => setFormScenario(e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                placeholder={t("modes.form.scenarioPlaceholder")}
-              />
+              >
+                <option value="">{t("modes.form.scenarioPlaceholder")}</option>
+                <For each={scenarios() ?? []}>{(s) => <option value={s}>{s}</option>}</For>
+              </select>
             </div>
             <div>
               <label
@@ -292,7 +339,7 @@ export default function ModesPage() {
               type="submit"
               class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              {t("modes.form.create")}
+              {isEditing() ? t("common.save") : t("modes.form.create")}
             </button>
           </div>
         </form>
@@ -312,7 +359,7 @@ export default function ModesPage() {
           fallback={<p class="text-sm text-gray-500 dark:text-gray-400">{t("modes.empty")}</p>}
         >
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <For each={sorted()}>{(mode) => <ModeCard mode={mode} />}</For>
+            <For each={sorted()}>{(mode) => <ModeCard mode={mode} onEdit={handleEdit} />}</For>
           </div>
         </Show>
       </Show>
@@ -320,7 +367,7 @@ export default function ModesPage() {
   );
 }
 
-function ModeCard(props: { mode: Mode }) {
+function ModeCard(props: { mode: Mode; onEdit: (mode: Mode) => void }) {
   const { t } = useI18n();
   const [showPrompt, setShowPrompt] = createSignal(false);
 
@@ -340,15 +387,27 @@ function ModeCard(props: { mode: Mode }) {
           <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">{props.mode.name}</h3>
           <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{props.mode.description}</p>
         </div>
-        <span
-          class={`rounded-full px-2 py-0.5 text-xs font-medium ${
-            props.mode.builtin
-              ? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-              : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
-          }`}
-        >
-          {props.mode.builtin ? t("modes.builtin") : t("modes.custom")}
-        </span>
+        <div class="flex items-center gap-2">
+          <Show when={!props.mode.builtin}>
+            <button
+              type="button"
+              class="rounded px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+              onClick={() => props.onEdit(props.mode)}
+              aria-label={t("modes.editAria", { name: props.mode.name })}
+            >
+              {t("modes.edit")}
+            </button>
+          </Show>
+          <span
+            class={`rounded-full px-2 py-0.5 text-xs font-medium ${
+              props.mode.builtin
+                ? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+            }`}
+          >
+            {props.mode.builtin ? t("modes.builtin") : t("modes.custom")}
+          </span>
+        </div>
       </div>
 
       <div class="mt-3 space-y-2">

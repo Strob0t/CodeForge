@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
@@ -23,9 +24,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -624,6 +627,29 @@ func (m *runtimeMockStore) ListKnowledgeBasesByScope(_ context.Context, _ string
 	return nil, nil
 }
 
+// Settings stubs
+func (m *runtimeMockStore) ListSettings(_ context.Context) ([]settings.Setting, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetSetting(_ context.Context, _ string) (*settings.Setting, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpsertSetting(_ context.Context, _ string, _ json.RawMessage) error {
+	return nil
+}
+
+// VCS Account stubs
+func (m *runtimeMockStore) ListVCSAccounts(_ context.Context) ([]vcsaccount.VCSAccount, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) CreateVCSAccount(_ context.Context, _ *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetVCSAccount(_ context.Context, _ string) (*vcsaccount.VCSAccount, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteVCSAccount(_ context.Context, _ string) error { return nil }
+
 // Project repo lookup
 func (m *runtimeMockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
 	return nil, nil
@@ -661,6 +687,24 @@ func (m *runtimeMockStore) UpdateReviewStatus(_ context.Context, _ string, _ rev
 	return nil
 }
 func (m *runtimeMockStore) GetReviewByPlanID(_ context.Context, _ string) (*review.Review, error) {
+	return nil, nil
+}
+
+// Conversation stubs
+func (m *runtimeMockStore) CreateConversation(_ context.Context, _ *conversation.Conversation) (*conversation.Conversation, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetConversation(_ context.Context, _ string) (*conversation.Conversation, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListConversationsByProject(_ context.Context, _ string) ([]conversation.Conversation, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteConversation(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) CreateMessage(_ context.Context, _ *conversation.Message) (*conversation.Message, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
 	return nil, nil
 }
 

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -151,10 +152,12 @@ func (s *RoadmapService) GetFeature(ctx context.Context, id string) (*roadmap.Fe
 
 // fileMarkers maps spec format names to their file/directory indicators.
 var fileMarkers = map[string][]string{
-	"roadmap_md": {"ROADMAP.md", "roadmap.md"},
-	"openspec":   {"openspec/"},
-	"speckit":    {".specify/"},
-	"autospec":   {"specs/spec.yaml", "specs/spec.yml"},
+	"roadmap_md":   {"ROADMAP.md", "roadmap.md", "docs/roadmap.md", "docs/ROADMAP.md"},
+	"todo_md":      {"TODO.md", "todo.md", "docs/TODO.md", "docs/todo.md"},
+	"changelog_md": {"CHANGELOG.md", "changelog.md"},
+	"openspec":     {"openspec/"},
+	"speckit":      {".specify/"},
+	"autospec":     {"specs/spec.yaml", "specs/spec.yml"},
 }
 
 // AutoDetect scans a workspace for known spec file markers.
@@ -189,6 +192,7 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 	}
 
 	// Phase 2: Fallback to hardcoded fileMarkers for formats without a provider.
+	seen := map[string]bool{}
 	for format, markers := range fileMarkers {
 		if coveredFormats[format] || coveredFormats[formatAlias(format)] {
 			continue
@@ -205,13 +209,32 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 				result.FileMarkers = append(result.FileMarkers, marker)
 				result.Format = format
 				result.Path = fullPath
+				seen[fullPath] = true
 			} else if !info.IsDir() {
 				result.Found = true
 				result.FileMarkers = append(result.FileMarkers, marker)
 				result.Format = format
 				result.Path = fullPath
+				seen[fullPath] = true
 			}
 		}
+	}
+
+	// Phase 3: Shallow scan of root and docs/ for .md files with relevant keywords.
+	for _, found := range scanMarkdownKeywords(proj.WorkspacePath) {
+		if seen[found] {
+			continue
+		}
+		rel, err := filepath.Rel(proj.WorkspacePath, found)
+		if err != nil {
+			rel = found
+		}
+		result.Found = true
+		result.FileMarkers = append(result.FileMarkers, rel)
+		if result.Format == "" {
+			result.Format = "keyword_scan"
+		}
+		seen[found] = true
 	}
 
 	return result, nil
@@ -220,13 +243,74 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 // formatAlias maps fileMarkers keys to provider names for deduplication.
 func formatAlias(format string) string {
 	aliases := map[string]string{
-		"roadmap_md": "markdown",
-		"openspec":   "openspec",
+		"roadmap_md":   "markdown",
+		"todo_md":      "markdown",
+		"changelog_md": "markdown",
+		"openspec":     "openspec",
 	}
 	if alias, ok := aliases[format]; ok {
 		return alias
 	}
 	return format
+}
+
+// keywordScanDirs lists directories to scan relative to the workspace root.
+// An empty string represents the root itself.
+var keywordScanDirs = []string{"", "docs"}
+
+// keywordScanTerms are matched case-insensitively inside .md files.
+var keywordScanTerms = []string{"roadmap", "todo", "spec", "feature", "milestone"}
+
+// scanMarkdownKeywords performs a shallow scan of root and docs/ for .md files
+// containing relevant keywords. Returns absolute paths of matching files.
+func scanMarkdownKeywords(workspacePath string) []string {
+	var matches []string
+
+	for _, dir := range keywordScanDirs {
+		scanDir := filepath.Join(workspacePath, dir)
+		entries, err := os.ReadDir(scanDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
+				continue
+			}
+			fullPath := filepath.Join(scanDir, entry.Name())
+			if containsKeyword(fullPath) {
+				matches = append(matches, fullPath)
+			}
+		}
+	}
+
+	return matches
+}
+
+// containsKeyword reads a file line by line and returns true if any line
+// contains one of the keywordScanTerms (case-insensitive). Stops at 200 lines
+// to keep the scan shallow.
+func containsKeyword(path string) bool {
+	f, err := os.Open(path) //nolint:gosec // path is constructed from workspace root + known subdirs
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	lines := 0
+	for scanner.Scan() {
+		lines++
+		if lines > 200 {
+			break
+		}
+		lower := strings.ToLower(scanner.Text())
+		for _, kw := range keywordScanTerms {
+			if strings.Contains(lower, kw) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ImportSpecs discovers specs in the workspace via providers and imports them

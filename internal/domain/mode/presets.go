@@ -87,14 +87,20 @@ func BuiltinModes() []Mode {
 			Name:             "Refactorer",
 			Description:      "Improves code structure without changing external behavior.",
 			Builtin:          true,
-			Tools:            []string{"Read", "Write", "Edit", "Glob", "Grep"},
-			DeniedTools:      []string{"Bash"},
-			DeniedActions:    []string{"rm", "curl", "wget"},
+			Tools:            []string{"Read", "Write", "Edit", "Bash", "Glob", "Grep"},
+			DeniedActions:    []string{"rm -rf", "curl", "wget"},
 			RequiredArtifact: "DIFF",
 			LLMScenario:      "default",
 			Autonomy:         2,
-			PromptPrefix: "You are a refactoring specialist. Improve code structure, reduce " +
-				"duplication, and enhance readability while preserving existing behavior.",
+			PromptPrefix: "You are a code refactoring specialist. Apply these strategies as appropriate:\n" +
+				"- Extract method/function for reusable logic\n" +
+				"- Rename variables and functions for clarity\n" +
+				"- Remove dead code and unused imports\n" +
+				"- Reduce cyclomatic complexity (simplify nested conditions)\n" +
+				"- Apply DRY principle (eliminate duplication)\n" +
+				"- Improve type safety (replace any/interface{} with specific types)\n" +
+				"- Simplify error handling patterns\n" +
+				"Always verify changes compile and pass existing tests before delivering.",
 		},
 		{
 			ID:               "security",

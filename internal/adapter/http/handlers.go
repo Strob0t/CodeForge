@@ -20,6 +20,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
@@ -31,8 +32,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
@@ -121,6 +124,9 @@ type Handlers struct {
 	Pipelines        *service.PipelineService
 	Review           *service.ReviewService
 	KnowledgeBases   *service.KnowledgeBaseService
+	Settings         *service.SettingsService
+	VCSAccounts      *service.VCSAccountService
+	Conversations    *service.ConversationService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -153,8 +159,9 @@ func (h *Handlers) CreateProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+
+	if err := project.ValidateCreateRequest(req, gitprovider.Available()); err != nil {
+		writeDomainError(w, err, "invalid project request")
 		return
 	}
 
@@ -174,6 +181,42 @@ func (h *Handlers) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// UpdateProject handles PUT /api/v1/projects/{id}
+func (h *Handlers) UpdateProject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	req, ok := readJSON[project.UpdateRequest](w, r)
+	if !ok {
+		return
+	}
+	p, err := h.Projects.Update(r.Context(), id, req)
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// ParseRepoURL handles POST /api/v1/parse-repo-url
+func (h *Handlers) ParseRepoURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.URL == "" {
+		writeError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	parsed, err := project.ParseRepoURL(req.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, parsed)
 }
 
 // ListTasks handles GET /api/v1/projects/{id}/tasks
@@ -1008,6 +1051,11 @@ func (h *Handlers) GetMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
+// ListScenarios handles GET /api/v1/modes/scenarios
+func (h *Handlers) ListScenarios(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, mode.ValidScenarios)
+}
+
 // CreateMode handles POST /api/v1/modes
 func (h *Handlers) CreateMode(w http.ResponseWriter, r *http.Request) {
 	m, ok := readJSON[mode.Mode](w, r)
@@ -1019,6 +1067,21 @@ func (h *Handlers) CreateMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
+}
+
+// UpdateMode handles PUT /api/v1/modes/{id}
+func (h *Handlers) UpdateMode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	m, ok := readJSON[mode.Mode](w, r)
+	if !ok {
+		return
+	}
+	if err := h.Modes.Update(id, &m); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, _ := h.Modes.Get(id)
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // --- RepoMap Endpoints ---
@@ -2450,6 +2513,174 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		slog.Error("unhandled domain error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 	}
+}
+
+// --- Settings ---
+
+// GetSettings handles GET /api/v1/settings
+func (h *Handlers) GetSettings(w http.ResponseWriter, r *http.Request) {
+	list, err := h.Settings.List(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+
+	// Return as a map of key -> value for frontend convenience.
+	result := make(map[string]json.RawMessage, len(list))
+	for _, s := range list {
+		result[s.Key] = s.Value
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// UpdateSettings handles PUT /api/v1/settings
+func (h *Handlers) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	req, ok := readJSON[settings.UpdateRequest](w, r)
+	if !ok {
+		return
+	}
+	if len(req.Settings) == 0 {
+		writeError(w, http.StatusBadRequest, "settings map must not be empty")
+		return
+	}
+	if err := h.Settings.Update(r.Context(), req); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- VCS Accounts ---
+
+// ListVCSAccounts handles GET /api/v1/vcs-accounts
+func (h *Handlers) ListVCSAccounts(w http.ResponseWriter, r *http.Request) {
+	accounts, err := h.VCSAccounts.List(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if accounts == nil {
+		accounts = []vcsaccount.VCSAccount{}
+	}
+	writeJSON(w, http.StatusOK, accounts)
+}
+
+// CreateVCSAccount handles POST /api/v1/vcs-accounts
+func (h *Handlers) CreateVCSAccount(w http.ResponseWriter, r *http.Request) {
+	req, ok := readJSON[vcsaccount.CreateRequest](w, r)
+	if !ok {
+		return
+	}
+	account, err := h.VCSAccounts.Create(r.Context(), &req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Clear encrypted token from the response.
+	account.EncryptedToken = nil
+	writeJSON(w, http.StatusCreated, account)
+}
+
+// DeleteVCSAccount handles DELETE /api/v1/vcs-accounts/{id}
+func (h *Handlers) DeleteVCSAccount(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.VCSAccounts.Delete(r.Context(), id); err != nil {
+		writeDomainError(w, err, "vcs account not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// TestVCSAccount handles POST /api/v1/vcs-accounts/{id}/test
+func (h *Handlers) TestVCSAccount(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.VCSAccounts.Test(r.Context(), id); err != nil {
+		writeDomainError(w, err, "vcs account not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- Conversation Handlers ---
+
+// CreateConversation handles POST /api/v1/projects/{id}/conversations
+func (h *Handlers) CreateConversation(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[conversation.CreateRequest](w, r)
+	if !ok {
+		return
+	}
+	req.ProjectID = projectID
+	conv, err := h.Conversations.Create(r.Context(), req)
+	if err != nil {
+		writeDomainError(w, err, "create conversation")
+		return
+	}
+	writeJSON(w, http.StatusCreated, conv)
+}
+
+// ListConversations handles GET /api/v1/projects/{id}/conversations
+func (h *Handlers) ListConversations(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	conversations, err := h.Conversations.ListByProject(r.Context(), projectID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if conversations == nil {
+		conversations = []conversation.Conversation{}
+	}
+	writeJSON(w, http.StatusOK, conversations)
+}
+
+// GetConversation handles GET /api/v1/conversations/{id}
+func (h *Handlers) GetConversation(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	conv, err := h.Conversations.Get(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "get conversation")
+		return
+	}
+	writeJSON(w, http.StatusOK, conv)
+}
+
+// DeleteConversation handles DELETE /api/v1/conversations/{id}
+func (h *Handlers) DeleteConversation(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Conversations.Delete(r.Context(), id); err != nil {
+		writeDomainError(w, err, "delete conversation")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListConversationMessages handles GET /api/v1/conversations/{id}/messages
+func (h *Handlers) ListConversationMessages(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	messages, err := h.Conversations.ListMessages(r.Context(), id)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if messages == nil {
+		messages = []conversation.Message{}
+	}
+	writeJSON(w, http.StatusOK, messages)
+}
+
+// SendConversationMessage handles POST /api/v1/conversations/{id}/messages
+func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	req, ok := readJSON[conversation.SendMessageRequest](w, r)
+	if !ok {
+		return
+	}
+	msg, err := h.Conversations.SendMessage(r.Context(), id, req)
+	if err != nil {
+		writeDomainError(w, err, "send message")
+		return
+	}
+	writeJSON(w, http.StatusCreated, msg)
 }
 
 // writeInternalError logs the actual error server-side and returns a generic message to the client.

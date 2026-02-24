@@ -209,9 +209,21 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
+    update: (id: string, data: import("./types").UpdateProjectRequest) =>
+      request<Project>(`/projects/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
     delete: (id: string) =>
       request<undefined>(`/projects/${encodeURIComponent(id)}`, {
         method: "DELETE",
+      }),
+
+    parseRepoURL: (url: string) =>
+      request<import("./types").ParsedRepoURL>("/parse-repo-url", {
+        method: "POST",
+        body: JSON.stringify({ url }),
       }),
 
     clone: (id: string) =>
@@ -406,6 +418,14 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+
+    update: (id: string, data: CreateModeRequest) =>
+      request<Mode>(`/modes/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    scenarios: () => request<string[]>("/modes/scenarios"),
   },
 
   repomap: {
@@ -769,6 +789,73 @@ export const api = {
         `/scopes/${encodeURIComponent(scopeId)}/knowledge-bases/${encodeURIComponent(kbId)}`,
         { method: "DELETE" },
       ),
+  },
+  settings: {
+    get: () => request<Record<string, unknown>>("/settings"),
+
+    update: (data: { settings: Record<string, unknown> }) =>
+      request<{ status: string }>("/settings", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+  },
+
+  conversations: {
+    create: (projectId: string, data?: import("./types").CreateConversationRequest) =>
+      request<import("./types").Conversation>(
+        `/projects/${encodeURIComponent(projectId)}/conversations`,
+        {
+          method: "POST",
+          body: JSON.stringify(data ?? {}),
+        },
+      ),
+
+    list: (projectId: string) =>
+      request<import("./types").Conversation[]>(
+        `/projects/${encodeURIComponent(projectId)}/conversations`,
+      ),
+
+    get: (id: string) =>
+      request<import("./types").Conversation>(`/conversations/${encodeURIComponent(id)}`),
+
+    delete: (id: string) =>
+      request<undefined>(`/conversations/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    messages: (id: string) =>
+      request<import("./types").ConversationMessage[]>(
+        `/conversations/${encodeURIComponent(id)}/messages`,
+      ),
+
+    send: (id: string, data: import("./types").SendMessageRequest) =>
+      request<import("./types").ConversationMessage>(
+        `/conversations/${encodeURIComponent(id)}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        },
+      ),
+  },
+
+  vcsAccounts: {
+    list: () => request<import("./types").VCSAccount[]>("/vcs-accounts"),
+
+    create: (data: import("./types").CreateVCSAccountRequest) =>
+      request<import("./types").VCSAccount>("/vcs-accounts", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      request<undefined>(`/vcs-accounts/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    test: (id: string) =>
+      request<{ status: string }>(`/vcs-accounts/${encodeURIComponent(id)}/test`, {
+        method: "POST",
+      }),
   },
 } as const;
 

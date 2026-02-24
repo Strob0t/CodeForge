@@ -1,7 +1,13 @@
 // Package mode defines the Mode domain entity for agent specialization.
 package mode
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
+
+// ValidScenarios lists the allowed LLM scenario values for mode configuration.
+var ValidScenarios = []string{"default", "background", "think", "longContext", "review", "plan"}
 
 // Mode represents an agent specialization with its own tools, LLM scenario, and autonomy level.
 type Mode struct {
@@ -28,6 +34,9 @@ func (m *Mode) Validate() error {
 	}
 	if m.Autonomy < 1 || m.Autonomy > 5 {
 		return fmt.Errorf("autonomy must be between 1 and 5, got %d", m.Autonomy)
+	}
+	if m.LLMScenario != "" && !slices.Contains(ValidScenarios, m.LLMScenario) {
+		return fmt.Errorf("invalid llm_scenario %q: must be one of %v", m.LLMScenario, ValidScenarios)
 	}
 	// DeniedTools must not overlap with Tools.
 	if len(m.DeniedTools) > 0 && len(m.Tools) > 0 {
