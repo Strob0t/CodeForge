@@ -82,6 +82,11 @@ export function setAccessTokenGetter(fn: () => string | null): void {
   accessTokenGetter = fn;
 }
 
+/** Return the current access token (used by WebSocket to append ?token=). */
+export function getAccessToken(): string | null {
+  return accessTokenGetter?.() ?? null;
+}
+
 class FetchError extends Error {
   constructor(
     public readonly status: number,

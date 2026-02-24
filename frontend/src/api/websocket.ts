@@ -1,6 +1,8 @@
 import { createReconnectingWS } from "@solid-primitives/websocket";
 import { createSignal, onCleanup } from "solid-js";
 
+import { getAccessToken } from "~/api/client";
+
 export interface WSMessage {
   type: string;
   payload: Record<string, unknown>;
@@ -60,7 +62,9 @@ export interface AGUIStepFinished {
 
 function buildWSURL(): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/ws`;
+  const token = getAccessToken();
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `${proto}//${location.host}/ws${qs}`;
 }
 
 export function createCodeForgeWS() {

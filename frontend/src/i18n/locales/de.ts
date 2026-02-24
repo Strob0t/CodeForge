@@ -81,7 +81,7 @@ const de: Translations = {
   "dashboard.form.description": "Beschreibung",
   "dashboard.form.create": "Projekt erstellen",
   "dashboard.form.namePlaceholder": "Mein Projekt",
-  "dashboard.form.providerPlaceholder": "github",
+  "dashboard.form.providerPlaceholder": "Anbieter auswählen...",
   "dashboard.form.repoUrlPlaceholder": "https://github.com/user/repo",
   "dashboard.form.modeRemote": "Remote",
   "dashboard.form.modeLocal": "Lokal",

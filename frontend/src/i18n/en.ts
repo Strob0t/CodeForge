@@ -79,7 +79,7 @@ const en = {
   "dashboard.form.description": "Description",
   "dashboard.form.create": "Create Project",
   "dashboard.form.namePlaceholder": "My Project",
-  "dashboard.form.providerPlaceholder": "github",
+  "dashboard.form.providerPlaceholder": "Select a provider...",
   "dashboard.form.repoUrlPlaceholder": "https://github.com/user/repo",
   "dashboard.form.modeRemote": "Remote",
   "dashboard.form.modeLocal": "Local",
