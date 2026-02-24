@@ -69,7 +69,8 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 			slog.Debug("context pack already built, returning existing", "task_id", taskID)
 			return existing, nil
 		}
-		// If the stored pack is gone, fall through and rebuild.
+		// If the stored pack is gone, re-acquire lock and fall through to rebuild.
+		s.buildMu.Lock()
 	}
 	s.builtTasks[taskID] = true
 	s.buildMu.Unlock()

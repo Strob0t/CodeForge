@@ -1,8 +1,10 @@
 package knowledgebase
 
 import (
-	"errors"
+	"fmt"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/domain"
 )
 
 // Category classifies a knowledge base.
@@ -62,10 +64,10 @@ type CreateRequest struct {
 // Validate checks that a CreateRequest is well-formed.
 func (r *CreateRequest) Validate() error {
 	if r.Name == "" {
-		return errors.New("name is required")
+		return fmt.Errorf("name is required: %w", domain.ErrValidation)
 	}
 	if !ValidCategory(r.Category) {
-		return errors.New("invalid category: " + string(r.Category))
+		return fmt.Errorf("invalid category: %s: %w", string(r.Category), domain.ErrValidation)
 	}
 	return nil
 }

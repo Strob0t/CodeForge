@@ -557,8 +557,8 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 		return fmt.Errorf("insert plan: %w", err)
 	}
 
-	// Insert steps, building index->UUID map for dependency remapping
-	idMap := make(map[int]string, len(p.Steps))
+	// Pass 1: Insert all steps with empty depends_on to obtain UUIDs.
+	idMap := make(map[string]string, len(p.Steps))
 	for i := range p.Steps {
 		step := &p.Steps[i]
 		step.PlanID = p.ID
@@ -567,12 +567,36 @@ func (s *Store) CreatePlan(ctx context.Context, p *plan.ExecutionPlan) error {
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			 RETURNING id, created_at, updated_at`,
 			tid, step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.ModeID, step.DeliverMode,
-			step.DependsOn, string(step.Status), step.Round,
+			[]string{}, string(step.Status), step.Round,
 		).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("insert step %d: %w", i, err)
 		}
-		idMap[i] = step.ID
+		idMap[fmt.Sprintf("%d", i)] = step.ID
+	}
+
+	// Pass 2: Remap index-based depends_on to UUIDs and update.
+	for i := range p.Steps {
+		step := &p.Steps[i]
+		if len(step.DependsOn) == 0 {
+			continue
+		}
+		remapped := make([]string, 0, len(step.DependsOn))
+		for _, dep := range step.DependsOn {
+			if uuid, ok := idMap[dep]; ok {
+				remapped = append(remapped, uuid)
+			} else {
+				remapped = append(remapped, dep) // already a UUID
+			}
+		}
+		step.DependsOn = remapped
+		_, err = tx.Exec(ctx,
+			`UPDATE plan_steps SET depends_on = $1 WHERE id = $2`,
+			step.DependsOn, step.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("update step %d depends_on: %w", i, err)
+		}
 	}
 
 	return tx.Commit(ctx)
