@@ -1,12 +1,22 @@
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
+import type { CreateProjectRequest, Mode, StackDetectionResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 
 import ProjectCard from "./ProjectCard";
+
+const AGENT_BACKENDS = ["aider", "goose", "opencode", "openhands", "plandex"] as const;
+
+const AUTONOMY_LEVELS = [
+  { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
+  { value: "2", labelKey: "dashboard.form.autonomy.2" as const },
+  { value: "3", labelKey: "dashboard.form.autonomy.3" as const },
+  { value: "4", labelKey: "dashboard.form.autonomy.4" as const },
+  { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
+];
 
 const emptyForm: CreateProjectRequest = {
   name: "",
@@ -37,6 +47,11 @@ export default function DashboardPage() {
   const [parsingUrl, setParsingUrl] = createSignal(false);
   const [formMode, setFormMode] = createSignal<"remote" | "local">("remote");
   const [localPath, setLocalPath] = createSignal("");
+  const [showAdvanced, setShowAdvanced] = createSignal(false);
+  const [modes] = createResource(() => api.modes.list());
+  const [selectedBackends, setSelectedBackends] = createSignal<string[]>([]);
+  const [selectedMode, setSelectedMode] = createSignal("");
+  const [selectedAutonomy, setSelectedAutonomy] = createSignal("");
 
   let urlDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(urlDebounceTimer));
@@ -65,7 +80,7 @@ export default function DashboardPage() {
           description: data.description,
           repo_url: "",
           provider: "",
-          config: {},
+          config: buildAdvancedConfig(),
         });
         toast("success", t("dashboard.toast.created"));
         await api.projects.adopt(created.id, { path });
@@ -75,6 +90,10 @@ export default function DashboardPage() {
         setShowForm(false);
         setEditingId(null);
         setStackResult(null);
+        setShowAdvanced(false);
+        setSelectedMode("");
+        setSelectedBackends([]);
+        setSelectedAutonomy("");
         await refetch();
       } catch (err) {
         const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -97,10 +116,14 @@ export default function DashboardPage() {
           description: data.description || undefined,
           repo_url: data.repo_url || undefined,
           provider: data.provider || undefined,
+          config: buildAdvancedConfig(),
         });
         toast("success", t("dashboard.toast.updated"));
       } else {
-        const created = await api.projects.create(data);
+        const created = await api.projects.create({
+          ...data,
+          config: buildAdvancedConfig(),
+        });
         toast("success", t("dashboard.toast.created"));
 
         // Fire-and-forget: auto-setup (clone + detect stack + import specs)
@@ -116,6 +139,10 @@ export default function DashboardPage() {
       setShowForm(false);
       setEditingId(null);
       setStackResult(null);
+      setShowAdvanced(false);
+      setSelectedMode("");
+      setSelectedBackends([]);
+      setSelectedAutonomy("");
       await refetch();
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -127,13 +154,22 @@ export default function DashboardPage() {
   function handleEdit(id: string) {
     const p = projects()?.find((proj) => proj.id === id);
     if (!p) return;
+    const cfg = p.config ?? {};
     setForm({
       name: p.name,
       description: p.description,
       repo_url: p.repo_url,
       provider: p.provider,
-      config: p.config ?? {},
+      config: cfg,
     });
+    setSelectedMode(cfg["default_mode"] ?? "");
+    setSelectedBackends(
+      cfg["agent_backends"] ? cfg["agent_backends"].split(",").filter(Boolean) : [],
+    );
+    setSelectedAutonomy(cfg["autonomy_level"] ?? "");
+    if (cfg["default_mode"] || cfg["agent_backends"] || cfg["autonomy_level"]) {
+      setShowAdvanced(true);
+    }
     setEditingId(id);
     setShowForm(true);
   }
@@ -145,6 +181,10 @@ export default function DashboardPage() {
     setLocalPath("");
     setFormMode("remote");
     setError("");
+    setShowAdvanced(false);
+    setSelectedMode("");
+    setSelectedBackends([]);
+    setSelectedAutonomy("");
   }
 
   async function handleDelete(id: string) {
@@ -178,6 +218,23 @@ export default function DashboardPage() {
     value: CreateProjectRequest[K],
   ) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function buildAdvancedConfig(): Record<string, string> {
+    const config: Record<string, string> = {};
+    const m = selectedMode();
+    if (m) config["default_mode"] = m;
+    const backends = selectedBackends();
+    if (backends.length > 0) config["agent_backends"] = backends.join(",");
+    const autonomy = selectedAutonomy();
+    if (autonomy) config["autonomy_level"] = autonomy;
+    return config;
+  }
+
+  function toggleBackend(backend: string) {
+    setSelectedBackends((prev) =>
+      prev.includes(backend) ? prev.filter((b) => b !== backend) : [...prev, backend],
+    );
   }
 
   function handleRepoUrlInput(url: string) {
@@ -367,6 +424,96 @@ export default function DashboardPage() {
                 placeholder={t("dashboard.form.descriptionPlaceholder")}
               />
             </div>
+          </div>
+
+          {/* Advanced Settings Toggle */}
+          <div class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3">
+            <button
+              type="button"
+              class="flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+              onClick={() => setShowAdvanced(!showAdvanced())}
+              aria-expanded={showAdvanced()}
+            >
+              <span
+                class="inline-block transition-transform"
+                classList={{ "rotate-90": showAdvanced() }}
+              >
+                &#9654;
+              </span>
+              {t("dashboard.form.advanced")}
+            </button>
+
+            <Show when={showAdvanced()}>
+              <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {/* Mode selector */}
+                <div>
+                  <label
+                    for="adv_mode"
+                    class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {t("dashboard.form.defaultMode")}
+                  </label>
+                  <select
+                    id="adv_mode"
+                    value={selectedMode()}
+                    onChange={(e) => setSelectedMode(e.currentTarget.value)}
+                    class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">{t("dashboard.form.defaultModePlaceholder")}</option>
+                    <For each={modes() ?? []}>
+                      {(m: Mode) => (
+                        <option value={m.id}>
+                          {m.name} {m.builtin ? `(${t("modes.builtin")})` : ""}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                </div>
+
+                {/* Autonomy level */}
+                <div>
+                  <label
+                    for="adv_autonomy"
+                    class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {t("dashboard.form.autonomyLevel")}
+                  </label>
+                  <select
+                    id="adv_autonomy"
+                    value={selectedAutonomy()}
+                    onChange={(e) => setSelectedAutonomy(e.currentTarget.value)}
+                    class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">{t("dashboard.form.autonomyPlaceholder")}</option>
+                    <For each={AUTONOMY_LEVELS}>
+                      {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
+                    </For>
+                  </select>
+                </div>
+
+                {/* Agent backends checkboxes */}
+                <div class="sm:col-span-2">
+                  <span class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {t("dashboard.form.agentBackends")}
+                  </span>
+                  <div class="flex flex-wrap gap-3">
+                    <For each={AGENT_BACKENDS}>
+                      {(backend) => (
+                        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedBackends().includes(backend)}
+                            onChange={() => toggleBackend(backend)}
+                            class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                          />
+                          {backend}
+                        </label>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </div>
+            </Show>
           </div>
 
           <div class="mt-4 flex justify-end">

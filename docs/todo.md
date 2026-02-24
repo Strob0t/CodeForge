@@ -466,7 +466,7 @@
 - [x] (2026-02-19) Load tests for Rate Limiting (sustained vs burst, per-user limiters) (`tests/load/ratelimit_test.go` build tag `//go:build load`; 6 tests: sustained load, burst absorption, per-IP isolation, concurrent bucket creation, headers, cleanup under load; run with: `go test -tags load -count=1 ./tests/load/`)
 - [x] (2026-02-18) Runtime Compliance Tests (Sandbox/Mount feature parity) — 16 sub-tests passing
 - [x] (2026-02-17) Policy Gate tests (deny/ask/allow evaluation, path scoping, command matching, preset integration)
-- [ ] E2E live tests: Create test users via API and test auth flows end-to-end (login, JWT refresh, role-based access, API key creation/usage, forced password change for seeded admin, password complexity enforcement, logout, session expiry). **Must use Playwright MCP** (`browser_navigate`, `browser_snapshot`, `browser_fill_form`, `browser_click`, etc.) to test all UI/UX flows through the actual browser. If Playwright MCP is not reachable, inform the user and abort the test — do not fall back to API-only testing for UI validation. **Security testing must follow [OWASP Top 10 (2025)](https://owasp.org/Top10/2025/) and [OWASP Web Security Testing Guide (WSTG)](https://owasp.org/www-project-web-security-testing-guide/latest/):** test for injection (SQL, XSS, command), broken authentication (session fixation, credential stuffing, brute force), broken access control (IDOR, privilege escalation, path traversal), security misconfiguration (CORS, headers, error disclosure), SSRF, cryptographic failures, and CSRF. Document each finding with WSTG test ID reference.
+- [x] (2026-02-24) E2E live tests: Auth flows (login, JWT, role-based access, API keys, logout, session expiry) in `frontend/e2e/auth.spec.ts` + OWASP WSTG security tests (injection, broken auth, IDOR, CORS, headers, CSRF, path traversal) in `frontend/e2e/security.spec.ts`
 
 ---
 
@@ -783,7 +783,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Frontend: debounced `onInput` on repo_url field; auto-fill name+provider; remove required marker on name when URL present
 
 ##### 13.2D Local Project Hint/Button
-- [ ] Frontend: add tab toggle `[Remote] [Local]` at top of project form in `DashboardPage.tsx`
+- [x] (2026-02-24) Frontend: add tab toggle `[Remote] [Local]` at top of project form in `DashboardPage.tsx`
   - Local mode: path input + optional name; calls `POST /projects` then `POST /projects/{id}/adopt`
   - Auto-detect name from directory basename
 
@@ -816,7 +816,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Create `internal/domain/conversation/conversation.go` — `Conversation` + `Message` entities
 - [x] (2026-02-24) Create migration `034_create_conversations.sql` — `conversations` + `conversation_messages` tables
 - [x] (2026-02-24) Create `internal/service/conversation.go` — `ConversationService` with `Create`, `List`, `Get`, `SendMessage`
-- [ ] Create `internal/service/templates/conversation_system.tmpl` — dynamic system prompt (project context, agents, roadmap, task history)
+- [x] (2026-02-24) Create `internal/service/templates/conversation_system.tmpl` — dynamic system prompt (project context, agents, roadmap, task history)
 - [x] (2026-02-24) Add conversation handlers + routes: `POST /projects/{id}/conversations`, `GET /conversations/{id}`, `POST /conversations/{id}/messages`
 - [x] (2026-02-24) Add `EventConversationMessage` to `internal/adapter/ws/events.go`
 - [x] (2026-02-24) Add conversation CRUD to PostgreSQL store
@@ -837,7 +837,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Add `SetupProject(ctx, id)` to `internal/service/project.go` — chain: clone → detect stack → detect specs → import specs (each step idempotent)
 - [x] (2026-02-24) Add `SetupProject` handler for `POST /api/v1/projects/{id}/setup`
 - [x] (2026-02-24) Frontend: after project creation, fire-and-forget auto-setup with toast notification
-- [ ] Advanced settings toggle for fine-grained workflow configuration (mode selection, team composition, autonomy)
+- [x] (2026-02-24) Advanced settings toggle for fine-grained workflow configuration (mode selection, team composition, autonomy level)
 
 #### 13.7 Dev Tooling & CI (Phase 7)
 
@@ -865,22 +865,22 @@ For full completion history, see [project-status.md](project-status.md).
 #### 13.9 Outstanding Items (Phase 9)
 
 ##### 13.9A E2E Auth + OWASP Security Tests
-- [ ] Create `frontend/e2e/auth.spec.ts` — Playwright tests: login, JWT refresh, role-based access, API key CRUD, forced password change, logout, session expiry
-- [ ] Create `frontend/e2e/security.spec.ts` — OWASP WSTG tests: injection, broken auth, IDOR, CORS, headers, CSRF, path traversal
+- [x] (2026-02-24) Create `frontend/e2e/auth.spec.ts` — Playwright tests: login, JWT refresh, role-based access, API key CRUD, forced password change, logout, session expiry
+- [x] (2026-02-24) Create `frontend/e2e/security.spec.ts` — OWASP WSTG tests: injection, broken auth, IDOR, CORS, headers, CSRF, path traversal
 
 ##### 13.9B Policy "Effective Permission Preview"
 - [x] (2026-02-24) Add "Preview" mode to `PolicyPanel.tsx` showing matched rule + reason for a given tool call
   - Full EvaluationResult display (decision, scope, matched_rule, reason) + standalone preview view
 
 ##### 13.9C Retrieval Sub-Agent Enhancements
-- [ ] Add configurable `expansion_prompt` field to project config
-- [ ] Wire sub-agent LLM call costs into existing cost aggregation
+- [x] (2026-02-24) Add configurable `expansion_prompt` field to project config (variadic parameter in `SubAgentSearchSync`, read from `project.Config["expansion_prompt"]`)
+- [x] (2026-02-24) Wire sub-agent LLM call costs into existing cost aggregation (event store recording in `HandleSubAgentSearchResult`, Python `CostAccumulator`)
 
 ##### 13.9D Additional Agent Backends
-- [ ] Goose adapter implementing `agentbackend.Backend` with `init()` self-registration
-- [ ] OpenCode adapter implementing `agentbackend.Backend`
-- [ ] Plandex adapter implementing `agentbackend.Backend`
-- [ ] OpenHands adapter implementing `agentbackend.Backend`
+- [x] (2026-02-24) Goose adapter implementing `agentbackend.Backend` with `Register(queue)` pattern
+- [x] (2026-02-24) OpenCode adapter implementing `agentbackend.Backend`
+- [x] (2026-02-24) Plandex adapter implementing `agentbackend.Backend`
+- [x] (2026-02-24) OpenHands adapter implementing `agentbackend.Backend`
 
 #### Phase 13 Dependencies
 

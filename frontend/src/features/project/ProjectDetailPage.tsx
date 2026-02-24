@@ -2,7 +2,7 @@ import { useParams } from "@solidjs/router";
 import { createResource, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { BudgetAlertEvent } from "~/api/types";
+import type { BudgetAlertEvent, Mode } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
@@ -25,9 +25,27 @@ import RunPanel from "./RunPanel";
 import { SearchSimulator } from "./SearchSimulator";
 import TaskPanel from "./TaskPanel";
 
-type Tab = "overview" | "tasks" | "agents" | "context" | "costs" | "chat";
+type Tab = "overview" | "tasks" | "agents" | "context" | "costs" | "chat" | "settings";
 
-const TABS: readonly Tab[] = ["overview", "tasks", "agents", "context", "costs", "chat"];
+const TABS: readonly Tab[] = [
+  "overview",
+  "tasks",
+  "agents",
+  "context",
+  "costs",
+  "chat",
+  "settings",
+];
+
+const AGENT_BACKENDS = ["aider", "goose", "opencode", "openhands", "plandex"] as const;
+
+const AUTONOMY_LEVELS = [
+  { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
+  { value: "2", labelKey: "dashboard.form.autonomy.2" as const },
+  { value: "3", labelKey: "dashboard.form.autonomy.3" as const },
+  { value: "4", labelKey: "dashboard.form.autonomy.4" as const },
+  { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
+];
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
@@ -56,6 +74,14 @@ export default function ProjectDetailPage() {
     () => params.id,
     (id) => api.agents.list(id),
   );
+
+  const [allModes] = createResource(() => api.modes.list());
+
+  // Settings tab state
+  const [settingsMode, setSettingsMode] = createSignal("");
+  const [settingsBackends, setSettingsBackends] = createSignal<string[]>([]);
+  const [settingsAutonomy, setSettingsAutonomy] = createSignal("");
+  const [savingSettings, setSavingSettings] = createSignal(false);
 
   const [cloning, setCloning] = createSignal(false);
   const [pulling, setPulling] = createSignal(false);
@@ -223,6 +249,36 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    setError("");
+    try {
+      const config: Record<string, string> = {};
+      const m = settingsMode();
+      if (m) config["default_mode"] = m;
+      const backends = settingsBackends();
+      if (backends.length > 0) config["agent_backends"] = backends.join(",");
+      const autonomy = settingsAutonomy();
+      if (autonomy) config["autonomy_level"] = autonomy;
+
+      await api.projects.update(params.id, { config });
+      refetchProject();
+      toast("success", t("detail.toast.settingsSaved"));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : t("detail.toast.settingsFailed");
+      setError(msg);
+      toast("error", msg);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  function toggleSettingsBackend(backend: string) {
+    setSettingsBackends((prev) =>
+      prev.includes(backend) ? prev.filter((b) => b !== backend) : [...prev, backend],
+    );
+  }
+
   const handleCheckout = async (branch: string) => {
     setError("");
     try {
@@ -236,6 +292,21 @@ export default function ProjectDetailPage() {
       toast("error", msg);
     }
   };
+
+  function switchTab(tab: Tab) {
+    if (tab === "settings") {
+      const p = project();
+      if (p) {
+        const cfg = p.config ?? {};
+        setSettingsMode(cfg["default_mode"] ?? "");
+        setSettingsBackends(
+          cfg["agent_backends"] ? cfg["agent_backends"].split(",").filter(Boolean) : [],
+        );
+        setSettingsAutonomy(cfg["autonomy_level"] ?? "");
+      }
+    }
+    setActiveTab(tab);
+  }
 
   function tabLabel(tab: Tab): string {
     return t(`detail.tab.${tab}` as Parameters<typeof t>[0]);
@@ -436,6 +507,95 @@ export default function ProjectDetailPage() {
         <Show when={activeTab() === "chat"}>
           <ChatPanel projectId={params.id} />
         </Show>
+
+        <Show when={activeTab() === "settings"}>
+          <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              {t("detail.settings.title")}
+            </h3>
+
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Default Mode */}
+              <div>
+                <label
+                  for="settings_mode"
+                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("detail.settings.defaultMode")}
+                </label>
+                <select
+                  id="settings_mode"
+                  value={settingsMode()}
+                  onChange={(e) => setSettingsMode(e.currentTarget.value)}
+                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">{t("detail.settings.defaultModePlaceholder")}</option>
+                  <For each={allModes() ?? []}>
+                    {(m: Mode) => (
+                      <option value={m.id}>
+                        {m.name} {m.builtin ? `(${t("modes.builtin")})` : ""}
+                      </option>
+                    )}
+                  </For>
+                </select>
+              </div>
+
+              {/* Autonomy Level */}
+              <div>
+                <label
+                  for="settings_autonomy"
+                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("detail.settings.autonomyLevel")}
+                </label>
+                <select
+                  id="settings_autonomy"
+                  value={settingsAutonomy()}
+                  onChange={(e) => setSettingsAutonomy(e.currentTarget.value)}
+                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">{t("detail.settings.autonomyPlaceholder")}</option>
+                  <For each={AUTONOMY_LEVELS}>
+                    {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
+                  </For>
+                </select>
+              </div>
+
+              {/* Agent Backends */}
+              <div class="sm:col-span-2">
+                <span class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {t("detail.settings.agentBackends")}
+                </span>
+                <div class="flex flex-wrap gap-3">
+                  <For each={AGENT_BACKENDS}>
+                    {(backend) => (
+                      <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settingsBackends().includes(backend)}
+                          onChange={() => toggleSettingsBackend(backend)}
+                          class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                        />
+                        {backend}
+                      </label>
+                    )}
+                  </For>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-5 flex justify-end">
+              <button
+                type="button"
+                class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                onClick={handleSaveSettings}
+                disabled={savingSettings()}
+              >
+                {savingSettings() ? t("detail.settings.saving") : t("detail.settings.save")}
+              </button>
+            </div>
+          </div>
+        </Show>
       </>
     );
   }
@@ -522,7 +682,7 @@ export default function ProjectDetailPage() {
                         ? "border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400"
                         : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                     }`}
-                    onClick={() => setActiveTab(tab)}
+                    onClick={() => switchTab(tab)}
                   >
                     {tabLabel(tab)}
                   </button>

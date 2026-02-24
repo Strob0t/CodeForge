@@ -647,7 +647,7 @@ func newTestRouter() chi.Router {
 	costSvc := service.NewCostService(store)
 	settingsSvc := service.NewSettingsService(store)
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
-	conversationSvc := service.NewConversationService(store, litellm.NewClient("http://localhost:4000", "test-key"), bc, "")
+	conversationSvc := service.NewConversationService(store, litellm.NewClient("http://localhost:4000", "test-key"), bc, "", nil)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
