@@ -930,9 +930,51 @@ For full completion history, see [project-status.md](project-status.md).
 
 ---
 
+### Frontend E2E QA Results (2026-02-24)
+
+Comprehensive browser-based QA testing via Playwright MCP.
+
+#### Bugs Fixed
+
+- [x] (2026-02-24) WebSocket auth: `buildWSURL()` in `websocket.ts` did not append JWT `?token=` query param required by Go backend (`middleware/auth.go:71`). Fixed by exporting `getAccessToken()` from `client.ts` and appending token to WS URL.
+- [x] (2026-02-24) Cascade deletes: `runs` and `plan_steps` FK constraints lacked `ON DELETE CASCADE`, causing 500 errors when deleting projects/tasks/agents. Fixed via migration `035_fix_cascade_deletes.sql`.
+- [x] (2026-02-24) Provider dropdown duplicate: i18n placeholder `dashboard.form.providerPlaceholder` was set to `"github"` instead of a descriptive placeholder, causing a visual duplicate in the `<select>`. Fixed in `en.ts` and `de.ts`.
+
+#### Known Issues (Not Yet Fixed)
+
+- [ ] Sign-out does not redirect to `/login`: `RouteGuard` component exists (`components/RouteGuard.tsx`) but is never used in `App.tsx`. After sign-out, user stays on dashboard with stale data visible. Requires design decision: RouteGuard must handle auth-disabled mode (backend default).
+- [ ] Non-existent project causes white screen crash: navigating to `/projects/<invalid-uuid>` triggers `Error: useI18n must be used within <I18nProvider>` — error boundary renders outside I18n context.
+- [ ] Unknown routes show blank main area: no 404 page or "Page not found" message for unmatched routes.
+
+#### Test Results Summary
+
+| Module | Status |
+|--------|--------|
+| Authentication (login, session, WS) | PASS |
+| Dashboard / Projects CRUD | PASS |
+| Project Detail — all 7 tabs | PASS |
+| Modes page | PASS |
+| Costs Dashboard | PASS |
+| Models page | PASS |
+| Activity page | PASS |
+| Knowledge Bases | PASS |
+| Scopes | PASS |
+| Teams | PASS |
+| Settings (all sections) | PASS |
+| Theme toggle (System/Light/Dark) | PASS |
+| Language toggle (EN/DE) | PASS |
+| Sign out flow | PARTIAL (no redirect) |
+| Form validation (empty submit) | PASS |
+| URL auto-detection | PASS |
+| Wrong password login | PASS |
+| 404 / unknown routes | FAIL (blank page) |
+| Non-existent project | FAIL (white screen crash) |
+
+---
+
 ### Notes
 
-- Phases 0-11 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91).
+- Phases 0-11 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91). Frontend E2E QA: 16/19 modules pass.
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
 - **Completed Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
 - Completed: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy
