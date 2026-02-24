@@ -2,8 +2,12 @@ package context
 
 import (
 	"errors"
+	"regexp"
 	"time"
 )
+
+// uuidRE matches a standard UUID format (lowercase hex).
+var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // SharedContext is a versioned, team-level collection of key-value items
 // that accumulates as team members complete steps.
@@ -57,6 +61,9 @@ func (r *AddSharedItemRequest) Validate() error {
 	}
 	if r.Value == "" {
 		return errors.New("value is required")
+	}
+	if r.Author != "" && !uuidRE.MatchString(r.Author) {
+		return errors.New("author must be a valid UUID")
 	}
 	return nil
 }

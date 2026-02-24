@@ -20,6 +20,12 @@ var publicPaths = map[string]bool{
 	"/api/v1/auth/refresh": true,
 }
 
+// publicPrefixes are path prefixes exempt from authentication.
+// Webhook endpoints use their own HMAC/token verification middleware.
+var publicPrefixes = []string{
+	"/api/v1/webhooks/",
+}
+
 // passwordChangeExempt paths are allowed even when MustChangePassword is true.
 var passwordChangeExempt = map[string]bool{
 	"/api/v1/auth/change-password": true,
@@ -51,6 +57,14 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 			if publicPaths[r.URL.Path] {
 				next.ServeHTTP(w, r)
 				return
+			}
+
+			// Skip auth for public path prefixes (webhooks use their own auth).
+			for _, prefix := range publicPrefixes {
+				if strings.HasPrefix(r.URL.Path, prefix) {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 
 			// WebSocket auth via ?token= query parameter (P1-5)

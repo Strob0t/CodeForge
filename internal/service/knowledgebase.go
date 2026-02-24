@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -87,7 +88,7 @@ func (s *KnowledgeBaseService) RequestIndex(ctx context.Context, id string) erro
 	}
 
 	if kb.ContentPath == "" {
-		return fmt.Errorf("knowledge base %q has no content path", kb.Name)
+		return fmt.Errorf("knowledge base %q has no content path: %w", kb.Name, domain.ErrValidation)
 	}
 
 	// Use "kb:<id>" as the project identifier to namespace KB indexes.

@@ -1,6 +1,10 @@
 package run
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Strob0t/CodeForge/internal/domain"
+)
 
 // validStatuses enumerates all valid run statuses.
 var validStatuses = map[Status]bool{
@@ -61,19 +65,19 @@ func (r *Run) Validate() error {
 // Validate checks that a StartRequest has all required fields.
 func (r *StartRequest) Validate() error {
 	if r.TaskID == "" {
-		return fmt.Errorf("task_id is required")
+		return fmt.Errorf("task_id is required: %w", domain.ErrValidation)
 	}
 	if r.AgentID == "" {
-		return fmt.Errorf("agent_id is required")
+		return fmt.Errorf("agent_id is required: %w", domain.ErrValidation)
 	}
 	if r.ProjectID == "" {
-		return fmt.Errorf("project_id is required")
+		return fmt.Errorf("project_id is required: %w", domain.ErrValidation)
 	}
 	if r.ExecMode != "" && !validExecModes[r.ExecMode] {
-		return fmt.Errorf("invalid exec_mode %q", r.ExecMode)
+		return fmt.Errorf("invalid exec_mode %q: %w", r.ExecMode, domain.ErrValidation)
 	}
 	if r.DeliverMode != "" && !validDeliverModes[r.DeliverMode] {
-		return fmt.Errorf("invalid deliver_mode %q", r.DeliverMode)
+		return fmt.Errorf("invalid deliver_mode %q: %w", r.DeliverMode, domain.ErrValidation)
 	}
 	return nil
 }

@@ -755,7 +755,7 @@ func (h *Handlers) StartRun(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Runtime.StartRun(r.Context(), &req)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "start run failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -2529,6 +2529,9 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 	case strings.Contains(err.Error(), "invalid input syntax"):
 		// PostgreSQL type-cast error (e.g. invalid UUID format) → 400
 		writeError(w, http.StatusBadRequest, "invalid identifier format")
+	case strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "SQLSTATE 23505"):
+		// PostgreSQL unique violation → 409 Conflict
+		writeError(w, http.StatusConflict, "resource already exists")
 	default:
 		slog.Error("unhandled domain error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
