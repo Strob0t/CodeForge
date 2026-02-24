@@ -59,7 +59,7 @@
       "settings": {
         "go.gopath": "/go",
         "go.toolsManagement.autoUpdate": true,
-        "python.defaultInterpreterPath": "${workspaceFolder}/workers/.venv/bin/python",
+        "python.defaultInterpreterPath": "/workspaces/CodeForge/.venv/bin/python",
         "editor.formatOnSave": true,
         "dev.containers.mountWaylandSocket": false,
         "dev.containers.dockerCredentialHelper": false
