@@ -249,6 +249,11 @@ func loadEnv(cfg *Config) {
 	// AG-UI
 	setBool(&cfg.AGUI.Enabled, "CODEFORGE_AGUI_ENABLED")
 
+	// MCP
+	setBool(&cfg.MCP.Enabled, "CODEFORGE_MCP_ENABLED")
+	setString(&cfg.MCP.ServersDir, "CODEFORGE_MCP_SERVERS_DIR")
+	setInt(&cfg.MCP.ServerPort, "CODEFORGE_MCP_SERVER_PORT")
+
 	// Auth
 	setBool(&cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED")
 	setString(&cfg.Auth.JWTSecret, "CODEFORGE_AUTH_JWT_SECRET")

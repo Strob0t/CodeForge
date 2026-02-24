@@ -1,5 +1,7 @@
 package messagequeue
 
+import "encoding/json"
+
 // TaskCreatedPayload is the schema for tasks.created messages.
 type TaskCreatedPayload struct {
 	TaskID    string `json:"task_id"`
@@ -67,7 +69,8 @@ type RunStartPayload struct {
 	Mode          *ModePayload          `json:"mode,omitempty"`
 	Config        map[string]string     `json:"config,omitempty"`
 	Termination   TerminationPayload    `json:"termination"`
-	Context       []ContextEntryPayload `json:"context,omitempty"` // Pre-packed context entries (Phase 5D)
+	Context       []ContextEntryPayload `json:"context,omitempty"`     // Pre-packed context entries (Phase 5D)
+	MCPServers    []MCPServerDefPayload `json:"mcp_servers,omitempty"` // MCP server definitions (Phase 15A)
 }
 
 // TerminationPayload carries the termination limits for a run.
@@ -348,4 +351,43 @@ type GraphSearchResultPayload struct {
 	RequestID string                  `json:"request_id"`
 	Results   []GraphSearchHitPayload `json:"results"`
 	Error     string                  `json:"error,omitempty"`
+}
+
+// --- MCP payloads (Phase 15A) ---
+
+// MCPServerDefPayload carries an MCP server definition in NATS messages.
+type MCPServerDefPayload struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Transport   string            `json:"transport"` // "stdio" or "sse"
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Enabled     bool              `json:"enabled"`
+}
+
+// MCPServerStatusPayload is published when an MCP server's connection status changes.
+type MCPServerStatusPayload struct {
+	RunID    string `json:"run_id"`
+	ServerID string `json:"server_id"`
+	Status   string `json:"status"` // registered, connected, disconnected, error
+	Error    string `json:"error,omitempty"`
+}
+
+// MCPToolPayload describes a single tool discovered on an MCP server.
+type MCPToolPayload struct {
+	ServerID    string          `json:"server_id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+}
+
+// MCPToolDiscoveryPayload is published when tools are discovered on MCP servers.
+type MCPToolDiscoveryPayload struct {
+	RunID    string           `json:"run_id"`
+	ServerID string           `json:"server_id"`
+	Tools    []MCPToolPayload `json:"tools"`
 }

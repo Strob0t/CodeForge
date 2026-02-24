@@ -20,6 +20,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	cfmcp "github.com/Strob0t/CodeForge/internal/adapter/mcp"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
 	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
 	"github.com/Strob0t/CodeForge/internal/adapter/opencode"
@@ -305,6 +306,14 @@ func run() error {
 	scopeSvc.SetKnowledgeBase(kbSvc)
 	slog.Info("scope service initialized")
 
+	// --- LSP Service ---
+	var lspSvc *service.LSPService
+	if cfg.LSP.Enabled {
+		lspSvc = service.NewLSPService(&cfg.LSP, hub, store)
+		contextOptSvc.SetLSP(lspSvc)
+		slog.Info("lsp service initialized")
+	}
+
 	// --- Wire SharedContext into PoolManager + Orchestrator (Phase 5E) ---
 	poolManagerSvc.SetSharedContext(sharedCtxSvc)
 	orchSvc.SetSharedContext(sharedCtxSvc)
@@ -415,6 +424,12 @@ func run() error {
 	vcsKey := vcsaccount.DeriveKey(cfg.Auth.JWTSecret)
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
+	// --- MCP Service (Phase 15C) ---
+	mcpSvc := service.NewMCPService(&cfg.MCP)
+	mcpSvc.SetStore(store)
+	runtimeSvc.SetMCPService(mcpSvc)
+	slog.Info("mcp service initialized", "enabled", cfg.MCP.Enabled)
+
 	// --- Conversation Service ---
 	conversationSvc := service.NewConversationService(store, llmClient, hub, cfg.LiteLLM.ConversationModel, modeSvc)
 
@@ -464,6 +479,8 @@ func run() error {
 		Settings:         settingsSvc,
 		VCSAccounts:      vcsAccountSvc,
 		Conversations:    conversationSvc,
+		LSP:              lspSvc,
+		MCP:              mcpSvc,
 	}
 
 	r := chi.NewRouter()
@@ -510,6 +527,24 @@ func run() error {
 			slog.Info("a2a protocol enabled")
 		}
 	})
+
+	// --- MCP Server (Phase 15B) ---
+	var mcpServer *cfmcp.Server
+	if cfg.MCP.Enabled {
+		mcpServer = cfmcp.NewServer(cfmcp.ServerConfig{
+			Addr:    fmt.Sprintf(":%d", cfg.MCP.ServerPort),
+			Name:    "codeforge",
+			Version: "0.1.0",
+		}, cfmcp.ServerDeps{
+			ProjectLister: store,
+			RunReader:     store,
+			CostReader:    store,
+		})
+		if err := mcpServer.Start(); err != nil {
+			return fmt.Errorf("mcp server: %w", err)
+		}
+		slog.Info("mcp server started", "port", cfg.MCP.ServerPort)
+	}
 
 	addr := ":" + cfg.Server.Port
 
@@ -564,6 +599,11 @@ func run() error {
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("http shutdown error", "error", err)
+	}
+	if mcpServer != nil {
+		if err := mcpServer.Stop(shutdownCtx); err != nil {
+			slog.Error("mcp server shutdown error", "error", err)
+		}
 	}
 
 	// Phase 2: Cancel NATS subscribers (stop processing new messages)

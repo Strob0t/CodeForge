@@ -65,6 +65,7 @@ CodeForge/
 │   │   ├── cost/             # Cost aggregation models
 │   │   ├── errors.go         # Sentinel errors (ErrNotFound, ErrConflict)
 │   │   ├── event/            # Agent event types (22+ types)
+│   │   ├── mcp/             # MCP domain types (ServerDef, ServerTool, validation)
 │   │   ├── plan/             # Execution plans (DAG scheduling)
 │   │   ├── policy/           # Policy profiles, presets, validation
 │   │   ├── project/          # Project entity
@@ -108,6 +109,8 @@ CodeForge/
 │       ├── executor.py       # Agent execution (runtime protocol)
 │       ├── graphrag.py       # GraphRAG code graph builder + searcher
 │       ├── llm.py            # LiteLLM async client (completions, embeddings)
+│       ├── mcp_models.py     # Pydantic MCP models (MCPServerDef, MCPTool)
+│       ├── mcp_workbench.py  # MCP workbench (multi-server, BM25 recommender)
 │       ├── pricing.py        # Fallback model pricing table
 │       ├── quality_gate.py   # Test/lint gate executor
 │       ├── repo_map.py       # tree-sitter repo map generator
@@ -125,6 +128,7 @@ CodeForge/
 │       │   │                 # PlanPanel, PolicyPanel, RepoMapPanel, RetrievalPanel,
 │       │   │                 # RoadmapPanel, TrajectoryPanel, CostSection, LiveOutput
 │       │   ├── llm/          # ModelsPage (LLM model management)
+│       │   ├── mcp/          # MCPServersPage (MCP server management)
 │       │   └── cost/         # CostDashboardPage (global cost overview)
 │       └── api/              # API Client, Types, WebSocket
 ├── scripts/
@@ -170,6 +174,7 @@ CodeForge/
 | 8001 | playwright-mcp       | Browser Automation               |
 | 8080 | Go API               | Core Service REST/WebSocket      |
 | 8222 | NATS Monitoring      | NATS HTTP monitoring dashboard   |
+| 3001 | MCP Server           | MCP Streamable HTTP (when enabled)|
 
 ### Running Linting Manually
 
@@ -340,6 +345,9 @@ Example:
 | `orchestrator.graph_top_k` | `CODEFORGE_ORCH_GRAPH_TOP_K` | `10` | Top-K results for graph search |
 | `orchestrator.graph_hop_decay` | `CODEFORGE_ORCH_GRAPH_HOP_DECAY` | `0.7` | Score decay per hop (0.0-1.0) |
 | `git.max_concurrent` | `CODEFORGE_GIT_MAX_CONCURRENT` | `5` | Max concurrent git CLI operations |
+| `mcp.enabled` | `CODEFORGE_MCP_ENABLED` | `false` | Enable MCP integration |
+| `mcp.servers_dir` | `CODEFORGE_MCP_SERVERS_DIR` | `` | Directory with MCP server YAML definitions |
+| `mcp.server_port` | `CODEFORGE_MCP_SERVER_PORT` | `3001` | Port for built-in MCP server |
 | `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `false` | Enable JWT authentication |
 | `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | (auto) | HMAC-SHA256 signing key |
 | `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY` | `15m` | Access token lifetime |
@@ -409,6 +417,13 @@ The run protocol enables per-tool-call policy enforcement. Each tool call is ind
 | `graph.build.result` | Python -> Go | Graph build result |
 | `graph.search.request` | Go -> Python | BFS graph traversal from seed symbols |
 | `graph.search.result` | Python -> Go | Graph search results |
+
+#### MCP Protocol (Phase 15)
+
+| Subject | Direction | Purpose |
+|---------|-----------|---------|
+| `mcp.server.status` | Python -> Go | MCP server connection status update |
+| `mcp.tools.discovered` | Python -> Go | Tools discovered on MCP server |
 
 ### Logging
 
@@ -529,6 +544,9 @@ See `.env.example` for all configurable values.
 | CODEFORGE_OTEL_SAMPLE_RATE | 1.0                                     | Trace sampling rate (0.0-1.0)   |
 | CODEFORGE_A2A_ENABLED     | false                                    | Enable A2A protocol endpoints   |
 | CODEFORGE_AGUI_ENABLED    | false                                    | Enable AG-UI event emission     |
+| CODEFORGE_MCP_ENABLED     | false                                    | Enable MCP integration          |
+| CODEFORGE_MCP_SERVERS_DIR |                                          | MCP server YAML definitions dir |
+| CODEFORGE_MCP_SERVER_PORT | 3001                                     | Built-in MCP server port        |
 | CODEFORGE_AUTH_ENABLED    | false                                    | Enable JWT authentication       |
 | CODEFORGE_AUTH_JWT_SECRET | (auto-generated if empty)                | HMAC-SHA256 JWT signing key     |
 | CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY | 15m                               | Access token lifetime           |

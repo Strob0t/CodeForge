@@ -1057,9 +1057,74 @@ Bug Fixes --- independent, anytime
 
 ---
 
+### Phase 15: Protocol Integrations (MCP, LSP)
+
+#### Phase 15A: MCP Client in Python Workers
+
+- [x] (2026-02-24) Domain types: `internal/domain/mcp/mcp.go` -- TransportType (stdio/sse), ServerStatus (registered/connected/disconnected/error), ServerDef struct, ServerTool struct, Validate()
+- [x] (2026-02-24) Domain tests: `internal/domain/mcp/mcp_test.go` -- 8 table-driven validation cases
+- [x] (2026-02-24) Config: `internal/config/config.go` -- MCP struct (Enabled, ServersDir, ServerPort), ENV overrides in loader.go
+- [x] (2026-02-24) NATS subjects: `internal/port/messagequeue/queue.go` -- SubjectMCPServerStatus, SubjectMCPToolDiscovery
+- [x] (2026-02-24) NATS payloads: `internal/port/messagequeue/schemas.go` -- MCPServerDefPayload, MCPServerStatusPayload, MCPToolDiscoveryPayload, MCPServers field on RunStartPayload
+- [x] (2026-02-24) MCPService: `internal/service/mcp.go` -- in-memory registry with sync.RWMutex, Register/Remove/Get/List/ResolveForRun, YAML directory loader
+- [x] (2026-02-24) MCPService DB: `internal/service/mcp_db.go` -- DB-backed CRUD (CreateDB, GetDB, ListDB, UpdateDB, DeleteDB, AssignToProject, UnassignFromProject, ListByProject, ListTools, UpsertTools)
+- [x] (2026-02-24) MCPService tests: `internal/service/mcp_test.go` -- 10 test functions
+- [x] (2026-02-24) Runtime integration: `internal/service/runtime.go` -- mcpSvc field, SetMCPService setter, MCP server resolution in run start payload
+- [x] (2026-02-24) Python models: `workers/codeforge/mcp_models.py` -- Pydantic MCPServerDef, MCPTool, MCPToolCallResult
+- [x] (2026-02-24) Python workbench: `workers/codeforge/mcp_workbench.py` -- McpServerConnection, McpWorkbench (multi-server container), McpToolRecommender (BM25)
+- [x] (2026-02-24) Executor integration: `workers/codeforge/executor.py` -- mcp_servers param, McpWorkbench connect/discover/disconnect
+- [x] (2026-02-24) Worker models: `workers/codeforge/models.py` -- mcp_servers field on RunStartMessage
+
+#### Phase 15B: MCP Server in Go Core (IDE Integration)
+
+- [x] (2026-02-24) Dependency: `go.mod` -- added github.com/mark3labs/mcp-go
+- [x] (2026-02-24) Server rewrite: `internal/adapter/mcp/server.go` -- real mcp-go implementation, ServerConfig, ServerDeps (narrow interfaces: ProjectLister, RunReader, CostReader), Streamable HTTP transport
+- [x] (2026-02-24) Tools: `internal/adapter/mcp/tools.go` -- 4 registered tools (list_projects, get_project, get_run_status, get_cost_summary)
+- [x] (2026-02-24) Resources: `internal/adapter/mcp/resources.go` -- 2 resources (codeforge://projects, codeforge://costs/summary)
+- [x] (2026-02-24) Auth middleware: `internal/adapter/mcp/auth.go` -- Bearer token/API key validation
+- [x] (2026-02-24) Server tests: `internal/adapter/mcp/server_test.go` -- 8 tests (lifecycle, tool registration, handlers, nil deps, missing args)
+- [x] (2026-02-24) Wiring: `cmd/codeforge/main.go` -- MCPService creation, store setup, SetMCPService on runtime, MCP Server start/stop when enabled
+
+#### Phase 15C: MCP Server Registry + Frontend UI
+
+- [x] (2026-02-24) Migration: `internal/adapter/postgres/migrations/036_create_mcp_servers.sql` -- mcp_servers, project_mcp_servers, mcp_server_tools tables
+- [x] (2026-02-24) Store interface: `internal/port/database/store.go` -- 11 MCP methods added
+- [x] (2026-02-24) Postgres store: `internal/adapter/postgres/store_mcp.go` -- full implementation with pgx
+- [x] (2026-02-24) HTTP handlers: `internal/adapter/http/handlers_mcp.go` -- 10 handlers (CRUD, test, tools, project assignment)
+- [x] (2026-02-24) Routes: `internal/adapter/http/routes.go` -- 10 MCP routes
+- [x] (2026-02-24) Frontend types: `frontend/src/api/types.ts` -- MCPServer, MCPServerTool, CreateMCPServerRequest
+- [x] (2026-02-24) Frontend API: `frontend/src/api/client.ts` -- mcp namespace with 10 methods
+- [x] (2026-02-24) Frontend page: `frontend/src/features/mcp/MCPServersPage.tsx` -- server list, add/edit modal, test connection, delete, tools discovery
+- [x] (2026-02-24) Frontend routing: `frontend/src/index.tsx` + `App.tsx` -- /mcp route + nav link
+- [x] (2026-02-24) i18n: `frontend/src/i18n/en.ts` + `de.ts` -- ~55 MCP keys each
+
+#### Phase 15D: Tool Routing Integration
+
+- [x] (2026-02-24) Policy tests: `internal/domain/policy/policy_test.go` -- test cases for `mcp:` prefixed tool matching
+
+#### Phase 15D: LSP (Language Server Protocol) — Code Intelligence for Agents
+
+- [x] (2026-02-24) Domain types: `internal/domain/lsp/types.go` — Position, Range, Location, Diagnostic, DocumentSymbol, HoverResult, ServerStatus, ServerInfo
+- [x] (2026-02-24) Language config: `internal/domain/lsp/language.go` — DefaultServers map (go, python, typescript, javascript)
+- [x] (2026-02-24) Config: `internal/config/config.go` — LSP struct (Enabled, StartTimeout, ShutdownTimeout, DiagnosticDelay, MaxDiagnostics, AutoStart)
+- [x] (2026-02-24) JSON-RPC transport: `internal/adapter/lsp/jsonrpc.go` — Content-Length framing over stdio
+- [x] (2026-02-24) LSP client: `internal/adapter/lsp/client.go` — Full client replacing 30-line stub (Start, Stop, Definition, References, DocumentSymbols, Hover, Diagnostics, OpenFile, readLoop)
+- [x] (2026-02-24) LSP service: `internal/service/lsp.go` — Per-project language server management, diagnostic caching, debounced WS broadcast, context entry generation
+- [x] (2026-02-24) WebSocket events: `internal/adapter/ws/events.go` — EventLSPStatus, EventLSPDiagnostic + typed structs
+- [x] (2026-02-24) HTTP handlers: `internal/adapter/http/handlers.go` — 8 handlers (StartLSP, StopLSP, LSPStatus, LSPDiagnostics, LSPDefinition, LSPReferences, LSPDocumentSymbols, LSPHover)
+- [x] (2026-02-24) Routes: `internal/adapter/http/routes.go` — 8 LSP endpoints under `/projects/{id}/lsp/`
+- [x] (2026-02-24) Context enrichment: `internal/service/context_optimizer.go` — SetLSP + diagnostic injection at priority 95
+- [x] (2026-02-24) Wiring: `cmd/codeforge/main.go` — LSPService init (config-gated), injected into contextOptSvc and Handlers
+- [x] (2026-02-24) Frontend types: `frontend/src/api/types.ts` — LSPServerInfo, LSPDiagnostic, LSPLocation, LSPDocumentSymbol, LSPHoverResult
+- [x] (2026-02-24) Frontend API: `frontend/src/api/client.ts` — 8 LSP API methods
+- [x] (2026-02-24) Frontend panel: `frontend/src/features/project/LSPPanel.tsx` — Language server status, start/stop, diagnostic badges
+- [x] (2026-02-24) Context pack: `internal/domain/context/pack.go` — Added EntryDiagnostic kind
+
+---
+
 ### Notes
 
-- Phases 0-14 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91). Frontend E2E QA: 13/13 test areas pass (5 bugs found and fixed: detect stack nil-slice, settings popover dismiss, sync-to-file stale binary, cascade deletes, WS auth).
+- Phases 0-15 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91). Frontend E2E QA: 13/13 test areas pass (5 bugs found and fixed: detect stack nil-slice, settings popover dismiss, sync-to-file stale binary, cascade deletes, WS auth). Phase 15: MCP + LSP protocol integrations complete (mcp-go server, Python workbench, DB registry, frontend, policy integration).
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
 - **Completed Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
 - Completed: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy

@@ -6,6 +6,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
+from codeforge.mcp_models import MCPServerDef  # noqa: TC001 — Pydantic needs at runtime
+
 
 class TaskStatus(StrEnum):
     """Status of a task in the pipeline."""
@@ -88,11 +90,19 @@ class RunStartMessage(BaseModel):
     config: dict[str, str] = Field(default_factory=dict)
     termination: TerminationConfig = Field(default_factory=TerminationConfig)
 
+    mcp_servers: list[MCPServerDef] = Field(default_factory=list)
+
     @field_validator("config", mode="before")
     @classmethod
     def _coerce_config_none(cls, v: dict[str, str] | None) -> dict[str, str]:
         """Go serializes nil maps as null; coerce to empty dict."""
         return v if v is not None else {}
+
+    @field_validator("mcp_servers", mode="before")
+    @classmethod
+    def _coerce_mcp_servers_none(cls, v: list[MCPServerDef] | None) -> list[MCPServerDef]:
+        """Go serializes nil slices as null; coerce to empty list."""
+        return v if v is not None else []
 
     context: list[ContextEntry] = Field(default_factory=list)
 

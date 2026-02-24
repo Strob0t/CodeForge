@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+
+	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 )
 
 // Event type constants for WebSocket messages.
@@ -55,6 +57,10 @@ const (
 
 	// Phase 13.5A: conversation events
 	EventConversationMessage = "conversation.message"
+
+	// LSP: language server events
+	EventLSPStatus     = "lsp.status"
+	EventLSPDiagnostic = "lsp.diagnostic"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -224,6 +230,21 @@ type ReviewStatusEvent struct {
 	ProjectID string `json:"project_id"`
 	Status    string `json:"status"`
 	PlanID    string `json:"plan_id,omitempty"`
+}
+
+// LSPStatusEvent is broadcast when a language server's status changes.
+type LSPStatusEvent struct {
+	ProjectID string `json:"project_id"`
+	Language  string `json:"language"`
+	Status    string `json:"status"` // "stopped", "starting", "ready", "failed"
+	Error     string `json:"error,omitempty"`
+}
+
+// LSPDiagnosticEvent is broadcast when diagnostics are updated for a file.
+type LSPDiagnosticEvent struct {
+	ProjectID   string                 `json:"project_id"`
+	URI         string                 `json:"uri"`
+	Diagnostics []lspDomain.Diagnostic `json:"diagnostics"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

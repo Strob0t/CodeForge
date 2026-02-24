@@ -1281,3 +1281,101 @@ export interface BenchmarkResult {
   tokens_out: number;
   latency_ms: number;
 }
+
+// --- LSP types ---
+
+/** Matches Go domain/lsp.ServerInfo */
+export interface LSPServerInfo {
+  language: string;
+  status: "stopped" | "starting" | "ready" | "failed";
+  command: string;
+  pid?: number;
+  error?: string;
+  diagnostics: number;
+}
+
+/** Matches Go domain/lsp.Diagnostic */
+export interface LSPDiagnostic {
+  range: { start: { line: number; character: number }; end: { line: number; character: number } };
+  severity: number;
+  source: string;
+  message: string;
+  code?: string;
+}
+
+/** Matches Go domain/lsp.Location */
+export interface LSPLocation {
+  uri: string;
+  range: { start: { line: number; character: number }; end: { line: number; character: number } };
+}
+
+/** Matches Go domain/lsp.DocumentSymbol */
+export interface LSPDocumentSymbol {
+  name: string;
+  kind: number;
+  range: { start: { line: number; character: number }; end: { line: number; character: number } };
+  selectionRange: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+  children?: LSPDocumentSymbol[];
+}
+
+/** Matches Go domain/lsp.HoverResult */
+export interface LSPHoverResult {
+  contents: string;
+  range?: { start: { line: number; character: number }; end: { line: number; character: number } };
+}
+
+/** WS event: LSP server status change */
+export interface LSPStatusEvent {
+  project_id: string;
+  language: string;
+  status: "stopped" | "starting" | "ready" | "failed";
+  error?: string;
+}
+
+/** WS event: LSP diagnostic update */
+export interface LSPDiagnosticEvent {
+  project_id: string;
+  uri: string;
+  diagnostics: LSPDiagnostic[];
+}
+
+// --- MCP Server Types (Phase 15C) ---
+
+/** Matches Go domain/mcp.Server */
+export interface MCPServer {
+  id: string;
+  name: string;
+  description: string;
+  transport: "stdio" | "sse";
+  command: string;
+  args: string[];
+  url: string;
+  env: Record<string, string>;
+  headers: Record<string, string>;
+  enabled: boolean;
+  status: "registered" | "connected" | "disconnected" | "error";
+}
+
+/** Matches Go domain/mcp.ServerTool */
+export interface MCPServerTool {
+  server_id: string;
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+/** Create MCP server request */
+export interface CreateMCPServerRequest {
+  name: string;
+  description?: string;
+  transport: "stdio" | "sse";
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  enabled: boolean;
+}

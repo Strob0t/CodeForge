@@ -24,6 +24,7 @@ type ContextOptimizerService struct {
 	orchCfg   *config.Orchestrator
 	retrieval *RetrievalService
 	graph     *GraphService
+	lsp       *LSPService
 
 	// Guard against redundant builds for the same task (#16).
 	buildMu    sync.Mutex
@@ -47,6 +48,11 @@ func (s *ContextOptimizerService) SetRetrieval(r *RetrievalService) {
 // SetGraph wires the graph service for GraphRAG injection.
 func (s *ContextOptimizerService) SetGraph(g *GraphService) {
 	s.graph = g
+}
+
+// SetLSP wires the LSP service for diagnostic injection.
+func (s *ContextOptimizerService) SetLSP(l *LSPService) {
+	s.lsp = l
 }
 
 // GetPackByTask returns the existing context pack for a task, if any.
@@ -190,6 +196,12 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 				})
 			}
 		}
+	}
+
+	// LSP diagnostics injection (high priority — errors agents should know about).
+	if s.lsp != nil {
+		diagEntries := s.lsp.DiagnosticsAsContextEntries(projectID)
+		candidates = append(candidates, diagEntries...)
 	}
 
 	if len(candidates) == 0 {

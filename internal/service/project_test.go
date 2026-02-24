@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
+	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -608,6 +609,29 @@ func (m *mockStore) CreateMessage(_ context.Context, _ *conversation.Message) (*
 	return nil, nil
 }
 func (m *mockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
+	return nil, nil
+}
+
+// MCP Servers
+func (m *mockStore) CreateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
+func (m *mockStore) GetMCPServer(_ context.Context, _ string) (*mcp.ServerDef, error) {
+	return nil, nil
+}
+func (m *mockStore) ListMCPServers(_ context.Context) ([]mcp.ServerDef, error) { return nil, nil }
+func (m *mockStore) UpdateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
+func (m *mockStore) DeleteMCPServer(_ context.Context, _ string) error         { return nil }
+func (m *mockStore) UpdateMCPServerStatus(_ context.Context, _ string, _ mcp.ServerStatus) error {
+	return nil
+}
+func (m *mockStore) AssignMCPServerToProject(_ context.Context, _, _ string) error     { return nil }
+func (m *mockStore) UnassignMCPServerFromProject(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) ListMCPServersByProject(_ context.Context, _ string) ([]mcp.ServerDef, error) {
+	return nil, nil
+}
+func (m *mockStore) UpsertMCPServerTools(_ context.Context, _ string, _ []mcp.ServerTool) error {
+	return nil
+}
+func (m *mockStore) ListMCPServerTools(_ context.Context, _ string) ([]mcp.ServerTool, error) {
 	return nil, nil
 }
 

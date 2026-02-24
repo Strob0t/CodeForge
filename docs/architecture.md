@@ -108,8 +108,8 @@ CodeForge integrates with standardized protocols for tool integration, agent coo
 
 | Protocol | Purpose | Standard | Integration Point |
 |---|---|---|---|
-| MCP (Model Context Protocol) | Agent <-> Tool communication | JSON-RPC 2.0 over stdio/SSE/HTTP (Anthropic) | Go Core: MCP server (expose tools) + MCP client registry (connect external tools). Python Workers: MCP for agent tool access |
-| LSP (Language Server Protocol) | Code intelligence for agents | JSON-RPC over stdio/TCP (Microsoft) | Go Core: manages LSP server lifecycle per project language. Agents receive go-to-definition, references, diagnostics, completions |
+| MCP (Model Context Protocol) | Agent <-> Tool communication | JSON-RPC 2.0 over stdio/SSE/HTTP (Anthropic) | **Implemented (Phase 15).** Go Core: MCP server via mcp-go SDK (4 tools, 2 resources, auth middleware, Streamable HTTP transport on port 3001). MCP server registry with PostgreSQL persistence, project-level assignment, 10 HTTP CRUD endpoints. Python Workers: McpWorkbench (multi-server container, BM25 tool recommendation). Frontend: MCPServersPage. Policy: `mcp:server:tool` glob matching |
+| LSP (Language Server Protocol) | Code intelligence for agents | JSON-RPC over stdio/TCP (Microsoft) | **Implemented (Phase 15D).** Go Core: LSP client with JSON-RPC transport over stdio. Per-project language server lifecycle management. 8 HTTP endpoints under `/projects/{id}/lsp/`. Context enrichment with diagnostics. Frontend: LSPPanel |
 | OpenTelemetry GenAI | Standardized LLM/agent observability | OTEL Semantic Conventions (CNCF) | LiteLLM exports OTEL traces natively. Go Core adds spans for agent lifecycle. Feeds Cost Dashboard + audit trails |
 
 #### Tier 2: Important (Phase 2-3)

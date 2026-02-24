@@ -11,19 +11,20 @@ import (
 type EntryKind string
 
 const (
-	EntryFile    EntryKind = "file"    // Full file content
-	EntrySnippet EntryKind = "snippet" // Partial file / code excerpt
-	EntrySummary EntryKind = "summary" // Text summary of a larger body
-	EntryShared  EntryKind = "shared"  // Item from SharedContext
-	EntryRepoMap EntryKind = "repomap" // Repository structure map
-	EntryHybrid  EntryKind = "hybrid"  // Hybrid retrieval result (BM25 + semantic)
-	EntryGraph   EntryKind = "graph"   // GraphRAG traversal result
+	EntryFile       EntryKind = "file"       // Full file content
+	EntrySnippet    EntryKind = "snippet"    // Partial file / code excerpt
+	EntrySummary    EntryKind = "summary"    // Text summary of a larger body
+	EntryShared     EntryKind = "shared"     // Item from SharedContext
+	EntryRepoMap    EntryKind = "repomap"    // Repository structure map
+	EntryHybrid     EntryKind = "hybrid"     // Hybrid retrieval result (BM25 + semantic)
+	EntryGraph      EntryKind = "graph"      // GraphRAG traversal result
+	EntryDiagnostic EntryKind = "diagnostic" // LSP diagnostic (errors, warnings)
 )
 
 // ValidEntryKind reports whether k is a known entry kind.
 func ValidEntryKind(k EntryKind) bool {
 	switch k {
-	case EntryFile, EntrySnippet, EntrySummary, EntryShared, EntryRepoMap, EntryHybrid, EntryGraph:
+	case EntryFile, EntrySnippet, EntrySummary, EntryShared, EntryRepoMap, EntryHybrid, EntryGraph, EntryDiagnostic:
 		return true
 	}
 	return false

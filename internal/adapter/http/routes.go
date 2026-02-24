@@ -300,6 +300,28 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/conversations/{id}/messages", h.ListConversationMessages)
 		r.Post("/conversations/{id}/messages", h.SendConversationMessage)
 
+		// LSP (Language Server Protocol)
+		r.Post("/projects/{id}/lsp/start", h.StartLSP)
+		r.Post("/projects/{id}/lsp/stop", h.StopLSP)
+		r.Get("/projects/{id}/lsp/status", h.LSPStatus)
+		r.Get("/projects/{id}/lsp/diagnostics", h.LSPDiagnostics)
+		r.Post("/projects/{id}/lsp/definition", h.LSPDefinition)
+		r.Post("/projects/{id}/lsp/references", h.LSPReferences)
+		r.Post("/projects/{id}/lsp/symbols", h.LSPDocumentSymbols)
+		r.Post("/projects/{id}/lsp/hover", h.LSPHover)
+
+		// MCP Servers (Phase 15C)
+		r.Get("/mcp/servers", h.ListMCPServers)
+		r.Post("/mcp/servers", h.CreateMCPServer)
+		r.Get("/mcp/servers/{id}", h.GetMCPServer)
+		r.Put("/mcp/servers/{id}", h.UpdateMCPServer)
+		r.Delete("/mcp/servers/{id}", h.DeleteMCPServer)
+		r.Post("/mcp/servers/{id}/test", h.TestMCPServer)
+		r.Get("/mcp/servers/{id}/tools", h.ListMCPServerTools)
+		r.Get("/projects/{id}/mcp-servers", h.ListProjectMCPServers)
+		r.Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
+		r.Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
+
 		// Users (admin only)
 		r.Route("/users", func(r chi.Router) {
 			r.Use(middleware.RequireRole(user.RoleAdmin))

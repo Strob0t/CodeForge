@@ -37,6 +37,7 @@ type RuntimeService struct {
 	contextOpt    *ContextOptimizerService
 	checkpoint    *CheckpointService
 	sandbox       *SandboxService
+	mcpSvc        *MCPService
 	onRunComplete func(ctx context.Context, runID string, status run.Status)
 	runtimeCfg    *config.Runtime
 	stallTrackers sync.Map // map[runID]*run.StallTracker
@@ -93,6 +94,11 @@ func (s *RuntimeService) SetSandboxService(sb *SandboxService) {
 // SetModeService sets the mode service for resolving agent modes during run start.
 func (s *RuntimeService) SetModeService(m *ModeService) {
 	s.modes = m
+}
+
+// SetMCPService sets the MCP service for resolving MCP server definitions during run start.
+func (s *RuntimeService) SetMCPService(svc *MCPService) {
+	s.mcpSvc = svc
 }
 
 // SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
@@ -264,6 +270,26 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 			slog.Warn("context pack build failed", "run_id", r.ID, "error", packErr)
 		} else if pack != nil && len(pack.Entries) > 0 {
 			payload.Context = toContextEntryPayloads(pack.Entries)
+		}
+	}
+
+	// Resolve MCP server definitions for this run.
+	if s.mcpSvc != nil {
+		defs := s.mcpSvc.ResolveForRun(req.ProjectID, modeID)
+		for i := range defs {
+			d := &defs[i]
+			payload.MCPServers = append(payload.MCPServers, messagequeue.MCPServerDefPayload{
+				ID:          d.ID,
+				Name:        d.Name,
+				Description: d.Description,
+				Transport:   string(d.Transport),
+				Command:     d.Command,
+				Args:        d.Args,
+				URL:         d.URL,
+				Env:         d.Env,
+				Headers:     d.Headers,
+				Enabled:     d.Enabled,
+			})
 		}
 	}
 

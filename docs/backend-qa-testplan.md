@@ -267,6 +267,17 @@
 - SQL injection attempts
 - XSS payload rejection
 
+## MODULE 38: LSP (Language Server Protocol)
+- `POST /api/v1/projects/{id}/lsp/start` — Start language servers (auto-detect or explicit languages)
+- `POST /api/v1/projects/{id}/lsp/stop` — Stop all language servers
+- `GET /api/v1/projects/{id}/lsp/status` — List running servers
+- `GET /api/v1/projects/{id}/lsp/diagnostics` — Get diagnostics (optional `?uri=` filter)
+- `POST /api/v1/projects/{id}/lsp/definition` — Go-to-definition
+- `POST /api/v1/projects/{id}/lsp/references` — Find references
+- `POST /api/v1/projects/{id}/lsp/symbols` — Document symbols
+- `POST /api/v1/projects/{id}/lsp/hover` — Hover information
+- Edge cases: LSP disabled (503), nonexistent project, no servers running, invalid URI
+
 ---
 
-**TOTAL: 37 modules, ~160 endpoints/functions identified.**
+**TOTAL: 38 modules, ~170 endpoints/functions identified.**

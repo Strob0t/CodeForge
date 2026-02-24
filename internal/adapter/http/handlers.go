@@ -26,6 +26,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -130,6 +131,8 @@ type Handlers struct {
 	Settings         *service.SettingsService
 	VCSAccounts      *service.VCSAccountService
 	Conversations    *service.ConversationService
+	LSP              *service.LSPService
+	MCP              *service.MCPService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -2847,6 +2850,202 @@ func (h *Handlers) BenchmarkPrompt(w http.ResponseWriter, r *http.Request) {
 		"tokens_out": resp.TokensOut,
 		"latency_ms": latencyMs,
 	})
+}
+
+// --- LSP (Language Server Protocol) ---
+
+// StartLSP handles POST /api/v1/projects/{id}/lsp/start
+func (h *Handlers) StartLSP(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeError(w, http.StatusServiceUnavailable, "LSP integration is not enabled")
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	proj, err := h.Projects.Get(r.Context(), projectID)
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+	if proj.WorkspacePath == "" {
+		writeError(w, http.StatusBadRequest, "project has no workspace; clone or adopt first")
+		return
+	}
+
+	var body struct {
+		Languages []string `json:"languages"`
+	}
+	// Body is optional — auto-detect if empty.
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	if err := h.LSP.StartServers(r.Context(), projectID, proj.WorkspacePath, body.Languages); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
+}
+
+// StopLSP handles POST /api/v1/projects/{id}/lsp/stop
+func (h *Handlers) StopLSP(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeError(w, http.StatusServiceUnavailable, "LSP integration is not enabled")
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	if err := h.LSP.StopServers(r.Context(), projectID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+// LSPStatus handles GET /api/v1/projects/{id}/lsp/status
+func (h *Handlers) LSPStatus(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeJSON(w, http.StatusOK, []lspDomain.ServerInfo{})
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	infos := h.LSP.Status(projectID)
+	if infos == nil {
+		infos = []lspDomain.ServerInfo{}
+	}
+	writeJSON(w, http.StatusOK, infos)
+}
+
+// LSPDiagnostics handles GET /api/v1/projects/{id}/lsp/diagnostics
+func (h *Handlers) LSPDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeJSON(w, http.StatusOK, []lspDomain.Diagnostic{})
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	uri := r.URL.Query().Get("uri")
+	diags := h.LSP.Diagnostics(projectID, uri)
+	if diags == nil {
+		diags = []lspDomain.Diagnostic{}
+	}
+	writeJSON(w, http.StatusOK, diags)
+}
+
+// lspPositionRequest is the shared request body for definition/references/hover.
+type lspPositionRequest struct {
+	URI       string `json:"uri"`
+	Line      int    `json:"line"`
+	Character int    `json:"character"`
+}
+
+// LSPDefinition handles POST /api/v1/projects/{id}/lsp/definition
+func (h *Handlers) LSPDefinition(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeError(w, http.StatusServiceUnavailable, "LSP integration is not enabled")
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[lspPositionRequest](w, r)
+	if !ok {
+		return
+	}
+	if req.URI == "" {
+		writeError(w, http.StatusBadRequest, "uri is required")
+		return
+	}
+	locs, err := h.LSP.Definition(r.Context(), projectID, req.URI, lspDomain.Position{
+		Line: req.Line, Character: req.Character,
+	})
+	if err != nil {
+		writeDomainError(w, err, "definition lookup failed")
+		return
+	}
+	if locs == nil {
+		locs = []lspDomain.Location{}
+	}
+	writeJSON(w, http.StatusOK, locs)
+}
+
+// LSPReferences handles POST /api/v1/projects/{id}/lsp/references
+func (h *Handlers) LSPReferences(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeError(w, http.StatusServiceUnavailable, "LSP integration is not enabled")
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[lspPositionRequest](w, r)
+	if !ok {
+		return
+	}
+	if req.URI == "" {
+		writeError(w, http.StatusBadRequest, "uri is required")
+		return
+	}
+	locs, err := h.LSP.References(r.Context(), projectID, req.URI, lspDomain.Position{
+		Line: req.Line, Character: req.Character,
+	})
+	if err != nil {
+		writeDomainError(w, err, "references lookup failed")
+		return
+	}
+	if locs == nil {
+		locs = []lspDomain.Location{}
+	}
+	writeJSON(w, http.StatusOK, locs)
+}
+
+// LSPDocumentSymbols handles POST /api/v1/projects/{id}/lsp/symbols
+func (h *Handlers) LSPDocumentSymbols(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeError(w, http.StatusServiceUnavailable, "LSP integration is not enabled")
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	var req struct {
+		URI string `json:"uri"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBodySize)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.URI == "" {
+		writeError(w, http.StatusBadRequest, "uri is required")
+		return
+	}
+	symbols, err := h.LSP.DocumentSymbols(r.Context(), projectID, req.URI)
+	if err != nil {
+		writeDomainError(w, err, "symbol lookup failed")
+		return
+	}
+	if symbols == nil {
+		symbols = []lspDomain.DocumentSymbol{}
+	}
+	writeJSON(w, http.StatusOK, symbols)
+}
+
+// LSPHover handles POST /api/v1/projects/{id}/lsp/hover
+func (h *Handlers) LSPHover(w http.ResponseWriter, r *http.Request) {
+	if h.LSP == nil {
+		writeError(w, http.StatusServiceUnavailable, "LSP integration is not enabled")
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[lspPositionRequest](w, r)
+	if !ok {
+		return
+	}
+	if req.URI == "" {
+		writeError(w, http.StatusBadRequest, "uri is required")
+		return
+	}
+	result, err := h.LSP.Hover(r.Context(), projectID, req.URI, lspDomain.Position{
+		Line: req.Line, Character: req.Character,
+	})
+	if err != nil {
+		writeDomainError(w, err, "hover lookup failed")
+		return
+	}
+	if result == nil {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // writeInternalError logs the actual error server-side and returns a generic message to the client.

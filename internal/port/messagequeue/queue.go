@@ -75,4 +75,8 @@ const (
 	SubjectGraphBuildResult   = "graph.build.result"   // Python → Go: graph build result
 	SubjectGraphSearchRequest = "graph.search.request" // Go → Python: graph search request
 	SubjectGraphSearchResult  = "graph.search.result"  // Python → Go: graph search results
+
+	// MCP subjects (Phase 15A)
+	SubjectMCPServerStatus  = "mcp.server.status"    // Python → Go: connection status update
+	SubjectMCPToolDiscovery = "mcp.tools.discovered" // Python → Go: tools found on server
 )

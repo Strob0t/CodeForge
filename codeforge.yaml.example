@@ -74,6 +74,13 @@ orchestrator:
   graph_top_k: 10              # Top-K results for graph search (default: 10)
   graph_hop_decay: 0.7         # Score decay per hop (default: 0.7)
 
+# Model Context Protocol (MCP) integration
+# Enables MCP server management for agent tool access.
+# mcp:
+#   enabled: false           # Enable MCP integration (default: false)
+#   servers_dir: ""          # Directory with MCP server YAML definitions
+#   server_port: 3001        # Port for the built-in MCP server (default: 3001)
+
 # Authentication & Authorization (Phase 10C)
 # When disabled (default), a default admin context is injected for all requests.
 # Enable and set jwt_secret for production use.

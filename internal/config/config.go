@@ -89,6 +89,8 @@ type Config struct {
 	OTEL         OTEL         `yaml:"otel"`
 	A2A          A2A          `yaml:"a2a"`
 	AGUI         AGUI         `yaml:"agui"`
+	MCP          MCP          `yaml:"mcp"`
+	LSP          LSP          `yaml:"lsp"`
 	Auth         Auth         `yaml:"auth"`
 	Workspace    Workspace    `yaml:"workspace"`
 }
@@ -276,6 +278,23 @@ type AGUI struct {
 	Enabled bool `yaml:"enabled"` // Enable AG-UI event emission (default: false)
 }
 
+// MCP holds Model Context Protocol integration configuration.
+type MCP struct {
+	Enabled    bool   `yaml:"enabled"`     // Enable MCP integration (default: false)
+	ServersDir string `yaml:"servers_dir"` // Directory with MCP server YAML definitions
+	ServerPort int    `yaml:"server_port"` // Port for the built-in MCP server (default: 3001)
+}
+
+// LSP holds Language Server Protocol integration configuration.
+type LSP struct {
+	Enabled         bool          `yaml:"enabled"`          // Enable LSP integration (default: false)
+	StartTimeout    time.Duration `yaml:"start_timeout"`    // Max time to wait for server init (default: 30s)
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"` // Max time for graceful shutdown (default: 10s)
+	DiagnosticDelay time.Duration `yaml:"diagnostic_delay"` // Debounce delay for diagnostic broadcasts (default: 500ms)
+	MaxDiagnostics  int           `yaml:"max_diagnostics"`  // Max diagnostics to cache per file (default: 100)
+	AutoStart       bool          `yaml:"auto_start"`       // Auto-start servers on project setup (default: true)
+}
+
 // Defaults returns a Config with sensible default values for local development.
 func Defaults() Config {
 	return Config{
@@ -389,6 +408,19 @@ func Defaults() Config {
 		},
 		A2A:  A2A{Enabled: false},
 		AGUI: AGUI{Enabled: false},
+		MCP: MCP{
+			Enabled:    false,
+			ServersDir: "",
+			ServerPort: 3001,
+		},
+		LSP: LSP{
+			Enabled:         false,
+			StartTimeout:    30 * time.Second,
+			ShutdownTimeout: 10 * time.Second,
+			DiagnosticDelay: 500 * time.Millisecond,
+			MaxDiagnostics:  100,
+			AutoStart:       true,
+		},
 		Auth: Auth{
 			Enabled:            false,
 			JWTSecret:          "",

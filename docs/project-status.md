@@ -909,3 +909,25 @@ Full security audit and remediation across all priority levels (P0-P3, 50+ findi
 - [x] (2026-02-23) Webhook routes moved outside auth group with per-route HMAC/Token middleware
 - [x] (2026-02-23) Sandbox hybrid security: `--security-opt=no-new-privileges --cap-drop=ALL` on hybrid containers
 - [x] (2026-02-23) MustChangePassword enforcement on API key auth path
+
+### Phase 15: Protocol Integrations — MCP + LSP (COMPLETED)
+
+Full MCP (Model Context Protocol) integration across all layers plus LSP code intelligence.
+
+#### Phase 15A: MCP Client in Python Workers
+- [x] (2026-02-24) Domain types, config, NATS payloads, MCPService, runtime integration
+- [x] (2026-02-24) Python McpWorkbench (multi-server container, BM25 tool recommendation)
+- [x] (2026-02-24) Executor integration (MCP-aware run execution)
+
+#### Phase 15B: MCP Server in Go Core
+- [x] (2026-02-24) mcp-go SDK server (4 tools, 2 resources, auth middleware)
+- [x] (2026-02-24) Streamable HTTP transport on configurable port (default 3001)
+
+#### Phase 15C: MCP Server Registry + Frontend UI
+- [x] (2026-02-24) PostgreSQL persistence (migration 036: 3 tables)
+- [x] (2026-02-24) 10 HTTP CRUD endpoints, project-level assignment
+- [x] (2026-02-24) SolidJS MCPServersPage (server list, add/edit, test, tools)
+
+#### Phase 15D: Tool Routing + LSP
+- [x] (2026-02-24) Policy integration for `mcp:server:tool` namespaced tool calls
+- [x] (2026-02-24) LSP client, service, 8 endpoints, frontend LSPPanel

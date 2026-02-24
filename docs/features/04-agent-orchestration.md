@@ -203,6 +203,42 @@ Go Core (handles result, delivers to waiter or HTTP handler)
 - [x] Tier 3 -- Retrieval Sub-Agent: LLM multi-query expansion, parallel search, re-ranking.
 - [x] Tier 4 -- GraphRAG: PostgreSQL adjacency-list graph, BFS with hop-decay scoring.
 
+### MCP Integration (Phase 15)
+
+Model Context Protocol integration gives agents access to external tools (databases, APIs, cloud services, file systems) and allows external MCP clients (Claude Desktop, VS Code, Cursor) to invoke CodeForge workflows.
+
+#### MCP Server (Go Core)
+
+Exposes CodeForge operations to external MCP clients via the mcp-go SDK with Streamable HTTP transport.
+
+- **Tools**: `list_projects`, `get_project`, `get_run_status`, `get_cost_summary`
+- **Resources**: `codeforge://projects`, `codeforge://costs/summary`
+- **Auth**: Bearer token / API key middleware
+- **Config**: `mcp.enabled`, `mcp.server_port` (default 3001)
+- **Code**: `internal/adapter/mcp/` (server.go, tools.go, resources.go, auth.go)
+
+#### MCP Client (Python Workers)
+
+Agents connect to external MCP servers during runs to use their tools.
+
+- **McpWorkbench**: Multi-server container (connect/disconnect, tool discovery, tool call bridging)
+- **McpToolRecommender**: BM25-based ranking of relevant tools for task prompts
+- **Transport**: stdio and SSE via Python `mcp` SDK
+- **Code**: `workers/codeforge/mcp_workbench.py`, `workers/codeforge/mcp_models.py`
+
+#### MCP Server Registry
+
+Persistent storage for MCP server definitions with project-level assignment.
+
+- **Database**: `mcp_servers`, `project_mcp_servers`, `mcp_server_tools` tables (migration 036)
+- **HTTP API**: 10 endpoints for CRUD, test connection, tools listing, project assignment
+- **Frontend**: MCPServersPage (server list, add/edit modal, test connection, tools discovery)
+- **Code**: `internal/adapter/postgres/store_mcp.go`, `internal/adapter/http/handlers_mcp.go`, `frontend/src/features/mcp/MCPServersPage.tsx`
+
+#### Policy Integration
+
+MCP tool calls use namespaced identifiers `mcp:{server}:{tool}` and flow through the existing policy engine with glob matching. Mode-based filtering via `Mode.Tools` and `Mode.DeniedTools` supports the same convention.
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.

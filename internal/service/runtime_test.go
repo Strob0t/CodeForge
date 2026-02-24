@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
+	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -705,6 +706,33 @@ func (m *runtimeMockStore) CreateMessage(_ context.Context, _ *conversation.Mess
 	return nil, nil
 }
 func (m *runtimeMockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
+	return nil, nil
+}
+
+// MCP Server stubs
+func (m *runtimeMockStore) CreateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
+func (m *runtimeMockStore) GetMCPServer(_ context.Context, _ string) (*mcp.ServerDef, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListMCPServers(_ context.Context) ([]mcp.ServerDef, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
+func (m *runtimeMockStore) DeleteMCPServer(_ context.Context, _ string) error         { return nil }
+func (m *runtimeMockStore) UpdateMCPServerStatus(_ context.Context, _ string, _ mcp.ServerStatus) error {
+	return nil
+}
+func (m *runtimeMockStore) AssignMCPServerToProject(_ context.Context, _, _ string) error { return nil }
+func (m *runtimeMockStore) UnassignMCPServerFromProject(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) ListMCPServersByProject(_ context.Context, _ string) ([]mcp.ServerDef, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpsertMCPServerTools(_ context.Context, _ string, _ []mcp.ServerTool) error {
+	return nil
+}
+func (m *runtimeMockStore) ListMCPServerTools(_ context.Context, _ string) ([]mcp.ServerTool, error) {
 	return nil, nil
 }
 

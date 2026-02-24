@@ -16,6 +16,7 @@ import type {
   CreateAPIKeyRequest,
   CreateAPIKeyResponse,
   CreateFeatureRequest,
+  CreateMCPServerRequest,
   CreateMilestoneRequest,
   CreateModeRequest,
   CreatePlanRequest,
@@ -38,6 +39,13 @@ import type {
   LLMModel,
   LoginRequest,
   LoginResponse,
+  LSPDiagnostic,
+  LSPDocumentSymbol,
+  LSPHoverResult,
+  LSPLocation,
+  LSPServerInfo,
+  MCPServer,
+  MCPServerTool,
   Milestone,
   Mode,
   ModelCostSummary,
@@ -886,12 +894,101 @@ export const api = {
       }),
   },
 
+  lsp: {
+    start: (projectId: string, languages?: string[]) =>
+      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/lsp/start`, {
+        method: "POST",
+        body: JSON.stringify({ languages }),
+      }),
+
+    stop: (projectId: string) =>
+      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/lsp/stop`, {
+        method: "POST",
+      }),
+
+    status: (projectId: string) =>
+      request<LSPServerInfo[]>(`/projects/${encodeURIComponent(projectId)}/lsp/status`),
+
+    diagnostics: (projectId: string, uri?: string) =>
+      request<LSPDiagnostic[]>(
+        `/projects/${encodeURIComponent(projectId)}/lsp/diagnostics${uri ? `?uri=${encodeURIComponent(uri)}` : ""}`,
+      ),
+
+    definition: (projectId: string, uri: string, line: number, character: number) =>
+      request<LSPLocation[]>(`/projects/${encodeURIComponent(projectId)}/lsp/definition`, {
+        method: "POST",
+        body: JSON.stringify({ uri, line, character }),
+      }),
+
+    references: (projectId: string, uri: string, line: number, character: number) =>
+      request<LSPLocation[]>(`/projects/${encodeURIComponent(projectId)}/lsp/references`, {
+        method: "POST",
+        body: JSON.stringify({ uri, line, character }),
+      }),
+
+    symbols: (projectId: string, uri: string) =>
+      request<LSPDocumentSymbol[]>(`/projects/${encodeURIComponent(projectId)}/lsp/symbols`, {
+        method: "POST",
+        body: JSON.stringify({ uri }),
+      }),
+
+    hover: (projectId: string, uri: string, line: number, character: number) =>
+      request<LSPHoverResult>(`/projects/${encodeURIComponent(projectId)}/lsp/hover`, {
+        method: "POST",
+        body: JSON.stringify({ uri, line, character }),
+      }),
+  },
+
   dev: {
     benchmark: (body: import("./types").BenchmarkRequest) =>
       request<import("./types").BenchmarkResult>("/dev/benchmark", {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  },
+
+  mcp: {
+    listServers: () => request<MCPServer[]>("/mcp/servers"),
+
+    getServer: (id: string) => request<MCPServer>(`/mcp/servers/${encodeURIComponent(id)}`),
+
+    createServer: (data: CreateMCPServerRequest) =>
+      request<MCPServer>("/mcp/servers", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    updateServer: (id: string, data: CreateMCPServerRequest) =>
+      request<MCPServer>(`/mcp/servers/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    deleteServer: (id: string) =>
+      request<undefined>(`/mcp/servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    testServer: (id: string) =>
+      request<{ id: string; status: string }>(`/mcp/servers/${encodeURIComponent(id)}/test`, {
+        method: "POST",
+      }),
+
+    listTools: (id: string) =>
+      request<MCPServerTool[]>(`/mcp/servers/${encodeURIComponent(id)}/tools`),
+
+    listProjectServers: (projectId: string) =>
+      request<MCPServer[]>(`/projects/${encodeURIComponent(projectId)}/mcp-servers`),
+
+    assignToProject: (projectId: string, serverId: string) =>
+      request<undefined>(`/projects/${encodeURIComponent(projectId)}/mcp-servers`, {
+        method: "POST",
+        body: JSON.stringify({ server_id: serverId }),
+      }),
+
+    unassignFromProject: (projectId: string, serverId: string) =>
+      request<undefined>(
+        `/projects/${encodeURIComponent(projectId)}/mcp-servers/${encodeURIComponent(serverId)}`,
+        { method: "DELETE" },
+      ),
   },
 } as const;
 

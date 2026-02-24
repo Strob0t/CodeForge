@@ -179,10 +179,14 @@ Detailed analysis: docs/research/market-analysis.md
   - Icons: Unicode symbols + inline SVG (no icon library dependency)
   - NOT used: axios, styled-components, Kobalte, shadcn-solid, Socket.IO, Redux/Zustand
 - **Protocol Support (MCP, LSP, A2A, AG-UI, OpenTelemetry):**
-  - **MCP** (Model Context Protocol): Agent ↔ Tool communication (JSON-RPC, Anthropic standard) — **stub/planned**
-    - Go Core: MCP server (expose tools) + MCP client registry (connect external tools)
-    - Python Workers: MCP for agent tool access
-  - **LSP** (Language Server Protocol): Code intelligence for agents (go-to-definition, refs, diagnostics) — **stub/planned**
+  - **MCP** (Model Context Protocol): Agent ↔ Tool communication (JSON-RPC, Anthropic standard) — **implemented (Phase 15)**
+    - Go Core: MCP server via mcp-go SDK (expose tools: list_projects, get_project, get_run_status, get_cost_summary; resources: codeforge://projects, codeforge://costs/summary; auth middleware)
+    - Go Core: MCP server registry with PostgreSQL persistence, project-level assignment, HTTP CRUD API
+    - Python Workers: McpWorkbench (multi-server container, BM25 tool recommendation, tool discovery, tool call bridging)
+    - Frontend: MCPServersPage (server list, add/edit, test connection, tools discovery)
+    - Config: `mcp.enabled`, `mcp.servers_dir`, `mcp.server_port` (default 3001)
+    - Policy: `mcp:server:tool` namespaced tool calls with glob matching
+  - **LSP** (Language Server Protocol): Code intelligence for agents (go-to-definition, refs, diagnostics) — **implemented (Phase 15D)**
     - Go Core manages LSP server lifecycle per project language
   - **OpenTelemetry GenAI**: Standardized LLM/agent observability (traces, metrics, events)
     - LiteLLM exports OTEL traces natively, Go Core adds agent lifecycle spans

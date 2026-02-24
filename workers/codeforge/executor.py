@@ -6,11 +6,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from codeforge.llm import resolve_scenario
+from codeforge.mcp_workbench import McpWorkbench
 from codeforge.models import ModeConfig, TaskMessage, TaskResult, TaskStatus
 from codeforge.pricing import resolve_cost
 
 if TYPE_CHECKING:
     from codeforge.llm import LiteLLMClient
+    from codeforge.mcp_models import MCPServerDef
     from codeforge.runtime import RuntimeClient
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ class AgentExecutor:
         task: TaskMessage,
         runtime: RuntimeClient,
         mode: ModeConfig | None = None,
+        mcp_servers: list[MCPServerDef] | None = None,
     ) -> None:
         """Execute a task using the step-by-step runtime protocol.
 
@@ -84,7 +87,18 @@ class AgentExecutor:
             scenario_cfg.temperature,
         )
 
+        workbench: McpWorkbench | None = None
         try:
+            # Set up MCP workbench if servers are configured
+            if mcp_servers:
+                workbench = McpWorkbench()
+                await workbench.connect_servers(mcp_servers)
+                mcp_tools = await workbench.discover_tools()
+                if mcp_tools:
+                    tool_names = [f"{t.server_id}/{t.name}" for t in mcp_tools]
+                    logger.info("discovered %d MCP tools: %s", len(mcp_tools), tool_names)
+                    await runtime.send_output(f"MCP: discovered {len(mcp_tools)} tools")
+
             # Request permission for LLM call
             decision = await runtime.request_tool_call(
                 tool="LLM",
@@ -145,3 +159,6 @@ class AgentExecutor:
                 status="failed",
                 error=str(exc),
             )
+        finally:
+            if workbench is not None:
+                await workbench.disconnect_all()
