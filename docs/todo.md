@@ -846,9 +846,8 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Create `frontend/lighthouserc.yaml` — thresholds: performance warn >0.8, accessibility error >0.9
 
 ##### 13.7B Prompt Benchmark (Dev Mode)
-- [ ] Add `BenchmarkPrompt` handler (behind `DEV_MODE` env check)
-- [ ] Add dev routes to routes.go
-- [ ] Frontend: "Developer Tools" section in `SettingsPage.tsx` with prompt benchmark form
+- [x] (2026-02-24) Add `BenchmarkPrompt` handler (behind `DEV_MODE` env check) + dev route `POST /dev/benchmark`
+- [x] (2026-02-24) Frontend: "Developer Tools" section in `SettingsPage.tsx` with prompt benchmark form (model, prompt, temperature, max tokens, latency display)
 
 ##### 13.7C Refactorer Mode Improvement
 - [x] (2026-02-24) Add `Bash` to refactorer tools in `internal/domain/mode/presets.go`
@@ -870,8 +869,8 @@ For full completion history, see [project-status.md](project-status.md).
 - [ ] Create `frontend/e2e/security.spec.ts` — OWASP WSTG tests: injection, broken auth, IDOR, CORS, headers, CSRF, path traversal
 
 ##### 13.9B Policy "Effective Permission Preview"
-- [ ] Add "Preview" mode to `PolicyPanel.tsx` showing matched rule + reason for a given tool call
-  - Reuses existing `POST /policies/{name}/evaluate` endpoint returning `EvaluationResult`
+- [x] (2026-02-24) Add "Preview" mode to `PolicyPanel.tsx` showing matched rule + reason for a given tool call
+  - Full EvaluationResult display (decision, scope, matched_rule, reason) + standalone preview view
 
 ##### 13.9C Retrieval Sub-Agent Enhancements
 - [ ] Add configurable `expansion_prompt` field to project config

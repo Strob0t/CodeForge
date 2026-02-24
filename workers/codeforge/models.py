@@ -252,6 +252,7 @@ class SubAgentSearchRequest(BaseModel):
     model: str = ""
     rerank: bool = True
     scope_id: str = ""
+    expansion_prompt: str = ""
 
     @field_validator("top_k")
     @classmethod
@@ -274,6 +275,10 @@ class SubAgentSearchResult(BaseModel):
     expanded_queries: list[str] = Field(default_factory=list)
     total_candidates: int = 0
     error: str = ""
+    model: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
 
 
 # --- GraphRAG Models (Phase 6D) ---

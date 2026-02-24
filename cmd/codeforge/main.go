@@ -17,11 +17,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
+	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
 	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
+	"github.com/Strob0t/CodeForge/internal/adapter/opencode"
+	"github.com/Strob0t/CodeForge/internal/adapter/openhands"
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
+	"github.com/Strob0t/CodeForge/internal/adapter/plandex"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	ristrettoAdapter "github.com/Strob0t/CodeForge/internal/adapter/ristretto"
 	"github.com/Strob0t/CodeForge/internal/adapter/tiered"
@@ -150,6 +154,10 @@ func run() error {
 
 	// --- Agent Backends ---
 	aider.Register(queue)
+	goose.Register(queue)
+	opencode.Register(queue)
+	openhands.Register(queue)
+	plandex.Register(queue)
 
 	// --- Services ---
 	hub := ws.NewHub(cfg.Server.CORSOrigin, middleware.TenantIDFromContext)
@@ -265,6 +273,7 @@ func run() error {
 
 	// --- Retrieval Service (Phase 6B) ---
 	retrievalSvc := service.NewRetrievalService(store, queue, hub, &cfg.Orchestrator)
+	retrievalSvc.SetEventStore(eventStore)
 	retrievalCancels, err := retrievalSvc.StartSubscribers(ctx)
 	if err != nil {
 		return fmt.Errorf("retrieval subscribers: %w", err)

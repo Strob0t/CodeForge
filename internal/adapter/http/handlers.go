@@ -1247,7 +1247,13 @@ func (h *Handlers) AgentSearchProject(w http.ResponseWriter, r *http.Request) {
 		rerank = *req.Rerank
 	}
 
-	result, err := h.Retrieval.SubAgentSearchSync(r.Context(), projectID, req.Query, topK, maxQueries, model, rerank)
+	// Look up project-specific expansion prompt from config.
+	var expansionPrompt string
+	if proj, projErr := h.Projects.Get(r.Context(), projectID); projErr == nil && proj.Config != nil {
+		expansionPrompt = proj.Config["expansion_prompt"]
+	}
+
+	result, err := h.Retrieval.SubAgentSearchSync(r.Context(), projectID, req.Query, topK, maxQueries, model, rerank, expansionPrompt)
 	if err != nil {
 		slog.Error("search timed out", "error", err)
 		writeError(w, http.StatusGatewayTimeout, "search timed out")

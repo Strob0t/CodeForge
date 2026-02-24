@@ -12,8 +12,10 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
@@ -98,6 +100,7 @@ type RetrievalService struct {
 	queue   messagequeue.Queue
 	hub     broadcast.Broadcaster
 	orchCfg *config.Orchestrator
+	events  eventstore.Store
 
 	mu      sync.RWMutex
 	indexes map[string]*RetrievalIndexInfo
@@ -122,6 +125,11 @@ func NewRetrievalService(store database.Store, queue messagequeue.Queue, hub bro
 		searchWaiter:   newSyncWaiter[messagequeue.RetrievalSearchResultPayload]("search"),
 		subAgentWaiter: newSyncWaiter[messagequeue.SubAgentSearchResultPayload]("subagent"),
 	}
+}
+
+// SetEventStore injects the event store used for recording sub-agent LLM costs.
+func (s *RetrievalService) SetEventStore(es eventstore.Store) {
+	s.events = es
 }
 
 // RequestIndex publishes a request for index building to the Python worker.
@@ -266,7 +274,8 @@ func (s *RetrievalService) HandleSearchResult(_ context.Context, payload *messag
 }
 
 // SubAgentSearchSync sends a sub-agent search request and waits synchronously for the result.
-func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, query string, topK, maxQueries int, model string, rerank bool) (*messagequeue.SubAgentSearchResultPayload, error) {
+// expansionPrompt is optional; when non-empty it overrides the default query expansion system prompt.
+func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, query string, topK, maxQueries int, model string, rerank bool, expansionPrompt ...string) (*messagequeue.SubAgentSearchResultPayload, error) {
 	// Fast-fail if the worker recently failed (#3).
 	if s.isUnhealthy(&s.lastSubAgentFailure) {
 		return nil, fmt.Errorf("subagent search skipped: worker recently unhealthy (project %s)", projectID)
@@ -289,6 +298,9 @@ func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, qu
 		MaxQueries: maxQueries,
 		Model:      model,
 		Rerank:     rerank,
+	}
+	if len(expansionPrompt) > 0 {
+		payload.ExpansionPrompt = expansionPrompt[0]
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -320,9 +332,38 @@ func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, qu
 	}
 }
 
-// HandleSubAgentSearchResult delivers a sub-agent search result to the waiting caller.
-func (s *RetrievalService) HandleSubAgentSearchResult(_ context.Context, payload *messagequeue.SubAgentSearchResultPayload) {
+// HandleSubAgentSearchResult delivers a sub-agent search result to the waiting caller
+// and records any reported LLM cost in the event store for cost aggregation.
+func (s *RetrievalService) HandleSubAgentSearchResult(ctx context.Context, payload *messagequeue.SubAgentSearchResultPayload) {
 	s.subAgentWaiter.deliver(payload.RequestID, payload)
+
+	// Record sub-agent LLM cost when the event store is available and cost > 0.
+	if s.events != nil && (payload.CostUSD > 0 || payload.TokensIn > 0 || payload.TokensOut > 0) {
+		costPayload, err := json.Marshal(map[string]string{
+			"query":      payload.Query,
+			"request_id": payload.RequestID,
+			"hits":       fmt.Sprintf("%d", len(payload.Results)),
+		})
+		if err != nil {
+			slog.Error("failed to marshal subagent cost payload", "error", err)
+			return
+		}
+		ev := event.AgentEvent{
+			ProjectID: payload.ProjectID,
+			Type:      event.TypeToolCallResultEv,
+			Payload:   costPayload,
+			RequestID: payload.RequestID,
+			Version:   1,
+			ToolName:  "retrieval",
+			Model:     payload.Model,
+			TokensIn:  payload.TokensIn,
+			TokensOut: payload.TokensOut,
+			CostUSD:   payload.CostUSD,
+		}
+		if err := s.events.Append(ctx, &ev); err != nil {
+			slog.Error("failed to record subagent search cost", "project_id", payload.ProjectID, "error", err)
+		}
+	}
 }
 
 // SubAgentDefaults returns the orchestrator's sub-agent configuration defaults.

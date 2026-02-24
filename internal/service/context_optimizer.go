@@ -242,12 +242,18 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 func (s *ContextOptimizerService) fetchRetrievalEntriesWithHits(ctx context.Context, projectID, prompt string) ([]cfcontext.ContextEntry, []messagequeue.RetrievalSearchHitPayload) {
 	// Try sub-agent search first if enabled.
 	if s.orchCfg.SubAgentEnabled {
+		// Look up project-specific expansion prompt from config.
+		var expansionPrompt string
+		if proj, projErr := s.store.GetProject(ctx, projectID); projErr == nil && proj.Config != nil {
+			expansionPrompt = proj.Config["expansion_prompt"]
+		}
 		subResult, err := s.retrieval.SubAgentSearchSync(
 			ctx, projectID, prompt,
 			s.orchCfg.RetrievalTopK,
 			s.orchCfg.SubAgentMaxQueries,
 			s.orchCfg.SubAgentModel,
 			s.orchCfg.SubAgentRerank,
+			expansionPrompt,
 		)
 		if err == nil {
 			slog.Info("retrieval via sub-agent", "project_id", projectID, "hits", len(subResult.Results), "queries", len(subResult.ExpandedQueries))

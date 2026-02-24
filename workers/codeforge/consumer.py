@@ -399,7 +399,9 @@ class TaskConsumer:
                 max_queries=request.max_queries,
                 model=request.model,
                 rerank=request.rerank,
+                expansion_prompt=request.expansion_prompt,
             )
+            cost = self._subagent.last_cost
 
             result = SubAgentSearchResult(
                 project_id=request.project_id,
@@ -408,6 +410,10 @@ class TaskConsumer:
                 results=hits,
                 expanded_queries=expanded_queries,
                 total_candidates=total_candidates,
+                model=cost.model,
+                tokens_in=cost.tokens_in,
+                tokens_out=cost.tokens_out,
+                cost_usd=cost.cost_usd,
             )
 
             if self._js is not None:

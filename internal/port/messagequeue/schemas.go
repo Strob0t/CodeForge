@@ -274,14 +274,15 @@ type RetrievalSearchHitPayload struct {
 
 // SubAgentSearchRequestPayload is the schema for retrieval.subagent.request messages.
 type SubAgentSearchRequestPayload struct {
-	ProjectID  string `json:"project_id"`
-	Query      string `json:"query"`
-	RequestID  string `json:"request_id"`
-	TopK       int    `json:"top_k"`
-	MaxQueries int    `json:"max_queries"`
-	Model      string `json:"model"`
-	Rerank     bool   `json:"rerank"`
-	ScopeID    string `json:"scope_id,omitempty"`
+	ProjectID       string `json:"project_id"`
+	Query           string `json:"query"`
+	RequestID       string `json:"request_id"`
+	TopK            int    `json:"top_k"`
+	MaxQueries      int    `json:"max_queries"`
+	Model           string `json:"model"`
+	Rerank          bool   `json:"rerank"`
+	ScopeID         string `json:"scope_id,omitempty"`
+	ExpansionPrompt string `json:"expansion_prompt,omitempty"`
 }
 
 // SubAgentSearchResultPayload is the schema for retrieval.subagent.result messages.
@@ -293,6 +294,10 @@ type SubAgentSearchResultPayload struct {
 	ExpandedQueries []string                    `json:"expanded_queries"`
 	TotalCandidates int                         `json:"total_candidates"`
 	Error           string                      `json:"error,omitempty"`
+	Model           string                      `json:"model,omitempty"`
+	TokensIn        int64                       `json:"tokens_in,omitempty"`
+	TokensOut       int64                       `json:"tokens_out,omitempty"`
+	CostUSD         float64                     `json:"cost_usd,omitempty"`
 }
 
 // --- GraphRAG payloads (Phase 6D) ---

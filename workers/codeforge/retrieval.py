@@ -793,8 +793,26 @@ class RetrievalSubAgent:
     def __init__(self, retriever: HybridRetriever, llm: LiteLLMClient) -> None:
         self._retriever = retriever
         self._llm = llm
+        self.last_cost = self.CostAccumulator()
 
     _MAX_RERANK_CANDIDATES = 30
+
+    @dataclass
+    class CostAccumulator:
+        """Tracks aggregate LLM cost across sub-agent calls."""
+
+        model: str = ""
+        tokens_in: int = 0
+        tokens_out: int = 0
+        cost_usd: float = 0.0
+
+        def add(self, resp: object) -> None:
+            """Add cost from a CompletionResponse (duck-typed)."""
+            self.tokens_in += getattr(resp, "tokens_in", 0)
+            self.tokens_out += getattr(resp, "tokens_out", 0)
+            self.cost_usd += getattr(resp, "cost_usd", 0.0)
+            if not self.model and getattr(resp, "model", ""):
+                self.model = resp.model  # type: ignore[union-attr]
 
     async def search(
         self,
@@ -804,13 +822,17 @@ class RetrievalSubAgent:
         max_queries: int = 5,
         model: str = "",
         rerank: bool = True,
+        expansion_prompt: str = "",
     ) -> tuple[list[RetrievalSearchHit], list[str], int]:
         """Multi-step retrieval: expand -> parallel search -> dedup -> rerank.
 
         Returns (results, expanded_queries, total_candidates_before_dedup).
+        After completion, ``self.last_cost`` holds the accumulated LLM cost.
         """
+        cost = self.CostAccumulator()
+
         # 1. LLM query expansion
-        expanded = await self._expand_queries(query, max_queries, model)
+        expanded = await self._expand_queries(query, max_queries, model, expansion_prompt, cost)
         if not expanded:
             expanded = [query]
 
@@ -823,10 +845,11 @@ class RetrievalSubAgent:
 
         # 4. Optional LLM re-ranking
         if rerank and len(deduped) > top_k:
-            deduped = await self._rerank(query, deduped, top_k, model)
+            deduped = await self._rerank(query, deduped, top_k, model, cost)
         else:
             deduped = sorted(deduped, key=lambda r: r.score, reverse=True)[:top_k]
 
+        self.last_cost = cost
         return deduped, expanded, total_candidates
 
     async def _expand_queries(
@@ -834,16 +857,24 @@ class RetrievalSubAgent:
         query: str,
         max_queries: int,
         model: str,
+        expansion_prompt: str = "",
+        cost: CostAccumulator | None = None,
     ) -> list[str]:
-        """Use LLM to expand a task prompt into focused search queries."""
+        """Use LLM to expand a task prompt into focused search queries.
+
+        If *expansion_prompt* is non-empty, it replaces the default system prompt.
+        """
+        system = expansion_prompt or _EXPAND_SYSTEM
         prompt = f"Expand this task description into {max_queries} focused code search queries:\n\n{query}"
         try:
             resp = await self._llm.completion(
                 prompt=prompt,
                 model=model,
-                system=_EXPAND_SYSTEM,
+                system=system,
                 temperature=0.3,
             )
+            if cost is not None:
+                cost.add(resp)
             lines = [line.strip() for line in resp.content.splitlines() if line.strip()]
             return lines[:max_queries]
         except Exception:
@@ -904,6 +935,7 @@ class RetrievalSubAgent:
         hits: list[RetrievalSearchHit],
         top_k: int,
         model: str,
+        cost: CostAccumulator | None = None,
     ) -> list[RetrievalSearchHit]:
         """Use LLM to re-rank candidates by relevance to the original query."""
         # Cap candidates to avoid exceeding context window
@@ -927,6 +959,8 @@ class RetrievalSubAgent:
                 system=_RERANK_SYSTEM,
                 temperature=0.0,
             )
+            if cost is not None:
+                cost.add(resp)
             # Parse ranking: extract numbers from response lines
             ranked_indices: list[int] = []
             seen: set[int] = set()
