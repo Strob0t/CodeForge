@@ -283,7 +283,7 @@
 #### Protocols
 
 - [x] (2026-02-19) A2A protocol stub (agent discovery via `/.well-known/agent.json`, task create/get via `/a2a/tasks`, AgentCard with 2 skills)
-- [ ] AG-UI protocol integration (type definitions only — 8 event structs in `agui_events.go` + 8 TS interfaces, but no events emitted, no WebSocket wiring, no frontend integration)
+- [x] (2026-02-24) AG-UI protocol integration — events emitted in runtime.go (tool_call, tool_result, run_started, run_finished) + conversation.go (text_message); frontend websocket.ts AG-UI event handlers; ChatPanel streaming display
 
 #### Integrations
 
@@ -834,16 +834,16 @@ For full completion history, see [project-status.md](project-status.md).
 
 #### 13.6 Automatic Orchestration (Phase 6)
 
-- [ ] Add `SetupProject(ctx, id)` to `internal/service/project.go` — chain: clone → detect stack → detect specs → import specs (each step idempotent)
-- [ ] Add `SetupProject` handler for `POST /api/v1/projects/{id}/setup`
-- [ ] Frontend: after project creation, call setup, show progress, navigate to project with chat open
+- [x] (2026-02-24) Add `SetupProject(ctx, id)` to `internal/service/project.go` — chain: clone → detect stack → detect specs → import specs (each step idempotent)
+- [x] (2026-02-24) Add `SetupProject` handler for `POST /api/v1/projects/{id}/setup`
+- [x] (2026-02-24) Frontend: after project creation, fire-and-forget auto-setup with toast notification
 - [ ] Advanced settings toggle for fine-grained workflow configuration (mode selection, team composition, autonomy)
 
 #### 13.7 Dev Tooling & CI (Phase 7)
 
 ##### 13.7A Lighthouse CI
-- [ ] Add `lighthouse` job to `.github/workflows/ci.yml` using `treosh/lighthouse-ci-action@v12`
-- [ ] Create `frontend/lighthouserc.yaml` — thresholds: performance warn >0.8, accessibility error >0.9
+- [x] (2026-02-24) Add `lighthouse` job to `.github/workflows/ci.yml` using `treosh/lighthouse-ci-action@v12`
+- [x] (2026-02-24) Create `frontend/lighthouserc.yaml` — thresholds: performance warn >0.8, accessibility error >0.9
 
 ##### 13.7B Prompt Benchmark (Dev Mode)
 - [ ] Add `BenchmarkPrompt` handler (behind `DEV_MODE` env check)
@@ -856,13 +856,12 @@ For full completion history, see [project-status.md](project-status.md).
 
 #### 13.8 AG-UI Protocol Integration (Phase 8)
 
-- [ ] Wire existing 8 event types in `internal/adapter/ws/agui_events.go` into Hub broadcasts
-- [ ] Add `BroadcastAGUI()` method to `internal/adapter/ws/hub.go` for AG-UI formatted events
-- [ ] Emit `agui.text_message` during LLM response streaming in `internal/service/conversation.go`
-- [ ] Emit `agui.tool_call_start` / `agui.tool_call_end` during run execution in `internal/service/runtime.go`
-- [ ] Add AG-UI event handlers to `frontend/src/api/websocket.ts`
-- [ ] Consume AG-UI events in `ChatPanel.tsx` for real-time streaming
-- [ ] Wire remaining events: `agui.state_delta`, `agui.run_started`/`run_finished`, `agui.step_started`/`step_finished`
+- [x] (2026-02-24) Wire AG-UI events into Hub broadcasts via existing `BroadcastEvent()` method
+- [x] (2026-02-24) Emit `agui.text_message` during LLM response in `internal/service/conversation.go`
+- [x] (2026-02-24) Emit `agui.tool_call` / `agui.tool_result` / `agui.run_started` / `agui.run_finished` in `internal/service/runtime.go`
+- [x] (2026-02-24) Add AG-UI event types + `onAGUIEvent()` handler to `frontend/src/api/websocket.ts`
+- [x] (2026-02-24) Consume AG-UI events in `ChatPanel.tsx` — streaming content display, thinking indicator, auto-refetch on run_finished
+- [ ] Wire remaining events: `agui.state_delta`, `agui.step_started`/`step_finished` (deferred — requires plan step lifecycle)
 
 #### 13.9 Outstanding Items (Phase 9)
 

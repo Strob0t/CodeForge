@@ -35,6 +35,8 @@ export default function DashboardPage() {
   const [stackResult, setStackResult] = createSignal<StackDetectionResult | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [parsingUrl, setParsingUrl] = createSignal(false);
+  const [formMode, setFormMode] = createSignal<"remote" | "local">("remote");
+  const [localPath, setLocalPath] = createSignal("");
 
   let urlDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(urlDebounceTimer));
@@ -48,6 +50,40 @@ export default function DashboardPage() {
     setError("");
 
     const data = form();
+    const isLocal = formMode() === "local" && !isEditing();
+
+    if (isLocal) {
+      const path = localPath().trim();
+      if (!path) {
+        setError(t("dashboard.toast.nameRequired"));
+        return;
+      }
+      const derivedName = data.name.trim() || path.split("/").filter(Boolean).pop() || "";
+      try {
+        const created = await api.projects.create({
+          name: derivedName,
+          description: data.description,
+          repo_url: "",
+          provider: "",
+          config: {},
+        });
+        toast("success", t("dashboard.toast.created"));
+        await api.projects.adopt(created.id, { path });
+        toast("info", t("dashboard.toast.setupStarted"));
+        setForm({ ...emptyForm });
+        setLocalPath("");
+        setShowForm(false);
+        setEditingId(null);
+        setStackResult(null);
+        await refetch();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
+        setError(msg);
+        toast("error", msg);
+      }
+      return;
+    }
+
     if (!data.name.trim() && !data.repo_url.trim()) {
       setError(t("dashboard.toast.nameRequired"));
       return;
@@ -106,6 +142,8 @@ export default function DashboardPage() {
     setShowForm(false);
     setEditingId(null);
     setForm({ ...emptyForm });
+    setLocalPath("");
+    setFormMode("remote");
     setError("");
   }
 
@@ -196,11 +234,61 @@ export default function DashboardPage() {
           onSubmit={handleSubmit}
           class="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5"
         >
+          {/* Mode tab toggle (hidden when editing) */}
+          <Show when={!isEditing()}>
+            <div class="mb-4 flex gap-0 rounded-md border border-gray-300 dark:border-gray-600 w-fit overflow-hidden">
+              <button
+                type="button"
+                class={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  formMode() === "remote"
+                    ? "bg-blue-600 text-white"
+                    : "bg-transparent text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                }`}
+                onClick={() => setFormMode("remote")}
+              >
+                {t("dashboard.form.modeRemote")}
+              </button>
+              <button
+                type="button"
+                class={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                  formMode() === "local"
+                    ? "bg-blue-600 text-white"
+                    : "bg-transparent text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                }`}
+                onClick={() => setFormMode("local")}
+              >
+                {t("dashboard.form.modeLocal")}
+              </button>
+            </div>
+          </Show>
+
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* Local mode: path field */}
+            <Show when={formMode() === "local" && !isEditing()}>
+              <div class="sm:col-span-2">
+                <label
+                  for="local_path"
+                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("dashboard.form.path")} <span aria-hidden="true">*</span>
+                  <span class="sr-only">(required)</span>
+                </label>
+                <input
+                  id="local_path"
+                  type="text"
+                  value={localPath()}
+                  onInput={(e) => setLocalPath(e.currentTarget.value)}
+                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder={t("dashboard.form.pathPlaceholder")}
+                  aria-required="true"
+                />
+              </div>
+            </Show>
+
             <div>
               <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 {t("dashboard.form.name")}
-                <Show when={!form().repo_url.trim()}>
+                <Show when={formMode() === "remote" && !form().repo_url.trim()}>
                   {" "}
                   <span aria-hidden="true">*</span>
                   <span class="sr-only">(required)</span>
@@ -213,47 +301,55 @@ export default function DashboardPage() {
                 onInput={(e) => updateField("name", e.currentTarget.value)}
                 class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder={t("dashboard.form.namePlaceholder")}
-                aria-required={!form().repo_url.trim() ? "true" : "false"}
+                aria-required={
+                  formMode() === "remote" && !form().repo_url.trim() ? "true" : "false"
+                }
               />
             </div>
 
-            <div>
-              <label
-                for="provider"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("dashboard.form.provider")}
-              </label>
-              <select
-                id="provider"
-                value={form().provider}
-                onChange={(e) => updateField("provider", e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="">{t("dashboard.form.providerPlaceholder")}</option>
-                <For each={providers() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
-              </select>
-            </div>
+            {/* Remote mode: provider dropdown */}
+            <Show when={formMode() === "remote" || isEditing()}>
+              <div>
+                <label
+                  for="provider"
+                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("dashboard.form.provider")}
+                </label>
+                <select
+                  id="provider"
+                  value={form().provider}
+                  onChange={(e) => updateField("provider", e.currentTarget.value)}
+                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">{t("dashboard.form.providerPlaceholder")}</option>
+                  <For each={providers() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
+                </select>
+              </div>
+            </Show>
 
-            <div class="sm:col-span-2">
-              <label
-                for="repo_url"
-                class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                {t("dashboard.form.repoUrl")}
-                <Show when={parsingUrl()}>
-                  <span class="ml-2 text-xs text-gray-400">detecting...</span>
-                </Show>
-              </label>
-              <input
-                id="repo_url"
-                type="text"
-                value={form().repo_url}
-                onInput={(e) => handleRepoUrlInput(e.currentTarget.value)}
-                class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder={t("dashboard.form.repoUrlPlaceholder")}
-              />
-            </div>
+            {/* Remote mode: repo URL field */}
+            <Show when={formMode() === "remote" || isEditing()}>
+              <div class="sm:col-span-2">
+                <label
+                  for="repo_url"
+                  class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {t("dashboard.form.repoUrl")}
+                  <Show when={parsingUrl()}>
+                    <span class="ml-2 text-xs text-gray-400">detecting...</span>
+                  </Show>
+                </label>
+                <input
+                  id="repo_url"
+                  type="text"
+                  value={form().repo_url}
+                  onInput={(e) => handleRepoUrlInput(e.currentTarget.value)}
+                  class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder={t("dashboard.form.repoUrlPlaceholder")}
+                />
+              </div>
+            </Show>
 
             <div class="sm:col-span-2">
               <label

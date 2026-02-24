@@ -264,6 +264,12 @@ export const api = {
       request<import("./types").SetupResult>(`/projects/${encodeURIComponent(id)}/setup`, {
         method: "POST",
       }),
+
+    adopt: (id: string, body: { path: string }) =>
+      request<Project>(`/projects/${encodeURIComponent(id)}/adopt`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 
   agents: {
