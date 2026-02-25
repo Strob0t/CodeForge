@@ -1,5 +1,5 @@
 import { useParams } from "@solidjs/router";
-import { createResource, createSignal, onCleanup, Show } from "solid-js";
+import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { BudgetAlertEvent } from "~/api/types";
@@ -11,6 +11,12 @@ import { Alert, Badge, Button } from "~/ui";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
 import RoadmapPanel from "./RoadmapPanel";
+
+const SPLIT_RATIO_KEY = "codeforge-split-ratio";
+const ROADMAP_COLLAPSED_KEY = "codeforge-roadmap-collapsed";
+const DEFAULT_SPLIT = 50;
+const MIN_SPLIT = 20;
+const MAX_SPLIT = 80;
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
@@ -45,6 +51,57 @@ export default function ProjectDetailPage() {
   const [error, setError] = createSignal("");
   const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+
+  // Resizable split + collapsible roadmap
+  const [splitRatio, setSplitRatio] = createSignal(DEFAULT_SPLIT);
+  const [roadmapCollapsed, setRoadmapCollapsed] = createSignal(false);
+  const [dragging, setDragging] = createSignal(false);
+  const [isNarrow, setIsNarrow] = createSignal(false);
+  let containerRef: HTMLDivElement | undefined;
+
+  onMount(() => {
+    const savedRatio = localStorage.getItem(SPLIT_RATIO_KEY);
+    if (savedRatio) {
+      const n = Number(savedRatio);
+      if (n >= MIN_SPLIT && n <= MAX_SPLIT) setSplitRatio(n);
+    }
+    setRoadmapCollapsed(localStorage.getItem(ROADMAP_COLLAPSED_KEY) === "true");
+
+    const mq = window.matchMedia("(max-width: 768px)");
+    setIsNarrow(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
+    mq.addEventListener("change", handler);
+    onCleanup(() => mq.removeEventListener("change", handler));
+  });
+
+  function persistSplit(ratio: number) {
+    setSplitRatio(ratio);
+    localStorage.setItem(SPLIT_RATIO_KEY, String(ratio));
+  }
+
+  function toggleRoadmap() {
+    const next = !roadmapCollapsed();
+    setRoadmapCollapsed(next);
+    localStorage.setItem(ROADMAP_COLLAPSED_KEY, String(next));
+  }
+
+  function handlePointerDown(e: PointerEvent) {
+    e.preventDefault();
+    setDragging(true);
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: PointerEvent) {
+    if (!dragging() || !containerRef) return;
+    const rect = containerRef.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    persistSplit(Math.max(MIN_SPLIT, Math.min(MAX_SPLIT, Math.round(pct))));
+  }
+
+  function handlePointerUp() {
+    setDragging(false);
+  }
 
   // WebSocket event handling
   const cleanup = onMessage((msg) => {
@@ -325,11 +382,94 @@ export default function ProjectDetailPage() {
             </Show>
 
             {/* Side-by-side Layout: Roadmap (left) | Chat (right) */}
-            <div class="flex flex-1 min-h-0">
-              <div class="w-1/2 border-r border-cf-border overflow-y-auto p-4">
-                <RoadmapPanel projectId={params.id} onError={setError} />
-              </div>
-              <div class="w-1/2 flex flex-col min-h-0">
+            <div
+              ref={containerRef}
+              class={`flex flex-1 min-h-0 ${isNarrow() ? "flex-col" : "flex-row"}`}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+            >
+              <Show when={!roadmapCollapsed()}>
+                <div
+                  class="overflow-y-auto p-4"
+                  style={
+                    isNarrow()
+                      ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }
+                      : {
+                          width: `${splitRatio()}%`,
+                          "border-right": "1px solid var(--cf-border)",
+                        }
+                  }
+                >
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-cf-text-secondary">
+                      {t("detail.tab.roadmap")}
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleRoadmap}
+                      title={t("detail.roadmap.collapse")}
+                    >
+                      <svg
+                        class="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        stroke-width="2"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                        />
+                      </svg>
+                    </Button>
+                  </div>
+                  <RoadmapPanel projectId={params.id} onError={setError} />
+                </div>
+
+                {/* Draggable Divider */}
+                <Show when={!isNarrow()}>
+                  <div
+                    class={`w-1.5 flex-shrink-0 cursor-col-resize hover:bg-cf-accent/30 transition-colors ${dragging() ? "bg-cf-accent/40" : "bg-transparent"}`}
+                    onPointerDown={handlePointerDown}
+                  />
+                </Show>
+              </Show>
+
+              <div
+                class="flex flex-col min-h-0"
+                style={
+                  isNarrow()
+                    ? { height: roadmapCollapsed() ? "100%" : "50%" }
+                    : { width: roadmapCollapsed() ? "100%" : `${100 - splitRatio()}%` }
+                }
+              >
+                <Show when={roadmapCollapsed()}>
+                  <div class="flex items-center px-4 py-1 border-b border-cf-border flex-shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleRoadmap}
+                      title={t("detail.roadmap.expand")}
+                    >
+                      <svg
+                        class="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        stroke-width="2"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                        />
+                      </svg>
+                    </Button>
+                    <span class="text-xs text-cf-text-muted ml-1">{t("detail.tab.roadmap")}</span>
+                  </div>
+                </Show>
                 <ChatPanel projectId={params.id} />
               </div>
             </div>
