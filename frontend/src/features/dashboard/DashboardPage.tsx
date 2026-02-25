@@ -383,7 +383,7 @@ export default function DashboardPage() {
                 </FormField>
 
                 {/* Remote mode: provider dropdown */}
-                <Show when={formMode() === "remote" || isEditing()}>
+                <Show when={(formMode() === "remote" || isEditing()) && providers()}>
                   <FormField label={t("dashboard.form.provider")} id="provider">
                     <Select
                       id="provider"
