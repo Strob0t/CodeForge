@@ -11,7 +11,7 @@ class MCPServerDef(BaseModel):
     id: str
     name: str
     description: str = ""
-    transport: str  # "stdio" or "sse"
+    transport: str  # "stdio", "sse", or "streamable_http"
     command: str = ""
     args: list[str] = Field(default_factory=list)
     url: str = ""

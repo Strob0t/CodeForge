@@ -40,7 +40,9 @@ export default function MCPServersPage() {
   // -- Form state --
   const [formName, setFormName] = createSignal("");
   const [formDesc, setFormDesc] = createSignal("");
-  const [formTransport, setFormTransport] = createSignal<"stdio" | "sse">("stdio");
+  const [formTransport, setFormTransport] = createSignal<"stdio" | "sse" | "streamable_http">(
+    "stdio",
+  );
   const [formCommand, setFormCommand] = createSignal("");
   const [formArgs, setFormArgs] = createSignal("");
   const [formUrl, setFormUrl] = createSignal("");
@@ -122,7 +124,10 @@ export default function MCPServersPage() {
                 .map((s) => s.trim())
                 .filter(Boolean)
             : undefined,
-        url: formTransport() === "sse" ? formUrl().trim() || undefined : undefined,
+        url:
+          formTransport() === "sse" || formTransport() === "streamable_http"
+            ? formUrl().trim() || undefined
+            : undefined,
         env: Object.keys(envObj).length > 0 ? envObj : undefined,
         enabled: formEnabled(),
       };
@@ -260,10 +265,13 @@ export default function MCPServersPage() {
                   <Select
                     id="mcp-transport"
                     value={formTransport()}
-                    onChange={(e) => setFormTransport(e.currentTarget.value as "stdio" | "sse")}
+                    onChange={(e) =>
+                      setFormTransport(e.currentTarget.value as "stdio" | "sse" | "streamable_http")
+                    }
                   >
                     <option value="stdio">{t("mcp.transport.stdio")}</option>
                     <option value="sse">{t("mcp.transport.sse")}</option>
+                    <option value="streamable_http">{t("mcp.transport.streamable_http")}</option>
                   </Select>
                 </FormField>
 
@@ -302,8 +310,8 @@ export default function MCPServersPage() {
                   </FormField>
                 </Show>
 
-                {/* URL (sse only) */}
-                <Show when={formTransport() === "sse"}>
+                {/* URL (sse / streamable_http) */}
+                <Show when={formTransport() === "sse" || formTransport() === "streamable_http"}>
                   <FormField label={t("mcp.form.url")} id="mcp-url" class="sm:col-span-2">
                     <Input
                       id="mcp-url"

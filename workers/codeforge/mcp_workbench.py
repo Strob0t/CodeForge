@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from codeforge.mcp_models import MCPServerDef, MCPTool, MCPToolCallResult
 
@@ -52,6 +53,13 @@ class McpServerConnection:
         elif self._def.transport == "sse":
             read_stream, write_stream = await self._exit_stack.enter_async_context(
                 sse_client(
+                    url=self._def.url,
+                    headers=self._def.headers or None,
+                )
+            )
+        elif self._def.transport == "streamable_http":
+            read_stream, write_stream = await self._exit_stack.enter_async_context(
+                streamablehttp_client(
                     url=self._def.url,
                     headers=self._def.headers or None,
                 )

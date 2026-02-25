@@ -79,6 +79,24 @@ func TestServerDef_Validate(t *testing.T) {
 			errMsg:  "transport is required",
 		},
 		{
+			name: "valid streamable_http server",
+			def: ServerDef{
+				Name:      "streaming-server",
+				Transport: TransportStreamableHTTP,
+				URL:       "http://localhost:9090/mcp",
+			},
+			wantErr: false,
+		},
+		{
+			name: "streamable_http without url",
+			def: ServerDef{
+				Name:      "test-server",
+				Transport: TransportStreamableHTTP,
+			},
+			wantErr: true,
+			errMsg:  "url is required for streamable_http transport",
+		},
+		{
 			name: "stdio with all fields set",
 			def: ServerDef{
 				Name:      "full-server",

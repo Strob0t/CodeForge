@@ -1474,13 +1474,15 @@ Bug Fixes --- independent, anytime
 
 #### 19G: MCP Streamable HTTP Transport
 
-- [ ] **Go Domain:** Add `TransportStreamableHTTP` (`streamable_http`) to `TransportType` in `internal/domain/mcp/mcp.go`
-- [ ] **Go Domain:** Update `validTransports` map and `Validate()` — `streamable_http` requires `url` field (like SSE)
-- [ ] **DB Migration:** New migration `0XX_mcp_add_streamable_http.sql` — alter CHECK constraint to `('stdio', 'sse', 'streamable_http')`
-- [ ] **Frontend:** Add `streamable_http` option to transport dropdown in `MCPServersPage.tsx`
-- [ ] **Frontend:** Show URL field for `streamable_http` (same as SSE), add Headers support for both SSE and streamable_http
-- [ ] **Frontend:** Update TypeScript types (`MCPServer.transport` union type)
-- [ ] **Python Worker:** Add `streamable_http` case in `McpServerConnection.connect()` using `mcp.client.streamable_http.streamablehttp_client()`
+- [x] (2026-02-25) **Go Domain:** Add `TransportStreamableHTTP` (`streamable_http`) to `TransportType` in `internal/domain/mcp/mcp.go`
+- [x] (2026-02-25) **Go Domain:** Update `validTransports` map and `Validate()` — `streamable_http` requires `url` field (like SSE)
+- [x] (2026-02-25) **DB Migration:** New migration `040_mcp_add_streamable_http.sql` — alter CHECK constraint to `('stdio', 'sse', 'streamable_http')`
+- [x] (2026-02-25) **Frontend:** Add `streamable_http` option to transport dropdown in `MCPServersPage.tsx`
+- [x] (2026-02-25) **Frontend:** Show URL field for `streamable_http` (same as SSE), add Headers support for both SSE and streamable_http
+- [x] (2026-02-25) **Frontend:** Update TypeScript types (`MCPServer.transport` union type)
+- [x] (2026-02-25) **Python Worker:** Add `streamable_http` case in `McpServerConnection.connect()` using `mcp.client.streamable_http.streamablehttp_client()`
+- [x] (2026-02-25) **Go Tests:** Added `streamable_http` validation test cases (valid server + missing URL)
+- [x] (2026-02-25) **i18n:** Added `mcp.transport.streamable_http` key (EN + DE)
 
 #### 19H: MCP Server Pre-Save Validation (Real Connection Test)
 

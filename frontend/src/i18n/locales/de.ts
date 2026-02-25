@@ -1044,6 +1044,7 @@ const de: Translations = {
   "mcp.status.error": "Fehler",
   "mcp.transport.stdio": "stdio",
   "mcp.transport.sse": "SSE",
+  "mcp.transport.streamable_http": "Streamable HTTP",
   "mcp.form.name": "Name",
   "mcp.form.namePlaceholder": "z.B. filesystem-server",
   "mcp.form.description": "Beschreibung",

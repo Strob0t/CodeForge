@@ -1376,7 +1376,7 @@ export interface MCPServer {
   id: string;
   name: string;
   description: string;
-  transport: "stdio" | "sse";
+  transport: "stdio" | "sse" | "streamable_http";
   command: string;
   args: string[];
   url: string;
@@ -1398,7 +1398,7 @@ export interface MCPServerTool {
 export interface CreateMCPServerRequest {
   name: string;
   description?: string;
-  transport: "stdio" | "sse";
+  transport: "stdio" | "sse" | "streamable_http";
   command?: string;
   args?: string[];
   url?: string;

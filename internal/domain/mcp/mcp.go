@@ -14,14 +14,16 @@ import (
 type TransportType string
 
 const (
-	TransportStdio TransportType = "stdio"
-	TransportSSE   TransportType = "sse"
+	TransportStdio          TransportType = "stdio"
+	TransportSSE            TransportType = "sse"
+	TransportStreamableHTTP TransportType = "streamable_http"
 )
 
 // validTransports is the set of recognized transport types.
 var validTransports = map[TransportType]bool{
-	TransportStdio: true,
-	TransportSSE:   true,
+	TransportStdio:          true,
+	TransportSSE:            true,
+	TransportStreamableHTTP: true,
 }
 
 // ServerStatus represents the lifecycle state of an MCP server.
@@ -70,7 +72,7 @@ func (s *ServerDef) Validate() error {
 	}
 
 	if !validTransports[s.Transport] {
-		return fmt.Errorf("%w: invalid transport %q (must be \"stdio\" or \"sse\")", domain.ErrValidation, s.Transport)
+		return fmt.Errorf("%w: invalid transport %q (must be \"stdio\", \"sse\", or \"streamable_http\")", domain.ErrValidation, s.Transport)
 	}
 
 	switch s.Transport {
@@ -78,9 +80,9 @@ func (s *ServerDef) Validate() error {
 		if s.Command == "" {
 			return fmt.Errorf("%w: command is required for stdio transport", domain.ErrValidation)
 		}
-	case TransportSSE:
+	case TransportSSE, TransportStreamableHTTP:
 		if s.URL == "" {
-			return fmt.Errorf("%w: url is required for sse transport", domain.ErrValidation)
+			return fmt.Errorf("%w: url is required for %s transport", domain.ErrValidation, s.Transport)
 		}
 	}
 
