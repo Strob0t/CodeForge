@@ -322,6 +322,62 @@ Environment overrides: `CODEFORGE_AGENT_DEFAULT_MODEL`, `CODEFORGE_AGENT_MAX_CON
 | `frontend/src/features/project/ChatPanel.tsx` | Chat UI with agentic enhancements |
 | `frontend/src/features/project/ToolCallCard.tsx` | Tool call display component |
 
+### Benchmark Mode (Phase 20, Dev-Only)
+
+Structured evaluation framework for measuring agent and model quality. Only accessible when `APP_ENV=development`.
+
+#### Architecture
+
+Three-pillar evaluation stack running in the Python worker:
+
+1. **DeepEval** — LLM-as-judge metrics (correctness, faithfulness, relevancy, tool correctness) via `LiteLLMJudge` wrapper
+2. **AgentNeo** — Optional tracing for tool selection accuracy, goal decomposition, and plan adaptability
+3. **GEMMAS Collaboration** — Information Diversity Score (IDS) and Unnecessary Path Ratio (UPR) for multi-agent workflows
+
+#### Workflow
+
+1. User creates a benchmark run via `/benchmarks` page (selects dataset, model, metrics)
+2. Go Core stores run in `benchmark_runs` table and publishes `benchmark.run.request` to NATS
+3. Python worker loads YAML dataset, executes tasks against LLM, evaluates with selected metrics
+4. Results published back via `benchmark.run.result`, stored in `benchmark_results` table
+5. Frontend displays per-task scores, summary, and supports run-to-run comparison
+
+#### API Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/v1/benchmarks/runs` | Create benchmark run |
+| GET | `/api/v1/benchmarks/runs` | List all runs |
+| GET | `/api/v1/benchmarks/runs/{id}` | Get run details |
+| DELETE | `/api/v1/benchmarks/runs/{id}` | Delete run |
+| GET | `/api/v1/benchmarks/runs/{id}/results` | List results for run |
+| GET | `/api/v1/benchmarks/datasets` | List available datasets |
+| POST | `/api/v1/benchmarks/compare` | Compare two runs |
+
+All endpoints gated by `DevModeOnly` middleware.
+
+#### Key Files
+
+| File | Purpose |
+|------|---------|
+| `workers/codeforge/evaluation/runner.py` | BenchmarkRunner (dataset execution + evaluation) |
+| `workers/codeforge/evaluation/metrics.py` | DeepEval metric wrappers |
+| `workers/codeforge/evaluation/litellm_judge.py` | LiteLLM judge for DeepEval |
+| `workers/codeforge/evaluation/datasets.py` | Dataset loading and result persistence |
+| `workers/codeforge/evaluation/collaboration.py` | IDS + UPR collaboration metrics |
+| `workers/codeforge/evaluation/dag_builder.py` | CollaborationDAG from agent messages |
+| `workers/codeforge/tracing/setup.py` | TracingManager with AgentNeo/NoOp fallback |
+| `workers/codeforge/tracing/metrics.py` | AgentNeo metric wrappers |
+| `internal/service/benchmark.go` | Go benchmark service (CRUD + dataset listing) |
+| `internal/adapter/postgres/benchmark.go` | PostgreSQL benchmark store |
+| `internal/adapter/http/handlers_benchmark.go` | HTTP handlers for benchmark API |
+| `configs/benchmarks/basic-coding.yaml` | Sample benchmark dataset |
+| `frontend/src/features/benchmarks/BenchmarkPage.tsx` | Benchmark dashboard UI |
+
+#### ADR
+
+See [ADR-008: Benchmark Evaluation Framework](../architecture/adr/008-benchmark-evaluation-framework.md).
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.

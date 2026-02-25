@@ -1718,15 +1718,12 @@ Bug Fixes --- independent, anytime
 
 #### 20F: Documentation & ADR
 
-- [ ] Create `docs/architecture/adr/008-benchmark-evaluation-framework.md`:
-  - Context: Need to measure agent quality beyond "does it work"
-  - Decision: DeepEval (primary metrics) + AgentNeo (tracing) + GEMMAS-inspired (collaboration)
-  - Alternatives considered: SPARC-Bench (too Roo-coupled), REALM-Bench (no license, logistics-focused), RAGAS (RAG-only)
-  - Consequences: Python-only evaluation, LLM-as-judge cost overhead, dev-mode only
-- [ ] Update `docs/features/04-agent-orchestration.md` — add benchmark mode section
-- [ ] Update `docs/dev-setup.md` — add benchmark configuration, AgentNeo dashboard access, benchmark dataset format
-- [ ] Update `docs/tech-stack.md` — add DeepEval, AgentNeo, sentence-transformers to Python dependencies
-- [ ] Update `CLAUDE.md` — add benchmark references to architecture section
+- [x] (2026-02-25) Create `docs/architecture/adr/008-benchmark-evaluation-framework.md`:
+  - Context, Decision (3-pillar stack), Consequences, Alternatives (SPARC-Bench, REALM-Bench, RAGAS, custom, MLflow)
+- [x] (2026-02-25) Update `docs/features/04-agent-orchestration.md` — added Benchmark Mode section with architecture, workflow, API endpoints, key files
+- [x] (2026-02-25) Update `docs/dev-setup.md` — added benchmark config, NATS subjects, project structure entries, datasets dir
+- [x] (2026-02-25) Update `docs/tech-stack.md` — added DeepEval, scikit-learn, AgentNeo to Python dependencies
+- [x] (2026-02-25) Update `CLAUDE.md` — added ADR-008 reference
 
 ---
 

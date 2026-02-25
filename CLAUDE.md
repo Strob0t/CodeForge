@@ -231,6 +231,7 @@ Detailed analysis: docs/research/market-analysis.md
 - **ADR-005:** Docker-native logging, no external monitoring stack (docs/architecture/adr/005-docker-native-logging.md)
 - **ADR-006:** Agent execution Approach C: Go control plane + Python runtime (docs/architecture/adr/006-agent-execution-approach-c.md)
 - **ADR-007:** Policy layer: first-match-wins permission rules (docs/architecture/adr/007-policy-layer.md)
+- **ADR-008:** Benchmark evaluation framework: DeepEval + AgentNeo + GEMMAS (docs/architecture/adr/008-benchmark-evaluation-framework.md)
 
 ## Infrastructure Principles
 

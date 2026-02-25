@@ -114,6 +114,9 @@
 - numpy ^2.0 — numerical computing for embedding vectors and cosine similarity
 - psycopg[binary] ^3.2 — PostgreSQL driver for graph storage (sync+async)
 - httpx ^0.28 — async HTTP client for LiteLLM proxy calls
+- deepeval ^2.0 — LLM-as-judge evaluation framework (GEval, faithfulness, relevancy metrics)
+- scikit-learn ^1.6 — TF-IDF vectorization and cosine similarity for collaboration metrics
+- agentneo ^0.1 (optional) — agent execution tracing, tool selection and goal decomposition metrics
 
 #### Planned Dependencies (not yet installed)
 

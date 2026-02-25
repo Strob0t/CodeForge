@@ -116,7 +116,18 @@ CodeForge/
 │       ├── repo_map.py       # tree-sitter repo map generator
 │       ├── retrieval.py      # Hybrid retrieval (BM25 + semantic + sub-agent)
 │       ├── runtime.py        # Runtime client (Go <-> Python protocol)
-│       └── models.py         # Pydantic data models
+│       ├── models.py         # Pydantic data models
+│       ├── evaluation/       # Benchmark evaluation (Phase 20)
+│       │   ├── runner.py     # BenchmarkRunner (dataset execution)
+│       │   ├── metrics.py    # DeepEval metric wrappers
+│       │   ├── litellm_judge.py # LiteLLM judge for DeepEval
+│       │   ├── datasets.py   # YAML dataset loader + result persistence
+│       │   ├── collaboration.py # GEMMAS IDS + UPR metrics
+│       │   └── dag_builder.py # CollaborationDAG from agent messages
+│       └── tracing/          # Agent tracing (Phase 20)
+│           ├── setup.py      # TracingManager (AgentNeo / NoOp)
+│           ├── metrics.py    # AgentNeo metric wrappers
+│           └── dashboard.py  # Optional AgentNeo dashboard
 ├── frontend/                 # SolidJS Web GUI
 │   ├── e2e/                  # Playwright E2E tests (5 spec files)
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
@@ -135,6 +146,7 @@ CodeForge/
 │       │   │                 # RoadmapPanel, TrajectoryPanel, CostSection, LiveOutput
 │       │   ├── llm/          # ModelsPage (LLM model management)
 │       │   ├── mcp/          # MCPServersPage (MCP server management)
+│       │   ├── benchmarks/   # BenchmarkPage (dev-mode evaluation dashboard)
 │       │   └── cost/         # CostDashboardPage (global cost overview)
 │       └── api/              # API Client, Types, WebSocket
 ├── scripts/
@@ -144,7 +156,9 @@ CodeForge/
 │   ├── restore-postgres.sh         # PostgreSQL restore script
 │   └── setup-branch-protection.sh  # GitHub branch protection for main
 ├── configs/
-│   └── model_pricing.yaml    # Fallback LLM pricing table
+│   ├── model_pricing.yaml    # Fallback LLM pricing table
+│   └── benchmarks/           # Benchmark datasets (Phase 20)
+│       └── basic-coding.yaml # Sample dataset (5 tasks)
 ├── tests/
 │   └── integration/          # Integration tests (real PostgreSQL, build-tagged)
 ├── docs/                     # Documentation
@@ -361,6 +375,7 @@ Example:
 | `auth.bcrypt_cost` | `CODEFORGE_AUTH_BCRYPT_COST` | `12` | Bcrypt work factor |
 | `auth.default_admin_email` | `CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
 | `auth.default_admin_pass` | `CODEFORGE_AUTH_DEFAULT_ADMIN_PASS` | `changeme123` | Seed admin password |
+| `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
 
 #### Python Worker Config (`workers/codeforge/config.py`)
 
@@ -430,6 +445,13 @@ The run protocol enables per-tool-call policy enforcement. Each tool call is ind
 |---------|-----------|---------|
 | `mcp.server.status` | Python -> Go | MCP server connection status update |
 | `mcp.tools.discovered` | Python -> Go | Tools discovered on MCP server |
+
+#### Benchmark Protocol (Phase 20, Dev-Only)
+
+| Subject | Direction | Purpose |
+|---------|-----------|---------|
+| `benchmark.run.request` | Go -> Python | Start benchmark run (dataset, model, metrics) |
+| `benchmark.run.result` | Python -> Go | Benchmark run results (scores, costs, duration) |
 
 ### Logging
 
