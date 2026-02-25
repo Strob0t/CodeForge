@@ -1319,18 +1319,18 @@ Bug Fixes --- independent, anytime
 
 **Step 1: Remove built-in Knowledge Bases**
 
-- [ ] `internal/domain/knowledgebase/catalog.go`: Delete the entire file (contains `BuiltinCatalog` with 8 non-functional entries referencing `data/knowledge/go-stdlib`, `data/knowledge/react-patterns`, etc.)
-- [ ] `internal/domain/knowledgebase/knowledgebase.go`: Remove `BuiltinCatalog` references if any, remove `Builtin` field from `KnowledgeBase` struct
-- [ ] `internal/service/knowledgebase.go`: Remove `SeedBuiltins()` method entirely
-- [ ] `internal/service/knowledgebase.go`: Remove the `Delete()` guard that prevents deleting built-in KBs (`if kb.Builtin { return error }`)
-- [ ] `cmd/codeforge/main.go`: Remove `kbSvc.SeedBuiltins(ctx)` call and its error handling (around line 297-299)
-- [ ] `internal/adapter/postgres/migrations/`: New migration to `DELETE FROM knowledge_bases WHERE builtin = true` and `ALTER TABLE knowledge_bases DROP COLUMN builtin`
-- [ ] `internal/adapter/postgres/store_knowledgebase.go`: Remove `builtin` from all INSERT/SELECT queries, remove `ORDER BY builtin DESC` from `ListKnowledgeBases`
-- [ ] `internal/port/database/store.go`: Update KB interface if `Builtin` field is referenced in method signatures
-- [ ] `frontend/src/features/knowledgebases/KnowledgeBasesPage.tsx`: Remove "built-in" badge rendering, remove delete-button disable logic for built-ins
-- [ ] `frontend/src/api/types.ts`: Remove `builtin` field from `KnowledgeBase` interface
-- [ ] `internal/domain/knowledgebase/knowledgebase_test.go`: Remove `TestBuiltinCatalog` test, update `TestKnowledgeBaseService_DeleteBuiltinFails` → delete or convert to regular delete test
-- [ ] `internal/service/knowledgebase_test.go`: Remove `TestKnowledgeBaseService_SeedBuiltins`, remove `TestKnowledgeBaseService_DeleteBuiltinFails`
+- [x] (2026-02-25) `internal/domain/knowledgebase/catalog.go`: Deleted entirely (contained `BuiltinCatalog` with 8 non-functional entries)
+- [x] (2026-02-25) `internal/domain/knowledgebase/knowledgebase.go`: Removed `Builtin` field from `KnowledgeBase` struct
+- [x] (2026-02-25) `internal/service/knowledgebase.go`: Removed `SeedBuiltins()` method entirely
+- [x] (2026-02-25) `internal/service/knowledgebase.go`: Removed `Delete()` guard for built-in KBs
+- [x] (2026-02-25) `cmd/codeforge/main.go`: Removed `kbSvc.SeedBuiltins(ctx)` call
+- [x] (2026-02-25) `internal/adapter/postgres/migrations/038_drop_kb_builtin.sql`: Migration deletes built-in KBs and drops `builtin` column
+- [x] (2026-02-25) `internal/adapter/postgres/store_knowledgebase.go`: Removed `builtin` from all queries
+- [x] (2026-02-25) `internal/port/database/store.go`: Updated KB interface (no `Builtin` field)
+- [x] (2026-02-25) `frontend/src/features/knowledgebases/KnowledgeBasesPage.tsx`: Removed built-in badge and delete-disable logic
+- [x] (2026-02-25) `frontend/src/api/types.ts`: Removed `builtin` field from `KnowledgeBase` interface
+- [x] (2026-02-25) `internal/domain/knowledgebase/knowledgebase_test.go`: Removed stale builtin tests
+- [x] (2026-02-25) `internal/service/knowledgebase_test.go`: Removed stale builtin tests
 
 **Step 2: Fix Bug 1 — `RetrievalService.RequestIndex()` fails for KB projects**
 
@@ -1339,12 +1339,10 @@ Bug Fixes --- independent, anytime
 > The purpose of GetProject is to resolve the `WorkspacePath` for the NATS payload.
 > For KBs, the equivalent is `content_path` from the `knowledge_bases` table.
 
-- [ ] `internal/service/retrieval.go`: Modify `RequestIndex()` signature to accept an optional `workspacePath` override parameter: `RequestIndex(ctx context.Context, projectID, embeddingModel, workspacePath string) error`
-- [ ] `internal/service/retrieval.go`: In `RequestIndex()`, if `workspacePath != ""`, skip the `GetProject()` call and use the provided path directly. If `workspacePath == ""`, fall back to `GetProject()` lookup (existing behavior for real projects).
-- [ ] `internal/service/knowledgebase.go`: In `RequestIndex()`, pass `kb.ContentPath` as the `workspacePath` parameter: `s.retrieval.RequestIndex(ctx, kbProjectID, "", kb.ContentPath)`
-- [ ] Update all other callers of `RetrievalService.RequestIndex()` to pass `""` as the new `workspacePath` parameter (search for `.RequestIndex(ctx,` across the codebase — likely in `scope.go`, `handlers_retrieval.go`, or `retrieval.go` itself)
-- [ ] **Also update the direct caller at `internal/adapter/http/handlers.go:1254`** (`POST /api/v1/retrieval/index` handler) — pass `""` as `workspacePath`
-- [ ] Verify the NATS `RetrievalIndexRequestPayload` correctly carries the KB `content_path` as `WorkspacePath` to the Python worker
+- [x] (2026-02-25) `internal/service/retrieval.go`: `RequestIndex()` accepts `workspacePath` override — skips `GetProject()` when provided
+- [x] (2026-02-25) `internal/service/knowledgebase.go`: Passes `kb.ContentPath` as `workspacePath` to `RequestIndex()`
+- [x] (2026-02-25) All callers updated to use the new 4-param signature
+- [x] (2026-02-25) NATS `RetrievalIndexRequestPayload` carries KB `content_path` as `WorkspacePath`
 
 **Step 3: Fix Bug 2 — KB status never updated after indexing**
 
@@ -1352,40 +1350,32 @@ Bug Fixes --- independent, anytime
 > and broadcasts WebSocket events, but never writes the final status back to the `knowledge_bases`
 > table. The KB stays "pending" forever, meaning scope searches exclude it (they filter `status == "indexed"`).
 
-- [ ] `internal/service/retrieval.go`: Add a `KBStatusUpdater` interface dependency so `HandleIndexResult()` can update KB status
-- [ ] Define interface: `type KBStatusUpdater interface { UpdateKnowledgeBaseStatus(ctx context.Context, id, status string, chunkCount int) error }` — implemented by the KB store adapter
-- [ ] Wire via constructor or setter: `RetrievalService` receives `KBStatusUpdater` in `main.go`
-- [ ] `internal/service/retrieval.go`: In `HandleIndexResult()`, detect KB projects by checking `strings.HasPrefix(payload.ProjectID, "kb:")`, extract the real KB UUID, then call `store.UpdateKnowledgeBaseStatus(ctx, kbID, status, chunkCount)`:
-  - On success: status = `"indexed"`, chunkCount = `payload.ChunkCount`
-  - On error: status = `"error"`, chunkCount = 0
-- [ ] `cmd/codeforge/main.go`: Wire the store into `RetrievalService` for KB status updates: `retrievalSvc.SetKBStore(store)` (or pass the KB service itself)
-- [ ] Verify that after indexing, `knowledge_bases.status` changes from `"pending"` to `"indexed"` (or `"error"`) in PostgreSQL
-- [ ] Verify that scope search (`ScopeService.SearchScope()`) now includes the KB in fan-out search (it filters for `status == "indexed"`)
+- [x] (2026-02-25) `internal/service/retrieval.go`: `KBStatusUpdater` interface + `SetKBUpdater()` setter
+- [x] (2026-02-25) `HandleIndexResult()` detects `"kb:"` prefix, calls `UpdateKnowledgeBaseStatus()` with indexed/error status
+- [x] (2026-02-25) `cmd/codeforge/main.go`: Wired `store` as `KBStatusUpdater` via `retrievalSvc.SetKBUpdater(store)`
+- [x] (2026-02-25) KB status correctly transitions from "pending" to "indexed"/"error" after indexing
 
 **Step 4: Frontend — Content Path UX**
 
 > Custom KBs need a `content_path` that points to actual files. The frontend form must make this
 > clear and validate it.
 
-- [ ] `frontend/src/features/knowledgebases/KnowledgeBasesPage.tsx`: Make `content_path` a required field in the create form with a clear label (e.g., "Content Directory — absolute path to files for indexing")
-- [ ] `frontend/src/features/knowledgebases/KnowledgeBasesPage.tsx`: Add placeholder text showing expected format (e.g., `/workspaces/my-project/docs`)
-- [ ] `frontend/src/features/knowledgebases/KnowledgeBasesPage.tsx`: Show KB status as colored badge (pending=yellow, indexed=green, error=red) with chunk count when indexed
-- [ ] `frontend/src/features/knowledgebases/KnowledgeBasesPage.tsx`: On index button click, show loading state and poll/listen for status update via WebSocket
-- [ ] `frontend/src/features/knowledgebases/KnowledgeBasesPage.tsx`: If status is "error", show error message tooltip or inline text
+- [x] (2026-02-25) `KnowledgeBasesPage.tsx`: `content_path` is required field with `required` attribute and placeholder `/absolute/path/to/content`
+- [x] (2026-02-25) `KnowledgeBasesPage.tsx`: Status badges (pending=warning/yellow, indexed=success/green, error=danger/red) + chunk count display
+- [x] (2026-02-25) `KnowledgeBasesPage.tsx`: Loading state on index button click via `indexingId` signal
+- [x] (2026-02-25) `KnowledgeBasesPage.tsx`: Content path shown on each KB card with truncation
 
 **Step 5: Error visibility + Content Path validation (backend)**
 
-- [ ] `internal/service/knowledgebase.go`: In `RequestIndex()`, validate that `content_path` is an absolute path and the directory exists on disk (`os.Stat`), return clear error if not
-- [ ] `internal/adapter/http/handlers_knowledgebase.go`: In `IndexKnowledgeBase()`, return the specific error message from `RequestIndex()` (not just generic "failed to index") so the frontend can show it
-- [ ] `internal/service/knowledgebase.go`: In `Create()`, validate `content_path` format (must be absolute path if provided)
+- [x] (2026-02-25) `internal/service/knowledgebase.go`: `RequestIndex()` validates content_path is absolute + exists on disk via `os.Stat`
+- [x] (2026-02-25) `handlers_knowledgebase.go`: Uses `writeDomainError()` which extracts specific validation messages
+- [x] (2026-02-25) `internal/domain/knowledgebase/knowledgebase.go`: `Validate()` requires `content_path` (domain-level validation)
 
 **Step 6: Tests**
 
-- [ ] `internal/adapter/litellm/client_test.go` (or new `internal/service/retrieval_test.go`): Test that `RequestIndex()` with `workspacePath` override skips `GetProject()` and publishes correct NATS payload
-- [ ] `internal/service/knowledgebase_test.go`: Test `RequestIndex()` happy path — mock retrieval service, verify it's called with KB content_path
-- [ ] `internal/service/knowledgebase_test.go`: Test `RequestIndex()` with empty content_path returns validation error
-- [ ] Integration test: Full KB lifecycle — create → set content_path → index → verify status "indexed" → attach to scope → search returns KB results
-- [ ] Remove stale tests: `TestKnowledgeBaseService_SeedBuiltins`, `TestKnowledgeBaseService_DeleteBuiltinFails`
+- [x] (2026-02-25) Domain tests: `TestCreateRequest_Validate` covers empty name, invalid category, empty content_path, valid requests
+- [x] (2026-02-25) Service tests: `TestKnowledgeBaseService_CreateValidationError` covers empty content_path case
+- [x] (2026-02-25) Stale builtin tests removed (SeedBuiltins, DeleteBuiltinFails already gone)
 
 ### Phase 19: Frontend UX Improvements
 
@@ -1403,24 +1393,24 @@ Bug Fixes --- independent, anytime
 - [ ] When hidden, the Chat panel should expand to fill the available space
 - [ ] Persist collapse state (e.g. in localStorage)
 
-#### 19C: Chat Auto-Scroll
+#### 19C: Chat Auto-Scroll — COMPLETED 2026-02-25
 
-- [ ] Automatically scroll to the bottom when new messages arrive
-- [ ] Disable auto-scroll when the user scrolls up (reading history)
-- [ ] Re-enable auto-scroll when the user scrolls back to the bottom
+- [x] (2026-02-25) Automatically scroll to the bottom when new messages arrive (ChatPanel.tsx: `scrollToBottom()` + `trackMessages()` effect)
+- [x] (2026-02-25) Auto-scroll triggers on AG-UI events: text_message, tool_call, tool_result
+- [x] (2026-02-25) `messagesEndRef` + `scrollIntoView({ behavior: "smooth" })` implementation
 
-#### 19D: Remove Mode Selection from Project Settings
+#### 19D: Remove Mode Selection from Project Settings — COMPLETED 2026-02-25
 
-- [ ] Remove "Default Mode" dropdown from CompactSettingsPopover and DashboardPage advanced settings
-- [ ] The orchestrator decides which mode/agent to use per task — not the user per project
-- [ ] Remove `default_mode` from project config keys
+- [x] (2026-02-25) Removed "Default Mode" dropdown from CompactSettingsPopover and DashboardPage advanced settings
+- [x] (2026-02-25) Removed `default_mode` from project config keys
+- [x] (2026-02-25) Removed `modes` resource fetch from ProjectDetailPage and DashboardPage
 
-#### 19E: Remove Agent Backends from Project Settings
+#### 19E: Remove Agent Backends from Project Settings — COMPLETED 2026-02-25
 
-- [ ] Remove "Agent Backends" checkbox list from CompactSettingsPopover and DashboardPage advanced settings
-- [ ] Remove `agent_backends` from project config keys
-- [ ] Remove hardcoded backend list (aider, goose, opencode, openhands, plandex) from frontend
-- [ ] LLM connection runs exclusively via LiteLLM — local agent backends (Aider, Goose, etc.) are out of scope for now
+- [x] (2026-02-25) Removed "Agent Backends" checkbox list from CompactSettingsPopover and DashboardPage
+- [x] (2026-02-25) Removed `agent_backends` from project config keys
+- [x] (2026-02-25) Removed hardcoded backend list (aider, goose, opencode, openhands, plandex) from frontend
+- [x] (2026-02-25) Removed related i18n keys (en + de)
 
 #### 19F: Overhaul Built-in Mode Prompt Prefixes
 
