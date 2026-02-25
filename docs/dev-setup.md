@@ -328,7 +328,7 @@ Example:
 | `nats.url` | `NATS_URL` | `nats://localhost:4222` | NATS server URL |
 | `litellm.url` | `LITELLM_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `litellm.master_key` | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
-| `litellm.conversation_model` | `CODEFORGE_CONVERSATION_MODEL` | `groq/llama-3.1-8b` | LLM model for chat conversations |
+| `litellm.conversation_model` | `CODEFORGE_CONVERSATION_MODEL` | (auto-detect) | LLM model for chat conversations (empty = auto-select strongest) |
 | `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` | Log level |
 | `breaker.max_failures` | `CODEFORGE_BREAKER_MAX_FAILURES` | `5` | Circuit breaker threshold |
 | `breaker.timeout` | `CODEFORGE_BREAKER_TIMEOUT` | `30s` | Circuit breaker timeout |

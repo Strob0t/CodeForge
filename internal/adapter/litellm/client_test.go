@@ -422,6 +422,72 @@ func TestStreamingToolCallAssembly(t *testing.T) {
 	}
 }
 
+func TestSelectStrongestModel(t *testing.T) {
+	tests := []struct {
+		name   string
+		models []litellm.DiscoveredModel
+		want   string
+	}{
+		{
+			name:   "empty list",
+			models: nil,
+			want:   "",
+		},
+		{
+			name: "single model",
+			models: []litellm.DiscoveredModel{
+				{ModelName: "groq/llama-3.1-8b"},
+			},
+			want: "groq/llama-3.1-8b",
+		},
+		{
+			name: "paid model beats free model",
+			models: []litellm.DiscoveredModel{
+				{ModelName: "groq/llama-3.3-70b"},
+				{ModelName: "openai/gpt-4o", OutputCostPer: 1.5e-5},
+			},
+			want: "openai/gpt-4o",
+		},
+		{
+			name: "stronger free model wins by name pattern",
+			models: []litellm.DiscoveredModel{
+				{ModelName: "groq/llama-3.1-8b"},
+				{ModelName: "groq/llama-3.3-70b"},
+				{ModelName: "groq/llama-4-maverick"},
+			},
+			want: "groq/llama-4-maverick",
+		},
+		{
+			name: "more expensive paid model wins",
+			models: []litellm.DiscoveredModel{
+				{ModelName: "openai/gpt-4o-mini", OutputCostPer: 6e-7},
+				{ModelName: "openai/gpt-4o", OutputCostPer: 1.5e-5},
+				{ModelName: "anthropic/claude-3-opus", OutputCostPer: 7.5e-5},
+			},
+			want: "anthropic/claude-3-opus",
+		},
+		{
+			name: "typical groq lineup",
+			models: []litellm.DiscoveredModel{
+				{ModelName: "groq/llama-3.1-8b"},
+				{ModelName: "groq/llama-3.3-70b"},
+				{ModelName: "groq/llama-4-maverick"},
+				{ModelName: "groq/llama-4-scout"},
+			},
+			want: "groq/llama-4-maverick",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := litellm.SelectStrongestModel(tt.models)
+			if got != tt.want {
+				t.Errorf("SelectStrongestModel() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestChatCompletionNoTools(t *testing.T) {
 	// Verify backward compatibility: no tools in request means no tool_calls fields
 	// in the serialized JSON, and the response parses normally.

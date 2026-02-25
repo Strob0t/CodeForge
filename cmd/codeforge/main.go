@@ -431,7 +431,20 @@ func run() error {
 	slog.Info("mcp service initialized", "enabled", cfg.MCP.Enabled)
 
 	// --- Conversation Service ---
-	conversationSvc := service.NewConversationService(store, llmClient, hub, cfg.LiteLLM.ConversationModel, modeSvc)
+	// Auto-detect strongest model if none is manually configured.
+	conversationModel := cfg.LiteLLM.ConversationModel
+	if conversationModel == "" {
+		discovered, err := llmClient.DiscoverModels(ctx)
+		if err != nil {
+			slog.Warn("model auto-detection failed, no default model set", "error", err)
+		} else if best := litellm.SelectStrongestModel(discovered); best != "" {
+			conversationModel = best
+			slog.Info("auto-selected strongest model", "model", best, "candidates", len(discovered))
+		} else {
+			slog.Warn("no models discovered, no default model set")
+		}
+	}
+	conversationSvc := service.NewConversationService(store, llmClient, hub, conversationModel, modeSvc)
 	conversationSvc.SetQueue(queue)
 	conversationSvc.SetAgentConfig(&cfg.Agent)
 	conversationSvc.SetMCPService(mcpSvc)

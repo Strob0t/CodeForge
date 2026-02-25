@@ -1292,6 +1292,15 @@ Bug Fixes --- independent, anytime
 - [ ] Cost tracking: Groq reports $0.00 cost (free tier) — needs paid model for cost validation.
 - [ ] HITL approval: Not triggered with default "headless-safe-sandbox" policy — needs "ask" policy rule.
 
+#### 18F: Auto-Select Strongest LLM Model
+
+- [x] (2026-02-25) `internal/adapter/litellm/client.go`: Add `SelectStrongestModel()` function with scoring heuristic — output cost per token for paid models, name-based pattern matching for free models (covers 30+ model families), MaxTokens as fallback.
+- [x] (2026-02-25) `cmd/codeforge/main.go`: On startup, if no `conversation_model` is configured, call `DiscoverModels()` + `SelectStrongestModel()` and log the auto-selected model.
+- [x] (2026-02-25) `internal/service/conversation.go`: Remove hardcoded `groq/llama-3.1-8b` fallback. Add explicit error if no model is resolved (neither auto-detected nor manually configured).
+- [x] (2026-02-25) `codeforge.yaml`: Comment out `default_model` (empty = auto-detect strongest).
+- [x] (2026-02-25) `internal/adapter/litellm/client_test.go`: Add `TestSelectStrongestModel` with 6 test cases (empty, single, paid-vs-free, name patterns, cost ranking, typical Groq lineup).
+- [x] (2026-02-25) `docs/dev-setup.md`: Update config table — `conversation_model` default is now `(auto-detect)`.
+
 ### Phase 19: Frontend UX Improvements
 
 > Project detail page layout enhancements: resizable panels, collapsible roadmap.

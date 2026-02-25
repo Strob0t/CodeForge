@@ -76,9 +76,6 @@ func NewConversationService(
 	defaultModel string,
 	modeSvc *ModeService,
 ) *ConversationService {
-	if defaultModel == "" {
-		defaultModel = "groq/llama-3.1-8b"
-	}
 	return &ConversationService{db: db, llm: llm, hub: hub, model: defaultModel, modeSvc: modeSvc}
 }
 
@@ -183,9 +180,18 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		AgentName: "assistant",
 	})
 
+	// Resolve model for non-agentic chat.
+	chatModel := s.model
+	if s.agentCfg != nil && s.agentCfg.DefaultModel != "" {
+		chatModel = s.agentCfg.DefaultModel
+	}
+	if chatModel == "" {
+		return nil, errors.New("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
+	}
+
 	// Call LiteLLM with streaming — each chunk is broadcast via AG-UI text_message.
 	llmResp, err := s.llm.ChatCompletionStream(ctx, litellm.ChatCompletionRequest{
-		Model:    s.model,
+		Model:    chatModel,
 		Messages: chatMessages,
 	}, func(chunk litellm.StreamChunk) {
 		if chunk.Done {
@@ -306,6 +312,9 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	model := s.model
 	if s.agentCfg != nil && s.agentCfg.DefaultModel != "" {
 		model = s.agentCfg.DefaultModel
+	}
+	if model == "" {
+		return fmt.Errorf("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
 	}
 
 	// Resolve policy profile.
