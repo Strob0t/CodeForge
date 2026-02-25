@@ -66,6 +66,40 @@ func TestCloneAndStatus(t *testing.T) {
 	}
 }
 
+func TestCloneIdempotent(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available in test environment")
+	}
+
+	ctx := context.Background()
+	srcDir := initTestRepo(t)
+
+	p, err := gitprovider.New("local", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First clone
+	cloneDir := filepath.Join(t.TempDir(), "cloned")
+	if err := p.Clone(ctx, srcDir, cloneDir); err != nil {
+		t.Fatalf("first Clone failed: %v", err)
+	}
+
+	// Second clone to same destination should succeed (re-clone path)
+	if err := p.Clone(ctx, srcDir, cloneDir); err != nil {
+		t.Fatalf("second Clone (re-clone) failed: %v", err)
+	}
+
+	// Verify the repo is still valid after re-clone
+	status, err := p.Status(ctx, cloneDir)
+	if err != nil {
+		t.Fatalf("Status after re-clone failed: %v", err)
+	}
+	if status.CommitHash == "" {
+		t.Fatal("expected non-empty commit hash after re-clone")
+	}
+}
+
 func TestListBranches(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available in test environment")

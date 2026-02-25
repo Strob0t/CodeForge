@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -47,6 +48,8 @@ func (p *Provider) ListRepos(_ context.Context) ([]string, error) {
 }
 
 // Clone clones a repository to the given local path.
+// If the destination already exists and is a git repository with a matching remote,
+// it fetches and resets to the latest state instead of failing.
 func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitprovider.CloneOption) error {
 	absPath, err := filepath.Abs(destPath)
 	if err != nil {
@@ -56,6 +59,11 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 	o := gitprovider.ApplyCloneOptions(opts)
 
 	return p.pool.Run(ctx, func() error {
+		// Check if destination already exists.
+		if info, statErr := os.Stat(absPath); statErr == nil && info.IsDir() {
+			return p.reclone(ctx, url, absPath, o)
+		}
+
 		args := []string{"clone"}
 		if o.Branch != "" {
 			args = append(args, "--branch", o.Branch, "--single-branch")
@@ -66,6 +74,67 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 		}
 		return nil
 	})
+}
+
+// reclone handles re-cloning when the destination directory already exists.
+// If it contains a git repo with a matching remote, it fetches + resets.
+// Otherwise it removes the directory and does a fresh clone.
+func (p *Provider) reclone(ctx context.Context, url, absPath string, o gitprovider.CloneOptions) error {
+	// Check if it's a git repo by running git rev-parse.
+	if _, err := runGit(ctx, absPath, "rev-parse", "--git-dir"); err == nil {
+		// It's a git repo — check if the remote matches.
+		remote, _ := runGit(ctx, absPath, "remote", "get-url", "origin")
+		if strings.TrimSpace(remote) == url {
+			// Same remote: fetch + reset to latest.
+			if _, err := runGit(ctx, absPath, "fetch", "origin"); err != nil {
+				return fmt.Errorf("gitlocal: fetch: %w", err)
+			}
+
+			branch := o.Branch
+			if branch == "" {
+				// Determine the branch to reset to:
+				// 1. Try symbolic-ref for remote HEAD
+				// 2. Fall back to current local branch
+				ref, refErr := runGit(ctx, absPath, "symbolic-ref", "refs/remotes/origin/HEAD")
+				if refErr == nil {
+					branch = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ref), "refs/remotes/origin/"))
+				}
+				if branch == "" {
+					// Use the current checked-out branch.
+					cur, curErr := runGit(ctx, absPath, "rev-parse", "--abbrev-ref", "HEAD")
+					if curErr == nil && strings.TrimSpace(cur) != "" {
+						branch = strings.TrimSpace(cur)
+					}
+				}
+				if branch == "" {
+					branch = "main"
+				}
+			}
+
+			if _, err := runGit(ctx, absPath, "checkout", branch); err != nil {
+				return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
+			}
+			if _, err := runGit(ctx, absPath, "reset", "--hard", "origin/"+branch); err != nil {
+				return fmt.Errorf("gitlocal: reset: %w", err)
+			}
+			return nil
+		}
+	}
+
+	// Not a git repo or different remote — remove and re-clone.
+	if err := os.RemoveAll(absPath); err != nil {
+		return fmt.Errorf("gitlocal: remove existing directory: %w", err)
+	}
+
+	args := []string{"clone"}
+	if o.Branch != "" {
+		args = append(args, "--branch", o.Branch, "--single-branch")
+	}
+	args = append(args, url, absPath)
+	if _, err := runGit(ctx, "", args...); err != nil {
+		return fmt.Errorf("gitlocal: clone: %w", err)
+	}
+	return nil
 }
 
 // Status returns the git status of a local repository.
