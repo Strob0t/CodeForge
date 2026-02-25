@@ -1024,3 +1024,40 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-25) Scenario 2 (code change): 6 steps, multi-tool (`write_file`, `bash`), self-correction on compile errors
 - [x] (2026-02-25) Scenario 3 (bug analysis): 3 steps, `read_file` + `search_files`, correct analysis
 - [x] (2026-02-25) Frontend: Chat UI, tool calls/results, model badges, Discover Models (37 models), message persistence
+
+### Phase 18G: Knowledge Base System Fixes (COMPLETED)
+
+- [x] (2026-02-25) Migration 038: Remove built-in knowledge bases, add content_path validation
+- [x] (2026-02-25) KBUpdater wiring fix for status updates
+- [x] (2026-02-25) RequestIndex workspace path fix
+- [x] (2026-02-25) Frontend: content_path as required field, status badges, chunk count, error display
+
+### Phase 19: Frontend UX & Backend Refinements (COMPLETED)
+
+#### Phase 19A-C: Layout & Auto-Scroll
+- [x] (2026-02-25) Resizable Roadmap/Chat split with draggable divider and localStorage persistence
+- [x] (2026-02-25) Collapsible Roadmap panel with toggle button and localStorage persistence
+- [x] (2026-02-25) Chat auto-scroll on new messages
+
+#### Phase 19D-E: UI Cleanup
+- [x] (2026-02-25) Remove Mode selector from Dashboard and ProjectDetail
+- [x] (2026-02-25) Remove Backend selector from ProjectDetail settings
+
+#### Phase 19F: Mode Prompt System
+- [x] (2026-02-25) Expand 8 built-in mode prompts (2 sentences to 15-25 lines each)
+- [x] (2026-02-25) Composable prompt system: Migration 039 (prompt_sections table), priority-based pruning, merge logic
+- [x] (2026-02-25) Prompt Editor page with section editor, priority slider, token count, preview
+
+#### Phase 19G-H: MCP Enhancements
+- [x] (2026-02-25) MCP Streamable HTTP transport support (domain, migration, frontend, Python worker)
+- [x] (2026-02-25) MCP Server pre-save connection validation with real connect test
+
+### Phase 20: Benchmark Mode (COMPLETED)
+
+- [x] (2026-02-25) **20A:** DeepEval integration — BenchmarkRunner, LiteLLMJudge, metrics (correctness, faithfulness, relevancy, tool correctness), YAML datasets, NATS handler
+- [x] (2026-02-25) **20B:** AgentNeo tracing — TracingManager with dev-mode gating, NoOp fallback, metric wrappers, optional dashboard
+- [x] (2026-02-25) **20C:** GEMMAS collaboration metrics — IDS (TF-IDF cosine similarity), UPR, CollaborationDAG builder
+- [x] (2026-02-25) **20D:** Go Core benchmark API — 7 endpoints behind DevModeOnly middleware, Migration 041 (benchmark_runs + benchmark_results), PostgreSQL store
+- [x] (2026-02-25) **20E:** Frontend benchmark dashboard — BenchmarkPage with run management, dataset selector, results table, comparison
+- [x] (2026-02-25) **20F:** Documentation — ADR-008 (benchmark evaluation framework), feature docs, dev-setup, tech-stack, CLAUDE.md updates
+- 18 Python tests passing (datasets, tracing, collaboration metrics)

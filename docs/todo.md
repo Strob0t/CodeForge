@@ -1381,17 +1381,17 @@ Bug Fixes --- independent, anytime
 
 > Project detail page layout enhancements: resizable panels, collapsible roadmap.
 
-#### 19A: Resizable Roadmap/Chat Split
+#### 19A: Resizable Roadmap/Chat Split — COMPLETED 2026-02-25
 
-- [ ] Make the Roadmap panel and Chat panel widths adjustable via a draggable splitter/divider
-- [ ] Persist the user's chosen split ratio (e.g. in localStorage)
-- [ ] Ensure responsive behavior — collapse to stacked layout on narrow viewports
+- [x] (2026-02-25) Draggable splitter/divider between Roadmap and Chat panels in `ProjectDetailPage.tsx`
+- [x] (2026-02-25) Persist split ratio in localStorage (`codeforge-split-ratio`)
+- [x] (2026-02-25) Responsive: stacked layout on viewports < 768px
 
-#### 19B: Collapsible Roadmap Panel
+#### 19B: Collapsible Roadmap Panel — COMPLETED 2026-02-25
 
-- [ ] Add a toggle button to show/hide the Roadmap panel entirely
-- [ ] When hidden, the Chat panel should expand to fill the available space
-- [ ] Persist collapse state (e.g. in localStorage)
+- [x] (2026-02-25) Toggle button to show/hide Roadmap panel
+- [x] (2026-02-25) Chat panel expands to fill available space when Roadmap hidden
+- [x] (2026-02-25) Persist collapse state in localStorage (`codeforge-roadmap-collapsed`)
 
 #### 19C: Chat Auto-Scroll — COMPLETED 2026-02-25
 
@@ -1470,7 +1470,7 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-25) **Frontend:** i18n keys (EN + DE) for prompt editor
 - [x] (2026-02-25) **Tests:** Unit tests for `PruneToFitBudget()` — 4 tests: under budget, removes lowest priority, preserves order, zero budget
 - [x] (2026-02-25) **Tests:** Unit test for `AssembleSections()` — skips disabled and empty sections, joins with double newlines
-- [ ] **Tests:** Integration test — create DB override, verify `BuildModePrompt()` uses override instead of embedded default
+- [ ] **Tests:** Integration test — create DB override, verify `BuildModePrompt()` uses override instead of embedded default (requires running PostgreSQL)
 
 #### 19G: MCP Streamable HTTP Transport
 
