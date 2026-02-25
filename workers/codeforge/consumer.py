@@ -58,6 +58,7 @@ STREAM_SUBJECTS = [
     "retrieval.>",
     "graph.>",
     "conversation.>",
+    "benchmark.>",
 ]
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
@@ -79,6 +80,8 @@ SUBJECT_GRAPH_SEARCH_REQUEST = "graph.search.request"
 SUBJECT_GRAPH_SEARCH_RESULT = "graph.search.result"
 SUBJECT_CONVERSATION_RUN_START = "conversation.run.start"
 SUBJECT_CONVERSATION_RUN_COMPLETE = "conversation.run.complete"
+SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"
+SUBJECT_BENCHMARK_RUN_RESULT = "benchmark.run.result"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -141,6 +144,7 @@ class TaskConsumer:
             (SUBJECT_GRAPH_BUILD_REQUEST, self._handle_graph_build),
             (SUBJECT_GRAPH_SEARCH_REQUEST, self._handle_graph_search),
             (SUBJECT_CONVERSATION_RUN_START, self._handle_conversation_run),
+            (SUBJECT_BENCHMARK_RUN_REQUEST, self._handle_benchmark_run),
         ]
 
         loops = []
@@ -705,6 +709,89 @@ class TaskConsumer:
             headers[HEADER_REQUEST_ID] = request_id
 
         await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers or None)
+
+    async def _handle_benchmark_run(self, msg: nats.aio.msg.Msg) -> None:
+        """Handle a benchmark run request (dev-mode only)."""
+        import os
+        import time
+
+        from codeforge.evaluation.datasets import load_dataset
+        from codeforge.evaluation.litellm_judge import LiteLLMJudge
+        from codeforge.evaluation.runner import BenchmarkRunner
+        from codeforge.models import BenchmarkRunRequest, BenchmarkRunResult, BenchmarkTaskResult
+
+        if os.getenv("APP_ENV") != "development":
+            logger.warning("benchmark run ignored (not in dev mode)")
+            await msg.ack()
+            return
+
+        request_id = (msg.headers or {}).get(HEADER_REQUEST_ID, "")
+        log = logger.bind(request_id=request_id)
+
+        try:
+            req = BenchmarkRunRequest.model_validate_json(msg.data)
+            log = log.bind(run_id=req.run_id, dataset=req.dataset_path, model=req.model)
+            log.info("benchmark run started")
+
+            start = time.monotonic()
+            dataset = load_dataset(req.dataset_path)
+
+            judge = LiteLLMJudge(model=req.model, base_url=self._litellm_url + "/v1")
+            runner = BenchmarkRunner(llm=self._llm, model=req.model, metrics=req.metrics, judge=judge)
+
+            task_results = await runner.run(dataset)
+            total_ms = int((time.monotonic() - start) * 1000)
+
+            # Compute summary scores (average across tasks)
+            summary: dict[str, float] = {}
+            for metric in req.metrics:
+                values = [tr.scores.get(metric, 0.0) for tr in task_results]
+                summary[metric] = sum(values) / len(values) if values else 0.0
+
+            result = BenchmarkRunResult(
+                run_id=req.run_id,
+                status="completed",
+                tasks=[
+                    BenchmarkTaskResult(
+                        task_id=tr.task_id,
+                        task_name=tr.task_name,
+                        scores=tr.scores,
+                        actual_output=tr.actual_output,
+                        expected_output=tr.expected_output,
+                        duration_ms=tr.duration_ms,
+                        cost_usd=tr.cost_usd,
+                        tokens_in=tr.tokens_in,
+                        tokens_out=tr.tokens_out,
+                    )
+                    for tr in task_results
+                ],
+                summary_scores=summary,
+                total_duration_ms=total_ms,
+            )
+
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_BENCHMARK_RUN_RESULT,
+                    result.model_dump_json().encode(),
+                )
+
+            await msg.ack()
+            log.info("benchmark run completed", summary=summary, duration_ms=total_ms)
+
+        except Exception:
+            log.exception("benchmark run failed")
+            # Publish error result
+            if self._js is not None:
+                error_result = BenchmarkRunResult(
+                    run_id=req.run_id if "req" in dir() else "",
+                    status="failed",
+                    error=str(log),
+                )
+                await self._js.publish(
+                    SUBJECT_BENCHMARK_RUN_RESULT,
+                    error_result.model_dump_json().encode(),
+                )
+            await msg.ack()
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""

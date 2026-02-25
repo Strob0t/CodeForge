@@ -445,3 +445,45 @@ class AgentLoopResult(BaseModel):
     step_count: int = 0
     model: str = ""
     error: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Benchmark run messages (Phase 20A — dev-mode only)
+# ---------------------------------------------------------------------------
+
+
+class BenchmarkRunRequest(BaseModel):
+    """Request to execute a benchmark evaluation run."""
+
+    run_id: str
+    dataset_path: str
+    model: str
+    metrics: list[str] = Field(default_factory=lambda: ["correctness"])
+
+
+class BenchmarkTaskResult(BaseModel):
+    """Result of a single benchmark task."""
+
+    task_id: str
+    task_name: str
+    scores: dict[str, float] = Field(default_factory=dict)
+    actual_output: str = ""
+    expected_output: str = ""
+    tool_calls: list[dict[str, str]] = Field(default_factory=list)
+    cost_usd: float = 0.0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    duration_ms: int = 0
+
+
+class BenchmarkRunResult(BaseModel):
+    """Result of a complete benchmark run."""
+
+    run_id: str
+    status: str = "completed"
+    tasks: list[BenchmarkTaskResult] = Field(default_factory=list)
+    summary_scores: dict[str, float] = Field(default_factory=dict)
+    total_cost: float = 0.0
+    total_tokens: int = 0
+    total_duration_ms: int = 0
+    error: str = ""

@@ -25,6 +25,9 @@ bm25s = "^0.3"
 numpy = "^2.0"
 psycopg = "^3.2"
 mcp = "^1.0"
+deepeval = "^2.0"
+agentneo = { version = "^0.1", optional = true }
+scikit-learn = "^1.6"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.0"
