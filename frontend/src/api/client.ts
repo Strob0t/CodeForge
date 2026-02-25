@@ -359,6 +359,8 @@ export const api = {
       }),
 
     health: () => request<{ status: string }>("/llm/health"),
+
+    discover: () => request<import("./types").DiscoverModelsResponse>("/llm/discover"),
   },
 
   runs: {

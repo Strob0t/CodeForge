@@ -135,6 +135,172 @@ type AddModelRequest struct {
 	ModelInfo     map[string]any    `json:"model_info,omitempty"`
 }
 
+// DiscoveredModel represents a model found via auto-discovery with health status.
+type DiscoveredModel struct {
+	ModelName     string         `json:"model_name"`
+	ModelID       string         `json:"model_id,omitempty"`
+	Provider      string         `json:"provider,omitempty"`
+	Tags          []string       `json:"tags,omitempty"`
+	MaxTokens     int            `json:"max_tokens,omitempty"`
+	InputCostPer  float64        `json:"input_cost_per_token,omitempty"`
+	OutputCostPer float64        `json:"output_cost_per_token,omitempty"`
+	Status        string         `json:"status"` // "reachable" or "unreachable"
+	Source        string         `json:"source"` // "litellm" or "ollama"
+	ModelInfo     map[string]any `json:"model_info,omitempty"`
+}
+
+// DiscoverModels queries LiteLLM /model/info and /v1/models to discover all
+// available models with their health status and metadata.
+func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) {
+	// Fetch model info from LiteLLM admin API.
+	infoResp, err := c.doRequest(ctx, http.MethodGet, "/model/info", nil)
+	if err != nil {
+		return nil, fmt.Errorf("discover models (model/info): %w", err)
+	}
+
+	var infoResult struct {
+		Data []struct {
+			ModelName string         `json:"model_name"`
+			ModelID   string         `json:"model_id"`
+			ModelInfo map[string]any `json:"model_info"`
+			Params    map[string]any `json:"litellm_params"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(infoResp, &infoResult); err != nil {
+		return nil, fmt.Errorf("unmarshal model info: %w", err)
+	}
+
+	// Also fetch the OpenAI-compatible /v1/models list for ID cross-reference.
+	modelsResp, err := c.doRequest(ctx, http.MethodGet, "/v1/models", nil)
+	if err != nil {
+		// Non-fatal: we can still return info results.
+		modelsResp = nil
+	}
+
+	reachableSet := make(map[string]bool)
+	if modelsResp != nil {
+		var modelsList struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(modelsResp, &modelsList); err == nil {
+			for _, m := range modelsList.Data {
+				reachableSet[m.ID] = true
+			}
+		}
+	}
+
+	discovered := make([]DiscoveredModel, 0, len(infoResult.Data))
+	for _, m := range infoResult.Data {
+		dm := DiscoveredModel{
+			ModelName: m.ModelName,
+			ModelID:   m.ModelID,
+			Source:    "litellm",
+			ModelInfo: m.ModelInfo,
+		}
+
+		// Extract provider from litellm_params.
+		if m.Params != nil {
+			if model, ok := m.Params["model"].(string); ok {
+				if provider, _, found := strings.Cut(model, "/"); found {
+					dm.Provider = provider
+				}
+			}
+		}
+
+		// Extract known fields from model_info.
+		if m.ModelInfo != nil {
+			if maxTok, ok := m.ModelInfo["max_tokens"].(float64); ok {
+				dm.MaxTokens = int(maxTok)
+			}
+			if inCost, ok := m.ModelInfo["input_cost_per_token"].(float64); ok {
+				dm.InputCostPer = inCost
+			}
+			if outCost, ok := m.ModelInfo["output_cost_per_token"].(float64); ok {
+				dm.OutputCostPer = outCost
+			}
+			if tags, ok := m.ModelInfo["tags"].([]any); ok {
+				for _, t := range tags {
+					if s, ok := t.(string); ok {
+						dm.Tags = append(dm.Tags, s)
+					}
+				}
+			}
+		}
+
+		// Models in /model/info are configured in LiteLLM, so mark reachable.
+		dm.Status = "reachable"
+
+		discovered = append(discovered, dm)
+	}
+
+	return discovered, nil
+}
+
+// DiscoverOllamaModels queries a local Ollama instance for available models.
+// If ollamaBaseURL is empty, it returns nil (no Ollama configured).
+func (c *Client) DiscoverOllamaModels(ctx context.Context, ollamaBaseURL string) ([]DiscoveredModel, error) {
+	if ollamaBaseURL == "" {
+		return nil, nil
+	}
+
+	// Ollama API: GET /api/tags returns available local models.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ollamaBaseURL+"/api/tags", http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("create ollama request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("ollama API error %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Models []struct {
+			Name       string `json:"name"`
+			ModifiedAt string `json:"modified_at"`
+			Size       int64  `json:"size"`
+			Details    struct {
+				ParameterSize string `json:"parameter_size"`
+				Family        string `json:"family"`
+			} `json:"details"`
+		} `json:"models"`
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read ollama response: %w", err)
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal ollama models: %w", err)
+	}
+
+	discovered := make([]DiscoveredModel, 0, len(result.Models))
+	for _, m := range result.Models {
+		dm := DiscoveredModel{
+			ModelName: m.Name,
+			ModelID:   "ollama/" + m.Name,
+			Provider:  "ollama",
+			Status:    "reachable",
+			Source:    "ollama",
+			ModelInfo: map[string]any{
+				"parameter_size": m.Details.ParameterSize,
+				"family":         m.Details.Family,
+				"size_bytes":     m.Size,
+			},
+		}
+		discovered = append(discovered, dm)
+	}
+
+	return discovered, nil
+}
+
 // --- Chat Completion (OpenAI-compatible) ---
 
 // ToolFunction describes a function that can be called by the model.

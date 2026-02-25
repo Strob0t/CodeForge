@@ -186,6 +186,16 @@ const de: Translations = {
   "models.toast.addFailed": "Modell konnte nicht hinzugef\u00fcgt werden",
   "models.toast.deleteFailed": "Modell konnte nicht gel\u00f6scht werden",
   "models.deleteAria": "Modell {{name}} l\u00f6schen",
+  "models.discover": "Modelle entdecken",
+  "models.discovering": "Suche...",
+  "models.discovered": "Entdeckte Modelle",
+  "models.discoveredCount": "{{count}} Modelle entdeckt",
+  "models.discoveredEmpty": "Keine Modelle entdeckt. Pr\u00fcfen Sie Ihre LiteLLM-Konfiguration.",
+  "models.toast.discoverFailed": "Modell-Erkennung fehlgeschlagen",
+  "models.status.reachable": "Erreichbar",
+  "models.status.unreachable": "Nicht erreichbar",
+  "models.source.litellm": "LiteLLM",
+  "models.source.ollama": "Ollama",
 
   // -- Agents ---------------------------------------------------------------
   "agent.title": "Agenten",

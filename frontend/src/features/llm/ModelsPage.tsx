@@ -1,7 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { LLMModel } from "~/api/types";
+import type { DiscoveredModel, LLMModel } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import {
@@ -27,6 +27,9 @@ export default function ModelsPage() {
   const [apiBase, setApiBase] = createSignal("");
   const [apiKey, setApiKey] = createSignal("");
   const [error, setError] = createSignal("");
+  const [discoveredModels, setDiscoveredModels] = createSignal<DiscoveredModel[]>([]);
+  const [discovering, setDiscovering] = createSignal(false);
+  const [showDiscovered, setShowDiscovered] = createSignal(false);
 
   const handleAdd = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -69,6 +72,22 @@ export default function ModelsPage() {
     }
   };
 
+  const handleDiscover = async () => {
+    setError("");
+    setDiscovering(true);
+    try {
+      const result = await api.llm.discover();
+      setDiscoveredModels(result.models);
+      setShowDiscovered(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : t("models.toast.discoverFailed");
+      setError(msg);
+      toast("error", msg);
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
   return (
     <PageLayout
       title={t("models.title")}
@@ -79,6 +98,9 @@ export default function ModelsPage() {
               LiteLLM: {health()?.status ?? "unknown"}
             </Badge>
           </Show>
+          <Button variant="secondary" onClick={handleDiscover} disabled={discovering()}>
+            {discovering() ? t("models.discovering") : t("models.discover")}
+          </Button>
           <Button onClick={() => setShowForm((v) => !v)}>
             {showForm() ? t("common.cancel") : t("models.addModel")}
           </Button>
@@ -141,6 +163,33 @@ export default function ModelsPage() {
             </Card.Body>
           </Card>
         </form>
+      </Show>
+
+      {/* Discovered Models Section */}
+      <Show when={showDiscovered()}>
+        <div class="mb-6">
+          <div class="mb-3 flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-cf-text-primary">{t("models.discovered")}</h2>
+            <div class="flex items-center gap-2">
+              <Badge variant="info">
+                {t("models.discoveredCount", { count: String(discoveredModels().length) })}
+              </Badge>
+              <Button variant="ghost" size="sm" onClick={() => setShowDiscovered(false)}>
+                {t("common.close")}
+              </Button>
+            </div>
+          </div>
+          <Show
+            when={discoveredModels().length > 0}
+            fallback={<EmptyState title={t("models.discoveredEmpty")} />}
+          >
+            <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              <For each={discoveredModels()}>
+                {(model) => <DiscoveredModelCard model={model} />}
+              </For>
+            </div>
+          </Show>
+        </div>
       </Show>
 
       <Show when={models.loading}>
@@ -209,6 +258,62 @@ function ModelCard(props: ModelCardProps) {
                 </Show>
               )}
             </For>
+          </Show>
+        </div>
+      </Card.Body>
+    </Card>
+  );
+}
+
+interface DiscoveredModelCardProps {
+  model: DiscoveredModel;
+}
+
+function DiscoveredModelCard(props: DiscoveredModelCardProps) {
+  const { t } = useI18n();
+  return (
+    <Card class="transition-shadow hover:shadow-md">
+      <Card.Body>
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="text-lg font-semibold text-cf-text-primary">{props.model.model_name}</h3>
+            <Show when={props.model.provider}>
+              <p class="mt-1 text-sm text-cf-text-muted">{props.model.provider}</p>
+            </Show>
+          </div>
+          <div class="flex items-center gap-2">
+            <Badge variant={props.model.status === "reachable" ? "success" : "danger"} pill>
+              {props.model.status === "reachable"
+                ? t("models.status.reachable")
+                : t("models.status.unreachable")}
+            </Badge>
+            <Badge variant={props.model.source === "ollama" ? "warning" : "info"} pill>
+              {props.model.source === "ollama"
+                ? t("models.source.ollama")
+                : t("models.source.litellm")}
+            </Badge>
+          </div>
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-2 text-xs">
+          <Show when={props.model.model_id}>
+            <Badge variant="default">
+              <span class="font-mono">{props.model.model_id}</span>
+            </Badge>
+          </Show>
+          <Show when={props.model.max_tokens}>
+            <Badge variant="info">max_tokens: {props.model.max_tokens?.toLocaleString()}</Badge>
+          </Show>
+          <For each={props.model.tags ?? []}>{(tag) => <Badge variant="default">{tag}</Badge>}</For>
+          <Show when={props.model.input_cost_per_token}>
+            <Badge variant="info">
+              in: ${((props.model.input_cost_per_token ?? 0) * 1_000_000).toFixed(2)}/M
+            </Badge>
+          </Show>
+          <Show when={props.model.output_cost_per_token}>
+            <Badge variant="info">
+              out: ${((props.model.output_cost_per_token ?? 0) * 1_000_000).toFixed(2)}/M
+            </Badge>
           </Show>
         </div>
       </Card.Body>

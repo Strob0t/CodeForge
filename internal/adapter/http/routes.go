@@ -96,6 +96,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/llm/models", h.AddLLMModel)
 		r.Post("/llm/models/delete", h.DeleteLLMModel)
 		r.Get("/llm/health", h.LLMHealth)
+		r.Get("/llm/discover", h.DiscoverLLMModels)
 
 		// Provider registries
 		r.Get("/providers/git", h.ListGitProviders)

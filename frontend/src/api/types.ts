@@ -118,6 +118,27 @@ export interface LLMModel {
   model_info?: Record<string, unknown>;
 }
 
+/** Discovered model from auto-discovery */
+export interface DiscoveredModel {
+  model_name: string;
+  model_id?: string;
+  provider?: string;
+  tags?: string[];
+  max_tokens?: number;
+  input_cost_per_token?: number;
+  output_cost_per_token?: number;
+  status: "reachable" | "unreachable";
+  source: "litellm" | "ollama";
+  model_info?: Record<string, unknown>;
+}
+
+/** Response from GET /api/v1/llm/discover */
+export interface DiscoverModelsResponse {
+  models: DiscoveredModel[];
+  count: number;
+  ollama_url: string;
+}
+
 /** Add model request for LiteLLM */
 export interface AddModelRequest {
   model_name: string;

@@ -995,3 +995,25 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-25) `docs/architecture.md`: Agentic Loop section with data flow diagram
 - [x] (2026-02-25) `docs/features/04-agent-orchestration.md`: Agentic conversation mode documentation
 - [x] (2026-02-25) `CLAUDE.md`: Agentic loop architecture summary
+
+### Phase 18: Live E2E Functional Testing & Blockers (IN PROGRESS)
+
+> Last update: 2026-02-25
+
+#### Phase 18A: NATS Stream Subjects Bug Fix (CRITICAL)
+- [x] (2026-02-25) Fix `internal/adapter/nats/nats.go:50`: Add `"conversation.>"` to JetStream stream subjects — without this, all agentic conversation messages were silently rejected
+
+#### Phase 18B: System Prompt Self-Correction Enhancement
+- [x] (2026-02-25) Update `internal/service/templates/conversation_system.tmpl`: Replace single "report errors" line with 5 explicit retry/self-correction instructions (retry on failure, re-read on edit mismatch, diagnose bash errors, iterate until done, explain reasoning)
+
+#### Phase 18C: Model Auto-Discovery
+- [x] (2026-02-25) `DiscoverModels()` in LiteLLM client: queries `/model/info` + `/v1/models`, returns models with status, tags, cost, provider
+- [x] (2026-02-25) `DiscoverOllamaModels()` in LiteLLM client: queries Ollama `/api/tags` when `OLLAMA_BASE_URL` is set
+- [x] (2026-02-25) `GET /api/v1/llm/discover` HTTP endpoint with handler and route
+- [x] (2026-02-25) Frontend: "Discover Models" button, discovered models section with status badges, cost display, source indicators
+- [x] (2026-02-25) i18n: English + German translations for discover UI
+
+#### Phase 18D: Live Testing (Manual — pending)
+- [ ] Boot full stack and verify health
+- [ ] Run 4 progressively harder test scenarios through Chat UI
+- [ ] Validate self-correction, cost tracking, HITL approval, message persistence

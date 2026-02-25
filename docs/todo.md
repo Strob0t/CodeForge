@@ -1253,6 +1253,38 @@ Bug Fixes --- independent, anytime
 
 ---
 
+### Phase 18: Live E2E Functional Testing & Blockers
+
+#### 18A: NATS Stream Subjects Bug Fix (CRITICAL)
+
+- [x] (2026-02-25) Fix `internal/adapter/nats/nats.go:50`: Add `"conversation.>"` to JetStream stream subjects (was silently rejecting all agentic conversation messages)
+
+#### 18B: System Prompt Self-Correction Enhancement
+
+- [x] (2026-02-25) Update `internal/service/templates/conversation_system.tmpl`: Replace single "report errors" line with 5 retry/self-correction instructions (retry on failure, re-read on edit mismatch, diagnose bash errors, iterate until done, explain what went wrong)
+
+#### 18C: Model Auto-Discovery
+
+- [x] (2026-02-25) `internal/adapter/litellm/client.go`: `DiscoverModels()` — queries LiteLLM `/model/info` + `/v1/models`, returns `DiscoveredModel` with status, tags, cost, provider
+- [x] (2026-02-25) `internal/adapter/litellm/client.go`: `DiscoverOllamaModels()` — queries Ollama `/api/tags` when `OLLAMA_BASE_URL` is set
+- [x] (2026-02-25) `internal/adapter/http/handlers.go`: `DiscoverLLMModels` handler for `GET /api/v1/llm/discover`
+- [x] (2026-02-25) `internal/adapter/http/routes.go`: Register `/llm/discover` route
+- [x] (2026-02-25) `frontend/src/api/types.ts`: `DiscoveredModel` and `DiscoverModelsResponse` types
+- [x] (2026-02-25) `frontend/src/api/client.ts`: `api.llm.discover()` method
+- [x] (2026-02-25) `frontend/src/features/llm/ModelsPage.tsx`: "Discover Models" button, discovered models section with status badges and cost info
+- [x] (2026-02-25) `frontend/src/i18n/en.ts` + `frontend/src/i18n/locales/de.ts`: i18n keys for discover UI
+
+#### 18D: Live Testing (Manual)
+
+- [ ] Boot full stack (Go Core + Python Worker + LiteLLM + Frontend)
+- [ ] Scenario 1: Simple file read task
+- [ ] Scenario 2: Multi-step code change
+- [ ] Scenario 3: Bug fix (agent finds and fixes NATS subject bug)
+- [ ] Scenario 4: Complex multi-file feature implementation
+- [ ] Validate: self-correction, cost tracking, HITL approval, message persistence
+
+---
+
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
 - **Completed Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
 - Completed: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy

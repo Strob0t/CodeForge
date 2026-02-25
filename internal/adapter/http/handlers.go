@@ -712,6 +712,42 @@ func (h *Handlers) LLMHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": status})
 }
 
+// DiscoverLLMModels handles GET /api/v1/llm/discover
+// It queries LiteLLM and optionally Ollama to discover all available models.
+func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Discover models from LiteLLM.
+	models, err := h.LiteLLM.DiscoverModels(ctx)
+	if err != nil {
+		slog.Error("litellm discovery failed", "error", err)
+		writeError(w, http.StatusBadGateway, "LLM discovery failed: "+err.Error())
+		return
+	}
+
+	// Discover Ollama models if OLLAMA_BASE_URL is set.
+	ollamaURL := os.Getenv("OLLAMA_BASE_URL")
+	if ollamaURL != "" {
+		ollamaModels, err := h.LiteLLM.DiscoverOllamaModels(ctx, ollamaURL)
+		if err != nil {
+			slog.Warn("ollama discovery failed", "error", err)
+			// Non-fatal: continue with LiteLLM models only.
+		} else {
+			models = append(models, ollamaModels...)
+		}
+	}
+
+	if models == nil {
+		models = []litellm.DiscoveredModel{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"models":     models,
+		"count":      len(models),
+		"ollama_url": ollamaURL,
+	})
+}
+
 // --- Policy Endpoints ---
 
 // ListPolicyProfiles handles GET /api/v1/policies

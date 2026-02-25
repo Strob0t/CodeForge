@@ -182,6 +182,16 @@ const en = {
   "models.toast.addFailed": "Failed to add model",
   "models.toast.deleteFailed": "Failed to delete model",
   "models.deleteAria": "Delete model {{name}}",
+  "models.discover": "Discover Models",
+  "models.discovering": "Discovering...",
+  "models.discovered": "Discovered Models",
+  "models.discoveredCount": "{{count}} models discovered",
+  "models.discoveredEmpty": "No models discovered. Check your LiteLLM configuration.",
+  "models.toast.discoverFailed": "Failed to discover models",
+  "models.status.reachable": "Reachable",
+  "models.status.unreachable": "Unreachable",
+  "models.source.litellm": "LiteLLM",
+  "models.source.ollama": "Ollama",
 
   // -- Agents ---------------------------------------------------------------
   "agent.title": "Agents",
