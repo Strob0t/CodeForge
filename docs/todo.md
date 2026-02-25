@@ -1292,6 +1292,22 @@ Bug Fixes --- independent, anytime
 - [ ] Cost tracking: Groq reports $0.00 cost (free tier) — needs paid model for cost validation.
 - [ ] HITL approval: Not triggered with default "headless-safe-sandbox" policy — needs "ask" policy rule.
 
+### Phase 19: Frontend UX Improvements
+
+> Project detail page layout enhancements: resizable panels, collapsible roadmap.
+
+#### 19A: Resizable Roadmap/Chat Split
+
+- [ ] Make the Roadmap panel and Chat panel widths adjustable via a draggable splitter/divider
+- [ ] Persist the user's chosen split ratio (e.g. in localStorage)
+- [ ] Ensure responsive behavior — collapse to stacked layout on narrow viewports
+
+#### 19B: Collapsible Roadmap Panel
+
+- [ ] Add a toggle button to show/hide the Roadmap panel entirely
+- [ ] When hidden, the Chat panel should expand to fill the available space
+- [ ] Persist collapse state (e.g. in localStorage)
+
 ---
 
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews

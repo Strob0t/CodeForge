@@ -157,14 +157,15 @@ class RuntimeClient:
         }
 
         self._log.debug("requesting tool call", tool=tool, call_id=call_id)
-        await self._js.publish(
-            SUBJECT_TOOLCALL_REQUEST,
-            json.dumps(request).encode(),
-        )
 
-        # Wait for response (subscribe and filter by call_id)
+        # Subscribe BEFORE publishing to avoid a race condition where Go
+        # responds before the subscription is established.
         sub = await self._js.subscribe(SUBJECT_TOOLCALL_RESPONSE)
         try:
+            await self._js.publish(
+                SUBJECT_TOOLCALL_REQUEST,
+                json.dumps(request).encode(),
+            )
             deadline = asyncio.get_event_loop().time() + RESPONSE_TIMEOUT_SECONDS
             while True:
                 remaining = deadline - asyncio.get_event_loop().time()

@@ -621,7 +621,10 @@ class TaskConsumer:
                     )
             except Exception:
                 logger.exception("failed to publish conversation error result")
-            await msg.nak()
+            # Ack even on failure — the error status was already reported back
+            # to Go Core. A nak would cause infinite re-delivery since the
+            # failure (LLM error, timeout) won't resolve on retry.
+            await msg.ack()
         finally:
             if workbench is not None:
                 await workbench.disconnect_all()
