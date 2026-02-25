@@ -1380,6 +1380,232 @@ Bug Fixes --- independent, anytime
 - [ ] On confirm: save with `status: "error"`, on cancel: stay in form
 - [ ] Keep separate "Test" button in server actions table for re-testing existing servers
 
+### Phase 20: Benchmark Mode (Dev-Mode Agent Evaluation)
+
+> Evaluation framework for measuring agent quality, tool usage, and multi-agent collaboration.
+> Only available in dev mode. Uses DeepEval as primary evaluation framework, AgentNeo for
+> observability/tracing, and GEMMAS-inspired metrics for multi-agent collaboration quality.
+>
+> Research references:
+> - DeepEval: github.com/confident-ai/deepeval (Apache 2.0, 13.8k stars, 60+ metrics)
+> - AgentNeo: github.com/raga-ai-hub/RagaAI-Catalyst (Apache 2.0, ~6k stars)
+> - GEMMAS: arxiv.org/abs/2507.13190 (EMNLP 2025, IDS + UPR metrics, no code released)
+> - REALM-Bench: arxiv.org/abs/2502.18836 (Stanford, multi-agent coordination benchmark)
+> - SPARC-Bench: github.com/agenticsorg/sparc-bench (MIT, SWE-bench based, Roo Code ecosystem)
+
+#### 20A: DeepEval Integration — Agent Evaluation Metrics
+
+**Dependencies:** `pip install deepeval` in Python worker Poetry environment
+
+**Python Worker — evaluation harness (`workers/codeforge/evaluation/`):**
+
+- [ ] Add `deepeval` to `pyproject.toml` dependencies
+- [ ] Create `workers/codeforge/evaluation/__init__.py` — package init
+- [ ] Create `workers/codeforge/evaluation/runner.py` — `BenchmarkRunner` class:
+  - Accepts a list of `BenchmarkTask` (input prompt, expected output, expected tool calls)
+  - Runs the task through the existing agent executor (`execute_with_runtime` or conversation loop)
+  - Captures actual output, tool calls, step count, cost, tokens
+  - Returns `BenchmarkResult` with all captured data
+- [ ] Create `workers/codeforge/evaluation/metrics.py` — metric wrappers:
+  - `evaluate_task_completion(input, actual_output, expected_output)` — uses DeepEval `TaskCompletionMetric`
+  - `evaluate_tool_correctness(expected_tools, actual_tools)` — uses DeepEval `ToolCorrectnessMetric` with strict mode (name + args + ordering)
+  - `evaluate_step_efficiency(trace)` — uses DeepEval `StepEfficiencyMetric`
+  - `evaluate_faithfulness(output, context)` — uses DeepEval `FaithfulnessMetric` (for RAG-backed agent responses)
+  - `evaluate_answer_relevancy(input, output)` — uses DeepEval `AnswerRelevancyMetric`
+  - All metrics use LiteLLM as judge LLM (configure via `DeepEvalBaseLLM` wrapper pointing to `LITELLM_URL`)
+- [ ] Create `workers/codeforge/evaluation/litellm_judge.py` — custom `DeepEvalBaseLLM` subclass:
+  - Wraps LiteLLM proxy (`http://codeforge-litellm:4000/v1/chat/completions`) as the evaluation judge
+  - Configurable model for judging (e.g., `openai/gpt-4o` or `anthropic/claude-sonnet`)
+  - Handles auth headers, retries, timeout
+- [ ] Create `workers/codeforge/evaluation/datasets.py` — benchmark dataset management:
+  - `load_dataset(path: str) -> list[BenchmarkTask]` — loads YAML benchmark files
+  - `save_results(results: list[BenchmarkResult], path: str)` — saves results as JSON
+  - Built-in sample dataset: 10-20 basic coding tasks (explain code, find bug, write function, refactor)
+
+**Benchmark task YAML format (`data/benchmarks/`):**
+
+- [ ] Create `data/benchmarks/` directory
+- [ ] Create `data/benchmarks/basic-coding.yaml` — sample dataset with 10-20 tasks:
+  - Each task: `id`, `name`, `input` (user prompt), `expected_output` (reference answer), `expected_tools` (list of tool names + args), `context` (optional retrieval context), `difficulty` (easy/medium/hard)
+  - Tasks cover: code explanation, bug detection, function writing, refactoring, test writing
+- [ ] Create `data/benchmarks/README.md` — format documentation, how to add custom benchmarks
+
+**NATS subject for benchmark runs:**
+
+- [ ] Add `benchmark.run.request` subject — Go Core publishes, Python Worker subscribes
+- [ ] Add `benchmark.run.result` subject — Python Worker publishes results back
+- [ ] Message format: `BenchmarkRunRequest { run_id, dataset_path, model, metrics: list[str] }`
+- [ ] Result format: `BenchmarkRunResult { run_id, tasks: list[{task_id, scores: dict[str, float], output, cost, tokens, duration}], summary: {avg_scores, total_cost, total_time} }`
+- [ ] Subscribe in `consumer.py` — `_handle_benchmark_run()` method, only when dev mode is active
+
+**Tests:**
+
+- [ ] `workers/tests/test_evaluation_runner.py` — unit tests for BenchmarkRunner with mocked executor
+- [ ] `workers/tests/test_evaluation_metrics.py` — unit tests for metric wrappers with mocked DeepEval
+- [ ] `workers/tests/test_litellm_judge.py` — integration test for LiteLLM judge wrapper
+
+#### 20B: AgentNeo Integration — Observability & Tracing
+
+**Dependencies:** `pip install agentneo` in Python worker Poetry environment
+
+**Python Worker — tracing instrumentation:**
+
+- [ ] Add `agentneo` to `pyproject.toml` dependencies
+- [ ] Create `workers/codeforge/tracing/__init__.py` — package init
+- [ ] Create `workers/codeforge/tracing/setup.py` — `TracingManager` class:
+  - `init(project_name, enabled: bool)` — creates AgentNeo `Tracer` instance, only when dev mode active
+  - `get_tracer()` — returns the active tracer (or a no-op stub when disabled)
+  - Auto-instrumentation: call `tracer.instrument_litellm()` to monkey-patch all LiteLLM calls
+  - Session management: `start_session(run_id)`, `end_session(run_id)`
+- [ ] Instrument `workers/codeforge/executor.py` — add `@tracer.trace_agent("executor")` decorator to `execute_with_runtime()`
+- [ ] Instrument `workers/codeforge/mcp_workbench.py` — add `@tracer.trace_tool("mcp_tool")` decorator to `call_tool()`
+- [ ] Instrument `workers/codeforge/conversation.py` (or equivalent conversation loop) — trace each LLM call and tool execution step
+- [ ] Create `workers/codeforge/tracing/metrics.py` — AgentNeo metric evaluation:
+  - `evaluate_tool_selection_accuracy(session)` — how well agent selects appropriate tools
+  - `evaluate_goal_decomposition(session)` — how well agent breaks down complex tasks
+  - `evaluate_plan_adaptability(session)` — how well agent adapts when tools fail or return unexpected results
+  - All use AgentNeo's built-in `execute()` method with LLM judge
+
+**Dashboard integration:**
+
+- [ ] Create `workers/codeforge/tracing/dashboard.py` — optional dashboard launcher:
+  - `launch(port: int = 3100)` — starts AgentNeo React dashboard (only in dev mode)
+  - Exposes trace history, execution graphs, token/cost breakdowns per run
+- [ ] Add `benchmark.dashboard_port` config key to `codeforge.yaml` (default: 3100, 0 = disabled)
+- [ ] Document dashboard access in `docs/dev-setup.md`
+
+**Tests:**
+
+- [ ] `workers/tests/test_tracing_setup.py` — test TracingManager init, no-op when disabled
+- [ ] `workers/tests/test_tracing_instrumentation.py` — verify decorators don't break executor flow
+
+#### 20C: GEMMAS-Inspired Metrics — Multi-Agent Collaboration Quality
+
+> Custom implementation based on GEMMAS paper (arxiv.org/abs/2507.13190).
+> No code was released, so we implement the two core metrics ourselves.
+> Only relevant once multi-agent workflows (DAG orchestration) are active.
+
+**Python Worker — collaboration metrics (`workers/codeforge/evaluation/collaboration.py`):**
+
+- [ ] Create `workers/codeforge/evaluation/collaboration.py` with two metric classes:
+
+- [ ] **`InformationDiversityScore` (IDS):**
+  - Input: list of agent messages from a multi-agent run (each: `agent_id`, `content`, `round`, `parent_agent_id`)
+  - Build DAG: nodes = agents, edges = message flow between agents
+  - Build spatial adjacency matrix S (direct communication links) and temporal matrix T (causal dependencies across rounds)
+  - Compute pairwise similarity using TF-IDF (syntactic) + sentence-transformers BERT embeddings (semantic)
+  - Combine with equal weights: `SS_total = 0.5 * tfidf_sim + 0.5 * bert_sim`
+  - Compute IDS: weighted average of `(1 - SS_total)` across all connected agent pairs
+  - Return score 0.0-1.0 (higher = more diverse contributions, less redundancy)
+
+- [ ] **`UnnecessaryPathRatio` (UPR):**
+  - Input: same DAG as IDS + correctness scores per reasoning path (from DeepEval or manual annotation)
+  - Enumerate all paths in DAG from root agents to final output
+  - Classify paths: necessary (correctness >= 0.5) vs unnecessary (correctness < 0.5)
+  - Compute UPR: `1 - |necessary_paths| / |all_paths|`
+  - Return score 0.0-1.0 (lower = more efficient, fewer wasted reasoning paths)
+
+- [ ] Add `sentence-transformers` to `pyproject.toml` dependencies (for BERT embeddings in IDS)
+- [ ] Add `scikit-learn` dependency (for TF-IDF computation in IDS)
+
+**Integration with event stream:**
+
+- [ ] Create `workers/codeforge/evaluation/dag_builder.py` — `build_collaboration_dag(messages: list[AgentMessage]) -> CollaborationDAG`:
+  - Parses agent-to-agent messages from NATS event stream or trajectory recording
+  - Builds adjacency matrices (spatial + temporal)
+  - Returns structured DAG object compatible with IDS and UPR computation
+- [ ] Hook into trajectory recording system — when a multi-agent run completes, automatically compute IDS + UPR if benchmark mode is active
+
+**Tests:**
+
+- [ ] `workers/tests/test_collaboration_ids.py` — test IDS with known diverse vs redundant message sets
+- [ ] `workers/tests/test_collaboration_upr.py` — test UPR with known necessary vs unnecessary paths
+- [ ] `workers/tests/test_dag_builder.py` — test DAG construction from sample agent messages
+
+#### 20D: Go Core — Benchmark API & Dev-Mode Gate
+
+**Benchmark API endpoints (only accessible in dev mode):**
+
+- [ ] Add dev-mode check middleware: `func devModeOnly(cfg *config.Config) func(http.Handler) http.Handler` — returns 403 if `dev_mode: false`
+- [ ] `POST /api/v1/benchmark/runs` — start a benchmark run:
+  - Request body: `{ dataset: string, model: string, metrics: []string }`
+  - Publishes `benchmark.run.request` to NATS
+  - Returns `{ run_id: string, status: "started" }`
+  - Stores benchmark run in DB (new table `benchmark_runs`)
+- [ ] `GET /api/v1/benchmark/runs` — list all benchmark runs with summary scores
+- [ ] `GET /api/v1/benchmark/runs/{id}` — get detailed results for a single run (per-task scores, outputs, costs)
+- [ ] `DELETE /api/v1/benchmark/runs/{id}` — delete a benchmark run and its results
+- [ ] `GET /api/v1/benchmark/datasets` — list available benchmark datasets (reads `data/benchmarks/*.yaml`)
+- [ ] `GET /api/v1/benchmark/compare?runs=id1,id2` — compare two or more runs side-by-side (score deltas, regression detection)
+
+**Database migration:**
+
+- [ ] New migration `0XX_create_benchmark_runs.sql`:
+  - `benchmark_runs` table: `id`, `dataset`, `model`, `status` (running/completed/failed), `summary_scores` (JSONB), `total_cost`, `total_tokens`, `total_duration_ms`, `created_at`, `completed_at`
+  - `benchmark_results` table: `id`, `run_id` (FK), `task_id`, `task_name`, `scores` (JSONB: metric_name -> score), `actual_output`, `expected_output`, `tool_calls` (JSONB), `cost_usd`, `tokens_in`, `tokens_out`, `duration_ms`
+
+**Config:**
+
+- [ ] Add `benchmark` section to `codeforge.yaml`:
+  ```yaml
+  benchmark:
+    enabled: false          # only true in dev mode
+    datasets_dir: "data/benchmarks"
+    judge_model: "openai/gpt-4o"  # LLM used by DeepEval as judge
+    dashboard_port: 3100    # AgentNeo dashboard, 0 = disabled
+  ```
+
+#### 20E: Frontend — Benchmark Dashboard Page
+
+**New page: `/benchmark` (only visible in dev mode):**
+
+- [ ] Create `frontend/src/features/benchmark/BenchmarkPage.tsx` — main benchmark page:
+  - Header: "Agent Benchmark" title + "New Run" button
+  - Run list table: ID, dataset, model, status, avg scores (task completion, tool correctness, step efficiency), total cost, duration, date
+  - Status badges: running (blue pulse), completed (green), failed (red)
+
+- [ ] Create `frontend/src/features/benchmark/BenchmarkRunDetail.tsx` — single run detail view:
+  - Summary card: overall scores (gauges/progress bars for each metric 0-100%), total cost, total tokens, duration
+  - Per-task results table: task name, difficulty, individual metric scores, pass/fail, expand to see full output
+  - Expandable diff view: expected vs actual output side-by-side
+  - Tool call timeline: which tools were called, in what order, with what arguments
+  - Cost breakdown: per-task token usage and cost
+
+- [ ] Create `frontend/src/features/benchmark/BenchmarkCompare.tsx` — run comparison view:
+  - Select 2-3 runs to compare
+  - Side-by-side score comparison (bar charts or table with delta indicators)
+  - Regression detection: highlight metrics that got worse (red) or better (green)
+  - Cost-performance scatter: X = cost, Y = score, plot all compared runs
+
+- [ ] Create `frontend/src/features/benchmark/NewBenchmarkRunDialog.tsx` — start new run dialog:
+  - Dataset selector dropdown (from `GET /api/v1/benchmark/datasets`)
+  - Model selector (from available LiteLLM models)
+  - Metrics multi-select checkboxes: task_completion, tool_correctness, step_efficiency, faithfulness, answer_relevancy
+  - "Start Run" button → `POST /api/v1/benchmark/runs`
+
+- [ ] Add API client methods in `frontend/src/api/client.ts`:
+  - `api.benchmark.listRuns()`, `api.benchmark.getRun(id)`, `api.benchmark.createRun(req)`, `api.benchmark.deleteRun(id)`, `api.benchmark.comparRuns(ids)`, `api.benchmark.listDatasets()`
+
+- [ ] Add TypeScript types in `frontend/src/api/types.ts`:
+  - `BenchmarkRun`, `BenchmarkResult`, `BenchmarkDataset`, `BenchmarkCompareResponse`
+
+- [ ] Add route `/benchmark` in router (conditionally rendered only when dev mode is active)
+- [ ] Add "Benchmark" nav item in sidebar (conditionally rendered only when dev mode is active)
+
+- [ ] Add i18n keys for all benchmark UI strings in locale files
+
+#### 20F: Documentation & ADR
+
+- [ ] Create `docs/architecture/adr/008-benchmark-evaluation-framework.md`:
+  - Context: Need to measure agent quality beyond "does it work"
+  - Decision: DeepEval (primary metrics) + AgentNeo (tracing) + GEMMAS-inspired (collaboration)
+  - Alternatives considered: SPARC-Bench (too Roo-coupled), REALM-Bench (no license, logistics-focused), RAGAS (RAG-only)
+  - Consequences: Python-only evaluation, LLM-as-judge cost overhead, dev-mode only
+- [ ] Update `docs/features/04-agent-orchestration.md` — add benchmark mode section
+- [ ] Update `docs/dev-setup.md` — add benchmark configuration, AgentNeo dashboard access, benchmark dataset format
+- [ ] Update `docs/tech-stack.md` — add DeepEval, AgentNeo, sentence-transformers to Python dependencies
+- [ ] Update `CLAUDE.md` — add benchmark references to architecture section
+
 ---
 
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
