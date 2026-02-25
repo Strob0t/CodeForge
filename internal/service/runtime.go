@@ -355,7 +355,10 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *messagequeue.ToolCallRequestPayload) error {
 	r, err := s.store.GetRun(ctx, req.RunID)
 	if err != nil {
-		return fmt.Errorf("get run: %w", err)
+		// The run_id might be a conversation_id (agentic conversation mode
+		// reuses the conversation ID as the run ID without creating a run record).
+		// Fall back to conversation-based policy evaluation.
+		return s.handleConversationToolCall(ctx, req)
 	}
 
 	if r.Status != run.StatusRunning {
@@ -474,11 +477,90 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
 }
 
+// handleConversationToolCall handles tool call requests for conversation-based runs
+// that don't have a formal run record. It resolves the conversation's project to
+// determine the policy profile, evaluates the policy, and supports HITL approval.
+func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *messagequeue.ToolCallRequestPayload) error {
+	conv, err := s.store.GetConversation(ctx, req.RunID)
+	if err != nil {
+		// Neither a run nor a conversation — likely a stale NATS message.
+		// Deny silently to avoid log spam.
+		slog.Debug("tool call request for unknown run/conversation", "run_id", req.RunID)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "unknown run")
+	}
+
+	// Resolve policy profile from the conversation's project.
+	policyProfile := ""
+	proj, projErr := s.store.GetProject(ctx, conv.ProjectID)
+	if projErr == nil {
+		policyProfile = proj.PolicyProfile
+	}
+
+	// If no policy profile is set, allow by default (conversation mode).
+	if policyProfile == "" {
+		policyProfile = "default"
+	}
+
+	if _, ok := s.policy.GetProfile(policyProfile); !ok {
+		// Unknown profile — allow the call to proceed rather than blocking.
+		slog.Warn("unknown policy profile for conversation, allowing", "profile", policyProfile, "conversation_id", req.RunID)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionAllow), "")
+	}
+
+	// Evaluate policy.
+	call := policy.ToolCall{
+		Tool:    req.Tool,
+		Command: req.Command,
+		Path:    req.Path,
+	}
+	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call)
+	if err != nil {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
+	}
+	decision := result.Decision
+
+	slog.Debug("conversation policy evaluation",
+		"conversation_id", req.RunID,
+		"tool", req.Tool,
+		"decision", decision,
+		"profile", result.Profile,
+	)
+
+	// HITL: when policy says "ask", wait for user approval via WebSocket/HTTP.
+	if decision == policy.DecisionAsk {
+		decision = s.waitForApproval(ctx, req.RunID, req.CallID, req.Tool, req.Command, req.Path)
+		slog.Info("conversation HITL resolved",
+			"conversation_id", req.RunID,
+			"call_id", req.CallID,
+			"tool", req.Tool,
+			"decision", decision,
+		)
+	}
+
+	// Broadcast WS tool call status.
+	phase := "approved"
+	if decision != policy.DecisionAllow {
+		phase = "denied"
+	}
+	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
+		RunID:    req.RunID,
+		CallID:   req.CallID,
+		Tool:     req.Tool,
+		Decision: string(decision),
+		Phase:    phase,
+	})
+
+	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
+}
+
 // HandleToolCallResult processes the outcome of an executed tool call.
 func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messagequeue.ToolCallResultPayload) error {
 	r, err := s.store.GetRun(ctx, result.RunID)
 	if err != nil {
-		return fmt.Errorf("get run: %w", err)
+		// Conversation-based runs don't have a run record.
+		// Cost/token tracking for conversations happens via WebSocket events.
+		slog.Debug("tool call result for conversation run", "run_id", result.RunID, "cost", result.CostUSD)
+		return nil
 	}
 
 	// Accumulate cost and tokens

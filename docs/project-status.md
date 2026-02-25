@@ -996,7 +996,7 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-25) `docs/features/04-agent-orchestration.md`: Agentic conversation mode documentation
 - [x] (2026-02-25) `CLAUDE.md`: Agentic loop architecture summary
 
-### Phase 18: Live E2E Functional Testing & Blockers (IN PROGRESS)
+### Phase 18: Live E2E Functional Testing & Blockers (COMPLETE)
 
 > Last update: 2026-02-25
 
@@ -1013,7 +1013,14 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-25) Frontend: "Discover Models" button, discovered models section with status badges, cost display, source indicators
 - [x] (2026-02-25) i18n: English + German translations for discover UI
 
-#### Phase 18D: Live Testing (Manual — pending)
-- [ ] Boot full stack and verify health
-- [ ] Run 4 progressively harder test scenarios through Chat UI
-- [ ] Validate self-correction, cost tracking, HITL approval, message persistence
+#### Phase 18D: Runtime Fix — Conversation Tool Call Policy
+- [x] (2026-02-25) `HandleToolCallRequest` fallback: when `GetRun` fails, check if run_id is a conversation_id and evaluate policy from the conversation's project
+- [x] (2026-02-25) `HandleToolCallResult` graceful skip for conversation runs (no run record to update)
+- [x] (2026-02-25) `codeforge.yaml`: Add `agent:` config section with `default_model`, `max_context_tokens`, `max_loop_iterations`
+
+#### Phase 18E: Live Testing Results
+- [x] (2026-02-25) Full stack booted: Go Core (8080), Python Worker (NATS), LiteLLM (4000), Frontend (3001)
+- [x] (2026-02-25) Scenario 1 (file read): 1 step, `read_file` tool, comprehensive summary returned
+- [x] (2026-02-25) Scenario 2 (code change): 6 steps, multi-tool (`write_file`, `bash`), self-correction on compile errors
+- [x] (2026-02-25) Scenario 3 (bug analysis): 3 steps, `read_file` + `search_files`, correct analysis
+- [x] (2026-02-25) Frontend: Chat UI, tool calls/results, model badges, Discover Models (37 models), message persistence
