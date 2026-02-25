@@ -1407,6 +1407,15 @@ export interface CreateMCPServerRequest {
   enabled: boolean;
 }
 
+/** Result of an MCP server connection test */
+export interface MCPTestResult {
+  success: boolean;
+  server_name?: string;
+  server_version?: string;
+  tools?: { name: string; description?: string }[];
+  error?: string;
+}
+
 /** Prompt section stored in the database */
 export interface PromptSectionRow {
   id: string;

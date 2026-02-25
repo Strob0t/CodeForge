@@ -74,8 +74,8 @@ func (h *Handlers) DeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 }
 
 // TestMCPServer handles POST /api/v1/mcp/servers/{id}/test
-// Returns the current status of the server. A full connection test
-// will be implemented when the Python worker bridge is available.
+// Performs a real MCP handshake against an existing server (re-reads config
+// from DB, runs Initialize + ListTools, updates status).
 func (h *Handlers) TestMCPServer(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	srv, err := h.MCP.GetDB(r.Context(), id)
@@ -83,10 +83,34 @@ func (h *Handlers) TestMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "mcp server not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"id":     srv.ID,
-		"status": string(srv.Status),
-	})
+	result, err := h.MCP.TestConnection(r.Context(), srv)
+	if err != nil {
+		writeDomainError(w, err, "test mcp server")
+		return
+	}
+	// Update the server status based on the test result.
+	newStatus := mcp.ServerStatusConnected
+	if !result.Success {
+		newStatus = mcp.ServerStatusError
+	}
+	_ = h.MCP.UpdateStatusDB(r.Context(), id, newStatus)
+	writeJSON(w, http.StatusOK, result)
+}
+
+// TestMCPServerConnection handles POST /api/v1/mcp/servers/test
+// Accepts a ServerDef body (no ID needed) and performs a real MCP handshake
+// to verify the server is reachable before saving. Returns discovered tools.
+func (h *Handlers) TestMCPServerConnection(w http.ResponseWriter, r *http.Request) {
+	req, ok := readJSON[mcp.ServerDef](w, r)
+	if !ok {
+		return
+	}
+	result, err := h.MCP.TestConnection(r.Context(), &req)
+	if err != nil {
+		writeDomainError(w, err, "test mcp server connection")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ListMCPServerTools handles GET /api/v1/mcp/servers/{id}/tools

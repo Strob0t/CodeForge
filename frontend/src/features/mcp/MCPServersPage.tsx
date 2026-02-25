@@ -1,7 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { CreateMCPServerRequest, MCPServer, MCPServerTool } from "~/api/types";
+import type { CreateMCPServerRequest, MCPServer, MCPServerTool, MCPTestResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import {
@@ -36,6 +36,11 @@ export default function MCPServersPage() {
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = createSignal<MCPServer | null>(null);
+
+  // Pre-save test state
+  const [testingConnection, setTestingConnection] = createSignal(false);
+  const [testFailError, setTestFailError] = createSignal("");
+  const [pendingRequest, setPendingRequest] = createSignal<CreateMCPServerRequest | null>(null);
 
   // -- Form state --
   const [formName, setFormName] = createSignal("");
@@ -97,52 +102,79 @@ export default function MCPServersPage() {
     setFormEnv(formEnv().map((row, i) => (i === index ? { ...row, [field]: val } : row)));
   }
 
-  const handleSubmit = async (e: SubmitEvent) => {
-    e.preventDefault();
+  function buildRequest(): CreateMCPServerRequest | null {
     const name = formName().trim();
     if (!name) {
       toast("error", t("mcp.toast.nameRequired"));
-      return;
+      return null;
     }
+    const envObj: Record<string, string> = {};
+    for (const row of formEnv()) {
+      const k = row.key.trim();
+      if (k) envObj[k] = row.value;
+    }
+    return {
+      name,
+      description: formDesc().trim() || undefined,
+      transport: formTransport(),
+      command: formTransport() === "stdio" ? formCommand().trim() || undefined : undefined,
+      args:
+        formTransport() === "stdio"
+          ? formArgs()
+              .split("\n")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined,
+      url:
+        formTransport() === "sse" || formTransport() === "streamable_http"
+          ? formUrl().trim() || undefined
+          : undefined,
+      env: Object.keys(envObj).length > 0 ? envObj : undefined,
+      enabled: formEnabled(),
+    };
+  }
+
+  async function saveServer(req: CreateMCPServerRequest, toolCount?: number): Promise<void> {
+    const eid = editingId();
+    if (isEditing() && eid) {
+      await api.mcp.updateServer(eid, req);
+      toast("success", t("mcp.toast.updated"));
+    } else {
+      await api.mcp.createServer(req);
+      const msg = toolCount
+        ? t("mcp.toast.createdWithTools", { count: String(toolCount) })
+        : t("mcp.toast.created");
+      toast("success", msg);
+    }
+    resetForm();
+    setShowForm(false);
+    refetch();
+  }
+
+  const handleSubmit = async (e: SubmitEvent) => {
+    e.preventDefault();
+    const req = buildRequest();
+    if (!req) return;
     setError("");
+    setTestingConnection(true);
+
     try {
-      const envObj: Record<string, string> = {};
-      for (const row of formEnv()) {
-        const k = row.key.trim();
-        if (k) envObj[k] = row.value;
+      // Pre-save connection test.
+      let testResult: MCPTestResult | null = null;
+      try {
+        testResult = await api.mcp.testConnection(req);
+      } catch {
+        // Test endpoint itself failed — treat as test failure.
+        testResult = { success: false, error: t("mcp.testFailed") };
       }
 
-      const req: CreateMCPServerRequest = {
-        name,
-        description: formDesc().trim() || undefined,
-        transport: formTransport(),
-        command: formTransport() === "stdio" ? formCommand().trim() || undefined : undefined,
-        args:
-          formTransport() === "stdio"
-            ? formArgs()
-                .split("\n")
-                .map((s) => s.trim())
-                .filter(Boolean)
-            : undefined,
-        url:
-          formTransport() === "sse" || formTransport() === "streamable_http"
-            ? formUrl().trim() || undefined
-            : undefined,
-        env: Object.keys(envObj).length > 0 ? envObj : undefined,
-        enabled: formEnabled(),
-      };
-
-      const eid = editingId();
-      if (isEditing() && eid) {
-        await api.mcp.updateServer(eid, req);
-        toast("success", t("mcp.toast.updated"));
+      if (testResult.success) {
+        await saveServer(req, testResult.tools?.length);
       } else {
-        await api.mcp.createServer(req);
-        toast("success", t("mcp.toast.created"));
+        // Test failed — show confirmation dialog.
+        setPendingRequest(req);
+        setTestFailError(testResult.error ?? t("mcp.testFailed"));
       }
-      resetForm();
-      setShowForm(false);
-      refetch();
     } catch (err) {
       const msg =
         err instanceof Error
@@ -152,7 +184,28 @@ export default function MCPServersPage() {
             : t("mcp.toast.createFailed");
       setError(msg);
       toast("error", msg);
+    } finally {
+      setTestingConnection(false);
     }
+  };
+
+  const handleTestFailConfirm = async () => {
+    const req = pendingRequest();
+    if (!req) return;
+    setPendingRequest(null);
+    setTestFailError("");
+    try {
+      await saveServer(req);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : t("mcp.toast.createFailed");
+      setError(msg);
+      toast("error", msg);
+    }
+  };
+
+  const handleTestFailCancel = () => {
+    setPendingRequest(null);
+    setTestFailError("");
   };
 
   const handleDeleteConfirm = async () => {
@@ -383,8 +436,12 @@ export default function MCPServersPage() {
                 <Button variant="secondary" onClick={handleCancelForm}>
                   {t("common.cancel")}
                 </Button>
-                <Button type="submit">
-                  {isEditing() ? t("mcp.form.update") : t("mcp.form.create")}
+                <Button type="submit" disabled={testingConnection()} loading={testingConnection()}>
+                  {testingConnection()
+                    ? t("mcp.testingConnection")
+                    : isEditing()
+                      ? t("mcp.form.update")
+                      : t("mcp.form.create")}
                 </Button>
               </div>
             </form>
@@ -422,6 +479,18 @@ export default function MCPServersPage() {
         cancelLabel={t("common.cancel")}
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* Test-failed confirm dialog */}
+      <ConfirmDialog
+        open={pendingRequest() !== null}
+        title={t("mcp.testFailedTitle")}
+        message={t("mcp.testFailedMessage", { error: testFailError() })}
+        variant="danger"
+        confirmLabel={t("mcp.testFailedSaveAnyway")}
+        cancelLabel={t("common.cancel")}
+        onConfirm={handleTestFailConfirm}
+        onCancel={handleTestFailCancel}
       />
     </PageLayout>
   );
@@ -472,8 +541,13 @@ function MCPServerActions(props: {
   const handleTest = async () => {
     setTesting(true);
     try {
-      await api.mcp.testServer(props.server.id);
-      toast("success", t("mcp.testSuccess"));
+      const result = await api.mcp.testServer(props.server.id);
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0;
+        toast("success", t("mcp.testSuccessTools", { count: String(toolCount) }));
+      } else {
+        toast("error", result.error ?? t("mcp.testFailed"));
+      }
       props.onRefetch();
     } catch {
       toast("error", t("mcp.testFailed"));

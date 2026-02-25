@@ -314,9 +314,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/lsp/symbols", h.LSPDocumentSymbols)
 		r.Post("/projects/{id}/lsp/hover", h.LSPHover)
 
-		// MCP Servers (Phase 15C)
+		// MCP Servers (Phase 15C + 19H)
 		r.Get("/mcp/servers", h.ListMCPServers)
 		r.Post("/mcp/servers", h.CreateMCPServer)
+		r.Post("/mcp/servers/test", h.TestMCPServerConnection) // pre-save test (no ID)
 		r.Get("/mcp/servers/{id}", h.GetMCPServer)
 		r.Put("/mcp/servers/{id}", h.UpdateMCPServer)
 		r.Delete("/mcp/servers/{id}", h.DeleteMCPServer)

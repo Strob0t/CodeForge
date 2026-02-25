@@ -46,6 +46,7 @@ import type {
   LSPServerInfo,
   MCPServer,
   MCPServerTool,
+  MCPTestResult,
   Milestone,
   Mode,
   ModelCostSummary,
@@ -970,8 +971,14 @@ export const api = {
       request<undefined>(`/mcp/servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
     testServer: (id: string) =>
-      request<{ id: string; status: string }>(`/mcp/servers/${encodeURIComponent(id)}/test`, {
+      request<MCPTestResult>(`/mcp/servers/${encodeURIComponent(id)}/test`, {
         method: "POST",
+      }),
+
+    testConnection: (data: CreateMCPServerRequest) =>
+      request<MCPTestResult>("/mcp/servers/test", {
+        method: "POST",
+        body: JSON.stringify(data),
       }),
 
     listTools: (id: string) =>

@@ -1492,31 +1492,31 @@ Bug Fixes --- independent, anytime
 
 **Backend — real test endpoint (`POST /api/v1/mcp/servers/test`):**
 
-- [ ] New endpoint that accepts a `ServerDef` body (no ID needed — tests before creation)
-- [ ] For `sse` / `streamable_http`: Use `mcp-go` client SDK to connect to URL, perform MCP `initialize` handshake, call `tools/list`
-- [ ] For `stdio`: Spawn process via `mcp-go` stdio client, perform `initialize` + `tools/list`, kill process
-- [ ] Return result: `{ success: bool, server_name: string, server_version: string, tools: [{name, description}], error: string }`
-- [ ] Timeout: 10s max — if server doesn't respond, return `success: false` with timeout error
-- [ ] Update existing `POST /api/v1/mcp/servers/{id}/test` to also do a real connection test (re-reads config from DB, runs same logic)
+- [x] (2026-02-25) New endpoint that accepts a `ServerDef` body (no ID needed — tests before creation)
+- [x] (2026-02-25) For `sse` / `streamable_http`: Use `mcp-go` client SDK to connect to URL, perform MCP `initialize` handshake, call `tools/list`
+- [x] (2026-02-25) For `stdio`: Spawn process via `mcp-go` stdio client, perform `initialize` + `tools/list`, kill process
+- [x] (2026-02-25) Return result: `{ success: bool, server_name: string, server_version: string, tools: [{name, description}], error: string }`
+- [x] (2026-02-25) Timeout: 10s max — if server doesn't respond, return `success: false` with timeout error
+- [x] (2026-02-25) Update existing `POST /api/v1/mcp/servers/{id}/test` to also do a real connection test (re-reads config from DB, runs same logic)
 
 **Frontend — pre-save flow:**
 
-- [ ] On form submit: first call `POST /api/v1/mcp/servers/test` with the form data
-- [ ] Show a loading/spinner state ("Testing connection...")
-- [ ] If test succeeds: save directly (create or update), show discovered tools count in success toast
-- [ ] If test fails: show `ConfirmDialog` — "Connection test failed: {error}. Save anyway?"
-- [ ] On confirm: save with `status: "error"`, on cancel: stay in form
-- [ ] Keep separate "Test" button in server actions table for re-testing existing servers
+- [x] (2026-02-25) On form submit: first call `POST /api/v1/mcp/servers/test` with the form data
+- [x] (2026-02-25) Show a loading/spinner state ("Testing connection...")
+- [x] (2026-02-25) If test succeeds: save directly (create or update), show discovered tools count in success toast
+- [x] (2026-02-25) If test fails: show `ConfirmDialog` — "Connection test failed: {error}. Save anyway?"
+- [x] (2026-02-25) On confirm: save with `status: "error"`, on cancel: stay in form
+- [x] (2026-02-25) Keep separate "Test" button in server actions table for re-testing existing servers
 
 ### Phase 20: Benchmark Mode (Dev-Mode Agent Evaluation)
 
 > Evaluation framework for measuring agent quality, tool usage, and multi-agent collaboration.
-> Only available in dev mode (`CODEFORGE_ENV=development`). Uses DeepEval as primary evaluation
+> Only available in dev mode (`APP_ENV=development`). Uses DeepEval as primary evaluation
 > framework, AgentNeo for observability/tracing, and GEMMAS-inspired metrics for multi-agent
 > collaboration quality.
 >
-> **Dev-mode detection:** Environment variable `CODEFORGE_ENV` (values: `development`, `staging`, `production`).
-> Default: `production`. Dev-only features (benchmark, tracing dashboard) require `CODEFORGE_ENV=development`.
+> **Dev-mode detection:** Environment variable `APP_ENV` (values: `development`, `staging`, `production`).
+> Default: `production`. Dev-only features (benchmark, tracing dashboard) require `APP_ENV=development`.
 >
 > Research references:
 > - DeepEval: github.com/confident-ai/deepeval (Apache 2.0, 13.8k stars, 60+ metrics)
@@ -1659,7 +1659,7 @@ Bug Fixes --- independent, anytime
 
 **Benchmark API endpoints (only accessible in dev mode):**
 
-- [ ] Add dev-mode check middleware: `func devModeOnly() func(http.Handler) http.Handler` — reads `CODEFORGE_ENV` env var, returns 403 if not `development`
+- [ ] Add dev-mode check middleware: `func devModeOnly() func(http.Handler) http.Handler` — reads `APP_ENV` env var, returns 403 if not `development`
 - [ ] `POST /api/v1/benchmark/runs` — start a benchmark run:
   - Request body: `{ dataset: string, model: string, metrics: []string }`
   - Publishes `benchmark.run.request` to NATS
