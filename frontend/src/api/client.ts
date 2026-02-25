@@ -875,6 +875,12 @@ export const api = {
           body: JSON.stringify(data),
         },
       ),
+
+    stop: (id: string) =>
+      request<{ status: string; conversation_id: string }>(
+        `/conversations/${encodeURIComponent(id)}/stop`,
+        { method: "POST" },
+      ),
   },
 
   vcsAccounts: {

@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import json
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
@@ -29,6 +30,7 @@ SUBJECT_TOOLCALL_RESULT = "runs.toolcall.result"
 SUBJECT_RUN_COMPLETE = "runs.complete"
 SUBJECT_RUN_OUTPUT = "runs.output"
 SUBJECT_RUN_CANCEL = "runs.cancel"
+SUBJECT_CONVERSATION_RUN_CANCEL = "conversation.run.cancel"
 SUBJECT_RUN_HEARTBEAT = "runs.heartbeat"
 
 RESPONSE_TIMEOUT_SECONDS = 30
@@ -66,15 +68,20 @@ class RuntimeClient:
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log = logger.bind(run_id=run_id, task_id=task_id)
 
-    async def start_cancel_listener(self) -> None:
-        """Subscribe to cancellation messages for this run."""
-        sub = await self._js.subscribe(SUBJECT_RUN_CANCEL)
-        self._cancel_sub = sub
+    async def start_cancel_listener(self, extra_subjects: list[str] | None = None) -> None:
+        """Subscribe to cancellation messages for this run.
 
-        async def _listen() -> None:
+        Listens on the default runs.cancel subject plus any extra subjects
+        (e.g. conversation.run.cancel for conversation runs).
+        """
+        subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
+        subs = [await self._js.subscribe(s) for s in subjects]
+        self._cancel_sub = subs  # type: ignore[assignment]
+
+        async def _listen_sub(sub: object) -> None:
             while not self._cancelled:
                 try:
-                    msg = await sub.next_msg(timeout=1.0)
+                    msg = await sub.next_msg(timeout=1.0)  # type: ignore[attr-defined]
                     data = json.loads(msg.data)
                     if data.get("run_id") == self.run_id:
                         self._cancelled = True
@@ -84,7 +91,8 @@ class RuntimeClient:
                 except Exception:
                     break
 
-        self._cancel_task = asyncio.create_task(_listen())
+        for sub in subs:
+            asyncio.create_task(_listen_sub(sub))  # noqa: RUF006
 
     async def start_heartbeat(self, interval: float = 30.0) -> None:
         """Start periodic heartbeat to the control plane."""
@@ -93,7 +101,7 @@ class RuntimeClient:
             while not self._cancelled:
                 payload = {
                     "run_id": self.run_id,
-                    "timestamp": asyncio.get_event_loop().time(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
                 try:
                     await self._js.publish(

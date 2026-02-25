@@ -210,6 +210,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 			RunID:  conversationID,
 			Status: "failed",
+			Error:  err.Error(),
 		})
 		return nil, fmt.Errorf("llm completion: %w", err)
 	}
@@ -382,6 +383,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 			RunID:  runID,
 			Status: "failed",
+			Error:  err.Error(),
 		})
 		return fmt.Errorf("publish conversation run start: %w", err)
 	}
@@ -462,8 +464,38 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 		RunID:  payload.RunID,
 		Status: wsStatus,
+		Error:  payload.Error,
 	})
 
+	return nil
+}
+
+// StopConversation cancels an active agentic run by publishing a cancel message to NATS.
+func (s *ConversationService) StopConversation(ctx context.Context, conversationID string) error {
+	if s.queue == nil {
+		return errors.New("stop requires NATS queue")
+	}
+
+	payload := struct {
+		RunID string `json:"run_id"`
+	}{
+		RunID: conversationID,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal cancel payload: %w", err)
+	}
+
+	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunCancel, data); err != nil {
+		return fmt.Errorf("publish conversation run cancel: %w", err)
+	}
+
+	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+		RunID:  conversationID,
+		Status: "cancelled",
+	})
+
+	slog.Info("conversation run cancel requested", "conversation_id", conversationID)
 	return nil
 }
 

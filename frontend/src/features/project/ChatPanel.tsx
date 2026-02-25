@@ -40,6 +40,8 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [streamingContent, setStreamingContent] = createSignal("");
   // Track whether the assistant is actively processing via run_started / run_finished
   const [agentRunning, setAgentRunning] = createSignal(false);
+  // Error message from a failed run, shown as a system message in the chat
+  const [runError, setRunError] = createSignal<string | null>(null);
 
   // Tool call tracking from AG-UI events
   interface ToolCallState {
@@ -112,6 +114,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     if (runId === activeConversation()) {
       setAgentRunning(true);
       setStreamingContent("");
+      setRunError(null);
       setStepCount(0);
       setRunningCost(0);
     }
@@ -171,12 +174,21 @@ export default function ChatPanel(props: ChatPanelProps) {
   const cleanupRunFinished = onAGUIEvent("agui.run_finished", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
+      const status = payload.status as string;
+      const errorMsg = payload.error as string | undefined;
       setAgentRunning(false);
       setStreamingContent("");
       setToolCalls([]);
       setPlanSteps([]);
       setStepCount(0);
       setRunningCost(0);
+
+      if (status === "failed" && errorMsg) {
+        setRunError(errorMsg);
+      } else if (status === "cancelled") {
+        setRunError("Run was cancelled.");
+      }
+
       void refetchMessages();
     }
   });
@@ -213,6 +225,7 @@ export default function ChatPanel(props: ChatPanelProps) {
 
     setInput("");
     setSending(true);
+    setRunError(null);
     try {
       const convId = activeConversation();
       if (!convId) return;
@@ -234,8 +247,11 @@ export default function ChatPanel(props: ChatPanelProps) {
   };
 
   const handleStop = () => {
-    // Placeholder: log to console until backend stop endpoint is available
-    console.log("[ChatPanel] Stop requested for conversation:", activeConversation());
+    const convId = activeConversation();
+    if (!convId) return;
+    void api.conversations.stop(convId).catch(() => {
+      // error handled by API layer
+    });
   };
 
   function stepBadgeVariant(status: string): "info" | "success" | "danger" {
@@ -355,6 +371,18 @@ export default function ChatPanel(props: ChatPanelProps) {
                 <div class="max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-primary">
                   <Markdown content={content()} />
                   <div class="mt-1 text-xs opacity-60">{t("chat.streaming")}</div>
+                </div>
+              </div>
+            )}
+          </Show>
+
+          {/* Error message when a run fails */}
+          <Show when={runError()}>
+            {(error) => (
+              <div class="flex justify-start">
+                <div class="max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
+                  <span class="font-medium">Error: </span>
+                  {error()}
                 </div>
               </div>
             )}

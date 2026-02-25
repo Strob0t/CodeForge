@@ -2847,6 +2847,17 @@ func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, msg)
 }
 
+// StopConversation handles POST /api/v1/conversations/{id}/stop.
+// Cancels an active agentic conversation run.
+func (h *Handlers) StopConversation(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Conversations.StopConversation(r.Context(), id); err != nil {
+		writeDomainError(w, err, "stop conversation")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled", "conversation_id": id})
+}
+
 // --- HITL Approval ---
 
 // ApproveToolCall handles POST /api/v1/runs/{id}/approve/{callId}.

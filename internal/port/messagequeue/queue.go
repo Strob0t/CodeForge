@@ -83,4 +83,5 @@ const (
 	// Conversation run subjects (Phase 17C)
 	SubjectConversationRunStart    = "conversation.run.start"    // Go → Python: start a conversation run
 	SubjectConversationRunComplete = "conversation.run.complete" // Python → Go: conversation run finished
+	SubjectConversationRunCancel   = "conversation.run.cancel"   // Go → Python: cancel a conversation run
 )

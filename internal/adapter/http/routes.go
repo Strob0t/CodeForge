@@ -300,6 +300,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Delete("/conversations/{id}", h.DeleteConversation)
 		r.Get("/conversations/{id}/messages", h.ListConversationMessages)
 		r.Post("/conversations/{id}/messages", h.SendConversationMessage)
+		r.Post("/conversations/{id}/stop", h.StopConversation)
 
 		// HITL (Human-in-the-Loop) Approval
 		r.Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)

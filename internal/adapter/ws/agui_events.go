@@ -25,7 +25,8 @@ type AGUIRunStartedEvent struct {
 // AGUIRunFinishedEvent signals that an agent run has completed.
 type AGUIRunFinishedEvent struct {
 	RunID  string `json:"run_id"`
-	Status string `json:"status"` // "completed", "failed", "cancelled"
+	Status string `json:"status"`          // "completed", "failed", "cancelled"
+	Error  string `json:"error,omitempty"` // error message when status is "failed"
 }
 
 // AGUITextMessageEvent carries a text chunk from the agent.

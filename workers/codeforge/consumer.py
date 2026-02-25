@@ -540,7 +540,9 @@ class TaskConsumer:
                 project_id=run_msg.project_id,
                 termination=run_msg.termination,
             )
-            await runtime.start_cancel_listener()
+            await runtime.start_cancel_listener(
+                extra_subjects=["conversation.run.cancel"],
+            )
             await runtime.start_heartbeat()
 
             # Build tool registry.
