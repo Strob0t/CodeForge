@@ -41,7 +41,7 @@ func TestSharedContextService_AddItem(t *testing.T) {
 		TeamID: "team-1",
 		Key:    "step-output",
 		Value:  "completed task successfully",
-		Author: "agent-1",
+		Author: "550e8400-e29b-41d4-a716-446655440000",
 	})
 	if err != nil {
 		t.Fatalf("AddItem failed: %v", err)

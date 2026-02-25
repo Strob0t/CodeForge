@@ -755,7 +755,7 @@ For full completion history, see [project-status.md](project-status.md).
   - Phase 4: 24 PASS, 1 SKIP — Agent Orchestration (agent/task CRUD, policy eval, modes, run creation; run execution skipped — Python worker not running)
   - Phase 5: 21 PASS, 2 SKIP — Cross-pillar (scope, review policy, plans, costs, audit; repomap/search skipped — Python worker needed)
   - Phase 6: 1 PASS — WebSocket connection established
-- [ ] Start Python worker and re-run E2E tests to validate agent execution pipeline (Phase 4.15, 5.2, 5.5)
+- [ ] Start Python worker and re-run E2E tests to validate agent execution pipeline (Phase 4.15, 5.2, 5.5) [BLOCKED: full stack required]
 
 ---
 
@@ -1286,11 +1286,11 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-25) Scenario 1: Simple file read — agent reads `codeforge.yaml` via `read_file` tool, returns comprehensive 14-section summary. 1 step, no errors. Model: groq/llama-3.1-8b.
 - [x] (2026-02-25) Scenario 2: Multi-step code change — agent attempts adding `/api/v1/ping` endpoint. 6 steps, 49 messages, multiple `write_file` and `bash` tool calls. Self-correction demonstrated (retried on compilation failures). Model: groq/llama-3.1-8b.
 - [x] (2026-02-25) Scenario 3: Bug analysis — agent reads `nats.go`, searches for patterns, reports configuration status. 3 steps, no errors. Model: groq/llama-3.1-8b.
-- [ ] Scenario 4: Complex multi-file feature (skipped — requires more capable model for multi-file edits)
+- [ ] Scenario 4: Complex multi-file feature (skipped — requires more capable model for multi-file edits) [BLOCKED: requires paid/capable model]
 - [x] (2026-02-25) Frontend validation: Chat UI shows messages, tool calls, tool results, model badges. WebSocket connected. Discover Models shows 37 models with status badges and pricing.
 - [x] (2026-02-25) Message persistence: Messages persist across page refresh (stored in PostgreSQL).
-- [ ] Cost tracking: Groq reports $0.00 cost (free tier) — needs paid model for cost validation.
-- [ ] HITL approval: Not triggered with default "headless-safe-sandbox" policy — needs "ask" policy rule.
+- [ ] Cost tracking: Groq reports $0.00 cost (free tier) — needs paid model for cost validation. [BLOCKED: requires paid model]
+- [ ] HITL approval: Not triggered with default "headless-safe-sandbox" policy — needs "ask" policy rule. [BLOCKED: custom policy + running services]
 
 #### 18F: Auto-Select Strongest LLM Model
 
@@ -1556,7 +1556,7 @@ Bug Fixes --- independent, anytime
 
 - [x] (2026-02-25) Create `configs/benchmarks/` directory
 - [x] (2026-02-25) Create `configs/benchmarks/basic-coding.yaml` — sample dataset with 5 tasks (FizzBuzz, bug fix, refactor, binary search, TypeScript interface)
-- [ ] Create `configs/benchmarks/README.md` — format documentation, how to add custom benchmarks
+- [x] (2026-02-25) Create `configs/benchmarks/README.md` — format documentation, how to add custom benchmarks
 
 **NATS subject for benchmark runs:**
 
@@ -1567,9 +1567,9 @@ Bug Fixes --- independent, anytime
 
 **Tests:**
 
-- [ ] `workers/tests/test_evaluation_runner.py` — unit tests for BenchmarkRunner with mocked executor
-- [ ] `workers/tests/test_evaluation_metrics.py` — unit tests for metric wrappers with mocked DeepEval
-- [ ] `workers/tests/test_litellm_judge.py` — integration test for LiteLLM judge wrapper
+- [x] (2026-02-25) `workers/tests/test_evaluation_runner.py` — unit tests for BenchmarkRunner with mocked executor (4 tests)
+- [x] (2026-02-25) `workers/tests/test_evaluation_metrics.py` — unit tests for metric wrappers with mocked DeepEval (5 tests)
+- [x] (2026-02-25) `workers/tests/test_litellm_judge.py` — integration test for LiteLLM judge wrapper (6 tests)
 
 #### 20B: AgentNeo Integration — Observability & Tracing
 
@@ -1585,9 +1585,9 @@ Bug Fixes --- independent, anytime
   - Auto-instrumentation: calls `tracer.instrument_litellm()` on init
   - Session management: `start_session(run_id)`, `end_session(run_id)`
   - `enabled` property: True only when dev mode AND agentneo is installed
-- [ ] Instrument `workers/codeforge/executor.py` — add `@tracer.trace_agent("executor")` decorator to `execute_with_runtime()` (deferred: requires executor refactoring)
-- [ ] Instrument `workers/codeforge/mcp_workbench.py` — add `@tracer.trace_tool("mcp_tool")` decorator to `call_tool()` (deferred: requires workbench refactoring)
-- [ ] Instrument `workers/codeforge/conversation.py` (or equivalent conversation loop) — trace each LLM call and tool execution step (deferred)
+- [x] (2026-02-25) Instrument `workers/codeforge/executor.py` — added `@_tracer.trace_agent("executor")` decorator to `execute()` and `execute_with_runtime()`
+- [x] (2026-02-25) Instrument `workers/codeforge/mcp_workbench.py` — added `@_tracer.trace_tool("mcp_tool")` to `call_tool()` and `@_tracer.trace_agent("mcp_workbench")` to `connect_servers()`
+- [x] (2026-02-25) Instrument `workers/codeforge/agent_loop.py` — added `@_tracer.trace_agent("agent_loop")` to `AgentLoopExecutor.run()`
 - [x] (2026-02-25) Create `workers/codeforge/tracing/metrics.py` — AgentNeo metric evaluation:
   - `evaluate_tool_selection_accuracy(session)` — how well agent selects appropriate tools
   - `evaluate_goal_decomposition(session)` — how well agent breaks down complex tasks
@@ -1599,13 +1599,13 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-25) Create `workers/codeforge/tracing/dashboard.py` — optional dashboard launcher:
   - `launch(port: int = 3100)` — starts AgentNeo React dashboard (only in dev mode)
   - Graceful degradation when agentneo not installed
-- [ ] Add `benchmark.dashboard_port` config key to `codeforge.yaml` (default: 3100, 0 = disabled)
-- [ ] Document dashboard access in `docs/dev-setup.md`
+- [x] (2026-02-25) Add `benchmark.dashboard_port` config key to `codeforge.yaml` (already present from Phase 20D)
+- [x] (2026-02-25) Document dashboard access in `docs/dev-setup.md` — added "Benchmark Mode (Dev-Only)" section
 
 **Tests:**
 
 - [x] (2026-02-25) `workers/tests/test_tracing_setup.py` — 5 tests: disabled when not dev, disabled when env missing, noop decorators, noop lifecycle, dev mode without agentneo
-- [ ] `workers/tests/test_tracing_instrumentation.py` — verify decorators don't break executor flow (deferred until executor instrumentation)
+- [x] (2026-02-25) `workers/tests/test_tracing_instrumentation.py` — 5 tests: module imports (executor, agent_loop, mcp_workbench), noop tracer on async, executor execute with tracer
 
 #### 20C: GEMMAS-Inspired Metrics — Multi-Agent Collaboration Quality
 
@@ -1702,8 +1702,8 @@ Bug Fixes --- independent, anytime
   - Compare section with two-run selector and compare button
   - Datasets info section showing available datasets
 
-- [ ] Create dedicated `BenchmarkRunDetail.tsx` component (currently inline in BenchmarkPage)
-- [ ] Create dedicated `BenchmarkCompare.tsx` component with visual diff (currently logs to console)
+- [x] (2026-02-25) Create dedicated `BenchmarkRunDetail.tsx` component — extracted results table with props: results, loading, formatDuration
+- [x] (2026-02-25) Create dedicated `BenchmarkCompare.tsx` component — extracted compare section with own local signals (compareA, compareB)
 
 - [x] (2026-02-25) Add API client methods in `frontend/src/api/client.ts`:
   - `api.benchmarks.listRuns()`, `api.benchmarks.getRun(id)`, `api.benchmarks.createRun(req)`, `api.benchmarks.deleteRun(id)`, `api.benchmarks.listResults(runId)`, `api.benchmarks.compare(idA, idB)`, `api.benchmarks.listDatasets()`

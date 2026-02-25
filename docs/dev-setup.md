@@ -629,3 +629,38 @@ The Docker Compose postgres service is configured with `wal_level=replica` and `
 |---|---|---|
 | `BACKUP_DIR` | `./backups/postgres` | Directory for backup files |
 | `BACKUP_RETAIN_DAYS` | `7` | Days to retain backups before cleanup |
+
+### Benchmark Mode (Dev-Only)
+
+The benchmark evaluation framework (Phase 20) allows running LLM benchmarks to measure agent quality.
+
+#### Activation
+
+Benchmark mode is available through the REST API and the frontend dashboard. No special activation is needed — the benchmark endpoints are always registered.
+
+```bash
+# Create a benchmark run via API
+curl -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Content-Type: application/json" \
+  -d '{"dataset": "basic-coding", "model": "openai/gpt-4o", "metrics": ["correctness"]}'
+
+# List runs
+curl http://localhost:8080/api/v1/benchmarks/runs
+
+# View results
+curl http://localhost:8080/api/v1/benchmarks/runs/{run_id}/results
+```
+
+#### Dashboard
+
+The frontend Benchmarks page (`/benchmarks`) provides a UI for creating runs, viewing results, and comparing runs side-by-side. Accessible from the sidebar in dev mode.
+
+#### Dataset Directory
+
+Benchmark datasets are YAML files in `configs/benchmarks/` (configurable via `benchmark.datasets_dir` in `codeforge.yaml`). See `configs/benchmarks/README.md` for the YAML schema and how to add custom datasets.
+
+#### Configuration
+
+| YAML Key | ENV Variable | Default | Description |
+|---|---|---|---|
+| `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |

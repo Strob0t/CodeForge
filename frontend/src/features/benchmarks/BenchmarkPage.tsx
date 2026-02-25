@@ -1,12 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type {
-  BenchmarkDatasetInfo,
-  BenchmarkResult,
-  BenchmarkRun,
-  CreateBenchmarkRunRequest,
-} from "~/api/types";
+import type { BenchmarkDatasetInfo, BenchmarkRun, CreateBenchmarkRunRequest } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import {
@@ -20,6 +15,9 @@ import {
   PageLayout,
   Select,
 } from "~/ui";
+
+import { BenchmarkCompare } from "./BenchmarkCompare";
+import { BenchmarkRunDetail } from "./BenchmarkRunDetail";
 
 const METRIC_OPTIONS = [
   "correctness",
@@ -46,10 +44,6 @@ export default function BenchmarkPage() {
   const [results] = createResource(selectedRun, (id) =>
     id ? api.benchmarks.listResults(id) : undefined,
   );
-
-  // Compare
-  const [compareA, setCompareA] = createSignal<string>("");
-  const [compareB, setCompareB] = createSignal<string>("");
 
   const resetForm = () => {
     setDataset("");
@@ -238,53 +232,11 @@ export default function BenchmarkPage() {
 
                     {/* Expanded Results */}
                     <Show when={selectedRun() === run.id}>
-                      <div class="mt-4 border-t pt-4 dark:border-gray-700">
-                        <Show when={!results.loading} fallback={<LoadingState />}>
-                          <Show
-                            when={results()?.length}
-                            fallback={
-                              <p class="text-sm text-gray-500">{t("benchmark.noResults")}</p>
-                            }
-                          >
-                            <table class="w-full text-sm">
-                              <thead>
-                                <tr class="border-b text-left text-xs text-gray-500 dark:border-gray-700">
-                                  <th class="pb-2">{t("benchmark.taskName")}</th>
-                                  <th class="pb-2">{t("benchmark.scores")}</th>
-                                  <th class="pb-2">{t("benchmark.cost")}</th>
-                                  <th class="pb-2">{t("benchmark.duration")}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                <For each={results()}>
-                                  {(res: BenchmarkResult) => (
-                                    <tr class="border-b dark:border-gray-700">
-                                      <td class="py-2 font-medium">{res.task_name}</td>
-                                      <td class="py-2">
-                                        <div class="flex gap-2">
-                                          <For each={Object.entries(res.scores)}>
-                                            {([k, v]) => (
-                                              <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800">
-                                                {k}: {(v as number).toFixed(3)}
-                                              </span>
-                                            )}
-                                          </For>
-                                        </div>
-                                      </td>
-                                      <td class="py-2 font-mono text-xs">
-                                        ${res.cost_usd.toFixed(4)}
-                                      </td>
-                                      <td class="py-2 text-xs">
-                                        {formatDuration(res.duration_ms)}
-                                      </td>
-                                    </tr>
-                                  )}
-                                </For>
-                              </tbody>
-                            </table>
-                          </Show>
-                        </Show>
-                      </div>
+                      <BenchmarkRunDetail
+                        results={results()}
+                        loading={results.loading}
+                        formatDuration={formatDuration}
+                      />
                     </Show>
                   </Card>
                 </div>
@@ -295,53 +247,7 @@ export default function BenchmarkPage() {
       </Show>
 
       {/* Compare Section */}
-      <Show when={(runs()?.length ?? 0) >= 2}>
-        <Card class="mt-6 p-4">
-          <h3 class="mb-3 text-sm font-semibold">{t("benchmark.compare")}</h3>
-          <div class="flex items-end gap-3">
-            <FormField label={t("benchmark.runA")} id="benchmark-compare-a">
-              <Select value={compareA()} onChange={(e) => setCompareA(e.currentTarget.value)}>
-                <option value="">{t("common.select")}</option>
-                <For each={runs()}>
-                  {(r: BenchmarkRun) => (
-                    <option value={r.id}>
-                      {r.dataset} / {r.model} ({r.status})
-                    </option>
-                  )}
-                </For>
-              </Select>
-            </FormField>
-            <FormField label={t("benchmark.runB")} id="benchmark-compare-b">
-              <Select value={compareB()} onChange={(e) => setCompareB(e.currentTarget.value)}>
-                <option value="">{t("common.select")}</option>
-                <For each={runs()}>
-                  {(r: BenchmarkRun) => (
-                    <option value={r.id}>
-                      {r.dataset} / {r.model} ({r.status})
-                    </option>
-                  )}
-                </For>
-              </Select>
-            </FormField>
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={!compareA() || !compareB() || compareA() === compareB()}
-              onClick={async () => {
-                try {
-                  const result = await api.benchmarks.compare(compareA(), compareB());
-                  console.log("Compare result:", result);
-                  toast("success", t("benchmark.toast.compareReady"));
-                } catch {
-                  toast("error", t("benchmark.toast.compareError"));
-                }
-              }}
-            >
-              {t("benchmark.compareBtn")}
-            </Button>
-          </div>
-        </Card>
-      </Show>
+      <BenchmarkCompare runs={runs() ?? []} />
 
       {/* Datasets Info */}
       <Show when={datasets()?.length}>

@@ -9,6 +9,7 @@ from codeforge.llm import resolve_scenario
 from codeforge.mcp_workbench import McpWorkbench
 from codeforge.models import ModeConfig, TaskMessage, TaskResult, TaskStatus
 from codeforge.pricing import resolve_cost
+from codeforge.tracing.setup import TracingManager
 
 if TYPE_CHECKING:
     from codeforge.llm import LiteLLMClient
@@ -17,6 +18,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_tracing = TracingManager()
+_tracer = _tracing.get_tracer()
+
 
 class AgentExecutor:
     """Executor that receives a task, calls LLM, and returns a result."""
@@ -24,6 +28,7 @@ class AgentExecutor:
     def __init__(self, llm: LiteLLMClient) -> None:
         self._llm = llm
 
+    @_tracer.trace_agent("executor")
     async def execute(self, task: TaskMessage) -> TaskResult:
         """Execute a task by sending the prompt to the LLM (fire-and-forget path)."""
         logger.info("executing task %s: %s", task.id, task.title)
@@ -58,6 +63,7 @@ class AgentExecutor:
                 error=str(exc),
             )
 
+    @_tracer.trace_agent("executor")
     async def execute_with_runtime(
         self,
         task: TaskMessage,

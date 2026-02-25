@@ -21,6 +21,7 @@ from codeforge.models import (
     ConversationToolCallPayload,
 )
 from codeforge.pricing import resolve_cost
+from codeforge.tracing.setup import TracingManager
 
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
@@ -28,6 +29,9 @@ if TYPE_CHECKING:
     from codeforge.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+_tracing = TracingManager()
+_tracer = _tracing.get_tracer()
 
 DEFAULT_MAX_ITERATIONS = 50
 
@@ -79,6 +83,7 @@ class AgentLoopExecutor:
         self._runtime = runtime
         self._workspace = workspace_path
 
+    @_tracer.trace_agent("agent_loop")
     async def run(
         self,
         messages: list[dict[str, object]],

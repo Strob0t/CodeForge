@@ -1529,9 +1529,9 @@ func TestCancelRunNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// CancelRun calls GetRun which returns not found → 500 (wrapped domain error)
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for cancel of nonexistent run, got %d", w.Code)
+	// CancelRun calls GetRun which returns not found → 404 (mapped via writeDomainError)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for cancel of nonexistent run, got %d", w.Code)
 	}
 }
 

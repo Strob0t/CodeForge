@@ -92,3 +92,9 @@ auth:
   bcrypt_cost: 12                     # Bcrypt work factor (default: 12, min: 4)
   default_admin_email: "admin@localhost"  # Seed admin email on first start
   default_admin_pass: "changeme123"       # Seed admin password (change immediately)
+
+# Benchmark evaluation (dev-only, Phase 20)
+# Used by the evaluation framework to run LLM benchmarks and collect scores.
+# benchmark:
+#   datasets_dir: "configs/benchmarks"   # Directory with benchmark dataset YAML files
+#   dashboard_port: 0                    # AgentNeo dashboard port (0 = disabled)

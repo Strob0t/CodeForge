@@ -12,11 +12,15 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from codeforge.mcp_models import MCPServerDef, MCPTool, MCPToolCallResult
+from codeforge.tracing.setup import TracingManager
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
+
+_tracing = TracingManager()
+_tracer = _tracing.get_tracer()
 
 
 class McpServerConnection:
@@ -98,6 +102,7 @@ class McpServerConnection:
         ]
         return self._tools
 
+    @_tracer.trace_tool("mcp_tool")
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> MCPToolCallResult:
         """Call a tool on the MCP server."""
         if self._session is None:
@@ -133,6 +138,7 @@ class McpWorkbench:
         self._connections: dict[str, McpServerConnection] = {}
         self._tools: list[MCPTool] = []
 
+    @_tracer.trace_agent("mcp_workbench")
     async def connect_servers(self, defs: list[MCPServerDef]) -> None:
         """Connect to all enabled MCP servers."""
         for server_def in defs:

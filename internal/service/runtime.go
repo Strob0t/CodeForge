@@ -489,6 +489,9 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		slog.Debug("tool call request for unknown run/conversation", "run_id", req.RunID)
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "unknown run")
 	}
+	if conv == nil {
+		return fmt.Errorf("conversation not found: %s", req.RunID)
+	}
 
 	// Resolve policy profile from the conversation's project.
 	policyProfile := ""

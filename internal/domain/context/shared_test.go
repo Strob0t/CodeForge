@@ -31,7 +31,7 @@ func TestSharedContext_Validate_MissingProjectID(t *testing.T) {
 }
 
 func TestAddSharedItemRequest_Validate_Valid(t *testing.T) {
-	r := &cfctx.AddSharedItemRequest{TeamID: "team-1", Key: "output", Value: "result data", Author: "agent-1"}
+	r := &cfctx.AddSharedItemRequest{TeamID: "team-1", Key: "output", Value: "result data", Author: "550e8400-e29b-41d4-a716-446655440000"}
 	if err := r.Validate(); err != nil {
 		t.Fatalf("expected valid, got error: %v", err)
 	}
