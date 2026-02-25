@@ -31,7 +31,6 @@ func (m *kbMockStore) CreateKnowledgeBase(_ context.Context, req *knowledgebase.
 		Tags:        req.Tags,
 		ContentPath: req.ContentPath,
 		Status:      "pending",
-		Builtin:     false,
 	}
 	m.kbs = append(m.kbs, *kb)
 	return kb, nil
@@ -155,25 +154,7 @@ func TestKnowledgeBaseService_CreateGetList(t *testing.T) {
 	}
 }
 
-func TestKnowledgeBaseService_DeleteBuiltinFails(t *testing.T) {
-	store := newKBMockStore()
-	svc := service.NewKnowledgeBaseService(store)
-	ctx := context.Background()
-
-	// Inject a builtin KB directly.
-	store.kbs = append(store.kbs, knowledgebase.KnowledgeBase{
-		ID:      "builtin-1",
-		Name:    "builtin-kb",
-		Builtin: true,
-	})
-
-	err := svc.Delete(ctx, "builtin-1")
-	if err == nil {
-		t.Fatal("expected error deleting built-in KB, got nil")
-	}
-}
-
-func TestKnowledgeBaseService_DeleteCustomSucceeds(t *testing.T) {
+func TestKnowledgeBaseService_DeleteSucceeds(t *testing.T) {
 	store := newKBMockStore()
 	svc := service.NewKnowledgeBaseService(store)
 	ctx := context.Background()
@@ -225,30 +206,6 @@ func TestKnowledgeBaseService_ScopeAttachDetach(t *testing.T) {
 	kbs, _ = svc.ListByScope(ctx, "scope-1")
 	if len(kbs) != 0 {
 		t.Errorf("expected 0 KBs in scope after detach, got %d", len(kbs))
-	}
-}
-
-func TestKnowledgeBaseService_SeedBuiltins(t *testing.T) {
-	store := newKBMockStore()
-	svc := service.NewKnowledgeBaseService(store)
-	ctx := context.Background()
-
-	// First seed
-	if err := svc.SeedBuiltins(ctx); err != nil {
-		t.Fatalf("SeedBuiltins (1st): %v", err)
-	}
-	count1 := len(store.kbs)
-	if count1 != len(knowledgebase.BuiltinCatalog) {
-		t.Errorf("expected %d KBs after first seed, got %d", len(knowledgebase.BuiltinCatalog), count1)
-	}
-
-	// Second seed (idempotent -- should not add duplicates)
-	if err := svc.SeedBuiltins(ctx); err != nil {
-		t.Fatalf("SeedBuiltins (2nd): %v", err)
-	}
-	count2 := len(store.kbs)
-	if count2 != count1 {
-		t.Errorf("expected %d KBs after second seed (idempotent), got %d", count1, count2)
 	}
 }
 

@@ -891,7 +891,6 @@ const en = {
   "kb.description": "Curated knowledge modules for agent context",
   "kb.empty": "No knowledge bases available",
   "kb.loading": "Loading knowledge bases...",
-  "kb.builtin": "Built-in",
   "kb.custom": "Custom",
   "kb.status.pending": "Pending",
   "kb.status.indexed": "Indexed",

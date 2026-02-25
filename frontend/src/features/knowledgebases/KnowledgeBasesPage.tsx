@@ -75,22 +75,24 @@ export default function KnowledgeBasesPage() {
     }
   };
 
+  const [indexingId, setIndexingId] = createSignal<string | null>(null);
+
   const handleIndex = async (id: string) => {
     try {
+      setIndexingId(id);
       await api.knowledgeBases.index(id);
       refetch();
       toast("success", t("kb.toast.indexed"));
     } catch (err) {
       toast("error", err instanceof Error ? err.message : "Failed to index knowledge base");
+    } finally {
+      setIndexingId(null);
     }
   };
 
   const sorted = () => {
     const list = kbs() ?? [];
-    return [...list].sort((a, b) => {
-      if (a.builtin !== b.builtin) return a.builtin ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
   };
 
   return (
@@ -149,13 +151,14 @@ export default function KnowledgeBasesPage() {
                     placeholder="tag1, tag2, tag3"
                   />
                 </FormField>
-                <FormField label={t("kb.form.contentPath")} id="kb-content-path">
+                <FormField label={t("kb.form.contentPath")} id="kb-content-path" required>
                   <Input
                     id="kb-content-path"
                     type="text"
                     value={formContentPath()}
                     onInput={(e) => setFormContentPath(e.currentTarget.value)}
-                    placeholder="/path/to/content"
+                    placeholder="/absolute/path/to/content"
+                    required
                   />
                 </FormField>
               </div>
@@ -175,7 +178,14 @@ export default function KnowledgeBasesPage() {
         <Show when={sorted().length} fallback={<EmptyState title={t("kb.empty")} />}>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <For each={sorted()}>
-              {(kb) => <KBCard kb={kb} onDelete={handleDelete} onIndex={handleIndex} />}
+              {(kb) => (
+                <KBCard
+                  kb={kb}
+                  onDelete={handleDelete}
+                  onIndex={handleIndex}
+                  indexing={indexingId() === kb.id}
+                />
+              )}
             </For>
           </div>
         </Show>
@@ -202,6 +212,7 @@ function KBCard(props: {
   kb: KnowledgeBase;
   onDelete: (id: string) => void;
   onIndex: (id: string) => void;
+  indexing: boolean;
 }) {
   const { t } = useI18n();
 
@@ -217,11 +228,6 @@ function KBCard(props: {
           <div class="min-w-0 flex-1">
             <h3 class="text-lg font-semibold text-cf-text-primary">{props.kb.name}</h3>
             <p class="mt-1 text-sm text-cf-text-muted">{props.kb.description}</p>
-          </div>
-          <div class="ml-2 flex flex-shrink-0 gap-1">
-            <Show when={props.kb.builtin}>
-              <Badge variant="default">{t("kb.builtin")}</Badge>
-            </Show>
           </div>
         </div>
 
@@ -246,14 +252,21 @@ function KBCard(props: {
         </Show>
 
         <div class="mt-4 flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => props.onIndex(props.kb.id)}>
-            {props.kb.status === "indexed" ? t("kb.index.reindex") : t("kb.index.button")}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => props.onIndex(props.kb.id)}
+            disabled={props.indexing}
+          >
+            {props.indexing
+              ? "Indexing..."
+              : props.kb.status === "indexed"
+                ? t("kb.index.reindex")
+                : t("kb.index.button")}
           </Button>
-          <Show when={!props.kb.builtin}>
-            <Button variant="danger" size="sm" onClick={() => props.onDelete(props.kb.id)}>
-              Delete
-            </Button>
-          </Show>
+          <Button variant="danger" size="sm" onClick={() => props.onDelete(props.kb.id)}>
+            Delete
+          </Button>
         </div>
       </Card.Body>
     </Card>

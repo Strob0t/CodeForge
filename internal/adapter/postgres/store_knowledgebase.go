@@ -23,11 +23,11 @@ func (s *Store) CreateKnowledgeBase(ctx context.Context, req *knowledgebase.Crea
 
 	var kb knowledgebase.KnowledgeBase
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO knowledge_bases (tenant_id, name, description, category, tags, builtin, content_path)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, name, description, category, tags, builtin, content_path, status, chunk_count, created_at, updated_at`,
-		tid, req.Name, req.Description, string(req.Category), tags, req.Builtin, req.ContentPath,
-	).Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.Builtin, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt)
+		`INSERT INTO knowledge_bases (tenant_id, name, description, category, tags, content_path)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, name, description, category, tags, content_path, status, chunk_count, created_at, updated_at`,
+		tid, req.Name, req.Description, string(req.Category), tags, req.ContentPath,
+	).Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert knowledge base: %w", err)
 	}
@@ -40,9 +40,9 @@ func (s *Store) GetKnowledgeBase(ctx context.Context, id string) (*knowledgebase
 
 	var kb knowledgebase.KnowledgeBase
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, description, category, tags, builtin, content_path, status, chunk_count, created_at, updated_at
+		`SELECT id, name, description, category, tags, content_path, status, chunk_count, created_at, updated_at
 		 FROM knowledge_bases WHERE id = $1 AND tenant_id = $2`, id, tid,
-	).Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.Builtin, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt)
+	).Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get knowledge base %s: %w", id, domain.ErrNotFound)
@@ -57,8 +57,8 @@ func (s *Store) ListKnowledgeBases(ctx context.Context) ([]knowledgebase.Knowled
 	tid := tenantFromCtx(ctx)
 
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, description, category, tags, builtin, content_path, status, chunk_count, created_at, updated_at
-		 FROM knowledge_bases WHERE tenant_id = $1 ORDER BY builtin DESC, name ASC`, tid)
+		`SELECT id, name, description, category, tags, content_path, status, chunk_count, created_at, updated_at
+		 FROM knowledge_bases WHERE tenant_id = $1 ORDER BY name ASC`, tid)
 	if err != nil {
 		return nil, fmt.Errorf("list knowledge bases: %w", err)
 	}
@@ -67,7 +67,7 @@ func (s *Store) ListKnowledgeBases(ctx context.Context) ([]knowledgebase.Knowled
 	var kbs []knowledgebase.KnowledgeBase
 	for rows.Next() {
 		var kb knowledgebase.KnowledgeBase
-		if err := rows.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.Builtin, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt); err != nil {
+		if err := rows.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan knowledge base: %w", err)
 		}
 		kbs = append(kbs, kb)
@@ -174,7 +174,7 @@ func (s *Store) RemoveKnowledgeBaseFromScope(ctx context.Context, scopeID, kbID 
 
 func (s *Store) ListKnowledgeBasesByScope(ctx context.Context, scopeID string) ([]knowledgebase.KnowledgeBase, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT kb.id, kb.name, kb.description, kb.category, kb.tags, kb.builtin, kb.content_path, kb.status, kb.chunk_count, kb.created_at, kb.updated_at
+		`SELECT kb.id, kb.name, kb.description, kb.category, kb.tags, kb.content_path, kb.status, kb.chunk_count, kb.created_at, kb.updated_at
 		 FROM knowledge_bases kb
 		 JOIN scope_knowledge_bases skb ON kb.id = skb.knowledge_base_id
 		 WHERE skb.scope_id = $1
@@ -187,7 +187,7 @@ func (s *Store) ListKnowledgeBasesByScope(ctx context.Context, scopeID string) (
 	var kbs []knowledgebase.KnowledgeBase
 	for rows.Next() {
 		var kb knowledgebase.KnowledgeBase
-		if err := rows.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.Builtin, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt); err != nil {
+		if err := rows.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan knowledge base: %w", err)
 		}
 		kbs = append(kbs, kb)

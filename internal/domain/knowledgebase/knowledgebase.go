@@ -43,7 +43,6 @@ type KnowledgeBase struct {
 	Description string    `json:"description"`
 	Category    Category  `json:"category"`
 	Tags        []string  `json:"tags"`
-	Builtin     bool      `json:"builtin"`
 	ContentPath string    `json:"content_path"`
 	Status      Status    `json:"status"`
 	ChunkCount  int       `json:"chunk_count"`
@@ -58,7 +57,6 @@ type CreateRequest struct {
 	Category    Category `json:"category"`
 	Tags        []string `json:"tags"`
 	ContentPath string   `json:"content_path"`
-	Builtin     bool     `json:"-"` // set internally, not from API
 }
 
 // Validate checks that a CreateRequest is well-formed.

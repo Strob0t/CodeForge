@@ -1175,7 +1175,6 @@ export interface KnowledgeBase {
   description: string;
   category: string;
   tags: string[];
-  builtin: boolean;
   content_path: string;
   status: string;
   chunk_count: number;

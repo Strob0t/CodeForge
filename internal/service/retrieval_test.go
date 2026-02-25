@@ -55,7 +55,7 @@ func TestRetrievalService_RequestIndex(t *testing.T) {
 	orchCfg := &config.Orchestrator{DefaultEmbeddingModel: "text-embedding-3-small"}
 	svc := service.NewRetrievalService(store, q, bc, orchCfg)
 
-	err := svc.RequestIndex(context.Background(), "proj-1", "")
+	err := svc.RequestIndex(context.Background(), "proj-1", "", "")
 	if err != nil {
 		t.Fatalf("RequestIndex failed: %v", err)
 	}

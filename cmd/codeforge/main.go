@@ -294,9 +294,7 @@ func run() error {
 	// --- Knowledge Base Service (Phase 12K) ---
 	kbSvc := service.NewKnowledgeBaseService(store)
 	kbSvc.SetRetrieval(retrievalSvc)
-	if err := kbSvc.SeedBuiltins(ctx); err != nil {
-		slog.Warn("failed to seed built-in knowledge bases", "error", err)
-	}
+	retrievalSvc.SetKBUpdater(store)
 	slog.Info("knowledge base service initialized")
 
 	// --- Scope Service (Phase 12D) ---

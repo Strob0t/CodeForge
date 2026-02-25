@@ -62,35 +62,3 @@ func TestValidCategories(t *testing.T) {
 		}
 	}
 }
-
-func TestBuiltinCatalog(t *testing.T) {
-	if len(BuiltinCatalog) == 0 {
-		t.Fatal("BuiltinCatalog should not be empty")
-	}
-
-	seen := make(map[string]bool)
-	for _, entry := range BuiltinCatalog {
-		if entry.Name == "" {
-			t.Error("catalog entry has empty name")
-		}
-		if entry.Description == "" {
-			t.Errorf("catalog entry %q has empty description", entry.Name)
-		}
-		if entry.Category == "" {
-			t.Errorf("catalog entry %q has empty category", entry.Name)
-		}
-		if entry.ContentPath == "" {
-			t.Errorf("catalog entry %q has empty content_path", entry.Name)
-		}
-		if seen[entry.Name] {
-			t.Errorf("duplicate catalog entry name: %q", entry.Name)
-		}
-		seen[entry.Name] = true
-
-		// Validate category is one of the allowed values.
-		req := CreateRequest{Name: entry.Name, Category: entry.Category}
-		if err := req.Validate(); err != nil {
-			t.Errorf("catalog entry %q has invalid category %q: %v", entry.Name, entry.Category, err)
-		}
-	}
-}

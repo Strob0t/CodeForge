@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,6 +95,11 @@ type RetrievalIndexInfo struct {
 	Error          string
 }
 
+// KBStatusUpdater can update knowledge base indexing status.
+type KBStatusUpdater interface {
+	UpdateKnowledgeBaseStatus(ctx context.Context, id, status string, chunkCount int) error
+}
+
 // RetrievalService manages hybrid retrieval indexing and search.
 type RetrievalService struct {
 	store   database.Store
@@ -112,6 +118,8 @@ type RetrievalService struct {
 	healthMu            sync.Mutex
 	lastSearchFailure   time.Time
 	lastSubAgentFailure time.Time
+
+	kbUpdater KBStatusUpdater
 }
 
 // NewRetrievalService creates a RetrievalService.
@@ -132,11 +140,21 @@ func (s *RetrievalService) SetEventStore(es eventstore.Store) {
 	s.events = es
 }
 
+// SetKBUpdater injects the knowledge base status updater.
+func (s *RetrievalService) SetKBUpdater(u KBStatusUpdater) {
+	s.kbUpdater = u
+}
+
 // RequestIndex publishes a request for index building to the Python worker.
-func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, embeddingModel string) error {
-	proj, err := s.store.GetProject(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("get project: %w", err)
+// When workspacePath is non-empty it is used directly (e.g. for knowledge bases);
+// otherwise the workspace path is resolved from the project store.
+func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspacePath, embeddingModel string) error {
+	if workspacePath == "" {
+		proj, err := s.store.GetProject(ctx, projectID)
+		if err != nil {
+			return fmt.Errorf("get project: %w", err)
+		}
+		workspacePath = proj.WorkspacePath
 	}
 
 	if embeddingModel == "" {
@@ -145,7 +163,7 @@ func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, embeddin
 
 	payload := messagequeue.RetrievalIndexRequestPayload{
 		ProjectID:      projectID,
-		WorkspacePath:  proj.WorkspacePath,
+		WorkspacePath:  workspacePath,
 		EmbeddingModel: embeddingModel,
 	}
 	data, err := json.Marshal(payload)
@@ -211,6 +229,19 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 			"chunks", payload.ChunkCount,
 		)
 	}
+
+	// Update knowledge base status when the project ID has a "kb:" prefix.
+	if s.kbUpdater != nil && strings.HasPrefix(payload.ProjectID, "kb:") {
+		kbID := strings.TrimPrefix(payload.ProjectID, "kb:")
+		kbStatus := "indexed"
+		if payload.Error != "" {
+			kbStatus = "error"
+		}
+		if err := s.kbUpdater.UpdateKnowledgeBaseStatus(ctx, kbID, kbStatus, payload.ChunkCount); err != nil {
+			slog.Error("failed to update knowledge base status", "kb_id", kbID, "error", err)
+		}
+	}
+
 	return nil
 }
 

@@ -902,7 +902,6 @@ const de: Translations = {
   "kb.description": "Kuratierte Wissensmodule f\u00fcr Agent-Kontext",
   "kb.empty": "Keine Wissensbasen verf\u00fcgbar",
   "kb.loading": "Wissensbasen werden geladen\u2026",
-  "kb.builtin": "Integriert",
   "kb.custom": "Benutzerdefiniert",
   "kb.status.pending": "Ausstehend",
   "kb.status.indexed": "Indiziert",

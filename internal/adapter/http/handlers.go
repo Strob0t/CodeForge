@@ -1251,7 +1251,7 @@ func (h *Handlers) IndexProject(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	if err := h.Retrieval.RequestIndex(r.Context(), projectID, req.EmbeddingModel); err != nil {
+	if err := h.Retrieval.RequestIndex(r.Context(), projectID, "", req.EmbeddingModel); err != nil {
 		writeDomainError(w, err, "project not found")
 		return
 	}
