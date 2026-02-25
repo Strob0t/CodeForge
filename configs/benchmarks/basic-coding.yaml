@@ -1,0 +1,135 @@
+# Basic Coding Benchmark Dataset
+# Tests fundamental code generation, debugging, and refactoring skills.
+name: Basic Coding
+description: Fundamental coding tasks covering generation, debugging, and refactoring.
+
+tasks:
+  - id: basic-001
+    name: FizzBuzz implementation
+    input: |
+      Write a Python function `fizzbuzz(n)` that returns a list of strings from 1 to n.
+      For multiples of 3, use "Fizz". For multiples of 5, use "Buzz".
+      For multiples of both, use "FizzBuzz". Otherwise, use the number as a string.
+    expected_output: |
+      def fizzbuzz(n):
+          result = []
+          for i in range(1, n + 1):
+              if i % 15 == 0:
+                  result.append("FizzBuzz")
+              elif i % 3 == 0:
+                  result.append("Fizz")
+              elif i % 5 == 0:
+                  result.append("Buzz")
+              else:
+                  result.append(str(i))
+          return result
+
+  - id: basic-002
+    name: Bug fix — off-by-one error
+    input: |
+      Fix the bug in this function. It should return the sum of elements from index
+      `start` to `end` (inclusive).
+
+      ```python
+      def range_sum(arr, start, end):
+          total = 0
+          for i in range(start, end):
+              total += arr[i]
+          return total
+      ```
+    expected_output: |
+      def range_sum(arr, start, end):
+          total = 0
+          for i in range(start, end + 1):
+              total += arr[i]
+          return total
+
+  - id: basic-003
+    name: Refactor — extract helper function
+    input: |
+      Refactor this code to extract the duplicate validation logic into a helper function.
+
+      ```python
+      def create_user(name, email):
+          if not name or len(name) < 2:
+              raise ValueError("Invalid name")
+          if not email or "@" not in email:
+              raise ValueError("Invalid email")
+          return {"name": name, "email": email}
+
+      def update_user(user, name, email):
+          if not name or len(name) < 2:
+              raise ValueError("Invalid name")
+          if not email or "@" not in email:
+              raise ValueError("Invalid email")
+          user["name"] = name
+          user["email"] = email
+          return user
+      ```
+    expected_output: |
+      def _validate_user_fields(name, email):
+          if not name or len(name) < 2:
+              raise ValueError("Invalid name")
+          if not email or "@" not in email:
+              raise ValueError("Invalid email")
+
+      def create_user(name, email):
+          _validate_user_fields(name, email)
+          return {"name": name, "email": email}
+
+      def update_user(user, name, email):
+          _validate_user_fields(name, email)
+          user["name"] = name
+          user["email"] = email
+          return user
+
+  - id: basic-004
+    name: Binary search implementation
+    input: |
+      Write a Go function `BinarySearch(arr []int, target int) int` that returns
+      the index of `target` in a sorted slice, or -1 if not found.
+    expected_output: |
+      func BinarySearch(arr []int, target int) int {
+          lo, hi := 0, len(arr)-1
+          for lo <= hi {
+              mid := lo + (hi-lo)/2
+              if arr[mid] == target {
+                  return mid
+              } else if arr[mid] < target {
+                  lo = mid + 1
+              } else {
+                  hi = mid - 1
+              }
+          }
+          return -1
+      }
+
+  - id: basic-005
+    name: TypeScript interface extraction
+    input: |
+      Extract a TypeScript interface from this object literal and type the function parameter.
+
+      ```typescript
+      function processOrder(order) {
+          console.log(order.id, order.items.length, order.total);
+          if (order.discount) {
+              return order.total * (1 - order.discount);
+          }
+          return order.total;
+      }
+      ```
+    expected_output: |
+      interface Order {
+          id: string;
+          items: unknown[];
+          total: number;
+          discount?: number;
+      }
+
+      function processOrder(order: Order): number {
+          console.log(order.id, order.items.length, order.total);
+          if (order.discount) {
+              return order.total * (1 - order.discount);
+          }
+          return order.total;
+      }

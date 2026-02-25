@@ -502,6 +502,7 @@ func run() error {
 		LSP:              lspSvc,
 		MCP:              mcpSvc,
 		PromptSections:   service.NewPromptSectionService(store),
+		Benchmarks:       service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir),
 	}
 
 	r := chi.NewRouter()

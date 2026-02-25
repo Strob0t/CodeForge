@@ -24,6 +24,7 @@ const de: Translations = {
   "common.back": "Zur\u00fcck",
   "common.import": "Importieren",
   "common.importing": "Importieren\u2026",
+  "common.select": "Auswählen\u2026",
 
   // -- App shell ------------------------------------------------------------
   "app.title": "CodeForge",
@@ -1120,6 +1121,35 @@ const de: Translations = {
   "prompts.error.saveFailed": "Prompt-Sektion konnte nicht gespeichert werden",
   "prompts.error.deleteFailed": "Prompt-Sektion konnte nicht geloescht werden",
   "prompts.error.previewFailed": "Vorschau konnte nicht generiert werden",
+
+  // -- Benchmark Mode (Phase 20E) -------------------------------------------
+  "app.nav.benchmarks": "Benchmarks",
+  "benchmark.title": "Benchmark-Dashboard",
+  "benchmark.subtitle":
+    "Agentenqualitaet mit konfigurierbaren Metriken bewerten (nur im Dev-Modus)",
+  "benchmark.empty": "Noch keine Benchmark-Laeufe. Erstelle einen, um zu beginnen.",
+  "benchmark.newRun": "Neuer Lauf",
+  "benchmark.dataset": "Datensatz",
+  "benchmark.model": "Modell",
+  "benchmark.metrics": "Metriken",
+  "benchmark.startRun": "Lauf starten",
+  "benchmark.taskName": "Aufgabe",
+  "benchmark.scores": "Bewertungen",
+  "benchmark.cost": "Kosten",
+  "benchmark.duration": "Dauer",
+  "benchmark.noResults": "Keine Ergebnisse fuer diesen Lauf vorhanden.",
+  "benchmark.compare": "Laeufe vergleichen",
+  "benchmark.compareBtn": "Vergleichen",
+  "benchmark.runA": "Lauf A",
+  "benchmark.runB": "Lauf B",
+  "benchmark.datasets": "Verfuegbare Datensaetze",
+  "benchmark.tasks": "Aufgaben",
+  "benchmark.toast.created": "Benchmark-Lauf erstellt",
+  "benchmark.toast.createError": "Benchmark-Lauf konnte nicht erstellt werden",
+  "benchmark.toast.deleted": "Benchmark-Lauf geloescht",
+  "benchmark.toast.deleteError": "Benchmark-Lauf konnte nicht geloescht werden",
+  "benchmark.toast.compareReady": "Vergleich bereit (siehe Konsole)",
+  "benchmark.toast.compareError": "Vergleich der Benchmark-Laeufe fehlgeschlagen",
 };
 
 export default de;

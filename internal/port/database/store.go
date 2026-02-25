@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
@@ -248,4 +249,15 @@ type Store interface {
 	ListPromptSections(ctx context.Context, scope string) ([]prompt.SectionRow, error)
 	UpsertPromptSection(ctx context.Context, row *prompt.SectionRow) error
 	DeletePromptSection(ctx context.Context, id string) error
+
+	// Benchmark Runs (Phase 20D — dev-mode only)
+	CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error
+	GetBenchmarkRun(ctx context.Context, id string) (*benchmark.Run, error)
+	ListBenchmarkRuns(ctx context.Context) ([]benchmark.Run, error)
+	UpdateBenchmarkRun(ctx context.Context, r *benchmark.Run) error
+	DeleteBenchmarkRun(ctx context.Context, id string) error
+
+	// Benchmark Results
+	CreateBenchmarkResult(ctx context.Context, res *benchmark.Result) error
+	ListBenchmarkResults(ctx context.Context, runID string) ([]benchmark.Result, error)
 }

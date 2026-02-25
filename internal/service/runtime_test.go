@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
@@ -748,6 +749,23 @@ func (m *runtimeMockStore) UpsertPromptSection(_ context.Context, _ *prompt.Sect
 	return nil
 }
 func (m *runtimeMockStore) DeletePromptSection(_ context.Context, _ string) error { return nil }
+
+// Benchmark stubs
+func (m *runtimeMockStore) CreateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
+func (m *runtimeMockStore) GetBenchmarkRun(_ context.Context, _ string) (*benchmark.Run, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListBenchmarkRuns(_ context.Context) ([]benchmark.Run, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
+func (m *runtimeMockStore) DeleteBenchmarkRun(_ context.Context, _ string) error         { return nil }
+func (m *runtimeMockStore) CreateBenchmarkResult(_ context.Context, _ *benchmark.Result) error {
+	return nil
+}
+func (m *runtimeMockStore) ListBenchmarkResults(_ context.Context, _ string) ([]benchmark.Result, error) {
+	return nil, nil
+}
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

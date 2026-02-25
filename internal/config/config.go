@@ -94,6 +94,15 @@ type Config struct {
 	Auth         Auth         `yaml:"auth"`
 	Workspace    Workspace    `yaml:"workspace"`
 	Agent        Agent        `yaml:"agent"`
+	Benchmark    Benchmark    `yaml:"benchmark"`
+}
+
+// Benchmark holds benchmark evaluation mode configuration.
+type Benchmark struct {
+	Enabled        bool   `yaml:"enabled"`         // Enable benchmark endpoints (requires APP_ENV=development)
+	DatasetsDir    string `yaml:"datasets_dir"`    // Directory with benchmark dataset YAML files (default: configs/benchmarks)
+	TimeoutSeconds int    `yaml:"timeout_seconds"` // Timeout per evaluation task in seconds (default: 300)
+	DashboardPort  int    `yaml:"dashboard_port"`  // AgentNeo tracing dashboard port (default: 3100)
 }
 
 // Agent holds agentic conversation loop configuration.
@@ -449,6 +458,12 @@ func Defaults() Config {
 			MaxLoopIterations:  50,
 			AgenticByDefault:   true,
 			ToolOutputMaxChars: 10_000,
+		},
+		Benchmark: Benchmark{
+			Enabled:        false,
+			DatasetsDir:    "configs/benchmarks",
+			TimeoutSeconds: 300,
+			DashboardPort:  3100,
 		},
 	}
 }

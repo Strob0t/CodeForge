@@ -22,6 +22,7 @@ const en = {
   "common.back": "Back",
   "common.import": "Import",
   "common.importing": "Importing...",
+  "common.select": "Select...",
 
   // -- App shell ------------------------------------------------------------
   "app.title": "CodeForge",
@@ -1108,6 +1109,34 @@ const en = {
   "prompts.error.saveFailed": "Failed to save prompt section",
   "prompts.error.deleteFailed": "Failed to delete prompt section",
   "prompts.error.previewFailed": "Failed to generate preview",
+
+  // -- Benchmark Mode (Phase 20E) -------------------------------------------
+  "app.nav.benchmarks": "Benchmarks",
+  "benchmark.title": "Benchmark Dashboard",
+  "benchmark.subtitle": "Evaluate agent quality with configurable metrics (dev-mode only)",
+  "benchmark.empty": "No benchmark runs yet. Create one to get started.",
+  "benchmark.newRun": "New Run",
+  "benchmark.dataset": "Dataset",
+  "benchmark.model": "Model",
+  "benchmark.metrics": "Metrics",
+  "benchmark.startRun": "Start Run",
+  "benchmark.taskName": "Task",
+  "benchmark.scores": "Scores",
+  "benchmark.cost": "Cost",
+  "benchmark.duration": "Duration",
+  "benchmark.noResults": "No results recorded for this run.",
+  "benchmark.compare": "Compare Runs",
+  "benchmark.compareBtn": "Compare",
+  "benchmark.runA": "Run A",
+  "benchmark.runB": "Run B",
+  "benchmark.datasets": "Available Datasets",
+  "benchmark.tasks": "tasks",
+  "benchmark.toast.created": "Benchmark run created",
+  "benchmark.toast.createError": "Failed to create benchmark run",
+  "benchmark.toast.deleted": "Benchmark run deleted",
+  "benchmark.toast.deleteError": "Failed to delete benchmark run",
+  "benchmark.toast.compareReady": "Comparison ready (see console)",
+  "benchmark.toast.compareError": "Failed to compare benchmark runs",
 } as const;
 
 export type TranslationKey = keyof typeof en;

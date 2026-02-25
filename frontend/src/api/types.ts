@@ -1451,3 +1451,59 @@ export interface PromptPreviewResponse {
   sections: PromptPreviewSection[];
   total_tokens: number;
 }
+
+// --- Benchmark Mode (Phase 20) ---
+
+/** Matches Go domain/benchmark.Run */
+export interface BenchmarkRun {
+  id: string;
+  dataset: string;
+  model: string;
+  metrics: string[];
+  status: "running" | "completed" | "failed";
+  summary_scores: Record<string, number>;
+  total_cost: number;
+  total_tokens: number;
+  total_duration_ms: number;
+  created_at: string;
+  completed_at?: string;
+}
+
+/** Matches Go domain/benchmark.Result */
+export interface BenchmarkResult {
+  id: string;
+  run_id: string;
+  task_id: string;
+  task_name: string;
+  scores: Record<string, number>;
+  actual_output: string;
+  expected_output: string;
+  tool_calls: unknown[];
+  cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  duration_ms: number;
+}
+
+/** Matches Go domain/benchmark.CreateRunRequest */
+export interface CreateBenchmarkRunRequest {
+  dataset: string;
+  model: string;
+  metrics: string[];
+}
+
+/** Matches Go domain/benchmark.CompareResult */
+export interface BenchmarkCompareResult {
+  run_a: BenchmarkRun;
+  run_b: BenchmarkRun;
+  results_a: BenchmarkResult[];
+  results_b: BenchmarkResult[];
+}
+
+/** Matches Go domain/benchmark.DatasetInfo */
+export interface BenchmarkDatasetInfo {
+  name: string;
+  description?: string;
+  task_count: number;
+  path: string;
+}

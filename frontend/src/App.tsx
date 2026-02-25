@@ -104,6 +104,7 @@ function AppShell(props: {
               <NavLink href="/mcp">{t("app.nav.mcp")}</NavLink>
               <NavLink href="/prompts">{t("app.nav.prompts")}</NavLink>
               <NavLink href="/settings">{t("app.nav.settings")}</NavLink>
+              <NavLink href="/benchmarks">{t("app.nav.benchmarks")}</NavLink>
             </Sidebar.Nav>
 
             <Sidebar.Footer>

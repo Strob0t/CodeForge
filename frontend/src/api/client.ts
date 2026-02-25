@@ -1023,6 +1023,38 @@ export const api = {
         body: JSON.stringify(data),
       }),
   },
+
+  // --- Benchmark Mode (Phase 20) ---
+  benchmarks: {
+    listRuns: () => request<import("./types").BenchmarkRun[]>("/benchmarks/runs"),
+
+    getRun: (id: string) =>
+      request<import("./types").BenchmarkRun>(`/benchmarks/runs/${encodeURIComponent(id)}`),
+
+    createRun: (data: import("./types").CreateBenchmarkRunRequest) =>
+      request<import("./types").BenchmarkRun>("/benchmarks/runs", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    deleteRun: (id: string) =>
+      request<undefined>(`/benchmarks/runs/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    listResults: (runId: string) =>
+      request<import("./types").BenchmarkResult[]>(
+        `/benchmarks/runs/${encodeURIComponent(runId)}/results`,
+      ),
+
+    compare: (runIdA: string, runIdB: string) =>
+      request<import("./types").BenchmarkCompareResult>("/benchmarks/compare", {
+        method: "POST",
+        body: JSON.stringify({ run_id_a: runIdA, run_id_b: runIdB }),
+      }),
+
+    listDatasets: () => request<import("./types").BenchmarkDatasetInfo[]>("/benchmarks/datasets"),
+  },
 } as const;
 
 export { FetchError };

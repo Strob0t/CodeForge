@@ -7,6 +7,7 @@ import { render } from "solid-js/web";
 import App from "./App.tsx";
 import ActivityPage from "./features/activity/ActivityPage.tsx";
 import LoginPage from "./features/auth/LoginPage.tsx";
+import BenchmarkPage from "./features/benchmarks/BenchmarkPage.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
 import KnowledgeBasesPage from "./features/knowledgebases/KnowledgeBasesPage.tsx";
@@ -43,6 +44,7 @@ render(
       <Route path="/mcp" component={MCPServersPage} />
       <Route path="/prompts" component={PromptEditorPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/benchmarks" component={BenchmarkPage} />
       <Route path="*404" component={NotFoundPage} />
     </Router>
   ),

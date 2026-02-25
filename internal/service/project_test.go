@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
@@ -645,6 +646,21 @@ func (m *mockStore) ListPromptSections(_ context.Context, _ string) ([]prompt.Se
 }
 func (m *mockStore) UpsertPromptSection(_ context.Context, _ *prompt.SectionRow) error { return nil }
 func (m *mockStore) DeletePromptSection(_ context.Context, _ string) error             { return nil }
+
+// Benchmark stubs
+func (m *mockStore) CreateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
+func (m *mockStore) GetBenchmarkRun(_ context.Context, _ string) (*benchmark.Run, error) {
+	return nil, nil
+}
+func (m *mockStore) ListBenchmarkRuns(_ context.Context) ([]benchmark.Run, error) { return nil, nil }
+func (m *mockStore) UpdateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
+func (m *mockStore) DeleteBenchmarkRun(_ context.Context, _ string) error         { return nil }
+func (m *mockStore) CreateBenchmarkResult(_ context.Context, _ *benchmark.Result) error {
+	return nil
+}
+func (m *mockStore) ListBenchmarkResults(_ context.Context, _ string) ([]benchmark.Result, error) {
+	return nil, nil
+}
 
 // --- ProjectService Tests ---
 

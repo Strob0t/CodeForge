@@ -134,6 +134,7 @@ type Handlers struct {
 	LSP              *service.LSPService
 	MCP              *service.MCPService
 	PromptSections   *service.PromptSectionService
+	Benchmarks       *service.BenchmarkService
 }
 
 // ListProjects handles GET /api/v1/projects

@@ -344,5 +344,17 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Dev tools (behind DEV_MODE env var)
 		r.Post("/dev/benchmark", h.BenchmarkPrompt)
+
+		// Benchmark Mode (Phase 20D — dev-mode only, requires APP_ENV=development)
+		r.Route("/benchmarks", func(r chi.Router) {
+			r.Use(middleware.DevModeOnly)
+			r.Get("/runs", h.ListBenchmarkRuns)
+			r.Post("/runs", h.CreateBenchmarkRun)
+			r.Get("/runs/{id}", h.GetBenchmarkRun)
+			r.Delete("/runs/{id}", h.DeleteBenchmarkRun)
+			r.Get("/runs/{id}/results", h.ListBenchmarkResults)
+			r.Post("/compare", h.CompareBenchmarkRuns)
+			r.Get("/datasets", h.ListBenchmarkDatasets)
+		})
 	})
 }
