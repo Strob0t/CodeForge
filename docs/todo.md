@@ -1327,6 +1327,40 @@ Bug Fixes --- independent, anytime
 - [ ] Remove hardcoded backend list (aider, goose, opencode, openhands, plandex) from frontend
 - [ ] LLM connection runs exclusively via LiteLLM — local agent backends (Aider, Goose, etc.) are out of scope for now
 
+#### 19F: MCP Streamable HTTP Transport
+
+- [ ] **Go Domain:** Add `TransportStreamableHTTP` (`streamable_http`) to `TransportType` in `internal/domain/mcp/mcp.go`
+- [ ] **Go Domain:** Update `validTransports` map and `Validate()` — `streamable_http` requires `url` field (like SSE)
+- [ ] **DB Migration:** New migration `0XX_mcp_add_streamable_http.sql` — alter CHECK constraint to `('stdio', 'sse', 'streamable_http')`
+- [ ] **Frontend:** Add `streamable_http` option to transport dropdown in `MCPServersPage.tsx`
+- [ ] **Frontend:** Show URL field for `streamable_http` (same as SSE), add Headers support for both SSE and streamable_http
+- [ ] **Frontend:** Update TypeScript types (`MCPServer.transport` union type)
+- [ ] **Python Worker:** Add `streamable_http` case in `McpServerConnection.connect()` using `mcp.client.streamable_http.streamablehttp_client()`
+
+#### 19G: MCP Server Pre-Save Validation (Real Connection Test)
+
+> The test endpoint must perform a real MCP handshake to verify the server is a valid
+> MCP resource an LLM agent can interact with. The test runs automatically before saving.
+> If it fails, the frontend shows a confirmation dialog asking whether to save anyway.
+
+**Backend — real test endpoint (`POST /api/v1/mcp/servers/test`):**
+
+- [ ] New endpoint that accepts a `ServerDef` body (no ID needed — tests before creation)
+- [ ] For `sse` / `streamable_http`: Use `mcp-go` client SDK to connect to URL, perform MCP `initialize` handshake, call `tools/list`
+- [ ] For `stdio`: Spawn process via `mcp-go` stdio client, perform `initialize` + `tools/list`, kill process
+- [ ] Return result: `{ success: bool, server_name: string, server_version: string, tools: [{name, description}], error: string }`
+- [ ] Timeout: 10s max — if server doesn't respond, return `success: false` with timeout error
+- [ ] Update existing `POST /api/v1/mcp/servers/{id}/test` to also do a real connection test (re-reads config from DB, runs same logic)
+
+**Frontend — pre-save flow:**
+
+- [ ] On form submit: first call `POST /api/v1/mcp/servers/test` with the form data
+- [ ] Show a loading/spinner state ("Testing connection...")
+- [ ] If test succeeds: save directly (create or update), show discovered tools count in success toast
+- [ ] If test fails: show `ConfirmDialog` — "Connection test failed: {error}. Save anyway?"
+- [ ] On confirm: save with `status: "error"`, on cancel: stay in form
+- [ ] Keep separate "Test" button in server actions table for re-testing existing servers
+
 ---
 
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
