@@ -70,3 +70,15 @@ type AGUIStepFinishedEvent struct {
 	StepID string `json:"step_id"`
 	Status string `json:"status"` // "completed", "failed"
 }
+
+// AGUIPermissionRequest event type constant.
+const AGUIPermissionRequest = "agui.permission_request"
+
+// AGUIPermissionRequestEvent signals that a tool call requires user approval.
+type AGUIPermissionRequestEvent struct {
+	RunID   string `json:"run_id"`
+	CallID  string `json:"call_id"`
+	Tool    string `json:"tool"`
+	Command string `json:"command,omitempty"`
+	Path    string `json:"path,omitempty"`
+}

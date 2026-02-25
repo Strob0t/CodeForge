@@ -227,6 +227,7 @@ type Store interface {
 	ListConversationsByProject(ctx context.Context, projectID string) ([]conversation.Conversation, error)
 	DeleteConversation(ctx context.Context, id string) error
 	CreateMessage(ctx context.Context, m *conversation.Message) (*conversation.Message, error)
+	CreateToolMessages(ctx context.Context, conversationID string, msgs []conversation.Message) error
 	ListMessages(ctx context.Context, conversationID string) ([]conversation.Message, error)
 
 	// MCP Servers

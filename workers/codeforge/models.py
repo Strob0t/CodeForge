@@ -352,3 +352,96 @@ class GraphSearchResult(BaseModel):
     request_id: str
     results: list[GraphSearchHit] = Field(default_factory=list)
     error: str = ""
+
+
+# --- Conversation Run Models (Phase 17C) ---
+
+
+class ConversationToolCallFunction(BaseModel):
+    """Function details within a tool call."""
+
+    name: str
+    arguments: str
+
+
+class ConversationToolCallPayload(BaseModel):
+    """A single tool call in an assistant message."""
+
+    id: str
+    type: str = "function"
+    function: ConversationToolCallFunction
+
+
+class ConversationMessagePayload(BaseModel):
+    """A chat message in the conversation run protocol."""
+
+    role: str
+    content: str = ""
+    tool_calls: list[ConversationToolCallPayload] = Field(default_factory=list)
+    tool_call_id: str = ""
+    name: str = ""
+
+
+class ConversationRunStartMessage(BaseModel):
+    """Message received from NATS when a conversation run is started."""
+
+    run_id: str
+    conversation_id: str
+    project_id: str
+    messages: list[ConversationMessagePayload]
+    system_prompt: str
+    model: str
+    policy_profile: str = "standard"
+    workspace_path: str = ""
+    mode: ModeConfig | None = None
+    termination: TerminationConfig = Field(default_factory=TerminationConfig)
+    context: list[ContextEntry] = Field(default_factory=list)
+    mcp_servers: list[MCPServerDef] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+
+    @field_validator("mcp_servers", mode="before")
+    @classmethod
+    def _coerce_mcp_servers_none(cls, v: list[MCPServerDef] | None) -> list[MCPServerDef]:
+        """Go serializes nil slices as null; coerce to empty list."""
+        return v if v is not None else []
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def _coerce_context_none(cls, v: list[ContextEntry] | None) -> list[ContextEntry]:
+        """Go serializes nil slices as null; coerce to empty list."""
+        return v if v is not None else []
+
+    @field_validator("tools", mode="before")
+    @classmethod
+    def _coerce_tools_none(cls, v: list[str] | None) -> list[str]:
+        """Go serializes nil slices as null; coerce to empty list."""
+        return v if v is not None else []
+
+
+class ConversationRunCompleteMessage(BaseModel):
+    """Completion message sent to Go control plane when a conversation run finishes."""
+
+    run_id: str
+    conversation_id: str
+    assistant_content: str = ""
+    tool_messages: list[ConversationMessagePayload] = Field(default_factory=list)
+    status: str = "completed"
+    error: str = ""
+    cost_usd: float = 0.0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    step_count: int = 0
+    model: str = ""
+
+
+class AgentLoopResult(BaseModel):
+    """Result returned from the agentic conversation loop."""
+
+    final_content: str = ""
+    tool_messages: list[ConversationMessagePayload] = Field(default_factory=list)
+    total_cost: float = 0.0
+    total_tokens_in: int = 0
+    total_tokens_out: int = 0
+    step_count: int = 0
+    model: str = ""
+    error: str = ""

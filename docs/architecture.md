@@ -354,6 +354,55 @@ The port lives at `internal/port/cache/cache.go` (Get/Set/Delete interface). Ada
 
 **Docker Sandbox** (`internal/service/sandbox.go`) manages container lifecycle for isolated agent execution. It supports a Create, Start, Exec, Stop, Remove lifecycle via Docker CLI (`os/exec`). Resource limits include memory, CPU quota, PID limit, and network mode (default: `none`). A three-layer limit hierarchy applies: config defaults, then policy limits, then agent limits, capped at ceiling. The root filesystem is read-only with tmpfs `/tmp`.
 
+#### Agentic Conversation Loop (Phase 17)
+
+The agentic loop makes CodeForge an autonomous coding agent. When a user sends a message in the Chat UI, the system dispatches to a Python worker that runs a multi-turn tool-use loop: LLM decides which tools to call, tools execute, results feed back, and the loop continues until the task is done.
+
+```text
+┌──────────────┐                  ┌─────────────────┐
+│   Frontend   │  WebSocket       │   Go Core        │
+│  (SolidJS)   │◄─────────────── │  ConversationSvc │
+│              │  AG-UI events    │                  │
+│  ChatPanel   │                  │  1. Store user   │
+│  ToolCards   │  POST /messages  │     message      │
+│  Approval UI │ ────────────────►│  2. Build context│
+└──────────────┘                  │  3. Publish NATS │
+                                  └────────┬────────┘
+                                           │ conversation.run.start
+                                  ┌────────▼────────┐
+                                  │  Python Worker   │
+                                  │  AgentLoopExec   │
+                                  │                  │
+                                  │  LOOP:           │
+                                  │  a. LLM call     │─── stream text ──► WS
+                                  │  b. tool_calls?  │
+                                  │     ├─ policy    │─── runs.toolcall ─► Go
+                                  │     ├─ execute   │    (allow/deny/ask)
+                                  │     └─ result    │
+                                  │  c. no tools?    │
+                                  │     └─ BREAK     │
+                                  └────────┬────────┘
+                                           │ conversation.run.complete
+                                  ┌────────▼────────┐
+                                  │   Go Core        │
+                                  │  1. Store tool   │
+                                  │     messages     │
+                                  │  2. Store reply  │
+                                  │  3. Broadcast    │
+                                  │     run_finished │
+                                  └─────────────────┘
+```
+
+**Conversation Service** (`internal/service/conversation.go`) provides two paths: simple (single LLM call for projects without workspaces) and agentic (multi-turn tool loop). `IsAgentic()` determines the mode from the request override, project config, and workspace presence. `SendMessageAgentic()` stores the user message, loads conversation history, builds a context pack (system prompt, tool definitions, MCP servers, policy profile), and publishes a `ConversationRunStartPayload` to NATS. It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives the result via NATS, batch-inserts tool messages, stores the final assistant message, and broadcasts `agui.run_finished` via WebSocket.
+
+**Agent Loop Executor** (`workers/codeforge/agent_loop.py`) implements the core loop. It merges built-in tools (Read, Write, Edit, Bash, Search, Glob, ListDir) with MCP-discovered tools into a single tools array. Each iteration calls `chat_completion_stream()`, streams text chunks to the frontend via AG-UI events, and checks for tool_calls. For each tool call, it requests permission from Go via the Runtime API, executes the tool if allowed, and appends the result to the message history. The loop terminates on `finish_reason="stop"`, max steps, max cost, or cancellation.
+
+**Conversation History Manager** (`workers/codeforge/history.py`) assembles the message array within a token budget. It uses a head-and-tail strategy: always include the system prompt and the last N messages, compress older tool results to stay within `MaxContextTokens`. Long tool outputs are truncated to a configurable maximum (default 10,000 chars) with head+tail preservation.
+
+**HITL Approval** (`internal/service/runtime.go`) intercepts `DecisionAsk` from the policy layer. When a tool call requires user approval, the runtime broadcasts an `agui.permission_request` event via WebSocket and blocks on a buffered channel with a configurable timeout (default 60s). The frontend shows an inline approval card with Allow/Deny buttons. The user's decision is sent via `POST /runs/{id}/approve/{callId}`, which resolves the channel and resumes execution.
+
+**Configuration** (`internal/config/config.go`) includes an `Agent` section: `BuiltinTools` (tool allowlist), `DefaultModel`, `MaxContextTokens` (default 120000), `MaxLoopIterations` (default 50), `AgenticByDefault` (bool), `ToolOutputMaxChars` (default 10000). All fields have env overrides with `CODEFORGE_AGENT_*` prefix. The `Runtime` section adds `ApprovalTimeoutSeconds` (default 60) with `CODEFORGE_APPROVAL_TIMEOUT_SECONDS`.
+
 #### Observability
 
 **Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording. Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 22+ event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, and delivery status. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download). Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).

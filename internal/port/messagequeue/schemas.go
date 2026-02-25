@@ -391,3 +391,59 @@ type MCPToolDiscoveryPayload struct {
 	ServerID string           `json:"server_id"`
 	Tools    []MCPToolPayload `json:"tools"`
 }
+
+// --- Conversation run payloads (Phase 17C) ---
+
+// ConversationToolCallFunction describes the function within a tool call.
+type ConversationToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ConversationToolCall represents a single tool call in an assistant message.
+type ConversationToolCall struct {
+	ID       string                       `json:"id"`
+	Type     string                       `json:"type"`
+	Function ConversationToolCallFunction `json:"function"`
+}
+
+// ConversationMessagePayload represents a chat message in the conversation protocol.
+type ConversationMessagePayload struct {
+	Role       string                 `json:"role"`
+	Content    string                 `json:"content,omitempty"`
+	ToolCalls  []ConversationToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string                 `json:"tool_call_id,omitempty"`
+	Name       string                 `json:"name,omitempty"`
+}
+
+// ConversationRunStartPayload is the schema for conversation.run.start messages.
+type ConversationRunStartPayload struct {
+	RunID          string                       `json:"run_id"`
+	ConversationID string                       `json:"conversation_id"`
+	ProjectID      string                       `json:"project_id"`
+	Messages       []ConversationMessagePayload `json:"messages"`
+	SystemPrompt   string                       `json:"system_prompt"`
+	Model          string                       `json:"model"`
+	PolicyProfile  string                       `json:"policy_profile"`
+	WorkspacePath  string                       `json:"workspace_path"`
+	Mode           *ModePayload                 `json:"mode,omitempty"`
+	Termination    TerminationPayload           `json:"termination"`
+	Context        []ContextEntryPayload        `json:"context,omitempty"`
+	MCPServers     []MCPServerDefPayload        `json:"mcp_servers,omitempty"`
+	Tools          []string                     `json:"tools,omitempty"`
+}
+
+// ConversationRunCompletePayload is the schema for conversation.run.complete messages.
+type ConversationRunCompletePayload struct {
+	RunID            string                       `json:"run_id"`
+	ConversationID   string                       `json:"conversation_id"`
+	AssistantContent string                       `json:"assistant_content"`
+	ToolMessages     []ConversationMessagePayload `json:"tool_messages,omitempty"`
+	Status           string                       `json:"status"`
+	Error            string                       `json:"error,omitempty"`
+	CostUSD          float64                      `json:"cost_usd"`
+	TokensIn         int                          `json:"tokens_in"`
+	TokensOut        int                          `json:"tokens_out"`
+	StepCount        int                          `json:"step_count"`
+	Model            string                       `json:"model"`
+}

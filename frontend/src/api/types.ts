@@ -1224,6 +1224,13 @@ export interface ConversationMessage {
   tokens_out: number;
   model: string;
   created_at: string;
+  tool_calls?: {
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+  }[];
+  tool_call_id?: string;
+  tool_name?: string;
 }
 
 /** Create conversation request */

@@ -59,6 +59,10 @@ export default function ChatPanel(props: ChatPanelProps) {
   }
   const [planSteps, setPlanSteps] = createSignal<PlanStepState[]>([]);
 
+  // Agentic mode tracking: step counter and running cost
+  const [stepCount, setStepCount] = createSignal(0);
+  const [runningCost, setRunningCost] = createSignal(0);
+
   let messagesEndRef: HTMLDivElement | undefined;
 
   const scrollToBottom = () => {
@@ -108,6 +112,8 @@ export default function ChatPanel(props: ChatPanelProps) {
     if (runId === activeConversation()) {
       setAgentRunning(true);
       setStreamingContent("");
+      setStepCount(0);
+      setRunningCost(0);
     }
   });
 
@@ -121,7 +127,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   });
 
-  // When a tool call starts, add it to the tool calls list
+  // When a tool call starts, add it to the tool calls list and increment step counter
   const cleanupToolCall = onAGUIEvent("agui.tool_call", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
@@ -136,11 +142,12 @@ export default function ChatPanel(props: ChatPanelProps) {
         ...prev,
         { callId, name: payload.name as string, args, status: "running" },
       ]);
+      setStepCount((n) => n + 1);
       scrollToBottom();
     }
   });
 
-  // When a tool result arrives, update the corresponding tool call
+  // When a tool result arrives, update the corresponding tool call and track cost
   const cleanupToolResult = onAGUIEvent("agui.tool_result", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
@@ -153,6 +160,10 @@ export default function ChatPanel(props: ChatPanelProps) {
             : tc,
         ),
       );
+      // Track running cost if the event carries it
+      if (typeof payload.cost_usd === "number") {
+        setRunningCost((prev) => prev + (payload.cost_usd as number));
+      }
     }
   });
 
@@ -164,6 +175,8 @@ export default function ChatPanel(props: ChatPanelProps) {
       setStreamingContent("");
       setToolCalls([]);
       setPlanSteps([]);
+      setStepCount(0);
+      setRunningCost(0);
       void refetchMessages();
     }
   });
@@ -220,6 +233,11 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   };
 
+  const handleStop = () => {
+    // Placeholder: log to console until backend stop endpoint is available
+    console.log("[ChatPanel] Stop requested for conversation:", activeConversation());
+  };
+
   function stepBadgeVariant(status: string): "info" | "success" | "danger" {
     if (status === "running") return "info";
     if (status === "completed") return "success";
@@ -236,6 +254,40 @@ export default function ChatPanel(props: ChatPanelProps) {
           </div>
         }
       >
+        {/* Chat header with agentic mode indicator */}
+        <div class="flex items-center justify-between border-b border-cf-border px-4 py-2">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-cf-text-primary">{t("chat.tab")}</span>
+            <Show when={agentRunning()}>
+              <span class="inline-flex items-center gap-1 rounded-full bg-cf-accent/10 px-2 py-0.5 text-[11px] font-medium text-cf-accent">
+                <span class="inline-block h-1.5 w-1.5 rounded-full bg-cf-accent animate-pulse" />
+                Agentic
+              </span>
+            </Show>
+          </div>
+          <div class="flex items-center gap-3">
+            {/* Step counter during agentic turns */}
+            <Show when={agentRunning() && stepCount() > 0}>
+              <span class="text-xs text-cf-text-muted">Step {stepCount()}</span>
+            </Show>
+            {/* Running cost during agentic turn */}
+            <Show when={agentRunning() && runningCost() > 0}>
+              <span class="text-xs text-cf-text-muted">${runningCost().toFixed(4)}</span>
+            </Show>
+            {/* Stop button during active agentic runs */}
+            <Show when={agentRunning()}>
+              <Button
+                variant="primary"
+                size="sm"
+                class="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-0.5"
+                onClick={handleStop}
+              >
+                {"\u25A0"} Stop
+              </Button>
+            </Show>
+          </div>
+        </div>
+
         {/* Messages */}
         <div class="flex-1 overflow-y-auto p-4 space-y-4">
           <For each={messages() ?? []}>
@@ -272,10 +324,16 @@ export default function ChatPanel(props: ChatPanelProps) {
             </div>
           </Show>
 
-          {/* Active tool calls from AG-UI events */}
+          {/* Active tool calls from AG-UI events — grouped with vertical line */}
           <Show when={toolCalls().length > 0}>
             <div class="flex justify-start">
-              <div class="max-w-[75%] w-full">
+              <div class="max-w-[75%] w-full border-l-2 border-cf-accent/40 pl-3 ml-2">
+                <Show when={stepCount() > 0}>
+                  <div class="mb-1 text-xs text-cf-text-muted">
+                    Step {stepCount()} {"\u00B7"} {toolCalls().length} tool call
+                    {toolCalls().length !== 1 ? "s" : ""}
+                  </div>
+                </Show>
                 <For each={toolCalls()}>
                   {(tc) => (
                     <ToolCallCard

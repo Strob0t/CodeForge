@@ -239,6 +239,89 @@ Persistent storage for MCP server definitions with project-level assignment.
 
 MCP tool calls use namespaced identifiers `mcp:{server}:{tool}` and flow through the existing policy engine with glob matching. Mode-based filtering via `Mode.Tools` and `Mode.DeniedTools` supports the same convention.
 
+### Agentic Conversation Mode (Phase 17)
+
+The agentic conversation mode transforms the Chat UI into an autonomous coding agent. Rather than a single LLM call per message, the system runs a multi-turn tool-use loop where the LLM reads files, edits code, runs commands, and iterates until the task is complete.
+
+#### How It Works
+
+1. **User sends a message** via the Chat UI (or API with `?mode=agentic` / `"agentic": true`)
+2. **Go Core** stores the message, builds a context pack (system prompt, conversation history, tool definitions, MCP servers, policy profile), and publishes to NATS
+3. **Python Worker** receives the job and starts the agent loop:
+   - Calls LLM with tool definitions (built-in + MCP tools)
+   - Streams text responses to the frontend via AG-UI WebSocket events
+   - When the LLM returns `tool_calls`, each tool is executed with per-call policy enforcement
+   - Tool results are appended to the conversation and fed back to the LLM
+   - Loop continues until the LLM responds without tool calls, or termination limits are hit
+4. **Go Core** receives the completion, stores all tool messages and the final reply, and broadcasts `agui.run_finished`
+
+#### Built-in Tools
+
+| Tool | Policy Name | Description |
+|------|-------------|-------------|
+| Read | `Read` | Read file contents with optional line range (offset/limit) |
+| Write | `Write` | Create or overwrite a file, creating parent directories |
+| Edit | `Edit` | Search-and-replace: validate old_text is unique, replace with new_text |
+| Bash | `Bash` | Execute shell command with timeout (default 120s), captures stdout+stderr |
+| Search | `Search` | Regex search across files via `grep -rn` |
+| Glob | `Glob` | Find files by glob pattern via `pathlib.Path.glob()` |
+| ListDir | `ListDir` | List directory contents, optional recursive |
+
+Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`). MCP-discovered tools merge in with `mcp__{server}__{tool}` naming and route through `McpWorkbench.call_tool()`.
+
+#### Conversation History Management
+
+The `ConversationHistoryManager` assembles messages within a configurable token budget (`MaxContextTokens`, default 120000):
+
+- **Head-and-tail strategy**: System prompt + first few messages + last N messages always included
+- **Tool result truncation**: Long outputs capped at `ToolOutputMaxChars` (default 10000) with head+tail preservation
+- **Context injection**: RepoMap, retrieval results, and LSP diagnostics embedded in the system prompt
+
+#### Human-in-the-Loop (HITL) Approval
+
+When the policy layer returns `DecisionAsk` for a tool call:
+
+1. Runtime broadcasts `agui.permission_request` via WebSocket (includes tool name, command, path)
+2. Frontend displays an inline approval card with Allow/Deny buttons and a countdown timer
+3. User decision sent via `POST /api/v1/runs/{id}/approve/{callId}` with `{"decision": "allow"|"deny"}`
+4. If approved, tool executes normally; if denied or timeout (default 60s), a "Permission denied" result is returned to the LLM
+
+#### Configuration
+
+```yaml
+agent:
+  builtin_tools: [Read, Write, Edit, Bash, Search, Glob, ListDir]
+  default_model: ""  # Uses project's configured model
+  max_context_tokens: 120000
+  max_loop_iterations: 50
+  agentic_by_default: false
+  tool_output_max_chars: 10000
+
+runtime:
+  approval_timeout_seconds: 60
+```
+
+Environment overrides: `CODEFORGE_AGENT_DEFAULT_MODEL`, `CODEFORGE_AGENT_MAX_CONTEXT_TOKENS`, `CODEFORGE_AGENT_MAX_LOOP_ITERATIONS`, `CODEFORGE_AGENT_AGENTIC_BY_DEFAULT`, `CODEFORGE_APPROVAL_TIMEOUT_SECONDS`.
+
+#### Frontend
+
+- **ToolCallCard**: Tool-type icons (file, terminal, search), collapsible arguments/results, permission denied badge
+- **ChatPanel**: Step counter during agentic turns ("Step 3/50"), running cost display, grouped tool calls, agentic mode indicator
+- **Approval UI**: Inline card on `permission_request` events with countdown and Allow/Deny buttons
+
+#### Key Files
+
+| File | Purpose |
+|------|---------|
+| `workers/codeforge/agent_loop.py` | Core agentic loop executor |
+| `workers/codeforge/history.py` | Conversation history manager |
+| `workers/codeforge/tools/` | Built-in tool registry (7 tools) |
+| `internal/service/conversation.go` | Agentic dispatch and completion handler |
+| `internal/service/runtime.go` | HITL approval (waitForApproval, ResolveApproval) |
+| `internal/adapter/http/handlers.go` | HTTP handlers (agentic routing, approval endpoint) |
+| `frontend/src/features/project/ChatPanel.tsx` | Chat UI with agentic enhancements |
+| `frontend/src/features/project/ToolCallCard.tsx` | Tool call display component |
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.

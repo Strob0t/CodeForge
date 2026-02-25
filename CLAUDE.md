@@ -95,6 +95,15 @@ Detailed analysis: docs/research/market-analysis.md
 - **BM25S Keyword Retrieval:** BM25-based retrieval for code search and tool recommendation
 - **Real-time State via WebSocket:** Live updates for agent status, logs, costs
 - **Frontend:** SolidJS + Tailwind CSS
+- **Agentic Conversation Loop (Phase 17):**
+  - Chat UI triggers multi-turn tool-use loop (LLM → tools → results → repeat until done)
+  - Go Core dispatches to Python Worker via NATS (`conversation.run.start/complete`)
+  - 7 built-in tools: Read, Write, Edit, Bash, Search, Glob, ListDir + MCP tool merge
+  - `AgentLoopExecutor` (Python): streaming LLM calls, per-tool policy enforcement, cost tracking
+  - `ConversationHistoryManager` (Python): head-and-tail token budget, tool result truncation
+  - HITL approval: `DecisionAsk` → WS `permission_request` → HTTP approve/deny → channel resume
+  - Config: `Agent.MaxLoopIterations` (50), `Agent.MaxContextTokens` (120K), `Runtime.ApprovalTimeoutSeconds` (60)
+  - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
   - Composite Memory Scoring (Semantic + Recency + Importance)
   - Context Window Strategies (Buffered, TokenLimited, HeadAndTail)

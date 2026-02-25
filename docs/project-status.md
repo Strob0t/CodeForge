@@ -941,3 +941,57 @@ Full MCP (Model Context Protocol) integration across all layers plus LSP code in
 - [x] (2026-02-24) Full page migration: 42 files migrated, 29 new component files created
 - [x] (2026-02-24) WCAG 2.2 AA: contrast fix (`--cf-text-muted` gray-500), zero hardcoded colors remaining
 - [x] (2026-02-24) Result: CSS -35% (62KB -> 40KB), 0 lint errors, 37/37 tests pass
+
+### Phase 17: Interactive Agent Loop -- Claude Code-like Core (COMPLETED)
+
+The central agentic loop that makes CodeForge an autonomous coding agent. The user sends a message in the Chat UI, the LLM decides which tools to use, executes them via the Python worker, and iterates until the task is done.
+
+#### Phase 17A: LiteLLM Client Tool-Calling Support
+- [x] (2026-02-25) Python: `ToolCallPart`, `ChatCompletionResponse`, `chat_completion()`, `chat_completion_stream()` with tool_call delta accumulation
+- [x] (2026-02-25) Go: `ToolDefinition`, `ToolCall`, `ToolFunction` structs, extended `ChatMessage`/`ChatCompletionRequest`/`ChatCompletionResponse`, streaming tool_call assembly
+
+#### Phase 17B: Built-in Tool Registry (Python)
+- [x] (2026-02-25) Tool framework: `ToolDefinition`, `ToolResult`, `ToolRegistry` with `register()`, `get_openai_tools()`, `execute()`
+- [x] (2026-02-25) 7 built-in tools: Read, Write, Edit, Bash, Search, Glob, ListDir
+- [x] (2026-02-25) MCP tool merge: `merge_mcp_tools()` bridges MCP-discovered tools into registry
+
+#### Phase 17C: NATS Protocol Extension
+- [x] (2026-02-25) New subjects: `conversation.run.start`, `conversation.run.complete`
+- [x] (2026-02-25) New payloads: `ConversationRunStartPayload`, `ConversationRunCompletePayload`, `ConversationMessagePayload`, `ConversationToolCall`
+- [x] (2026-02-25) Python Pydantic models: `ConversationRunStartMessage`, `ConversationRunCompleteMessage`, `AgentLoopResult`
+
+#### Phase 17D: Conversation Data Model Extension
+- [x] (2026-02-25) Domain model: `Message` extended with `ToolCalls`, `ToolCallID`, `ToolName`
+- [x] (2026-02-25) Migration 037: `conversation_messages` adds `tool_calls JSONB`, `tool_call_id TEXT`, `tool_name TEXT`, nullable `content`
+- [x] (2026-02-25) Store: `CreateMessage`/`ListMessages` updated, `CreateToolMessages()` batch insert
+
+#### Phase 17E: The Agentic Loop (Python Worker)
+- [x] (2026-02-25) `AgentLoopExecutor`: multi-turn tool-use loop with LLM streaming, per-tool policy enforcement, cost accumulation
+- [x] (2026-02-25) `ConversationHistoryManager`: head-and-tail token budget, tool result truncation, context injection
+- [x] (2026-02-25) Consumer integration: `conversation.run.start` subscription, `_handle_conversation_run()` handler
+
+#### Phase 17F: Conversation Service Agentic Mode (Go Core)
+- [x] (2026-02-25) `SendMessageAgentic()`: store user message, load history, build context, publish to NATS, return async
+- [x] (2026-02-25) `HandleConversationRunComplete()`: batch store tool messages, store assistant message, broadcast WS
+- [x] (2026-02-25) System prompt template enhanced with tool descriptions and usage guidelines
+- [x] (2026-02-25) Agent config: `BuiltinTools`, `DefaultModel`, `MaxContextTokens`, `MaxLoopIterations`, `AgenticByDefault`
+- [x] (2026-02-25) HTTP handler: agentic mode detection, 202 Accepted async dispatch
+- [x] (2026-02-25) Wiring in `main.go`: NATS subscriptions, service dependencies
+
+#### Phase 17G: Frontend Enhancement
+- [x] (2026-02-25) ToolCallCard: tool-type icons, permission denied badge, collapsible arguments/results
+- [x] (2026-02-25) ChatPanel: step counter, running cost, grouped tool calls, agentic mode indicator
+- [x] (2026-02-25) Types: `ConversationMessage` extended with `tool_calls`, `tool_call_id`, `tool_name`
+
+#### Phase 17H: HITL (Human-in-the-Loop) Approval
+- [x] (2026-02-25) Runtime: `waitForApproval()` with channel-based blocking, configurable timeout (default 60s)
+- [x] (2026-02-25) AG-UI `permission_request` event broadcast via WebSocket
+- [x] (2026-02-25) HTTP endpoint: `POST /runs/{id}/approve/{callId}` with allow/deny decision
+- [x] (2026-02-25) `ResolveApproval()` method with `sync.Map` pending approval tracking
+
+#### Phase 17J: Documentation
+- [x] (2026-02-25) `docs/todo.md`: Phase 17 section with all sub-phases
+- [x] (2026-02-25) `docs/project-status.md`: Phase 17 status entry
+- [x] (2026-02-25) `docs/architecture.md`: Agentic Loop section with data flow diagram
+- [x] (2026-02-25) `docs/features/04-agent-orchestration.md`: Agentic conversation mode documentation
+- [x] (2026-02-25) `CLAUDE.md`: Agentic loop architecture summary

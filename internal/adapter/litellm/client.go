@@ -137,31 +137,64 @@ type AddModelRequest struct {
 
 // --- Chat Completion (OpenAI-compatible) ---
 
+// ToolFunction describes a function that can be called by the model.
+type ToolFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// ToolDefinition defines a tool available to the model.
+type ToolDefinition struct {
+	Type     string       `json:"type"` // Always "function".
+	Function ToolFunction `json:"function"`
+}
+
+// ToolCallFunction holds the function name and serialized arguments of a tool call.
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolCall represents a tool invocation requested by the model.
+type ToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+
 // ChatMessage represents a single message in a chat completion.
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
 }
 
 // ChatCompletionRequest is the request body for /v1/chat/completions.
 type ChatCompletionRequest struct {
-	Model       string        `json:"model"`
-	Messages    []ChatMessage `json:"messages"`
-	Temperature float64       `json:"temperature,omitempty"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Model       string           `json:"model"`
+	Messages    []ChatMessage    `json:"messages"`
+	Temperature float64          `json:"temperature,omitempty"`
+	MaxTokens   int              `json:"max_tokens,omitempty"`
+	Tools       []ToolDefinition `json:"tools,omitempty"`
+	ToolChoice  any              `json:"tool_choice,omitempty"`
 }
 
 // ChatCompletionResponse is the parsed response from a completion call.
 type ChatCompletionResponse struct {
-	Content   string
-	TokensIn  int
-	TokensOut int
-	Model     string
+	Content      string
+	TokensIn     int
+	TokensOut    int
+	Model        string
+	ToolCalls    []ToolCall
+	FinishReason string
 }
 
 // ChatCompletion sends a chat completion request to the LiteLLM Proxy's
 // OpenAI-compatible /v1/chat/completions endpoint.
-func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
+func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) { //nolint:gocritic // hugeParam acceptable for request struct
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal completion request: %w", err)
@@ -175,8 +208,10 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 	var raw struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string     `json:"content"`
+				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -188,32 +223,35 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 		return nil, fmt.Errorf("unmarshal completion response: %w", err)
 	}
 
-	content := ""
-	if len(raw.Choices) > 0 {
-		content = raw.Choices[0].Message.Content
-	}
-
-	return &ChatCompletionResponse{
-		Content:   content,
+	resp := &ChatCompletionResponse{
 		TokensIn:  raw.Usage.PromptTokens,
 		TokensOut: raw.Usage.CompletionTokens,
 		Model:     raw.Model,
-	}, nil
+	}
+	if len(raw.Choices) > 0 {
+		resp.Content = raw.Choices[0].Message.Content
+		resp.ToolCalls = raw.Choices[0].Message.ToolCalls
+		resp.FinishReason = raw.Choices[0].FinishReason
+	}
+
+	return resp, nil
 }
 
 // StreamChunk represents a single chunk from a streaming completion response.
 type StreamChunk struct {
-	Content   string // The text content of this chunk (may be empty for non-content chunks).
-	Done      bool   // True when the stream is complete (final chunk or [DONE]).
-	Model     string // Model name from the response.
-	TokensIn  int    // Prompt tokens (only set on the final chunk with usage data).
-	TokensOut int    // Completion tokens (only set on the final chunk with usage data).
+	Content      string     // The text content of this chunk (may be empty for non-content chunks).
+	Done         bool       // True when the stream is complete (final chunk or [DONE]).
+	Model        string     // Model name from the response.
+	TokensIn     int        // Prompt tokens (only set on the final chunk with usage data).
+	TokensOut    int        // Completion tokens (only set on the final chunk with usage data).
+	ToolCalls    []ToolCall // Accumulated tool calls (set on the final chunk when finish_reason is "tool_calls").
+	FinishReason string     // The finish reason from the response (e.g. "stop", "tool_calls").
 }
 
 // ChatCompletionStream sends a streaming chat completion request. It calls
 // onChunk for each SSE chunk received from the LiteLLM Proxy. The caller
 // should accumulate content from chunks where Done is false.
-func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionRequest, onChunk func(StreamChunk)) (*ChatCompletionResponse, error) {
+func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionRequest, onChunk func(StreamChunk)) (*ChatCompletionResponse, error) { //nolint:gocritic // hugeParam acceptable for request struct
 	// Force stream mode.
 	type streamReq struct {
 		ChatCompletionRequest
@@ -261,6 +299,11 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 	var fullContent strings.Builder
 	var model string
 	var tokensIn, tokensOut int
+	var finishReason string
+	// Accumulate tool calls by index. Streaming deltas reference tool calls
+	// by their index field; we grow this slice as needed and concatenate
+	// argument fragments.
+	var toolCalls []ToolCall
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -274,7 +317,14 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 
 		if data == "[DONE]" {
 			if onChunk != nil {
-				onChunk(StreamChunk{Done: true, Model: model, TokensIn: tokensIn, TokensOut: tokensOut})
+				onChunk(StreamChunk{
+					Done:         true,
+					Model:        model,
+					TokensIn:     tokensIn,
+					TokensOut:    tokensOut,
+					ToolCalls:    toolCalls,
+					FinishReason: finishReason,
+				})
 			}
 			break
 		}
@@ -282,7 +332,16 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id,omitempty"`
+						Type     string `json:"type,omitempty"`
+						Function struct {
+							Name      string `json:"name,omitempty"`
+							Arguments string `json:"arguments,omitempty"`
+						} `json:"function"`
+					} `json:"tool_calls,omitempty"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -306,7 +365,30 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 
 		content := ""
 		if len(chunk.Choices) > 0 {
-			content = chunk.Choices[0].Delta.Content
+			choice := chunk.Choices[0]
+			content = choice.Delta.Content
+
+			if choice.FinishReason != nil {
+				finishReason = *choice.FinishReason
+			}
+
+			// Assemble tool calls by index.
+			for _, tc := range choice.Delta.ToolCalls {
+				// Grow slice to accommodate the index.
+				for len(toolCalls) <= tc.Index {
+					toolCalls = append(toolCalls, ToolCall{})
+				}
+				if tc.ID != "" {
+					toolCalls[tc.Index].ID = tc.ID
+				}
+				if tc.Type != "" {
+					toolCalls[tc.Index].Type = tc.Type
+				}
+				if tc.Function.Name != "" {
+					toolCalls[tc.Index].Function.Name = tc.Function.Name
+				}
+				toolCalls[tc.Index].Function.Arguments += tc.Function.Arguments
+			}
 		}
 		if content != "" {
 			fullContent.WriteString(content)
@@ -324,10 +406,12 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 	}
 
 	return &ChatCompletionResponse{
-		Content:   fullContent.String(),
-		TokensIn:  tokensIn,
-		TokensOut: tokensOut,
-		Model:     model,
+		Content:      fullContent.String(),
+		TokensIn:     tokensIn,
+		TokensOut:    tokensOut,
+		Model:        model,
+		ToolCalls:    toolCalls,
+		FinishReason: finishReason,
 	}, nil
 }
 

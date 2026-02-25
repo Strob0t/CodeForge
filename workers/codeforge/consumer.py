@@ -19,6 +19,8 @@ from codeforge.graphrag import CodeGraphBuilder, GraphSearcher
 from codeforge.llm import LiteLLMClient
 from codeforge.logger import setup_logging, stop_logging
 from codeforge.models import (
+    ConversationRunCompleteMessage,
+    ConversationRunStartMessage,
     GraphBuildRequest,
     GraphBuildResult,
     GraphSearchRequest,
@@ -55,6 +57,7 @@ STREAM_SUBJECTS = [
     "repomap.>",
     "retrieval.>",
     "graph.>",
+    "conversation.>",
 ]
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
@@ -74,6 +77,8 @@ SUBJECT_GRAPH_BUILD_REQUEST = "graph.build.request"
 SUBJECT_GRAPH_BUILD_RESULT = "graph.build.result"
 SUBJECT_GRAPH_SEARCH_REQUEST = "graph.search.request"
 SUBJECT_GRAPH_SEARCH_RESULT = "graph.search.result"
+SUBJECT_CONVERSATION_RUN_START = "conversation.run.start"
+SUBJECT_CONVERSATION_RUN_COMPLETE = "conversation.run.complete"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -135,6 +140,7 @@ class TaskConsumer:
             (SUBJECT_SUBAGENT_SEARCH_REQUEST, self._handle_subagent_search),
             (SUBJECT_GRAPH_BUILD_REQUEST, self._handle_graph_build),
             (SUBJECT_GRAPH_SEARCH_REQUEST, self._handle_graph_search),
+            (SUBJECT_CONVERSATION_RUN_START, self._handle_conversation_run),
         ]
 
         loops = []
@@ -503,6 +509,122 @@ class TaskConsumer:
         except Exception:
             logger.exception("failed to process graph search request")
             await self._publish_graph_search_error(msg)
+
+    async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a conversation run: agentic loop with tool calling."""
+        from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
+        from codeforge.history import ConversationHistoryManager, HistoryConfig
+        from codeforge.mcp_workbench import McpWorkbench
+        from codeforge.tools import ToolRegistry, build_default_registry
+
+        workbench: McpWorkbench | None = None
+        try:
+            run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
+            log = logger.bind(run_id=run_msg.run_id, conversation_id=run_msg.conversation_id)
+            log.info("received conversation run start")
+
+            if self._js is None:
+                log.error("JetStream not available")
+                await msg.nak()
+                return
+
+            # Build runtime client for policy checks and output streaming.
+            runtime = RuntimeClient(
+                js=self._js,
+                run_id=run_msg.run_id,
+                task_id=run_msg.run_id,  # Reuse run_id as task_id for conversations.
+                project_id=run_msg.project_id,
+                termination=run_msg.termination,
+            )
+            await runtime.start_cancel_listener()
+            await runtime.start_heartbeat()
+
+            # Build tool registry.
+            registry: ToolRegistry = build_default_registry()
+
+            # Set up MCP workbench if servers are configured.
+            if run_msg.mcp_servers:
+                workbench = McpWorkbench()
+                await workbench.connect_servers(run_msg.mcp_servers)
+                await workbench.discover_tools()
+                registry.merge_mcp_tools(workbench)
+                log.info("mcp tools merged", count=len(workbench.get_tools_for_llm()))
+
+            # Build message history within token budget.
+            history_mgr = ConversationHistoryManager(
+                HistoryConfig(
+                    max_context_tokens=128_000,
+                )
+            )
+            messages = history_mgr.build_messages(
+                system_prompt=run_msg.system_prompt,
+                history=run_msg.messages,
+                context_entries=run_msg.context,
+            )
+
+            # Run the agentic loop.
+            executor = AgentLoopExecutor(
+                llm=self._llm,
+                tool_registry=registry,
+                runtime=runtime,
+                workspace_path=run_msg.workspace_path,
+            )
+            loop_cfg = LoopConfig(
+                max_iterations=run_msg.termination.max_steps or 50,
+                max_cost=run_msg.termination.max_cost or 0.0,
+                model=run_msg.model,
+            )
+            result = await executor.run(messages, config=loop_cfg)
+
+            # Publish completion message.
+            complete_msg = ConversationRunCompleteMessage(
+                run_id=run_msg.run_id,
+                conversation_id=run_msg.conversation_id,
+                assistant_content=result.final_content,
+                tool_messages=result.tool_messages,
+                status="failed" if result.error else "completed",
+                error=result.error,
+                cost_usd=result.total_cost,
+                tokens_in=result.total_tokens_in,
+                tokens_out=result.total_tokens_out,
+                step_count=result.step_count,
+                model=result.model,
+            )
+            await self._js.publish(
+                SUBJECT_CONVERSATION_RUN_COMPLETE,
+                complete_msg.model_dump_json().encode(),
+            )
+
+            await msg.ack()
+            log.info(
+                "conversation run complete",
+                steps=result.step_count,
+                cost=result.total_cost,
+                error=result.error or None,
+            )
+
+        except Exception:
+            logger.exception("failed to process conversation run")
+            # Attempt to send an error completion so Go doesn't hang.
+            try:
+                run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
+                if self._js is not None:
+                    error_complete = ConversationRunCompleteMessage(
+                        run_id=run_msg.run_id,
+                        conversation_id=run_msg.conversation_id,
+                        status="failed",
+                        error="internal worker error",
+                    )
+                    await self._js.publish(
+                        SUBJECT_CONVERSATION_RUN_COMPLETE,
+                        error_complete.model_dump_json().encode(),
+                    )
+            except Exception:
+                logger.exception("failed to publish conversation error result")
+            await msg.nak()
+        finally:
+            if workbench is not None:
+                await workbench.disconnect_all()
 
     async def _publish_graph_search_error(self, msg: nats.aio.msg.Msg) -> None:
         """Publish an error result for graph search so the Go waiter gets a response."""

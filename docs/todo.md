@@ -1182,6 +1182,77 @@ Bug Fixes --- independent, anytime
 ### Notes
 
 - Phases 0-16 complete. All phases implemented. P0-P2 security hardening complete. Backend E2E vision test passed (88/91). Frontend E2E QA: 13/13 test areas pass (5 bugs found and fixed: detect stack nil-slice, settings popover dismiss, sync-to-file stale binary, cascade deletes, WS auth). Phase 15: MCP + LSP protocol integrations complete (mcp-go server, Python workbench, DB registry, frontend, policy integration).
+### Phase 17: Interactive Agent Loop (Claude Code-like Core)
+
+> Core agentic loop: user sends message → LLM selects tools → executes → iterates until done.
+
+#### 17A: LiteLLM Client Tool-Calling Support
+
+- [x] (2026-02-25) Python LiteLLM client: `ToolCallPart`, `ChatCompletionResponse`, `chat_completion()`, `chat_completion_stream()` with SSE tool_call delta accumulation
+- [x] (2026-02-25) Go LiteLLM client: `ToolFunction`, `ToolDefinition`, `ToolCall` structs, streaming tool_call assembly
+- [x] (2026-02-25) Tests: `test_llm_tools.py` (14 tests), `client_test.go` (3 new tests)
+
+#### 17B: Built-in Tool Registry (Python)
+
+- [x] (2026-02-25) Tool framework: `ToolDefinition`, `ToolResult`, `ToolExecutor` Protocol, `ToolRegistry` with register/execute/merge_mcp_tools
+- [x] (2026-02-25) 7 built-in tools: ReadFile, WriteFile, EditFile, Bash, SearchFiles, GlobFiles, ListDirectory
+- [x] (2026-02-25) `build_default_registry()` factory, MCP tool merge via `_McpToolProxy`
+- [x] (2026-02-25) Tests: `test_tools.py` (31 tests)
+
+#### 17C: NATS Protocol Extension
+
+- [x] (2026-02-25) New NATS subjects: `conversation.run.start`, `conversation.run.complete`
+- [x] (2026-02-25) New payloads: `ConversationMessagePayload`, `ConversationRunStartPayload`, `ConversationRunCompletePayload`
+- [x] (2026-02-25) Python models: `ConversationRunStartMessage`, `ConversationRunCompleteMessage`, `AgentLoopResult`
+
+#### 17D: Conversation Data Model Extension
+
+- [x] (2026-02-25) Domain: Extended `Message` with `ToolCalls`, `ToolCallID`, `ToolName`
+- [x] (2026-02-25) Migration 037: `tool_calls JSONB`, `tool_call_id TEXT`, `tool_name TEXT`, nullable content, 'tool' role
+- [x] (2026-02-25) Store: Updated `CreateMessage`, `ListMessages`, added `CreateToolMessages` batch insert
+
+#### 17E: Agentic Loop (Python Worker)
+
+- [x] (2026-02-25) `AgentLoopExecutor`: multi-turn tool-use loop with policy enforcement, cost tracking, cancellation
+- [x] (2026-02-25) `ConversationHistoryManager`: head-and-tail strategy, token budget, tool result truncation
+- [x] (2026-02-25) Consumer integration: `conversation.run.start` subscription, `_handle_conversation_run` handler
+- [x] (2026-02-25) Tests: `test_agent_loop.py` (9 tests), `test_history.py` (9 tests)
+
+#### 17F: Go Conversation Service Agentic Mode
+
+- [x] (2026-02-25) `Agent` config struct with defaults and env overrides
+- [x] (2026-02-25) `ConversationService` extended: `SetQueue`, `SetAgentConfig`, `SetMCPService`, `SetPolicyService`
+- [x] (2026-02-25) `SendMessageAgentic()`: stores user message, builds context, publishes to NATS, returns immediately
+- [x] (2026-02-25) `HandleConversationRunComplete()`: stores assistant + tool messages, broadcasts run_finished
+- [x] (2026-02-25) `StartCompletionSubscriber()`: NATS subscription for `conversation.run.complete`
+- [x] (2026-02-25) System prompt template: added "Available Tools" section with usage guidelines
+- [x] (2026-02-25) HTTP handler: agentic mode detection + routing, returns 202 Accepted for async dispatch
+- [x] (2026-02-25) `cmd/codeforge/main.go`: wiring for queue, agent config, MCP, policy, completion subscriber
+
+#### 17G: Frontend Enhancement
+
+- [x] (2026-02-25) `ToolCallCard.tsx`: tool-type icons, permission denied badge, collapsible sections
+- [x] (2026-02-25) `ChatPanel.tsx`: step counter, running cost, agentic mode indicator, grouped tool calls
+- [x] (2026-02-25) `types.ts`: extended `ConversationMessage` with `tool_calls`, `tool_call_id`, `tool_name`
+
+#### 17H: HITL (Human-in-the-Loop) Approval
+
+- [x] (2026-02-25) `AGUIPermissionRequest` event type and struct for WebSocket broadcast
+- [x] (2026-02-25) `RuntimeService.waitForApproval()`: blocks on channel, broadcasts permission request, configurable timeout
+- [x] (2026-02-25) `RuntimeService.ResolveApproval()`: resolves pending approval from HTTP handler
+- [x] (2026-02-25) `POST /api/v1/runs/{id}/approve/{callId}` HTTP endpoint
+- [x] (2026-02-25) `ApprovalTimeoutSeconds` config with 60s default
+
+#### 17J: Documentation & Configuration
+
+- [x] (2026-02-25) `docs/todo.md`: Phase 17 section with all completed items
+- [x] (2026-02-25) `docs/project-status.md`: Phase 17 status entry
+- [x] (2026-02-25) `docs/architecture.md`: Agentic loop data flow section with diagram
+- [x] (2026-02-25) `docs/features/04-agent-orchestration.md`: Agentic conversation mode documentation
+- [x] (2026-02-25) `CLAUDE.md`: Agentic loop architecture summary
+
+---
+
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
 - **Completed Dependencies:** Structured Logging → Request ID → Docker Logging → Log Script
 - Completed: Event Sourcing → Policy Layer → Runtime API → Headless Autonomy

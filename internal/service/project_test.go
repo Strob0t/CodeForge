@@ -608,6 +608,9 @@ func (m *mockStore) DeleteConversation(_ context.Context, _ string) error { retu
 func (m *mockStore) CreateMessage(_ context.Context, _ *conversation.Message) (*conversation.Message, error) {
 	return nil, nil
 }
+func (m *mockStore) CreateToolMessages(_ context.Context, _ string, _ []conversation.Message) error {
+	return nil
+}
 func (m *mockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
 	return nil, nil
 }

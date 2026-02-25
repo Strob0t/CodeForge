@@ -27,23 +27,24 @@ import (
 // RuntimeService orchestrates the step-by-step execution protocol between
 // Go (control plane) and Python (execution plane).
 type RuntimeService struct {
-	store         database.Store
-	queue         messagequeue.Queue
-	hub           broadcast.Broadcaster
-	events        eventstore.Store
-	policy        *PolicyService
-	modes         *ModeService
-	deliver       *DeliverService
-	contextOpt    *ContextOptimizerService
-	checkpoint    *CheckpointService
-	sandbox       *SandboxService
-	mcpSvc        *MCPService
-	onRunComplete func(ctx context.Context, runID string, status run.Status)
-	runtimeCfg    *config.Runtime
-	stallTrackers sync.Map // map[runID]*run.StallTracker
-	heartbeats    sync.Map // map[runID]time.Time — last heartbeat timestamp
-	runTimeouts   sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
-	budgetAlerts  sync.Map // map["runID:threshold"]bool — dedup budget alerts
+	store            database.Store
+	queue            messagequeue.Queue
+	hub              broadcast.Broadcaster
+	events           eventstore.Store
+	policy           *PolicyService
+	modes            *ModeService
+	deliver          *DeliverService
+	contextOpt       *ContextOptimizerService
+	checkpoint       *CheckpointService
+	sandbox          *SandboxService
+	mcpSvc           *MCPService
+	onRunComplete    func(ctx context.Context, runID string, status run.Status)
+	runtimeCfg       *config.Runtime
+	stallTrackers    sync.Map // map[runID]*run.StallTracker
+	heartbeats       sync.Map // map[runID]time.Time — last heartbeat timestamp
+	runTimeouts      sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
+	budgetAlerts     sync.Map // map["runID:threshold"]bool — dedup budget alerts
+	pendingApprovals sync.Map // map["runID:callID"]chan string — HITL approval channels
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -410,6 +411,17 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		"rule_index", result.RuleIndex,
 		"reason", result.Reason,
 	)
+
+	// HITL: when policy says "ask", wait for user approval via WebSocket/HTTP.
+	if decision == policy.DecisionAsk {
+		decision = s.waitForApproval(ctx, r.ID, req.CallID, req.Tool, req.Command, req.Path)
+		slog.Info("HITL approval resolved",
+			"run_id", r.ID,
+			"call_id", req.CallID,
+			"tool", req.Tool,
+			"decision", decision,
+		)
+	}
 
 	// Record event
 	evType := event.TypeToolCallApproved
@@ -1354,5 +1366,81 @@ func isFileModifyingTool(tool string) bool {
 func cancelAll(fns []func()) {
 	for _, fn := range fns {
 		fn()
+	}
+}
+
+// --- HITL (Human-in-the-Loop) approval ---
+
+// approvalKey builds a unique key for pending approval channels.
+func approvalKey(runID, callID string) string {
+	return runID + ":" + callID
+}
+
+// waitForApproval broadcasts a permission request to the frontend and blocks until
+// the user responds (via ResolveApproval) or the timeout expires. Returns the final
+// decision (allow or deny).
+func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, tool, command, path string) policy.Decision {
+	// Default timeout: 60 seconds.
+	timeout := 60 * time.Second
+	if s.runtimeCfg != nil && s.runtimeCfg.ApprovalTimeoutSeconds > 0 {
+		timeout = time.Duration(s.runtimeCfg.ApprovalTimeoutSeconds) * time.Second
+	}
+
+	ch := make(chan string, 1)
+	key := approvalKey(runID, callID)
+	s.pendingApprovals.Store(key, ch)
+	defer s.pendingApprovals.Delete(key)
+
+	// Broadcast permission request to connected clients.
+	s.hub.BroadcastEvent(ctx, ws.AGUIPermissionRequest, ws.AGUIPermissionRequestEvent{
+		RunID:   runID,
+		CallID:  callID,
+		Tool:    tool,
+		Command: command,
+		Path:    path,
+	})
+
+	slog.Info("HITL approval requested",
+		"run_id", runID,
+		"call_id", callID,
+		"tool", tool,
+		"timeout", timeout,
+	)
+
+	select {
+	case decision := <-ch:
+		if decision == "allow" {
+			return policy.DecisionAllow
+		}
+		return policy.DecisionDeny
+	case <-time.After(timeout):
+		slog.Warn("HITL approval timed out, denying",
+			"run_id", runID,
+			"call_id", callID,
+			"tool", tool,
+		)
+		return policy.DecisionDeny
+	case <-ctx.Done():
+		return policy.DecisionDeny
+	}
+}
+
+// ResolveApproval is called from the HTTP handler when a user approves or denies
+// a pending tool call. Returns true if a pending approval was found and resolved.
+func (s *RuntimeService) ResolveApproval(runID, callID, decision string) bool {
+	key := approvalKey(runID, callID)
+	val, ok := s.pendingApprovals.LoadAndDelete(key)
+	if !ok {
+		return false
+	}
+	ch, _ := val.(chan string)
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- decision:
+		return true
+	default:
+		return false
 	}
 }

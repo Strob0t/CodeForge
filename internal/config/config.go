@@ -93,6 +93,17 @@ type Config struct {
 	LSP          LSP          `yaml:"lsp"`
 	Auth         Auth         `yaml:"auth"`
 	Workspace    Workspace    `yaml:"workspace"`
+	Agent        Agent        `yaml:"agent"`
+}
+
+// Agent holds agentic conversation loop configuration.
+type Agent struct {
+	BuiltinTools       []string `yaml:"builtin_tools"`         // Built-in tools to enable (default: all)
+	DefaultModel       string   `yaml:"default_model"`         // Default LLM model for agentic loops
+	MaxContextTokens   int      `yaml:"max_context_tokens"`    // Max tokens for context window (default: 128000)
+	MaxLoopIterations  int      `yaml:"max_loop_iterations"`   // Max tool-use loop iterations (default: 50)
+	AgenticByDefault   bool     `yaml:"agentic_by_default"`    // Enable agentic mode by default for conversations
+	ToolOutputMaxChars int      `yaml:"tool_output_max_chars"` // Max chars for tool output before truncation (default: 10000)
 }
 
 // Auth holds authentication and authorization configuration.
@@ -154,17 +165,18 @@ type Orchestrator struct {
 
 // Runtime holds agent execution engine configuration.
 type Runtime struct {
-	StallThreshold       int           `yaml:"stall_threshold"`
-	StallMaxRetries      int           `yaml:"stall_max_retries"` // Max re-plan attempts on stall (default: 2)
-	QualityGateTimeout   time.Duration `yaml:"quality_gate_timeout"`
-	DefaultDeliverMode   string        `yaml:"default_deliver_mode"`
-	DefaultTestCommand   string        `yaml:"default_test_command"`
-	DefaultLintCommand   string        `yaml:"default_lint_command"`
-	DeliveryCommitPrefix string        `yaml:"delivery_commit_prefix"`
-	HeartbeatInterval    time.Duration `yaml:"heartbeat_interval"` // Worker heartbeat send interval (default: 30s)
-	HeartbeatTimeout     time.Duration `yaml:"heartbeat_timeout"`  // Max time without heartbeat before kill (default: 120s)
-	Sandbox              SandboxConfig `yaml:"sandbox"`
-	Hybrid               HybridConfig  `yaml:"hybrid"`
+	StallThreshold         int           `yaml:"stall_threshold"`
+	StallMaxRetries        int           `yaml:"stall_max_retries"` // Max re-plan attempts on stall (default: 2)
+	QualityGateTimeout     time.Duration `yaml:"quality_gate_timeout"`
+	DefaultDeliverMode     string        `yaml:"default_deliver_mode"`
+	DefaultTestCommand     string        `yaml:"default_test_command"`
+	DefaultLintCommand     string        `yaml:"default_lint_command"`
+	DeliveryCommitPrefix   string        `yaml:"delivery_commit_prefix"`
+	HeartbeatInterval      time.Duration `yaml:"heartbeat_interval"`       // Worker heartbeat send interval (default: 30s)
+	HeartbeatTimeout       time.Duration `yaml:"heartbeat_timeout"`        // Max time without heartbeat before kill (default: 120s)
+	ApprovalTimeoutSeconds int           `yaml:"approval_timeout_seconds"` // HITL approval timeout in seconds (default: 60)
+	Sandbox                SandboxConfig `yaml:"sandbox"`
+	Hybrid                 HybridConfig  `yaml:"hybrid"`
 }
 
 // HybridConfig holds settings for the hybrid execution mode.
@@ -341,15 +353,16 @@ func Defaults() Config {
 			Root: "data/workspaces",
 		},
 		Runtime: Runtime{
-			StallThreshold:       5,
-			StallMaxRetries:      2,
-			QualityGateTimeout:   60 * time.Second,
-			DefaultDeliverMode:   "",
-			DefaultTestCommand:   "go test ./...",
-			DefaultLintCommand:   "golangci-lint run ./...",
-			DeliveryCommitPrefix: "codeforge:",
-			HeartbeatInterval:    30 * time.Second,
-			HeartbeatTimeout:     120 * time.Second,
+			StallThreshold:         5,
+			StallMaxRetries:        2,
+			QualityGateTimeout:     60 * time.Second,
+			DefaultDeliverMode:     "",
+			DefaultTestCommand:     "go test ./...",
+			DefaultLintCommand:     "golangci-lint run ./...",
+			DeliveryCommitPrefix:   "codeforge:",
+			HeartbeatInterval:      30 * time.Second,
+			HeartbeatTimeout:       120 * time.Second,
+			ApprovalTimeoutSeconds: 60,
 			Sandbox: SandboxConfig{
 				MemoryMB:    512,
 				CPUQuota:    1000,
@@ -429,6 +442,13 @@ func Defaults() Config {
 			BcryptCost:         12,
 			DefaultAdminEmail:  "admin@localhost",
 			DefaultAdminPass:   "Changeme123",
+		},
+		Agent: Agent{
+			DefaultModel:       "",
+			MaxContextTokens:   128_000,
+			MaxLoopIterations:  50,
+			AgenticByDefault:   true,
+			ToolOutputMaxChars: 10_000,
 		},
 	}
 }

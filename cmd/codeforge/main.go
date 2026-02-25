@@ -432,6 +432,15 @@ func run() error {
 
 	// --- Conversation Service ---
 	conversationSvc := service.NewConversationService(store, llmClient, hub, cfg.LiteLLM.ConversationModel, modeSvc)
+	conversationSvc.SetQueue(queue)
+	conversationSvc.SetAgentConfig(&cfg.Agent)
+	conversationSvc.SetMCPService(mcpSvc)
+	conversationSvc.SetPolicyService(policySvc)
+	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("conversation run subscriber: %w", err)
+	}
+	slog.Info("conversation service initialized", "agentic_by_default", cfg.Agent.AgenticByDefault)
 
 	// --- Auth Service (Phase 10C) ---
 	authSvc := service.NewAuthService(store, &cfg.Auth)
@@ -614,6 +623,7 @@ func run() error {
 	cancelResults()
 	cancelOutput()
 	repoMapCancel()
+	convRunCancel()
 	for _, cancel := range retrievalCancels {
 		cancel()
 	}

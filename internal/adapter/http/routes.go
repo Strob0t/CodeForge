@@ -300,6 +300,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/conversations/{id}/messages", h.ListConversationMessages)
 		r.Post("/conversations/{id}/messages", h.SendConversationMessage)
 
+		// HITL (Human-in-the-Loop) Approval
+		r.Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)
+
 		// LSP (Language Server Protocol)
 		r.Post("/projects/{id}/lsp/start", h.StartLSP)
 		r.Post("/projects/{id}/lsp/stop", h.StopLSP)

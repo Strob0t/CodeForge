@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +21,28 @@ class CompletionResponse:
     """Parsed response from an LLM completion call."""
 
     content: str
+    tokens_in: int
+    tokens_out: int
+    model: str
+    cost_usd: float = 0.0
+
+
+@dataclass(frozen=True)
+class ToolCallPart:
+    """A single tool call from an LLM response."""
+
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass(frozen=True)
+class ChatCompletionResponse:
+    """Parsed response from a chat completion with tool-calling support."""
+
+    content: str
+    tool_calls: list[ToolCallPart]
+    finish_reason: str
     tokens_in: int
     tokens_out: int
     model: str
@@ -119,6 +147,151 @@ class LiteLLMClient:
             cost_usd=litellm_cost,
         )
 
+    async def chat_completion(
+        self,
+        messages: list[dict[str, object]],
+        model: str = "ollama/llama3.2",
+        tools: list[dict[str, object]] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
+        temperature: float = 0.2,
+        tags: list[str] | None = None,
+        max_tokens: int | None = None,
+    ) -> ChatCompletionResponse:
+        """Send a chat completion with tool-calling support.
+
+        Returns a ChatCompletionResponse that includes parsed tool_calls
+        and finish_reason alongside the standard content and usage fields.
+        """
+        payload: dict[str, object] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if tools:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+        if tags:
+            payload["tags"] = tags
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+        logger.debug(
+            "chat_completion model=%s tools=%d temperature=%.2f",
+            model,
+            len(tools) if tools else 0,
+            temperature,
+        )
+
+        resp = await self._client.post("/v1/chat/completions", json=payload)
+        resp.raise_for_status()
+        data: dict[str, object] = resp.json()
+
+        try:
+            cost = float(resp.headers.get("x-litellm-response-cost", "0"))
+        except (ValueError, TypeError):
+            cost = 0.0
+
+        choices = data.get("choices", [])
+        if not isinstance(choices, list) or len(choices) == 0:
+            return ChatCompletionResponse(
+                content="",
+                tool_calls=[],
+                finish_reason="stop",
+                tokens_in=0,
+                tokens_out=0,
+                model=model,
+                cost_usd=cost,
+            )
+
+        choice = choices[0]
+        finish_reason = choice.get("finish_reason", "stop") if isinstance(choice, dict) else "stop"
+        message = choice.get("message", {}) if isinstance(choice, dict) else {}
+        content = message.get("content", "") or "" if isinstance(message, dict) else ""
+
+        tool_calls = _parse_tool_calls(message.get("tool_calls")) if isinstance(message, dict) else []
+
+        usage = data.get("usage", {})
+        tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
+        tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
+
+        return ChatCompletionResponse(
+            content=str(content),
+            tool_calls=tool_calls,
+            finish_reason=str(finish_reason),
+            tokens_in=int(tokens_in),
+            tokens_out=int(tokens_out),
+            model=model,
+            cost_usd=cost,
+        )
+
+    async def chat_completion_stream(
+        self,
+        messages: list[dict[str, object]],
+        model: str = "ollama/llama3.2",
+        tools: list[dict[str, object]] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
+        temperature: float = 0.2,
+        tags: list[str] | None = None,
+        max_tokens: int | None = None,
+        on_chunk: Callable[[str], None] | None = None,
+        on_tool_call: Callable[[ToolCallPart], None] | None = None,
+    ) -> ChatCompletionResponse:
+        """Stream a chat completion, accumulating tool_call deltas.
+
+        *on_chunk* is called for each text delta.
+        *on_tool_call* is called for each fully accumulated tool call.
+        Returns the final assembled ChatCompletionResponse.
+        """
+        payload: dict[str, object] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+        if tags:
+            payload["tags"] = tags
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+        logger.debug(
+            "chat_completion_stream model=%s tools=%d temperature=%.2f",
+            model,
+            len(tools) if tools else 0,
+            temperature,
+        )
+
+        acc = _StreamAccumulator()
+
+        async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
+            resp.raise_for_status()
+            with contextlib.suppress(ValueError, TypeError):
+                acc.cost = float(resp.headers.get("x-litellm-response-cost", "0"))
+
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                raw = line[6:]
+                if raw.strip() == "[DONE]":
+                    break
+                acc.process_chunk(raw, on_chunk)
+
+        tool_calls = acc.build_tool_calls(on_tool_call)
+
+        return ChatCompletionResponse(
+            content="".join(acc.content_parts),
+            tool_calls=tool_calls,
+            finish_reason=acc.finish_reason,
+            tokens_in=int(acc.tokens_in),
+            tokens_out=int(acc.tokens_out),
+            model=model,
+            cost_usd=acc.cost,
+        )
+
     async def health(self) -> bool:
         """Check if the LiteLLM Proxy is healthy."""
         try:
@@ -130,3 +303,88 @@ class LiteLLMClient:
     async def close(self) -> None:
         """Close the HTTP client."""
         await self._client.aclose()
+
+
+class _StreamAccumulator:
+    """Accumulates SSE stream chunks for chat completion responses."""
+
+    __slots__ = ("content_parts", "cost", "finish_reason", "tc_accum", "tokens_in", "tokens_out")
+
+    def __init__(self) -> None:
+        self.content_parts: list[str] = []
+        self.tc_accum: dict[int, dict[str, str]] = {}
+        self.finish_reason = "stop"
+        self.tokens_in = 0
+        self.tokens_out = 0
+        self.cost = 0.0
+
+    def process_chunk(self, raw: str, on_chunk: Callable[[str], None] | None) -> None:
+        """Parse a single SSE data line and accumulate into state."""
+        try:
+            chunk = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+
+        choices = chunk.get("choices", [])
+        if not choices:
+            return
+        delta = choices[0].get("delta", {})
+        chunk_finish = choices[0].get("finish_reason")
+        if chunk_finish:
+            self.finish_reason = chunk_finish
+
+        text = delta.get("content")
+        if text:
+            self.content_parts.append(text)
+            if on_chunk:
+                on_chunk(text)
+
+        for tc_delta in delta.get("tool_calls", []):
+            idx = tc_delta.get("index", 0)
+            if idx not in self.tc_accum:
+                self.tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+            acc = self.tc_accum[idx]
+            if "id" in tc_delta:
+                acc["id"] = tc_delta["id"]
+            func = tc_delta.get("function", {})
+            if "name" in func:
+                acc["name"] = func["name"]
+            if "arguments" in func:
+                acc["arguments"] += func["arguments"]
+
+        usage = chunk.get("usage")
+        if isinstance(usage, dict):
+            self.tokens_in = usage.get("prompt_tokens", self.tokens_in)
+            self.tokens_out = usage.get("completion_tokens", self.tokens_out)
+
+    def build_tool_calls(self, on_tool_call: Callable[[ToolCallPart], None] | None) -> list[ToolCallPart]:
+        """Build final ToolCallPart list from accumulated deltas."""
+        result: list[ToolCallPart] = []
+        for idx in sorted(self.tc_accum):
+            acc = self.tc_accum[idx]
+            tc = ToolCallPart(id=acc["id"], name=acc["name"], arguments=acc["arguments"])
+            result.append(tc)
+            if on_tool_call:
+                on_tool_call(tc)
+        return result
+
+
+def _parse_tool_calls(raw: object) -> list[ToolCallPart]:
+    """Parse tool_calls from a non-streaming chat completion response."""
+    if not isinstance(raw, list):
+        return []
+    result: list[ToolCallPart] = []
+    for tc in raw:
+        if not isinstance(tc, dict):
+            continue
+        func = tc.get("function")
+        if not isinstance(func, dict) or "name" not in func:
+            continue
+        result.append(
+            ToolCallPart(
+                id=str(tc.get("id", "")),
+                name=str(func["name"]),
+                arguments=str(func.get("arguments", "")),
+            )
+        )
+    return result

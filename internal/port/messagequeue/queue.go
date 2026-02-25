@@ -79,4 +79,8 @@ const (
 	// MCP subjects (Phase 15A)
 	SubjectMCPServerStatus  = "mcp.server.status"    // Python → Go: connection status update
 	SubjectMCPToolDiscovery = "mcp.tools.discovered" // Python → Go: tools found on server
+
+	// Conversation run subjects (Phase 17C)
+	SubjectConversationRunStart    = "conversation.run.start"    // Go → Python: start a conversation run
+	SubjectConversationRunComplete = "conversation.run.complete" // Python → Go: conversation run finished
 )

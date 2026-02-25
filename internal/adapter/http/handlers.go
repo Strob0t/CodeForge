@@ -2775,19 +2775,74 @@ func (h *Handlers) ListConversationMessages(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, messages)
 }
 
-// SendConversationMessage handles POST /api/v1/conversations/{id}/messages
+// SendConversationMessage handles POST /api/v1/conversations/{id}/messages.
+// When agentic mode is active (via request body or project default), the message
+// is dispatched to the Python worker for autonomous tool-using execution.
+// Otherwise it falls back to a simple single-turn LLM call.
 func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	req, ok := readJSON[conversation.SendMessageRequest](w, r)
 	if !ok {
 		return
 	}
+
+	// Route to agentic path when applicable.
+	if h.Conversations.IsAgentic(r.Context(), id, req) {
+		if err := h.Conversations.SendMessageAgentic(r.Context(), id, req); err != nil {
+			writeDomainError(w, err, "send agentic message")
+			return
+		}
+		// Agentic mode returns immediately; results stream via WebSocket.
+		writeJSON(w, http.StatusAccepted, map[string]string{
+			"status":  "dispatched",
+			"run_id":  id,
+			"message": "Agentic run dispatched. Results will stream via WebSocket.",
+		})
+		return
+	}
+
 	msg, err := h.Conversations.SendMessage(r.Context(), id, req)
 	if err != nil {
 		writeDomainError(w, err, "send message")
 		return
 	}
 	writeJSON(w, http.StatusCreated, msg)
+}
+
+// --- HITL Approval ---
+
+// ApproveToolCall handles POST /api/v1/runs/{id}/approve/{callId}.
+// The user sends a decision ("allow" or "deny") to approve or reject a pending
+// tool call that the policy evaluated as "ask".
+func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "id")
+	callID := chi.URLParam(r, "callId")
+
+	type approvalRequest struct {
+		Decision string `json:"decision"` // "allow" or "deny"
+	}
+
+	req, ok := readJSON[approvalRequest](w, r)
+	if !ok {
+		return
+	}
+	if req.Decision != "allow" && req.Decision != "deny" {
+		writeError(w, http.StatusBadRequest, "decision must be 'allow' or 'deny'")
+		return
+	}
+
+	resolved := h.Runtime.ResolveApproval(runID, callID, req.Decision)
+	if !resolved {
+		writeError(w, http.StatusNotFound, "no pending approval for this run/call")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":   "resolved",
+		"run_id":   runID,
+		"call_id":  callID,
+		"decision": req.Decision,
+	})
 }
 
 // --- Dev Tools ---

@@ -705,6 +705,9 @@ func (m *runtimeMockStore) DeleteConversation(_ context.Context, _ string) error
 func (m *runtimeMockStore) CreateMessage(_ context.Context, _ *conversation.Message) (*conversation.Message, error) {
 	return nil, nil
 }
+func (m *runtimeMockStore) CreateToolMessages(_ context.Context, _ string, _ []conversation.Message) error {
+	return nil
+}
 func (m *runtimeMockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
 	return nil, nil
 }

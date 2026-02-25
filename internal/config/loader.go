@@ -183,6 +183,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
 	setDuration(&cfg.Runtime.HeartbeatInterval, "CODEFORGE_HEARTBEAT_INTERVAL")
 	setDuration(&cfg.Runtime.HeartbeatTimeout, "CODEFORGE_HEARTBEAT_TIMEOUT")
+	setInt(&cfg.Runtime.ApprovalTimeoutSeconds, "CODEFORGE_APPROVAL_TIMEOUT_SECONDS")
 
 	// Idempotency
 	setString(&cfg.Idempotency.Bucket, "CODEFORGE_IDEMPOTENCY_BUCKET")
@@ -253,6 +254,13 @@ func loadEnv(cfg *Config) {
 	setBool(&cfg.MCP.Enabled, "CODEFORGE_MCP_ENABLED")
 	setString(&cfg.MCP.ServersDir, "CODEFORGE_MCP_SERVERS_DIR")
 	setInt(&cfg.MCP.ServerPort, "CODEFORGE_MCP_SERVER_PORT")
+
+	// Agent
+	setString(&cfg.Agent.DefaultModel, "CODEFORGE_AGENT_DEFAULT_MODEL")
+	setInt(&cfg.Agent.MaxContextTokens, "CODEFORGE_AGENT_MAX_CONTEXT_TOKENS")
+	setInt(&cfg.Agent.MaxLoopIterations, "CODEFORGE_AGENT_MAX_LOOP_ITERATIONS")
+	setBool(&cfg.Agent.AgenticByDefault, "CODEFORGE_AGENT_AGENTIC_BY_DEFAULT")
+	setInt(&cfg.Agent.ToolOutputMaxChars, "CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS")
 
 	// Auth
 	setBool(&cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED")
