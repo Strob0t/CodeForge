@@ -37,9 +37,11 @@ CodeForge does not build its own LLM abstraction layer. LiteLLM Proxy handles 12
 
 ### Scenario-Based Routing
 
+Requests without a scenario tag route to **all models** (no tag filtering). Specific scenarios restrict routing to tagged models only.
+
 | Scenario | Use Case | Typical Models |
 |---|---|---|
-| `default` | General coding | Claude Sonnet, GPT-4o |
+| *(none)* | General coding (no tag sent) | All models eligible |
 | `background` | Batch, indexing, embedding | GPT-4o-mini, DeepSeek, local |
 | `think` | Architecture, complex logic | Claude Opus, o3 |
 | `longContext` | Input > 60K tokens | Gemini Pro (1M context) |

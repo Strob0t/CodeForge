@@ -157,9 +157,9 @@ def test_resolve_scenario_known() -> None:
 
 
 def test_resolve_scenario_unknown_falls_back() -> None:
-    """resolve_scenario() should fall back to 'default' for unknown scenarios."""
+    """resolve_scenario() should fall back to empty tag for unknown scenarios."""
     cfg = resolve_scenario("nonexistent")
-    assert cfg.tag == "default"
+    assert cfg.tag == ""
     assert cfg.temperature == 0.2
 
 
@@ -167,7 +167,7 @@ def test_resolve_scenario_temperatures() -> None:
     """Verify specific temperature values per scenario."""
     assert resolve_scenario("think").temperature == pytest.approx(0.3)
     assert resolve_scenario("review").temperature == pytest.approx(0.1)
-    assert resolve_scenario("default").temperature == pytest.approx(0.2)
+    assert resolve_scenario("default").temperature == pytest.approx(0.2)  # falls back to no-tag default
     assert resolve_scenario("background").temperature == pytest.approx(0.1)
     assert resolve_scenario("plan").temperature == pytest.approx(0.3)
     assert resolve_scenario("longContext").temperature == pytest.approx(0.2)

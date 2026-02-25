@@ -58,8 +58,9 @@ class ScenarioConfig:
 
 
 # Scenario -> default parameters.  Tags match litellm_params.tags in litellm/config.yaml.
+# When no scenario tag is sent, LiteLLM routes by model name without tag filtering
+# (with enable_tag_filtering: true, untagged requests can use ALL models).
 SCENARIO_DEFAULTS: dict[str, ScenarioConfig] = {
-    "default": ScenarioConfig(tag="default", temperature=0.2),
     "background": ScenarioConfig(tag="background", temperature=0.1),
     "think": ScenarioConfig(tag="think", temperature=0.3),
     "longContext": ScenarioConfig(tag="longContext", temperature=0.2),
@@ -67,10 +68,12 @@ SCENARIO_DEFAULTS: dict[str, ScenarioConfig] = {
     "plan": ScenarioConfig(tag="plan", temperature=0.3),
 }
 
+_FALLBACK = ScenarioConfig(tag="", temperature=0.2)
+
 
 def resolve_scenario(scenario: str) -> ScenarioConfig:
-    """Look up scenario config, falling back to 'default' for unknown values."""
-    return SCENARIO_DEFAULTS.get(scenario, SCENARIO_DEFAULTS["default"])
+    """Look up scenario config, falling back to no-tag routing for unknown values."""
+    return SCENARIO_DEFAULTS.get(scenario, _FALLBACK)
 
 
 class LiteLLMClient:

@@ -44,7 +44,7 @@ class LoopConfig:
     max_cost: float = 0.0  # 0 = unlimited
     model: str = ""
     temperature: float = 0.2
-    tags: list[str] = field(default_factory=lambda: ["default"])
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -147,15 +147,12 @@ class AgentLoopExecutor:
 
         streamed_text: list[str] = []
         try:
-            # When an explicit model is configured, skip tag-based routing —
-            # tags are for scenario routing when the model is unset.
-            use_tags = cfg.tags if not cfg.model else None
             response = await self._llm.chat_completion_stream(
                 messages=messages,
                 model=cfg.model or "ollama/llama3.2",
                 tools=tools_array or None,
                 temperature=cfg.temperature,
-                tags=use_tags,
+                tags=cfg.tags or None,
                 on_chunk=streamed_text.append,
             )
         except Exception as exc:

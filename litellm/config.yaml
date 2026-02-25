@@ -2,9 +2,10 @@
 # Docs: https://docs.litellm.ai/docs/proxy/configs
 #
 # Scenario-based routing: each model is tagged with scenario tags in
-# litellm_params.tags. Workers send tags=["think"] (or "default", etc.)
+# litellm_params.tags. Workers send tags=["think"] (or "background", etc.)
 # in their completion requests, and LiteLLM routes to a matching model.
-# Supported scenarios: default, background, think, longContext, review, plan
+# Requests without tags route to ALL models (no filtering).
+# Supported scenarios: background, think, longContext, review, plan
 
 model_list:
   # -- Local Models (Ollama) --
@@ -12,7 +13,7 @@ model_list:
     litellm_params:
       model: "ollama/*"
       api_base: "http://host.docker.internal:11434"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   # -- OpenAI --
   - model_name: "gpt-4o"
@@ -23,7 +24,7 @@ model_list:
   - model_name: "gpt-4o-mini"
     litellm_params:
       model: "openai/gpt-4o-mini"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   # -- Anthropic --
   - model_name: "claude-opus-4.6"
@@ -44,12 +45,12 @@ model_list:
   - model_name: "claude-haiku-4.5"
     litellm_params:
       model: "anthropic/claude-haiku-4-5-20251001"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "claude-haiku-3.5"
     litellm_params:
       model: "anthropic/claude-3-5-haiku-20241022"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   # -- Google Gemini --
   - model_name: "gemini-2.5-pro"
@@ -60,23 +61,23 @@ model_list:
   - model_name: "gemini-2.5-flash"
     litellm_params:
       model: "gemini/gemini-2.5-flash-preview-05-20"
-      tags: ["default", "background", "longContext"]
+      tags: ["background", "longContext"]
 
   - model_name: "gemini-2.0-flash"
     litellm_params:
       model: "gemini/gemini-2.0-flash"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   # -- Groq (fast inference) --
   - model_name: "groq/llama-3.3-70b"
     litellm_params:
       model: "groq/llama-3.3-70b-versatile"
-      tags: ["default", "think", "review", "plan"]
+      tags: ["think", "review", "plan"]
 
   - model_name: "groq/llama-3.1-8b"
     litellm_params:
       model: "groq/llama-3.1-8b-instant"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "groq/llama-4-maverick"
     litellm_params:
@@ -86,7 +87,7 @@ model_list:
   - model_name: "groq/llama-4-scout"
     litellm_params:
       model: "groq/meta-llama/llama-4-scout-17b-16e-instruct"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "groq/gpt-oss-120b"
     litellm_params:
@@ -96,7 +97,7 @@ model_list:
   - model_name: "groq/gpt-oss-20b"
     litellm_params:
       model: "groq/openai/gpt-oss-20b"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "groq/qwen3-32b"
     litellm_params:
@@ -116,7 +117,7 @@ model_list:
   - model_name: "groq/compound-mini"
     litellm_params:
       model: "groq/groq/compound-mini"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   # -- Mistral AI --
   - model_name: "mistral-large"
@@ -132,12 +133,12 @@ model_list:
   - model_name: "mistral-small"
     litellm_params:
       model: "mistral/mistral-small-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "mistral-tiny"
     litellm_params:
       model: "mistral/mistral-tiny-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "magistral-medium"
     litellm_params:
@@ -147,7 +148,7 @@ model_list:
   - model_name: "magistral-small"
     litellm_params:
       model: "mistral/magistral-small-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "codestral"
     litellm_params:
@@ -162,27 +163,27 @@ model_list:
   - model_name: "devstral-medium"
     litellm_params:
       model: "mistral/devstral-medium-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "devstral-small"
     litellm_params:
       model: "mistral/devstral-small-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "ministral-14b"
     litellm_params:
       model: "mistral/ministral-14b-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "ministral-8b"
     litellm_params:
       model: "mistral/ministral-8b-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "ministral-3b"
     litellm_params:
       model: "mistral/ministral-3b-latest"
-      tags: ["default", "background"]
+      tags: ["background"]
 
   - model_name: "pixtral-large"
     litellm_params:
@@ -192,7 +193,7 @@ model_list:
   - model_name: "open-mistral-nemo"
     litellm_params:
       model: "mistral/open-mistral-nemo"
-      tags: ["default", "background"]
+      tags: ["background"]
 
 router_settings:
   enable_tag_filtering: true
