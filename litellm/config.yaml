@@ -71,7 +71,7 @@ model_list:
   - model_name: "groq/llama-3.3-70b"
     litellm_params:
       model: "groq/llama-3.3-70b-versatile"
-      tags: ["think", "review", "plan"]
+      tags: ["default", "think", "review", "plan"]
 
   - model_name: "groq/llama-3.1-8b"
     litellm_params:
