@@ -1314,6 +1314,19 @@ Bug Fixes --- independent, anytime
 - [ ] Disable auto-scroll when the user scrolls up (reading history)
 - [ ] Re-enable auto-scroll when the user scrolls back to the bottom
 
+#### 19D: Remove Mode Selection from Project Settings
+
+- [ ] Remove "Default Mode" dropdown from CompactSettingsPopover and DashboardPage advanced settings
+- [ ] The orchestrator decides which mode/agent to use per task — not the user per project
+- [ ] Remove `default_mode` from project config keys
+
+#### 19E: Remove Agent Backends from Project Settings
+
+- [ ] Remove "Agent Backends" checkbox list from CompactSettingsPopover and DashboardPage advanced settings
+- [ ] Remove `agent_backends` from project config keys
+- [ ] Remove hardcoded backend list (aider, goose, opencode, openhands, plandex) from frontend
+- [ ] LLM connection runs exclusively via LiteLLM — local agent backends (Aider, Goose, etc.) are out of scope for now
+
 ---
 
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
