@@ -1327,7 +1327,26 @@ Bug Fixes --- independent, anytime
 - [ ] Remove hardcoded backend list (aider, goose, opencode, openhands, plandex) from frontend
 - [ ] LLM connection runs exclusively via LiteLLM — local agent backends (Aider, Goose, etc.) are out of scope for now
 
-#### 19F: MCP Streamable HTTP Transport
+#### 19F: Overhaul Built-in Mode Prompt Prefixes
+
+> Current prompt prefixes are 2-3 generic lines ("You are a software developer. Write clean code.").
+> Real coding agents (Claude Code, Aider, etc.) use detailed system prompts with concrete behavioral
+> rules, methodology, constraints, and output expectations. The built-in modes need the same depth.
+> Reference: https://github.com/Piebald-AI/claude-code-system-prompts
+
+- [ ] **Coder mode:** Expand prompt prefix with: read-before-modify rule, avoid over-engineering, no unnecessary additions/abstractions/error-handling, security awareness (OWASP top 10), minimal changes, follow project conventions, explicit output as diff
+- [ ] **Architect mode:** Expand with: thorough exploration methodology (find patterns, trace code paths, understand current architecture), step-by-step plan output format, critical files list, trade-off analysis, dependency sequencing
+- [ ] **Reviewer mode:** Expand with: focus on correctness/security/performance, severity scoring, confidence filtering (only flag >80% confident issues), concrete exploit scenarios for security issues, actionable recommendations, structured output format
+- [ ] **Debugger mode:** Expand with: systematic diagnosis methodology (reproduce, isolate, trace), read error messages carefully, minimal targeted fixes, verify fix doesn't introduce regressions, explain root cause
+- [ ] **Tester mode:** Expand with: coverage-driven approach, test edge cases and error paths, clear test names describing expected behavior, arrange-act-assert pattern, mock external dependencies, failure messages that explain what went wrong
+- [ ] **Documenter mode:** Expand with: audience-aware writing (developer docs vs. user docs), keep docs close to code, update not rewrite, explain "why" not just "what", examples over abstractions
+- [ ] **Refactorer mode:** Expand with: verify tests pass before and after, one refactoring at a time, preserve external behavior, specific strategies (extract method, rename for clarity, reduce nesting, DRY, type safety)
+- [ ] **Security Auditor mode:** Expand with: structured methodology (context research → comparative analysis → vulnerability assessment), severity/confidence scoring, false positive filtering rules, category-specific checks (injection, auth, crypto, data exposure), output format with exploit scenario + fix recommendation
+- [ ] **All modes:** Add common rules — read files before modifying, no unnecessary file creation, avoid over-engineering, respect project conventions from CLAUDE.md
+- [ ] **Template files:** Update `.tmpl` files in `internal/service/templates/` if prompt structure changes
+- [ ] **Prompt length:** Verify assembled prompts stay within reasonable token budget (warn if >2048 tokens)
+
+#### 19G: MCP Streamable HTTP Transport
 
 - [ ] **Go Domain:** Add `TransportStreamableHTTP` (`streamable_http`) to `TransportType` in `internal/domain/mcp/mcp.go`
 - [ ] **Go Domain:** Update `validTransports` map and `Validate()` — `streamable_http` requires `url` field (like SSE)
@@ -1337,7 +1356,7 @@ Bug Fixes --- independent, anytime
 - [ ] **Frontend:** Update TypeScript types (`MCPServer.transport` union type)
 - [ ] **Python Worker:** Add `streamable_http` case in `McpServerConnection.connect()` using `mcp.client.streamable_http.streamablehttp_client()`
 
-#### 19G: MCP Server Pre-Save Validation (Real Connection Test)
+#### 19H: MCP Server Pre-Save Validation (Real Connection Test)
 
 > The test endpoint must perform a real MCP handshake to verify the server is a valid
 > MCP resource an LLM agent can interact with. The test runs automatically before saving.
