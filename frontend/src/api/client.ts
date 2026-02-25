@@ -992,6 +992,30 @@ export const api = {
         { method: "DELETE" },
       ),
   },
+
+  promptSections: {
+    list: (scope = "global") =>
+      request<import("./types").PromptSectionRow[]>(
+        `/prompt-sections?scope=${encodeURIComponent(scope)}`,
+      ),
+
+    upsert: (data: import("./types").PromptSectionRow) =>
+      request<import("./types").PromptSectionRow>("/prompt-sections", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      request<undefined>(`/prompt-sections/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+
+    preview: (data: import("./types").PromptPreviewRequest) =>
+      request<import("./types").PromptPreviewResponse>("/prompt-sections/preview", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
 } as const;
 
 export { FetchError };

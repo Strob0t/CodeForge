@@ -1438,39 +1438,38 @@ Bug Fixes --- independent, anytime
 > Anthropic Context Engineering (anthropic.com/engineering/effective-context-engineering-for-ai-agents),
 > DSPy (arxiv.org/abs/2310.03714)
 
-- [ ] **Coder mode:** Expand prompt prefix with: read-before-modify rule, avoid over-engineering, no unnecessary additions/abstractions/error-handling, security awareness (OWASP top 10), minimal changes, follow project conventions, explicit output as diff
-- [ ] **Architect mode:** Expand with: thorough exploration methodology (find patterns, trace code paths, understand current architecture), step-by-step plan output format, critical files list, trade-off analysis, dependency sequencing
-- [ ] **Reviewer mode:** Expand with: focus on correctness/security/performance, severity scoring, confidence filtering (only flag >80% confident issues), concrete exploit scenarios for security issues, actionable recommendations, structured output format
-- [ ] **Debugger mode:** Expand with: systematic diagnosis methodology (reproduce, isolate, trace), read error messages carefully, minimal targeted fixes, verify fix doesn't introduce regressions, explain root cause
-- [ ] **Tester mode:** Expand with: coverage-driven approach, test edge cases and error paths, clear test names describing expected behavior, arrange-act-assert pattern, mock external dependencies, failure messages that explain what went wrong
-- [ ] **Documenter mode:** Expand with: audience-aware writing (developer docs vs. user docs), keep docs close to code, update not rewrite, explain "why" not just "what", examples over abstractions
-- [ ] **Refactorer mode:** Expand with: verify tests pass before and after, one refactoring at a time, preserve external behavior, specific strategies (extract method, rename for clarity, reduce nesting, DRY, type safety)
-- [ ] **Security Auditor mode:** Expand with: structured methodology (context research → comparative analysis → vulnerability assessment), severity/confidence scoring, false positive filtering rules, category-specific checks (injection, auth, crypto, data exposure), output format with exploit scenario + fix recommendation
-- [ ] **All modes:** Add common rules — read files before modifying, no unnecessary file creation, avoid over-engineering, respect project conventions from CLAUDE.md
-- [ ] **Template files:** Update `.tmpl` files in `internal/service/templates/` if prompt structure changes
-- [ ] **Prompt length:** Verify assembled prompts stay within reasonable token budget (warn if >2048 tokens)
+- [x] (2026-02-25) **Coder mode:** Expand prompt prefix with: read-before-modify rule, avoid over-engineering, no unnecessary additions/abstractions/error-handling, security awareness (OWASP top 10), minimal changes, follow project conventions, explicit output as diff
+- [x] (2026-02-25) **Architect mode:** Expand with: thorough exploration methodology (find patterns, trace code paths, understand current architecture), step-by-step plan output format, critical files list, trade-off analysis, dependency sequencing
+- [x] (2026-02-25) **Reviewer mode:** Expand with: focus on correctness/security/performance, severity scoring, confidence filtering (only flag >80% confident issues), concrete exploit scenarios for security issues, actionable recommendations, structured output format
+- [x] (2026-02-25) **Debugger mode:** Expand with: systematic diagnosis methodology (reproduce, isolate, trace), read error messages carefully, minimal targeted fixes, verify fix doesn't introduce regressions, explain root cause
+- [x] (2026-02-25) **Tester mode:** Expand with: coverage-driven approach, test edge cases and error paths, clear test names describing expected behavior, arrange-act-assert pattern, mock external dependencies, failure messages that explain what went wrong
+- [x] (2026-02-25) **Documenter mode:** Expand with: audience-aware writing (developer docs vs. user docs), keep docs close to code, update not rewrite, explain "why" not just "what", examples over abstractions
+- [x] (2026-02-25) **Refactorer mode:** Expand with: verify tests pass before and after, one refactoring at a time, preserve external behavior, specific strategies (extract method, rename for clarity, reduce nesting, DRY, type safety)
+- [x] (2026-02-25) **Security Auditor mode:** Expand with: structured methodology (context research → comparative analysis → vulnerability assessment), severity/confidence scoring, false positive filtering rules, category-specific checks (injection, auth, crypto, data exposure), output format with exploit scenario + fix recommendation
+- [x] (2026-02-25) **All modes:** Add common rules — read files before modifying, no unnecessary file creation, avoid over-engineering, respect project conventions from CLAUDE.md
+- [x] (2026-02-25) **Template files:** Update `.tmpl` files in `internal/service/templates/` if prompt structure changes
+- [x] (2026-02-25) **Prompt length:** Verify assembled prompts stay within reasonable token budget (warn if >2048 tokens)
 
 **Composable Prompt System (B+ Architecture):**
 
-- [ ] **DB Migration:** Create `0XX_create_prompt_sections.sql` — `prompt_sections` table: `id` (UUID), `name` (TEXT), `scope` (TEXT: "global" | "mode:{id}" | "project:{id}"), `content` (TEXT), `priority` (INT DEFAULT 50), `sort_order` (INT DEFAULT 0), `enabled` (BOOL DEFAULT true), `merge` (TEXT DEFAULT 'replace': "replace" | "prepend" | "append"), `created_at`, `updated_at`
-- [ ] **Go Domain:** Add `Priority int` and `Source string` fields to `PromptSection` in `internal/service/mode_prompt.go`
-- [ ] **Go Domain:** Add default priority constants: `PrioritySystem = 100`, `PriorityRole = 90`, `PrioritySafety = 95`, `PriorityTools = 75`, `PriorityGuardrails = 70`, `PriorityUser = 40`
-- [ ] **Go Core:** Refactor `BuildModePrompt()` signature to `BuildModePrompt(m *mode.Mode, projectID string, tokenBudget int) (string, []PromptSection)` — accept scope context and budget
-- [ ] **Go Core:** Add `PromptSectionStore` interface in `internal/port/database/store.go`: `ListPromptSections(ctx, scope string) ([]PromptSectionRow, error)`, `UpsertPromptSection(ctx, row)`, `DeletePromptSection(ctx, id)`, `ResetPromptSection(ctx, scope, name)` (deletes override → falls back to embedded default)
-- [ ] **Go Core:** Implement `PromptSectionStore` in `internal/adapter/postgres/store_prompt_section.go`
-- [ ] **Go Core:** Implement merge logic in `BuildModePrompt()`: load embedded defaults → load DB overrides for matching scopes → apply merge strategy (replace/prepend/append) per section → add DB-only custom sections → sort by `sort_order`
-- [ ] **Go Core:** Implement `PruneToFitBudget(sections []PromptSection, budget int) []PromptSection` — sort by priority ascending, remove lowest-priority sections until total tokens <= budget (~50 LOC)
-- [ ] **Go Core:** Replace `WarnIfOverBudget()` call in `runtime.go` with `PruneToFitBudget()`
-- [ ] **HTTP API:** `GET /api/v1/prompt-sections?scope={scope}` — list sections (embedded defaults + DB overrides merged)
-- [ ] **HTTP API:** `PUT /api/v1/prompt-sections` — upsert a section override (creates DB override for an embedded default, or creates custom section)
-- [ ] **HTTP API:** `DELETE /api/v1/prompt-sections/{id}` — delete a custom section or reset an override to embedded default
-- [ ] **HTTP API:** `POST /api/v1/prompt-sections/preview` — preview assembled prompt for a given mode + project + budget (returns sections with pruning applied)
-- [ ] **Frontend:** Create `PromptEditorPage.tsx` — section list with inline editor, priority slider (0-100), enabled toggle, token count per section, total budget bar
-- [ ] **Frontend:** Add "Reset to Default" button per section (calls DELETE on override)
-- [ ] **Frontend:** Add "Add Custom Section" button (creates new DB-only section)
-- [ ] **Frontend:** Add live pruning preview panel — shows which sections survive at current budget
-- [ ] **Tests:** Unit tests for `PruneToFitBudget()` — verify lowest-priority sections removed first, budget respected, empty input
-- [ ] **Tests:** Unit tests for merge logic — replace/prepend/append strategies, scope cascade (global → mode → project)
+- [x] (2026-02-25) **DB Migration:** Create `039_create_prompt_sections.sql` — `prompt_sections` table with UUID, name, scope, content, priority, sort_order, enabled, merge, timestamps, unique constraint on (tenant_id, scope, name)
+- [x] (2026-02-25) **Go Domain:** Add `Priority int`, `Source string`, `ID string`, `Enabled bool` fields to `PromptSection` in `internal/service/mode_prompt.go`; create `internal/domain/prompt/prompt.go` with `SectionRow` type
+- [x] (2026-02-25) **Go Domain:** Add default priority constants: `PrioritySystem = 100`, `PriorityRole = 90`, `PrioritySafety = 95`, `PriorityTools = 75`, `PriorityGuardrails = 70`, `PriorityUser = 40`
+- [x] (2026-02-25) **Go Core:** `BuildModePrompt()` now sets priority on each template section; `DefaultModePromptBudget` increased to 2048
+- [x] (2026-02-25) **Go Core:** Add `ListPromptSections`, `UpsertPromptSection`, `DeletePromptSection` to `database.Store` interface
+- [x] (2026-02-25) **Go Core:** Implement Postgres store in `internal/adapter/postgres/store_prompt_section.go` with tenant isolation
+- [x] (2026-02-25) **Go Core:** Implement `PruneToFitBudget(sections []PromptSection, budget int) []PromptSection` — sort by priority ascending, remove lowest-priority sections until total tokens <= budget
+- [x] (2026-02-25) **Go Core:** Replace `WarnIfOverBudget()` call in `runtime.go` with `PruneToFitBudget()` + `AssembleSections()`
+- [x] (2026-02-25) **Go Core:** Add `PromptSectionService` in `internal/service/prompt_section.go` (List, Upsert, Delete, Preview)
+- [x] (2026-02-25) **HTTP API:** `GET /api/v1/prompt-sections?scope={scope}` — list sections
+- [x] (2026-02-25) **HTTP API:** `PUT /api/v1/prompt-sections` — upsert a section
+- [x] (2026-02-25) **HTTP API:** `DELETE /api/v1/prompt-sections/{id}` — delete a section
+- [x] (2026-02-25) **HTTP API:** `POST /api/v1/prompt-sections/preview` — preview assembled prompt with pruning
+- [x] (2026-02-25) **Frontend:** Create `PromptEditorPage.tsx` — section list with inline editor, priority slider (0-100), enabled toggle, token count per section, preview panel with total budget
+- [x] (2026-02-25) **Frontend:** Add route `/prompts`, sidebar nav link, API client, TypeScript types
+- [x] (2026-02-25) **Frontend:** i18n keys (EN + DE) for prompt editor
+- [x] (2026-02-25) **Tests:** Unit tests for `PruneToFitBudget()` — 4 tests: under budget, removes lowest priority, preserves order, zero budget
+- [x] (2026-02-25) **Tests:** Unit test for `AssembleSections()` — skips disabled and empty sections, joins with double newlines
 - [ ] **Tests:** Integration test — create DB override, verify `BuildModePrompt()` uses override instead of embedded default
 
 #### 19G: MCP Streamable HTTP Transport

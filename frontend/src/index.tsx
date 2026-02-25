@@ -15,6 +15,7 @@ import MCPServersPage from "./features/mcp/MCPServersPage.tsx";
 import ModesPage from "./features/modes/ModesPage.tsx";
 import NotFoundPage from "./features/NotFoundPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
+import PromptEditorPage from "./features/prompts/PromptEditorPage.tsx";
 import ScopesPage from "./features/scopes/ScopesPage.tsx";
 import SettingsPage from "./features/settings/SettingsPage.tsx";
 import TeamsPage from "./features/teams/TeamsPage.tsx";
@@ -40,6 +41,7 @@ render(
       <Route path="/scopes" component={ScopesPage} />
       <Route path="/teams" component={TeamsPage} />
       <Route path="/mcp" component={MCPServersPage} />
+      <Route path="/prompts" component={PromptEditorPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="*404" component={NotFoundPage} />
     </Router>

@@ -335,6 +335,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Delete("/{id}", h.DeleteUserHandler)
 		})
 
+		// Prompt Sections
+		r.Get("/prompt-sections", h.ListPromptSections)
+		r.Put("/prompt-sections", h.UpsertPromptSection)
+		r.Delete("/prompt-sections/{id}", h.DeletePromptSection)
+		r.Post("/prompt-sections/preview", h.PreviewPromptSections)
+
 		// Dev tools (behind DEV_MODE env var)
 		r.Post("/dev/benchmark", h.BenchmarkPrompt)
 	})

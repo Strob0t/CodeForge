@@ -133,6 +133,7 @@ type Handlers struct {
 	Conversations    *service.ConversationService
 	LSP              *service.LSPService
 	MCP              *service.MCPService
+	PromptSections   *service.PromptSectionService
 }
 
 // ListProjects handles GET /api/v1/projects

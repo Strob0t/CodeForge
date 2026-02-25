@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
@@ -242,4 +243,9 @@ type Store interface {
 	ListMCPServersByProject(ctx context.Context, projectID string) ([]mcp.ServerDef, error)
 	UpsertMCPServerTools(ctx context.Context, serverID string, tools []mcp.ServerTool) error
 	ListMCPServerTools(ctx context.Context, serverID string) ([]mcp.ServerTool, error)
+
+	// Prompt Sections
+	ListPromptSections(ctx context.Context, scope string) ([]prompt.SectionRow, error)
+	UpsertPromptSection(ctx context.Context, row *prompt.SectionRow) error
+	DeletePromptSection(ctx context.Context, id string) error
 }

@@ -501,6 +501,7 @@ func run() error {
 		Conversations:    conversationSvc,
 		LSP:              lspSvc,
 		MCP:              mcpSvc,
+		PromptSections:   service.NewPromptSectionService(store),
 	}
 
 	r := chi.NewRouter()

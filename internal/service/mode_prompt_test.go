@@ -168,6 +168,85 @@ func TestWarnIfOverBudget_Over(t *testing.T) {
 	WarnIfOverBudget("test", sections, 1024)
 }
 
+func TestPruneToFitBudget_UnderBudget(t *testing.T) {
+	sections := []PromptSection{
+		{Name: "role", Text: "role text", Tokens: 30, Priority: PriorityRole, Enabled: true},
+		{Name: "tools", Text: "tools text", Tokens: 20, Priority: PriorityTools, Enabled: true},
+	}
+	result := PruneToFitBudget(sections, 100)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 sections (under budget), got %d", len(result))
+	}
+}
+
+func TestPruneToFitBudget_RemovesLowestPriority(t *testing.T) {
+	sections := []PromptSection{
+		{Name: "role", Text: "role text", Tokens: 50, Priority: PriorityRole, Enabled: true},
+		{Name: "user", Text: "user text", Tokens: 40, Priority: PriorityUser, Enabled: true},
+		{Name: "safety", Text: "safety text", Tokens: 30, Priority: PrioritySafety, Enabled: true},
+	}
+	// Total = 120, budget = 80. Should remove "user" (lowest priority=40) first.
+	result := PruneToFitBudget(sections, 80)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 sections after pruning, got %d", len(result))
+	}
+	for _, s := range result {
+		if s.Name == "user" {
+			t.Error("lowest-priority section 'user' should have been removed")
+		}
+	}
+}
+
+func TestPruneToFitBudget_PreservesOrder(t *testing.T) {
+	sections := []PromptSection{
+		{Name: "safety", Text: "safety", Tokens: 30, Priority: PrioritySafety, Enabled: true},
+		{Name: "role", Text: "role", Tokens: 30, Priority: PriorityRole, Enabled: true},
+		{Name: "user", Text: "user", Tokens: 30, Priority: PriorityUser, Enabled: true},
+	}
+	// Total = 90, budget = 65. Remove "user" (priority=40), keep safety+role in original order.
+	result := PruneToFitBudget(sections, 65)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 sections, got %d", len(result))
+	}
+	if result[0].Name != "safety" || result[1].Name != "role" {
+		t.Errorf("expected [safety, role] order, got [%s, %s]", result[0].Name, result[1].Name)
+	}
+}
+
+func TestPruneToFitBudget_ZeroBudget(t *testing.T) {
+	sections := []PromptSection{
+		{Name: "role", Text: "text", Tokens: 50, Priority: PriorityRole, Enabled: true},
+	}
+	// Budget <= 0 means no pruning.
+	result := PruneToFitBudget(sections, 0)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 section (zero budget = no pruning), got %d", len(result))
+	}
+}
+
+func TestAssembleSections_SkipsDisabledAndEmpty(t *testing.T) {
+	sections := []PromptSection{
+		{Name: "role", Text: "Role text.", Enabled: true},
+		{Name: "hidden", Text: "Secret.", Enabled: false},
+		{Name: "empty", Text: "", Enabled: true},
+		{Name: "tools", Text: "Tools text.", Enabled: true},
+	}
+	result := AssembleSections(sections)
+	if !strings.Contains(result, "Role text.") {
+		t.Error("expected 'Role text.' in result")
+	}
+	if strings.Contains(result, "Secret.") {
+		t.Error("disabled section should be excluded")
+	}
+	if !strings.Contains(result, "Tools text.") {
+		t.Error("expected 'Tools text.' in result")
+	}
+	// Should be joined with double newlines.
+	if !strings.Contains(result, "Role text.\n\nTools text.") {
+		t.Errorf("sections should be joined with \\n\\n, got %q", result)
+	}
+}
+
 // --- helpers ---
 
 func findBuiltin(t *testing.T, id string) *mode.Mode {

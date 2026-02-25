@@ -9,6 +9,7 @@ const de: Translations = {
   "common.cancel": "Abbrechen",
   "common.delete": "L\u00f6schen",
   "common.add": "Hinzuf\u00fcgen",
+  "common.edit": "Bearbeiten",
   "common.save": "Speichern",
   "common.saving": "Speichern\u2026",
   "common.create": "Erstellen",
@@ -1023,6 +1024,7 @@ const de: Translations = {
 
   // -- MCP-Server (Phase 15C) -------------------------------------------------
   "app.nav.mcp": "MCP-Server",
+  "app.nav.prompts": "Prompts",
   "mcp.title": "MCP-Server",
   "mcp.description": "Model Context Protocol Server fuer Agent-Tool-Zugriff verwalten",
   "mcp.empty": "Noch keine MCP-Server konfiguriert.",
@@ -1089,6 +1091,28 @@ const de: Translations = {
   "notFound.backToDashboard": "Zurueck zum Dashboard",
   "notFound.projectTitle": "Projekt nicht gefunden",
   "notFound.projectMessage": "Das gesuchte Projekt existiert nicht oder wurde geloescht.",
+
+  // -- Prompt Editor (Phase 19F) ------------------------------------------------
+  "prompts.title": "Prompt-Sektionen",
+  "prompts.subtitle": "Kompositionsfaehige Prompt-Sektionen fuer Mode-Assemblierung verwalten",
+  "prompts.add": "Sektion hinzufuegen",
+  "prompts.preview": "Vorschau",
+  "prompts.previewTitle": "Assemblierte Prompt-Vorschau",
+  "prompts.newSection": "Neue Sektion",
+  "prompts.editSection": "Sektion bearbeiten",
+  "prompts.saved": "Prompt-Sektion gespeichert",
+  "prompts.deleted": "Prompt-Sektion geloescht",
+  "prompts.empty": "Keine Prompt-Sektionen fuer diesen Scope vorhanden.",
+  "prompts.field.name": "Name",
+  "prompts.field.content": "Inhalt",
+  "prompts.field.priority": "Prioritaet (0-100)",
+  "prompts.field.sortOrder": "Sortierreihenfolge",
+  "prompts.field.merge": "Merge-Strategie",
+  "prompts.field.enabled": "Aktiviert",
+  "prompts.error.nameRequired": "Sektionsname ist erforderlich",
+  "prompts.error.saveFailed": "Prompt-Sektion konnte nicht gespeichert werden",
+  "prompts.error.deleteFailed": "Prompt-Sektion konnte nicht geloescht werden",
+  "prompts.error.previewFailed": "Vorschau konnte nicht generiert werden",
 };
 
 export default de;

@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
@@ -738,6 +739,15 @@ func (m *runtimeMockStore) UpsertMCPServerTools(_ context.Context, _ string, _ [
 func (m *runtimeMockStore) ListMCPServerTools(_ context.Context, _ string) ([]mcp.ServerTool, error) {
 	return nil, nil
 }
+
+// --- Prompt Section stub methods (satisfy database.Store interface) ---
+func (m *runtimeMockStore) ListPromptSections(_ context.Context, _ string) ([]prompt.SectionRow, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpsertPromptSection(_ context.Context, _ *prompt.SectionRow) error {
+	return nil
+}
+func (m *runtimeMockStore) DeletePromptSection(_ context.Context, _ string) error { return nil }
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

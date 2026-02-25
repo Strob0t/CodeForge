@@ -102,6 +102,7 @@ function AppShell(props: {
               <NavLink href="/scopes">{t("app.nav.scopes")}</NavLink>
               <NavLink href="/teams">{t("app.nav.teams")}</NavLink>
               <NavLink href="/mcp">{t("app.nav.mcp")}</NavLink>
+              <NavLink href="/prompts">{t("app.nav.prompts")}</NavLink>
               <NavLink href="/settings">{t("app.nav.settings")}</NavLink>
             </Sidebar.Nav>
 

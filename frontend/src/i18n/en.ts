@@ -7,6 +7,7 @@ const en = {
   "common.cancel": "Cancel",
   "common.delete": "Delete",
   "common.add": "Add",
+  "common.edit": "Edit",
   "common.save": "Save",
   "common.saving": "Saving...",
   "common.create": "Create",
@@ -1010,6 +1011,7 @@ const en = {
 
   // -- MCP Servers (Phase 15C) ------------------------------------------------
   "app.nav.mcp": "MCP Servers",
+  "app.nav.prompts": "Prompts",
   "mcp.title": "MCP Servers",
   "mcp.description": "Manage Model Context Protocol servers for agent tool access",
   "mcp.empty": "No MCP servers configured yet.",
@@ -1077,6 +1079,28 @@ const en = {
   "notFound.projectTitle": "Project not found",
   "notFound.projectMessage":
     "The project you are looking for does not exist or may have been deleted.",
+
+  // -- Prompt Editor (Phase 19F) ------------------------------------------------
+  "prompts.title": "Prompt Sections",
+  "prompts.subtitle": "Manage composable prompt sections for mode assembly",
+  "prompts.add": "Add Section",
+  "prompts.preview": "Preview",
+  "prompts.previewTitle": "Assembled Prompt Preview",
+  "prompts.newSection": "New Section",
+  "prompts.editSection": "Edit Section",
+  "prompts.saved": "Prompt section saved",
+  "prompts.deleted": "Prompt section deleted",
+  "prompts.empty": "No prompt sections for this scope yet.",
+  "prompts.field.name": "Name",
+  "prompts.field.content": "Content",
+  "prompts.field.priority": "Priority (0-100)",
+  "prompts.field.sortOrder": "Sort Order",
+  "prompts.field.merge": "Merge Strategy",
+  "prompts.field.enabled": "Enabled",
+  "prompts.error.nameRequired": "Section name is required",
+  "prompts.error.saveFailed": "Failed to save prompt section",
+  "prompts.error.deleteFailed": "Failed to delete prompt section",
+  "prompts.error.previewFailed": "Failed to generate preview",
 } as const;
 
 export type TranslationKey = keyof typeof en;

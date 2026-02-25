@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"log/slog"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -11,8 +12,17 @@ import (
 )
 
 // DefaultModePromptBudget is the soft token limit for assembled mode prompts.
-// A warning is logged when the total exceeds this value.
-const DefaultModePromptBudget = 1024
+const DefaultModePromptBudget = 2048
+
+// Priority constants for prompt section ordering during pruning.
+const (
+	PrioritySystem     = 100
+	PrioritySafety     = 95
+	PriorityRole       = 90
+	PriorityTools      = 75
+	PriorityGuardrails = 70
+	PriorityUser       = 40
+)
 
 // modeTemplates is parsed from the shared templateFS (declared in meta_agent.go).
 var modeTemplates = template.Must(template.ParseFS(templateFS, "templates/mode_*.tmpl"))
@@ -31,21 +41,26 @@ type modePromptData struct {
 
 // PromptSection holds a rendered template section with its token estimate.
 type PromptSection struct {
-	Name   string // "role", "tools", "artifact", "actions", "guardrails"
-	Text   string // rendered output
-	Tokens int    // estimated via EstimateTokens
+	ID       string // DB UUID (empty for embedded defaults)
+	Name     string // "role", "tools", "artifact", "actions", "guardrails", custom names
+	Text     string // rendered output
+	Tokens   int    // estimated via EstimateTokens
+	Priority int    // 0-100, higher = more important (kept during pruning)
+	Source   string // "embedded", "db_override", "db_custom"
+	Enabled  bool   // if false, section is skipped
 }
 
-// modeTemplateDef maps section names to template file names.
+// modeTemplateDef maps section names to template file names with default priority.
 var modeTemplateDefs = []struct {
 	name     string
 	tmplFile string
+	priority int
 }{
-	{"role", "mode_role.tmpl"},
-	{"tools", "mode_tools.tmpl"},
-	{"artifact", "mode_artifact.tmpl"},
-	{"actions", "mode_actions.tmpl"},
-	{"guardrails", "mode_guardrails.tmpl"},
+	{"role", "mode_role.tmpl", PriorityRole},
+	{"tools", "mode_tools.tmpl", PriorityTools},
+	{"artifact", "mode_artifact.tmpl", PriorityGuardrails},
+	{"actions", "mode_actions.tmpl", PrioritySafety},
+	{"guardrails", "mode_guardrails.tmpl", PriorityGuardrails},
 }
 
 // BuildModePrompt assembles a system prompt from modular template sections.
@@ -57,6 +72,7 @@ func BuildModePrompt(m *mode.Mode) (string, []PromptSection) {
 		tokens := cfcontext.EstimateTokens(m.PromptPrefix)
 		return m.PromptPrefix, []PromptSection{{
 			Name: "custom", Text: m.PromptPrefix, Tokens: tokens,
+			Priority: PriorityRole, Source: "embedded", Enabled: true,
 		}}
 	}
 
@@ -72,7 +88,6 @@ func BuildModePrompt(m *mode.Mode) (string, []PromptSection) {
 	}
 
 	var sections []PromptSection
-	var assembled bytes.Buffer
 
 	for _, td := range modeTemplateDefs {
 		var buf bytes.Buffer
@@ -87,14 +102,11 @@ func BuildModePrompt(m *mode.Mode) (string, []PromptSection) {
 		tokens := cfcontext.EstimateTokens(text)
 		sections = append(sections, PromptSection{
 			Name: td.name, Text: text, Tokens: tokens,
+			Priority: td.priority, Source: "embedded", Enabled: true,
 		})
-		if assembled.Len() > 0 {
-			assembled.WriteString("\n\n")
-		}
-		assembled.WriteString(text)
 	}
 
-	result := assembled.String()
+	result := AssembleSections(sections)
 	if result == "" {
 		// Fallback to PromptPrefix if all templates produce empty output.
 		slog.Warn("all mode templates empty, falling back to PromptPrefix", "mode", m.ID)
@@ -118,4 +130,66 @@ func WarnIfOverBudget(modeID string, sections []PromptSection, budget int) {
 			"sections", len(sections),
 		)
 	}
+}
+
+// PruneToFitBudget removes the lowest-priority sections until the total tokens
+// fit within the budget. Sections are removed in ascending priority order.
+// Returns the surviving sections in their original order.
+func PruneToFitBudget(sections []PromptSection, budget int) []PromptSection {
+	if budget <= 0 {
+		return sections
+	}
+
+	total := 0
+	for i := range sections {
+		total += sections[i].Tokens
+	}
+	if total <= budget {
+		return sections
+	}
+
+	// Build sorted index by priority (ascending) for removal order.
+	type indexed struct {
+		idx      int
+		priority int
+	}
+	order := make([]indexed, len(sections))
+	for i := range sections {
+		order[i] = indexed{idx: i, priority: sections[i].Priority}
+	}
+	sort.Slice(order, func(i, j int) bool {
+		return order[i].priority < order[j].priority
+	})
+
+	removed := make(map[int]bool)
+	for _, o := range order {
+		if total <= budget {
+			break
+		}
+		total -= sections[o.idx].Tokens
+		removed[o.idx] = true
+	}
+
+	result := make([]PromptSection, 0, len(sections)-len(removed))
+	for i := range sections {
+		if !removed[i] {
+			result = append(result, sections[i])
+		}
+	}
+	return result
+}
+
+// AssembleSections joins prompt sections into a single string.
+func AssembleSections(sections []PromptSection) string {
+	var buf bytes.Buffer
+	for _, s := range sections {
+		if !s.Enabled || s.Text == "" {
+			continue
+		}
+		if buf.Len() > 0 {
+			buf.WriteString("\n\n")
+		}
+		buf.WriteString(s.Text)
+	}
+	return buf.String()
 }

@@ -1406,3 +1406,39 @@ export interface CreateMCPServerRequest {
   headers?: Record<string, string>;
   enabled: boolean;
 }
+
+/** Prompt section stored in the database */
+export interface PromptSectionRow {
+  id: string;
+  name: string;
+  scope: string;
+  content: string;
+  priority: number;
+  sort_order: number;
+  enabled: boolean;
+  merge: "replace" | "prepend" | "append";
+}
+
+/** Section for prompt preview */
+export interface PromptPreviewSection {
+  id?: string;
+  name: string;
+  text: string;
+  tokens: number;
+  priority: number;
+  source: string;
+  enabled: boolean;
+}
+
+/** Request for prompt preview endpoint */
+export interface PromptPreviewRequest {
+  sections: PromptPreviewSection[];
+  budget: number;
+}
+
+/** Response from prompt preview endpoint */
+export interface PromptPreviewResponse {
+  text: string;
+  sections: PromptPreviewSection[];
+  total_tokens: number;
+}

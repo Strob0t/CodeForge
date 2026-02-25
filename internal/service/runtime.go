@@ -147,8 +147,9 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	var resolvedMode *messagequeue.ModePayload
 	if s.modes != nil {
 		if m, mErr := s.modes.Get(modeID); mErr == nil {
-			assembledPrompt, sections := BuildModePrompt(m)
-			WarnIfOverBudget(m.ID, sections, DefaultModePromptBudget)
+			_, sections := BuildModePrompt(m)
+			sections = PruneToFitBudget(sections, DefaultModePromptBudget)
+			assembledPrompt := AssembleSections(sections)
 			resolvedMode = &messagequeue.ModePayload{
 				ID:               m.ID,
 				PromptPrefix:     assembledPrompt,
