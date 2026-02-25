@@ -1343,6 +1343,7 @@ Bug Fixes --- independent, anytime
 - [ ] `internal/service/retrieval.go`: In `RequestIndex()`, if `workspacePath != ""`, skip the `GetProject()` call and use the provided path directly. If `workspacePath == ""`, fall back to `GetProject()` lookup (existing behavior for real projects).
 - [ ] `internal/service/knowledgebase.go`: In `RequestIndex()`, pass `kb.ContentPath` as the `workspacePath` parameter: `s.retrieval.RequestIndex(ctx, kbProjectID, "", kb.ContentPath)`
 - [ ] Update all other callers of `RetrievalService.RequestIndex()` to pass `""` as the new `workspacePath` parameter (search for `.RequestIndex(ctx,` across the codebase — likely in `scope.go`, `handlers_retrieval.go`, or `retrieval.go` itself)
+- [ ] **Also update the direct caller at `internal/adapter/http/handlers.go:1254`** (`POST /api/v1/retrieval/index` handler) — pass `""` as `workspacePath`
 - [ ] Verify the NATS `RetrievalIndexRequestPayload` correctly carries the KB `content_path` as `WorkspacePath` to the Python worker
 
 **Step 3: Fix Bug 2 — KB status never updated after indexing**
@@ -1351,8 +1352,9 @@ Bug Fixes --- independent, anytime
 > and broadcasts WebSocket events, but never writes the final status back to the `knowledge_bases`
 > table. The KB stays "pending" forever, meaning scope searches exclude it (they filter `status == "indexed"`).
 
-- [ ] `internal/service/retrieval.go`: Add a `KnowledgeBaseStore` dependency (or a callback/interface) so `HandleIndexResult()` can update KB status
-- [ ] Option: Add `SetKBStore(store database.Store)` to `RetrievalService`, wired in `main.go`
+- [ ] `internal/service/retrieval.go`: Add a `KBStatusUpdater` interface dependency so `HandleIndexResult()` can update KB status
+- [ ] Define interface: `type KBStatusUpdater interface { UpdateKnowledgeBaseStatus(ctx context.Context, id, status string, chunkCount int) error }` — implemented by the KB store adapter
+- [ ] Wire via constructor or setter: `RetrievalService` receives `KBStatusUpdater` in `main.go`
 - [ ] `internal/service/retrieval.go`: In `HandleIndexResult()`, detect KB projects by checking `strings.HasPrefix(payload.ProjectID, "kb:")`, extract the real KB UUID, then call `store.UpdateKnowledgeBaseStatus(ctx, kbID, status, chunkCount)`:
   - On success: status = `"indexed"`, chunkCount = `payload.ChunkCount`
   - On error: status = `"error"`, chunkCount = 0
@@ -1426,6 +1428,25 @@ Bug Fixes --- independent, anytime
 > Real coding agents (Claude Code, Aider, etc.) use detailed system prompts with concrete behavioral
 > rules, methodology, constraints, and output expectations. The built-in modes need the same depth.
 > Reference: https://github.com/Piebald-AI/claude-code-system-prompts
+>
+> **Architecture Decision: Embedded Defaults + DB Overrides + Priority Pruning (B+)**
+>
+> Composable prompt system based on research of Priompt (Cursor), IBM PDL, Claude Code Skills,
+> Roo Code Modes, Microsoft POML, Anthropic Context Engineering, and DSPy.
+>
+> - Existing `.tmpl` files + `go:embed` remain as versioned defaults
+> - New `prompt_sections` PostgreSQL table stores only overrides and custom sections
+> - `PromptSection` struct extended with `Priority int` (0-100) and `Source string`
+> - Priority-based pruning replaces `WarnIfOverBudget()` — lowest-priority sections are dropped when over budget
+> - Scope hierarchy: global → mode → project (DB overrides cascade)
+> - Merge strategies: replace / prepend / append per section
+> - Frontend: section editor with priority slider, token count, live pruning preview
+> - **Future migration to DSPy** planned — `Source: "dspy_optimized"` reserved as future type,
+>   API endpoints designed to remain stable when DSPy replaces manual prompts
+>
+> References: Priompt (github.com/anysphere/priompt), IBM PDL (arxiv.org/abs/2410.19135),
+> Anthropic Context Engineering (anthropic.com/engineering/effective-context-engineering-for-ai-agents),
+> DSPy (arxiv.org/abs/2310.03714)
 
 - [ ] **Coder mode:** Expand prompt prefix with: read-before-modify rule, avoid over-engineering, no unnecessary additions/abstractions/error-handling, security awareness (OWASP top 10), minimal changes, follow project conventions, explicit output as diff
 - [ ] **Architect mode:** Expand with: thorough exploration methodology (find patterns, trace code paths, understand current architecture), step-by-step plan output format, critical files list, trade-off analysis, dependency sequencing
@@ -1438,6 +1459,29 @@ Bug Fixes --- independent, anytime
 - [ ] **All modes:** Add common rules — read files before modifying, no unnecessary file creation, avoid over-engineering, respect project conventions from CLAUDE.md
 - [ ] **Template files:** Update `.tmpl` files in `internal/service/templates/` if prompt structure changes
 - [ ] **Prompt length:** Verify assembled prompts stay within reasonable token budget (warn if >2048 tokens)
+
+**Composable Prompt System (B+ Architecture):**
+
+- [ ] **DB Migration:** Create `0XX_create_prompt_sections.sql` — `prompt_sections` table: `id` (UUID), `name` (TEXT), `scope` (TEXT: "global" | "mode:{id}" | "project:{id}"), `content` (TEXT), `priority` (INT DEFAULT 50), `sort_order` (INT DEFAULT 0), `enabled` (BOOL DEFAULT true), `merge` (TEXT DEFAULT 'replace': "replace" | "prepend" | "append"), `created_at`, `updated_at`
+- [ ] **Go Domain:** Add `Priority int` and `Source string` fields to `PromptSection` in `internal/service/mode_prompt.go`
+- [ ] **Go Domain:** Add default priority constants: `PrioritySystem = 100`, `PriorityRole = 90`, `PrioritySafety = 95`, `PriorityTools = 75`, `PriorityGuardrails = 70`, `PriorityUser = 40`
+- [ ] **Go Core:** Refactor `BuildModePrompt()` signature to `BuildModePrompt(m *mode.Mode, projectID string, tokenBudget int) (string, []PromptSection)` — accept scope context and budget
+- [ ] **Go Core:** Add `PromptSectionStore` interface in `internal/port/database/store.go`: `ListPromptSections(ctx, scope string) ([]PromptSectionRow, error)`, `UpsertPromptSection(ctx, row)`, `DeletePromptSection(ctx, id)`, `ResetPromptSection(ctx, scope, name)` (deletes override → falls back to embedded default)
+- [ ] **Go Core:** Implement `PromptSectionStore` in `internal/adapter/postgres/store_prompt_section.go`
+- [ ] **Go Core:** Implement merge logic in `BuildModePrompt()`: load embedded defaults → load DB overrides for matching scopes → apply merge strategy (replace/prepend/append) per section → add DB-only custom sections → sort by `sort_order`
+- [ ] **Go Core:** Implement `PruneToFitBudget(sections []PromptSection, budget int) []PromptSection` — sort by priority ascending, remove lowest-priority sections until total tokens <= budget (~50 LOC)
+- [ ] **Go Core:** Replace `WarnIfOverBudget()` call in `runtime.go` with `PruneToFitBudget()`
+- [ ] **HTTP API:** `GET /api/v1/prompt-sections?scope={scope}` — list sections (embedded defaults + DB overrides merged)
+- [ ] **HTTP API:** `PUT /api/v1/prompt-sections` — upsert a section override (creates DB override for an embedded default, or creates custom section)
+- [ ] **HTTP API:** `DELETE /api/v1/prompt-sections/{id}` — delete a custom section or reset an override to embedded default
+- [ ] **HTTP API:** `POST /api/v1/prompt-sections/preview` — preview assembled prompt for a given mode + project + budget (returns sections with pruning applied)
+- [ ] **Frontend:** Create `PromptEditorPage.tsx` — section list with inline editor, priority slider (0-100), enabled toggle, token count per section, total budget bar
+- [ ] **Frontend:** Add "Reset to Default" button per section (calls DELETE on override)
+- [ ] **Frontend:** Add "Add Custom Section" button (creates new DB-only section)
+- [ ] **Frontend:** Add live pruning preview panel — shows which sections survive at current budget
+- [ ] **Tests:** Unit tests for `PruneToFitBudget()` — verify lowest-priority sections removed first, budget respected, empty input
+- [ ] **Tests:** Unit tests for merge logic — replace/prepend/append strategies, scope cascade (global → mode → project)
+- [ ] **Tests:** Integration test — create DB override, verify `BuildModePrompt()` uses override instead of embedded default
 
 #### 19G: MCP Streamable HTTP Transport
 
@@ -1476,8 +1520,12 @@ Bug Fixes --- independent, anytime
 ### Phase 20: Benchmark Mode (Dev-Mode Agent Evaluation)
 
 > Evaluation framework for measuring agent quality, tool usage, and multi-agent collaboration.
-> Only available in dev mode. Uses DeepEval as primary evaluation framework, AgentNeo for
-> observability/tracing, and GEMMAS-inspired metrics for multi-agent collaboration quality.
+> Only available in dev mode (`CODEFORGE_ENV=development`). Uses DeepEval as primary evaluation
+> framework, AgentNeo for observability/tracing, and GEMMAS-inspired metrics for multi-agent
+> collaboration quality.
+>
+> **Dev-mode detection:** Environment variable `CODEFORGE_ENV` (values: `development`, `staging`, `production`).
+> Default: `production`. Dev-only features (benchmark, tracing dashboard) require `CODEFORGE_ENV=development`.
 >
 > Research references:
 > - DeepEval: github.com/confident-ai/deepeval (Apache 2.0, 13.8k stars, 60+ metrics)
@@ -1586,8 +1634,9 @@ Bug Fixes --- independent, anytime
   - Input: list of agent messages from a multi-agent run (each: `agent_id`, `content`, `round`, `parent_agent_id`)
   - Build DAG: nodes = agents, edges = message flow between agents
   - Build spatial adjacency matrix S (direct communication links) and temporal matrix T (causal dependencies across rounds)
-  - Compute pairwise similarity using TF-IDF (syntactic) + sentence-transformers BERT embeddings (semantic)
-  - Combine with equal weights: `SS_total = 0.5 * tfidf_sim + 0.5 * bert_sim`
+  - Compute pairwise similarity using **hybrid approach**: TF-IDF (syntactic, always available) + LiteLLM embeddings (semantic, optional via `/v1/embeddings` when embedding model configured)
+  - When LiteLLM embeddings available: `SS_total = 0.5 * tfidf_sim + 0.5 * embedding_sim`
+  - Graceful degradation: when no embedding model configured, `SS_total = tfidf_sim` (TF-IDF only)
   - Compute IDS: weighted average of `(1 - SS_total)` across all connected agent pairs
   - Return score 0.0-1.0 (higher = more diverse contributions, less redundancy)
 
@@ -1619,7 +1668,7 @@ Bug Fixes --- independent, anytime
 
 **Benchmark API endpoints (only accessible in dev mode):**
 
-- [ ] Add dev-mode check middleware: `func devModeOnly(cfg *config.Config) func(http.Handler) http.Handler` — returns 403 if `dev_mode: false`
+- [ ] Add dev-mode check middleware: `func devModeOnly() func(http.Handler) http.Handler` — reads `CODEFORGE_ENV` env var, returns 403 if not `development`
 - [ ] `POST /api/v1/benchmark/runs` — start a benchmark run:
   - Request body: `{ dataset: string, model: string, metrics: []string }`
   - Publishes `benchmark.run.request` to NATS
