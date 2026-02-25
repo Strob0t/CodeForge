@@ -40,8 +40,6 @@ export default function ProjectDetailPage() {
     (id) => api.agents.list(id),
   );
 
-  const [allModes] = createResource(() => api.modes.list());
-
   const [cloning, setCloning] = createSignal(false);
   const [pulling, setPulling] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -290,7 +288,6 @@ export default function ProjectDetailPage() {
                   <CompactSettingsPopover
                     projectId={params.id}
                     config={p().config ?? {}}
-                    allModes={allModes() ?? []}
                     open={settingsOpen()}
                     onClose={() => setSettingsOpen(false)}
                     onSaved={() => {

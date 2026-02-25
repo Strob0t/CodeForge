@@ -1,7 +1,7 @@
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { CreateProjectRequest, Mode, StackDetectionResult } from "~/api/types";
+import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
@@ -10,7 +10,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   EmptyState,
   FormField,
   Input,
@@ -22,8 +21,6 @@ import {
 } from "~/ui";
 
 import ProjectCard from "./ProjectCard";
-
-const AGENT_BACKENDS = ["aider", "goose", "opencode", "openhands", "plandex"] as const;
 
 const AUTONOMY_LEVELS = [
   { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
@@ -63,9 +60,6 @@ export default function DashboardPage() {
   const [formMode, setFormMode] = createSignal<"remote" | "local">("remote");
   const [localPath, setLocalPath] = createSignal("");
   const [showAdvanced, setShowAdvanced] = createSignal(false);
-  const [modes] = createResource(() => api.modes.list());
-  const [selectedBackends, setSelectedBackends] = createSignal<string[]>([]);
-  const [selectedMode, setSelectedMode] = createSignal("");
   const [selectedAutonomy, setSelectedAutonomy] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
   const [selectedBranch, setSelectedBranch] = createSignal("");
@@ -109,8 +103,6 @@ export default function DashboardPage() {
         setEditingId(null);
         setStackResult(null);
         setShowAdvanced(false);
-        setSelectedMode("");
-        setSelectedBackends([]);
         setSelectedAutonomy("");
         setBranches([]);
         setSelectedBranch("");
@@ -162,8 +154,6 @@ export default function DashboardPage() {
       setEditingId(null);
       setStackResult(null);
       setShowAdvanced(false);
-      setSelectedMode("");
-      setSelectedBackends([]);
       setSelectedAutonomy("");
       setBranches([]);
       setSelectedBranch("");
@@ -186,12 +176,8 @@ export default function DashboardPage() {
       provider: p.provider,
       config: cfg,
     });
-    setSelectedMode(cfg["default_mode"] ?? "");
-    setSelectedBackends(
-      cfg["agent_backends"] ? cfg["agent_backends"].split(",").filter(Boolean) : [],
-    );
     setSelectedAutonomy(cfg["autonomy_level"] ?? "");
-    if (cfg["default_mode"] || cfg["agent_backends"] || cfg["autonomy_level"]) {
+    if (cfg["autonomy_level"]) {
       setShowAdvanced(true);
     }
     setEditingId(id);
@@ -206,8 +192,6 @@ export default function DashboardPage() {
     setFormMode("remote");
     setError("");
     setShowAdvanced(false);
-    setSelectedMode("");
-    setSelectedBackends([]);
     setSelectedAutonomy("");
     setBranches([]);
     setSelectedBranch("");
@@ -248,19 +232,9 @@ export default function DashboardPage() {
 
   function buildAdvancedConfig(): Record<string, string> {
     const config: Record<string, string> = {};
-    const m = selectedMode();
-    if (m) config["default_mode"] = m;
-    const backends = selectedBackends();
-    if (backends.length > 0) config["agent_backends"] = backends.join(",");
     const autonomy = selectedAutonomy();
     if (autonomy) config["autonomy_level"] = autonomy;
     return config;
-  }
-
-  function toggleBackend(backend: string) {
-    setSelectedBackends((prev) =>
-      prev.includes(backend) ? prev.filter((b) => b !== backend) : [...prev, backend],
-    );
   }
 
   function handleRepoUrlInput(url: string) {
@@ -473,24 +447,6 @@ export default function DashboardPage() {
 
                 <Show when={showAdvanced()}>
                   <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {/* Mode selector */}
-                    <FormField label={t("dashboard.form.defaultMode")} id="adv_mode">
-                      <Select
-                        id="adv_mode"
-                        value={selectedMode()}
-                        onChange={(e) => setSelectedMode(e.currentTarget.value)}
-                      >
-                        <option value="">{t("dashboard.form.defaultModePlaceholder")}</option>
-                        <For each={modes() ?? []}>
-                          {(m: Mode) => (
-                            <option value={m.id}>
-                              {m.name} {m.builtin ? `(${t("modes.builtin")})` : ""}
-                            </option>
-                          )}
-                        </For>
-                      </Select>
-                    </FormField>
-
                     {/* Autonomy level */}
                     <FormField label={t("dashboard.form.autonomyLevel")} id="adv_autonomy">
                       <Select
@@ -504,26 +460,6 @@ export default function DashboardPage() {
                         </For>
                       </Select>
                     </FormField>
-
-                    {/* Agent backends checkboxes */}
-                    <div class="sm:col-span-2">
-                      <span class="block text-sm font-medium text-cf-text-secondary mb-2">
-                        {t("dashboard.form.agentBackends")}
-                      </span>
-                      <div class="flex flex-wrap gap-3">
-                        <For each={AGENT_BACKENDS}>
-                          {(backend) => (
-                            <label class="inline-flex items-center gap-1.5 text-sm text-cf-text-secondary cursor-pointer">
-                              <Checkbox
-                                checked={selectedBackends().includes(backend)}
-                                onChange={() => toggleBackend(backend)}
-                              />
-                              {backend}
-                            </label>
-                          )}
-                        </For>
-                      </div>
-                    </div>
                   </div>
                 </Show>
               </div>

@@ -1,14 +1,11 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Mode } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
-import { Button, Checkbox, FormField, Select } from "~/ui";
+import { Button, FormField, Select } from "~/ui";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
-
-const AGENT_BACKENDS = ["aider", "goose", "opencode", "openhands", "plandex"] as const;
 
 const AUTONOMY_LEVELS = [
   { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
@@ -21,7 +18,6 @@ const AUTONOMY_LEVELS = [
 interface CompactSettingsPopoverProps {
   projectId: string;
   config: Record<string, string>;
-  allModes: Mode[];
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -31,8 +27,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
   const { t } = useI18n();
   const { show: toast } = useToast();
 
-  const [mode, setMode] = createSignal("");
-  const [backends, setBackends] = createSignal<string[]>([]);
   const [autonomy, setAutonomy] = createSignal("");
   const [saving, setSaving] = createSignal(false);
 
@@ -42,8 +36,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
   createEffect(() => {
     if (props.open) {
       const cfg = props.config ?? {};
-      setMode(cfg["default_mode"] ?? "");
-      setBackends(cfg["agent_backends"] ? cfg["agent_backends"].split(",").filter(Boolean) : []);
       setAutonomy(cfg["autonomy_level"] ?? "");
     }
   });
@@ -75,20 +67,10 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
     document.removeEventListener("keydown", handleKeyDown);
   });
 
-  function toggleBackend(backend: string) {
-    setBackends((prev) =>
-      prev.includes(backend) ? prev.filter((b) => b !== backend) : [...prev, backend],
-    );
-  }
-
   const handleSave = async () => {
     setSaving(true);
     try {
       const config: Record<string, string> = {};
-      const m = mode();
-      if (m) config["default_mode"] = m;
-      const b = backends();
-      if (b.length > 0) config["agent_backends"] = b.join(",");
       const a = autonomy();
       if (a) config["autonomy_level"] = a;
 
@@ -113,20 +95,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
           {t("detail.settings.title")}
         </h3>
 
-        {/* Mode Selection */}
-        <FormField id="popover_mode" label={t("detail.settings.defaultMode")}>
-          <Select id="popover_mode" value={mode()} onChange={(e) => setMode(e.currentTarget.value)}>
-            <option value="">{t("detail.settings.defaultModePlaceholder")}</option>
-            <For each={props.allModes}>
-              {(m: Mode) => (
-                <option value={m.id}>
-                  {m.name} {m.builtin ? `(${t("modes.builtin")})` : ""}
-                </option>
-              )}
-            </For>
-          </Select>
-        </FormField>
-
         {/* Autonomy Level */}
         <FormField id="popover_autonomy" label={t("detail.settings.autonomyLevel")}>
           <Select
@@ -140,26 +108,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
             </For>
           </Select>
         </FormField>
-
-        {/* Agent Backends */}
-        <div class="mb-3">
-          <span class="block text-xs font-medium text-cf-text-secondary mb-1">
-            {t("detail.settings.agentBackends")}
-          </span>
-          <div class="flex flex-wrap gap-2">
-            <For each={AGENT_BACKENDS}>
-              {(backend) => (
-                <label class="inline-flex items-center gap-1 text-xs text-cf-text-secondary cursor-pointer">
-                  <Checkbox
-                    checked={backends().includes(backend)}
-                    onChange={() => toggleBackend(backend)}
-                  />
-                  {backend}
-                </label>
-              )}
-            </For>
-          </div>
-        </div>
 
         {/* Save Button */}
         <div class="mb-4 flex justify-end">
