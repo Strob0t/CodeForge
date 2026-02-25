@@ -1308,6 +1308,12 @@ Bug Fixes --- independent, anytime
 - [ ] When hidden, the Chat panel should expand to fill the available space
 - [ ] Persist collapse state (e.g. in localStorage)
 
+#### 19C: Chat Auto-Scroll
+
+- [ ] Automatically scroll to the bottom when new messages arrive
+- [ ] Disable auto-scroll when the user scrolls up (reading history)
+- [ ] Re-enable auto-scroll when the user scrolls back to the bottom
+
 ---
 
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
