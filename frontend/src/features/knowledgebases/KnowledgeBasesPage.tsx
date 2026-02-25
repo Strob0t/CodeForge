@@ -231,6 +231,12 @@ function KBCard(props: {
           </div>
         </div>
 
+        <Show when={props.kb.content_path}>
+          <p class="mt-1 truncate text-xs text-cf-text-muted" title={props.kb.content_path}>
+            {props.kb.content_path}
+          </p>
+        </Show>
+
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <Badge variant={categoryVariants[props.kb.category] ?? "default"} pill>
             {t(categoryKey())}

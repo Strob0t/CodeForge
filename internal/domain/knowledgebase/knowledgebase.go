@@ -67,6 +67,9 @@ func (r *CreateRequest) Validate() error {
 	if !ValidCategory(r.Category) {
 		return fmt.Errorf("invalid category: %s: %w", string(r.Category), domain.ErrValidation)
 	}
+	if r.ContentPath == "" {
+		return fmt.Errorf("content_path is required: %w", domain.ErrValidation)
+	}
 	return nil
 }
 

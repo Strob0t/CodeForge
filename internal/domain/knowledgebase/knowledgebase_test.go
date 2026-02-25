@@ -12,27 +12,32 @@ func TestCreateRequest_Validate(t *testing.T) {
 	}{
 		{
 			name:    "empty name",
-			req:     CreateRequest{Name: "", Category: "framework"},
+			req:     CreateRequest{Name: "", Category: "framework", ContentPath: "/data/test"},
 			wantErr: true,
 		},
 		{
 			name:    "invalid category",
-			req:     CreateRequest{Name: "test", Category: "invalid"},
+			req:     CreateRequest{Name: "test", Category: "invalid", ContentPath: "/data/test"},
+			wantErr: true,
+		},
+		{
+			name:    "empty content_path",
+			req:     CreateRequest{Name: "test", Category: "framework"},
 			wantErr: true,
 		},
 		{
 			name:    "valid request",
-			req:     CreateRequest{Name: "test-kb", Category: "framework", Description: "Test KB"},
+			req:     CreateRequest{Name: "test-kb", Category: "framework", Description: "Test KB", ContentPath: "/data/test"},
 			wantErr: false,
 		},
 		{
 			name:    "valid custom category",
-			req:     CreateRequest{Name: "my-kb", Category: "custom"},
+			req:     CreateRequest{Name: "my-kb", Category: "custom", ContentPath: "/data/custom"},
 			wantErr: false,
 		},
 		{
 			name:    "all categories valid",
-			req:     CreateRequest{Name: "sec-kb", Category: "security"},
+			req:     CreateRequest{Name: "sec-kb", Category: "security", ContentPath: "/data/sec"},
 			wantErr: false,
 		},
 	}
@@ -56,7 +61,7 @@ func TestValidCategories(t *testing.T) {
 		CategoryCustom,
 	}
 	for _, c := range valid {
-		req := CreateRequest{Name: "test", Category: c}
+		req := CreateRequest{Name: "test", Category: c, ContentPath: "/data/test"}
 		if err := req.Validate(); err != nil {
 			t.Errorf("expected category %q to be valid, got error: %v", c, err)
 		}

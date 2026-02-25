@@ -160,8 +160,9 @@ func TestKnowledgeBaseService_DeleteSucceeds(t *testing.T) {
 	ctx := context.Background()
 
 	kb, _ := svc.Create(ctx, &knowledgebase.CreateRequest{
-		Name:     "deleteme",
-		Category: "custom",
+		Name:        "deleteme",
+		Category:    "custom",
+		ContentPath: "/data/deleteme",
 	})
 
 	if err := svc.Delete(ctx, kb.ID); err != nil {
@@ -180,8 +181,9 @@ func TestKnowledgeBaseService_ScopeAttachDetach(t *testing.T) {
 	ctx := context.Background()
 
 	kb, _ := svc.Create(ctx, &knowledgebase.CreateRequest{
-		Name:     "scope-kb",
-		Category: "language",
+		Name:        "scope-kb",
+		Category:    "language",
+		ContentPath: "/data/scope-kb",
 	})
 
 	// Attach
@@ -215,18 +217,28 @@ func TestKnowledgeBaseService_CreateValidationError(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := svc.Create(ctx, &knowledgebase.CreateRequest{
-		Name:     "",
-		Category: "framework",
+		Name:        "",
+		Category:    "framework",
+		ContentPath: "/data/test",
 	})
 	if err == nil {
 		t.Fatal("expected validation error for empty name, got nil")
 	}
 
 	_, err = svc.Create(ctx, &knowledgebase.CreateRequest{
-		Name:     "test",
-		Category: "invalid-category",
+		Name:        "test",
+		Category:    "invalid-category",
+		ContentPath: "/data/test",
 	})
 	if err == nil {
 		t.Fatal("expected validation error for invalid category, got nil")
+	}
+
+	_, err = svc.Create(ctx, &knowledgebase.CreateRequest{
+		Name:     "test",
+		Category: "framework",
+	})
+	if err == nil {
+		t.Fatal("expected validation error for empty content_path, got nil")
 	}
 }
