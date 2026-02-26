@@ -32,12 +32,30 @@ repos:
     hooks:
       # Format
       - id: go-fmt
-      # Sort imports
+
+  # Go hooks that need GOROOT set for Go 1.25 toolchain
+  - repo: local
+    hooks:
       - id: go-imports-repo
-      # Vet (static analysis)
+        name: go-imports-repo
+        entry: bash -c 'export GOROOT=/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.linux-amd64 && goimports -l -d $(find . -name "*.go" -not -path "./data/*" -not -path "./vendor/*")'
+        language: system
+        pass_filenames: false
+        types: [go]
+
       - id: go-vet-repo-mod
-      # golangci-lint (must be installed)
+        name: go-vet-repo-mod
+        entry: bash -c 'export GOROOT=/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.linux-amd64 && go vet ./...'
+        language: system
+        pass_filenames: false
+        types: [go]
+
       - id: golangci-lint-repo-mod
+        name: golangci-lint-repo-mod
+        entry: bash -c 'export GOROOT=/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.0.linux-amd64 && golangci-lint run ./...'
+        language: system
+        pass_filenames: false
+        types: [go]
 
   # -- TypeScript / JavaScript (ESLint + Prettier) ------------
   - repo: local
