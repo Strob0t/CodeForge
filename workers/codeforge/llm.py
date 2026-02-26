@@ -16,6 +16,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class LLMError(Exception):
+    """Raised when the LLM proxy returns an error response."""
+
+    def __init__(self, status_code: int, model: str, body: str) -> None:
+        self.status_code = status_code
+        self.model = model
+        self.body = body
+        # Truncate body for the message but keep it accessible via .body
+        short = body[:500] if len(body) > 500 else body
+        super().__init__(f"LiteLLM {status_code} for model={model}: {short}")
+
+
 @dataclass(frozen=True)
 class CompletionResponse:
     """Parsed response from an LLM completion call."""
@@ -122,7 +134,15 @@ class LiteLLMClient:
         )
 
         resp = await self._client.post("/v1/chat/completions", json=payload)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            body = resp.text
+            logger.error(
+                "LiteLLM error status=%d model=%s body=%s",
+                resp.status_code,
+                model,
+                body[:1000],
+            )
+            raise LLMError(resp.status_code, model, body)
         data: dict[str, object] = resp.json()
 
         # Extract cost from LiteLLM response header (if available).
@@ -193,7 +213,15 @@ class LiteLLMClient:
         )
 
         resp = await self._client.post("/v1/chat/completions", json=payload)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            body = resp.text
+            logger.error(
+                "LiteLLM error status=%d model=%s body=%s",
+                resp.status_code,
+                model,
+                body[:1000],
+            )
+            raise LLMError(resp.status_code, model, body)
         data: dict[str, object] = resp.json()
 
         try:
@@ -278,11 +306,14 @@ class LiteLLMClient:
 
         async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
             if resp.status_code >= 400:
-                body = await resp.aread()
+                body = (await resp.aread()).decode(errors="replace")
                 logger.error(
-                    "LLM API error %d: %s (model=%s)", resp.status_code, body.decode(errors="replace")[:500], model
+                    "LiteLLM error status=%d model=%s body=%s",
+                    resp.status_code,
+                    model,
+                    body[:1000],
                 )
-            resp.raise_for_status()
+                raise LLMError(resp.status_code, model, body)
             with contextlib.suppress(ValueError, TypeError):
                 acc.cost = float(resp.headers.get("x-litellm-response-cost", "0"))
 
