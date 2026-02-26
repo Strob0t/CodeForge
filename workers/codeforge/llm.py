@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+# Default model used when no model is specified in the request.
+# Set via CODEFORGE_DEFAULT_MODEL env var or falls back to groq/llama-3.3-70b-versatile.
+DEFAULT_MODEL: str = os.environ.get("CODEFORGE_DEFAULT_MODEL", "groq/llama-3.3-70b-versatile")
 
 
 class LLMError(Exception):
@@ -101,7 +106,7 @@ class LiteLLMClient:
     async def completion(
         self,
         prompt: str,
-        model: str = "ollama/llama3.2",
+        model: str = DEFAULT_MODEL,
         system: str = "",
         temperature: float = 0.2,
         tags: list[str] | None = None,
@@ -173,7 +178,7 @@ class LiteLLMClient:
     async def chat_completion(
         self,
         messages: list[dict[str, object]],
-        model: str = "ollama/llama3.2",
+        model: str = DEFAULT_MODEL,
         tools: list[dict[str, object]] | None = None,
         tool_choice: str | dict[str, object] | None = None,
         temperature: float = 0.2,
@@ -265,7 +270,7 @@ class LiteLLMClient:
     async def chat_completion_stream(
         self,
         messages: list[dict[str, object]],
-        model: str = "ollama/llama3.2",
+        model: str = DEFAULT_MODEL,
         tools: list[dict[str, object]] | None = None,
         tool_choice: str | dict[str, object] | None = None,
         temperature: float = 0.2,
