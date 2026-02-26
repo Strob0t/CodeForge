@@ -241,6 +241,10 @@ func run() error {
 	llmClient.SetBreaker(llmBreaker)
 	llmClient.SetVault(vault)
 
+	// --- Review Router Service (Phase 21A) ---
+	reviewRouterSvc := service.NewReviewRouterService(llmClient, &cfg.Orchestrator)
+	orchSvc.SetReviewRouter(reviewRouterSvc)
+
 	// --- Meta-Agent Service (Phase 5B) ---
 	metaAgentSvc := service.NewMetaAgentService(store, llmClient, orchSvc, &cfg.Orchestrator)
 	slog.Info("meta-agent service initialized",
@@ -508,6 +512,7 @@ func run() error {
 		MCP:              mcpSvc,
 		PromptSections:   service.NewPromptSectionService(store),
 		Benchmarks:       service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir),
+		ReviewRouter:     reviewRouterSvc,
 	}
 
 	r := chi.NewRouter()

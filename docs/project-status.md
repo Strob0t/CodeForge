@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-02-24
+> Last update: 2026-02-26
 
 ### Phase 0: Project Setup (COMPLETED)
 
@@ -1069,3 +1069,12 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-25) **20F:** Documentation — ADR-008 (benchmark evaluation framework), feature docs, dev-setup, tech-stack, CLAUDE.md updates
 - 24 Python tests passing (datasets, tracing, collaboration metrics, evaluation executor)
 - 11 Go tests passing (8 HITL approval, 3 evaluation service)
+
+### Phase 21: Intelligent Agent Orchestration (COMPLETED)
+
+- [x] (2026-02-26) **21A:** Confidence-Based Moderator Router — ReviewRouter service, LiteLLM structured output, Go text/template prompt, configurable threshold (default 0.7), REST evaluate endpoint, WS event, 14 tests
+- [x] (2026-02-26) **21B:** Typed Agent Module Schemas — Pydantic schemas per step type (decompose, codegen, review, moderate), StructuredOutputParser with retry, output_schema on Mode domain
+- [x] (2026-02-26) **21C:** Agent Flow Visualization — SVG-based DAG renderer (AgentFlowGraph.tsx), StepDetailPanel with metadata/review/debate, GET /plans/{id}/graph endpoint, i18n (en + de)
+- [x] (2026-02-26) **21D:** Moderator Agent Mode — moderator + proponent mode presets, debate protocol (startDebate/handleDebateComplete), configurable rounds (default 1, max 3), debate visualization in frontend, 6 tests
+- 20 Go tests passing (14 review router, 6 debate)
+- TypeScript compiles clean (no new errors)

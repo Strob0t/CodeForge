@@ -1,20 +1,26 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type {
   Agent,
   CreatePlanRequest,
   CreateStepRequest,
+  DebateStatusEvent,
   DecomposeRequest,
   ExecutionPlan,
+  PlanGraph,
   PlanProtocol,
   PlanStatus,
   PlanStepStatus,
+  ReviewDecisionSnapshot,
   Task,
 } from "~/api/types";
 import { StepProgress } from "~/components/StepProgress";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, FormField, Input, Select, Textarea } from "~/ui";
+
+import AgentFlowGraph from "./AgentFlowGraph";
+import StepDetailPanel from "./StepDetailPanel";
 
 interface PlanPanelProps {
   projectId: string;
@@ -153,6 +159,26 @@ export default function PlanPanel(props: PlanPanelProps) {
     { task_id: "", agent_id: "" },
   ]);
   const [creating, setCreating] = createSignal(false);
+  const [showFlowGraph, setShowFlowGraph] = createSignal(false);
+  const [selectedStepId, setSelectedStepId] = createSignal<string | null>(null);
+
+  // Fetch plan graph data when flow graph is shown
+  const [planGraph] = createResource(
+    () => (showFlowGraph() && selectedPlanId() ? selectedPlanId() : undefined),
+    (id) => api.plans.graph(id as string),
+  );
+
+  const taskNameMap = createMemo(() => {
+    const map: Record<string, string> = {};
+    for (const task of props.tasks) map[task.id] = task.title;
+    return map;
+  });
+
+  const agentNameMap = createMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of props.agents) map[a.id] = a.name;
+    return map;
+  });
 
   const addStep = () => {
     setSteps((prev) => [...prev, { task_id: "", agent_id: "" }]);
@@ -230,6 +256,39 @@ export default function PlanPanel(props: PlanPanelProps) {
       }
     } catch (e) {
       props.onError(e instanceof Error ? e.message : t("plan.toast.cancelFailed"));
+    }
+  };
+
+  // Track review decisions per step (populated via WS events or manual evaluation)
+  const [reviewDecisions, setReviewDecisions] = createSignal<
+    Record<string, ReviewDecisionSnapshot>
+  >({});
+
+  // Track debate status per step (populated via WS debate.status events)
+  const [debateStatuses, setDebateStatuses] = createSignal<Record<string, DebateStatusEvent>>({});
+
+  /** Update debate status for a step (called from WS event handler). */
+  const setStepDebateStatus = (stepId: string, status: DebateStatusEvent) => {
+    setDebateStatuses((prev) => ({ ...prev, [stepId]: status }));
+  };
+  // Expose for parent WS integration (same pattern as setStepReviewDecision)
+  void setStepDebateStatus;
+
+  const setStepReviewDecision = (stepId: string, decision: ReviewDecisionSnapshot) => {
+    setReviewDecisions((prev) => ({ ...prev, [stepId]: decision }));
+  };
+
+  const handleEvaluateStep = async (planId: string, stepId: string) => {
+    try {
+      const decision = await api.plans.evaluateStep(planId, stepId);
+      setStepReviewDecision(stepId, {
+        needs_review: decision.needs_review,
+        confidence: decision.confidence,
+        reason: decision.reason,
+        routed: decision.needs_review && decision.confidence < 0.7,
+      });
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : t("plan.review.evaluate"));
     }
   };
 
@@ -614,7 +673,16 @@ export default function PlanPanel(props: PlanPanelProps) {
         <Show when={selectedPlan()}>
           {(detail) => (
             <div class="mt-4 rounded-cf-sm border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
-              <h4 class="mb-2 text-sm font-semibold">{detail().name} - Steps</h4>
+              <div class="mb-2 flex items-center justify-between">
+                <h4 class="text-sm font-semibold">{detail().name} - Steps</h4>
+                <Button
+                  variant={showFlowGraph() ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setShowFlowGraph(!showFlowGraph())}
+                >
+                  {showFlowGraph() ? "List" : t("plan.flow.title")}
+                </Button>
+              </div>
               <Show when={detail().steps.length > 0}>
                 <div class="mb-3">
                   <StepProgress
@@ -624,30 +692,139 @@ export default function PlanPanel(props: PlanPanelProps) {
                   />
                 </div>
               </Show>
-              <div class="space-y-2">
-                <For each={detail().steps}>
-                  {(step, idx) => (
-                    <div class="flex items-center gap-3 rounded-cf-sm bg-cf-bg-surface p-2 text-sm">
-                      <span class="w-6 text-center text-xs text-cf-text-muted">{idx() + 1}</span>
-                      <Badge variant={stepStatusVariant(step.status)}>{step.status}</Badge>
-                      <span class="text-cf-text-secondary">
-                        {taskName(step.task_id)} / {agentName(step.agent_id)}
-                      </span>
-                      <Show when={step.run_id}>
-                        <span class="font-mono text-xs text-cf-text-muted">
-                          run: {step.run_id.slice(0, 8)}
-                        </span>
-                      </Show>
-                      <Show when={step.round > 0}>
-                        <span class="text-xs text-cf-text-muted">round {step.round}</span>
-                      </Show>
-                      <Show when={step.error}>
-                        <span class="text-xs text-cf-danger-fg">{step.error}</span>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </div>
+              {/* Step list view */}
+              <Show when={!showFlowGraph()}>
+                <div class="space-y-2">
+                  <For each={detail().steps}>
+                    {(step, idx) => (
+                      <div class="rounded-cf-sm bg-cf-bg-surface p-2 text-sm">
+                        <div class="flex items-center gap-3">
+                          <span class="w-6 text-center text-xs text-cf-text-muted">
+                            {idx() + 1}
+                          </span>
+                          <Badge variant={stepStatusVariant(step.status)}>{step.status}</Badge>
+                          <span class="text-cf-text-secondary">
+                            {taskName(step.task_id)} / {agentName(step.agent_id)}
+                          </span>
+                          <Show when={step.run_id}>
+                            <span class="font-mono text-xs text-cf-text-muted">
+                              run: {step.run_id.slice(0, 8)}
+                            </span>
+                          </Show>
+                          <Show when={step.round > 0}>
+                            <span class="text-xs text-cf-text-muted">round {step.round}</span>
+                          </Show>
+                          {/* Review decision badge */}
+                          <Show when={reviewDecisions()[step.id]}>
+                            {(rd) => (
+                              <span
+                                title={`${t("plan.review.confidence")}: ${Math.round(rd().confidence * 100)}% — ${rd().reason}`}
+                              >
+                                <Badge variant={rd().routed ? "warning" : "success"} pill>
+                                  {rd().routed
+                                    ? t("plan.review.routedToReview")
+                                    : t("plan.review.autoProceed")}
+                                </Badge>
+                              </span>
+                            )}
+                          </Show>
+                          {/* Debate badge */}
+                          <Show when={debateStatuses()[step.id]}>
+                            {(ds) => (
+                              <Badge
+                                variant={
+                                  ds().status === "completed"
+                                    ? "success"
+                                    : ds().status === "failed"
+                                      ? "danger"
+                                      : "info"
+                                }
+                                pill
+                              >
+                                {t(
+                                  ds().status === "completed"
+                                    ? "plan.step.debateCompleted"
+                                    : ds().status === "failed"
+                                      ? "plan.step.debateFailed"
+                                      : "plan.step.debateStarted",
+                                )}
+                              </Badge>
+                            )}
+                          </Show>
+                          {/* Manual evaluate button for pending steps */}
+                          <Show
+                            when={
+                              step.status === "pending" &&
+                              !reviewDecisions()[step.id] &&
+                              selectedPlanId()
+                            }
+                          >
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e: MouseEvent) => {
+                                e.stopPropagation();
+                                handleEvaluateStep(selectedPlanId() as string, step.id);
+                              }}
+                            >
+                              {t("plan.review.evaluate")}
+                            </Button>
+                          </Show>
+                          <Show when={step.error}>
+                            <span class="text-xs text-cf-danger-fg">{step.error}</span>
+                          </Show>
+                        </div>
+                        {/* Review decision details */}
+                        <Show when={reviewDecisions()[step.id]}>
+                          {(rd) => (
+                            <div class="ml-8 mt-1 text-xs text-cf-text-tertiary">
+                              <span>
+                                {t("plan.review.confidence")}: {Math.round(rd().confidence * 100)}%
+                              </span>
+                              <span class="mx-2">|</span>
+                              <span>{rd().reason}</span>
+                            </div>
+                          )}
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              {/* Flow graph view */}
+              <Show when={showFlowGraph() && planGraph()}>
+                <AgentFlowGraph
+                  graph={planGraph() as PlanGraph}
+                  taskNames={taskNameMap()}
+                  agentNames={agentNameMap()}
+                  onStepClick={setSelectedStepId}
+                />
+              </Show>
+
+              {/* Step detail panel (from flow graph click) */}
+              <Show when={selectedStepId() && planGraph()}>
+                {(() => {
+                  const node = () =>
+                    (planGraph() as PlanGraph).nodes.find((n) => n.id === selectedStepId());
+                  return (
+                    <Show when={node()}>
+                      {(n) => (
+                        <div class="mt-3">
+                          <StepDetailPanel
+                            step={n()}
+                            taskName={taskNameMap()[n().task_id] ?? n().task_id.slice(0, 8)}
+                            agentName={agentNameMap()[n().agent_id] ?? n().agent_id.slice(0, 8)}
+                            reviewDecision={reviewDecisions()[n().id]}
+                            debateStatus={debateStatuses()[n().id]}
+                            onClose={() => setSelectedStepId(null)}
+                          />
+                        </div>
+                      )}
+                    </Show>
+                  );
+                })()}
+              </Show>
             </div>
           )}
         </Show>

@@ -25,7 +25,7 @@ export function Select(props: SelectProps): JSX.Element {
         local.selectRef?.(el);
       }}
       {...rest}
-      prop:value={(local.value as string) ?? ""}
+      value={(local.value as string) ?? ""}
       class={
         "block w-full rounded-cf-md border bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary transition-colors " +
         "focus:outline-none focus:ring-2 focus:ring-cf-focus-ring focus:border-cf-accent " +

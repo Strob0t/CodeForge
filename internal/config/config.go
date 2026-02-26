@@ -147,29 +147,33 @@ type Git struct {
 
 // Orchestrator holds multi-agent execution plan configuration.
 type Orchestrator struct {
-	MaxParallel             int           `yaml:"max_parallel"`              // Max concurrent steps (default: 4)
-	PingPongMaxRounds       int           `yaml:"ping_pong_max_rounds"`      // Max rounds per step in ping_pong (default: 3)
-	ConsensusQuorum         int           `yaml:"consensus_quorum"`          // Required successes; 0 = majority (default: 0)
-	Mode                    string        `yaml:"mode"`                      // "manual" | "semi_auto" | "full_auto" (default: "semi_auto")
-	DecomposeModel          string        `yaml:"decompose_model"`           // LLM model for decomposition (default: "openai/gpt-4o-mini")
-	DecomposeMaxTokens      int           `yaml:"decompose_max_tokens"`      // Max tokens for decomposition response (default: 4096)
-	MaxTeamSize             int           `yaml:"max_team_size"`             // Max agents per team (default: 5)
-	DefaultContextBudget    int           `yaml:"default_context_budget"`    // Default token budget per task context (default: 4096)
-	PromptReserve           int           `yaml:"prompt_reserve"`            // Tokens reserved for prompt+output (default: 1024)
-	RepoMapTokenBudget      int           `yaml:"repomap_token_budget"`      // Default token budget for repo map generation (default: 1024)
-	DefaultEmbeddingModel   string        `yaml:"default_embedding_model"`   // Embedding model for retrieval (default: "text-embedding-3-small")
-	RetrievalTopK           int           `yaml:"retrieval_top_k"`           // Number of retrieval results (default: 20)
-	RetrievalBM25Weight     float64       `yaml:"retrieval_bm25_weight"`     // BM25 weight for hybrid search (default: 0.5)
-	RetrievalSemanticWeight float64       `yaml:"retrieval_semantic_weight"` // Semantic weight for hybrid search (default: 0.5)
-	SubAgentEnabled         bool          `yaml:"subagent_enabled"`          // Enable sub-agent retrieval (default: true)
-	SubAgentModel           string        `yaml:"subagent_model"`            // LLM for sub-agent query expansion/rerank (default: "openai/gpt-4o-mini")
-	SubAgentMaxQueries      int           `yaml:"subagent_max_queries"`      // Max expanded queries (default: 5)
-	SubAgentRerank          bool          `yaml:"subagent_rerank"`           // Enable LLM reranking (default: true)
-	SubAgentTimeout         time.Duration `yaml:"subagent_timeout"`          // Timeout for sub-agent search (default: 60s)
-	GraphEnabled            bool          `yaml:"graph_enabled"`             // Enable GraphRAG (default: false)
-	GraphMaxHops            int           `yaml:"graph_max_hops"`            // Max hops for graph traversal (default: 2)
-	GraphTopK               int           `yaml:"graph_top_k"`               // Top-K results for graph search (default: 10)
-	GraphHopDecay           float64       `yaml:"graph_hop_decay"`           // Score decay per hop (default: 0.7)
+	MaxParallel               int           `yaml:"max_parallel"`                // Max concurrent steps (default: 4)
+	PingPongMaxRounds         int           `yaml:"ping_pong_max_rounds"`        // Max rounds per step in ping_pong (default: 3)
+	ConsensusQuorum           int           `yaml:"consensus_quorum"`            // Required successes; 0 = majority (default: 0)
+	Mode                      string        `yaml:"mode"`                        // "manual" | "semi_auto" | "full_auto" (default: "semi_auto")
+	DecomposeModel            string        `yaml:"decompose_model"`             // LLM model for decomposition (default: "openai/gpt-4o-mini")
+	DecomposeMaxTokens        int           `yaml:"decompose_max_tokens"`        // Max tokens for decomposition response (default: 4096)
+	ReviewRouterEnabled       bool          `yaml:"review_router_enabled"`       // Enable confidence-based review routing (default: false)
+	ReviewConfidenceThreshold float64       `yaml:"review_confidence_threshold"` // Steps below this confidence get routed to review (default: 0.7)
+	ReviewRouterModel         string        `yaml:"review_router_model"`         // LLM model for review evaluation (default: scenario "review")
+	DebateRounds              int           `yaml:"debate_rounds"`               // Max rounds for moderator debate (default: 1, max: 3)
+	MaxTeamSize               int           `yaml:"max_team_size"`               // Max agents per team (default: 5)
+	DefaultContextBudget      int           `yaml:"default_context_budget"`      // Default token budget per task context (default: 4096)
+	PromptReserve             int           `yaml:"prompt_reserve"`              // Tokens reserved for prompt+output (default: 1024)
+	RepoMapTokenBudget        int           `yaml:"repomap_token_budget"`        // Default token budget for repo map generation (default: 1024)
+	DefaultEmbeddingModel     string        `yaml:"default_embedding_model"`     // Embedding model for retrieval (default: "text-embedding-3-small")
+	RetrievalTopK             int           `yaml:"retrieval_top_k"`             // Number of retrieval results (default: 20)
+	RetrievalBM25Weight       float64       `yaml:"retrieval_bm25_weight"`       // BM25 weight for hybrid search (default: 0.5)
+	RetrievalSemanticWeight   float64       `yaml:"retrieval_semantic_weight"`   // Semantic weight for hybrid search (default: 0.5)
+	SubAgentEnabled           bool          `yaml:"subagent_enabled"`            // Enable sub-agent retrieval (default: true)
+	SubAgentModel             string        `yaml:"subagent_model"`              // LLM for sub-agent query expansion/rerank (default: "openai/gpt-4o-mini")
+	SubAgentMaxQueries        int           `yaml:"subagent_max_queries"`        // Max expanded queries (default: 5)
+	SubAgentRerank            bool          `yaml:"subagent_rerank"`             // Enable LLM reranking (default: true)
+	SubAgentTimeout           time.Duration `yaml:"subagent_timeout"`            // Timeout for sub-agent search (default: 60s)
+	GraphEnabled              bool          `yaml:"graph_enabled"`               // Enable GraphRAG (default: false)
+	GraphMaxHops              int           `yaml:"graph_max_hops"`              // Max hops for graph traversal (default: 2)
+	GraphTopK                 int           `yaml:"graph_top_k"`                 // Top-K results for graph search (default: 10)
+	GraphHopDecay             float64       `yaml:"graph_hop_decay"`             // Score decay per hop (default: 0.7)
 }
 
 // Runtime holds agent execution engine configuration.
@@ -395,29 +399,33 @@ func Defaults() Config {
 			TTL:    24 * time.Hour,
 		},
 		Orchestrator: Orchestrator{
-			MaxParallel:             4,
-			PingPongMaxRounds:       3,
-			ConsensusQuorum:         0,
-			Mode:                    "semi_auto",
-			DecomposeModel:          "openai/gpt-4o-mini",
-			DecomposeMaxTokens:      4096,
-			MaxTeamSize:             5,
-			DefaultContextBudget:    4096,
-			PromptReserve:           1024,
-			RepoMapTokenBudget:      1024,
-			DefaultEmbeddingModel:   "text-embedding-3-small",
-			RetrievalTopK:           20,
-			RetrievalBM25Weight:     0.5,
-			RetrievalSemanticWeight: 0.5,
-			SubAgentEnabled:         true,
-			SubAgentModel:           "openai/gpt-4o-mini",
-			SubAgentMaxQueries:      5,
-			SubAgentRerank:          true,
-			SubAgentTimeout:         60 * time.Second,
-			GraphEnabled:            false,
-			GraphMaxHops:            2,
-			GraphTopK:               10,
-			GraphHopDecay:           0.7,
+			MaxParallel:               4,
+			PingPongMaxRounds:         3,
+			ConsensusQuorum:           0,
+			Mode:                      "semi_auto",
+			DecomposeModel:            "openai/gpt-4o-mini",
+			DecomposeMaxTokens:        4096,
+			ReviewRouterEnabled:       false,
+			ReviewConfidenceThreshold: 0.7,
+			ReviewRouterModel:         "",
+			DebateRounds:              1,
+			MaxTeamSize:               5,
+			DefaultContextBudget:      4096,
+			PromptReserve:             1024,
+			RepoMapTokenBudget:        1024,
+			DefaultEmbeddingModel:     "text-embedding-3-small",
+			RetrievalTopK:             20,
+			RetrievalBM25Weight:       0.5,
+			RetrievalSemanticWeight:   0.5,
+			SubAgentEnabled:           true,
+			SubAgentModel:             "openai/gpt-4o-mini",
+			SubAgentMaxQueries:        5,
+			SubAgentRerank:            true,
+			SubAgentTimeout:           60 * time.Second,
+			GraphEnabled:              false,
+			GraphMaxHops:              2,
+			GraphTopK:                 10,
+			GraphHopDecay:             0.7,
 		},
 		Webhook:      Webhook{},
 		Notification: Notification{},

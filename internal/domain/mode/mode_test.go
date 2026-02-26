@@ -117,8 +117,8 @@ func TestValidate_RequiredArtifactPresent(t *testing.T) {
 
 func TestBuiltinModes_Count(t *testing.T) {
 	modes := BuiltinModes()
-	if len(modes) != 8 {
-		t.Fatalf("expected 8 built-in modes, got %d", len(modes))
+	if len(modes) != 10 {
+		t.Fatalf("expected 10 built-in modes, got %d", len(modes))
 	}
 }
 
@@ -200,6 +200,8 @@ func TestBuiltinModes_ExpectedPresets(t *testing.T) {
 		"documenter": {false, true},
 		"refactorer": {true, false},
 		"security":   {true, true},
+		"moderator":  {true, true},
+		"proponent":  {true, true},
 	}
 
 	for _, m := range BuiltinModes() {

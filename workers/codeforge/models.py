@@ -74,6 +74,7 @@ class ModeConfig(BaseModel):
     denied_actions: list[str] = Field(default_factory=list)
     required_artifact: str = ""
     llm_scenario: str = ""
+    output_schema: str = ""
 
 
 class RunStartMessage(BaseModel):

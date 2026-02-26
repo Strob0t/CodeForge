@@ -135,6 +135,7 @@ type Handlers struct {
 	MCP              *service.MCPService
 	PromptSections   *service.PromptSectionService
 	Benchmarks       *service.BenchmarkService
+	ReviewRouter     *service.ReviewRouterService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -989,6 +990,126 @@ func (h *Handlers) CancelPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// EvaluateStep handles POST /api/v1/plans/{id}/steps/{stepId}/evaluate
+// It manually triggers the review router for a specific step.
+func (h *Handlers) EvaluateStep(w http.ResponseWriter, r *http.Request) {
+	planID := chi.URLParam(r, "id")
+	stepID := chi.URLParam(r, "stepId")
+
+	if h.ReviewRouter == nil {
+		writeError(w, http.StatusServiceUnavailable, "review router not configured")
+		return
+	}
+
+	p, err := h.Orchestrator.GetPlan(r.Context(), planID)
+	if err != nil {
+		writeDomainError(w, err, "plan not found")
+		return
+	}
+
+	var step *plan.Step
+	for i := range p.Steps {
+		if p.Steps[i].ID == stepID {
+			step = &p.Steps[i]
+			break
+		}
+	}
+	if step == nil {
+		writeError(w, http.StatusNotFound, "step not found in plan")
+		return
+	}
+
+	// Fetch task description for context
+	taskDesc := ""
+	t, taskErr := h.Tasks.Get(r.Context(), step.TaskID)
+	if taskErr == nil {
+		taskDesc = t.Prompt
+		if taskDesc == "" {
+			taskDesc = t.Title
+		}
+	}
+
+	decision, err := h.ReviewRouter.Evaluate(r.Context(), step, taskDesc)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("review evaluation failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, decision)
+}
+
+// GetPlanGraph handles GET /api/v1/plans/{id}/graph
+// It returns the execution plan as a DAG in a frontend-friendly format.
+func (h *Handlers) GetPlanGraph(w http.ResponseWriter, r *http.Request) {
+	planID := chi.URLParam(r, "id")
+
+	p, err := h.Orchestrator.GetPlan(r.Context(), planID)
+	if err != nil {
+		writeDomainError(w, err, "plan not found")
+		return
+	}
+
+	type GraphNode struct {
+		ID        string   `json:"id"`
+		TaskID    string   `json:"task_id"`
+		AgentID   string   `json:"agent_id"`
+		ModeID    string   `json:"mode_id,omitempty"`
+		Status    string   `json:"status"`
+		RunID     string   `json:"run_id,omitempty"`
+		Round     int      `json:"round"`
+		Error     string   `json:"error,omitempty"`
+		DependsOn []string `json:"depends_on,omitempty"`
+	}
+
+	type GraphEdge struct {
+		From     string `json:"from"`
+		To       string `json:"to"`
+		Protocol string `json:"protocol"`
+	}
+
+	type PlanGraph struct {
+		PlanID   string      `json:"plan_id"`
+		Name     string      `json:"name"`
+		Protocol string      `json:"protocol"`
+		Status   string      `json:"status"`
+		Nodes    []GraphNode `json:"nodes"`
+		Edges    []GraphEdge `json:"edges"`
+	}
+
+	graph := PlanGraph{
+		PlanID:   p.ID,
+		Name:     p.Name,
+		Protocol: string(p.Protocol),
+		Status:   string(p.Status),
+		Nodes:    make([]GraphNode, 0, len(p.Steps)),
+		Edges:    make([]GraphEdge, 0),
+	}
+
+	for _, step := range p.Steps {
+		graph.Nodes = append(graph.Nodes, GraphNode{
+			ID:        step.ID,
+			TaskID:    step.TaskID,
+			AgentID:   step.AgentID,
+			ModeID:    step.ModeID,
+			Status:    string(step.Status),
+			RunID:     step.RunID,
+			Round:     step.Round,
+			Error:     step.Error,
+			DependsOn: step.DependsOn,
+		})
+
+		for _, dep := range step.DependsOn {
+			graph.Edges = append(graph.Edges, GraphEdge{
+				From:     dep,
+				To:       step.ID,
+				Protocol: string(p.Protocol),
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, graph)
 }
 
 // --- Feature Decomposition (Meta-Agent) ---

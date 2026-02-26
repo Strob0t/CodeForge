@@ -9,8 +9,8 @@ import (
 func TestNewModeService_LoadsBuiltins(t *testing.T) {
 	s := NewModeService()
 	modes := s.List()
-	if len(modes) != 8 {
-		t.Fatalf("expected 8 built-in modes, got %d", len(modes))
+	if len(modes) != 10 {
+		t.Fatalf("expected 10 built-in modes, got %d", len(modes))
 	}
 }
 
@@ -57,8 +57,8 @@ func TestModeService_Register_Custom(t *testing.T) {
 	if err := s.Register(&custom); err != nil {
 		t.Fatalf("expected register to succeed, got error: %v", err)
 	}
-	if len(s.List()) != 9 {
-		t.Fatalf("expected 9 modes after registration, got %d", len(s.List()))
+	if len(s.List()) != 11 {
+		t.Fatalf("expected 11 modes after registration, got %d", len(s.List()))
 	}
 }
 

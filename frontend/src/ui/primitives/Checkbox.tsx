@@ -1,14 +1,18 @@
-import { type JSX, splitProps } from "solid-js";
+import { type JSX, Show, splitProps } from "solid-js";
 
-export interface CheckboxProps extends Omit<JSX.InputHTMLAttributes<HTMLInputElement>, "type"> {
+export interface CheckboxProps extends Omit<
+  JSX.InputHTMLAttributes<HTMLInputElement>,
+  "type" | "onChange"
+> {
   checked?: boolean;
   onChange?: (checked: boolean) => void;
+  label?: string;
 }
 
 export function Checkbox(props: CheckboxProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["checked", "onChange", "class"]);
+  const [local, rest] = splitProps(props, ["checked", "onChange", "label", "class"]);
 
-  return (
+  const input = (
     <input
       {...rest}
       type="checkbox"
@@ -20,5 +24,14 @@ export function Checkbox(props: CheckboxProps): JSX.Element {
         (local.class ? " " + local.class : "")
       }
     />
+  );
+
+  return (
+    <Show when={local.label} fallback={input}>
+      <label class="inline-flex cursor-pointer items-center gap-1.5 text-sm">
+        {input}
+        {local.label}
+      </label>
+    </Show>
   );
 }

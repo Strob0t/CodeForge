@@ -1703,6 +1703,51 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-26) `todo.md` corrected: bidi sync, A2A stub, PM webhook status downgraded
 - [x] (2026-02-26) Feature docs updated: push sync status, benchmark pipeline notes
 
+### Phase 21: Intelligent Agent Orchestration (2026-02-26)
+
+> Extracted from "forge" discussion analysis. Adds confidence-based moderator routing,
+> typed agent module schemas, agent flow visualization, and multi-agent debate.
+
+#### 21A: Confidence-Based Moderator Router
+
+- [x] (2026-02-26) `ReviewDecision` domain model (`internal/domain/orchestration/review_decision.go`)
+- [x] (2026-02-26) `ReviewRouter` service with LiteLLM structured output (`internal/service/review_router.go`)
+- [x] (2026-02-26) Go `text/template` prompt template (`internal/service/templates/review_router.tmpl`)
+- [x] (2026-02-26) Integration into `OrchestratorService.startStep()` — calls ReviewRouter before dispatch
+- [x] (2026-02-26) Config fields: `ReviewRouterEnabled`, `ReviewConfidenceThreshold`, `ReviewRouterModel`
+- [x] (2026-02-26) WS event `review_router.decision` with decision payload
+- [x] (2026-02-26) REST endpoint `POST /api/v1/plans/{id}/steps/{stepId}/evaluate`
+- [x] (2026-02-26) 14 test functions (threshold boundary, confidence clamping, template rendering, LLM error, should-route logic)
+- [x] (2026-02-26) Frontend: review decision badge per step in PlanPanel (green/yellow, confidence %, reason tooltip)
+- [x] (2026-02-26) i18n keys for review router UI (en + de)
+
+#### 21B: Typed Agent Module Schemas
+
+- [x] (2026-02-26) `workers/codeforge/schemas/` package with per-step schemas (decompose, codegen, review, moderate)
+- [x] (2026-02-26) `StructuredOutputParser` utility with retry on validation failure
+- [x] (2026-02-26) Integration into `AgentLoopExecutor` for structured output
+- [x] (2026-02-26) `output_schema` field added to `ModeConfig` (Python) and `Mode` domain struct (Go)
+- [x] (2026-02-26) Tests: schema validation, parser retry, integration
+
+#### 21C: Agent Flow Visualization (Live DAG View)
+
+- [x] (2026-02-26) `AgentFlowGraph.tsx`: SVG-based DAG renderer with layered layout algorithm
+- [x] (2026-02-26) `StepDetailPanel.tsx`: expandable panel with step metadata, review decision, error display
+- [x] (2026-02-26) Integration in PlanPanel: list/flow toggle, step click → detail panel
+- [x] (2026-02-26) `GET /api/v1/plans/{id}/graph` endpoint returning DAG (nodes + edges)
+- [x] (2026-02-26) i18n keys for flow graph labels (en + de)
+
+#### 21D: Moderator Agent Mode (Multi-Agent Debate)
+
+- [x] (2026-02-26) `moderator` + `proponent` built-in mode presets in `presets.go` (read-only tools, review scenario)
+- [x] (2026-02-26) Debate protocol in `OrchestratorService`: `startDebate()`, `handleDebateComplete()`, `debateState` tracking
+- [x] (2026-02-26) WS event `debate.status` (`DebateStatusEvent`) for frontend
+- [x] (2026-02-26) Debate visualization in `StepDetailPanel.tsx` (proponent/moderator sections, synthesis display)
+- [x] (2026-02-26) Debate status badges in PlanPanel step list
+- [x] (2026-02-26) i18n keys for debate UI (en + de)
+- [x] (2026-02-26) 6 debate tests (mode existence, read-only enforcement, config bounds, completion handler)
+- [x] (2026-02-26) `DebateStatusEvent` type in frontend `types.ts`
+
 #### Planned/Unimplemented Features
 
 - [ ] GitHub Copilot Token Exchange — listed in CLAUDE.md as LLM provider but not yet implemented (Go Core token exchange endpoint + LiteLLM provider config)

@@ -45,6 +45,7 @@ class LoopConfig:
     model: str = ""
     temperature: float = 0.2
     tags: list[str] = field(default_factory=list)
+    output_schema: str = ""  # Pydantic schema name from codeforge.schemas
 
 
 @dataclass
@@ -120,6 +121,11 @@ class AgentLoopExecutor:
         else:
             logger.warning("agent loop hit max iterations (%d)", cfg.max_iterations)
 
+        # When an output_schema is specified and the loop produced final content,
+        # validate/reparse it through the StructuredOutputParser.
+        if cfg.output_schema and state.final_content and not state.error:
+            state = await self._validate_output_schema(cfg, state, messages)
+
         return AgentLoopResult(
             final_content=state.final_content,
             tool_messages=state.tool_messages,
@@ -130,6 +136,57 @@ class AgentLoopExecutor:
             model=state.model,
             error=state.error,
         )
+
+    async def _validate_output_schema(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        messages: list[dict[str, object]],
+    ) -> _LoopState:
+        """Validate/reparse final content against the specified output schema."""
+        from codeforge.schemas.parser import StructuredOutputParser
+
+        schema_cls = _resolve_schema(cfg.output_schema)
+        if schema_cls is None:
+            logger.warning("unknown output_schema %r, skipping validation", cfg.output_schema)
+            return state
+
+        # First try direct validation of the existing content.
+        import json as _json
+
+        from pydantic import ValidationError
+
+        try:
+            parsed = _json.loads(state.final_content)
+            schema_cls.model_validate(parsed)
+            return state  # Already valid JSON matching the schema.
+        except (ValueError, ValidationError):
+            pass  # Content is not valid JSON or does not match schema; use parser.
+
+        parser = StructuredOutputParser(self._llm)
+        reparse_messages: list[dict[str, object]] = list(messages)
+        reparse_messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"Reformat your previous response as valid JSON matching the {cfg.output_schema} schema. "
+                    "Return ONLY the JSON object."
+                ),
+            }
+        )
+        try:
+            result = await parser.parse(
+                messages=reparse_messages,
+                schema=schema_cls,
+                model=cfg.model,
+                temperature=cfg.temperature,
+                tags=cfg.tags or None,
+            )
+            state.final_content = result.model_dump_json()
+        except ValueError as exc:
+            logger.warning("output_schema validation failed: %s", exc)
+            state.error = f"output_schema validation failed: {exc}"
+        return state
 
     async def _do_llm_iteration(
         self,
@@ -264,6 +321,13 @@ class AgentLoopExecutor:
         msg = _build_tool_result_message(tc, content)
         state.tool_messages.append(msg)
         messages.append(_payload_to_dict(msg))
+
+
+def _resolve_schema(name: str) -> type | None:
+    """Resolve a schema name to the corresponding Pydantic model class from codeforge.schemas."""
+    import codeforge.schemas as _schemas_mod
+
+    return getattr(_schemas_mod, name, None)
 
 
 def _build_assistant_message(response: ChatCompletionResponse) -> ConversationMessagePayload:

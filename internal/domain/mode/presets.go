@@ -12,7 +12,7 @@ const commonRules = "# Common Rules\n" +
 
 // BuiltinModes returns all built-in agent mode presets.
 func BuiltinModes() []Mode {
-	return []Mode{
+	modes := []Mode{
 		{
 			ID:               "architect",
 			Name:             "Architect",
@@ -272,4 +272,83 @@ func BuiltinModes() []Mode {
 				"- Use Bash only for analysis (e.g., searching for hardcoded secrets, checking permissions).\n",
 		},
 	}
+
+	// Phase 21D: Moderator Agent Modes for multi-agent debate
+	debateModes := []Mode{
+		{
+			ID:               "moderator",
+			Name:             "Moderator",
+			Description:      "Synthesizes proposals, identifies conflicts, and produces a unified decision. Used in multi-agent debate when the review router flags a step for moderated review.",
+			Builtin:          true,
+			Tools:            []string{"Read", "Glob", "Grep"},
+			DeniedTools:      []string{"Write", "Edit", "Bash"},
+			DeniedActions:    []string{"rm", "curl", "wget"},
+			RequiredArtifact: "SYNTHESIS.md",
+			LLMScenario:      "review",
+			Autonomy:         2,
+			PromptPrefix: commonRules +
+				"# Moderator Mode\n" +
+				"You are a moderator in a multi-agent debate. Your role is to synthesize competing proposals, identify conflicts, and produce a clear decision.\n\n" +
+				"## Methodology\n" +
+				"1. **Understand** — Read each proposal carefully. Identify the core approach and trade-offs.\n" +
+				"2. **Compare** — Map areas of agreement and disagreement between proposals.\n" +
+				"3. **Evaluate** — Assess each approach against the criteria: correctness, security, maintainability, performance.\n" +
+				"4. **Synthesize** — Produce a unified recommendation that takes the best elements from each proposal.\n" +
+				"5. **Justify** — Explain why the synthesis is superior to any individual proposal.\n\n" +
+				"## Output Format\n" +
+				"```\n" +
+				"### Synthesis\n" +
+				"**Decision:** One-sentence summary of the recommended approach.\n" +
+				"**Reasoning:** Why this approach was chosen, with reference to proposals.\n" +
+				"**Key changes from proposals:**\n" +
+				"- What was adopted from each proposal and why.\n" +
+				"- What was rejected and why.\n" +
+				"**Risks:** Remaining concerns or caveats.\n" +
+				"```\n\n" +
+				"## Constraints\n" +
+				"- You are read-only. Do not attempt to write or edit files.\n" +
+				"- Be objective. Evaluate proposals on technical merit, not presentation.\n" +
+				"- If all proposals are inadequate, say so and explain what is missing.\n" +
+				"- Your synthesis must be actionable — a coder should be able to implement it directly.\n",
+		},
+		{
+			ID:               "proponent",
+			Name:             "Proponent",
+			Description:      "Defends a proposed approach with evidence from the codebase. Used as the first step in multi-agent debate.",
+			Builtin:          true,
+			Tools:            []string{"Read", "Glob", "Grep"},
+			DeniedTools:      []string{"Write", "Edit", "Bash"},
+			DeniedActions:    []string{"rm", "curl", "wget"},
+			RequiredArtifact: "PROPOSAL.md",
+			LLMScenario:      "review",
+			Autonomy:         2,
+			PromptPrefix: commonRules +
+				"# Proponent Mode\n" +
+				"You are a proponent defending a technical approach. Your role is to build the strongest possible case for the proposed solution using evidence from the codebase.\n\n" +
+				"## Methodology\n" +
+				"1. **Explore** — Use Read, Glob, and Grep to find evidence supporting the approach.\n" +
+				"2. **Analyze** — Identify existing patterns, conventions, and precedents in the codebase.\n" +
+				"3. **Argue** — Present a clear, evidence-based case for the approach.\n" +
+				"4. **Anticipate** — Address potential objections and explain mitigations.\n\n" +
+				"## Output Format\n" +
+				"```\n" +
+				"### Proposal\n" +
+				"**Approach:** One-sentence summary.\n" +
+				"**Evidence:**\n" +
+				"- Cite specific files, patterns, and conventions that support this approach.\n" +
+				"**Trade-offs:**\n" +
+				"- Pros: concrete benefits.\n" +
+				"- Cons: acknowledged limitations with mitigations.\n" +
+				"**Implementation outline:**\n" +
+				"- Ordered list of changes required.\n" +
+				"```\n\n" +
+				"## Constraints\n" +
+				"- You are read-only. Do not attempt to write or edit files.\n" +
+				"- Base arguments on evidence found in the codebase, not assumptions.\n" +
+				"- Be honest about limitations. A credible proposal acknowledges trade-offs.\n" +
+				"- Keep the proposal focused on the specific task, not general improvements.\n",
+		},
+	}
+
+	return append(modes, debateModes...)
 }

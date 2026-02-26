@@ -365,6 +365,73 @@ export interface PlanStepStatusEvent {
   status: PlanStepStatus;
   run_id: string;
   error: string;
+  review_decision?: ReviewDecisionSnapshot;
+}
+
+/** Snapshot of a review router decision embedded in step events */
+export interface ReviewDecisionSnapshot {
+  needs_review: boolean;
+  confidence: number;
+  reason: string;
+  routed: boolean;
+}
+
+/** Review router decision (full response from evaluation endpoint) */
+export interface ReviewDecision {
+  needs_review: boolean;
+  confidence: number;
+  reason: string;
+  suggested_reviewers: string[];
+}
+
+/** WS event: review router decision */
+export interface ReviewRouterDecisionEvent {
+  plan_id: string;
+  step_id: string;
+  project_id: string;
+  needs_review: boolean;
+  confidence: number;
+  reason: string;
+  suggested_reviewers: string[];
+  routed: boolean;
+}
+
+/** WS event: multi-agent debate status */
+export interface DebateStatusEvent {
+  plan_id: string;
+  step_id: string;
+  project_id: string;
+  debate_plan_id: string;
+  status: "started" | "completed" | "failed";
+  synthesis?: string;
+}
+
+/** Plan DAG graph representation for visualization */
+export interface PlanGraphNode {
+  id: string;
+  task_id: string;
+  agent_id: string;
+  mode_id?: string;
+  status: string;
+  run_id?: string;
+  round: number;
+  error?: string;
+  depends_on?: string[];
+}
+
+export interface PlanGraphEdge {
+  from: string;
+  to: string;
+  protocol: string;
+}
+
+export interface PlanGraph {
+  plan_id: string;
+  name: string;
+  protocol: string;
+  status: string;
+  nodes: PlanGraphNode[];
+  edges: PlanGraphEdge[];
 }
 
 // --- Feature Decomposition types (Phase 5B) ---

@@ -4,7 +4,7 @@ import { Label } from "./Label";
 
 export interface FormFieldProps {
   label: string;
-  id: string;
+  id?: string;
   required?: boolean;
   help?: string;
   error?: string;

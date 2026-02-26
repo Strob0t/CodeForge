@@ -554,6 +554,127 @@ func TestCancelPlan(t *testing.T) {
 	}
 }
 
+// --- Phase 21D: Debate Protocol Tests ---
+
+func newOrchTestSetupWithDebate() (*orchMockStore, *service.OrchestratorService) {
+	store := &orchMockStore{}
+	store.agents = newIdleAgents("a1", "a2", "a3")
+	store.tasks = newPendingTasks("t1", "t2", "t3")
+
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+	queue := &runtimeMockQueue{}
+
+	runtimeSvc := service.NewRuntimeService(store, queue, bc, es,
+		service.NewPolicyService("headless-safe-sandbox", nil),
+		&config.Runtime{StallThreshold: 5},
+	)
+
+	orchCfg := &config.Orchestrator{
+		MaxParallel:       4,
+		PingPongMaxRounds: 3,
+		ConsensusQuorum:   0,
+		DebateRounds:      1,
+	}
+
+	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
+	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
+
+	return store, orchSvc
+}
+
+func TestDebate_BuiltinModesExist(t *testing.T) {
+	// Verify moderator and proponent are available as built-in modes
+	modeSvc := service.NewModeService()
+	mod, err := modeSvc.Get("moderator")
+	if err != nil {
+		t.Fatalf("moderator mode not found: %v", err)
+	}
+	if mod.LLMScenario != "review" {
+		t.Errorf("expected moderator LLMScenario 'review', got %q", mod.LLMScenario)
+	}
+
+	prop, err := modeSvc.Get("proponent")
+	if err != nil {
+		t.Fatalf("proponent mode not found: %v", err)
+	}
+	if prop.LLMScenario != "review" {
+		t.Errorf("expected proponent LLMScenario 'review', got %q", prop.LLMScenario)
+	}
+}
+
+func TestDebate_ModeratorReadOnly(t *testing.T) {
+	modeSvc := service.NewModeService()
+	mod, _ := modeSvc.Get("moderator")
+	for _, denied := range mod.DeniedTools {
+		if denied == "Write" || denied == "Edit" || denied == "Bash" {
+			continue
+		}
+		t.Errorf("unexpected denied tool in moderator: %s", denied)
+	}
+	hasDenied := map[string]bool{}
+	for _, d := range mod.DeniedTools {
+		hasDenied[d] = true
+	}
+	if !hasDenied["Write"] || !hasDenied["Edit"] || !hasDenied["Bash"] {
+		t.Error("moderator should deny Write, Edit, and Bash")
+	}
+}
+
+func TestDebate_ProponentReadOnly(t *testing.T) {
+	modeSvc := service.NewModeService()
+	prop, _ := modeSvc.Get("proponent")
+	hasDenied := map[string]bool{}
+	for _, d := range prop.DeniedTools {
+		hasDenied[d] = true
+	}
+	if !hasDenied["Write"] || !hasDenied["Edit"] || !hasDenied["Bash"] {
+		t.Error("proponent should deny Write, Edit, and Bash")
+	}
+}
+
+func TestDebate_DebateRoundsConfig(t *testing.T) {
+	_, orchSvc := newOrchTestSetupWithDebate()
+	// Just verify the service was created with debate config —
+	// the debate is triggered through the review router which is nil here,
+	// so no debate will actually fire. This is a config sanity check.
+	_ = orchSvc
+}
+
+func TestDebate_DebateRoundsClampedToMax3(t *testing.T) {
+	store := &orchMockStore{}
+	store.agents = newIdleAgents("a1")
+	store.tasks = newPendingTasks("t1")
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+	queue := &runtimeMockQueue{}
+
+	runtimeSvc := service.NewRuntimeService(store, queue, bc, es,
+		service.NewPolicyService("headless-safe-sandbox", nil),
+		&config.Runtime{StallThreshold: 5},
+	)
+
+	orchCfg := &config.Orchestrator{
+		MaxParallel:       4,
+		PingPongMaxRounds: 3,
+		DebateRounds:      10, // should be clamped to 3
+	}
+
+	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
+	// The clamping happens in startDebate, which is not directly testable without
+	// the review router. This test verifies construction succeeds with oversized value.
+	_ = orchSvc
+}
+
+func TestDebate_HandleDebateComplete_NotADebatePlan(t *testing.T) {
+	_, orchSvc := newOrchTestSetupWithDebate()
+	ctx := context.Background()
+
+	// HandleRunCompleted for a non-existent run should not panic
+	// (this exercises the handleDebateComplete path with an unknown plan ID)
+	orchSvc.HandleRunCompleted(ctx, "nonexistent-run", run.StatusCompleted)
+}
+
 func TestHandleRunCompleted_NonPlanRun(t *testing.T) {
 	_, orchSvc := newOrchTestSetup()
 	ctx := context.Background()

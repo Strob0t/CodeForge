@@ -373,6 +373,62 @@ All endpoints gated by `DevModeOnly` middleware.
 
 See [ADR-008: Benchmark Evaluation Framework](../architecture/adr/008-benchmark-evaluation-framework.md).
 
+### Phase 21: Intelligent Agent Orchestration (2026-02-26)
+
+Extends Phase 5 orchestration and Phase 12 quality layer with three capabilities:
+
+#### Confidence-Based Moderator Router (21A)
+
+Before executing each plan step, an LLM evaluates whether the subtask needs moderated review.
+If confidence is below the configurable threshold (default 0.7), the step is routed through a
+multi-agent debate before proceeding.
+
+- `ReviewRouter` service calls LiteLLM with structured JSON output
+- Go `text/template` prompt with criteria: architecture decisions, security, ambiguous requirements, cross-component changes
+- Config: `Orchestrator.ReviewRouterEnabled`, `ReviewConfidenceThreshold`, `ReviewRouterModel`
+- REST: `POST /api/v1/plans/{id}/steps/{stepId}/evaluate` for manual evaluation
+- WS event: `review_router.decision` broadcasts decision to frontend
+- Frontend: green (auto-proceed) / yellow (routed) badge per step with confidence % tooltip
+
+#### Typed Agent Module Schemas (21B)
+
+Pydantic-based input/output schemas per agent step type, enabling structured output validation.
+
+- Schemas: `DecomposeInput/Output`, `CodeGenInput/Output`, `ReviewInput/Output`, `ModerateInput/Output`
+- `StructuredOutputParser`: wraps LiteLLM `response_format`, validates against Pydantic, retry on failure (max 2)
+- `output_schema` field on Mode domain struct (Go) and ModeConfig (Python)
+
+#### Agent Flow Visualization (21C)
+
+Live SVG-based DAG rendering of execution plans with step status, review decisions, and click-to-detail.
+
+- `AgentFlowGraph.tsx`: layered layout algorithm, status-colored nodes, dependency arrows with protocol labels
+- `StepDetailPanel.tsx`: metadata, review decision, debate status, error display
+- `GET /api/v1/plans/{id}/graph`: returns DAG in frontend-friendly format (nodes + edges)
+
+#### Moderator Agent Mode / Multi-Agent Debate (21D)
+
+When the review router triggers, a ping_pong sub-plan is created with proponent + moderator agents.
+
+- `moderator` mode: synthesizes proposals, identifies conflicts, produces unified decision (read-only tools)
+- `proponent` mode: defends proposed approach with codebase evidence (read-only tools)
+- Debate protocol: `startDebate()` creates sub-plan, `handleDebateComplete()` injects synthesis into parent step context
+- Configurable: `DebateRounds` (default 1, max 3)
+- WS event: `debate.status` with started/completed/failed status and synthesis text
+- Frontend: debate visualization in StepDetailPanel, status badges in step list
+
+| Key File | Purpose |
+|---|---|
+| `internal/domain/orchestration/review_decision.go` | ReviewDecision domain model |
+| `internal/service/review_router.go` | Confidence-based review evaluation |
+| `internal/service/orchestrator.go` | Debate protocol integration |
+| `internal/domain/mode/presets.go` | moderator + proponent mode presets |
+| `internal/adapter/ws/events.go` | review_router.decision + debate.status events |
+| `workers/codeforge/schemas/` | Typed Pydantic schemas per step |
+| `frontend/src/features/project/AgentFlowGraph.tsx` | SVG DAG renderer |
+| `frontend/src/features/project/StepDetailPanel.tsx` | Step detail with debate visualization |
+| `frontend/src/features/project/PlanPanel.tsx` | Integration hub |
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.

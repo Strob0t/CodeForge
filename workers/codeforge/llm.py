@@ -159,11 +159,15 @@ class LiteLLMClient:
         temperature: float = 0.2,
         tags: list[str] | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> ChatCompletionResponse:
         """Send a chat completion with tool-calling support.
 
         Returns a ChatCompletionResponse that includes parsed tool_calls
         and finish_reason alongside the standard content and usage fields.
+
+        When *response_format* is provided, it is forwarded to the LLM API
+        to request structured JSON output (e.g. ``{"type": "json_schema", ...}``).
         """
         payload: dict[str, object] = {
             "model": model,
@@ -178,6 +182,8 @@ class LiteLLMClient:
             payload["tags"] = tags
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if response_format is not None:
+            payload["response_format"] = response_format
 
         logger.debug(
             "chat_completion model=%s tools=%d temperature=%.2f",

@@ -1,9 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test.describe("Health checks", () => {
   test("frontend loads and shows CodeForge heading", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toHaveText("CodeForge");
+    await expect(page.locator("h1").first()).toHaveText("CodeForge");
   });
 
   test("sidebar shows API ok status", async ({ page }) => {

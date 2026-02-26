@@ -61,6 +61,12 @@ const (
 	// LSP: language server events
 	EventLSPStatus     = "lsp.status"
 	EventLSPDiagnostic = "lsp.diagnostic"
+
+	// Phase 21A: review router events
+	EventReviewRouterDecision = "review_router.decision"
+
+	// Phase 21D: debate events
+	EventDebateStatus = "debate.status"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -141,12 +147,22 @@ type PlanStatusEvent struct {
 
 // PlanStepStatusEvent is broadcast when a plan step's status changes.
 type PlanStepStatusEvent struct {
-	PlanID    string `json:"plan_id"`
-	StepID    string `json:"step_id"`
-	ProjectID string `json:"project_id"`
-	Status    string `json:"status"`
-	RunID     string `json:"run_id,omitempty"`
-	Error     string `json:"error,omitempty"`
+	PlanID         string                  `json:"plan_id"`
+	StepID         string                  `json:"step_id"`
+	ProjectID      string                  `json:"project_id"`
+	Status         string                  `json:"status"`
+	RunID          string                  `json:"run_id,omitempty"`
+	Error          string                  `json:"error,omitempty"`
+	ReviewDecision *ReviewDecisionSnapshot `json:"review_decision,omitempty"`
+}
+
+// ReviewDecisionSnapshot is an optional snapshot of a review router decision
+// embedded in step status events for frontend rendering.
+type ReviewDecisionSnapshot struct {
+	NeedsReview bool    `json:"needs_review"`
+	Confidence  float64 `json:"confidence"`
+	Reason      string  `json:"reason"`
+	Routed      bool    `json:"routed"`
 }
 
 // TeamStatusEvent is broadcast when a team's status changes.
@@ -245,6 +261,28 @@ type LSPDiagnosticEvent struct {
 	ProjectID   string                 `json:"project_id"`
 	URI         string                 `json:"uri"`
 	Diagnostics []lspDomain.Diagnostic `json:"diagnostics"`
+}
+
+// ReviewRouterDecisionEvent is broadcast when the review router evaluates a plan step.
+type ReviewRouterDecisionEvent struct {
+	PlanID             string   `json:"plan_id"`
+	StepID             string   `json:"step_id"`
+	ProjectID          string   `json:"project_id"`
+	NeedsReview        bool     `json:"needs_review"`
+	Confidence         float64  `json:"confidence"`
+	Reason             string   `json:"reason"`
+	SuggestedReviewers []string `json:"suggested_reviewers,omitempty"`
+	Routed             bool     `json:"routed"` // true if step was actually routed to review
+}
+
+// DebateStatusEvent is broadcast when a multi-agent debate starts or completes.
+type DebateStatusEvent struct {
+	PlanID       string `json:"plan_id"`
+	StepID       string `json:"step_id"`
+	ProjectID    string `json:"project_id"`
+	DebatePlanID string `json:"debate_plan_id"`
+	Status       string `json:"status"` // "started", "completed", "failed"
+	Synthesis    string `json:"synthesis,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

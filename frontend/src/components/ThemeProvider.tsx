@@ -132,7 +132,7 @@ export function ThemeProvider(props: ParentProps): JSX.Element {
 
     root.setAttribute("data-cf-theme", themeId);
     for (const [prop, value] of Object.entries(def.tokens)) {
-      root.style.setProperty(prop, value);
+      root.style.setProperty(prop, value ?? null);
     }
   }
 

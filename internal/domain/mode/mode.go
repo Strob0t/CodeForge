@@ -22,6 +22,7 @@ type Mode struct {
 	LLMScenario      string   `json:"llm_scenario" yaml:"llm_scenario"`
 	Autonomy         int      `json:"autonomy" yaml:"autonomy"`
 	PromptPrefix     string   `json:"prompt_prefix" yaml:"prompt_prefix"`
+	OutputSchema     string   `json:"output_schema,omitempty" yaml:"output_schema"`
 }
 
 // Validate checks that a Mode has all required fields and valid values.

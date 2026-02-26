@@ -134,7 +134,7 @@ export default function PromptEditorPage() {
   }
 
   return (
-    <PageLayout title={t("prompts.title")} subtitle={t("prompts.subtitle")}>
+    <PageLayout title={t("prompts.title")} description={t("prompts.subtitle")}>
       {/* Scope selector + actions */}
       <div class="mb-4 flex items-center gap-3">
         <Select value={scope()} onChange={(e) => setScope(e.currentTarget.value)} class="w-40">
@@ -252,7 +252,7 @@ export default function PromptEditorPage() {
       <Show when={!sections.loading} fallback={<LoadingState />}>
         <Show
           when={(sections() ?? []).length > 0}
-          fallback={<EmptyState message={t("prompts.empty")} />}
+          fallback={<EmptyState title={t("prompts.empty")} />}
         >
           <div class="space-y-2">
             <For each={sections()}>

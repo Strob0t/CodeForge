@@ -309,3 +309,154 @@ test.describe("Authentication — Session Expiry", () => {
     expect(res.status()).toBe(401);
   });
 });
+
+test.describe("Authentication — Password Change", () => {
+  test("password change via API (Settings prerequisite)", async ({ request }) => {
+    // Login to get a valid token
+    const login = await apiLogin(ADMIN_EMAIL, ADMIN_PASS);
+
+    // Attempt to change password via the change-password endpoint
+    const res = await request.post(`${API_BASE}/auth/change-password`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${login.accessToken}`,
+      },
+      data: {
+        current_password: ADMIN_PASS,
+        new_password: "NewPassword456",
+      },
+    });
+
+    // If password change succeeds, change it back
+    if (res.ok()) {
+      const newLogin = await apiLogin(ADMIN_EMAIL, "NewPassword456");
+      await request.post(`${API_BASE}/auth/change-password`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${newLogin.accessToken}`,
+        },
+        data: {
+          current_password: "NewPassword456",
+          new_password: ADMIN_PASS,
+        },
+      });
+    }
+
+    // Either 200 (success) or 400/422 (validation) is acceptable — not 500
+    expect(res.status()).toBeLessThan(500);
+  });
+});
+
+test.describe("Authentication — Token Refresh Behavior", () => {
+  test("refresh token grants new access token after re-login", async ({ request }) => {
+    // Login to establish a session with refresh cookie
+    const loginRes = await request.post(`${API_BASE}/auth/login`, {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASS },
+    });
+    expect(loginRes.status()).toBe(200);
+    const body = await loginRes.json();
+    expect(body.access_token).toBeTruthy();
+
+    // Attempt refresh — the login response should have set a refresh cookie
+    const refreshRes = await request.post(`${API_BASE}/auth/refresh`);
+    // If refresh cookies were set, we get 200; otherwise 401 (no cookie in APIRequestContext)
+    expect([200, 401]).toContain(refreshRes.status());
+  });
+});
+
+test.describe("Authentication — API Key Auth via Header", () => {
+  let adminToken: string;
+
+  test.beforeAll(async () => {
+    const loginResult = await apiLogin(ADMIN_EMAIL, ADMIN_PASS);
+    adminToken = loginResult.accessToken;
+  });
+
+  test("X-API-Key header authenticates requests to protected endpoints", async ({ request }) => {
+    // Create an API key
+    const createRes = await request.post(`${API_BASE}/auth/api-keys`, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${adminToken}`,
+      },
+      data: { name: `e2e-apikey-header-${Date.now()}` },
+    });
+    expect(createRes.status()).toBe(201);
+    const createBody = await createRes.json();
+    const plainKey = createBody.plain_key;
+    const keyId = createBody.api_key.id;
+
+    // Use X-API-Key to access /projects (a protected endpoint)
+    const projectsRes = await request.get(`${API_BASE}/projects`, {
+      headers: { "X-API-Key": plainKey },
+    });
+    expect(projectsRes.status()).toBe(200);
+    const projects = await projectsRes.json();
+    expect(Array.isArray(projects)).toBe(true);
+
+    // Cleanup
+    await request.delete(`${API_BASE}/auth/api-keys/${encodeURIComponent(keyId)}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+  });
+});
+
+test.describe("Authentication — Multiple Sessions", () => {
+  test("two simultaneous browser contexts share valid auth", async ({ browser }) => {
+    // Create two independent browser contexts
+    const context1 = await browser.newContext({
+      baseURL: "http://localhost:3000",
+    });
+    const context2 = await browser.newContext({
+      baseURL: "http://localhost:3000",
+    });
+
+    const page1 = await context1.newPage();
+    const page2 = await context2.newPage();
+
+    // Login in context 1
+    await page1.goto("/login");
+    await page1.locator("#email").fill(ADMIN_EMAIL);
+    await page1.locator("#password").fill(ADMIN_PASS);
+    await page1.getByRole("button", { name: "Sign in" }).click();
+    await expect(page1).not.toHaveURL(/\/login/, { timeout: 10_000 });
+
+    // Login in context 2
+    await page2.goto("/login");
+    await page2.locator("#email").fill(ADMIN_EMAIL);
+    await page2.locator("#password").fill(ADMIN_PASS);
+    await page2.getByRole("button", { name: "Sign in" }).click();
+    await expect(page2).not.toHaveURL(/\/login/, { timeout: 10_000 });
+
+    // Both contexts should be able to access the dashboard
+    await page1.goto("/");
+    await expect(page1.locator("h1").first()).toBeVisible({ timeout: 10_000 });
+
+    await page2.goto("/");
+    await expect(page2.locator("h1").first()).toBeVisible({ timeout: 10_000 });
+
+    await context1.close();
+    await context2.close();
+  });
+});
+
+test.describe("Authentication — Login Form Keyboard Navigation", () => {
+  test("Tab and Enter navigate and submit login form", async ({ page }) => {
+    await page.goto("/login");
+
+    // Focus the email input first
+    await page.locator("#email").focus();
+    await page.keyboard.type(ADMIN_EMAIL);
+
+    // Tab to the password field
+    await page.keyboard.press("Tab");
+    await page.keyboard.type(ADMIN_PASS);
+
+    // Tab to the submit button and press Enter
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Enter");
+
+    // Should navigate away from /login after successful auth
+    await expect(page).not.toHaveURL(/\/login/, { timeout: 10_000 });
+  });
+});

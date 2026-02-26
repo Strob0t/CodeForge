@@ -51,6 +51,7 @@ import type {
   Mode,
   ModelCostSummary,
   PlanFeatureRequest,
+  PlanGraph,
   PMImportRequest,
   PolicyProfile,
   PolicyToolCall,
@@ -61,6 +62,7 @@ import type {
   RepoMap,
   RetrievalIndexStatus,
   RetrievalSearchResult,
+  ReviewDecision,
   Roadmap,
   RoadmapFeature,
   Run,
@@ -439,6 +441,14 @@ export const api = {
       request<{ status: string }>(`/plans/${encodeURIComponent(id)}/cancel`, {
         method: "POST",
       }),
+
+    graph: (id: string) => request<PlanGraph>(`/plans/${encodeURIComponent(id)}/graph`),
+
+    evaluateStep: (planId: string, stepId: string) =>
+      request<ReviewDecision>(
+        `/plans/${encodeURIComponent(planId)}/steps/${encodeURIComponent(stepId)}/evaluate`,
+        { method: "POST" },
+      ),
   },
 
   modes: {

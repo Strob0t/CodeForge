@@ -128,6 +128,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/plans/{id}", h.GetPlan)
 		r.Post("/plans/{id}/start", h.StartPlan)
 		r.Post("/plans/{id}/cancel", h.CancelPlan)
+		r.Get("/plans/{id}/graph", h.GetPlanGraph)
+		r.Post("/plans/{id}/steps/{stepId}/evaluate", h.EvaluateStep)
 
 		// Agent Teams (nested under projects)
 		r.Post("/projects/{id}/teams", h.CreateTeam)

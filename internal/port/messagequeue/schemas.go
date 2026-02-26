@@ -54,6 +54,7 @@ type ModePayload struct {
 	DeniedActions    []string `json:"denied_actions,omitempty"`
 	RequiredArtifact string   `json:"required_artifact,omitempty"`
 	LLMScenario      string   `json:"llm_scenario,omitempty"`
+	OutputSchema     string   `json:"output_schema,omitempty"`
 }
 
 // RunStartPayload is the schema for runs.start messages.

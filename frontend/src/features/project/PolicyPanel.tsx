@@ -584,7 +584,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             <p class="text-sm text-cf-text-tertiary">{t("policy.preview.description")}</p>
 
             <div class="grid grid-cols-2 gap-3">
-              <FormField label={t("policy.title")} for="preview-policy">
+              <FormField label={t("policy.title")} id="preview-policy">
                 <Select
                   id="preview-policy"
                   value={previewPolicy()}
@@ -599,7 +599,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   </For>
                 </Select>
               </FormField>
-              <FormField label={t("policy.table.tool")} for="preview-tool">
+              <FormField label={t("policy.table.tool")} id="preview-tool">
                 <Input
                   id="preview-tool"
                   placeholder={t("policy.toolPlaceholder")}
@@ -610,7 +610,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             </div>
 
             <div class="grid grid-cols-2 gap-3">
-              <FormField label={t("policy.commandPlaceholder")} for="preview-command">
+              <FormField label={t("policy.commandPlaceholder")} id="preview-command">
                 <Input
                   id="preview-command"
                   placeholder={t("policy.commandPlaceholder")}
@@ -618,7 +618,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   onInput={(e) => setPreviewCommand(e.currentTarget.value)}
                 />
               </FormField>
-              <FormField label={t("policy.pathPlaceholder")} for="preview-path">
+              <FormField label={t("policy.pathPlaceholder")} id="preview-path">
                 <Input
                   id="preview-path"
                   placeholder={t("policy.pathPlaceholder")}
@@ -670,7 +670,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
           <div class="space-y-4">
             {/* Name & Description */}
             <div class="grid grid-cols-2 gap-3">
-              <FormField label={t("policy.editor.name")} for="policy-name" required>
+              <FormField label={t("policy.editor.name")} id="policy-name" required>
                 <Input
                   id="policy-name"
                   value={editProfile().name}
@@ -679,7 +679,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   aria-required="true"
                 />
               </FormField>
-              <FormField label={t("policy.editor.mode")} for="policy-mode">
+              <FormField label={t("policy.editor.mode")} id="policy-mode">
                 <Select
                   id="policy-mode"
                   value={editProfile().mode}
@@ -689,7 +689,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 </Select>
               </FormField>
             </div>
-            <FormField label={t("policy.editor.description")} for="policy-description">
+            <FormField label={t("policy.editor.description")} id="policy-description">
               <Input
                 id="policy-description"
                 value={editProfile().description || ""}
@@ -706,19 +706,17 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               <div class="flex gap-4 text-sm">
                 <Checkbox
                   checked={editProfile().quality_gate.require_tests_pass}
-                  onChange={(e) => updateQualityGate("require_tests_pass", e.currentTarget.checked)}
+                  onChange={(checked) => updateQualityGate("require_tests_pass", checked)}
                   label={t("policy.tests")}
                 />
                 <Checkbox
                   checked={editProfile().quality_gate.require_lint_pass}
-                  onChange={(e) => updateQualityGate("require_lint_pass", e.currentTarget.checked)}
+                  onChange={(checked) => updateQualityGate("require_lint_pass", checked)}
                   label={t("policy.lint")}
                 />
                 <Checkbox
                   checked={editProfile().quality_gate.rollback_on_gate_fail}
-                  onChange={(e) =>
-                    updateQualityGate("rollback_on_gate_fail", e.currentTarget.checked)
-                  }
+                  onChange={(checked) => updateQualityGate("rollback_on_gate_fail", checked)}
                   label={t("policy.rollback")}
                 />
               </div>
