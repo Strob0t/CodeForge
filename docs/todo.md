@@ -596,7 +596,7 @@ For full completion history, see [project-status.md](project-status.md).
 
 #### Final Results
 - [x] (2026-02-24) **262/266 PASS (98.5%)** — 42/44 modules at 100%, 4 remaining failures are infrastructure timeouts (Python retrieval workers not running)
-- [x] (2026-02-24) **Round 3**: 44/44 regression tests PASS (26 domain-error + 18 sanity tests) — all resource-scoped handlers now return proper HTTP status codes
+- [x] (2026-02-24) Round 3: 44/44 regression tests PASS (26 domain-error + 18 sanity tests) — all resource-scoped handlers now return proper HTTP status codes
 - [ ] BLOCKED: 4 search/graph endpoint tests require running Python retrieval workers (search project, agent search, graph search, SQLi in search)
 
 ---
@@ -747,14 +747,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Create E2E test plan document (`docs/e2e-test-plan.md`) — 6 phases, 60+ test cases across all 4 pillars
 - [x] (2026-02-23) Create executable E2E test script (`/tmp/e2e-vision-test.sh`) — automated PASS/FAIL/SKIP reporting
 - [x] (2026-02-23) Fix bug: ReviewService.CreatePolicy missing TenantID — added `tenantID` param to service method, handler extracts from context (`internal/service/review.go`, `internal/adapter/http/handlers.go`)
-- [x] (2026-02-23) E2E test results: **88 PASS, 0 FAIL, 3 SKIP** (97% pass rate)
-  - Phase 0: 6 PASS — infrastructure (Go Core, PostgreSQL, NATS, LiteLLM, Groq, Mistral)
-  - Phase 1: 13 PASS — Project Dashboard (create, clone, workspace, stack detect, git ops, providers)
-  - Phase 2: 15 PASS — Roadmap (CRUD, AI views JSON/YAML/MD, spec detect, GitHub PM import, sync)
-  - Phase 3: 8 PASS — Multi-LLM (models, health, direct Groq/Mistral calls, costs, backends)
-  - Phase 4: 24 PASS, 1 SKIP — Agent Orchestration (agent/task CRUD, policy eval, modes, run creation; run execution skipped — Python worker not running)
-  - Phase 5: 21 PASS, 2 SKIP — Cross-pillar (scope, review policy, plans, costs, audit; repomap/search skipped — Python worker needed)
-  - Phase 6: 1 PASS — WebSocket connection established
+- [x] (2026-02-23) E2E test results: 88 PASS, 0 FAIL, 3 SKIP (97% pass rate) (Phase 0: 6 PASS infrastructure, Phase 1: 13 PASS Project Dashboard, Phase 2: 15 PASS Roadmap, Phase 3: 8 PASS Multi-LLM, Phase 4: 24 PASS 1 SKIP Agent Orchestration, Phase 5: 21 PASS 2 SKIP Cross-pillar, Phase 6: 1 PASS WebSocket)
 - [ ] Start Python worker and re-run E2E tests to validate agent execution pipeline (Phase 4.15, 5.2, 5.5) [BLOCKED: full stack required]
 
 ---
@@ -768,18 +761,12 @@ For full completion history, see [project-status.md](project-status.md).
 #### 13.1 Foundation Fixes (Phase 1)
 
 ##### 13.1A Backend Input Validation
-- [x] (2026-02-24) Create `internal/domain/project/validation.go` with `ValidateCreateRequest()` and `ValidateUpdateRequest()`
-  - Name: non-empty, max 255 chars, no control chars
-  - Provider: must be in `gitprovider.Available()` or empty
-  - RepoURL: if non-empty, must be valid git URL (`https://...` or `git@...:...`)
-  - Description: max 2000 chars
-  - Return `domain.ErrValidation` wrapping specific field errors
+- [x] (2026-02-24) Create `internal/domain/project/validation.go` with `ValidateCreateRequest()` and `ValidateUpdateRequest()` (Name: non-empty max 255 chars no control chars, Provider: must be in `gitprovider.Available()` or empty, RepoURL: if non-empty must be valid git URL, Description: max 2000 chars, returns `domain.ErrValidation` wrapping specific field errors)
 - [x] (2026-02-24) Create `internal/domain/project/validation_test.go` with table-driven tests
 - [x] (2026-02-24) Wire validation into `CreateProject` handler and `ProjectService.Create()`
 
 ##### 13.1B Mode Scenario Validation
-- [x] (2026-02-24) Add `ValidScenarios` list to `internal/domain/mode/mode.go`, validate `LLMScenario` in `Validate()`
-  - Valid scenarios: `default`, `background`, `think`, `longContext`, `review`, `plan`
+- [x] (2026-02-24) Add `ValidScenarios` list to `internal/domain/mode/mode.go`, validate `LLMScenario` in `Validate()` (valid scenarios: `default`, `background`, `think`, `longContext`, `review`, `plan`)
 - [x] (2026-02-24) Add `ListScenarios` handler in `internal/adapter/http/handlers.go`
 - [x] (2026-02-24) Add route `r.Get("/modes/scenarios", h.ListScenarios)` BEFORE `r.Get("/modes/{id}", ...)` in routes.go
 
@@ -819,9 +806,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Frontend: debounced `onInput` on repo_url field; auto-fill name+provider; remove required marker on name when URL present
 
 ##### 13.2D Local Project Hint/Button
-- [x] (2026-02-24) Frontend: add tab toggle `[Remote] [Local]` at top of project form in `DashboardPage.tsx`
-  - Local mode: path input + optional name; calls `POST /projects` then `POST /projects/{id}/adopt`
-  - Auto-detect name from directory basename
+- [x] (2026-02-24) Frontend: add tab toggle `[Remote] [Local]` at top of project form in `DashboardPage.tsx` (Local mode: path input + optional name, calls `POST /projects` then `POST /projects/{id}/adopt`, auto-detect name from directory basename)
 
 #### 13.3 Settings & Account Management (Phase 3)
 
@@ -859,11 +844,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) `SendMessage` flow: store user msg → build context → LiteLLM call → WS broadcast AG-UI `agui.text_message` → store full response (streaming deferred to Phase 8)
 
 ##### 13.5B Frontend: Chat Panel
-- [x] (2026-02-24) Create `frontend/src/features/project/ChatPanel.tsx`
-  - Message list (scrollable, auto-scroll), input textarea (Enter=send, Shift+Enter=newline)
-  - Message bubbles: user (right/blue), assistant (left/gray)
-  - Loading indicator ("Thinking..." animation)
-  - WebSocket subscription for `agui.text_message`, `agui.tool_call` (deferred to Phase 8)
+- [x] (2026-02-24) Create `frontend/src/features/project/ChatPanel.tsx` (message list with auto-scroll, input textarea with Enter=send/Shift+Enter=newline, user/assistant message bubbles, loading indicator, WebSocket subscription for `agui.text_message` and `agui.tool_call` deferred to Phase 8)
 - [x] (2026-02-24) Add "Chat" tab to `ProjectDetailPage.tsx`
 - [x] (2026-02-24) Add `Conversation`, `Message`, `SendMessageRequest` to `frontend/src/api/types.ts`
 - [x] (2026-02-24) Add `conversations` namespace to `frontend/src/api/client.ts`
@@ -907,8 +888,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Create `frontend/e2e/security.spec.ts` — OWASP WSTG tests: injection, broken auth, IDOR, CORS, headers, CSRF, path traversal
 
 ##### 13.9B Policy "Effective Permission Preview"
-- [x] (2026-02-24) Add "Preview" mode to `PolicyPanel.tsx` showing matched rule + reason for a given tool call
-  - Full EvaluationResult display (decision, scope, matched_rule, reason) + standalone preview view
+- [x] (2026-02-24) Add "Preview" mode to `PolicyPanel.tsx` showing matched rule + reason for a given tool call (full EvaluationResult display with decision, scope, matched_rule, reason, plus standalone preview view)
 
 ##### 13.9C Retrieval Sub-Agent Enhancements
 - [x] (2026-02-24) Add configurable `expansion_prompt` field to project config (variadic parameter in `SubAgentSearchSync`, read from `project.Config["expansion_prompt"]`)
@@ -1417,7 +1397,7 @@ Bug Fixes --- independent, anytime
 > Current prompt prefixes are 2-3 generic lines ("You are a software developer. Write clean code.").
 > Real coding agents (Claude Code, Aider, etc.) use detailed system prompts with concrete behavioral
 > rules, methodology, constraints, and output expectations. The built-in modes need the same depth.
-> Reference: https://github.com/Piebald-AI/claude-code-system-prompts
+> Reference: [Piebald-AI/claude-code-system-prompts](https://github.com/Piebald-AI/claude-code-system-prompts)
 >
 > **Architecture Decision: Embedded Defaults + DB Overrides + Priority Pruning (B+)**
 >
@@ -1434,9 +1414,9 @@ Bug Fixes --- independent, anytime
 > - **Future migration to DSPy** planned — `Source: "dspy_optimized"` reserved as future type,
 >   API endpoints designed to remain stable when DSPy replaces manual prompts
 >
-> References: Priompt (github.com/anysphere/priompt), IBM PDL (arxiv.org/abs/2410.19135),
-> Anthropic Context Engineering (anthropic.com/engineering/effective-context-engineering-for-ai-agents),
-> DSPy (arxiv.org/abs/2310.03714)
+> References: Priompt ([github.com/anysphere/priompt](https://github.com/anysphere/priompt)), IBM PDL ([arxiv.org/abs/2410.19135](https://arxiv.org/abs/2410.19135)),
+> Anthropic Context Engineering ([anthropic.com](https://anthropic.com/engineering/effective-context-engineering-for-ai-agents)),
+> DSPy ([arxiv.org/abs/2310.03714](https://arxiv.org/abs/2310.03714))
 
 - [x] (2026-02-25) **Coder mode:** Expand prompt prefix with: read-before-modify rule, avoid over-engineering, no unnecessary additions/abstractions/error-handling, security awareness (OWASP top 10), minimal changes, follow project conventions, explicit output as diff
 - [x] (2026-02-25) **Architect mode:** Expand with: thorough exploration methodology (find patterns, trace code paths, understand current architecture), step-by-step plan output format, critical files list, trade-off analysis, dependency sequencing
@@ -1521,9 +1501,9 @@ Bug Fixes --- independent, anytime
 > Research references:
 > - DeepEval: github.com/confident-ai/deepeval (Apache 2.0, 13.8k stars, 60+ metrics)
 > - AgentNeo: github.com/raga-ai-hub/RagaAI-Catalyst (Apache 2.0, ~6k stars)
-> - GEMMAS: arxiv.org/abs/2507.13190 (EMNLP 2025, IDS + UPR metrics, no code released)
-> - REALM-Bench: arxiv.org/abs/2502.18836 (Stanford, multi-agent coordination benchmark)
-> - SPARC-Bench: github.com/agenticsorg/sparc-bench (MIT, SWE-bench based, Roo Code ecosystem)
+> - GEMMAS: [arxiv.org/abs/2507.13190](https://arxiv.org/abs/2507.13190) (EMNLP 2025, IDS + UPR metrics, no code released)
+> - REALM-Bench: [arxiv.org/abs/2502.18836](https://arxiv.org/abs/2502.18836) (Stanford, multi-agent coordination benchmark)
+> - SPARC-Bench: [github.com/agenticsorg/sparc-bench](https://github.com/agenticsorg/sparc-bench) (MIT, SWE-bench based, Roo Code ecosystem)
 
 #### 20A: DeepEval Integration — Agent Evaluation Metrics
 
@@ -1533,24 +1513,10 @@ Bug Fixes --- independent, anytime
 
 - [x] (2026-02-25) Add `deepeval` to `pyproject.toml` dependencies
 - [x] (2026-02-25) Create `workers/codeforge/evaluation/__init__.py` — package init
-- [x] (2026-02-25) Create `workers/codeforge/evaluation/runner.py` — `BenchmarkRunner` class:
-  - Accepts a `BenchmarkDataset` (tasks with input prompt, expected output, expected tool calls)
-  - Runs each task by sending prompt to LLM via LiteLLMClient
-  - Evaluates outputs against expected results using configured metrics
-  - Returns list of `TaskResult` with scores, output, duration
-- [x] (2026-02-25) Create `workers/codeforge/evaluation/metrics.py` — metric wrappers:
-  - `evaluate_correctness()` — uses DeepEval `GEval` with custom criteria
-  - `evaluate_tool_correctness()` — uses DeepEval `GEval` for tool call matching
-  - `evaluate_faithfulness()` — uses DeepEval `FaithfulnessMetric`
-  - `evaluate_answer_relevancy()` — uses DeepEval `AnswerRelevancyMetric`
-  - All metrics use LiteLLMJudge as judge LLM (routes through LiteLLM proxy)
-- [x] (2026-02-25) Create `workers/codeforge/evaluation/litellm_judge.py` — custom `DeepEvalBaseLLM` subclass:
-  - Wraps LiteLLM proxy (`/v1/chat/completions`) as the evaluation judge
-  - Configurable model, base_url, api_key, timeout
-  - Both sync `generate()` and async `a_generate()` methods
-- [x] (2026-02-25) Create `workers/codeforge/evaluation/datasets.py` — benchmark dataset management:
-  - `load_dataset(path)` → `BenchmarkDataset` with Pydantic models
-  - `save_results(results, path)` → JSON file output
+- [x] (2026-02-25) Create `workers/codeforge/evaluation/runner.py` — `BenchmarkRunner` class (accepts BenchmarkDataset, runs each task via LiteLLMClient, evaluates outputs against expected results, returns list of TaskResult with scores/output/duration)
+- [x] (2026-02-25) Create `workers/codeforge/evaluation/metrics.py` — metric wrappers (evaluate_correctness via GEval, evaluate_tool_correctness via GEval, evaluate_faithfulness via FaithfulnessMetric, evaluate_answer_relevancy via AnswerRelevancyMetric, all using LiteLLMJudge as judge LLM)
+- [x] (2026-02-25) Create `workers/codeforge/evaluation/litellm_judge.py` — custom `DeepEvalBaseLLM` subclass (wraps LiteLLM proxy as evaluation judge, configurable model/base_url/api_key/timeout, sync `generate()` and async `a_generate()` methods)
+- [x] (2026-02-25) Create `workers/codeforge/evaluation/datasets.py` — benchmark dataset management (`load_dataset(path)` returns BenchmarkDataset with Pydantic models, `save_results(results, path)` outputs JSON file)
 
 **Benchmark task YAML format (`configs/benchmarks/`):**
 
@@ -1579,26 +1545,15 @@ Bug Fixes --- independent, anytime
 
 - [x] (2026-02-25) Add `agentneo` to `pyproject.toml` dependencies (optional dependency: `agentneo = { version = "^0.1", optional = true }`)
 - [x] (2026-02-25) Create `workers/codeforge/tracing/__init__.py` — package init
-- [x] (2026-02-25) Create `workers/codeforge/tracing/setup.py` — `TracingManager` class:
-  - `init()` — creates AgentNeo `Tracer` instance when `APP_ENV=development`, falls back to `_NoOpTracer` otherwise
-  - `get_tracer()` — returns the active tracer (or a no-op stub when disabled)
-  - Auto-instrumentation: calls `tracer.instrument_litellm()` on init
-  - Session management: `start_session(run_id)`, `end_session(run_id)`
-  - `enabled` property: True only when dev mode AND agentneo is installed
+- [x] (2026-02-25) Create `workers/codeforge/tracing/setup.py` — `TracingManager` class (`init()` creates AgentNeo Tracer in dev mode with NoOpTracer fallback, `get_tracer()` returns active tracer or stub, auto-instrumentation via `tracer.instrument_litellm()`, session management with start/end, `enabled` property gated by dev mode and agentneo installation)
 - [x] (2026-02-25) Instrument `workers/codeforge/executor.py` — added `@_tracer.trace_agent("executor")` decorator to `execute()` and `execute_with_runtime()`
 - [x] (2026-02-25) Instrument `workers/codeforge/mcp_workbench.py` — added `@_tracer.trace_tool("mcp_tool")` to `call_tool()` and `@_tracer.trace_agent("mcp_workbench")` to `connect_servers()`
 - [x] (2026-02-25) Instrument `workers/codeforge/agent_loop.py` — added `@_tracer.trace_agent("agent_loop")` to `AgentLoopExecutor.run()`
-- [x] (2026-02-25) Create `workers/codeforge/tracing/metrics.py` — AgentNeo metric evaluation:
-  - `evaluate_tool_selection_accuracy(session)` — how well agent selects appropriate tools
-  - `evaluate_goal_decomposition(session)` — how well agent breaks down complex tasks
-  - `evaluate_plan_adaptability(session)` — how well agent adapts when tools fail or return unexpected results
-  - All use AgentNeo's built-in `execute()` method with graceful ImportError handling
+- [x] (2026-02-25) Create `workers/codeforge/tracing/metrics.py` — AgentNeo metric evaluation (evaluate_tool_selection_accuracy, evaluate_goal_decomposition, evaluate_plan_adaptability, all using AgentNeo's built-in `execute()` method with graceful ImportError handling)
 
 **Dashboard integration:**
 
-- [x] (2026-02-25) Create `workers/codeforge/tracing/dashboard.py` — optional dashboard launcher:
-  - `launch(port: int = 3100)` — starts AgentNeo React dashboard (only in dev mode)
-  - Graceful degradation when agentneo not installed
+- [x] (2026-02-25) Create `workers/codeforge/tracing/dashboard.py` — optional dashboard launcher (`launch(port=3100)` starts AgentNeo React dashboard in dev mode only, graceful degradation when agentneo not installed)
 - [x] (2026-02-25) Add `benchmark.dashboard_port` config key to `codeforge.yaml` (already present from Phase 20D)
 - [x] (2026-02-25) Document dashboard access in `docs/dev-setup.md` — added "Benchmark Mode (Dev-Only)" section
 
@@ -1609,7 +1564,7 @@ Bug Fixes --- independent, anytime
 
 #### 20C: GEMMAS-Inspired Metrics — Multi-Agent Collaboration Quality
 
-> Custom implementation based on GEMMAS paper (arxiv.org/abs/2507.13190).
+> Custom implementation based on GEMMAS paper ([arxiv.org/abs/2507.13190](https://arxiv.org/abs/2507.13190)).
 > No code was released, so we implement the two core metrics ourselves.
 > Only relevant once multi-agent workflows (DAG orchestration) are active.
 
@@ -1617,38 +1572,21 @@ Bug Fixes --- independent, anytime
 
 - [x] (2026-02-25) Create `workers/codeforge/evaluation/collaboration.py` with two metric classes:
 
-- [x] (2026-02-25) **`InformationDiversityScore` (IDS):**
-  - Input: `CollaborationDAG` from dag_builder
-  - Uses TF-IDF cosine similarity (scikit-learn) weighted by spatial adjacency matrix
-  - Returns score 0.0-1.0 (higher = more diverse contributions, less redundancy)
-  - Edge cases: single agent returns 1.0, no connected pairs returns 1.0
+- [x] (2026-02-25) `InformationDiversityScore` (IDS) (input: CollaborationDAG from dag_builder, uses TF-IDF cosine similarity weighted by spatial adjacency matrix, returns score 0.0-1.0 where higher means more diverse contributions, edge cases: single agent or no connected pairs returns 1.0)
 
-- [x] (2026-02-25) **`UnnecessaryPathRatio` (UPR):**
-  - Input: `CollaborationDAG` + path_scores dict (from DeepEval or manual annotation)
-  - Enumerates all paths from root agents to leaf agents
-  - Classifies paths: necessary (score >= 0.5) vs unnecessary (score < 0.5)
-  - Returns score 0.0-1.0 (lower = more efficient, fewer wasted reasoning paths)
-  - No scores provided returns 0.0 (optimistic default)
+- [x] (2026-02-25) `UnnecessaryPathRatio` (UPR) (input: CollaborationDAG + path_scores dict, enumerates all paths from root to leaf agents, classifies necessary vs unnecessary at threshold 0.5, returns score 0.0-1.0 where lower means more efficient, no scores provided returns 0.0 optimistic default)
 
 - [ ] Add `sentence-transformers` to `pyproject.toml` dependencies (deferred: TF-IDF provides sufficient syntactic similarity for now)
 - [x] (2026-02-25) Add `scikit-learn` dependency (for TF-IDF computation in IDS)
 
 **Integration with event stream:**
 
-- [x] (2026-02-25) Create `workers/codeforge/evaluation/dag_builder.py` — `build_collaboration_dag(messages: list[dict]) -> CollaborationDAG`:
-  - `AgentMessage` Pydantic model (agent_id, content, round, parent_agent_id)
-  - `CollaborationDAG(messages)` — builds directed edges from parent relationships
-  - `spatial_adjacency()` → NxN numpy matrix of direct communication links
-  - `temporal_adjacency()` → NxN numpy matrix based on round ordering
-  - `enumerate_paths()` → list of path strings (BFS from roots to leaves)
+- [x] (2026-02-25) Create `workers/codeforge/evaluation/dag_builder.py` — `build_collaboration_dag(messages: list[dict]) -> CollaborationDAG` (AgentMessage Pydantic model, CollaborationDAG builds directed edges from parent relationships, spatial_adjacency/temporal_adjacency NxN numpy matrices, enumerate_paths via BFS from roots to leaves)
 - [ ] Hook into trajectory recording system — when a multi-agent run completes, automatically compute IDS + UPR if benchmark mode is active (deferred: requires trajectory system)
 
 **Tests:**
 
-- [x] (2026-02-25) `workers/tests/test_collaboration.py` — combined test file with 10 tests:
-  - 4 IDS tests: single agent, diverse agents, redundant agents, no connected pairs
-  - 3 UPR tests: no scores, all necessary paths, mixed paths
-  - 3 DAG tests: spatial adjacency, temporal adjacency, enumerate paths
+- [x] (2026-02-25) `workers/tests/test_collaboration.py` — combined test file with 10 tests (4 IDS: single/diverse/redundant/no connected, 3 UPR: no scores/all necessary/mixed paths, 3 DAG: spatial adjacency/temporal adjacency/enumerate paths)
 
 #### 20D: Go Core — Benchmark API & Dev-Mode Gate
 
@@ -1665,9 +1603,7 @@ Bug Fixes --- independent, anytime
 
 **Database migration:**
 
-- [x] (2026-02-25) Migration `041_create_benchmark_runs.sql`:
-  - `benchmark_runs` table: `id`, `dataset`, `model`, `metrics` TEXT[], `status` CHECK, `summary_scores` JSONB, `total_cost`, `total_tokens`, `total_duration_ms`, `created_at`, `completed_at`
-  - `benchmark_results` table: `id`, `run_id` (FK CASCADE), `task_id`, `task_name`, `scores` JSONB, `actual_output`, `expected_output`, `tool_calls` JSONB, `cost_usd`, `tokens_in`, `tokens_out`, `duration_ms`
+- [x] (2026-02-25) Migration `041_create_benchmark_runs.sql` (benchmark_runs table with id/dataset/model/metrics/status/summary_scores/total_cost/total_tokens/total_duration_ms/timestamps, benchmark_results table with id/run_id FK CASCADE/task_id/task_name/scores JSONB/actual_output/expected_output/tool_calls JSONB/cost_usd/tokens_in/tokens_out/duration_ms)
 
 **Domain + Store + Service:**
 
@@ -1695,21 +1631,14 @@ Bug Fixes --- independent, anytime
 
 **New page: `/benchmarks` (visible in sidebar):**
 
-- [x] (2026-02-25) Create `frontend/src/features/benchmarks/BenchmarkPage.tsx` — unified benchmark page:
-  - Run list with status badges (success/warning/danger), duration, cost
-  - New run form with dataset selector, model input, metric toggle buttons
-  - Expandable run detail with per-task results table (scores, cost, duration)
-  - Compare section with two-run selector and compare button
-  - Datasets info section showing available datasets
+- [x] (2026-02-25) Create `frontend/src/features/benchmarks/BenchmarkPage.tsx` — unified benchmark page (run list with status badges/duration/cost, new run form with dataset selector and metric toggle buttons, expandable run detail with per-task results table, compare section with two-run selector, datasets info section)
 
 - [x] (2026-02-25) Create dedicated `BenchmarkRunDetail.tsx` component — extracted results table with props: results, loading, formatDuration
 - [x] (2026-02-25) Create dedicated `BenchmarkCompare.tsx` component — extracted compare section with own local signals (compareA, compareB)
 
-- [x] (2026-02-25) Add API client methods in `frontend/src/api/client.ts`:
-  - `api.benchmarks.listRuns()`, `api.benchmarks.getRun(id)`, `api.benchmarks.createRun(req)`, `api.benchmarks.deleteRun(id)`, `api.benchmarks.listResults(runId)`, `api.benchmarks.compare(idA, idB)`, `api.benchmarks.listDatasets()`
+- [x] (2026-02-25) Add API client methods in `frontend/src/api/client.ts` (listRuns, getRun, createRun, deleteRun, listResults, compare, listDatasets)
 
-- [x] (2026-02-25) Add TypeScript types in `frontend/src/api/types.ts`:
-  - `BenchmarkRun`, `BenchmarkResult`, `CreateBenchmarkRunRequest`, `BenchmarkCompareResult`, `BenchmarkDatasetInfo`
+- [x] (2026-02-25) Add TypeScript types in `frontend/src/api/types.ts` (BenchmarkRun, BenchmarkResult, CreateBenchmarkRunRequest, BenchmarkCompareResult, BenchmarkDatasetInfo)
 
 - [x] (2026-02-25) Add route `/benchmarks` in router
 - [x] (2026-02-25) Add "Benchmarks" nav item in sidebar
@@ -1718,8 +1647,7 @@ Bug Fixes --- independent, anytime
 
 #### 20F: Documentation & ADR
 
-- [x] (2026-02-25) Create `docs/architecture/adr/008-benchmark-evaluation-framework.md`:
-  - Context, Decision (3-pillar stack), Consequences, Alternatives (SPARC-Bench, REALM-Bench, RAGAS, custom, MLflow)
+- [x] (2026-02-25) Create `docs/architecture/adr/008-benchmark-evaluation-framework.md` (Context, Decision with 3-pillar stack, Consequences, Alternatives: SPARC-Bench/REALM-Bench/RAGAS/custom/MLflow)
 - [x] (2026-02-25) Update `docs/features/04-agent-orchestration.md` — added Benchmark Mode section with architecture, workflow, API endpoints, key files
 - [x] (2026-02-25) Update `docs/dev-setup.md` — added benchmark config, NATS subjects, project structure entries, datasets dir
 - [x] (2026-02-25) Update `docs/tech-stack.md` — added DeepEval, scikit-learn, AgentNeo to Python dependencies

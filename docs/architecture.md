@@ -318,7 +318,9 @@ Half-Open ──(failure)──────────────────�
 
 The breaker has configurable `maxFailures` and `timeout` from `config.Breaker`. It is injected via `SetBreaker()` on NATS and LiteLLM adapters. This prevents cascading failures when downstream services are unavailable.
 
-**Idempotency Middleware** (`internal/middleware/idempotency.go`) deduplicates mutating HTTP requests (POST/PUT/DELETE). The client sends an `Idempotency-Key` header. The first request executes, captures the response (status + headers + body), and stores it in NATS JetStream KV (24h TTL). Subsequent requests with the same key replay the cached response without re-executing. Response body is capped at 1 MB with best-effort storage (failures don't error the response). GET/HEAD/OPTIONS bypass the middleware entirely.
+**Idempotency Middleware** (`internal/middleware/idempotency.go`) deduplicates mutating HTTP requests (POST/PUT/DELETE). The client sends an `Idempotency-Key` header. The first request executes, captures the response (status + headers + body), and stores it in NATS JetStream KV (24h TTL). Subsequent requests with the same key replay the cached response without re-executing.
+
+Response body is capped at 1 MB with best-effort storage (failures don't error the response). GET/HEAD/OPTIONS bypass the middleware entirely.
 
 **Dead Letter Queue** handles failed NATS messages by retrying 3 times with `NakWithDelay(2s)`, then moving to `{subject}.dlq`. In Go, `moveToDLQ()` publishes to the DLQ subject and acks the original message. In Python, `_move_to_dlq()` uses the same retry counting via `Retry-Count` header. Invalid schema messages go directly to the DLQ with no retries.
 
@@ -346,9 +348,13 @@ The port lives at `internal/port/cache/cache.go` (Get/Set/Delete interface). Ada
 
 #### Agent Execution
 
-**Policy Layer** (`internal/service/policy.go`) evaluates first-match-wins permission rules per tool call. It ships with 4 built-in presets: `plan-readonly`, `headless-safe-sandbox`, `headless-permissive-sandbox`, and `trusted-mount-autonomous`. Custom YAML policies load from a configurable directory. Evaluation follows this order: tool specifier matching, path constraints (glob), command constraints (prefix), mode fallback. Quality gates require tests/lint pass with rollback on failure. Termination conditions include max steps, timeout, max cost, and stall detection. ADR: [007-policy-layer](architecture/adr/007-policy-layer.md).
+**Policy Layer** (`internal/service/policy.go`) evaluates first-match-wins permission rules per tool call. It ships with 4 built-in presets: `plan-readonly`, `headless-safe-sandbox`, `headless-permissive-sandbox`, and `trusted-mount-autonomous`. Custom YAML policies load from a configurable directory. Evaluation follows this order: tool specifier matching, path constraints (glob), command constraints (prefix), mode fallback.
 
-**Runtime API** (`internal/service/runtime.go`) provides a step-by-step execution protocol between Go Control Plane and Python Workers. NATS subjects include `runs.start`, `runs.toolcall.{request,response,result}`, `runs.complete`, `runs.cancel`, and `runs.output`. The protocol enforces per-tool-call policy: Python requests permission, Go evaluates policy, Go responds allow/deny/ask. Termination enforcement checks max steps, max cost, timeout, and stall detection per tool call. Quality gate orchestration works as follows: Go triggers gate request, Python runs test/lint, Go processes result. Five deliver modes are supported: none, patch, commit-local, branch, and PR. ADR: [006-agent-execution-approach-c](architecture/adr/006-agent-execution-approach-c.md).
+Quality gates require tests/lint pass with rollback on failure. Termination conditions include max steps, timeout, max cost, and stall detection. ADR: [007-policy-layer](architecture/adr/007-policy-layer.md).
+
+**Runtime API** (`internal/service/runtime.go`) provides a step-by-step execution protocol between Go Control Plane and Python Workers. NATS subjects include `runs.start`, `runs.toolcall.{request,response,result}`, `runs.complete`, `runs.cancel`, and `runs.output`. The protocol enforces per-tool-call policy: Python requests permission, Go evaluates policy, Go responds allow/deny/ask.
+
+Termination enforcement checks max steps, max cost, timeout, and stall detection per tool call. Quality gate orchestration works as follows: Go triggers gate request, Python runs test/lint, Go processes result. Five deliver modes are supported: none, patch, commit-local, branch, and PR. ADR: [006-agent-execution-approach-c](architecture/adr/006-agent-execution-approach-c.md).
 
 **Checkpoint System** (`internal/service/checkpoint.go`) creates shadow Git commits for safe rollback during agent execution. `CreateCheckpoint` runs `git add -A && git commit` after each file-modifying tool call. `RewindToFirst` runs `git reset --hard {first}^` to restore pre-run state on quality gate failure. `RewindToLast` runs `git reset --hard {last}^` to undo only the last change. `CleanupCheckpoints` runs `git reset --soft {first}^` to remove shadow commits while keeping the working tree.
 
@@ -393,7 +399,9 @@ The agentic loop makes CodeForge an autonomous coding agent. When a user sends a
                                   └─────────────────┘
 ```
 
-**Conversation Service** (`internal/service/conversation.go`) provides two paths: simple (single LLM call for projects without workspaces) and agentic (multi-turn tool loop). `IsAgentic()` determines the mode from the request override, project config, and workspace presence. `SendMessageAgentic()` stores the user message, loads conversation history, builds a context pack (system prompt, tool definitions, MCP servers, policy profile), and publishes a `ConversationRunStartPayload` to NATS. It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives the result via NATS, batch-inserts tool messages, stores the final assistant message, and broadcasts `agui.run_finished` via WebSocket.
+**Conversation Service** (`internal/service/conversation.go`) provides two paths: simple (single LLM call for projects without workspaces) and agentic (multi-turn tool loop). `IsAgentic()` determines the mode from the request override, project config, and workspace presence. `SendMessageAgentic()` stores the user message, loads conversation history, builds a context pack (system prompt, tool definitions, MCP servers, policy profile), and publishes a `ConversationRunStartPayload` to NATS.
+
+It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives the result via NATS, batch-inserts tool messages, stores the final assistant message, and broadcasts `agui.run_finished` via WebSocket.
 
 **Agent Loop Executor** (`workers/codeforge/agent_loop.py`) implements the core loop. It merges built-in tools (Read, Write, Edit, Bash, Search, Glob, ListDir) with MCP-discovered tools into a single tools array. Each iteration calls `chat_completion_stream()`, streams text chunks to the frontend via AG-UI events, and checks for tool_calls. For each tool call, it requests permission from Go via the Runtime API, executes the tool if allowed, and appends the result to the message history. The loop terminates on `finish_reason="stop"`, max steps, max cost, or cancellation.
 
@@ -405,7 +413,9 @@ The agentic loop makes CodeForge an autonomous coding agent. When a user sends a
 
 #### Observability
 
-**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording. Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 22+ event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, and delivery status. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download). Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).
+**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording. Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 22+ event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, and delivery status. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download).
+
+Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).
 
 **Structured Logging** uses async JSON logging across all services (ADR: [004-async-logging](architecture/adr/004-async-logging.md)). Go uses `slog.JSONHandler` wrapped in `AsyncHandler` (10K buffer, 4 workers, non-blocking drops). Python uses `structlog.JSONRenderer` via `QueueHandler` (10K buffer, background thread). The common schema is `{time, level, service, msg, request_id}`. Docker-native log management is described in ADR: [005-docker-native-logging](architecture/adr/005-docker-native-logging.md).
 
@@ -1376,23 +1386,33 @@ Three types exist: knowledge (factual), repo (project-specific), and task (actio
 
 #### Diff-based File Review (from Cline)
 
-Before applying changes, the user sees a side-by-side diff. The agent proposes changes as a unified diff. The frontend renders before/after with syntax highlighting. The user can accept, reject, or edit individual hunks. This is integrated into the Plan -> Approve -> Execute workflow. At autonomy level 3+, diffs are auto-approved for file edits.
+Before applying changes, the user sees a side-by-side diff. The agent proposes changes as a unified diff. The frontend renders before/after with syntax highlighting. The user can accept, reject, or edit individual hunks.
+
+This is integrated into the Plan -> Approve -> Execute workflow. At autonomy level 3+, diffs are auto-approved for file edits.
 
 #### Stateless Agent Design (from Devika)
 
-Agent processes are stateless with all state living in the Go Core. The agent receives full context (task, repo info, history) per invocation. No persistent agent processes exist between tasks. State transitions are tracked in the core service via database. This enables horizontal scaling since any worker can pick up any task. Agent State Visualization in the frontend reads from core, not from agents.
+Agent processes are stateless with all state living in the Go Core. The agent receives full context (task, repo info, history) per invocation. No persistent agent processes exist between tasks. State transitions are tracked in the core service via database.
+
+This enables horizontal scaling since any worker can pick up any task. Agent State Visualization in the frontend reads from core, not from agents.
 
 #### ACI -- Agent-Computer Interface (from SWE-agent)
 
-Shell commands are optimized for LLM agents (not for humans). `open <file> [line]` replaces complex `vim`/`cat` invocations. `edit <start>:<end> <content>` replaces sed/awk. `search_dir <pattern> [dir]` replaces `grep -r`. `find_file <name> [dir]` replaces `find`. This reduces error rate by providing LLM-friendly abstractions. The commands are implemented as YAML tool bundles (see Tool Definitions section).
+Shell commands are optimized for LLM agents (not for humans). `open <file> [line]` replaces complex `vim`/`cat` invocations. `edit <start>:<end> <content>` replaces sed/awk. `search_dir <pattern> [dir]` replaces `grep -r`. `find_file <name> [dir]` replaces `find`.
+
+This reduces error rate by providing LLM-friendly abstractions. The commands are implemented as YAML tool bundles (see Tool Definitions section).
 
 #### tree-sitter Repo Map (from Aider)
 
-A semantic code map is generated via tree-sitter parsing. It extracts class/function/method definitions from all files. Results are ranked by relevance to the current task (PageRank on call graph). This provides a codebase overview without sending all file contents. It reduces token usage while maintaining context quality. The repo map is part of the Context Layer (GraphRAG) and complements vector search.
+A semantic code map is generated via tree-sitter parsing. It extracts class/function/method definitions from all files. Results are ranked by relevance to the current task (PageRank on call graph). This provides a codebase overview without sending all file contents.
+
+It reduces token usage while maintaining context quality. The repo map is part of the Context Layer (GraphRAG) and complements vector search.
 
 #### Architect/Editor Pattern (from Aider)
 
-Separate LLM roles handle planning and implementation. The architect model (strong reasoning, e.g., Claude Opus) analyzes the codebase and creates a plan. The editor model (fast coding, e.g., Claude Sonnet) implements the plan. This maps directly to CodeForge's Modes System: `architect` -> `coder` pipeline. Cost optimization uses the expensive model only for planning and the cheaper model for execution. The pattern is configurable via mode pipelines in task YAML.
+Separate LLM roles handle planning and implementation. The architect model (strong reasoning, e.g., Claude Opus) analyzes the codebase and creates a plan. The editor model (fast coding, e.g., Claude Sonnet) implements the plan. This maps directly to CodeForge's Modes System: `architect` -> `coder` pipeline.
+
+Cost optimization uses the expensive model only for planning and the cheaper model for execution. The pattern is configurable via mode pipelines in task YAML.
 
 #### Edit Formats (from Aider)
 
@@ -1409,11 +1429,15 @@ Format selection is based on LLM capability level and file size. Automatic retry
 
 #### Skills System (from OpenHands)
 
-Reusable Python snippets are automatically injected into agent context. Pre-built skills cover common operations (file manipulation, git, testing). Skills are Python functions available in the agent's execution environment. They are automatically included in the prompt based on task context. Users can extend them with custom skills in `.codeforge/skills/`. Skills complement YAML Tool Bundles (skills are code, bundles are declarations).
+Reusable Python snippets are automatically injected into agent context. Pre-built skills cover common operations (file manipulation, git, testing). Skills are Python functions available in the agent's execution environment. They are automatically included in the prompt based on task context.
+
+Users can extend them with custom skills in `.codeforge/skills/`. Skills complement YAML Tool Bundles (skills are code, bundles are declarations).
 
 #### Risk Management (from OpenHands)
 
-LLM-based security analysis evaluates agent actions. The **InvariantAnalyzer** validates agent actions against security policies. It checks for path traversal, command injection, and credential exposure. It runs as a pre-execution filter in the Safety Layer and complements the Command Safety Evaluator with LLM-based reasoning. It can be disabled for trusted agents to reduce latency.
+LLM-based security analysis evaluates agent actions. The InvariantAnalyzer validates agent actions against security policies. It checks for path traversal, command injection, and credential exposure. It runs as a pre-execution filter in the Safety Layer and complements the Command Safety Evaluator with LLM-based reasoning.
+
+It can be disabled for trusted agents to reduce latency.
 
 ### Roadmap/Feature-Map: Auto-Detection and Adaptive Integration
 

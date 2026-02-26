@@ -20,27 +20,34 @@ This framework must be dev-mode only (no production overhead), integrate with th
 
 We adopt a three-pillar evaluation stack, all running in the Python worker:
 
-**1. DeepEval (Primary Metrics)**
+#### DeepEval (Primary Metrics)
+
 - LLM-as-judge evaluation using `GEval`, `FaithfulnessMetric`, and `AnswerRelevancyMetric`
 - Custom `LiteLLMJudge` wrapper routes judge calls through the existing LiteLLM Proxy
 - `BenchmarkRunner` loads YAML datasets, executes tasks, and evaluates with configured metrics
 - Results persisted to PostgreSQL via Go Core API
 
-**2. AgentNeo (Tracing & Observability)**
+#### AgentNeo (Tracing & Observability)
+
 - Optional dependency (`agentneo`) for dev-mode agent execution tracing
 - `TracingManager` with graceful degradation to `_NoOpTracer` when not installed
 - Three metric wrappers: tool selection accuracy, goal decomposition, plan adaptability
 - Optional React dashboard on configurable port (default: 3100)
 
-**3. GEMMAS-Inspired Collaboration Metrics**
+#### GEMMAS-Inspired Collaboration Metrics
+
 - Custom implementation of Information Diversity Score (IDS) and Unnecessary Path Ratio (UPR)
-- Based on the GEMMAS paper (arxiv.org/abs/2507.13190), adapted for our DAG orchestration model
+- Based on the GEMMAS paper ([arxiv.org/abs/2507.13190](https://arxiv.org/abs/2507.13190)), adapted for our DAG orchestration model
 - TF-IDF cosine similarity (scikit-learn) for content diversity measurement
 - `CollaborationDAG` builder with spatial and temporal adjacency matrices
 
-**Go Core API** provides CRUD endpoints for benchmark runs/results behind a `DevModeOnly` middleware that checks `APP_ENV=development`. Migration 041 adds `benchmark_runs` and `benchmark_results` tables.
+#### Go Core API
 
-**Frontend** provides a unified `BenchmarkPage` with run management, dataset selection, results inspection, and run comparison.
+CRUD endpoints for benchmark runs/results behind a `DevModeOnly` middleware that checks `APP_ENV=development`. Migration 041 adds `benchmark_runs` and `benchmark_results` tables.
+
+#### Frontend
+
+Unified `BenchmarkPage` with run management, dataset selection, results inspection, and run comparison.
 
 ### Consequences
 
@@ -79,8 +86,8 @@ We adopt a three-pillar evaluation stack, all running in the Python worker:
 
 ### References
 
-- DeepEval documentation: https://docs.confident-ai.com/
-- AgentNeo repository: https://github.com/raga-ai-hub/agentneo
-- GEMMAS paper: https://arxiv.org/abs/2507.13190
-- LiteLLM documentation: https://docs.litellm.ai/
+- DeepEval documentation: [docs.confident-ai.com](https://docs.confident-ai.com/)
+- AgentNeo repository: [github.com/raga-ai-hub/agentneo](https://github.com/raga-ai-hub/agentneo)
+- GEMMAS paper: [arxiv.org/abs/2507.13190](https://arxiv.org/abs/2507.13190)
+- LiteLLM documentation: [docs.litellm.ai](https://docs.litellm.ai/)
 - ADR-006: Agent Execution Approach C (Go control plane + Python runtime)

@@ -271,6 +271,11 @@ class LiteLLMClient:
         acc = _StreamAccumulator()
 
         async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
+            if resp.status_code >= 400:
+                body = await resp.aread()
+                logger.error(
+                    "LLM API error %d: %s (model=%s)", resp.status_code, body.decode(errors="replace")[:500], model
+                )
             resp.raise_for_status()
             with contextlib.suppress(ValueError, TypeError):
                 acc.cost = float(resp.headers.get("x-litellm-response-cost", "0"))

@@ -17,13 +17,9 @@ import {
   Textarea,
 } from "~/ui";
 
-const MERGE_OPTIONS = [
-  { value: "replace", label: "Replace" },
-  { value: "prepend", label: "Prepend" },
-  { value: "append", label: "Append" },
-];
+const MERGE_OPTIONS = ["replace", "prepend", "append"];
 
-const SCOPE_OPTIONS = [{ value: "global", label: "Global" }];
+const SCOPE_OPTIONS = ["global"];
 
 export default function PromptEditorPage() {
   const { t } = useI18n();
@@ -68,7 +64,7 @@ export default function PromptEditorPage() {
 
   async function handleSave() {
     if (!formName().trim()) {
-      toast(t("prompts.error.nameRequired"), "error");
+      toast("error", t("prompts.error.nameRequired"));
       return;
     }
     setSaving(true);
@@ -83,12 +79,12 @@ export default function PromptEditorPage() {
         enabled: formEnabled(),
         merge: formMerge() as "replace" | "prepend" | "append",
       });
-      toast(t("prompts.saved"), "success");
+      toast("success", t("prompts.saved"));
       setShowForm(false);
       resetForm();
       refetch();
     } catch {
-      toast(t("prompts.error.saveFailed"), "error");
+      toast("error", t("prompts.error.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -97,10 +93,10 @@ export default function PromptEditorPage() {
   async function handleDelete(id: string) {
     try {
       await api.promptSections.delete(id);
-      toast(t("prompts.deleted"), "success");
+      toast("success", t("prompts.deleted"));
       refetch();
     } catch {
-      toast(t("prompts.error.deleteFailed"), "error");
+      toast("error", t("prompts.error.deleteFailed"));
     }
   }
 
@@ -129,7 +125,7 @@ export default function PromptEditorPage() {
       setPreviewText(res.text);
       setPreviewTokens(res.total_tokens);
     } catch {
-      toast(t("prompts.error.previewFailed"), "error");
+      toast("error", t("prompts.error.previewFailed"));
     }
   }
 
@@ -141,12 +137,11 @@ export default function PromptEditorPage() {
     <PageLayout title={t("prompts.title")} subtitle={t("prompts.subtitle")}>
       {/* Scope selector + actions */}
       <div class="mb-4 flex items-center gap-3">
-        <Select
-          value={scope()}
-          onChange={(v) => setScope(v)}
-          options={SCOPE_OPTIONS}
-          class="w-40"
-        />
+        <Select value={scope()} onChange={(e) => setScope(e.currentTarget.value)} class="w-40">
+          <For each={SCOPE_OPTIONS}>
+            {(s) => <option value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>}
+          </For>
+        </Select>
         <Button
           onClick={() => {
             resetForm();
@@ -187,11 +182,11 @@ export default function PromptEditorPage() {
               <Input value={formName()} onInput={(e) => setFormName(e.currentTarget.value)} />
             </FormField>
             <FormField label={t("prompts.field.merge")}>
-              <Select
-                value={formMerge()}
-                onChange={(v) => setFormMerge(v)}
-                options={MERGE_OPTIONS}
-              />
+              <Select value={formMerge()} onChange={(e) => setFormMerge(e.currentTarget.value)}>
+                <For each={MERGE_OPTIONS}>
+                  {(m) => <option value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>}
+                </For>
+              </Select>
             </FormField>
             <FormField label={t("prompts.field.priority")}>
               <div class="flex items-center gap-2">

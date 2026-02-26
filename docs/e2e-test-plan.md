@@ -4,12 +4,12 @@
 > **Scope:** All 4 pillars (Project Dashboard, Roadmap, Multi-LLM, Agent Orchestration) + cross-pillar integration.
 > **Date:** 2026-02-23
 
-## Overview
+### Overview
 
 After completing HTTP endpoint QA testing (131 PASS, 0 FAIL), this E2E test validates the actual *vision*:
 Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate AI agents as one integrated system?
 
-### Infrastructure Requirements
+#### Infrastructure Requirements
 
 | Service | Status | Access |
 |---------|--------|--------|
@@ -19,7 +19,7 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 | LiteLLM | Docker (healthy) | `http://codeforge-litellm:4000` (internal) |
 | Python Worker | Manual start | `python -m codeforge.consumer` |
 
-### Verified LLM Models
+#### Verified LLM Models
 
 | Provider | Model | Status |
 |----------|-------|--------|
@@ -30,9 +30,9 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 
 ---
 
-## Test Phases
+### Test Phases
 
-### Phase 0: Infrastructure Bootstrap
+#### Phase 0: Infrastructure Bootstrap
 
 | # | Test | Endpoint | Expected |
 |---|------|----------|----------|
@@ -41,7 +41,7 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 | 0.3 | LLM connectivity | LiteLLM `/v1/chat/completions` | 200 with completion |
 | 0.4 | NATS health | `GET localhost:8222/healthz` | `ok` |
 
-### Phase 1: Pillar 1 — Project Dashboard
+#### Phase 1: Pillar 1 — Project Dashboard
 
 | # | Test | Endpoint | Expected |
 |---|------|----------|----------|
@@ -52,7 +52,7 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 | 1.5 | Git status | `GET /api/v1/projects/{id}/git/status` | 200, branch + commit hash |
 | 1.6 | Git branches | `GET /api/v1/projects/{id}/git/branches` | main + staging in list |
 
-### Phase 2: Pillar 2 — Roadmap/Feature-Map
+#### Phase 2: Pillar 2 — Roadmap/Feature-Map
 
 | # | Test | Endpoint | Expected |
 |---|------|----------|----------|
@@ -67,7 +67,7 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 | 2.9 | GitHub PM import | `POST /api/v1/projects/{id}/roadmap/import/pm` | 200, features imported |
 | 2.10 | Bidirectional sync (dry-run) | `POST /api/v1/projects/{id}/roadmap/sync` | 200, sync counts |
 
-### Phase 3: Pillar 3 — Multi-LLM Provider
+#### Phase 3: Pillar 3 — Multi-LLM Provider
 
 | # | Test | Endpoint | Expected |
 |---|------|----------|----------|
@@ -78,7 +78,7 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 | 3.5 | Provider registry | `GET /api/v1/providers/agent` | Lists agent backends |
 | 3.6 | Global costs | `GET /api/v1/costs` | 200, cost data |
 
-### Phase 4: Pillar 4 — Agent Orchestration
+#### Phase 4: Pillar 4 — Agent Orchestration
 
 | # | Test | Endpoint | Expected |
 |---|------|----------|----------|
@@ -93,7 +93,7 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 | 4.9 | Poll run status | `GET /api/v1/runs/{id}` | Status transitions |
 | 4.10 | Run events | `GET /api/v1/runs/{id}/events` | Event list |
 
-### Phase 5: Cross-Pillar Integration
+#### Phase 5: Cross-Pillar Integration
 
 | # | Test | Endpoint | Expected |
 |---|------|----------|----------|
@@ -108,7 +108,7 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 | 5.9 | Project costs | `GET /api/v1/projects/{id}/costs` | Cost data |
 | 5.10 | Cost by model | `GET /api/v1/projects/{id}/costs/by-model` | Breakdown data |
 
-### Phase 6: WebSocket Live Events
+#### Phase 6: WebSocket Live Events
 
 | # | Test | Method | Expected |
 |---|------|--------|----------|
@@ -117,12 +117,12 @@ Can CodeForge manage projects, track roadmaps, route LLM calls, and orchestrate 
 
 ---
 
-## Deliverables
+### Deliverables
 
-1. **This document** — `docs/e2e-test-plan.md`
-2. **Executable script** — `/tmp/e2e-vision-test.sh` (automated PASS/FAIL)
+1. This document — `docs/e2e-test-plan.md`
+2. Executable script — `/tmp/e2e-vision-test.sh` (automated PASS/FAIL)
 
-## Execution
+### Execution
 
 ```bash
 chmod +x /tmp/e2e-vision-test.sh

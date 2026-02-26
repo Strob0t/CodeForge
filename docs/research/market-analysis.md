@@ -116,7 +116,9 @@ Skills / Microagents: Specialized prompts with domain knowledge, stored as Markd
 
 **4. Runtime & Sandbox:**
 
-Docker Sandbox (Default): Each session runs in its own Docker container. Full OS capabilities, isolated from host. SSH-mediated interface (V0) / HTTP-based (V1). Container is destroyed after session (filesystem integrity). Workspace mounting for project-specific files. Resource access policies: Only task-relevant files exposed.
+Docker Sandbox (Default): Each session runs in its own Docker container. Full OS capabilities, isolated from host. SSH-mediated interface (V0) / HTTP-based (V1). Container is destroyed after session (filesystem integrity).
+
+Workspace mounting for project-specific files. Resource access policies: Only task-relevant files exposed.
 
 V1 Workspace Abstraction:
 
@@ -409,7 +411,9 @@ Separate module for sandboxed code execution. Docker container per task (isolate
 
 **4. Mini-SWE-Agent:**
 
-100 lines of Python -- radically minimalist agent. >74% on SWE-bench Verified (current, with Gemini 3 Pro). 65% on SWE-bench Verified (initial, with Claude Sonnet). No tool-calling interface -- only Bash as single tool. Linear history -- each step is appended to the messages. `subprocess.run` -- each action independent (no stateful shell). Key insight: Modern LLMs need less scaffolding than assumed. Users: Meta, NVIDIA, Essential AI, Anyscale. From Princeton/Stanford team (same authors as SWE-agent).
+100 lines of Python -- radically minimalist agent. >74% on SWE-bench Verified (current, with Gemini 3 Pro). 65% on SWE-bench Verified (initial, with Claude Sonnet). No tool-calling interface -- only Bash as single tool. Linear history -- each step is appended to the messages.
+
+`subprocess.run` -- each action independent (no stateful shell). Key insight: Modern LLMs need less scaffolding than assumed. Users: Meta, NVIDIA, Essential AI, Anyscale. From Princeton/Stanford team (same authors as SWE-agent).
 
 **5. SWE-bench Performance:**
 
@@ -468,7 +472,9 @@ Go Core -> Task Queue -> Python AI Worker -> SWE-agent (CLI / Python API)
    └── LLM Call: via LiteLLM (same stack as CodeForge)
 ```
 
-Backend Candidate Priority 2 (after Aider due to lower API maturity). ACI concept directly adoptable for own tool definitions. Tool bundles concept identical to CodeForge's planned YAML tool system. History Processors adoptable for context window strategies. SWE-bench as evaluation framework for CodeForge's agent quality. Mini-SWE-Agent as reference for minimal viable agent scaffolding.
+Backend Candidate Priority 2 (after Aider due to lower API maturity). ACI concept directly adoptable for own tool definitions. Tool bundles concept identical to CodeForge's planned YAML tool system. History Processors adoptable for context window strategies.
+
+SWE-bench serves as evaluation framework for CodeForge's agent quality. Mini-SWE-Agent provides a reference for minimal viable agent scaffolding.
 
 **10. Adopted Patterns:**
 
@@ -513,11 +519,19 @@ Core Concepts:
 - External Integrations: GitHub (Clone, File-List, Commits), Netlify (Deploy with URL generation).
 - Config: `config.toml` for API keys, paths, search engine selection.
 
-Strengths: Conceptually clean agent separation -- each sub-agent has clearly defined responsibility. Jinja2 prompt templates (identical pattern to what CodeForge plans). SentenceBERT keyword extraction for context-aware research. Real-time agent state visualization (Internal Monologue, Step, Browser, Terminal). Multi-LLM including Ollama for local models. Open source (MIT), community-driven. Modular, extensible architecture. Agent loop pattern (Plan->Research->Code->Execute) as reference architecture.
+Strengths: Conceptually clean agent separation -- each sub-agent has clearly defined responsibility. Jinja2 prompt templates (identical pattern to what CodeForge plans). SentenceBERT keyword extraction for context-aware research. Real-time agent state visualization (Internal Monologue, Step, Browser, Terminal). Multi-LLM including Ollama for local models.
 
-Weaknesses: Project de facto stagnated/abandoned -- Issue #685 "is this project abandoned?" without answer, barely any commits since mid-2025. Many features unimplemented or broken (officially documented in README). No human-in-the-loop -- agent runs without approval flow. No checkpoint/rollback mechanisms. Single-process Flask server, no scaling, no message queue. No diff-based file editing -- code is written directly. Security vulnerabilities (API key exposure risk in config). No context window management -- full context is sent to LLM. Direct provider API calls instead of unified LLM proxy. No Git integration for code changes (only GitHub clone). No project management or roadmap.
+Open source (MIT), community-driven. Modular, extensible architecture. Agent loop pattern (Plan->Research->Code->Execute) serves as reference architecture.
 
-**Relevance for CodeForge:** Sub-Agent Architecture (Planner/Researcher/Coder/Patcher separation as pattern for CodeForge worker modules, not 1:1, but conceptually). Jinja2 Prompt Templates confirms CodeForge decision to manage prompts as separate template files. SentenceBERT Keywords directly adopted -- KeyBERT for semantic keyword extraction in research module. Agent State Visualization (real-time display of Internal Monologue, Steps, Browser, Terminal as pattern for CodeForge Dashboard). Browser Crawling Pattern (LLM-driven crawler as inspiration for web research worker). Anti-Patterns (what CodeForge avoids): No approval flow, no checkpointing, single-process, no context management, direct provider calls.
+Weaknesses: Project de facto stagnated/abandoned -- Issue #685 "is this project abandoned?" without answer, barely any commits since mid-2025. Many features unimplemented or broken (officially documented in README). No human-in-the-loop -- agent runs without approval flow. No checkpoint/rollback mechanisms. Single-process Flask server, no scaling, no message queue.
+
+No diff-based file editing -- code is written directly. Security vulnerabilities (API key exposure risk in config). No context window management -- full context is sent to LLM. Direct provider API calls instead of unified LLM proxy.
+
+No Git integration for code changes (only GitHub clone). No project management or roadmap.
+
+**Relevance for CodeForge:** Sub-Agent Architecture (Planner/Researcher/Coder/Patcher separation as pattern for CodeForge worker modules, not 1:1, but conceptually). Jinja2 Prompt Templates confirms CodeForge decision to manage prompts as separate template files. SentenceBERT Keywords directly adopted -- KeyBERT for semantic keyword extraction in research module. Agent State Visualization (real-time display of Internal Monologue, Steps, Browser, Terminal as pattern for CodeForge Dashboard).
+
+Browser Crawling Pattern (LLM-driven crawler as inspiration for web research worker). Anti-Patterns (what CodeForge avoids): No approval flow, no checkpointing, single-process, no context management, direct provider calls.
 
 #### Aider
 
@@ -555,11 +569,23 @@ Core Concepts:
 - Cost/Token Tracking: Real-time token/cache/context usage display. Task sorting by cost or token consumption. OpenRouter `usage_details` for more precise cost tracking. Provider routing optimization: Throughput, Price, or Latency.
 - Build System: esbuild (Extension) + Vite (Webview UI), Protocol Buffer codegen via `ts-proto`.
 
-Strengths: Human-in-the-loop as architecture principle -- not bolted on after the fact. Checkpoint System (Shadow Git) is innovative and prevents data loss. MCP extensibility enables unlimited tool extension without plugin system. Plan/Act separation with separate models saves costs significantly. 40+ LLM providers natively -- more than any other coding agent. `.clinerules` + Workflows = declarative project configuration. Auto-approve with granular control per tool category. Diff-based editing with side-by-side review. Zero server-side -- no data leaves the machine. Context management with auto-compact at ~80% window utilization. Active community (4M+ users), regular releases. ACP for cross-editor portability (VS Code, Zed, JetBrains). Enterprise-ready (SSO, RBAC, Audit).
+Strengths: Human-in-the-loop as architecture principle -- not bolted on after the fact. Checkpoint System (Shadow Git) is innovative and prevents data loss. MCP extensibility enables unlimited tool extension without plugin system. Plan/Act separation with separate models saves costs significantly. 40+ LLM providers natively -- more than any other coding agent.
 
-Weaknesses: High token consumption -- users report $50/day with intensive use. Bound to VS Code (CLI exists, but VS Code is primary). Not a standalone service -- not deployable as Docker container. Learning curve for .clinerules + Workflows + MCP setup. No multi-project dashboard. No roadmap/feature map management. No built-in LLM routing/load balancing (user selects manually). Context window limits on very long tasks. No agent-to-agent orchestration (single-agent architecture). Code quality not always optimal -- post-review needed. No budget enforcement (only tracking, no hard limit).
+`.clinerules` + Workflows = declarative project configuration. Auto-approve with granular control per tool category. Diff-based editing with side-by-side review. Zero server-side -- no data leaves the machine. Context management with auto-compact at ~80% window utilization.
 
-**Relevance for CodeForge:** Plan/Act Mode Pattern as direct inspiration for CodeForge's Plan->Approve->Execute workflow with separate LLM configurations per phase. Checkpoint System (Shadow Git concept as model for CodeForge's rollback mechanism, but in Docker containers instead of VS Code). Approval Flow (Ask/Say Pattern as granular permission system reference for CodeForge's human-in-the-loop design, web GUI instead of VS Code panel). MCP Integration (CodeForge can use MCP servers as tool extension -- standard protocol, no custom plugin system needed). `.clinerules` Pattern (declarative project configuration as model for CodeForge's YAML-based project settings). Context Management (auto-compact and redundant file read removal as strategies for CodeForge's History Processors). Diff-based Editing (Search/Replace with lenient matching as pattern for CodeForge's file change approval in the web GUI). Tool Categorization (5 tool categories as taxonomy for CodeForge's tool system). Anti-Patterns (what CodeForge does differently): Single-agent (CodeForge: Multi-agent), VS Code bound (CodeForge: Standalone service), no LLM routing (CodeForge: LiteLLM), no budget enforcement (CodeForge: hard limits).
+Active community (4M+ users), regular releases. ACP for cross-editor portability (VS Code, Zed, JetBrains). Enterprise-ready (SSO, RBAC, Audit).
+
+Weaknesses: High token consumption -- users report $50/day with intensive use. Bound to VS Code (CLI exists, but VS Code is primary). Not a standalone service -- not deployable as Docker container. Learning curve for .clinerules + Workflows + MCP setup. No multi-project dashboard.
+
+No roadmap/feature map management. No built-in LLM routing/load balancing (user selects manually). Context window limits on very long tasks. No agent-to-agent orchestration (single-agent architecture).
+
+Code quality not always optimal -- post-review needed. No budget enforcement (only tracking, no hard limit).
+
+**Relevance for CodeForge:** Plan/Act Mode Pattern as direct inspiration for CodeForge's Plan->Approve->Execute workflow with separate LLM configurations per phase. Checkpoint System (Shadow Git concept as model for CodeForge's rollback mechanism, but in Docker containers instead of VS Code). Approval Flow (Ask/Say Pattern as granular permission system reference for CodeForge's human-in-the-loop design, web GUI instead of VS Code panel). MCP Integration (CodeForge can use MCP servers as tool extension -- standard protocol, no custom plugin system needed).
+
+`.clinerules` Pattern (declarative project configuration as model for CodeForge's YAML-based project settings). Context Management (auto-compact and redundant file read removal as strategies for CodeForge's History Processors). Diff-based Editing (Search/Replace with lenient matching as pattern for CodeForge's file change approval in the web GUI). Tool Categorization (5 tool categories as taxonomy for CodeForge's tool system).
+
+Anti-Patterns (what CodeForge does differently): Single-agent (CodeForge: Multi-agent), VS Code bound (CodeForge: Standalone service), no LLM routing (CodeForge: LiteLLM), no budget enforcement (CodeForge: hard limits).
 
 #### Goose (Block / Square)
 
@@ -642,9 +668,13 @@ Weaknesses: `langchain-core` as hard dependency (~20 transitive packages). Prege
 - Description: Role-based multi-agent framework. Agents with Role/Goal/Backstory. Tasks with expected_output and guardrails. Two orchestration systems: Crew (Tasks) and Flow (DAG).
 - Core Concepts: Agent (Role/Goal/Backstory), Task (Description/ExpectedOutput), Crew (Process: sequential/hierarchical), Flow (@start/@listen/@router DAG), Unified Memory (LanceDB), YAML Config
 
-Strengths: Intuitive agent definition with persona system (Role/Goal/Backstory). YAML-based agent/task configuration + Python decorators. Unified Memory with Composite Scoring (Semantic + Recency + Importance). LLM Guardrail Agent -- one agent validates another's output. Flow system with @start/@listen/@router for DAG workflows. Event bus with 60+ event types for observability. Human Feedback Provider Protocol (extensible: Web, Slack, Email). @tool decorator for clean tool definition. MCP integration native.
+Strengths: Intuitive agent definition with persona system (Role/Goal/Backstory). YAML-based agent/task configuration + Python decorators. Unified Memory with Composite Scoring (Semantic + Recency + Importance). LLM Guardrail Agent -- one agent validates another's output. Flow system with @start/@listen/@router for DAG workflows.
 
-Weaknesses: No true parallelism in Crew (only via Flow). Two overlapping orchestration systems (Crew + Flow). ChromaDB + LanceDB both as dependencies (redundant). Memory needs LLM (gpt-4o-mini) + Embedder for basic operations. Single-process, no message queue, no REST API. Consensual Process never implemented.
+Event bus with 60+ event types for observability. Human Feedback Provider Protocol (extensible: Web, Slack, Email). @tool decorator for clean tool definition. MCP integration native.
+
+Weaknesses: No true parallelism in Crew (only via Flow). Two overlapping orchestration systems (Crew + Flow). ChromaDB + LanceDB both as dependencies (redundant). Memory needs LLM (gpt-4o-mini) + Embedder for basic operations.
+
+Single-process, no message queue, no REST API. Consensual Process never implemented.
 
 **Relevance for CodeForge:** YAML config pattern, Composite Memory Scoring, LLM Guardrail, Event Bus, Human Feedback Provider Protocol.
 
@@ -655,9 +685,15 @@ Weaknesses: No true parallelism in Crew (only via Flow). Two overlapping orchest
 - Description: Actor-model-based multi-agent framework. Clean layering: autogen-core (Runtime) -> autogen-agentchat (Teams) -> autogen-ext (Extensions). Distributed runtime via gRPC. Python + .NET.
 - Core Concepts: Agent (Protocol), AgentId (type/key), AgentRuntime (Message Routing), Teams (RoundRobin/Selector/Swarm/GraphFlow/MagenticOne), ChatCompletionClient, Workbench (Tool-Container), Component System
 
-Strengths: Clean package structure (Core -> AgentChat -> Extensions, a-la-carte dependencies). GraphFlow with DiGraphBuilder (DAG + Conditional Edges + Parallel Nodes). Workbench (tool container with shared state and dynamic tool discovery). Termination Conditions composable with & / | operators (12+ types). Context window strategies: Buffered, TokenLimited, HeadAndTail. Component System (Agents/Tools/Teams as JSON serializable). MagenticOne Orchestrator (Planning Loop + Stall Detection + Re-Planning). HandoffMessage Pattern for agent handoff. SocietyOfMindAgent (wrap team as agent for nested orchestration). Distributed runtime via gRPC (cross-language: Python <-> .NET). Minimal core dependencies (Pydantic, Protobuf, OpenTelemetry).
+Strengths: Clean package structure (Core -> AgentChat -> Extensions, a-la-carte dependencies). GraphFlow with DiGraphBuilder (DAG + Conditional Edges + Parallel Nodes). Workbench (tool container with shared state and dynamic tool discovery). Termination Conditions composable with & / | operators (12+ types). Context window strategies: Buffered, TokenLimited, HeadAndTail.
 
-Weaknesses: No LLM routing/load balancing (each provider its own client). SingleThreadedAgentRuntime not suited for high concurrency. UserProxyAgent blocks entire team. No built-in persistent storage (state as Dict, caller must persist). Complex abstraction layers (Core vs AgentChat). Memory system still young (ListMemory in Core).
+Component System (Agents/Tools/Teams as JSON serializable). MagenticOne Orchestrator (Planning Loop + Stall Detection + Re-Planning). HandoffMessage Pattern for agent handoff. SocietyOfMindAgent (wrap team as agent for nested orchestration).
+
+Distributed runtime via gRPC (cross-language: Python <-> .NET). Minimal core dependencies (Pydantic, Protobuf, OpenTelemetry).
+
+Weaknesses: No LLM routing/load balancing (each provider its own client). SingleThreadedAgentRuntime not suited for high concurrency. UserProxyAgent blocks entire team. No built-in persistent storage (state as Dict, caller must persist).
+
+Complex abstraction layers (Core vs AgentChat). Memory system still young (ListMemory in Core).
 
 **Relevance for CodeForge:** Layered Package Structure, GraphFlow, Workbench, Termination Conditions, Component System, MagenticOne Orchestrator, HandoffMessage Pattern.
 
@@ -668,9 +704,13 @@ Weaknesses: No LLM routing/load balancing (each provider its own client). Single
 - Description: "Code = SOP(Team)". Simulates software development teams with specialized roles (ProductManager, Architect, Engineer, QA). Document-driven pipeline: PRD -> Design -> Tasks -> Code. Structured intermediate artifacts reduce hallucination.
 - Core Concepts: Role (Profile/Goal/Actions/Watch), Action (LLM Call + Processing), Message (Pub-Sub with cause_by routing), Environment (Shared Space), Team (Hire + Run), ActionNode (schema-enforced outputs)
 
-Strengths: Document-driven SOP Pipeline (PRD -> Design -> Tasks -> Code -> Test). ActionNode (schema validation + Review/Revise cycles on LLM output). Experience Pool (@exp_cache, cache successful runs and reuse). BM25 Tool Recommendation (automatically select relevant tools). Budget Enforcement (NoMoneyException, hard cost limits). Mermaid diagram generation as design artifact. Incremental Development Mode (consider existing code). Multi-Environment (Software, Minecraft, Android, Stanford Town). Per-Action LLM Override (different models for different tasks). Message Compression strategies (pre-cut, post-cut by token/message).
+Strengths: Document-driven SOP Pipeline (PRD -> Design -> Tasks -> Code -> Test). ActionNode (schema validation + Review/Revise cycles on LLM output). Experience Pool (@exp_cache, cache successful runs and reuse). BM25 Tool Recommendation (automatically select relevant tools). Budget Enforcement (NoMoneyException, hard cost limits).
 
-Weaknesses: ~90 direct dependencies (massive footprint). Single-process asyncio, no distributed runtime. Tension between rigid SOPs and dynamic RoleZero. Memory simplistic (message list, optional vector search). Cost management only global, not per Role/Action. Python 3.9-3.11 only (no 3.12+). No web GUI (only CLI, MGX commercial).
+Mermaid diagram generation as design artifact. Incremental Development Mode (consider existing code). Multi-Environment (Software, Minecraft, Android, Stanford Town). Per-Action LLM Override (different models for different tasks). Message Compression strategies (pre-cut, post-cut by token/message).
+
+Weaknesses: ~90 direct dependencies (massive footprint). Single-process asyncio, no distributed runtime. Tension between rigid SOPs and dynamic RoleZero. Memory simplistic (message list, optional vector search).
+
+Cost management only global, not per Role/Action. Python 3.9-3.11 only (no 3.12+). No web GUI (only CLI, MGX commercial).
 
 **Relevance for CodeForge:** Document Pipeline, ActionNode/Structured Output, Experience Pool, BM25 Tool Recommendation, Budget Enforcement, Incremental Development.
 
@@ -685,9 +725,13 @@ Weaknesses: ~90 direct dependencies (massive footprint). Single-process asyncio,
 - Description: Universal LLM proxy (Python). Unified OpenAI-compatible API (`litellm.completion()`) for 127+ providers. Production-grade Proxy Server (FastAPI + Postgres + Redis). Router with 6 routing strategies (latency/cost/usage/least-busy/shuffle/tag-based). Fallback chains with cooldown. Budget management per key/team/user. 42+ observability integrations (Langfuse, Prometheus, Datadog, etc.). Caching (Redis, Semantic, In-Memory).
 - Core Concepts: `litellm.completion()` (unified entry point), `Router` (Load Balancing + Fallbacks), Proxy Server (FastAPI, Port 4000), `model_list` (YAML Config), `BaseConfig` (Provider Abstraction), `CustomStreamWrapper` (Streaming), Callbacks/Hooks
 
-Strengths: 127+ providers natively (OpenAI, Anthropic, Gemini, Bedrock, Ollama, vLLM, LM Studio, etc.). OpenAI-compatible REST API -- any client that speaks OpenAI automatically speaks LiteLLM. Router: 6 routing strategies + fallback chains + cooldown on provider outages. Budget Management: Per-key, per-team, per-user, per-provider limits. Docker image available (`docker.litellm.ai/berriai/litellm:main-stable`). Structured Output cross-provider (schema as tool call for providers without native support). 42+ observability integrations (Prometheus, Langfuse, Datadog, etc.). Caching: In-Memory, Redis, Semantic (Qdrant), S3, GCS. Model aliases: Map logical names to real provider models. Per-call cost tracking with comprehensive pricing database (36,000+ lines JSON).
+Strengths: 127+ providers natively (OpenAI, Anthropic, Gemini, Bedrock, Ollama, vLLM, LM Studio, etc.). OpenAI-compatible REST API -- any client that speaks OpenAI automatically speaks LiteLLM. Router: 6 routing strategies + fallback chains + cooldown on provider outages. Budget Management: Per-key, per-team, per-user, per-provider limits. Docker image available (`docker.litellm.ai/berriai/litellm:main-stable`).
 
-Weaknesses: Monolithic codebase (6,500+ files, `main.py` 7,400 lines with if/elif chain). Python-only -- must run as separate service, not embeddable in Go. Proxy needs Postgres for persistent spend tracking and key management. Memory footprint: 200-500MB+ RAM in proxy mode. High change rate (frequent releases, occasional breaking changes). Error mapping across 127 providers not always perfect. No built-in prompt management.
+Structured Output cross-provider (schema as tool call for providers without native support). 42+ observability integrations (Prometheus, Langfuse, Datadog, etc.). Caching: In-Memory, Redis, Semantic (Qdrant), S3, GCS. Model aliases: Map logical names to real provider models. Per-call cost tracking with comprehensive pricing database (36,000+ lines JSON).
+
+Weaknesses: Monolithic codebase (6,500+ files, `main.py` 7,400 lines with if/elif chain). Python-only -- must run as separate service, not embeddable in Go. Proxy needs Postgres for persistent spend tracking and key management. Memory footprint: 200-500MB+ RAM in proxy mode.
+
+High change rate (frequent releases, occasional breaking changes). Error mapping across 127 providers not always perfect. No built-in prompt management.
 
 **Relevance for CodeForge:** Central architecture decision -- LiteLLM Proxy as Docker sidecar. No custom LLM provider interface needed. Go Core speaks OpenAI format against LiteLLM. Python Workers use `litellm.completion()` directly. Routing, fallbacks, budgets, cost tracking delegated to LiteLLM.
 
@@ -698,7 +742,9 @@ Weaknesses: Monolithic codebase (6,500+ files, `main.py` 7,400 lines with if/eli
 - Description: Cloud-hosted unified API gateway for LLMs. Single endpoint (`/api/v1/chat/completions`) routes to 300+ models across 60+ providers. ~30 trillion tokens/month, 5M+ users. OpenAI-compatible API. Auto-Router (NotDiamond AI) for intelligent model selection. BYOK (Bring Your Own Keys) support.
 - Core Concepts: Provider Routing (price/latency/throughput sorting), Model Fallbacks (cross-model), Auto Router (AI-based model selection), Model Variants (:free, :nitro, :thinking, :online), Credits System, BYOK
 
-Strengths: 300+ models, 60+ providers via one endpoint. OpenAI-compatible API (1-line integration via base URL change). Auto-Router: AI selects optimal model per prompt. Provider Routing: Sorting by price/latency/throughput, whitelist/blacklist. Model Fallbacks: Cross-model fallback chains. Zero Data Retention (ZDR) option. Rankings/Leaderboard based on real usage data. Message Transforms: Intelligent prompt compression on context overflow.
+Strengths: 300+ models, 60+ providers via one endpoint. OpenAI-compatible API (1-line integration via base URL change). Auto-Router: AI selects optimal model per prompt. Provider Routing: Sorting by price/latency/throughput, whitelist/blacklist. Model Fallbacks: Cross-model fallback chains.
+
+Zero Data Retention (ZDR) option. Rankings/Leaderboard based on real usage data. Message Transforms: Intelligent prompt compression on context overflow.
 
 Weaknesses: Cloud-only -- no self-hosting (core problem for CodeForge). ~5.5% platform fee on all spending. No local models (Ollama, LM Studio not supported). Privacy dependency: All prompts transit OpenRouter infrastructure. Credits expire after 1 year. No volume discount.
 
@@ -711,9 +757,13 @@ Weaknesses: Cloud-only -- no self-hosting (core problem for CodeForge). ~5.5% pl
 - Description: Local proxy specifically for Claude Code CLI. Sets `ANTHROPIC_BASE_URL` to localhost, intercepts all requests, routes to configured providers (OpenAI, Gemini, DeepSeek, Groq, etc.). Transformer chain architecture for request/response transformation. Scenario-based routing (default/background/think/longContext/webSearch).
 - Core Concepts: Transformer Chain (composable request/response transformers), Scenario-based Routing, Provider Config (JSON5), Preset System (Export/Import/Share), Custom Router Functions (JS modules), Token-Threshold Routing, Subagent Routing
 
-Strengths: Scenario-based Routing -- different models for different task types: `default` (general coding tasks), `background` (non-interactive tasks, cheaper models), `think` (reasoning-intensive operations, thinking models), `longContext` (automatically when tokens > threshold, large context windows), `webSearch` (web-search-capable models). Transformer Chain: Composable, ordered transformers for provider normalization. 22 transformer adapters (provider-specific + feature adapters). Preset System: Export/share routing configurations. Token-based Routing: Auto-switch to long-context models above threshold. Custom Router Functions: User-defined routing logic as JS modules. React-based Config UI (`ccr ui`).
+Strengths: Scenario-based Routing -- different models for different task types: `default` (general coding tasks), `background` (non-interactive tasks, cheaper models), `think` (reasoning-intensive operations, thinking models), `longContext` (automatically when tokens > threshold, large context windows), `webSearch` (web-search-capable models).
 
-Weaknesses: Claude-Code-specific (only works as proxy for Anthropic CLI). 714 open issues (stability problems). No formal GitHub releases. No load balancing, no fallback chains. No cost tracking, no budget management. Single-user, no multi-tenancy. Node.js-only, fragile streaming transformation.
+Transformer Chain: Composable, ordered transformers for provider normalization. 22 transformer adapters (provider-specific + feature adapters). Preset System: Export/share routing configurations. Token-based Routing: Auto-switch to long-context models above threshold. Custom Router Functions: User-defined routing logic as JS modules. React-based Config UI (`ccr ui`).
+
+Weaknesses: Claude-Code-specific (only works as proxy for Anthropic CLI). 714 open issues (stability problems). No formal GitHub releases. No load balancing, no fallback chains.
+
+No cost tracking, no budget management. Single-user, no multi-tenancy. Node.js-only, fragile streaming transformation.
 
 **Relevance for CodeForge:** Scenario-based routing is the core concept. CodeForge adopts the idea (default/background/think/longContext/review/plan), but implements it via LiteLLM's tag-based routing instead of as a separate proxy. Token threshold routing and preset system also planned as features.
 
@@ -724,9 +774,13 @@ Weaknesses: Claude-Code-specific (only works as proxy for Anthropic CLI). 714 op
 - Description: Open-source terminal AI agent. Original in Go (archived, successors: Crush by Charm + OpenCode by Anomaly/SST). 7 Go clients cover 12 providers via OpenAI-compatible base URL pattern. GitHub Copilot token exchange. Local model auto-discovery. TypeScript rewrite (opencode.ai) uses Vercel AI SDK + Models.dev for 75+ providers.
 - Core Concepts: OpenAI-compatible Base URL Pattern (1 SDK for many providers), GitHub Copilot Token Exchange, Local Model Auto-Discovery (/v1/models), Provider Priority Chain, Context File Interoperability (CLAUDE.md, .cursorrules, copilot-instructions.md), Per-Model Pricing Data
 
-Strengths: Shows that most providers are OpenAI-compatible -- base URL is sufficient. GitHub Copilot as free provider (token from `~/.config/github-copilot/hosts.json`). Auto-Discovery: Detect local models via `/v1/models` endpoint. Provider Priority Chain (Copilot > Anthropic > OpenAI > Gemini > ...). Context File Interoperability (reads CLAUDE.md, .cursorrules etc.). Per-session cost tracking with hardcoded pricing.
+Strengths: Shows that most providers are OpenAI-compatible -- base URL is sufficient. GitHub Copilot as free provider (token from `~/.config/github-copilot/hosts.json`). Auto-Discovery: Detect local models via `/v1/models` endpoint. Provider Priority Chain (Copilot > Anthropic > OpenAI > Gemini > ...).
 
-Weaknesses: Go codebase archived (split into Crush + OpenCode TypeScript). Hardcoded model catalog (every new model requires code change). No multi-provider routing (one provider per agent). No load balancing, no fallbacks. Single-agent architecture. No web GUI.
+Context File Interoperability (reads CLAUDE.md, .cursorrules etc.). Per-session cost tracking with hardcoded pricing.
+
+Weaknesses: Go codebase archived (split into Crush + OpenCode TypeScript). Hardcoded model catalog (every new model requires code change). No multi-provider routing (one provider per agent). No load balancing, no fallbacks.
+
+Single-agent architecture. No web GUI.
 
 **Relevance for CodeForge:** Three patterns adopted: (1) GitHub Copilot token exchange as provider in Go Core, (2) Auto-discovery for local models (query Ollama/LM Studio `/v1/models`), (3) Provider Priority Chain for intelligent defaults without configuration.
 

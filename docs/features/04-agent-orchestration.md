@@ -247,12 +247,7 @@ The agentic conversation mode transforms the Chat UI into an autonomous coding a
 
 1. **User sends a message** via the Chat UI (or API with `?mode=agentic` / `"agentic": true`)
 2. **Go Core** stores the message, builds a context pack (system prompt, conversation history, tool definitions, MCP servers, policy profile), and publishes to NATS
-3. **Python Worker** receives the job and starts the agent loop:
-   - Calls LLM with tool definitions (built-in + MCP tools)
-   - Streams text responses to the frontend via AG-UI WebSocket events
-   - When the LLM returns `tool_calls`, each tool is executed with per-call policy enforcement
-   - Tool results are appended to the conversation and fed back to the LLM
-   - Loop continues until the LLM responds without tool calls, or termination limits are hit
+3. **Python Worker** receives the job and starts the agent loop (calls LLM with tool definitions, streams text via AG-UI WebSocket events, executes each `tool_calls` response with per-call policy enforcement, appends tool results and feeds back to the LLM, repeats until the LLM responds without tool calls or termination limits are hit)
 4. **Go Core** receives the completion, stores all tool messages and the final reply, and broadcasts `agui.run_finished`
 
 #### Built-in Tools
