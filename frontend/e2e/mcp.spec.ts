@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 test.describe("MCP Servers page", () => {
   test("page heading 'MCP Servers' visible", async ({ page }) => {
     await page.goto("/mcp");
-    await expect(page.locator("h1")).toHaveText("MCP Servers");
+    await expect(page.locator("main h1")).toHaveText("MCP Servers");
   });
 
   test("description text visible", async ({ page }) => {
@@ -117,23 +117,28 @@ test.describe("MCP Servers page", () => {
   });
 
   test("create server via form + appears in table", async ({ page }) => {
+    const serverName = `e2e-srv-${Date.now()}`;
     await page.goto("/mcp");
     await page.getByRole("button", { name: "Add Server" }).click();
 
-    await page.locator("#mcp-name").fill("e2e-test-server");
+    await page.locator("#mcp-name").fill(serverName);
     await page.locator("#mcp-command").fill("echo");
 
     // Submit — the form tests connection first, may show confirm dialog
     await page.getByRole("button", { name: "Create Server" }).click();
 
-    // If test fails, a confirm dialog appears — click "Save Anyway"
+    // Wait for connection test to complete — either "Save Anyway" dialog or server in table
     const saveAnyway = page.getByRole("button", { name: "Save Anyway" });
-    if (await saveAnyway.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    const serverInTable = page.getByText(serverName, { exact: true });
+    await expect(saveAnyway.or(serverInTable)).toBeVisible({ timeout: 30_000 });
+
+    // If "Save Anyway" appeared, click it to proceed
+    if (await saveAnyway.isVisible()) {
       await saveAnyway.click();
     }
 
-    // Server should appear
-    await expect(page.getByText("e2e-test-server")).toBeVisible({ timeout: 10_000 });
+    // Server should now appear in the table
+    await expect(serverInTable).toBeVisible({ timeout: 10_000 });
   });
 
   test("server table shows name, transport badge, enabled badge", async ({ page, api }) => {
@@ -146,9 +151,11 @@ test.describe("MCP Servers page", () => {
 
     await page.goto("/mcp");
 
-    await expect(page.getByText("table-test-server")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("stdio")).toBeVisible();
-    await expect(page.getByText("Enabled")).toBeVisible();
+    await expect(page.getByText("table-test-server", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText("stdio").first()).toBeVisible();
+    await expect(page.getByText("Enabled").first()).toBeVisible();
   });
 
   test("test button visible per server", async ({ page, api }) => {
@@ -188,12 +195,20 @@ test.describe("MCP Servers page", () => {
     });
 
     await page.goto("/mcp");
-    await expect(page.getByText("delete-me-server")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("delete-me-server", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
 
     // Click delete, then confirm dialog
     await page.getByRole("button", { name: "Delete server delete-me-server" }).click();
-    await page.getByRole("button", { name: "Delete" }).last().click();
+    // Click "Delete" on the confirmation dialog
+    const confirmBtn = page
+      .locator("[role='dialog'] button, [role='alertdialog'] button")
+      .filter({ hasText: "Delete" });
+    await confirmBtn.click();
 
-    await expect(page.getByText("delete-me-server")).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("delete-me-server", { exact: true })).not.toBeVisible({
+      timeout: 10_000,
+    });
   });
 });

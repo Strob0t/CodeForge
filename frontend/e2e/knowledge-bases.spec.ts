@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 test.describe("Knowledge Bases", () => {
   test("page heading is visible", async ({ page }) => {
     await page.goto("/knowledge-bases");
-    await expect(page.locator("h1")).toHaveText("Knowledge Bases");
+    await expect(page.locator("main h1")).toHaveText("Knowledge Bases");
   });
 
   test("description text visible", async ({ page }) => {
@@ -13,9 +13,9 @@ test.describe("Knowledge Bases", () => {
 
   test("empty state shows no knowledge bases message", async ({ page }) => {
     await page.goto("/knowledge-bases");
-    await expect(page.getByText("No knowledge bases available").or(page.locator("h1"))).toBeVisible(
-      { timeout: 10_000 },
-    );
+    await expect(
+      page.getByText("No knowledge bases available").or(page.locator("main h1")),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("Create button toggles form", async ({ page }) => {
@@ -86,8 +86,9 @@ test.describe("Knowledge Bases", () => {
   });
 
   test("KB card shows name and category badge", async ({ page, api }) => {
+    const kbName = `Badge Test KB ${Date.now()}`;
     await api.createKnowledgeBase({
-      name: "Badge Test KB",
+      name: kbName,
       description: "Testing badges",
       category: "framework",
       tags: [],
@@ -95,14 +96,15 @@ test.describe("Knowledge Bases", () => {
     });
     await page.goto("/knowledge-bases");
 
-    await expect(page.getByText("Badge Test KB")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(kbName)).toBeVisible({ timeout: 10_000 });
     // Category badge should show "Framework"
-    await expect(page.getByText("Framework")).toBeVisible();
+    await expect(page.getByText("Framework").first()).toBeVisible();
   });
 
   test("delete button removes KB", async ({ page, api }) => {
+    const kbName = `ToDelete KB ${Date.now()}`;
     await api.createKnowledgeBase({
-      name: "ToDelete KB",
+      name: kbName,
       description: "Will be deleted",
       category: "custom",
       tags: [],
@@ -110,8 +112,10 @@ test.describe("Knowledge Bases", () => {
     });
     await page.goto("/knowledge-bases");
 
-    await expect(page.getByText("ToDelete KB")).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText("ToDelete KB")).not.toBeVisible({ timeout: 10_000 });
+    // Find the card (hover:shadow-md) containing the KB name, then click its Delete button
+    const kbCard = page.locator("[class*='hover:shadow']").filter({ hasText: kbName });
+    await expect(kbCard).toBeVisible({ timeout: 10_000 });
+    await kbCard.getByRole("button", { name: "Delete" }).click();
+    await expect(page.getByText(kbName)).not.toBeVisible({ timeout: 10_000 });
   });
 });

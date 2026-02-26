@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 test.describe("Teams page", () => {
   test("page heading 'Agent Teams' visible", async ({ page }) => {
     await page.goto("/teams");
-    await expect(page.locator("h1")).toHaveText("Agent Teams");
+    await expect(page.locator("main h1")).toHaveText("Agent Teams");
   });
 
   test("project selector dropdown visible", async ({ page }) => {

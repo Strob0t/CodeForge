@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 test.describe("Retrieval Scopes", () => {
   test("page heading is visible", async ({ page }) => {
     await page.goto("/scopes");
-    await expect(page.locator("h1")).toHaveText("Scopes");
+    await expect(page.locator("main h1")).toHaveText("Scopes");
   });
 
   test("description text visible", async ({ page }) => {
@@ -13,7 +13,7 @@ test.describe("Retrieval Scopes", () => {
 
   test("empty state when no scopes", async ({ page }) => {
     await page.goto("/scopes");
-    await expect(page.getByText("No scopes created yet").or(page.locator("h1"))).toBeVisible({
+    await expect(page.getByText("No scopes created yet").or(page.locator("main h1"))).toBeVisible({
       timeout: 10_000,
     });
   });

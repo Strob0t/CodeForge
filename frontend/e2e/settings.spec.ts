@@ -5,7 +5,7 @@ test.describe("Settings page", () => {
 
   test("general settings section visible", async ({ page }) => {
     await page.goto("/settings");
-    await expect(page.locator("h1")).toHaveText("Settings");
+    await expect(page.locator("main h1")).toHaveText("Settings");
     await expect(page.getByText("General")).toBeVisible();
   });
 

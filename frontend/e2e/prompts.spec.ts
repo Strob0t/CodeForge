@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 test.describe("Prompt Editor page", () => {
   test("page heading 'Prompt Sections' visible", async ({ page }) => {
     await page.goto("/prompts");
-    await expect(page.locator("h1")).toHaveText("Prompt Sections");
+    await expect(page.locator("main h1")).toHaveText("Prompt Sections");
   });
 
   test("subtitle text visible", async ({ page }) => {
@@ -12,7 +12,7 @@ test.describe("Prompt Editor page", () => {
     // The actual text may or may not render depending on prop naming
     // Check for the subtitle text or just verify the page loaded
     const subtitle = page.getByText("Manage composable prompt sections for mode assembly");
-    const heading = page.locator("h1");
+    const heading = page.locator("main h1");
     await expect(heading).toBeVisible();
     // If subtitle doesn't render (prop mismatch), at least heading is there
     if (await subtitle.isVisible().catch(() => false)) {

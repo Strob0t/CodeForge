@@ -17,7 +17,7 @@ test.describe("WebSocket UI integration", () => {
 
   test("navigate to activity page -> feed container is visible", async ({ page }) => {
     await page.goto("/activity");
-    await expect(page.locator("h1")).toHaveText("Activity");
+    await expect(page.locator("main h1")).toHaveText("Activity");
 
     // The activity stream area should be visible (either entries or empty state)
     const emptyState = page.getByText("No events yet.");
@@ -27,14 +27,14 @@ test.describe("WebSocket UI integration", () => {
 
   test("triggering project create may produce activity events", async ({ page, api }) => {
     await page.goto("/activity");
-    await expect(page.locator("h1")).toHaveText("Activity");
+    await expect(page.locator("main h1")).toHaveText("Activity");
 
     // Create a project via API to trigger events
     await api.createProject("WS Activity Test");
 
     // The activity feed may update — we just verify the page didn't error
     // Events may or may not appear depending on backend WS broadcasting
-    await expect(page.locator("h1")).toHaveText("Activity");
+    await expect(page.locator("main h1")).toHaveText("Activity");
   });
 
   test("chat panel on project detail: message input visible", async ({ page, api }) => {

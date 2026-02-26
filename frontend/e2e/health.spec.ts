@@ -8,7 +8,7 @@ test.describe("Health checks", () => {
 
   test("sidebar shows API ok status", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText("API ok")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("API: ok")).toBeVisible({ timeout: 10_000 });
   });
 
   test("Go backend health endpoint returns ok", async ({ request }) => {
