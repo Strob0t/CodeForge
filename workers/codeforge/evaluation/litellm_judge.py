@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import httpx
 from deepeval.models import DeepEvalBaseLLM
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 
 class LiteLLMJudge(DeepEvalBaseLLM):
@@ -31,34 +36,46 @@ class LiteLLMJudge(DeepEvalBaseLLM):
     def load_model(self) -> str:
         return self.model_name
 
-    async def a_generate(self, prompt: str, **kwargs: object) -> str:
+    async def a_generate(self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: object) -> str | BaseModel:
         """Asynchronous generation via LiteLLM proxy."""
+        payload: dict[str, object] = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+        }
+        if schema is not None:
+            payload["response_format"] = {"type": "json_object"}
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base_url}/chat/completions",
-                json={
-                    "model": self.model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.0,
-                },
+                json=payload,
                 headers={"Authorization": f"Bearer {self._api_key}"},
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            if schema is not None:
+                return schema.model_validate_json(content)
+            return content
 
-    def generate(self, prompt: str, **kwargs: object) -> str:
+    def generate(self, prompt: str, schema: type[BaseModel] | None = None, **kwargs: object) -> str | BaseModel:
         """Synchronous generation via LiteLLM proxy."""
+        payload: dict[str, object] = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+        }
+        if schema is not None:
+            payload["response_format"] = {"type": "json_object"}
         with httpx.Client(timeout=self._timeout) as client:
             resp = client.post(
                 f"{self._base_url}/chat/completions",
-                json={
-                    "model": self.model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.0,
-                },
+                json=payload,
                 headers={"Authorization": f"Bearer {self._api_key}"},
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            if schema is not None:
+                return schema.model_validate_json(content)
+            return content

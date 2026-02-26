@@ -22,6 +22,7 @@ _deepeval_metrics.GEval = MagicMock()
 _deepeval_metrics.FaithfulnessMetric = MagicMock()
 _deepeval_metrics.AnswerRelevancyMetric = MagicMock()
 _deepeval_test_case.LLMTestCase = MagicMock()
+_deepeval_test_case.LLMTestCaseParams = MagicMock()
 _deepeval_test_case.ToolCall = MagicMock()
 _deepeval_models.DeepEvalBaseLLM = type("DeepEvalBaseLLM", (), {})
 

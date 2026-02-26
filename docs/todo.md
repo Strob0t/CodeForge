@@ -1653,6 +1653,14 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-25) Update `docs/tech-stack.md` — added DeepEval, scikit-learn, AgentNeo to Python dependencies
 - [x] (2026-02-25) Update `CLAUDE.md` — added ADR-008 reference
 
+#### Dependency Conflict Resolution (2026-02-26)
+
+- [x] (2026-02-26) Phase 1: Safe patch upgrades — nats-py 2.13.1→2.14.0, deepeval 2.9.3→2.9.7, certifi 2026.1.4→2026.2.25, typescript-eslint 8.56.0→8.56.1
+- [x] (2026-02-26) Phase 2: Go 1.24→1.25 upgrade — goose v3.26.0→v3.27.0, klauspost/compress→1.18.4, nats-io/nkeys→0.4.15, grpc-gateway→2.28.0, mailru/easyjson→0.9.1, spf13/cast→1.10.0, golang.org/x/net→0.51.0 (7 config files: go.mod, Dockerfile, ci.yml x2, devcontainer.json, tech-stack.md, CLAUDE.md)
+- [x] (2026-02-26) Phase 3: deepeval 2.x→3.x migration — LLMTestCaseParams enum, ToolCall(input_parameters=), LiteLLMJudge schema support (metrics.py, litellm_judge.py, 2 test files)
+- [x] (2026-02-26) Phase 4: agentneo ^0.1→^1.0, eslint pinned to ~9.39.0 (eslint-plugin-solid blocks eslint 10)
+- [x] (2026-02-26) Phase 5: Documentation updates — tech-stack.md, CLAUDE.md, todo.md
+
 ---
 
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews

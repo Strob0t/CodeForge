@@ -34,7 +34,7 @@ Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
 | Layer          | Language   | Purpose                                  |
 |----------------|------------|------------------------------------------|
 | Frontend       | TypeScript | Web GUI                                  |
-| Core Service   | Go 1.24    | HTTP/WS Server, Scheduling, Repo Mgmt   |
+| Core Service   | Go 1.25    | HTTP/WS Server, Scheduling, Repo Mgmt   |
 | AI Workers     | Python 3.12| LLM Integration, Agent Execution         |
 | Infrastructure | Docker     | Containerization, Docker-in-Docker       |
 

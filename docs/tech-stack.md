@@ -4,7 +4,7 @@
 
 | Language   | Version | Area of Use           |
 |------------|---------|----------------------|
-| Go         | 1.24    | Core Service         |
+| Go         | 1.25    | Core Service         |
 | Python     | 3.12    | AI Workers           |
 | TypeScript | 5.x     | Frontend             |
 | Node.js    | 22 LTS  | Frontend Build/Dev   |
@@ -64,7 +64,7 @@
 
 #### Docker Production
 
-- `Dockerfile` — Go Core multi-stage build (golang:1.24-alpine to alpine:3.21)
+- `Dockerfile` — Go Core multi-stage build (golang:1.25-alpine to alpine:3.21)
 - `Dockerfile.worker` — Python Workers (python:3.12-slim, poetry, non-root)
 - `Dockerfile.frontend` — Frontend (node:22-alpine build to nginx:alpine serve)
 - `docker-compose.prod.yml` — 6 services (core, worker, frontend, postgres, nats, litellm)
@@ -114,9 +114,9 @@
 - numpy ^2.0 — numerical computing for embedding vectors and cosine similarity
 - psycopg[binary] ^3.2 — PostgreSQL driver for graph storage (sync+async)
 - httpx ^0.28 — async HTTP client for LiteLLM proxy calls
-- deepeval ^2.0 — LLM-as-judge evaluation framework (GEval, faithfulness, relevancy metrics)
+- deepeval ^3.0 — LLM-as-judge evaluation framework (GEval, faithfulness, relevancy metrics)
 - scikit-learn ^1.6 — TF-IDF vectorization and cosine similarity for collaboration metrics
-- agentneo ^0.1 (optional) — agent execution tracing, tool selection and goal decomposition metrics
+- agentneo ^1.0 (optional) — agent execution tracing, tool selection and goal decomposition metrics
 
 #### Planned Dependencies (not yet installed)
 

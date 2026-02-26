@@ -22,6 +22,7 @@ _deepeval_metrics.GEval = MagicMock()
 _deepeval_metrics.FaithfulnessMetric = MagicMock()
 _deepeval_metrics.AnswerRelevancyMetric = MagicMock()
 _deepeval_test_case.LLMTestCase = MagicMock()
+_deepeval_test_case.LLMTestCaseParams = MagicMock()
 _deepeval_test_case.ToolCall = MagicMock()
 _deepeval_models.DeepEvalBaseLLM = type("DeepEvalBaseLLM", (), {})
 
@@ -50,21 +51,32 @@ def _make_dataset(num_tasks: int = 2) -> BenchmarkDataset:
     return BenchmarkDataset(name="test-dataset", description="unit test", tasks=tasks)
 
 
+class _FakeResponse:
+    """Mimics ChatCompletionResponse with .content and .tool_calls."""
+
+    def __init__(self, content: str, tool_calls: list[object] | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls or []
+
+
 def _make_fake_llm(responses: list[dict[str, str]] | None = None) -> MagicMock:
-    """Build a mock LiteLLMClient with pre-programmed chat() responses."""
+    """Build a mock LiteLLMClient with pre-programmed chat_completion() responses."""
     llm = MagicMock()
     if responses is None:
         responses = [{"content": "fake answer"}]
 
     call_count = 0
 
-    async def _chat(**kwargs: object) -> dict[str, str]:
+    async def _chat_completion(**kwargs: object) -> _FakeResponse:
         nonlocal call_count
         resp = responses[call_count % len(responses)]
         call_count += 1
-        return resp
+        return _FakeResponse(
+            content=resp.get("content", ""),
+            tool_calls=resp.get("tool_calls", []),
+        )
 
-    llm.chat = AsyncMock(side_effect=_chat)
+    llm.chat_completion = AsyncMock(side_effect=_chat_completion)
     return llm
 
 
@@ -92,14 +104,14 @@ async def test_run_basic_dataset() -> None:
     assert results[0].task_name == "Test Task 0"
     assert results[0].scores["correctness"] == 0.85
     assert results[1].task_id == "task-1"
-    assert llm.chat.call_count == 2
+    assert llm.chat_completion.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_run_failed_execution_returns_empty_output() -> None:
     """If LLM call fails, output should be empty string and scores still computed."""
     llm = MagicMock()
-    llm.chat = AsyncMock(side_effect=RuntimeError("LLM down"))
+    llm.chat_completion = AsyncMock(side_effect=RuntimeError("LLM down"))
     judge = _make_fake_judge()
 
     with patch("codeforge.evaluation.runner.evaluate_correctness", new_callable=AsyncMock) as mock_corr:
@@ -137,3 +149,35 @@ async def test_run_duration_is_positive() -> None:
         results = await runner.run(_make_dataset(1))
 
     assert results[0].duration_ms >= 0
+
+
+class _FakeToolCall:
+    """Mimics ToolCallPart from llm module."""
+
+    def __init__(self, name: str, arguments: str) -> None:
+        self.id = "call-1"
+        self.name = name
+        self.arguments = arguments
+
+
+@pytest.mark.asyncio
+async def test_tool_correctness_receives_actual_tools() -> None:
+    """Tool calls from the LLM response should flow through to the metric evaluator."""
+    tool_calls = [_FakeToolCall(name="read_file", arguments='{"path": "main.py"}')]
+    llm = MagicMock()
+    llm.chat_completion = AsyncMock(
+        return_value=_FakeResponse(content="done", tool_calls=tool_calls),
+    )
+    judge = _make_fake_judge()
+
+    with patch("codeforge.evaluation.runner.evaluate_tool_correctness", new_callable=AsyncMock) as mock_tc:
+        mock_tc.return_value = 0.9
+        runner = BenchmarkRunner(llm=llm, model="test/model", metrics=["tool_correctness"], judge=judge)
+        results = await runner.run(_make_dataset(1))
+
+    assert len(results) == 1
+    assert results[0].scores["tool_correctness"] == 0.9
+    assert results[0].tool_calls == [{"name": "read_file", "args": '{"path": "main.py"}'}]
+    # Verify the metric received actual tool data, not empty list
+    call_kwargs = mock_tc.call_args
+    assert call_kwargs.kwargs["actual_tools"] == [{"name": "read_file", "args": '{"path": "main.py"}'}]

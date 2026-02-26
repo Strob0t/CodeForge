@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric, GEval
-from deepeval.test_case import LLMTestCase, ToolCall
+from deepeval.test_case import LLMTestCase, LLMTestCaseParams, ToolCall
 
 if TYPE_CHECKING:
     from codeforge.evaluation.litellm_judge import LiteLLMJudge
@@ -36,8 +36,8 @@ async def evaluate_correctness(
         name="Correctness",
         criteria="Determine whether the actual output is factually correct and matches the expected output.",
         evaluation_params=[
-            LLMTestCase.actual_output,
-            LLMTestCase.expected_output,
+            LLMTestCaseParams.ACTUAL_OUTPUT,
+            LLMTestCaseParams.EXPECTED_OUTPUT,
         ],
         model=model,
         threshold=0.5,
@@ -66,13 +66,15 @@ async def evaluate_tool_correctness(
             "Evaluate whether the actual tool calls match the expected tool calls "
             "in terms of tool names, arguments, and ordering."
         ),
-        evaluation_params=[LLMTestCase.actual_output],
+        evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT],
         model=model,
         threshold=0.5,
     )
     # Encode tool call sequences as structured text in the output
-    expected_tc = [ToolCall(name=t.get("name", ""), args=t.get("args", "")) for t in expected_tools]
-    actual_tc = [ToolCall(name=t.get("name", ""), args=t.get("args", "")) for t in actual_tools]
+    expected_tc = [
+        ToolCall(name=t.get("name", ""), input_parameters={"args": t.get("args", "")}) for t in expected_tools
+    ]
+    actual_tc = [ToolCall(name=t.get("name", ""), input_parameters={"args": t.get("args", "")}) for t in actual_tools]
     test_case = LLMTestCase(
         input=user_input,
         actual_output=actual_output,
