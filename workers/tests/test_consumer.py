@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from codeforge.consumer import TaskConsumer
-from codeforge.models import ContextEntry, RunStartMessage, TaskMessage, TaskResult, TaskStatus
+from codeforge.models import ContextEntry, RunStartMessage, TaskMessage
 
 
 @pytest.fixture
@@ -17,7 +17,9 @@ def consumer() -> TaskConsumer:
 
 
 async def test_handle_message_success(consumer: TaskConsumer) -> None:
-    """_handle_message should parse, execute, publish result, and ack."""
+    """_handle_message should parse, route to backend, publish result, and ack."""
+    from codeforge.backends._base import TaskResult as BackendTaskResult
+
     task_json = TaskMessage(
         id="task-1",
         project_id="proj-1",
@@ -27,23 +29,23 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
 
     msg = MagicMock()
     msg.data = task_json.encode()
+    msg.subject = "tasks.agent.aider"
     msg.headers = {"X-Request-ID": "req-abc-123"}
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
 
-    expected_result = TaskResult(
-        task_id="task-1",
-        status=TaskStatus.COMPLETED,
-        output="Done",
-    )
+    backend_result = BackendTaskResult(status="completed", output="Done")
 
     consumer._js = AsyncMock()
-    consumer._executor = MagicMock()
-    consumer._executor.execute = AsyncMock(return_value=expected_result)
+    consumer._backend_router = MagicMock()
+    consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
     await consumer._handle_message(msg)
 
-    consumer._executor.execute.assert_called_once()
+    consumer._backend_router.execute.assert_called_once()
+    call_kwargs = consumer._backend_router.execute.call_args.kwargs
+    assert call_kwargs["backend_name"] == "aider"
+    assert call_kwargs["task_id"] == "task-1"
     # Two publishes: one output line ("Starting task: ...") + one result
     assert consumer._js.publish.call_count == 2
     subjects = [call.args[0] for call in consumer._js.publish.call_args_list]
@@ -57,6 +59,7 @@ async def test_handle_message_invalid_json(consumer: TaskConsumer) -> None:
     """_handle_message should nack on invalid JSON."""
     msg = MagicMock()
     msg.data = b"not valid json"
+    msg.subject = "tasks.agent.aider"
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
@@ -70,7 +73,9 @@ async def test_handle_message_invalid_json(consumer: TaskConsumer) -> None:
 
 
 async def test_handle_message_executor_failure(consumer: TaskConsumer) -> None:
-    """_handle_message should still ack after executor returns a FAILED result."""
+    """_handle_message should still ack after backend returns a FAILED result."""
+    from codeforge.backends._base import TaskResult as BackendTaskResult
+
     task_json = TaskMessage(
         id="task-2",
         project_id="proj-1",
@@ -80,19 +85,16 @@ async def test_handle_message_executor_failure(consumer: TaskConsumer) -> None:
 
     msg = MagicMock()
     msg.data = task_json.encode()
+    msg.subject = "tasks.agent.aider"
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
 
-    failed_result = TaskResult(
-        task_id="task-2",
-        status=TaskStatus.FAILED,
-        error="LLM timeout",
-    )
+    backend_result = BackendTaskResult(status="failed", error="LLM timeout")
 
     consumer._js = AsyncMock()
-    consumer._executor = MagicMock()
-    consumer._executor.execute = AsyncMock(return_value=failed_result)
+    consumer._backend_router = MagicMock()
+    consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
     await consumer._handle_message(msg)
 
@@ -102,6 +104,8 @@ async def test_handle_message_executor_failure(consumer: TaskConsumer) -> None:
 
 async def test_handle_message_request_id_propagated(consumer: TaskConsumer) -> None:
     """_handle_message should propagate request_id from NATS headers to output publishes."""
+    from codeforge.backends._base import TaskResult as BackendTaskResult
+
     task_json = TaskMessage(
         id="task-3",
         project_id="proj-1",
@@ -111,15 +115,16 @@ async def test_handle_message_request_id_propagated(consumer: TaskConsumer) -> N
 
     msg = MagicMock()
     msg.data = task_json.encode()
+    msg.subject = "tasks.agent.aider"
     msg.headers = {"X-Request-ID": "req-propagated-456"}
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
 
-    result = TaskResult(task_id="task-3", status=TaskStatus.COMPLETED, output="OK")
+    backend_result = BackendTaskResult(status="completed", output="OK")
 
     consumer._js = AsyncMock()
-    consumer._executor = MagicMock()
-    consumer._executor.execute = AsyncMock(return_value=result)
+    consumer._backend_router = MagicMock()
+    consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
     await consumer._handle_message(msg)
 

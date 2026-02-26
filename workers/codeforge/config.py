@@ -26,3 +26,10 @@ class WorkerSettings:
         self.log_level = os.environ.get("CODEFORGE_WORKER_LOG_LEVEL", "info")
         self.log_service = os.environ.get("CODEFORGE_WORKER_LOG_SERVICE", "codeforge-worker")
         self.health_port = int(os.environ.get("CODEFORGE_WORKER_HEALTH_PORT", "8081"))
+
+        # Agent backend CLI paths
+        self.aider_path = os.environ.get("CODEFORGE_AIDER_PATH", "aider")
+        self.goose_path = os.environ.get("CODEFORGE_GOOSE_PATH", "goose")
+        self.opencode_path = os.environ.get("CODEFORGE_OPENCODE_PATH", "opencode")
+        self.plandex_path = os.environ.get("CODEFORGE_PLANDEX_PATH", "plandex")
+        self.openhands_url = os.environ.get("CODEFORGE_OPENHANDS_URL", "http://localhost:3000")

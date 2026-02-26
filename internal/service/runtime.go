@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
@@ -22,6 +23,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RuntimeService orchestrates the step-by-step execution protocol between
@@ -38,6 +43,7 @@ type RuntimeService struct {
 	checkpoint       *CheckpointService
 	sandbox          *SandboxService
 	mcpSvc           *MCPService
+	microagentSvc    *MicroagentService
 	onRunComplete    func(ctx context.Context, runID string, status run.Status)
 	runtimeCfg       *config.Runtime
 	stallTrackers    sync.Map // map[runID]*run.StallTracker
@@ -45,6 +51,8 @@ type RuntimeService struct {
 	runTimeouts      sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
 	budgetAlerts     sync.Map // map["runID:threshold"]bool — dedup budget alerts
 	pendingApprovals sync.Map // map["runID:callID"]chan string — HITL approval channels
+	metrics          *cfotel.Metrics
+	runSpans         sync.Map // map[runID]trace.Span
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -100,6 +108,16 @@ func (s *RuntimeService) SetModeService(m *ModeService) {
 // SetMCPService sets the MCP service for resolving MCP server definitions during run start.
 func (s *RuntimeService) SetMCPService(svc *MCPService) {
 	s.mcpSvc = svc
+}
+
+// SetMicroagentService sets the microagent service for matching trigger-based prompts.
+func (s *RuntimeService) SetMicroagentService(svc *MicroagentService) {
+	s.microagentSvc = svc
+}
+
+// SetMetrics sets the OTEL metrics collector.
+func (s *RuntimeService) SetMetrics(m *cfotel.Metrics) {
+	s.metrics = m
 }
 
 // SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
@@ -198,6 +216,16 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 	r.Status = run.StatusRunning
 
+	// OTEL: start run span and record metric
+	_, runSpan := cfotel.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
+	s.runSpans.Store(r.ID, runSpan)
+	if s.metrics != nil {
+		s.metrics.RunsStarted.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project.id", r.ProjectID),
+			attribute.String("exec_mode", string(req.ExecMode)),
+		))
+	}
+
 	// Mark agent as running
 	_ = s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning)
 
@@ -292,6 +320,19 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 				Headers:     d.Headers,
 				Enabled:     d.Enabled,
 			})
+		}
+	}
+
+	// Match microagents based on task prompt (trigger patterns).
+	if s.microagentSvc != nil {
+		matched, maErr := s.microagentSvc.Match(ctx, req.ProjectID, t.Prompt)
+		if maErr != nil {
+			slog.Warn("microagent match failed", "run_id", r.ID, "error", maErr)
+		} else if len(matched) > 0 {
+			for _, ma := range matched {
+				payload.MicroagentPrompts = append(payload.MicroagentPrompts, ma.Prompt)
+			}
+			slog.Info("microagents matched", "run_id", r.ID, "count", len(matched))
 		}
 	}
 
@@ -460,6 +501,17 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		Name:   req.Tool,
 		Args:   req.Command,
 	})
+
+	// OTEL: record tool call span and metric
+	_, toolSpan := cfotel.StartToolCallSpan(ctx, req.CallID, req.Tool)
+	toolSpan.SetAttributes(attribute.String("decision", string(decision)))
+	toolSpan.End()
+	if s.metrics != nil {
+		s.metrics.ToolCalls.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("tool", req.Tool),
+			attribute.String("decision", string(decision)),
+		))
+	}
 
 	// Create checkpoint for file-modifying tools
 	if s.checkpoint != nil && decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) {
@@ -911,6 +963,9 @@ func (s *RuntimeService) cleanupRunState(runID string) {
 	if cancel, ok := s.runTimeouts.LoadAndDelete(runID); ok {
 		cancel.(context.CancelFunc)()
 	}
+	if span, ok := s.runSpans.LoadAndDelete(runID); ok {
+		span.(trace.Span).End()
+	}
 }
 
 // cancelRunWithReason cancels a run with a specific reason message (used by timeout goroutine).
@@ -921,6 +976,19 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 	}
 	if r.Status != run.StatusRunning && r.Status != run.StatusPending {
 		return nil // already completed
+	}
+
+	// OTEL: annotate run span before cleanup ends it
+	if span, ok := s.runSpans.Load(runID); ok {
+		sp := span.(trace.Span)
+		sp.SetAttributes(attribute.String("cancel.reason", reason))
+		sp.SetStatus(codes.Error, reason)
+	}
+	if s.metrics != nil {
+		s.metrics.RunsFailed.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("project.id", r.ProjectID),
+			attribute.String("status", "timeout"),
+		))
 	}
 
 	s.cleanupRunState(runID)
@@ -960,6 +1028,31 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 
 // finalizeRun completes the run lifecycle: update DB, task, agent, broadcast events.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
+	// OTEL: annotate run span before cleanup ends it
+	if span, ok := s.runSpans.Load(r.ID); ok {
+		sp := span.(trace.Span)
+		sp.SetAttributes(
+			attribute.String("status", string(status)),
+			attribute.Int64("steps", int64(payload.StepCount)),
+			attribute.Float64("cost_usd", payload.CostUSD),
+		)
+		if status == run.StatusFailed || status == run.StatusTimeout {
+			sp.SetStatus(codes.Error, payload.Error)
+		}
+	}
+	if s.metrics != nil {
+		attrs := metric.WithAttributes(
+			attribute.String("project.id", r.ProjectID),
+			attribute.String("status", string(status)),
+		)
+		if status == run.StatusCompleted {
+			s.metrics.RunsCompleted.Add(ctx, 1, attrs)
+		} else {
+			s.metrics.RunsFailed.Add(ctx, 1, attrs)
+		}
+		s.metrics.RunCost.Record(ctx, payload.CostUSD, attrs)
+	}
+
 	s.cleanupRunState(r.ID)
 
 	if err := s.store.CompleteRun(ctx, r.ID, status, payload.Output, payload.Error, payload.CostUSD, payload.StepCount, payload.TokensIn, payload.TokensOut, payload.Model); err != nil {
@@ -1070,6 +1163,10 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		return
 	}
 
+	// OTEL: delivery span
+	_, deliverySpan := cfotel.StartDeliverySpan(ctx, r.ID, string(r.DeliverMode))
+	defer deliverySpan.End()
+
 	// Get task title for commit message
 	t, err := s.store.GetTask(ctx, r.TaskID)
 	taskTitle := r.TaskID
@@ -1090,6 +1187,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 
 	deliverResult, deliverErr := s.deliver.Deliver(ctx, r, taskTitle)
 	if deliverErr != nil {
+		deliverySpan.SetStatus(codes.Error, deliverErr.Error())
 		s.appendAudit(ctx, r, "delivery.failed", fmt.Sprintf("Delivery mode %s failed: %s", r.DeliverMode, deliverErr.Error()))
 		slog.Error("delivery failed", "run_id", r.ID, "mode", r.DeliverMode, "error", deliverErr)
 		s.appendRunEvent(ctx, event.TypeDeliveryFailed, r, map[string]string{
@@ -1107,6 +1205,10 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		return
 	}
 
+	deliverySpan.SetAttributes(
+		attribute.String("delivery.status", "completed"),
+		attribute.String("delivery.branch", deliverResult.BranchName),
+	)
 	s.appendAudit(ctx, r, "delivery.completed", fmt.Sprintf("Delivery mode %s completed (branch: %s, PR: %s)", deliverResult.Mode, deliverResult.BranchName, deliverResult.PRURL))
 	s.appendRunEvent(ctx, event.TypeDeliveryCompleted, r, map[string]string{
 		"mode":        string(deliverResult.Mode),

@@ -10,6 +10,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codeforge.backends._base import TaskResult as BackendTaskResult
+
+from datetime import UTC
+
 import nats
 import structlog
 
@@ -40,6 +44,7 @@ from codeforge.models import (
     SubAgentSearchResult,
     TaskMessage,
     TaskResult,
+    TaskStatus,
 )
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
@@ -62,6 +67,8 @@ STREAM_SUBJECTS = [
     "conversation.>",
     "benchmark.>",
     "evaluation.>",
+    "memory.>",
+    "handoff.>",
 ]
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
@@ -87,6 +94,8 @@ SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"
 SUBJECT_BENCHMARK_RUN_RESULT = "benchmark.run.result"
 SUBJECT_EVAL_GEMMAS_REQUEST = "evaluation.gemmas.request"
 SUBJECT_EVAL_GEMMAS_RESULT = "evaluation.gemmas.result"
+SUBJECT_MEMORY_STORE = "memory.store"
+SUBJECT_MEMORY_RECALL = "memory.recall"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -111,6 +120,10 @@ class TaskConsumer:
         self._running = False
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
         self._executor = AgentExecutor(llm=self._llm)
+
+        from codeforge.backends import build_default_router
+
+        self._backend_router = build_default_router()
         self._gate_executor = QualityGateExecutor()
         self._repomap_generator = RepoMapGenerator()
         self._retriever = HybridRetriever(litellm_url=litellm_url, litellm_key=litellm_key)
@@ -153,6 +166,8 @@ class TaskConsumer:
             (SUBJECT_CONVERSATION_RUN_START, self._handle_conversation_run),
             (SUBJECT_BENCHMARK_RUN_REQUEST, self._handle_benchmark_run),
             (SUBJECT_EVAL_GEMMAS_REQUEST, self._handle_gemmas_eval),
+            (SUBJECT_MEMORY_STORE, self._handle_memory_store),
+            (SUBJECT_MEMORY_RECALL, self._handle_memory_recall),
         ]
 
         loops = []
@@ -183,7 +198,7 @@ class TaskConsumer:
             await handler(msg)
 
     async def _handle_message(self, msg: nats.aio.msg.Msg) -> None:
-        """Process a single task message: parse, execute, ack/nack."""
+        """Process a single task message: parse, execute via backend router, ack/nack."""
         # Extract request ID from NATS headers for log correlation
         request_id = ""
         if msg.headers and HEADER_REQUEST_ID in msg.headers:
@@ -193,20 +208,39 @@ class TaskConsumer:
 
         try:
             task = TaskMessage.model_validate_json(msg.data)
-            log = log.bind(task_id=task.id)
+
+            # Extract backend name from NATS subject (e.g. "tasks.agent.aider" -> "aider")
+            backend_name = msg.subject.rsplit(".", 1)[-1] if msg.subject else "unknown"
+            log = log.bind(task_id=task.id, backend=backend_name)
             log.info("received task", title=task.title)
 
             # Send running status update
             await self._publish_output(task.id, f"Starting task: {task.title}", "stdout", request_id)
 
-            result: TaskResult = await self._executor.execute(task)
+            # Route to backend executor
+            backend_result: BackendTaskResult = await self._backend_router.execute(
+                backend_name=backend_name,
+                task_id=task.id,
+                prompt=task.prompt,
+                workspace_path=task.config.get("workspace_path", ""),
+                config=task.config,
+                on_output=lambda line: self._publish_output(task.id, line, "stdout", request_id),
+            )
+
+            # Convert backend result to TaskResult model for NATS
+            result = TaskResult(
+                task_id=task.id,
+                status=TaskStatus.COMPLETED if backend_result.status == "completed" else TaskStatus.FAILED,
+                output=backend_result.output,
+                error=backend_result.error,
+            )
 
             # Publish result back
             if self._js is not None:
                 await self._js.publish(SUBJECT_RESULT, result.model_dump_json().encode())
 
             await msg.ack()
-            log.info("task completed", status=result.status)
+            log.info("task completed", status=result.status, backend=backend_name)
 
         except Exception:
             retries = self._retry_count(msg)
@@ -247,6 +281,12 @@ class TaskConsumer:
                     context_section += f"\n### {entry.kind}: {entry.path}\n{entry.content}\n"
                 enriched_prompt = run_msg.prompt + context_section
                 log.info("context injected", entries=len(run_msg.context))
+
+            # Inject matched microagent prompts (Phase 22C)
+            if run_msg.microagent_prompts:
+                ma_block = "\n\n".join(run_msg.microagent_prompts)
+                enriched_prompt = f"{enriched_prompt}\n\n--- Microagent Instructions ---\n{ma_block}"
+                log.info("microagent prompts injected", count=len(run_msg.microagent_prompts))
 
             # Convert to TaskMessage for executor compatibility
             task = TaskMessage(
@@ -564,6 +604,13 @@ class TaskConsumer:
                 registry.merge_mcp_tools(workbench)
                 log.info("mcp tools merged", count=len(workbench.get_tools_for_llm()))
 
+            # Augment system prompt with microagent prompts and skill recommendations.
+            system_prompt = run_msg.system_prompt
+            if run_msg.microagent_prompts:
+                ma_block = "\n\n".join(run_msg.microagent_prompts)
+                system_prompt = f"{system_prompt}\n\n--- Microagent Instructions ---\n{ma_block}"
+                log.info("microagent prompts injected", count=len(run_msg.microagent_prompts))
+
             # Build message history within token budget.
             history_mgr = ConversationHistoryManager(
                 HistoryConfig(
@@ -571,10 +618,20 @@ class TaskConsumer:
                 )
             )
             messages = history_mgr.build_messages(
-                system_prompt=run_msg.system_prompt,
+                system_prompt=system_prompt,
                 history=run_msg.messages,
                 context_entries=run_msg.context,
             )
+
+            # Resolve scenario-based LLM routing tags from mode config.
+            from codeforge.llm import resolve_scenario
+
+            scenario_tags: list[str] = []
+            if run_msg.mode and run_msg.mode.llm_scenario:
+                scenario_cfg = resolve_scenario(run_msg.mode.llm_scenario)
+                if scenario_cfg.tag:
+                    scenario_tags = [scenario_cfg.tag]
+                    log.info("scenario resolved", scenario=run_msg.mode.llm_scenario, tag=scenario_cfg.tag)
 
             # Run the agentic loop.
             executor = AgentLoopExecutor(
@@ -587,6 +644,7 @@ class TaskConsumer:
                 max_iterations=run_msg.termination.max_steps or 50,
                 max_cost=run_msg.termination.max_cost or 0.0,
                 model=run_msg.model,
+                tags=scenario_tags,
             )
             result = await executor.run(messages, config=loop_cfg)
 
@@ -858,6 +916,139 @@ class TaskConsumer:
                 return [item["embedding"] for item in data["data"]]
 
         return embed
+
+    async def _handle_memory_store(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a memory store request: compute embedding and persist."""
+        try:
+            from codeforge.memory.models import MemoryStoreRequest
+
+            req = MemoryStoreRequest.model_validate_json(msg.data)
+            log = logger.bind(project_id=req.project_id, kind=req.kind)
+            log.info("received memory store request")
+
+            # Compute embedding via LiteLLM
+            embedding = None
+            try:
+                emb_resp = await self._llm.embedding(req.content)
+                if emb_resp:
+                    import numpy as np
+
+                    embedding = np.array(emb_resp, dtype=np.float32).tobytes()
+            except Exception:
+                log.warning("embedding computation failed for memory", exc_info=True)
+
+            # Persist to database
+            import psycopg
+
+            db_url = self._get_db_url()
+            async with await psycopg.AsyncConnection.connect(db_url) as conn, conn.cursor() as cur:
+                await cur.execute(
+                    """INSERT INTO agent_memories
+                           (tenant_id, project_id, agent_id, run_id, content, kind, importance, embedding, metadata)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)""",
+                    (
+                        "00000000-0000-0000-0000-000000000000",
+                        req.project_id,
+                        req.agent_id,
+                        req.run_id,
+                        req.content,
+                        req.kind.value,
+                        req.importance,
+                        embedding,
+                        dict(req.metadata),
+                    ),
+                )
+                await conn.commit()
+
+            await msg.ack()
+            log.info("memory stored successfully")
+
+        except Exception:
+            logger.exception("failed to process memory store request")
+            await msg.ack()
+
+    async def _handle_memory_recall(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a memory recall request: score and return top-k memories."""
+        try:
+            from codeforge.memory.models import MemoryRecallRequest
+            from codeforge.memory.scorer import CompositeScorer
+
+            req = MemoryRecallRequest.model_validate_json(msg.data)
+            log = logger.bind(project_id=req.project_id, top_k=req.top_k)
+            log.info("received memory recall request")
+
+            # Compute query embedding
+            import numpy as np
+
+            query_emb = None
+            try:
+                emb_resp = await self._llm.embedding(req.query)
+                if emb_resp:
+                    query_emb = np.array(emb_resp, dtype=np.float32)
+            except Exception:
+                log.warning("embedding computation failed for recall query", exc_info=True)
+
+            if query_emb is None:
+                await msg.ack()
+                return
+
+            # Fetch candidates and score
+            import psycopg
+
+            db_url = self._get_db_url()
+            scorer = CompositeScorer()
+
+            async with await psycopg.AsyncConnection.connect(db_url) as conn, conn.cursor() as cur:
+                kind_filter = ""
+                params: list[object] = [req.project_id]
+                if req.kind:
+                    kind_filter = " AND kind = %s"
+                    params.append(req.kind)
+
+                base_query = (
+                    "SELECT id, content, kind, importance, embedding, created_at"
+                    " FROM agent_memories"
+                    " WHERE project_id = %s"
+                )
+                query = base_query + kind_filter + " ORDER BY created_at DESC LIMIT 500"
+                await cur.execute(query, params)
+                rows = await cur.fetchall()
+
+            scored = []
+            for row in rows:
+                mem_emb_bytes = row[4]
+                if mem_emb_bytes is None:
+                    continue
+                mem_emb = np.frombuffer(mem_emb_bytes, dtype=np.float32)
+                created_at = row[5]
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=UTC)
+                score = scorer.score(query_emb, mem_emb, created_at, float(row[3]))
+                scored.append({"id": str(row[0]), "content": row[1], "kind": row[2], "score": score})
+
+            scored.sort(key=lambda x: x["score"], reverse=True)
+            top = scored[: req.top_k]
+
+            # Publish recall result (for downstream consumers)
+            if self._js is not None:
+                import json
+
+                result_payload = {
+                    "project_id": req.project_id,
+                    "query": req.query,
+                    "results": top,
+                }
+                await self._js.publish(
+                    "memory.recall.result",
+                    json.dumps(result_payload).encode(),
+                )
+
+            await msg.ack()
+            log.info("memory recall completed", result_count=len(top))
+
+        except Exception:
+            logger.exception("failed to process memory recall request")
+            await msg.ack()
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""

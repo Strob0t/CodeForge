@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
+	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
@@ -97,6 +98,11 @@ func run() error {
 			slog.Error("otel shutdown error", "error", err)
 		}
 	}()
+
+	metrics, err := cfotel.NewMetrics()
+	if err != nil {
+		return fmt.Errorf("otel metrics: %w", err)
+	}
 
 	ctx := context.Background()
 
@@ -186,6 +192,7 @@ func run() error {
 
 	// --- Runtime Service (Phase 4B + 4C) ---
 	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc, &cfg.Runtime)
+	runtimeSvc.SetMetrics(metrics)
 	deliverSvc := service.NewDeliverService(store, &cfg.Runtime, gitPool)
 	runtimeSvc.SetDeliverService(deliverSvc)
 
@@ -437,25 +444,36 @@ func run() error {
 	runtimeSvc.SetMCPService(mcpSvc)
 	slog.Info("mcp service initialized", "enabled", cfg.MCP.Enabled)
 
-	// --- Conversation Service ---
-	// Auto-detect strongest model if none is manually configured.
-	conversationModel := cfg.LiteLLM.ConversationModel
-	if conversationModel == "" {
-		discovered, err := llmClient.DiscoverModels(ctx)
-		if err != nil {
-			slog.Warn("model auto-detection failed, no default model set", "error", err)
-		} else if best := litellm.SelectStrongestModel(discovered); best != "" {
-			conversationModel = best
-			slog.Info("auto-selected strongest model", "model", best, "candidates", len(discovered))
+	// --- Copilot Token Exchange ---
+	var copilotClient *copilot.Client
+	if cfg.Copilot.Enabled {
+		copilotClient = copilot.NewClient(cfg.Copilot.HostsFilePath)
+		if copilotClient.HasHostsFile() {
+			slog.Info("copilot integration enabled", "hosts_file", cfg.Copilot.HostsFilePath)
 		} else {
-			slog.Warn("no models discovered, no default model set")
+			slog.Warn("copilot enabled but hosts file not found — exchange will fail until file is created")
 		}
 	}
+
+	// --- Model Registry (Phase 22) ---
+	// Periodic polling of LiteLLM model health; first refresh is synchronous.
+	modelRegistry := service.NewModelRegistry(llmClient, hub, cfg.LiteLLM.HealthPollInterval)
+	modelRegistry.Start(ctx)
+	slog.Info("model registry initialized",
+		"poll_interval", cfg.LiteLLM.HealthPollInterval,
+		"best_model", modelRegistry.BestModel(),
+		"model_count", len(modelRegistry.AvailableModels()))
+
+	// --- Conversation Service ---
+	// Use the static config model as fallback; the registry provides live best model.
+	conversationModel := cfg.LiteLLM.ConversationModel
 	conversationSvc := service.NewConversationService(store, llmClient, hub, conversationModel, modeSvc)
+	conversationSvc.SetMetrics(metrics)
 	conversationSvc.SetQueue(queue)
 	conversationSvc.SetAgentConfig(&cfg.Agent)
 	conversationSvc.SetMCPService(mcpSvc)
 	conversationSvc.SetPolicyService(policySvc)
+	conversationSvc.SetModelRegistry(modelRegistry)
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)
@@ -471,6 +489,24 @@ func run() error {
 		// Start background cleanup of expired revoked tokens (P1-6)
 		authSvc.StartTokenCleanup(ctx, 15*time.Minute)
 	}
+
+	// --- Memory Service (Phase 22B) ---
+	memorySvc := service.NewMemoryService(store, queue)
+	slog.Info("memory service initialized")
+
+	// --- Experience Pool Service (Phase 22B) ---
+	experienceSvc := service.NewExperiencePoolService(store)
+	slog.Info("experience pool service initialized")
+
+	// --- Microagent Service (Phase 22C) ---
+	microagentSvc := service.NewMicroagentService(store)
+	runtimeSvc.SetMicroagentService(microagentSvc)
+	conversationSvc.SetMicroagentService(microagentSvc)
+	slog.Info("microagent service initialized")
+
+	// --- Skill Service (Phase 22D) ---
+	skillSvc := service.NewSkillService(store)
+	slog.Info("skill service initialized")
 
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,
@@ -513,6 +549,12 @@ func run() error {
 		PromptSections:   service.NewPromptSectionService(store),
 		Benchmarks:       service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir),
 		ReviewRouter:     reviewRouterSvc,
+		ModelRegistry:    modelRegistry,
+		Copilot:          copilotClient,
+		Memory:           memorySvc,
+		ExperiencePool:   experienceSvc,
+		Microagents:      microagentSvc,
+		Skills:           skillSvc,
 	}
 
 	r := chi.NewRouter()
