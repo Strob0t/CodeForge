@@ -1,3 +1,11 @@
+// Package a2a implements the A2A (Agent-to-Agent) protocol endpoints.
+//
+// STATUS: Phase 2-3 stub — discovery-only implementation.
+//
+// The current handler supports agent card discovery (GET /.well-known/agent.json)
+// and task creation/retrieval, but tasks are stored in-memory only and are never
+// dispatched to an actual agent backend. Full implementation (task execution,
+// streaming responses, skill routing) is planned for Phase 2-3.
 package a2a
 
 import (
@@ -10,6 +18,8 @@ import (
 )
 
 // Handler serves the A2A protocol endpoints.
+// NOTE: This is a discovery-only stub. Tasks are accepted and stored in-memory
+// but never executed. See CLAUDE.md "A2A" section for roadmap.
 type Handler struct {
 	baseURL string
 	mu      sync.RWMutex

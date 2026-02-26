@@ -487,3 +487,22 @@ class BenchmarkRunResult(BaseModel):
     total_tokens: int = 0
     total_duration_ms: int = 0
     error: str = ""
+
+
+# --- GEMMAS Evaluation Models (Phase 20G) ---
+
+
+class GemmasEvalRequest(BaseModel):
+    """Request to compute GEMMAS metrics for a completed plan."""
+
+    plan_id: str
+    messages: list[dict] = Field(default_factory=list)
+
+
+class GemmasEvalResult(BaseModel):
+    """Result of GEMMAS metric computation."""
+
+    plan_id: str
+    information_diversity_score: float = 0.0
+    unnecessary_path_ratio: float = 0.0
+    error: str = ""

@@ -9,6 +9,7 @@ import (
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
+	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 )
 
 // DefaultModePromptBudget is the soft token limit for assembled mode prompts.
@@ -192,4 +193,62 @@ func AssembleSections(sections []PromptSection) string {
 		buf.WriteString(s.Text)
 	}
 	return buf.String()
+}
+
+// ApplyDBOverrides merges database prompt section rows into the embedded sections.
+// Merge strategies: "replace" overwrites the section text, "append" appends to it,
+// "prepend" prepends before it. Unmatched DB rows are added as new sections.
+// Rows with Enabled=false mark the matching section as disabled.
+func ApplyDBOverrides(sections []PromptSection, dbRows []prompt.SectionRow) []PromptSection {
+	result := make([]PromptSection, len(sections))
+	copy(result, sections)
+
+	matched := make(map[string]bool)
+
+	for _, row := range dbRows {
+		found := false
+		for i := range result {
+			if result[i].Name != row.Name {
+				continue
+			}
+			found = true
+			matched[row.Name] = true
+
+			if !row.Enabled {
+				result[i].Enabled = false
+				result[i].Source = "db_override"
+				continue
+			}
+
+			switch row.Merge {
+			case "replace":
+				result[i].Text = row.Content
+				result[i].Source = "db_override"
+			case "append":
+				result[i].Text = result[i].Text + "\n\n" + row.Content
+				result[i].Source = "db_override"
+			case "prepend":
+				result[i].Text = row.Content + "\n\n" + result[i].Text
+				result[i].Source = "db_override"
+			}
+			if row.Priority > 0 {
+				result[i].Priority = row.Priority
+			}
+			result[i].Tokens = cfcontext.EstimateTokens(result[i].Text)
+		}
+
+		if !found && row.Enabled {
+			result = append(result, PromptSection{
+				ID:       row.ID,
+				Name:     row.Name,
+				Text:     row.Content,
+				Tokens:   cfcontext.EstimateTokens(row.Content),
+				Priority: row.Priority,
+				Source:   "db_custom",
+				Enabled:  true,
+			})
+		}
+	}
+
+	return result
 }

@@ -447,3 +447,27 @@ type ConversationRunCompletePayload struct {
 	StepCount        int                          `json:"step_count"`
 	Model            string                       `json:"model"`
 }
+
+// --- GEMMAS Evaluation payloads (Phase 20G) ---
+
+// GemmasAgentMessagePayload represents a single agent message for GEMMAS evaluation.
+type GemmasAgentMessagePayload struct {
+	AgentID       string `json:"agent_id"`
+	Content       string `json:"content"`
+	Round         int    `json:"round"`
+	ParentAgentID string `json:"parent_agent_id,omitempty"`
+}
+
+// GemmasEvalRequestPayload is published to request GEMMAS metric computation.
+type GemmasEvalRequestPayload struct {
+	PlanID   string                      `json:"plan_id"`
+	Messages []GemmasAgentMessagePayload `json:"messages"`
+}
+
+// GemmasEvalResultPayload is published with GEMMAS metric results.
+type GemmasEvalResultPayload struct {
+	PlanID                    string  `json:"plan_id"`
+	InformationDiversityScore float64 `json:"information_diversity_score"`
+	UnnecessaryPathRatio      float64 `json:"unnecessary_path_ratio"`
+	Error                     string  `json:"error,omitempty"`
+}

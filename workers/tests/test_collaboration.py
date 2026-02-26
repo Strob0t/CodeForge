@@ -68,6 +68,57 @@ class TestInformationDiversityScore:
         # No edges = no connected pairs = trivially diverse
         assert ids.compute(dag) == 1.0
 
+    def test_ids_with_embedding_function(self) -> None:
+        """Test IDS with a mock embedding function producing orthogonal vectors."""
+        dag = _make_dag(
+            [
+                {"agent_id": "coder", "content": "implement sorting", "round": 1},
+                {
+                    "agent_id": "reviewer",
+                    "content": "check security",
+                    "round": 2,
+                    "parent_agent_id": "coder",
+                },
+            ]
+        )
+
+        # Orthogonal embeddings -> high diversity
+        def mock_embed(texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+
+        ids = InformationDiversityScore(embed_fn=mock_embed)
+        score = ids.compute(dag)
+        assert 0.0 <= score <= 1.0
+        assert score > 0.5  # Orthogonal vectors -> high diversity
+
+    def test_ids_embedding_fallback_on_error(self) -> None:
+        """Test IDS falls back to TF-IDF when embedding function raises."""
+        dag = _make_dag(
+            [
+                {"agent_id": "coder", "content": "implement the sorting algorithm with quicksort", "round": 1},
+                {
+                    "agent_id": "reviewer",
+                    "content": "check security vulnerabilities and SQL injection risks",
+                    "round": 2,
+                    "parent_agent_id": "coder",
+                },
+            ]
+        )
+
+        def broken_embed(texts: list[str]) -> list[list[float]]:
+            raise RuntimeError("embedding service unavailable")
+
+        # With broken embed_fn, should fall back to TF-IDF
+        ids_with_broken = InformationDiversityScore(embed_fn=broken_embed)
+        score_broken = ids_with_broken.compute(dag)
+
+        # Without embed_fn (pure TF-IDF)
+        ids_tfidf = InformationDiversityScore()
+        score_tfidf = ids_tfidf.compute(dag)
+
+        # Both should produce the same result since broken falls back to TF-IDF
+        assert abs(score_broken - score_tfidf) < 0.01
+
 
 class TestUnnecessaryPathRatio:
     def test_no_scores_returns_zero(self) -> None:

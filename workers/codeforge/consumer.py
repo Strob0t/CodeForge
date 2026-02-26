@@ -21,6 +21,8 @@ from codeforge.logger import setup_logging, stop_logging
 from codeforge.models import (
     ConversationRunCompleteMessage,
     ConversationRunStartMessage,
+    GemmasEvalRequest,
+    GemmasEvalResult,
     GraphBuildRequest,
     GraphBuildResult,
     GraphSearchRequest,
@@ -59,6 +61,7 @@ STREAM_SUBJECTS = [
     "graph.>",
     "conversation.>",
     "benchmark.>",
+    "evaluation.>",
 ]
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
@@ -82,6 +85,8 @@ SUBJECT_CONVERSATION_RUN_START = "conversation.run.start"
 SUBJECT_CONVERSATION_RUN_COMPLETE = "conversation.run.complete"
 SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"
 SUBJECT_BENCHMARK_RUN_RESULT = "benchmark.run.result"
+SUBJECT_EVAL_GEMMAS_REQUEST = "evaluation.gemmas.request"
+SUBJECT_EVAL_GEMMAS_RESULT = "evaluation.gemmas.result"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -99,6 +104,8 @@ class TaskConsumer:
         litellm_key: str = "",
     ) -> None:
         self.nats_url = nats_url
+        self._litellm_url = litellm_url
+        self._litellm_key = litellm_key
         self._nc: NATSClient | None = None
         self._js: JetStreamContext | None = None
         self._running = False
@@ -145,6 +152,7 @@ class TaskConsumer:
             (SUBJECT_GRAPH_SEARCH_REQUEST, self._handle_graph_search),
             (SUBJECT_CONVERSATION_RUN_START, self._handle_conversation_run),
             (SUBJECT_BENCHMARK_RUN_REQUEST, self._handle_benchmark_run),
+            (SUBJECT_EVAL_GEMMAS_REQUEST, self._handle_gemmas_eval),
         ]
 
         loops = []
@@ -794,6 +802,62 @@ class TaskConsumer:
                     error_result.model_dump_json().encode(),
                 )
             await msg.ack()
+
+    async def _handle_gemmas_eval(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a GEMMAS evaluation request: compute IDS + UPR and publish result."""
+        from codeforge.evaluation.executor import handle_gemmas_evaluation
+
+        try:
+            request = GemmasEvalRequest.model_validate_json(msg.data)
+            log = logger.bind(plan_id=request.plan_id)
+            log.info("received GEMMAS evaluation request", messages=len(request.messages))
+
+            embed_fn = self._build_embed_fn()
+            result_dict = await handle_gemmas_evaluation(
+                messages=request.messages,
+                plan_id=request.plan_id,
+                embed_fn=embed_fn,
+            )
+
+            result = GemmasEvalResult(**result_dict)
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_EVAL_GEMMAS_RESULT,
+                    result.model_dump_json().encode(),
+                )
+
+            await msg.ack()
+            log.info(
+                "GEMMAS evaluation completed",
+                ids=result.information_diversity_score,
+                upr=result.unnecessary_path_ratio,
+            )
+
+        except Exception:
+            logger.exception("failed to process GEMMAS evaluation request")
+            await msg.ack()
+
+    def _build_embed_fn(self) -> Callable[[list[str]], list[list[float]]] | None:
+        """Build a sync embedding function using LiteLLM's /v1/embeddings endpoint."""
+        import httpx
+
+        url = self._litellm_url.rstrip("/") + "/v1/embeddings"
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._litellm_key:
+            headers["Authorization"] = f"Bearer {self._litellm_key}"
+
+        def embed(texts: list[str]) -> list[list[float]]:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(
+                    url,
+                    json={"input": texts, "model": "text-embedding-3-small"},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return [item["embedding"] for item in data["data"]]
+
+        return embed
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""

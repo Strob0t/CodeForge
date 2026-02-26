@@ -52,9 +52,9 @@ export default function SettingsPage() {
   onMount(async () => {
     try {
       const data = await api.settings.get();
-      if (data.default_provider) setDefaultProvider(data.default_provider as string);
-      if (data.default_autonomy) setDefaultAutonomy(data.default_autonomy as string);
-      if (data.auto_clone !== undefined) setAutoClone(data.auto_clone as boolean);
+      if (data.default_provider) setDefaultProvider(data.default_provider);
+      if (data.default_autonomy) setDefaultAutonomy(data.default_autonomy);
+      if (data.auto_clone !== undefined) setAutoClone(data.auto_clone);
     } catch {
       // Settings may not exist yet, use defaults
     }

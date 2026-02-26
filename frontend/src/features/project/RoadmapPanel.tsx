@@ -11,7 +11,7 @@ import type {
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
-import { Badge, Button, Input, Select } from "~/ui";
+import { Badge, Button, ConfirmDialog, Input, Select } from "~/ui";
 
 import DragList, { type DragHandleProps } from "./DragList";
 
@@ -77,6 +77,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
 
   // Sync-to-file state
   const [syncing, setSyncing] = createSignal(false);
+
+  // Delete confirmation dialog
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
 
   // Import state
   const [importing, setImporting] = createSignal(false);
@@ -169,7 +172,6 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
   };
 
   const handleDeleteRoadmap = async () => {
-    if (!confirm(t("roadmap.confirmDelete"))) return;
     try {
       await api.roadmap.delete(props.projectId);
       refetch();
@@ -178,6 +180,8 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       const msg = e instanceof Error ? e.message : t("roadmap.toast.deleteFailed");
       props.onError(msg);
       toast("error", msg);
+    } finally {
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -354,11 +358,21 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                 <Button
                   variant="danger"
                   size="sm"
-                  onClick={handleDeleteRoadmap}
+                  onClick={() => setShowDeleteConfirm(true)}
                   aria-label={t("roadmap.deleteAria")}
                 >
                   {t("common.delete")}
                 </Button>
+                <ConfirmDialog
+                  open={showDeleteConfirm()}
+                  title={t("roadmap.deleteTitle")}
+                  message={t("roadmap.confirmDelete")}
+                  variant="danger"
+                  confirmLabel={t("common.delete")}
+                  cancelLabel={t("common.cancel")}
+                  onConfirm={handleDeleteRoadmap}
+                  onCancel={() => setShowDeleteConfirm(false)}
+                />
               </div>
             </div>
 

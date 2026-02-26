@@ -20,19 +20,24 @@ import (
 
 // OrchestratorService manages execution plans — multi-agent DAGs with scheduling protocols.
 type OrchestratorService struct {
-	store          database.Store
-	hub            broadcast.Broadcaster
-	events         eventstore.Store
-	runtime        *RuntimeService
-	orchCfg        *config.Orchestrator
-	sharedCtx      *SharedContextService
-	onPlanComplete func(ctx context.Context, planID string, status string)
-	mu             sync.Mutex // serializes plan advancement
+	store                   database.Store
+	hub                     broadcast.Broadcaster
+	events                  eventstore.Store
+	runtime                 *RuntimeService
+	orchCfg                 *config.Orchestrator
+	sharedCtx               *SharedContextService
+	onPlanCompleteCallbacks []func(ctx context.Context, planID string, status string)
+	mu                      sync.Mutex // serializes plan advancement
 }
 
-// SetOnPlanComplete registers a callback invoked when a plan completes or fails.
+// AddOnPlanComplete appends a callback invoked when a plan completes or fails.
+func (s *OrchestratorService) AddOnPlanComplete(fn func(ctx context.Context, planID string, status string)) {
+	s.onPlanCompleteCallbacks = append(s.onPlanCompleteCallbacks, fn)
+}
+
+// SetOnPlanComplete registers a callback (backward-compatible alias for AddOnPlanComplete).
 func (s *OrchestratorService) SetOnPlanComplete(fn func(ctx context.Context, planID string, status string)) {
-	s.onPlanComplete = fn
+	s.AddOnPlanComplete(fn)
 }
 
 // SetSharedContext sets the shared context service for auto-populating run outputs.
@@ -456,8 +461,8 @@ func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.Executio
 	p.Status = plan.StatusCompleted
 	s.appendPlanEvent(ctx, event.TypePlanCompleted, p)
 	s.broadcastPlanStatus(ctx, p)
-	if s.onPlanComplete != nil {
-		s.onPlanComplete(ctx, p.ID, string(p.Status))
+	for _, fn := range s.onPlanCompleteCallbacks {
+		fn(ctx, p.ID, string(p.Status))
 	}
 	slog.Info("plan completed", "plan_id", p.ID)
 }
@@ -478,8 +483,8 @@ func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPla
 	p.Status = plan.StatusFailed
 	s.appendPlanEvent(ctx, event.TypePlanFailed, p)
 	s.broadcastPlanStatus(ctx, p)
-	if s.onPlanComplete != nil {
-		s.onPlanComplete(ctx, p.ID, string(p.Status))
+	for _, fn := range s.onPlanCompleteCallbacks {
+		fn(ctx, p.ID, string(p.Status))
 	}
 	slog.Info("plan failed", "plan_id", p.ID)
 }

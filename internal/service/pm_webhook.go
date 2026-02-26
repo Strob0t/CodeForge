@@ -7,19 +7,63 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // PMWebhookService processes PM platform webhooks and triggers sync.
 type PMWebhookService struct {
-	hub  broadcast.Broadcaster
-	sync *SyncService
+	hub   broadcast.Broadcaster
+	sync  *SyncService
+	store database.Store
 }
 
 // NewPMWebhookService creates a PM webhook service.
-func NewPMWebhookService(hub broadcast.Broadcaster, syncSvc *SyncService) *PMWebhookService {
-	return &PMWebhookService{hub: hub, sync: syncSvc}
+func NewPMWebhookService(hub broadcast.Broadcaster, syncSvc *SyncService, store database.Store) *PMWebhookService {
+	return &PMWebhookService{hub: hub, sync: syncSvc, store: store}
+}
+
+// triggerPullSync looks up the project by repo name and triggers a pull sync.
+// Runs in a goroutine — errors are logged, not returned.
+func (s *PMWebhookService) triggerPullSync(ctx context.Context, provider, projectRef string) {
+	proj, err := s.store.GetProjectByRepoName(ctx, projectRef)
+	if err != nil {
+		slog.Warn("webhook: project not found for sync", "provider", provider, "ref", projectRef, "error", err)
+		return
+	}
+
+	cfg := roadmap.SyncConfig{
+		ProjectID:   proj.ID,
+		ProjectRef:  projectRef,
+		Provider:    provider,
+		Direction:   roadmap.SyncDirectionPull,
+		CreateNew:   true,
+		UpdateExist: true,
+	}
+
+	result, syncErr := s.sync.Sync(ctx, cfg)
+	if syncErr != nil {
+		slog.Error("webhook: pull sync failed", "provider", provider, "project", proj.ID, "error", syncErr)
+		return
+	}
+
+	slog.Info("webhook: pull sync completed",
+		"provider", provider,
+		"project", proj.ID,
+		"created", result.Created,
+		"updated", result.Updated,
+	)
+
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, "pm.sync", map[string]any{
+			"project_id": proj.ID,
+			"provider":   provider,
+			"created":    result.Created,
+			"updated":    result.Updated,
+		})
+	}
 }
 
 // HandleGitHubIssueWebhook processes a GitHub issue event webhook.
@@ -51,6 +95,8 @@ func (s *PMWebhookService) HandleGitHubIssueWebhook(ctx context.Context, data []
 		"item_id", evt.ItemID,
 		"project_ref", evt.ProjectRef,
 	)
+
+	go s.triggerPullSync(ctx, evt.Provider, evt.ProjectRef)
 
 	return evt, nil
 }
@@ -84,6 +130,8 @@ func (s *PMWebhookService) HandleGitLabIssueWebhook(ctx context.Context, data []
 		"item_id", evt.ItemID,
 		"project_ref", evt.ProjectRef,
 	)
+
+	go s.triggerPullSync(ctx, evt.Provider, evt.ProjectRef)
 
 	return evt, nil
 }
@@ -123,6 +171,8 @@ func (s *PMWebhookService) HandlePlaneWebhook(ctx context.Context, data []byte) 
 		"item_id", evt.ItemID,
 		"project_ref", evt.ProjectRef,
 	)
+
+	go s.triggerPullSync(ctx, evt.Provider, evt.ProjectRef)
 
 	return evt, nil
 }

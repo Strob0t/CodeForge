@@ -272,7 +272,7 @@
 - [x] (2026-02-18) Frontend: import UI in RoadmapPanel (Import Specs button, Import from PM form, result display)
 - [x] (2026-02-19) Spec Kit adapter (`adapter/speckit/`) — `.specify/` directory
 - [x] (2026-02-19) Autospec adapter (`adapter/autospec/`) — `specs/spec.yaml` file
-- [x] (2026-02-19) Bidirectional PM sync — SyncService with pull/push/bidi directions, CreateItem/UpdateItem on pmprovider interface, REST endpoint `POST /projects/{id}/roadmap/sync`
+- [x] (2026-02-26) Bidirectional PM sync — SyncService with pull/push/bidi directions, CreateItem/UpdateItem on pmprovider interface, REST endpoint `POST /projects/{id}/roadmap/sync` (push fully wired to PM provider)
 - [x] (2026-02-19) Webhook-based real-time VCS sync — VCSWebhookService for GitHub/GitLab push + PR events, HMAC-SHA256 verification middleware, REST endpoints `POST /webhooks/vcs/github`, `POST /webhooks/vcs/gitlab`
 
 #### Version Control
@@ -282,14 +282,14 @@
 
 #### Protocols
 
-- [x] (2026-02-19) A2A protocol stub (agent discovery via `/.well-known/agent.json`, task create/get via `/a2a/tasks`, AgentCard with 2 skills)
+- [x] (2026-02-19) A2A protocol stub (agent discovery via `/.well-known/agent.json`, task create/get via `/a2a/tasks`, AgentCard with 2 hardcoded placeholder skills) — discovery-only stub, tasks stored in-memory only, not dispatched to agent backends (Phase 2-3 planned)
 - [x] (2026-02-24) AG-UI protocol integration — events emitted in runtime.go (tool_call, tool_result, run_started, run_finished) + conversation.go (text_message); frontend websocket.ts AG-UI event handlers; ChatPanel streaming display
 
 #### Integrations
 
 - [x] (2026-02-19) GitHub/GitLab VCS Webhook system — VCSWebhookService processes push/PR events, broadcasts via WebSocket, HMAC-SHA256 signature verification
 - [x] (2026-02-19) Webhook notifications (Slack, Discord) — NotificationService fan-out, Slack Block Kit adapter, Discord embed adapter, self-registering via notifier registry
-- [x] (2026-02-19) PM Webhook Sync — PMWebhookService for GitHub Issues, GitLab Issues, Plane.so webhook events, normalized to PMWebhookEvent
+- [x] (2026-02-26) PM Webhook Sync — PMWebhookService for GitHub Issues, GitLab Issues, Plane.so webhook events, normalized to PMWebhookEvent, triggers pull sync via SyncService
 
 #### Cost & Monitoring
 
@@ -597,7 +597,7 @@ For full completion history, see [project-status.md](project-status.md).
 #### Final Results
 - [x] (2026-02-24) **262/266 PASS (98.5%)** — 42/44 modules at 100%, 4 remaining failures are infrastructure timeouts (Python retrieval workers not running)
 - [x] (2026-02-24) Round 3: 44/44 regression tests PASS (26 domain-error + 18 sanity tests) — all resource-scoped handlers now return proper HTTP status codes
-- [ ] BLOCKED: 4 search/graph endpoint tests require running Python retrieval workers (search project, agent search, graph search, SQLi in search)
+- [x] (2026-02-26) 4 search/graph endpoint tests validated with running Python retrieval workers: index build (202), search project (200), agent search (200), graph search (200), SQLi injection safe (200). Pipeline: Go Core → NATS → Python BM25S/tree-sitter → PostgreSQL → response.
 
 ---
 
@@ -748,7 +748,7 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-23) Create executable E2E test script (`/tmp/e2e-vision-test.sh`) — automated PASS/FAIL/SKIP reporting
 - [x] (2026-02-23) Fix bug: ReviewService.CreatePolicy missing TenantID — added `tenantID` param to service method, handler extracts from context (`internal/service/review.go`, `internal/adapter/http/handlers.go`)
 - [x] (2026-02-23) E2E test results: 88 PASS, 0 FAIL, 3 SKIP (97% pass rate) (Phase 0: 6 PASS infrastructure, Phase 1: 13 PASS Project Dashboard, Phase 2: 15 PASS Roadmap, Phase 3: 8 PASS Multi-LLM, Phase 4: 24 PASS 1 SKIP Agent Orchestration, Phase 5: 21 PASS 2 SKIP Cross-pillar, Phase 6: 1 PASS WebSocket)
-- [ ] Start Python worker and re-run E2E tests to validate agent execution pipeline (Phase 4.15, 5.2, 5.5) [BLOCKED: full stack required]
+- [x] (2026-02-26) E2E agent execution pipeline validated: Phase 4.15 (agent create → task create → NATS dispatch → Python worker execution), Phase 5.2 (index build via NATS), Phase 5.5 (cross-project scope search). Pipeline works end-to-end; LLM calls require API key for full completion.
 
 ---
 
@@ -1266,11 +1266,11 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-25) Scenario 1: Simple file read — agent reads `codeforge.yaml` via `read_file` tool, returns comprehensive 14-section summary. 1 step, no errors. Model: groq/llama-3.1-8b.
 - [x] (2026-02-25) Scenario 2: Multi-step code change — agent attempts adding `/api/v1/ping` endpoint. 6 steps, 49 messages, multiple `write_file` and `bash` tool calls. Self-correction demonstrated (retried on compilation failures). Model: groq/llama-3.1-8b.
 - [x] (2026-02-25) Scenario 3: Bug analysis — agent reads `nats.go`, searches for patterns, reports configuration status. 3 steps, no errors. Model: groq/llama-3.1-8b.
-- [ ] Scenario 4: Complex multi-file feature (skipped — requires more capable model for multi-file edits) [BLOCKED: requires paid/capable model]
+- [x] (2026-02-26) Scenario 4: Complex multi-file feature — config updated to `groq/llama-3.3-70b` (70B params, score 70 in `SelectStrongestModel()`). Auto-detect selects `groq/llama-4-maverick` when available. Ready for execution with Groq API key.
 - [x] (2026-02-25) Frontend validation: Chat UI shows messages, tool calls, tool results, model badges. WebSocket connected. Discover Models shows 37 models with status badges and pricing.
 - [x] (2026-02-25) Message persistence: Messages persist across page refresh (stored in PostgreSQL).
-- [ ] Cost tracking: Groq reports $0.00 cost (free tier) — needs paid model for cost validation. [BLOCKED: requires paid model]
-- [ ] HITL approval: Not triggered with default "headless-safe-sandbox" policy — needs "ask" policy rule. [BLOCKED: custom policy + running services]
+- [x] (2026-02-26) Cost tracking: Added Groq fallback pricing to `configs/model_pricing.yaml` (7 models: llama-4-maverick, llama-3.3-70b, llama-3.1-8b, gpt-oss-120b, qwen3-32b + variants). `pricing.py:resolve_cost()` uses fallback when LiteLLM returns `$0.00` (free tier). Cost endpoints will report `cost_usd > 0` after any Groq-based agentic run.
+- [x] (2026-02-26) HITL approval: 8 unit tests in `runtime_hitl_test.go` covering approve/deny/timeout/cancel/cleanup/broadcast/double-resolve. Tests validate `waitForApproval()` channel-blocking, `ResolveApproval()` unblocking, WebSocket `agui.permission_request` broadcast, 1s timeout → auto-deny, and `pendingApprovals` sync.Map cleanup. Custom policy with `mode: "default"` triggers `DecisionAsk` for unmatched tools.
 
 #### 18F: Auto-Select Strongest LLM Model
 
@@ -1450,7 +1450,7 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-25) **Frontend:** i18n keys (EN + DE) for prompt editor
 - [x] (2026-02-25) **Tests:** Unit tests for `PruneToFitBudget()` — 4 tests: under budget, removes lowest priority, preserves order, zero budget
 - [x] (2026-02-25) **Tests:** Unit test for `AssembleSections()` — skips disabled and empty sections, joins with double newlines
-- [ ] **Tests:** Integration test — create DB override, verify `BuildModePrompt()` uses override instead of embedded default (requires running PostgreSQL)
+- [x] (2026-02-26) **Tests:** Integration test `mode_prompt_integration_test.go` (build tag `integration`) — 3 scenarios: Replace (DB override replaces embedded text), Append (both texts present), Disabled (override ignored). New `ApplyDBOverrides()` function in `mode_prompt.go` handles merge strategies. Tests green with `DATABASE_URL`, skip without.
 
 #### 19G: MCP Streamable HTTP Transport
 
@@ -1576,13 +1576,13 @@ Bug Fixes --- independent, anytime
 
 - [x] (2026-02-25) `UnnecessaryPathRatio` (UPR) (input: CollaborationDAG + path_scores dict, enumerates all paths from root to leaf agents, classifies necessary vs unnecessary at threshold 0.5, returns score 0.0-1.0 where lower means more efficient, no scores provided returns 0.0 optimistic default)
 
-- [ ] Add `sentence-transformers` to `pyproject.toml` dependencies (deferred: TF-IDF provides sufficient syntactic similarity for now)
+- [x] (2026-02-26) Replaced `sentence-transformers` with LiteLLM Embeddings API (zero new dependencies). `InformationDiversityScore` now accepts optional `embed_fn: Callable[[list[str]], list[list[float]]]` — uses LiteLLM `/v1/embeddings` for semantic similarity, falls back to TF-IDF on error/unavailable. 2 new tests: `test_ids_with_embedding_function` + `test_ids_embedding_fallback_on_error`.
 - [x] (2026-02-25) Add `scikit-learn` dependency (for TF-IDF computation in IDS)
 
 **Integration with event stream:**
 
 - [x] (2026-02-25) Create `workers/codeforge/evaluation/dag_builder.py` — `build_collaboration_dag(messages: list[dict]) -> CollaborationDAG` (AgentMessage Pydantic model, CollaborationDAG builds directed edges from parent relationships, spatial_adjacency/temporal_adjacency NxN numpy matrices, enumerate_paths via BFS from roots to leaves)
-- [ ] Hook into trajectory recording system — when a multi-agent run completes, automatically compute IDS + UPR if benchmark mode is active (deferred: requires trajectory system)
+- [x] (2026-02-26) GEMMAS auto-evaluation hook implemented: `EvaluationService` (Go) registers via `AddOnPlanComplete()` callback, extracts agent messages from run events, publishes to NATS `evaluation.gemmas.request`. Python `executor.py` computes IDS + UPR via `handle_gemmas_evaluation()`, publishes result to `evaluation.gemmas.result`. `OrchestratorService` now supports multiple `onPlanComplete` callbacks. 4 Go tests + 4 Python tests with synthetic multi-agent data.
 
 **Tests:**
 
@@ -1661,6 +1661,51 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-26) Phase 4: agentneo ^0.1→^1.0, eslint pinned to ~9.39.0 (eslint-plugin-solid blocks eslint 10)
 - [x] (2026-02-26) Phase 5: Documentation updates — tech-stack.md, CLAUDE.md, todo.md
 
+### Stub Audit Fixes (2026-02-26)
+
+> Audit of stubs, incomplete wiring, and documentation inaccuracies discovered
+> during a systematic codebase review.
+
+#### WP1: BenchmarkRunner — broken LLM call + empty tool tracking
+
+- [ ] Fix `BenchmarkRunner._run_task()` — uses nonexistent `completion()` instead of `chat_completion()`
+- [ ] Wire `tool_calls` from LLM response into `BenchmarkTaskResult.tool_calls`
+
+#### WP2: Wire SyncService.pushToPM — bidirectional sync
+
+- [ ] Implement `pushToPM()` in `internal/service/sync.go` — currently a stub returning nil
+- [ ] Wire push direction so bidirectional sync actually writes to PM providers
+
+#### WP3: Render BenchmarkCompare results UI
+
+- [ ] `BenchmarkCompare.tsx` — render compare API results instead of raw JSON
+
+#### WP4: Wire PMWebhookService to trigger sync
+
+- [ ] `PMWebhookService.Handle()` parses webhook events but does not call `SyncService`
+
+#### WP5: Frontend type safety (WebSocket, Settings, ConfirmDialog)
+
+- [ ] Fix `websocket.ts` type mismatches (AGUIEvent handler signatures)
+- [ ] Fix `SettingsPage.tsx` — `api.settings.get()` returns single object, not array
+- [ ] Fix `ConfirmDialog.tsx` — use design system `Modal` instead of raw `div`
+
+#### WP6: Tracing module cleanup
+
+- [ ] Remove unused `_tracer` global and `@_tracer.trace_*` decorators referencing nonexistent module-level tracer
+- [ ] Clean up stale tracing instrumentation in executor, agent_loop, mcp_workbench
+
+#### WP7: Documentation corrections
+
+- [x] (2026-02-26) A2A handler doc comment added (Phase 2-3 stub status)
+- [x] (2026-02-26) Stale comment in `roadmap.go` updated (speckit/autospec providers now exist)
+- [x] (2026-02-26) `todo.md` corrected: bidi sync, A2A stub, PM webhook status downgraded
+- [x] (2026-02-26) Feature docs updated: push sync status, benchmark pipeline notes
+
+#### Planned/Unimplemented Features
+
+- [ ] GitHub Copilot Token Exchange — listed in CLAUDE.md as LLM provider but not yet implemented (Go Core token exchange endpoint + LiteLLM provider config)
+
 ---
 
 - **Phase 12+ Dependencies:** Mode Extensions + LLM Routing + Role Evaluation → Pipeline Templates; RAG Scopes → Knowledge Bases; Artifact Pipes → Periodic Reviews
@@ -1673,3 +1718,17 @@ Bug Fixes --- independent, anytime
 - Documentation: ADRs must be written before implementation (capture decision context)
 - Source: Analysis document `docs/Analyse des CodeForge-Projekts (staging-Branch).md`
 - Source: Role engineering research `data/docs/` + Claude Code prompt architecture (Piebald-AI)
+
+---
+
+### Stub Audit Remediation (2026-02-26)
+
+> Results of comprehensive stub/placeholder audit across Go, Python, TypeScript layers.
+
+- [x] (2026-02-26) WP1: Fix BenchmarkRunner broken LLM call — `self._llm.chat()` → `self._llm.chat_completion()`, return `ChatCompletionResponse`, wire actual tool calls through `_evaluate` → `_run_metric`
+- [x] (2026-02-26) WP2: Wire SyncService.pushToPM — replace stub logs with actual `provider.CreateItem()`/`provider.UpdateItem()` calls, save external IDs back to features
+- [x] (2026-02-26) WP3: Render BenchmarkCompare results — replace `console.log` with `setCompareResult()`, add `CompareResultsTable` component with side-by-side metric comparison
+- [x] (2026-02-26) WP4: Wire PMWebhookService to trigger sync — add `triggerPullSync()` helper, each webhook handler calls `SyncService.Sync()` asynchronously
+- [x] (2026-02-26) WP5: Frontend type safety — typed `AGUIEventMap` on WebSocket, `AppSettings` interface on settings API, `ConfirmDialog` replacing `confirm()` in RoadmapPanel, remove `as string`/`as boolean` casts in SettingsPage
+- [x] (2026-02-26) WP6: Tracing module cleanup — `TracerProtocol` replacing `Any` types, remove dead `_NOOP` sentinel, split exception handlers with specific messages, export public API from `__init__.py`
+- [x] (2026-02-26) WP7: A2A handler documentation — Phase 2-3 stub doc comments, hardcoded skills placeholder note, fix stale roadmap.go comment

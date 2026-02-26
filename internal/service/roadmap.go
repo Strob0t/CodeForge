@@ -161,8 +161,8 @@ var fileMarkers = map[string][]string{
 }
 
 // AutoDetect scans a workspace for known spec file markers.
-// It first consults registered spec providers, then falls back to hardcoded fileMarkers
-// for formats that do not yet have a provider (e.g., speckit, autospec).
+// It first consults registered spec providers (openspec, speckit, autospec),
+// then falls back to hardcoded fileMarkers for formats without a registered provider.
 func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roadmap.DetectionResult, error) {
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {

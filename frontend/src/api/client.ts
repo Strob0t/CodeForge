@@ -830,9 +830,9 @@ export const api = {
       ),
   },
   settings: {
-    get: () => request<Record<string, unknown>>("/settings"),
+    get: () => request<import("./types").AppSettings>("/settings"),
 
-    update: (data: { settings: Record<string, unknown> }) =>
+    update: (data: { settings: import("./types").AppSettings }) =>
       request<{ status: string }>("/settings", {
         method: "PUT",
         body: JSON.stringify(data),

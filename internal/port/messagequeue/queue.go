@@ -84,4 +84,8 @@ const (
 	SubjectConversationRunStart    = "conversation.run.start"    // Go → Python: start a conversation run
 	SubjectConversationRunComplete = "conversation.run.complete" // Python → Go: conversation run finished
 	SubjectConversationRunCancel   = "conversation.run.cancel"   // Go → Python: cancel a conversation run
+
+	// Evaluation subjects (Phase 20G — GEMMAS)
+	SubjectEvalGemmasRequest = "evaluation.gemmas.request" // Go → Python: compute GEMMAS metrics
+	SubjectEvalGemmasResult  = "evaluation.gemmas.result"  // Python → Go: GEMMAS metric results
 )

@@ -1024,6 +1024,12 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-25) Scenario 2 (code change): 6 steps, multi-tool (`write_file`, `bash`), self-correction on compile errors
 - [x] (2026-02-25) Scenario 3 (bug analysis): 3 steps, `read_file` + `search_files`, correct analysis
 - [x] (2026-02-25) Frontend: Chat UI, tool calls/results, model badges, Discover Models (37 models), message persistence
+- [x] (2026-02-26) Scenario 4 (multi-file): Config upgraded to `groq/llama-3.3-70b` (70B). Auto-detect selects `groq/llama-4-maverick` when available.
+- [x] (2026-02-26) Search/Graph endpoints validated: index build, search, agent search, graph search, SQLi safe (4/4 pass)
+- [x] (2026-02-26) E2E agent execution pipeline: agent create → task dispatch → NATS → Python worker → completion
+- [x] (2026-02-26) Cost tracking: Groq fallback pricing (7 models in model_pricing.yaml), `resolve_cost()` fallback works
+- [x] (2026-02-26) HITL approval: 8 unit tests (approve/deny/timeout/cancel/broadcast/cleanup/double-resolve)
+- [x] (2026-02-26) DB-Override integration test: 3 scenarios (replace/append/disabled) in `mode_prompt_integration_test.go`
 
 ### Phase 18G: Knowledge Base System Fixes (COMPLETED)
 
@@ -1057,7 +1063,9 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-25) **20A:** DeepEval integration — BenchmarkRunner, LiteLLMJudge, metrics (correctness, faithfulness, relevancy, tool correctness), YAML datasets, NATS handler
 - [x] (2026-02-25) **20B:** AgentNeo tracing — TracingManager with dev-mode gating, NoOp fallback, metric wrappers, optional dashboard
 - [x] (2026-02-25) **20C:** GEMMAS collaboration metrics — IDS (TF-IDF cosine similarity), UPR, CollaborationDAG builder
+- [x] (2026-02-26) **20G:** GEMMAS auto-evaluation hook — EvaluationService (Go) registers via AddOnPlanComplete(), extracts agent messages from run events, publishes to NATS. Python executor computes IDS + UPR. IDS upgraded to use LiteLLM Embeddings with TF-IDF fallback.
 - [x] (2026-02-25) **20D:** Go Core benchmark API — 7 endpoints behind DevModeOnly middleware, Migration 041 (benchmark_runs + benchmark_results), PostgreSQL store
 - [x] (2026-02-25) **20E:** Frontend benchmark dashboard — BenchmarkPage with run management, dataset selector, results table, comparison
 - [x] (2026-02-25) **20F:** Documentation — ADR-008 (benchmark evaluation framework), feature docs, dev-setup, tech-stack, CLAUDE.md updates
-- 18 Python tests passing (datasets, tracing, collaboration metrics)
+- 24 Python tests passing (datasets, tracing, collaboration metrics, evaluation executor)
+- 11 Go tests passing (8 HITL approval, 3 evaluation service)

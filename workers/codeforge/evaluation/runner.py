@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.evaluation.datasets import BenchmarkDataset, TaskResult
+from codeforge.evaluation.datasets import BenchmarkDataset, BenchmarkTask, TaskResult
 from codeforge.evaluation.litellm_judge import LiteLLMJudge
 from codeforge.evaluation.metrics import (
     evaluate_answer_relevancy,
@@ -17,7 +17,7 @@ from codeforge.evaluation.metrics import (
 )
 
 if TYPE_CHECKING:
-    from codeforge.llm import LiteLLMClient
+    from codeforge.llm import ChatCompletionResponse, LiteLLMClient
 
 logger = structlog.get_logger()
 
@@ -50,15 +50,18 @@ class BenchmarkRunner:
             log.info("running benchmark task")
             start = time.monotonic()
 
+            actual_tools: list[dict[str, str]] = []
             try:
-                output = await self._execute_task(task.input)
+                response = await self._execute_task(task.input)
+                output = response.content
+                actual_tools = [{"name": tc.name, "args": tc.arguments} for tc in response.tool_calls]
             except Exception:
                 log.exception("task execution failed")
                 output = ""
 
             duration_ms = int((time.monotonic() - start) * 1000)
 
-            scores = await self._evaluate(task, output)
+            scores = await self._evaluate(task, output, actual_tools)
 
             result = TaskResult(
                 task_id=task.id,
@@ -66,6 +69,7 @@ class BenchmarkRunner:
                 scores=scores,
                 actual_output=output,
                 expected_output=task.expected_output,
+                tool_calls=actual_tools,
                 duration_ms=duration_ms,
             )
             results.append(result)
@@ -73,23 +77,23 @@ class BenchmarkRunner:
 
         return results
 
-    async def _execute_task(self, prompt: str) -> str:
-        """Send the task prompt to the LLM and return the response text."""
+    async def _execute_task(self, prompt: str) -> ChatCompletionResponse:
+        """Send the task prompt to the LLM and return the full response."""
         messages = [{"role": "user", "content": prompt}]
-        resp = await self._llm.chat(model=self._model, messages=messages)
-        return resp.get("content", "")
+        return await self._llm.chat_completion(model=self._model, messages=messages)
 
     async def _evaluate(
         self,
-        task: object,
+        task: BenchmarkTask,
         actual_output: str,
+        actual_tools: list[dict[str, str]],
     ) -> dict[str, float]:
         """Run all configured metrics on a single task result."""
         scores: dict[str, float] = {}
 
         for metric_name in self._metrics:
             try:
-                score = await self._run_metric(metric_name, task, actual_output)
+                score = await self._run_metric(metric_name, task, actual_output, actual_tools)
                 scores[metric_name] = score
             except Exception:
                 logger.exception("metric evaluation failed", metric=metric_name, task_id=task.id)
@@ -97,7 +101,13 @@ class BenchmarkRunner:
 
         return scores
 
-    async def _run_metric(self, name: str, task: object, output: str) -> float:
+    async def _run_metric(
+        self,
+        name: str,
+        task: BenchmarkTask,
+        output: str,
+        actual_tools: list[dict[str, str]],
+    ) -> float:
         """Dispatch to the appropriate metric evaluator."""
         if name == "correctness":
             return await evaluate_correctness(
@@ -111,7 +121,7 @@ class BenchmarkRunner:
                 user_input=task.input,
                 actual_output=output,
                 expected_tools=task.expected_tools,
-                actual_tools=[],  # populated when tool-use loop is integrated
+                actual_tools=actual_tools,
                 judge=self._judge,
             )
         if name == "faithfulness":

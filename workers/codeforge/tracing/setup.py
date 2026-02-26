@@ -3,31 +3,42 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Protocol
 
 import structlog
 
 logger = structlog.get_logger()
 
-# Sentinel for no-op mode when tracing is disabled
-_NOOP = object()
+
+class TracerProtocol(Protocol):
+    """Minimal interface for tracing backends (AgentNeo or no-op stub)."""
+
+    def trace_agent(self, name: str) -> object: ...
+
+    def trace_tool(self, name: str) -> object: ...
+
+    def instrument_litellm(self) -> None: ...
+
+    def start_session(self, run_id: str) -> None: ...
+
+    def end_session(self, run_id: str) -> None: ...
 
 
 class _NoOpTracer:
     """Stub tracer that does nothing when tracing is disabled."""
 
-    def trace_agent(self, name: str) -> Any:
+    def trace_agent(self, name: str) -> object:
         """Return a no-op decorator."""
 
-        def decorator(fn: Any) -> Any:
+        def decorator(fn: object) -> object:
             return fn
 
         return decorator
 
-    def trace_tool(self, name: str) -> Any:
+    def trace_tool(self, name: str) -> object:
         """Return a no-op decorator."""
 
-        def decorator(fn: Any) -> Any:
+        def decorator(fn: object) -> object:
             return fn
 
         return decorator
@@ -53,7 +64,7 @@ class TracingManager:
     def __init__(self, project_name: str = "codeforge") -> None:
         self._project_name = project_name
         self._enabled = os.getenv("APP_ENV") == "development"
-        self._tracer: Any = None
+        self._tracer: TracerProtocol = _NoOpTracer()
         self._initialized = False
 
     def init(self) -> None:
@@ -72,11 +83,11 @@ class TracingManager:
             self._initialized = True
             logger.info("agentneo tracing initialized", project=self._project_name)
         except ImportError:
-            logger.warning("agentneo not installed, tracing disabled")
+            logger.warning("agentneo not installed — falling back to no-op tracer")
             self._tracer = _NoOpTracer()
             self._initialized = True
 
-    def get_tracer(self) -> Any:
+    def get_tracer(self) -> TracerProtocol:
         """Return the active tracer instance (or no-op stub)."""
         if not self._initialized:
             self.init()

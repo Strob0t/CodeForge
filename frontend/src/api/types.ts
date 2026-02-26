@@ -1,3 +1,10 @@
+/** Application-level settings returned by GET /settings. */
+export interface AppSettings {
+  default_provider?: string;
+  default_autonomy?: string;
+  auto_clone?: boolean;
+}
+
 /** Matches Go domain/project.Project */
 export interface Project {
   id: string;
@@ -1469,6 +1476,12 @@ export interface BenchmarkRun {
   completed_at?: string;
 }
 
+/** Typed tool call entry for benchmark results. */
+export interface ToolCallEntry {
+  name: string;
+  args: string;
+}
+
 /** Matches Go domain/benchmark.Result */
 export interface BenchmarkResult {
   id: string;
@@ -1478,7 +1491,7 @@ export interface BenchmarkResult {
   scores: Record<string, number>;
   actual_output: string;
   expected_output: string;
-  tool_calls: unknown[];
+  tool_calls: ToolCallEntry[];
   cost_usd: number;
   tokens_in: number;
   tokens_out: number;

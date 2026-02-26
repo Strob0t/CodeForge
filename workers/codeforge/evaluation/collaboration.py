@@ -12,10 +12,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from codeforge.evaluation.dag_builder import CollaborationDAG
 
 
@@ -32,38 +35,33 @@ class InformationDiversityScore:
     3. Compute IDS as weighted average of (1 - similarity)
     """
 
+    def __init__(self, embed_fn: Callable[[list[str]], list[list[float]]] | None = None) -> None:
+        self._embed_fn = embed_fn
+
     def compute(self, dag: CollaborationDAG) -> float:
-        """Compute the IDS score for a multi-agent collaboration DAG.
-
-        Args:
-            dag: Collaboration DAG containing agent messages and adjacency info.
-
-        Returns:
-            Score in [0, 1] where 1.0 means maximum diversity.
-        """
+        """Compute the IDS score for a multi-agent collaboration DAG."""
         messages = dag.agent_messages
         if len(messages) < 2:
-            return 1.0  # single agent = trivially diverse
+            return 1.0
 
-        # Group messages by agent
         agents = sorted({m.agent_id for m in messages})
         if len(agents) < 2:
             return 1.0
 
-        # Concatenate messages per agent
         agent_texts: dict[str, str] = {}
         for agent_id in agents:
             texts = [m.content for m in messages if m.agent_id == agent_id]
             agent_texts[agent_id] = " ".join(texts)
 
-        # Compute TF-IDF similarity matrix
-        vectorizer = TfidfVectorizer(max_features=5000, stop_words="english")
         corpus = [agent_texts[a] for a in agents]
-        try:
-            tfidf_matrix = vectorizer.fit_transform(corpus)
-            sim_matrix = cosine_similarity(tfidf_matrix)
-        except ValueError:
-            # Empty vocabulary (no meaningful text)
+
+        # Try embedding-based similarity first, fall back to TF-IDF
+        sim_matrix = None
+        if self._embed_fn is not None:
+            sim_matrix = self._compute_embedding_similarity(corpus)
+        if sim_matrix is None:
+            sim_matrix = self._compute_tfidf_similarity(corpus)
+        if sim_matrix is None:
             return 1.0
 
         # Weight by spatial adjacency
@@ -83,6 +81,28 @@ class InformationDiversityScore:
             return 1.0
 
         return total_diversity / pair_count
+
+    def _compute_embedding_similarity(self, corpus: list[str]) -> np.ndarray | None:
+        """Compute similarity matrix using LiteLLM embeddings."""
+        try:
+            embeddings = self._embed_fn(corpus)
+            matrix = np.array(embeddings, dtype=np.float64)
+            # L2 normalize
+            norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1.0, norms)
+            matrix = matrix / norms
+            return matrix @ matrix.T
+        except Exception:
+            return None
+
+    def _compute_tfidf_similarity(self, corpus: list[str]) -> np.ndarray | None:
+        """Compute similarity matrix using TF-IDF."""
+        try:
+            vectorizer = TfidfVectorizer(max_features=5000, stop_words="english")
+            tfidf_matrix = vectorizer.fit_transform(corpus)
+            return cosine_similarity(tfidf_matrix)
+        except ValueError:
+            return None
 
 
 class UnnecessaryPathRatio:

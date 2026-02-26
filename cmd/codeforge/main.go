@@ -381,7 +381,7 @@ func run() error {
 	// --- VCS Webhook & Sync Services ---
 	vcsWebhookSvc := service.NewVCSWebhookService(hub, store)
 	syncSvc := service.NewSyncService(store)
-	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc)
+	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc, store)
 	slog.Info("vcs webhook, pm webhook, and sync services initialized")
 
 	// --- Review Service (Phase 12I) ---
@@ -391,6 +391,11 @@ func run() error {
 	reviewSvc.StartCron(ctx)
 	defer reviewSvc.StopCron()
 	slog.Info("review service initialized")
+
+	// --- GEMMAS Evaluation Hook (Phase 20G) ---
+	evalSvc := service.NewEvaluationService(store, eventStore, queue)
+	orchSvc.AddOnPlanComplete(evalSvc.HandlePlanComplete)
+	slog.Info("evaluation service initialized")
 
 	// --- Notification Service ---
 	var notifiers []notifier.Notifier

@@ -27,6 +27,7 @@ export interface AGUIRunStarted {
 export interface AGUIRunFinished {
   run_id: string;
   status: string;
+  error?: string;
 }
 export interface AGUITextMessage {
   run_id: string;
@@ -44,6 +45,7 @@ export interface AGUIToolResult {
   call_id: string;
   result: string;
   error?: string;
+  cost_usd?: number;
 }
 export interface AGUIStateDelta {
   run_id: string;
@@ -58,6 +60,18 @@ export interface AGUIStepFinished {
   run_id: string;
   step_id: string;
   status: string;
+}
+
+/** Discriminated map from AG-UI event type to its typed payload. */
+export interface AGUIEventMap {
+  "agui.run_started": AGUIRunStarted;
+  "agui.run_finished": AGUIRunFinished;
+  "agui.text_message": AGUITextMessage;
+  "agui.tool_call": AGUIToolCall;
+  "agui.tool_result": AGUIToolResult;
+  "agui.state_delta": AGUIStateDelta;
+  "agui.step_started": AGUIStepStarted;
+  "agui.step_finished": AGUIStepFinished;
 }
 
 function buildWSURL(): string {
@@ -98,14 +112,14 @@ export function createCodeForgeWS() {
     };
   }
 
-  /** Subscribe to a specific AG-UI event type. Returns an unsubscribe function. */
-  function onAGUIEvent(
-    type: AGUIEventType,
-    handler: (payload: Record<string, unknown>) => void,
+  /** Subscribe to a specific AG-UI event type with full type safety. */
+  function onAGUIEvent<T extends AGUIEventType>(
+    type: T,
+    handler: (payload: AGUIEventMap[T]) => void,
   ): () => void {
     return onMessage((msg) => {
       if (msg.type === type) {
-        handler(msg.payload);
+        handler(msg.payload as unknown as AGUIEventMap[T]);
       }
     });
   }

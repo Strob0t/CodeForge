@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -165,15 +166,29 @@ func (s *SyncService) pushToPM(ctx context.Context, cfg roadmap.SyncConfig, prov
 
 			switch {
 			case extID != "" && caps.UpdateItem && cfg.UpdateExist:
-				// Feature has external ID -- update it
 				if !cfg.DryRun {
-					slog.Debug("push update skipped (not fully wired)", "feature", f.ID)
+					item := featureToItem(f, extID)
+					if _, err := provider.UpdateItem(ctx, cfg.ProjectRef, item); err != nil {
+						result.Errors = append(result.Errors, fmt.Sprintf("update %s: %s", f.ID, err))
+						continue
+					}
 				}
 				result.Updated++
 			case extID == "" && caps.CreateItem && cfg.CreateNew:
-				// Feature has no external ID -- create it
 				if !cfg.DryRun {
-					slog.Debug("push create skipped (not fully wired)", "feature", f.ID)
+					item := featureToItem(f, "")
+					created, err := provider.CreateItem(ctx, cfg.ProjectRef, item)
+					if err != nil {
+						result.Errors = append(result.Errors, fmt.Sprintf("create %s: %s", f.ID, err))
+						continue
+					}
+					if f.ExternalIDs == nil {
+						f.ExternalIDs = make(map[string]string)
+					}
+					f.ExternalIDs[cfg.Provider] = created.ExternalID
+					if err := s.store.UpdateFeature(ctx, f); err != nil {
+						result.Errors = append(result.Errors, fmt.Sprintf("save external ID for %s: %s", f.ID, err))
+					}
 				}
 				result.Created++
 			default:
@@ -184,4 +199,20 @@ func (s *SyncService) pushToPM(ctx context.Context, cfg roadmap.SyncConfig, prov
 
 	slog.Info("sync push completed", "project", cfg.ProjectID, "created", result.Created, "updated", result.Updated)
 	return result, nil
+}
+
+// featureToItem converts a roadmap Feature into a pmprovider Item for push sync.
+func featureToItem(f *roadmap.Feature, extID string) *pmprovider.Item {
+	itemID := extID
+	if idx := strings.LastIndex(extID, "#"); idx >= 0 {
+		itemID = extID[idx+1:]
+	}
+	return &pmprovider.Item{
+		ID:          itemID,
+		ExternalID:  extID,
+		Title:       f.Title,
+		Description: f.Description,
+		Status:      string(f.Status),
+		Labels:      f.Labels,
+	}
 }

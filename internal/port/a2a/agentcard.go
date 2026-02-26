@@ -1,6 +1,8 @@
 package a2a
 
 // BuildAgentCard returns a static AgentCard for the CodeForge service.
+// NOTE: Skills are hardcoded placeholders. In Phase 2-3 these will be
+// populated dynamically from the registered agent backends and mode configs.
 func BuildAgentCard(baseURL string) AgentCard {
 	return AgentCard{
 		Name:        "CodeForge",
