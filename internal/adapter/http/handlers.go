@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
@@ -26,7 +27,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
+	"github.com/Strob0t/CodeForge/internal/domain/memory"
+	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -37,6 +41,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
+	"github.com/Strob0t/CodeForge/internal/domain/skill"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
@@ -136,6 +141,12 @@ type Handlers struct {
 	PromptSections   *service.PromptSectionService
 	Benchmarks       *service.BenchmarkService
 	ReviewRouter     *service.ReviewRouterService
+	ModelRegistry    *service.ModelRegistry
+	Copilot          *copilot.Client
+	Memory           *service.MemoryService
+	ExperiencePool   *service.ExperiencePoolService
+	Microagents      *service.MicroagentService
+	Skills           *service.SkillService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -3277,4 +3288,300 @@ func (h *Handlers) LSPHover(w http.ResponseWriter, r *http.Request) {
 func writeInternalError(w http.ResponseWriter, err error) {
 	slog.Error("request failed", "error", err)
 	writeError(w, http.StatusInternalServerError, "internal server error")
+}
+
+// --- Model Registry Handlers (Phase 22) ---
+
+// AvailableLLMModels handles GET /api/v1/llm/available — returns cached model health.
+func (h *Handlers) AvailableLLMModels(w http.ResponseWriter, r *http.Request) {
+	if h.ModelRegistry == nil {
+		writeError(w, http.StatusServiceUnavailable, "model registry not initialized")
+		return
+	}
+	type resp struct {
+		Models    []litellm.DiscoveredModel `json:"models"`
+		BestModel string                    `json:"best_model"`
+	}
+	writeJSON(w, http.StatusOK, resp{
+		Models:    h.ModelRegistry.AvailableModels(),
+		BestModel: h.ModelRegistry.BestModel(),
+	})
+}
+
+// RefreshLLMModels handles POST /api/v1/llm/refresh — triggers immediate model refresh.
+func (h *Handlers) RefreshLLMModels(w http.ResponseWriter, r *http.Request) {
+	if h.ModelRegistry == nil {
+		writeError(w, http.StatusServiceUnavailable, "model registry not initialized")
+		return
+	}
+	if err := h.ModelRegistry.Refresh(r.Context()); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "refreshed"})
+}
+
+// --- Copilot Token Exchange Handler (Phase 22A) ---
+
+// HandleCopilotExchange handles POST /api/v1/copilot/exchange.
+func (h *Handlers) HandleCopilotExchange(w http.ResponseWriter, r *http.Request) {
+	if h.Copilot == nil {
+		writeError(w, http.StatusNotFound, "copilot integration not enabled")
+		return
+	}
+	token, expiry, err := h.Copilot.ExchangeToken(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"token":      token,
+		"expires_at": expiry.Format(time.RFC3339),
+	})
+}
+
+// --- Memory Handlers (Phase 22B) ---
+
+// ListMemories handles GET /api/v1/projects/{id}/memories.
+func (h *Handlers) ListMemories(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	mems, err := h.Memory.ListByProject(r.Context(), projectID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if mems == nil {
+		mems = []memory.Memory{}
+	}
+	writeJSON(w, http.StatusOK, mems)
+}
+
+// StoreMemory handles POST /api/v1/projects/{id}/memories.
+func (h *Handlers) StoreMemory(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[memory.CreateRequest](w, r)
+	if !ok {
+		return
+	}
+	req.ProjectID = projectID
+	if err := h.Memory.Store(r.Context(), req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "dispatched"})
+}
+
+// RecallMemories handles POST /api/v1/projects/{id}/memories/recall.
+func (h *Handlers) RecallMemories(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[memory.RecallRequest](w, r)
+	if !ok {
+		return
+	}
+	req.ProjectID = projectID
+	if err := h.Memory.Recall(r.Context(), req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "dispatched"})
+}
+
+// --- Experience Pool Handlers (Phase 22B) ---
+
+// ListExperienceEntries handles GET /api/v1/projects/{id}/experience.
+func (h *Handlers) ListExperienceEntries(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	entries, err := h.ExperiencePool.ListByProject(r.Context(), projectID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if entries == nil {
+		entries = []experience.Entry{}
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// DeleteExperienceEntry handles DELETE /api/v1/experience/{id}.
+func (h *Handlers) DeleteExperienceEntry(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.ExperiencePool.Delete(r.Context(), id); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Microagent Handlers (Phase 22C) ---
+
+// ListMicroagents handles GET /api/v1/projects/{id}/microagents.
+func (h *Handlers) ListMicroagents(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	mas, err := h.Microagents.List(r.Context(), projectID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if mas == nil {
+		mas = []microagent.Microagent{}
+	}
+	writeJSON(w, http.StatusOK, mas)
+}
+
+// CreateMicroagent handles POST /api/v1/projects/{id}/microagents.
+func (h *Handlers) CreateMicroagent(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[microagent.CreateRequest](w, r)
+	if !ok {
+		return
+	}
+	req.ProjectID = projectID
+	m, err := h.Microagents.Create(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, m)
+}
+
+// GetMicroagent handles GET /api/v1/microagents/{id}.
+func (h *Handlers) GetMicroagent(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	m, err := h.Microagents.Get(r.Context(), id)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+// UpdateMicroagent handles PUT /api/v1/microagents/{id}.
+func (h *Handlers) UpdateMicroagent(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	req, ok := readJSON[microagent.UpdateRequest](w, r)
+	if !ok {
+		return
+	}
+	m, err := h.Microagents.Update(r.Context(), id, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+// DeleteMicroagent handles DELETE /api/v1/microagents/{id}.
+func (h *Handlers) DeleteMicroagent(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Microagents.Delete(r.Context(), id); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Skill Handlers (Phase 22D) ---
+
+// ListSkills handles GET /api/v1/projects/{id}/skills.
+func (h *Handlers) ListSkills(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	sk, err := h.Skills.List(r.Context(), projectID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if sk == nil {
+		sk = []skill.Skill{}
+	}
+	writeJSON(w, http.StatusOK, sk)
+}
+
+// CreateSkill handles POST /api/v1/projects/{id}/skills.
+func (h *Handlers) CreateSkill(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	req, ok := readJSON[skill.CreateRequest](w, r)
+	if !ok {
+		return
+	}
+	req.ProjectID = projectID
+	s, err := h.Skills.Create(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, s)
+}
+
+// GetSkill handles GET /api/v1/skills/{id}.
+func (h *Handlers) GetSkill(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	s, err := h.Skills.Get(r.Context(), id)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
+}
+
+// UpdateSkill handles PUT /api/v1/skills/{id}.
+func (h *Handlers) UpdateSkill(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	req, ok := readJSON[skill.UpdateRequest](w, r)
+	if !ok {
+		return
+	}
+	s, err := h.Skills.Update(r.Context(), id, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
+}
+
+// DeleteSkill handles DELETE /api/v1/skills/{id}.
+func (h *Handlers) DeleteSkill(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Skills.Delete(r.Context(), id); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleFeedbackCallback handles POST /api/v1/feedback/{run_id}/{call_id}.
+// This is the callback endpoint for email/Slack approval links.
+func (h *Handlers) HandleFeedbackCallback(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "run_id")
+	callID := chi.URLParam(r, "call_id")
+	decision := r.URL.Query().Get("decision")
+
+	if decision != "allow" && decision != "deny" {
+		writeError(w, http.StatusBadRequest, "decision must be 'allow' or 'deny'")
+		return
+	}
+
+	resolved := h.Runtime.ResolveApproval(runID, callID, decision)
+	if !resolved {
+		writeError(w, http.StatusNotFound, "no pending approval for this run/call")
+		return
+	}
+
+	// Log audit entry via RuntimeService.
+	_ = h.Runtime.LogFeedbackAudit(r.Context(), runID, callID, "", "web_callback", decision, "")
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":   "resolved",
+		"decision": decision,
+	})
+}
+
+// ListFeedbackAudit handles GET /api/v1/runs/{id}/feedback.
+func (h *Handlers) ListFeedbackAudit(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "id")
+	entries, err := h.Runtime.ListFeedbackAudit(r.Context(), runID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
 }

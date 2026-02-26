@@ -16,8 +16,12 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
+	"github.com/Strob0t/CodeForge/internal/domain/experience"
+	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/domain/memory"
+	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -26,6 +30,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
+	"github.com/Strob0t/CodeForge/internal/domain/skill"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
@@ -659,6 +664,51 @@ func (m *mockStore) CreateBenchmarkResult(_ context.Context, _ *benchmark.Result
 	return nil
 }
 func (m *mockStore) ListBenchmarkResults(_ context.Context, _ string) ([]benchmark.Result, error) {
+	return nil, nil
+}
+
+// Experience Pool stubs.
+func (m *mockStore) CreateExperienceEntry(_ context.Context, _ *experience.Entry) error {
+	return nil
+}
+func (m *mockStore) GetExperienceEntry(_ context.Context, _ string) (*experience.Entry, error) {
+	return nil, nil
+}
+func (m *mockStore) ListExperienceEntries(_ context.Context, _ string) ([]experience.Entry, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteExperienceEntry(_ context.Context, _ string) error { return nil }
+func (m *mockStore) UpdateExperienceHit(_ context.Context, _ string) error   { return nil }
+
+// Agent Memory stubs.
+func (m *mockStore) CreateMemory(_ context.Context, _ *memory.Memory) error { return nil }
+func (m *mockStore) ListMemories(_ context.Context, _ string) ([]memory.Memory, error) {
+	return nil, nil
+}
+
+// Microagent stubs.
+func (m *mockStore) CreateMicroagent(_ context.Context, _ *microagent.Microagent) error { return nil }
+func (m *mockStore) GetMicroagent(_ context.Context, _ string) (*microagent.Microagent, error) {
+	return nil, nil
+}
+func (m *mockStore) ListMicroagents(_ context.Context, _ string) ([]microagent.Microagent, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateMicroagent(_ context.Context, _ *microagent.Microagent) error { return nil }
+func (m *mockStore) DeleteMicroagent(_ context.Context, _ string) error                 { return nil }
+
+// Skill stubs.
+func (m *mockStore) CreateSkill(_ context.Context, _ *skill.Skill) error           { return nil }
+func (m *mockStore) GetSkill(_ context.Context, _ string) (*skill.Skill, error)    { return nil, nil }
+func (m *mockStore) ListSkills(_ context.Context, _ string) ([]skill.Skill, error) { return nil, nil }
+func (m *mockStore) UpdateSkill(_ context.Context, _ *skill.Skill) error           { return nil }
+func (m *mockStore) DeleteSkill(_ context.Context, _ string) error                 { return nil }
+
+// Feedback Audit stubs.
+func (m *mockStore) CreateFeedbackAudit(_ context.Context, _ *feedback.AuditEntry) error {
+	return nil
+}
+func (m *mockStore) ListFeedbackByRun(_ context.Context, _ string) ([]feedback.AuditEntry, error) {
 	return nil, nil
 }
 

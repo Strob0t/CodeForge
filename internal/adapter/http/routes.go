@@ -359,5 +359,39 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Post("/compare", h.CompareBenchmarkRuns)
 			r.Get("/datasets", h.ListBenchmarkDatasets)
 		})
+
+		// Model Registry (Phase 22)
+		r.Get("/llm/available", h.AvailableLLMModels)
+		r.Post("/llm/refresh", h.RefreshLLMModels)
+
+		// Copilot Token Exchange (Phase 22A)
+		r.Post("/copilot/exchange", h.HandleCopilotExchange)
+
+		// Memories (Phase 22B)
+		r.Get("/projects/{id}/memories", h.ListMemories)
+		r.Post("/projects/{id}/memories", h.StoreMemory)
+		r.Post("/projects/{id}/memories/recall", h.RecallMemories)
+
+		// Experience Pool (Phase 22B)
+		r.Get("/projects/{id}/experience", h.ListExperienceEntries)
+		r.Delete("/experience/{id}", h.DeleteExperienceEntry)
+
+		// Microagents (Phase 22C)
+		r.Get("/projects/{id}/microagents", h.ListMicroagents)
+		r.Post("/projects/{id}/microagents", h.CreateMicroagent)
+		r.Get("/microagents/{id}", h.GetMicroagent)
+		r.Put("/microagents/{id}", h.UpdateMicroagent)
+		r.Delete("/microagents/{id}", h.DeleteMicroagent)
+
+		// Skills (Phase 22D)
+		r.Get("/projects/{id}/skills", h.ListSkills)
+		r.Post("/projects/{id}/skills", h.CreateSkill)
+		r.Get("/skills/{id}", h.GetSkill)
+		r.Put("/skills/{id}", h.UpdateSkill)
+		r.Delete("/skills/{id}", h.DeleteSkill)
+
+		// Human Feedback (Phase 22D)
+		r.Post("/feedback/{run_id}/{call_id}", h.HandleFeedbackCallback)
+		r.Get("/runs/{id}/feedback", h.ListFeedbackAudit)
 	})
 }

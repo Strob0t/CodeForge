@@ -96,6 +96,7 @@ SUBJECT_EVAL_GEMMAS_REQUEST = "evaluation.gemmas.request"
 SUBJECT_EVAL_GEMMAS_RESULT = "evaluation.gemmas.result"
 SUBJECT_MEMORY_STORE = "memory.store"
 SUBJECT_MEMORY_RECALL = "memory.recall"
+SUBJECT_HANDOFF_REQUEST = "handoff.request"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
@@ -168,6 +169,7 @@ class TaskConsumer:
             (SUBJECT_EVAL_GEMMAS_REQUEST, self._handle_gemmas_eval),
             (SUBJECT_MEMORY_STORE, self._handle_memory_store),
             (SUBJECT_MEMORY_RECALL, self._handle_memory_recall),
+            (SUBJECT_HANDOFF_REQUEST, self._handle_handoff_request),
         ]
 
         loops = []
@@ -611,6 +613,14 @@ class TaskConsumer:
                 system_prompt = f"{system_prompt}\n\n--- Microagent Instructions ---\n{ma_block}"
                 log.info("microagent prompts injected", count=len(run_msg.microagent_prompts))
 
+            system_prompt = await self._inject_skill_recommendations(
+                system_prompt,
+                run_msg.project_id,
+                run_msg.messages,
+                log,
+            )
+            self._register_handoff_tool(registry, run_msg.run_id)
+
             # Build message history within token budget.
             history_mgr = ConversationHistoryManager(
                 HistoryConfig(
@@ -700,6 +710,78 @@ class TaskConsumer:
         finally:
             if workbench is not None:
                 await workbench.disconnect_all()
+
+    async def _inject_skill_recommendations(
+        self,
+        system_prompt: str,
+        project_id: str,
+        messages: list[dict],
+        log: structlog.stdlib.BoundLogger,
+    ) -> str:
+        """Augment system prompt with BM25-recommended skill snippets."""
+        try:
+            import psycopg
+
+            from codeforge.skills.models import Skill
+            from codeforge.skills.recommender import SkillRecommender
+
+            async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT id, name, description, language, code, tags FROM skills"
+                    " WHERE (project_id = %s OR project_id IS NULL) AND enabled = TRUE",
+                    (project_id,),
+                )
+                rows = await cur.fetchall()
+
+            if not rows:
+                return system_prompt
+
+            skills = [
+                Skill(id=str(r[0]), name=r[1], description=r[2], language=r[3], code=r[4], tags=r[5] or [])
+                for r in rows
+            ]
+            recommender = SkillRecommender()
+            recommender.index(skills)
+
+            task_ctx = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+            if task_ctx:
+                recs = recommender.recommend(task_ctx, top_k=3)
+                if recs:
+                    snippets = [f"### {r.skill.name}\n```{r.skill.language}\n{r.skill.code}\n```" for r in recs]
+                    system_prompt = f"{system_prompt}\n\n--- Recommended Skills ---\n" + "\n\n".join(snippets)
+                    log.info("skill recommendations injected", count=len(recs))
+        except Exception:
+            log.warning("skill recommendation failed, continuing without", exc_info=True)
+        return system_prompt
+
+    def _register_handoff_tool(self, registry: object, run_id: str) -> None:
+        """Register the handoff tool in the tool registry if NATS is available."""
+        if self._js is None:
+            return
+
+        from codeforge.tools._base import ToolDefinition
+        from codeforge.tools._base import ToolResult as _ToolResult
+        from codeforge.tools.handoff import HANDOFF_TOOL_DEF
+
+        func_def = HANDOFF_TOOL_DEF["function"]
+
+        class _HandoffProxy:
+            def __init__(self, js: object, rid: str) -> None:
+                self._js = js
+                self._run_id = rid
+
+            async def execute(self, arguments: dict, workspace_path: str) -> _ToolResult:
+                from codeforge.tools.handoff import execute_handoff
+
+                result = await execute_handoff(self._run_id, arguments, self._js.publish)
+                return _ToolResult(output=result)
+
+        registry.register(
+            ToolDefinition(
+                name=func_def["name"], description=func_def["description"], parameters=func_def["parameters"]
+            ),
+            _HandoffProxy(self._js, run_id),
+        )
 
     async def _publish_graph_search_error(self, msg: nats.aio.msg.Msg) -> None:
         """Publish an error result for graph search so the Go waiter gets a response."""
@@ -940,8 +1022,7 @@ class TaskConsumer:
             # Persist to database
             import psycopg
 
-            db_url = self._get_db_url()
-            async with await psycopg.AsyncConnection.connect(db_url) as conn, conn.cursor() as cur:
+            async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
                 await cur.execute(
                     """INSERT INTO agent_memories
                            (tenant_id, project_id, agent_id, run_id, content, kind, importance, embedding, metadata)
@@ -995,10 +1076,9 @@ class TaskConsumer:
             # Fetch candidates and score
             import psycopg
 
-            db_url = self._get_db_url()
             scorer = CompositeScorer()
 
-            async with await psycopg.AsyncConnection.connect(db_url) as conn, conn.cursor() as cur:
+            async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
                 kind_filter = ""
                 params: list[object] = [req.project_id]
                 if req.kind:
@@ -1048,6 +1128,52 @@ class TaskConsumer:
 
         except Exception:
             logger.exception("failed to process memory recall request")
+            await msg.ack()
+
+    async def _handle_handoff_request(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a handoff request: create a new agent run with injected context."""
+        try:
+            import json
+
+            payload = json.loads(msg.data)
+            target_agent = payload.get("target_agent_id", "")
+            context_msg = payload.get("context", "")
+            target_mode = payload.get("target_mode_id", "")
+            source_run = payload.get("source_run_id", "")
+            artifacts = payload.get("artifacts", [])
+
+            log = logger.bind(
+                target_agent=target_agent,
+                source_run=source_run,
+                target_mode=target_mode,
+            )
+            log.info("received handoff request")
+
+            # Publish a run start message for the target agent with handoff context.
+            handoff_context = f"[Handoff from run {source_run}]\n\n{context_msg}"
+            if artifacts:
+                handoff_context += f"\n\nArtifacts: {', '.join(artifacts)}"
+
+            run_payload = {
+                "type": "handoff",
+                "source_run_id": source_run,
+                "target_agent_id": target_agent,
+                "target_mode_id": target_mode,
+                "context": handoff_context,
+                "artifacts": artifacts,
+            }
+
+            if self._js is not None:
+                await self._js.publish(
+                    "handoff.execute",
+                    json.dumps(run_payload).encode(),
+                )
+
+            await msg.ack()
+            log.info("handoff dispatched to execution")
+
+        except Exception:
+            logger.exception("failed to process handoff request")
             await msg.ack()
 
     async def stop(self) -> None:

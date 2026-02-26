@@ -59,19 +59,20 @@ type ModePayload struct {
 
 // RunStartPayload is the schema for runs.start messages.
 type RunStartPayload struct {
-	RunID         string                `json:"run_id"`
-	TaskID        string                `json:"task_id"`
-	ProjectID     string                `json:"project_id"`
-	AgentID       string                `json:"agent_id"`
-	Prompt        string                `json:"prompt"`
-	PolicyProfile string                `json:"policy_profile"`
-	ExecMode      string                `json:"exec_mode"`
-	DeliverMode   string                `json:"deliver_mode,omitempty"`
-	Mode          *ModePayload          `json:"mode,omitempty"`
-	Config        map[string]string     `json:"config,omitempty"`
-	Termination   TerminationPayload    `json:"termination"`
-	Context       []ContextEntryPayload `json:"context,omitempty"`     // Pre-packed context entries (Phase 5D)
-	MCPServers    []MCPServerDefPayload `json:"mcp_servers,omitempty"` // MCP server definitions (Phase 15A)
+	RunID             string                `json:"run_id"`
+	TaskID            string                `json:"task_id"`
+	ProjectID         string                `json:"project_id"`
+	AgentID           string                `json:"agent_id"`
+	Prompt            string                `json:"prompt"`
+	PolicyProfile     string                `json:"policy_profile"`
+	ExecMode          string                `json:"exec_mode"`
+	DeliverMode       string                `json:"deliver_mode,omitempty"`
+	Mode              *ModePayload          `json:"mode,omitempty"`
+	Config            map[string]string     `json:"config,omitempty"`
+	Termination       TerminationPayload    `json:"termination"`
+	Context           []ContextEntryPayload `json:"context,omitempty"`            // Pre-packed context entries (Phase 5D)
+	MCPServers        []MCPServerDefPayload `json:"mcp_servers,omitempty"`        // MCP server definitions (Phase 15A)
+	MicroagentPrompts []string              `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
 }
 
 // TerminationPayload carries the termination limits for a run.
@@ -419,19 +420,20 @@ type ConversationMessagePayload struct {
 
 // ConversationRunStartPayload is the schema for conversation.run.start messages.
 type ConversationRunStartPayload struct {
-	RunID          string                       `json:"run_id"`
-	ConversationID string                       `json:"conversation_id"`
-	ProjectID      string                       `json:"project_id"`
-	Messages       []ConversationMessagePayload `json:"messages"`
-	SystemPrompt   string                       `json:"system_prompt"`
-	Model          string                       `json:"model"`
-	PolicyProfile  string                       `json:"policy_profile"`
-	WorkspacePath  string                       `json:"workspace_path"`
-	Mode           *ModePayload                 `json:"mode,omitempty"`
-	Termination    TerminationPayload           `json:"termination"`
-	Context        []ContextEntryPayload        `json:"context,omitempty"`
-	MCPServers     []MCPServerDefPayload        `json:"mcp_servers,omitempty"`
-	Tools          []string                     `json:"tools,omitempty"`
+	RunID             string                       `json:"run_id"`
+	ConversationID    string                       `json:"conversation_id"`
+	ProjectID         string                       `json:"project_id"`
+	Messages          []ConversationMessagePayload `json:"messages"`
+	SystemPrompt      string                       `json:"system_prompt"`
+	Model             string                       `json:"model"`
+	PolicyProfile     string                       `json:"policy_profile"`
+	WorkspacePath     string                       `json:"workspace_path"`
+	Mode              *ModePayload                 `json:"mode,omitempty"`
+	Termination       TerminationPayload           `json:"termination"`
+	Context           []ContextEntryPayload        `json:"context,omitempty"`
+	MCPServers        []MCPServerDefPayload        `json:"mcp_servers,omitempty"`
+	Tools             []string                     `json:"tools,omitempty"`
+	MicroagentPrompts []string                     `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
 }
 
 // ConversationRunCompletePayload is the schema for conversation.run.complete messages.

@@ -270,6 +270,24 @@ func loadEnv(cfg *Config) {
 	setInt(&cfg.Auth.BcryptCost, "CODEFORGE_AUTH_BCRYPT_COST")
 	setString(&cfg.Auth.DefaultAdminEmail, "CODEFORGE_AUTH_ADMIN_EMAIL")
 	setString(&cfg.Auth.DefaultAdminPass, "CODEFORGE_AUTH_ADMIN_PASS")
+
+	// LiteLLM health polling
+	setDuration(&cfg.LiteLLM.HealthPollInterval, "CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL")
+
+	// Copilot
+	setBool(&cfg.Copilot.Enabled, "CODEFORGE_COPILOT_ENABLED")
+	setString(&cfg.Copilot.HostsFilePath, "CODEFORGE_COPILOT_HOSTS_FILE")
+
+	// Experience Pool
+	setBool(&cfg.Experience.Enabled, "CODEFORGE_EXPERIENCE_ENABLED")
+	setFloat64(&cfg.Experience.ConfidenceThreshold, "CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD")
+	setInt(&cfg.Experience.MaxEntries, "CODEFORGE_EXPERIENCE_MAX_ENTRIES")
+
+	// Email / SMTP (for feedback providers)
+	setString(&cfg.Notification.SMTPHost, "CODEFORGE_SMTP_HOST")
+	setInt(&cfg.Notification.SMTPPort, "CODEFORGE_SMTP_PORT")
+	setString(&cfg.Notification.SMTPFrom, "CODEFORGE_SMTP_FROM")
+	setString(&cfg.Notification.SMTPPassword, "CODEFORGE_SMTP_PASSWORD")
 }
 
 // validate checks that required fields are set and security constraints are met.

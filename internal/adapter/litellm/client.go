@@ -144,9 +144,41 @@ type DiscoveredModel struct {
 	MaxTokens     int            `json:"max_tokens,omitempty"`
 	InputCostPer  float64        `json:"input_cost_per_token,omitempty"`
 	OutputCostPer float64        `json:"output_cost_per_token,omitempty"`
-	Status        string         `json:"status"` // "reachable" or "unreachable"
-	Source        string         `json:"source"` // "litellm" or "ollama"
+	Status        string         `json:"status"`                 // "reachable" or "unreachable"
+	Source        string         `json:"source"`                 // "litellm" or "ollama"
+	ErrorDetail   string         `json:"error_detail,omitempty"` // error reason for unhealthy models
 	ModelInfo     map[string]any `json:"model_info,omitempty"`
+}
+
+// HealthStatusReport contains detailed per-model health information from LiteLLM /health.
+type HealthStatusReport struct {
+	HealthyEndpoints   []ModelEndpoint `json:"healthy_endpoints"`
+	UnhealthyEndpoints []ModelEndpoint `json:"unhealthy_endpoints"`
+	HealthyCount       int             `json:"healthy_count"`
+	UnhealthyCount     int             `json:"unhealthy_count"`
+}
+
+// ModelEndpoint is a single model endpoint from the LiteLLM /health response.
+type ModelEndpoint struct {
+	Model    string `json:"model"`
+	APIBase  string `json:"api_base,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// HealthDetailed fetches per-model health from LiteLLM /health and parses
+// the healthy/unhealthy endpoint breakdown.
+func (c *Client) HealthDetailed(ctx context.Context) (*HealthStatusReport, error) {
+	body, err := c.doRequest(ctx, http.MethodGet, "/health", nil)
+	if err != nil {
+		return nil, fmt.Errorf("health detailed: %w", err)
+	}
+
+	var report HealthStatusReport
+	if err := json.Unmarshal(body, &report); err != nil {
+		return nil, fmt.Errorf("unmarshal health report: %w", err)
+	}
+	return &report, nil
 }
 
 // DiscoverModels queries LiteLLM /model/info and /v1/models to discover all
@@ -229,11 +261,27 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 			}
 		}
 
-		// Models in /model/info are configured in LiteLLM, so mark reachable.
+		// Default to reachable; will be refined by health check below.
 		dm.Status = "reachable"
 
 		discovered = append(discovered, dm)
 	}
+
+	// Refine reachability via per-model health check.
+	report, healthErr := c.HealthDetailed(ctx)
+	if healthErr == nil && report != nil {
+		unhealthySet := make(map[string]string, len(report.UnhealthyEndpoints))
+		for _, ep := range report.UnhealthyEndpoints {
+			unhealthySet[ep.Model] = ep.Error
+		}
+		for i := range discovered {
+			if errMsg, bad := unhealthySet[discovered[i].ModelName]; bad {
+				discovered[i].Status = "unreachable"
+				discovered[i].ErrorDetail = errMsg
+			}
+		}
+	}
+	// If health check fails, all models stay "reachable" (graceful degradation).
 
 	return discovered, nil
 }

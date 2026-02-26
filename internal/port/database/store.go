@@ -12,8 +12,12 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
+	"github.com/Strob0t/CodeForge/internal/domain/experience"
+	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/domain/memory"
+	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -22,6 +26,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
+	"github.com/Strob0t/CodeForge/internal/domain/skill"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
@@ -260,4 +265,33 @@ type Store interface {
 	// Benchmark Results
 	CreateBenchmarkResult(ctx context.Context, res *benchmark.Result) error
 	ListBenchmarkResults(ctx context.Context, runID string) ([]benchmark.Result, error)
+
+	// Agent Memories (Phase 22B)
+	CreateMemory(ctx context.Context, m *memory.Memory) error
+	ListMemories(ctx context.Context, projectID string) ([]memory.Memory, error)
+
+	// Experience Pool (Phase 22B)
+	CreateExperienceEntry(ctx context.Context, e *experience.Entry) error
+	GetExperienceEntry(ctx context.Context, id string) (*experience.Entry, error)
+	ListExperienceEntries(ctx context.Context, projectID string) ([]experience.Entry, error)
+	DeleteExperienceEntry(ctx context.Context, id string) error
+	UpdateExperienceHit(ctx context.Context, id string) error
+
+	// Microagents (Phase 22C)
+	CreateMicroagent(ctx context.Context, m *microagent.Microagent) error
+	GetMicroagent(ctx context.Context, id string) (*microagent.Microagent, error)
+	ListMicroagents(ctx context.Context, projectID string) ([]microagent.Microagent, error)
+	UpdateMicroagent(ctx context.Context, m *microagent.Microagent) error
+	DeleteMicroagent(ctx context.Context, id string) error
+
+	// Skills (Phase 22D)
+	CreateSkill(ctx context.Context, s *skill.Skill) error
+	GetSkill(ctx context.Context, id string) (*skill.Skill, error)
+	ListSkills(ctx context.Context, projectID string) ([]skill.Skill, error)
+	UpdateSkill(ctx context.Context, s *skill.Skill) error
+	DeleteSkill(ctx context.Context, id string) error
+
+	// Feedback Audit (Phase 22D)
+	CreateFeedbackAudit(ctx context.Context, a *feedback.AuditEntry) error
+	ListFeedbackByRun(ctx context.Context, runID string) ([]feedback.AuditEntry, error)
 }

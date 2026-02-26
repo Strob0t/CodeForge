@@ -67,6 +67,9 @@ const (
 
 	// Phase 21D: debate events
 	EventDebateStatus = "debate.status"
+
+	// Phase 22: model health events
+	EventModelHealth = "models.health"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -283,6 +286,24 @@ type DebateStatusEvent struct {
 	DebatePlanID string `json:"debate_plan_id"`
 	Status       string `json:"status"` // "started", "completed", "failed"
 	Synthesis    string `json:"synthesis,omitempty"`
+}
+
+// ModelHealthEntry represents the status of a single LLM model.
+type ModelHealthEntry struct {
+	ModelName   string `json:"model_name"`
+	Status      string `json:"status"`
+	Provider    string `json:"provider,omitempty"`
+	ErrorDetail string `json:"error_detail,omitempty"`
+	Source      string `json:"source,omitempty"`
+}
+
+// ModelHealthEvent is broadcast when model health is refreshed.
+type ModelHealthEvent struct {
+	Models         []ModelHealthEntry `json:"models"`
+	BestModel      string             `json:"best_model"`
+	HealthyCount   int                `json:"healthy_count"`
+	UnhealthyCount int                `json:"unhealthy_count"`
+	Timestamp      string             `json:"timestamp"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

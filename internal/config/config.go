@@ -95,6 +95,8 @@ type Config struct {
 	Workspace    Workspace    `yaml:"workspace"`
 	Agent        Agent        `yaml:"agent"`
 	Benchmark    Benchmark    `yaml:"benchmark"`
+	Copilot      Copilot      `yaml:"copilot"`
+	Experience   Experience   `yaml:"experience"`
 }
 
 // Benchmark holds benchmark evaluation mode configuration.
@@ -138,6 +140,23 @@ type Notification struct {
 	SlackWebhookURL   string   `yaml:"slack_webhook_url"`   // Slack incoming webhook URL
 	DiscordWebhookURL string   `yaml:"discord_webhook_url"` // Discord webhook URL
 	EnabledEvents     []string `yaml:"enabled_events"`      // Event filter (empty = all events)
+	SMTPHost          string   `yaml:"smtp_host"`           // SMTP server host for email feedback
+	SMTPPort          int      `yaml:"smtp_port"`           // SMTP server port (default: 587)
+	SMTPFrom          string   `yaml:"smtp_from"`           // Sender email address
+	SMTPPassword      string   `yaml:"smtp_password"`       // SMTP authentication password
+}
+
+// Copilot holds GitHub Copilot token exchange configuration.
+type Copilot struct {
+	Enabled       bool   `yaml:"enabled"`         // Enable Copilot integration (default: false)
+	HostsFilePath string `yaml:"hosts_file_path"` // Path to hosts.json (default: ~/.config/github-copilot/hosts.json)
+}
+
+// Experience holds experience pool configuration.
+type Experience struct {
+	Enabled             bool    `yaml:"enabled"`              // Enable experience pool (default: false)
+	ConfidenceThreshold float64 `yaml:"confidence_threshold"` // Min similarity for cache hit (default: 0.85)
+	MaxEntries          int     `yaml:"max_entries"`          // Max entries per project (default: 1000)
 }
 
 // Git holds git operation configuration.
@@ -252,9 +271,10 @@ type NATS struct {
 
 // LiteLLM holds LiteLLM proxy configuration.
 type LiteLLM struct {
-	URL               string `yaml:"url"`
-	MasterKey         string `yaml:"master_key"`
-	ConversationModel string `yaml:"conversation_model"` // Model for chat conversations (default: resolved at init)
+	URL                string        `yaml:"url"`
+	MasterKey          string        `yaml:"master_key"`
+	ConversationModel  string        `yaml:"conversation_model"`   // Model for chat conversations (default: resolved at init)
+	HealthPollInterval time.Duration `yaml:"health_poll_interval"` // Model health poll interval (default: 60s)
 }
 
 // Logging holds structured logging configuration.
@@ -339,7 +359,8 @@ func Defaults() Config {
 			URL: "nats://localhost:4222",
 		},
 		LiteLLM: LiteLLM{
-			URL: "http://localhost:4000",
+			URL:                "http://localhost:4000",
+			HealthPollInterval: 60 * time.Second,
 		},
 		Logging: Logging{
 			Level:   "info",
@@ -472,6 +493,14 @@ func Defaults() Config {
 			DatasetsDir:    "configs/benchmarks",
 			TimeoutSeconds: 300,
 			DashboardPort:  3100,
+		},
+		Copilot: Copilot{
+			Enabled: false,
+		},
+		Experience: Experience{
+			Enabled:             false,
+			ConfidenceThreshold: 0.85,
+			MaxEntries:          1000,
 		},
 	}
 }

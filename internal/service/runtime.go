@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/artifact"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -22,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
+	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -32,27 +34,28 @@ import (
 // RuntimeService orchestrates the step-by-step execution protocol between
 // Go (control plane) and Python (execution plane).
 type RuntimeService struct {
-	store            database.Store
-	queue            messagequeue.Queue
-	hub              broadcast.Broadcaster
-	events           eventstore.Store
-	policy           *PolicyService
-	modes            *ModeService
-	deliver          *DeliverService
-	contextOpt       *ContextOptimizerService
-	checkpoint       *CheckpointService
-	sandbox          *SandboxService
-	mcpSvc           *MCPService
-	microagentSvc    *MicroagentService
-	onRunComplete    func(ctx context.Context, runID string, status run.Status)
-	runtimeCfg       *config.Runtime
-	stallTrackers    sync.Map // map[runID]*run.StallTracker
-	heartbeats       sync.Map // map[runID]time.Time — last heartbeat timestamp
-	runTimeouts      sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
-	budgetAlerts     sync.Map // map["runID:threshold"]bool — dedup budget alerts
-	pendingApprovals sync.Map // map["runID:callID"]chan string — HITL approval channels
-	metrics          *cfotel.Metrics
-	runSpans         sync.Map // map[runID]trace.Span
+	store             database.Store
+	queue             messagequeue.Queue
+	hub               broadcast.Broadcaster
+	events            eventstore.Store
+	policy            *PolicyService
+	modes             *ModeService
+	deliver           *DeliverService
+	contextOpt        *ContextOptimizerService
+	checkpoint        *CheckpointService
+	sandbox           *SandboxService
+	mcpSvc            *MCPService
+	microagentSvc     *MicroagentService
+	onRunComplete     func(ctx context.Context, runID string, status run.Status)
+	runtimeCfg        *config.Runtime
+	stallTrackers     sync.Map // map[runID]*run.StallTracker
+	heartbeats        sync.Map // map[runID]time.Time — last heartbeat timestamp
+	runTimeouts       sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
+	budgetAlerts      sync.Map // map["runID:threshold"]bool — dedup budget alerts
+	pendingApprovals  sync.Map // map["runID:callID"]chan string — HITL approval channels
+	feedbackProviders []feedbackPort.Provider
+	metrics           *cfotel.Metrics
+	runSpans          sync.Map // map[runID]trace.Span
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -88,6 +91,11 @@ func (s *RuntimeService) SetContextOptimizer(co *ContextOptimizerService) {
 // Used by the OrchestratorService to advance execution plans.
 func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.Status)) {
 	s.onRunComplete = fn
+}
+
+// RegisterFeedbackProvider adds a feedback provider for HITL fan-out.
+func (s *RuntimeService) RegisterFeedbackProvider(p feedbackPort.Provider) {
+	s.feedbackProviders = append(s.feedbackProviders, p)
 }
 
 // SetCheckpointService sets the checkpoint service for shadow git commits.
@@ -1564,9 +1572,9 @@ func approvalKey(runID, callID string) string {
 	return runID + ":" + callID
 }
 
-// waitForApproval broadcasts a permission request to the frontend and blocks until
-// the user responds (via ResolveApproval) or the timeout expires. Returns the final
-// decision (allow or deny).
+// waitForApproval broadcasts a permission request to the frontend and all registered
+// feedback providers, then blocks until the first response (via ResolveApproval or
+// provider callback) or the timeout expires. Returns the final decision.
 func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, tool, command, path string) policy.Decision {
 	// Default timeout: 60 seconds.
 	timeout := 60 * time.Second
@@ -1579,7 +1587,7 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 	s.pendingApprovals.Store(key, ch)
 	defer s.pendingApprovals.Delete(key)
 
-	// Broadcast permission request to connected clients.
+	// Broadcast permission request to connected WebSocket clients.
 	s.hub.BroadcastEvent(ctx, ws.AGUIPermissionRequest, ws.AGUIPermissionRequestEvent{
 		RunID:   runID,
 		CallID:  callID,
@@ -1588,11 +1596,44 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 		Path:    path,
 	})
 
+	// Fan out to registered feedback providers (Slack, Email, etc.).
+	// First response wins — the channel `ch` has buffer=1 so only the first write lands.
+	for _, p := range s.feedbackProviders {
+		go func(provider feedbackPort.Provider) {
+			fbReq := feedback.FeedbackRequest{
+				RunID:   runID,
+				CallID:  callID,
+				Tool:    tool,
+				Command: command,
+				Path:    path,
+			}
+			result, err := provider.RequestFeedback(ctx, fbReq)
+			if err != nil {
+				slog.Warn("feedback provider failed",
+					"provider", provider.Name(),
+					"error", err,
+				)
+				return
+			}
+			if result.Decision != "" {
+				select {
+				case ch <- string(result.Decision):
+					slog.Info("feedback received from provider",
+						"provider", provider.Name(),
+						"decision", result.Decision,
+					)
+				default:
+				}
+			}
+		}(p)
+	}
+
 	slog.Info("HITL approval requested",
 		"run_id", runID,
 		"call_id", callID,
 		"tool", tool,
 		"timeout", timeout,
+		"providers", len(s.feedbackProviders),
 	)
 
 	select {
@@ -1631,4 +1672,22 @@ func (s *RuntimeService) ResolveApproval(runID, callID, decision string) bool {
 	default:
 		return false
 	}
+}
+
+// LogFeedbackAudit records a feedback decision in the audit trail.
+func (s *RuntimeService) LogFeedbackAudit(ctx context.Context, runID, callID, tool, provider, decision, responder string) error {
+	a := &feedback.AuditEntry{
+		RunID:     runID,
+		CallID:    callID,
+		Tool:      tool,
+		Provider:  feedback.Provider(provider),
+		Decision:  feedback.Decision(decision),
+		Responder: responder,
+	}
+	return s.store.CreateFeedbackAudit(ctx, a)
+}
+
+// ListFeedbackAudit returns the feedback audit trail for a run.
+func (s *RuntimeService) ListFeedbackAudit(ctx context.Context, runID string) ([]feedback.AuditEntry, error) {
+	return s.store.ListFeedbackByRun(ctx, runID)
 }
