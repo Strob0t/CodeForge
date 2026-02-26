@@ -4,7 +4,7 @@
 
 Backend: Go Core Service (port 8080)
 
-Dependencies: PostgreSQL 17, NATS JetStream, LiteLLM Proxy (port 4000)
+Dependencies: PostgreSQL 18, NATS JetStream, LiteLLM Proxy (port 4000)
 
 Auth Mode: Disabled (default admin injected)
 

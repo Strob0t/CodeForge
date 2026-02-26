@@ -480,6 +480,7 @@
 - [x] (2026-02-14) Protocol support decided: MCP, LSP, OpenTelemetry (Tier 1), A2A, AG-UI (Tier 2)
 - [x] (2026-02-14) Library decisions: chi (router), coder/websocket (WS), git exec wrapper, SolidJS minimal stack
 - [x] (2026-02-14) PostgreSQL 17 chosen as database — [ADR-002](architecture/adr/002-postgresql-database.md)
+- [x] (2026-02-26) PostgreSQL 17→18 upgrade — Docker images, CI, ADR-002, all documentation updated
 - [x] (2026-02-14) NATS JetStream chosen as message queue — [ADR-001](architecture/adr/001-nats-jetstream-message-queue.md)
 - [x] (2026-02-14) Documentation structure created (docs/README.md, docs/todo.md, feature specs)
 - [x] (2026-02-14) Architecture harmony audit: all docs synchronized

@@ -1,6 +1,6 @@
-# ADR-002: PostgreSQL 17 as Primary Database
+# ADR-002: PostgreSQL 18 as Primary Database
 
-> **Status:** accepted
+> **Status:** accepted (updated 2026-02-26: upgraded from PG 17 to PG 18)
 > **Date:** 2026-02-14
 > **Deciders:** Project lead + Claude Code analysis
 
@@ -19,13 +19,13 @@ The goal is to minimize tech stack complexity: use as few different technologies
 
 ### Decision
 
-**PostgreSQL 17** is the single database for CodeForge, shared with LiteLLM via schema separation.
+**PostgreSQL 18** is the single database for CodeForge, shared with LiteLLM via schema separation.
 
 #### Stack
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
-| Database | PostgreSQL 17 (Alpine) | Single DB for app + LiteLLM, JSONB, LISTEN/NOTIFY |
+| Database | PostgreSQL 18 (Alpine) | Single DB for app + LiteLLM, JSONB, LISTEN/NOTIFY, UUIDv7, Async I/O |
 | Go Driver | pgx v5 | Go-native, best performance, direct PG feature access |
 | Migrations | goose | Simple SQL files (up/down), embeddable in Go binary |
 | Python Driver | psycopg3 | Sync+async, Row Factories for Pydantic models |
@@ -55,7 +55,7 @@ The goal is to minimize tech stack complexity: use as few different technologies
 # docker-compose.yml
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     ports:
       - "5432:5432"
     environment:
@@ -113,7 +113,9 @@ general_settings:
 - Cross-schema queries enable Cost Dashboard to join CodeForge tasks with LiteLLM spend data
 - LISTEN/NOTIFY eliminates need for additional pub/sub infrastructure for UI push
 - JSONB avoids rigid schema for agent-specific configuration
-- PostgreSQL 17 vacuum uses 20x less memory than PG 16 (important in containers)
+- PostgreSQL 18 async I/O (`io_uring`) improves sequential scans, vacuum, and bitmap heap scan performance in containers
+- Native `uuidv7()` for timestamp-ordered UUIDs (better B-tree locality than random UUIDs)
+- `pg_upgrade --jobs` enables parallel major version upgrades
 
 #### Negative
 
@@ -138,10 +140,11 @@ general_settings:
 
 ### References
 
-- [PostgreSQL 17 Release Notes](https://www.postgresql.org/docs/17/release-17.html)
+- [PostgreSQL 18 Release Notes](https://www.postgresql.org/docs/release/18.0/)
+- [What's New in PostgreSQL 18](https://www.bytebase.com/blog/what-is-new-in-postgres-18/)
 - [pgx -- PostgreSQL Driver for Go](https://github.com/jackc/pgx)
 - [goose -- Database Migration Tool](https://github.com/pressly/goose)
 - [psycopg3 -- PostgreSQL Driver for Python](https://www.psycopg.org/)
 - [LiteLLM -- What is stored in the DB](https://docs.litellm.ai/docs/proxy/db_info)
 - [LiteLLM -- Schema Configuration](https://github.com/BerriAI/litellm/discussions/5503)
-- [PostgreSQL LISTEN/NOTIFY](https://www.postgresql.org/docs/17/sql-notify.html)
+- [PostgreSQL LISTEN/NOTIFY](https://www.postgresql.org/docs/18/sql-notify.html)

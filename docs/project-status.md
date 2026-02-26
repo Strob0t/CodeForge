@@ -43,7 +43,7 @@
 - [x] Autonomy spectrum defined: 5 levels (supervised → headless) (Safety rules replace user at levels 4-5 with Budget, Tests, Blocklists, Branch Isolation; headless mode for CI/CD, cron jobs, API-driven pipelines; schedule support for automatic nightly reviews, dependency updates; API endpoint for external systems like GitHub Actions, GitLab CI, Jenkins)
 - [x] Agent specialization elaborated: Modes System with YAML configs (Built-in Modes: architect, coder, reviewer, debugger, tester, lint-fixer, planner, researcher; Custom Modes: user-definable in `.codeforge/modes/`; Mode Pipelines and DAG composition for multi-agent workflows; each mode: own tools, LLM scenario, autonomy level, prompt template)
 - [x] Coding agent insights integrated into architecture: Shadow Git Checkpoints, Event-Sourcing, Microagents from OpenHands; Diff-based File Review, ACI from SWE-agent, Stateless Agent Design from Devika; tree-sitter Repo Map, Architect/Editor Pattern, Edit Formats from Aider; Skills System, Risk Management from OpenHands, Plan/Act Mode from Cline
-- [x] Architecture decision: PostgreSQL 17 as primary database (shared with LiteLLM) — [ADR-002](architecture/adr/002-postgresql-database.md) (pgx v5 Go driver, goose migrations, psycopg3 Python driver, shared instance with LiteLLM via schema separation, simplicity principle: no ORM, no code generator, no extra tooling)
+- [x] Architecture decision: PostgreSQL 18 as primary database (shared with LiteLLM) — [ADR-002](architecture/adr/002-postgresql-database.md) (pgx v5 Go driver, goose migrations, psycopg3 Python driver, shared instance with LiteLLM via schema separation, simplicity principle: no ORM, no code generator, no extra tooling)
 - [x] Library decisions finalized (minimal-dependency principle): Go: chi v5 router with 0 deps, coder/websocket with 0 deps, git exec wrapper with 0 deps; Frontend: @solidjs/router, Tailwind CSS with no component lib, @solid-primitives/websocket at 728B, native fetch; Rejected: Echo, Fiber, gorilla/websocket, go-git with 28 deps, axios, styled-components, Kobalte
 - [x] Protocol support analyzed and prioritized: MCP, LSP, OpenTelemetry, A2A, AG-UI (Tier 1 Phase 1-2: MCP, LSP, OpenTelemetry GenAI; Tier 2 Phase 2-3: A2A, AG-UI; Tier 3 future: ANP, LSAP)
 - [x] Documentation consistency audit: all docs synchronized and translated to English
@@ -856,7 +856,7 @@
 - [x] (2026-02-23) P2: Quality gate command injection — subprocess_exec with shlex.split
 - [x] (2026-02-23) P2: Created SECURITY.md and CONTRIBUTING.md
 - [x] (2026-02-23) P2: Fixed CLAUDE.md documentation inaccuracies (5 corrections)
-- [x] (2026-02-23) P3: CI postgres 16→17 alignment + security scanning job (govulncheck, pip-audit, npm audit)
+- [x] (2026-02-23) P3: CI postgres 16→17→18 alignment + security scanning job (govulncheck, pip-audit, npm audit)
 - [x] (2026-02-23) DB adapter integration tests — tenant-isolated CRUD, repo name lookup, token revocation
 - [x] (2026-02-23) Frontend Vitest setup + 37 unit tests (formatters, cache, StepProgress component)
 - [x] (2026-02-23) NATS adapter integration tests — pub/sub, request ID propagation, DLQ, KV, connectivity

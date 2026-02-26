@@ -52,7 +52,7 @@ CodeForge is a self-hosted platform that combines **multi-repo project managemen
 | Frontend | TypeScript, SolidJS | Web GUI with real-time updates |
 | Core | Go 1.24, chi, pgx | HTTP/WS server, scheduling, policies |
 | Workers | Python 3.12, NATS | LLM integration, agent execution |
-| Infra | Docker, PostgreSQL 17, NATS, LiteLLM | Containerization, storage, messaging, LLM proxy |
+| Infra | Docker, PostgreSQL 18, NATS, LiteLLM | Containerization, storage, messaging, LLM proxy |
 
 ## Getting Started
 
@@ -131,7 +131,7 @@ This starts all 6 services (core, worker, frontend, PostgreSQL, NATS, LiteLLM) w
 | ADR | Decision |
 |-----|----------|
 | [ADR-001](docs/architecture/adr/001-nats-jetstream-message-queue.md) | NATS JetStream as message queue |
-| [ADR-002](docs/architecture/adr/002-postgresql-database.md) | PostgreSQL 17 as primary database |
+| [ADR-002](docs/architecture/adr/002-postgresql-database.md) | PostgreSQL 18 as primary database |
 | [ADR-003](docs/architecture/adr/003-config-hierarchy.md) | Hierarchical configuration system |
 | [ADR-004](docs/architecture/adr/004-async-logging.md) | Async logging with buffered channels |
 | [ADR-005](docs/architecture/adr/005-docker-native-logging.md) | Docker-native logging (no ELK/Grafana) |

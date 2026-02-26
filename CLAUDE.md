@@ -169,7 +169,7 @@ Detailed analysis: docs/research/market-analysis.md
   - **Adopted Patterns:** Plane (Cursor Pagination, HMAC-SHA256, Label Sync), OpenProject (Optimistic Locking, Schema Endpoints), OpenSpec (Delta Spec Format), Ploi Roadmap (`/ai` endpoint)
   - **Gitea/Forgejo:** GitHub adapter works with minimal changes (compatible API)
   - Detailed analysis: docs/research/market-analysis.md Section 5
-- **Database: PostgreSQL 17** (shared instance with LiteLLM, schema separation)
+- **Database: PostgreSQL 18** (shared instance with LiteLLM, schema separation)
   - Go: pgx v5 (driver) + goose (migrations)
   - Python: psycopg3 (sync+async)
   - NATS JetStream KV for ephemeral state (heartbeats, locks)
@@ -225,7 +225,7 @@ Detailed analysis: docs/research/market-analysis.md
 ## Architectural Decisions (ADRs)
 
 - **ADR-001:** NATS JetStream as message queue (docs/architecture/adr/001-nats-jetstream-message-queue.md)
-- **ADR-002:** PostgreSQL 17 as primary database (docs/architecture/adr/002-postgresql-database.md)
+- **ADR-002:** PostgreSQL 18 as primary database (docs/architecture/adr/002-postgresql-database.md)
 - **ADR-003:** Hierarchical config: defaults < YAML < env vars < CLI flags (docs/architecture/adr/003-config-hierarchy.md)
 - **ADR-004:** Async logging with buffered channel + worker pool (docs/architecture/adr/004-async-logging.md)
 - **ADR-005:** Docker-native logging, no external monitoring stack (docs/architecture/adr/005-docker-native-logging.md)
