@@ -1748,6 +1748,44 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-26) 6 debate tests (mode existence, read-only enforcement, config bounds, completion handler)
 - [x] (2026-02-26) `DebateStatusEvent` type in frontend `types.ts`
 
+### Audit Priority 4: OTEL Wiring + Agent Backend Routing (2026-02-26)
+
+> Fixes audit findings #2-6 from `docs/audit-docs-vs-code.md`. Two independent work packages:
+> WP1 wires existing OTEL span/metric definitions into the service layer.
+> WP2 adds backend-specific routing in the Python consumer.
+
+#### WP1: Wire OTEL Spans & Metrics into Service Layer
+
+- [x] (2026-02-26) `cmd/codeforge/main.go`: Instantiate `cfotel.NewMetrics()` after InitTracer, inject into services via `SetMetrics()`
+- [x] (2026-02-26) `internal/service/runtime.go`: Add `metrics *cfotel.Metrics` + `runSpans sync.Map` fields, `SetMetrics()` setter
+- [x] (2026-02-26) `internal/service/runtime.go`: Instrument `StartRun()` — start run span, record `RunsStarted` metric
+- [x] (2026-02-26) `internal/service/runtime.go`: Instrument `HandleToolCallRequest()` — tool call span + `ToolCalls` metric
+- [x] (2026-02-26) `internal/service/runtime.go`: Instrument `finalizeRun()` — annotate span with status/steps/cost, record `RunsCompleted`/`RunsFailed`/`RunCost`/`RunDuration`
+- [x] (2026-02-26) `internal/service/runtime.go`: Instrument `cancelRunWithReason()` — annotate span, record `RunsFailed`
+- [x] (2026-02-26) `internal/service/runtime.go`: Instrument `triggerDelivery()` — delivery span with defer End
+- [x] (2026-02-26) `internal/service/runtime.go`: Clean up run spans in `cleanupRunState()` via `runSpans.LoadAndDelete()`
+- [x] (2026-02-26) `internal/service/conversation.go`: Add `metrics *cfotel.Metrics` field, `SetMetrics()` setter
+- [x] (2026-02-26) `internal/service/conversation.go`: Instrument `SendMessage()` — run span + completion/failure metrics
+- [x] (2026-02-26) `internal/service/conversation.go`: Instrument `SendMessageAgentic()` — `RunsStarted` after NATS dispatch
+- [x] (2026-02-26) `internal/service/conversation.go`: Instrument `HandleConversationRunComplete()` — `RunsCompleted`/`RunsFailed`/`RunCost`
+
+#### WP2: Agent Backend Routing in Python Consumer
+
+- [x] (2026-02-26) `workers/codeforge/backends/_base.py`: `BackendExecutor` protocol, `BackendInfo`/`TaskResult` dataclasses, `OutputCallback` type
+- [x] (2026-02-26) `workers/codeforge/backends/router.py`: `BackendRouter` dispatcher with registry + active task tracking
+- [x] (2026-02-26) `workers/codeforge/backends/aider.py`: `AiderExecutor` — real subprocess wrapper (streaming, timeout, cancel, model/api_base args)
+- [x] (2026-02-26) `workers/codeforge/backends/goose.py`: `GooseExecutor` stub — explicit "not yet implemented" error
+- [x] (2026-02-26) `workers/codeforge/backends/openhands.py`: `OpenHandsExecutor` stub
+- [x] (2026-02-26) `workers/codeforge/backends/opencode.py`: `OpenCodeExecutor` stub
+- [x] (2026-02-26) `workers/codeforge/backends/plandex.py`: `PlandexExecutor` stub
+- [x] (2026-02-26) `workers/codeforge/backends/__init__.py`: `build_default_router()` factory registering all 5 executors
+- [x] (2026-02-26) `workers/codeforge/consumer.py`: Extract backend name from NATS subject, route via `BackendRouter`
+- [x] (2026-02-26) `workers/codeforge/config.py`: 5 backend env vars (`CODEFORGE_AIDER_PATH`, `CODEFORGE_GOOSE_PATH`, `CODEFORGE_OPENCODE_PATH`, `CODEFORGE_PLANDEX_PATH`, `CODEFORGE_OPENHANDS_URL`)
+- [x] (2026-02-26) `workers/tests/test_backend_router.py`: 10 router dispatch tests
+- [x] (2026-02-26) `workers/tests/test_backend_aider.py`: 12 aider subprocess mock tests
+- [x] (2026-02-26) `workers/tests/test_backend_stubs.py`: 12 parametrized stub executor tests (4 backends x 3 test classes)
+- [x] (2026-02-26) `workers/tests/test_consumer.py`: 6 updated consumer tests with backend routing mocks
+
 #### Planned/Unimplemented Features
 
 - [ ] GitHub Copilot Token Exchange — listed in CLAUDE.md as LLM provider but not yet implemented (Go Core token exchange endpoint + LiteLLM provider config)

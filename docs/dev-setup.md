@@ -117,6 +117,14 @@ CodeForge/
 │       ├── retrieval.py      # Hybrid retrieval (BM25 + semantic + sub-agent)
 │       ├── runtime.py        # Runtime client (Go <-> Python protocol)
 │       ├── models.py         # Pydantic data models
+│       ├── backends/         # Agent backend executors
+│       │   ├── _base.py      # BackendExecutor protocol, BackendInfo, TaskResult
+│       │   ├── router.py     # BackendRouter dispatcher
+│       │   ├── aider.py      # AiderExecutor (real CLI wrapper)
+│       │   ├── goose.py      # GooseExecutor (stub)
+│       │   ├── openhands.py  # OpenHandsExecutor (stub)
+│       │   ├── opencode.py   # OpenCodeExecutor (stub)
+│       │   └── plandex.py    # PlandexExecutor (stub)
 │       ├── evaluation/       # Benchmark evaluation (Phase 20)
 │       │   ├── runner.py     # BenchmarkRunner (dataset execution)
 │       │   ├── metrics.py    # DeepEval metric wrappers
@@ -387,6 +395,11 @@ Example:
 | `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level |
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
 | `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker health port |
+| `CODEFORGE_AIDER_PATH` | `aider` | Path to Aider CLI binary |
+| `CODEFORGE_GOOSE_PATH` | `goose` | Path to Goose CLI binary |
+| `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
+| `CODEFORGE_PLANDEX_PATH` | `plandex` | Path to Plandex CLI binary |
+| `CODEFORGE_OPENHANDS_URL` | `http://localhost:3000` | OpenHands service URL |
 
 ### Health Endpoints
 
@@ -405,7 +418,7 @@ The Go Core and Python Workers communicate via NATS JetStream subjects.
 
 | Subject | Direction | Purpose |
 |---------|-----------|---------|
-| `tasks.agent.*` | Go -> Python | Dispatch task to agent backend |
+| `tasks.agent.<name>` | Go -> Python | Dispatch task to agent backend (name = aider/goose/openhands/opencode/plandex) |
 | `tasks.result` | Python -> Go | Task result from worker |
 | `tasks.output` | Python -> Go | Streaming output line |
 | `agents.status` | Go -> Frontend | Agent status update |

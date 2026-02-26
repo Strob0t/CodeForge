@@ -19,7 +19,7 @@
 | **G — Contradictory Status** | 2 | MEDIUM |
 | **Total** | **25** | |
 
-**HIGH findings:** 1 | **MEDIUM findings:** 15 | **LOW findings:** 9
+**HIGH findings:** 1 | **MEDIUM findings:** 15 (5 resolved) | **LOW findings:** 9
 
 ---
 
@@ -39,7 +39,7 @@
 
 | # | Feature | Doc Location | Code Location | Evidence | Fix Type |
 |---|---------|-------------|---------------|----------|----------|
-| 2 | OTEL Agent Spans + Metrics | `project-status.md:549` `[x]` | `internal/adapter/otel/spans.go`, `metrics.go` | **Defined:** `StartRunSpan()` (line 13), `StartToolCallSpan()` (line 24), `StartDeliverySpan()` (line 34) in spans.go. 6 metric instruments in metrics.go (RunsStarted, RunsCompleted, RunsFailed, ToolCalls, RunDuration, RunCost). **Never called:** 0 invocations from `internal/service/`. `NewMetrics()` never instantiated. 105 LOC dead code out of 223 LOC total (47%). HTTP middleware (middleware.go) IS wired via main.go. | **code-fix** — Wire span/metric calls into `runtime.go` and `conversation.go` service layer, OR **docs-fix** — add note that only HTTP-level tracing is active, agent-level spans are unwired. |
+| 2 | OTEL Agent Spans + Metrics | `project-status.md:549` `[x]` | `internal/adapter/otel/spans.go`, `metrics.go` | **RESOLVED (2026-02-26).** All 3 span helpers and 6 metric instruments now called from `runtime.go` (6 methods) and `conversation.go` (3 methods). `NewMetrics()` instantiated in `main.go`, injected via `SetMetrics()`. Run spans stored in `sync.Map`, cleaned up in `cleanupRunState()`. | **Resolved** — code-fix applied in commit `4b1d362`. |
 
 ---
 
@@ -47,14 +47,12 @@
 
 | # | Feature | Doc Location | Code Location | Evidence | Fix Type |
 |---|---------|-------------|---------------|----------|----------|
-| 3 | Goose Backend | `features/04:436` `[ ]` | `internal/adapter/goose/backend.go` (74 LOC) | Publishes to `tasks.agent.goose` NATS subject. Python `consumer.py:66` subscribes to wildcard `tasks.agent.*` but handler (line 144) ignores backend identity — all tasks route to generic `LLM.completion()`. No Goose CLI integration. | **code-fix** |
-| 4 | OpenHands Backend | `features/04:436` `[ ]` | `internal/adapter/openhands/backend.go` (74 LOC) | Same pattern as Goose. No OpenHands CLI integration. | **code-fix** |
-| 5 | OpenCode Backend | `features/04:436` `[ ]` | `internal/adapter/opencode/backend.go` (73 LOC) | Same pattern as Goose. No OpenCode CLI integration. | **code-fix** |
-| 6 | Plandex Backend | `features/04:436` `[ ]` | `internal/adapter/plandex/backend.go` (73 LOC) | Same pattern as Goose. No Plandex CLI integration. | **code-fix** |
+| 3 | Goose Backend | `features/04:436` | `internal/adapter/goose/backend.go` (74 LOC) | **RESOLVED (2026-02-26).** Python `GooseExecutor` stub with correct `BackendInfo`, `check_available()`, and explicit "not yet implemented" error. Consumer routes via `BackendRouter`. | **Resolved** — code-fix applied in commit `4b1d362`. |
+| 4 | OpenHands Backend | `features/04:436` | `internal/adapter/openhands/backend.go` (74 LOC) | **RESOLVED (2026-02-26).** Python `OpenHandsExecutor` stub. Same pattern as Goose. | **Resolved** |
+| 5 | OpenCode Backend | `features/04:436` | `internal/adapter/opencode/backend.go` (73 LOC) | **RESOLVED (2026-02-26).** Python `OpenCodeExecutor` stub. Same pattern as Goose. | **Resolved** |
+| 6 | Plandex Backend | `features/04:436` | `internal/adapter/plandex/backend.go` (73 LOC) | **RESOLVED (2026-02-26).** Python `PlandexExecutor` stub. Same pattern as Goose. | **Resolved** |
 
-**Common pattern:** All 4 backends are registered in `cmd/codeforge/main.go:157-161` and publish to NATS, but `workers/codeforge/consumer.py` treats ALL backend messages identically via `self._executor.execute(task)` — a generic LLM completion path. The backend name is lost after dispatch. Even Aider operates as a generic NATS-to-LLM bridge (confirmed in `features/04:13-24`).
-
-**Note:** The feature doc (`features/04:436`) correctly marks these as `[ ]`, so this is NOT a doc overclaim. The issue is that Go adapter code exists creating the impression of implementation, but it's non-functional scaffolding.
+**RESOLVED (2026-02-26):** Python consumer now extracts backend name from NATS subject (`tasks.agent.<name>`) and routes via `BackendRouter` to backend-specific executors. `AiderExecutor` wraps the real CLI. Goose/OpenHands/OpenCode/Plandex return explicit "not yet implemented" errors instead of silently falling back to generic LLM completion. 40 new tests (router, aider subprocess mocks, stub executors, consumer).
 
 ---
 
@@ -149,25 +147,27 @@ Added `— *planned*` qualifiers to 8 unimplemented patterns in CLAUDE.md:
 Also added clarifying note to Framework Insights section header:
 > Reference patterns from framework analysis. Items without a file path are planned, not yet implemented.
 
-### Priority 4 — Code Improvements (Optional)
+### Priority 4 — Code Improvements — RESOLVED (2026-02-26)
 
-| Finding | Action |
-|---------|--------|
-| #2 OTEL spans/metrics | Wire `StartRunSpan`/`StartToolCallSpan` into `runtime.go` and `conversation.go`. Instantiate `NewMetrics()` and call `RunsStarted.Add()` etc. at execution points. |
-| #3-6 Agent backends | Implement backend-specific Python consumers or remove Go adapter stubs to avoid dead code. The generic fallback silently degrades all backends to LLM completion. |
+Both findings resolved in commit `4b1d362` on `staging`:
+
+| Finding | Action | Resolution |
+|---------|--------|------------|
+| #2 OTEL spans/metrics | Wire `StartRunSpan`/`StartToolCallSpan` into `runtime.go` and `conversation.go`. Instantiate `NewMetrics()` and call `RunsStarted.Add()` etc. at execution points. | **Done.** `NewMetrics()` instantiated in `main.go`, injected via setters. `runtime.go` instruments 6 methods (StartRun, HandleToolCallRequest, finalizeRun, cancelRunWithReason, cleanupRunState, triggerDelivery). `conversation.go` instruments 3 methods (SendMessage, SendMessageAgentic, HandleConversationRunComplete). Run spans stored in `sync.Map`, nil-guarded metrics. |
+| #3-6 Agent backends | Implement backend-specific Python consumers or remove Go adapter stubs to avoid dead code. The generic fallback silently degrades all backends to LLM completion. | **Done.** Python `BackendRouter` dispatcher with 5 registered executors. `AiderExecutor` wraps real CLI subprocess. Goose/OpenHands/OpenCode/Plandex return explicit "not yet implemented" errors. Consumer extracts backend name from NATS subject and routes accordingly. 40 new Python tests. |
 
 ---
 
 ## Appendix: Verification Commands
 
 ```bash
-# Verify OTEL dead code (Finding #2)
-grep -rn "StartRunSpan\|StartToolCallSpan\|RunsStarted\|RunsCompleted" internal/service/ --include="*.go"
-# Expected: 0 matches
+# Verify OTEL wiring (Finding #2) — RESOLVED
+grep -rn "StartRunSpan\|StartToolCallSpan\|RunsStarted\|RunsCompleted\|NewMetrics" internal/service/ cmd/ --include="*.go"
+# Expected: multiple matches in runtime.go, conversation.go, main.go
 
-# Verify agent backend Python consumers missing (Findings #3-6)
-grep -rn "goose\|openhands\|opencode\|plandex" workers/ --include="*.py"
-# Expected: 0 relevant matches
+# Verify agent backend Python routing (Findings #3-6) — RESOLVED
+grep -rn "goose\|openhands\|opencode\|plandex\|BackendRouter\|BackendExecutor" workers/codeforge/ --include="*.py"
+# Expected: matches in backends/*.py, consumer.py
 
 # Verify CLAUDE.md overclaims (Findings #11-18)
 grep -rn "exp_cache\|HandoffMessage\|FeedbackProvider\|MicroAgent\|RouterLLM\|SkillsSystem" internal/ workers/ --include="*.go" --include="*.py"

@@ -546,7 +546,7 @@
 
 > Adds observability, protocol stubs, and deployment infrastructure.
 
-- [x] (2026-02-19) OpenTelemetry — Real TracerProvider + MeterProvider replacing no-op stub (`internal/adapter/otel/setup.go`: OTLP gRPC trace + metric exporters, TraceIDRatioBased sampling; `internal/adapter/otel/middleware.go`: chi HTTP middleware via `otelhttp.NewHandler`; `internal/adapter/otel/spans.go`: StartRunSpan, StartToolCallSpan, StartDeliverySpan helpers; `internal/adapter/otel/metrics.go`: 6 metric instruments runs started/completed/failed, tool calls, duration, cost; config: `OTEL{Enabled, Endpoint, ServiceName, Insecure, SampleRate}` with env overrides)
+- [x] (2026-02-19) OpenTelemetry — Real TracerProvider + MeterProvider replacing no-op stub (`internal/adapter/otel/setup.go`: OTLP gRPC trace + metric exporters, TraceIDRatioBased sampling; `internal/adapter/otel/middleware.go`: chi HTTP middleware via `otelhttp.NewHandler`; `internal/adapter/otel/spans.go`: StartRunSpan, StartToolCallSpan, StartDeliverySpan helpers; `internal/adapter/otel/metrics.go`: 6 metric instruments runs started/completed/failed, tool calls, duration, cost; config: `OTEL{Enabled, Endpoint, ServiceName, Insecure, SampleRate}` with env overrides; **agent-level spans/metrics wired into service layer 2026-02-26** — see Audit Priority 4 below)
 - [x] (2026-02-19) A2A Protocol Stub — Google Agent-to-Agent protocol (`internal/port/a2a/types.go`: AgentCard, Skill, TaskRequest, TaskResponse types; `internal/port/a2a/agentcard.go`: BuildAgentCard with 2 skills code-task, decompose; `internal/port/a2a/handler.go`: HTTP handlers for `/.well-known/agent.json`, `/a2a/tasks`; 5 handler tests, all passing; config: `A2A.Enabled bool` default false)
 - [ ] AG-UI Protocol Events — CopilotKit Agent-User Interaction (type definitions only: `internal/adapter/ws/agui_events.go` has 8 event types + 8 structs, `frontend/src/api/types.ts` has 8 TypeScript interfaces; no events are emitted, no WebSocket wiring, no frontend integration; config: `AGUI.Enabled bool` default false)
 - [x] (2026-02-19) Blue-Green Deployment — Zero-downtime deployment infrastructure (`traefik/traefik.yaml`: static config with entrypoints, Docker provider, file provider; `docker-compose.blue-green.yml`: overlay with blue/green service pairs + Traefik routing; `scripts/deploy-blue-green.sh`: deployment script detect active, deploy inactive, health-check, switch)
@@ -1078,3 +1078,12 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-26) **21D:** Moderator Agent Mode — moderator + proponent mode presets, debate protocol (startDebate/handleDebateComplete), configurable rounds (default 1, max 3), debate visualization in frontend, 6 tests
 - 20 Go tests passing (14 review router, 6 debate)
 - TypeScript compiles clean (no new errors)
+
+### Audit Priority 4: OTEL Wiring + Agent Backend Routing (COMPLETED)
+
+> Fixes audit findings #2-6 from `docs/audit-docs-vs-code.md`.
+
+- [x] (2026-02-26) **WP1: OTEL Spans & Metrics** — `NewMetrics()` instantiated in `main.go`, injected via setters into `RuntimeService` and `ConversationService`. 6 methods instrumented in `runtime.go` (StartRun, HandleToolCallRequest, finalizeRun, cancelRunWithReason, cleanupRunState, triggerDelivery) and 3 in `conversation.go` (SendMessage, SendMessageAgentic, HandleConversationRunComplete). Run spans stored in `sync.Map`, all metrics nil-guarded.
+- [x] (2026-02-26) **WP2: Agent Backend Routing** — Python `BackendRouter` dispatcher with 5 registered executors. `AiderExecutor` wraps real CLI subprocess with streaming, timeout, cancel. Goose/OpenHands/OpenCode/Plandex return explicit "not yet implemented" errors. Consumer extracts backend name from NATS subject (`tasks.agent.<name>`). 5 backend CLI path env vars in `config.py`.
+- 40 new Python tests (10 router, 12 aider subprocess, 12 stub executors, 6 consumer updates)
+- Go build clean, all pre-commit hooks pass (ruff, go-fmt)

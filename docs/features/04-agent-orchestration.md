@@ -10,18 +10,71 @@ Coordination of various AI coding agents through a **unified** orchestration lay
 
 ### Agent Backends
 
-| Agent | Adapter | Status | Type |
-|---|---|---|---|
-| Aider | `adapter/aider/` | Registered | Generic NATS-to-LLM dispatcher |
-| OpenHands | `adapter/openhands/` | Phase 9+ | Not yet implemented |
-| SWE-agent | `adapter/sweagent/` | Phase 9+ | Not yet implemented |
-| Goose | `adapter/goose/` | Phase 9+ | Not yet implemented |
-| OpenCode | `adapter/opencode/` | Phase 9+ | Not yet implemented |
-| Plandex | `adapter/plandex/` | Phase 9+ | Not yet implemented |
+| Agent | Go Adapter | Python Executor | Status | Capabilities |
+|---|---|---|---|---|
+| Aider | `adapter/aider/` | `backends/aider.py` | CLI wrapper | code-edit, git-commit, multi-file |
+| Goose | `adapter/goose/` | `backends/goose.py` | Stub (not yet implemented) | code-edit, mcp-native |
+| OpenHands | `adapter/openhands/` | `backends/openhands.py` | Stub (not yet implemented) | code-edit, browser, sandbox |
+| OpenCode | `adapter/opencode/` | `backends/opencode.py` | Stub (not yet implemented) | code-edit, lsp |
+| Plandex | `adapter/plandex/` | `backends/plandex.py` | Stub (not yet implemented) | code-edit, planning, multi-file |
+| SWE-agent | `adapter/sweagent/` | -- | Phase 9+ | Not yet implemented |
 
-All backends implement the `agentbackend.Backend` interface with capability declarations.
+All Go backends implement the `agentbackend.Backend` interface with capability declarations. All Python backends implement the `BackendExecutor` protocol (see below).
 
-> **Current status:** Only the Aider backend is registered. It operates as a generic NATS-to-LLM dispatcher (receives tasks via NATS, calls LiteLLM, returns results) rather than integrating directly with the Aider CLI. Direct CLI integrations for each agent tool are planned for Phase 9+.
+> **Current status:** Aider has a real CLI wrapper (`AiderExecutor`) that runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. Goose, OpenHands, OpenCode, and Plandex have stub executors that return explicit "not yet implemented" errors. The Python consumer routes tasks to the correct backend based on the NATS subject name.
+
+### Backend Routing Architecture
+
+The Python consumer extracts the backend name from the NATS subject (`tasks.agent.<backend_name>`) and routes via `BackendRouter`:
+
+```text
+Go Core (adapter/aider/, adapter/goose/, etc.)
+  |
+  | NATS: tasks.agent.aider, tasks.agent.goose, etc.
+  v
+Python Consumer (consumer.py)
+  |-- extract backend name from subject
+  |-- BackendRouter.execute(backend_name, ...)
+  v
+BackendExecutor (aider.py, goose.py, etc.)
+  |-- check_available() — verify CLI/service reachable
+  |-- execute() — run task (subprocess, API call, or stub error)
+  |-- cancel() — terminate running task
+```
+
+#### BackendExecutor Protocol (`workers/codeforge/backends/_base.py`)
+
+```python
+class BackendExecutor(Protocol):
+    @property
+    def info(self) -> BackendInfo: ...
+    async def check_available(self) -> bool: ...
+    async def execute(self, task_id, prompt, workspace_path, config, on_output) -> TaskResult: ...
+    async def cancel(self, task_id: str) -> None: ...
+```
+
+#### Configuration (Environment Variables)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CODEFORGE_AIDER_PATH` | `aider` | Path to Aider CLI binary |
+| `CODEFORGE_GOOSE_PATH` | `goose` | Path to Goose CLI binary |
+| `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
+| `CODEFORGE_PLANDEX_PATH` | `plandex` | Path to Plandex CLI binary |
+| `CODEFORGE_OPENHANDS_URL` | `http://localhost:3000` | OpenHands service URL |
+
+#### Key Files
+
+| File | Purpose |
+|------|---------|
+| `workers/codeforge/backends/_base.py` | BackendExecutor protocol, BackendInfo, TaskResult |
+| `workers/codeforge/backends/router.py` | BackendRouter dispatcher |
+| `workers/codeforge/backends/aider.py` | AiderExecutor (real CLI wrapper) |
+| `workers/codeforge/backends/goose.py` | GooseExecutor (stub) |
+| `workers/codeforge/backends/openhands.py` | OpenHandsExecutor (stub) |
+| `workers/codeforge/backends/opencode.py` | OpenCodeExecutor (stub) |
+| `workers/codeforge/backends/plandex.py` | PlandexExecutor (stub) |
+| `workers/codeforge/backends/__init__.py` | `build_default_router()` factory |
 
 ### Execution Modes
 
@@ -429,11 +482,21 @@ When the review router triggers, a ping_pong sub-plan is created with proponent 
 | `frontend/src/features/project/StepDetailPanel.tsx` | Step detail with debate visualization |
 | `frontend/src/features/project/PlanPanel.tsx` | Integration hub |
 
+### Completed (Audit Priority 4 -- OTEL Wiring + Backend Routing)
+
+- [x] OTEL agent-level spans and metrics wired into service layer (runtime.go, conversation.go).
+- [x] `NewMetrics()` instantiated in main.go, injected via `SetMetrics()` setters.
+- [x] Python `BackendRouter` dispatcher with 5 registered backend executors.
+- [x] `AiderExecutor` real CLI wrapper (subprocess, streaming, timeout, cancel).
+- [x] Goose/OpenHands/OpenCode/Plandex stub executors with explicit error messages.
+- [x] Consumer extracts backend name from NATS subject, routes to correct executor.
+- [x] 40 new Python tests (router, aider, stubs, consumer).
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.
 
-- [ ] Additional backends (OpenHands, Goose, OpenCode, Plandex).
+- [ ] Implement real CLI integrations for Goose, OpenHands, OpenCode, Plandex (stubs exist).
 - [ ] Trajectory replay UI and audit trail.
 - [ ] Session events as source of truth (Resume/Fork/Rewind).
 - [ ] A2A protocol integration (agent discovery, Agent Cards).
