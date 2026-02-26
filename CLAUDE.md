@@ -105,9 +105,10 @@ Detailed analysis: docs/research/market-analysis.md
   - Config: `Agent.MaxLoopIterations` (50), `Agent.MaxContextTokens` (120K), `Runtime.ApprovalTimeoutSeconds` (60)
   - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
-  - Composite Memory Scoring (Semantic + Recency + Importance)
+  > Reference patterns from framework analysis. Items without a file path are planned, not yet implemented.
+  - Composite Memory Scoring (Semantic + Recency + Importance) — *planned*
   - Context Window Strategies (Buffered, TokenLimited, HeadAndTail)
-  - Experience Pool (@exp_cache) for caching successful runs
+  - Experience Pool (@exp_cache) for caching successful runs — *planned*
   - Tool Recommendation via BM25 (automatic tool selection)
   - Workbench (tool container with shared state, MCP integration)
   - LLM Guardrail Agent (agent validates agent output)
@@ -118,8 +119,8 @@ Detailed analysis: docs/research/market-analysis.md
   - Component System (Agents/Tools/Workflows as JSON serializable, GUI editor)
   - Document Pipeline PRD→Design→Tasks→Code (reduces hallucination)
   - MagenticOne Planning Loop (Stall Detection + Re-Planning)
-  - HandoffMessage Pattern (agent handoff between specialists)
-  - Human Feedback Provider Protocol (Web GUI, Slack, Email extensible)
+  - HandoffMessage Pattern (agent handoff between specialists) — *planned*
+  - Human Feedback Provider Protocol (Web GUI, Slack, Email extensible) — *planned*
 - **Coding Agent Insights (Cline, Devika):**
   - Plan/Act Mode Pattern (separate LLM configs per phase, user toggle)
   - Shadow Git Checkpoints (isolated git repo for rollback)
@@ -136,11 +137,11 @@ Detailed analysis: docs/research/market-analysis.md
   - Event-Sourcing Architecture (EventStream as central abstraction)
   - Workspace Abstraction (Local/Docker/Remote, self-healing containers)
   - AgentHub with specialized agents (CodeAct, Browsing, Delegator, Microagents)
-  - Microagents: YAML+Markdown-based trigger-driven special agents
-  - Skills System (reusable Python snippets, automatically in prompt)
+  - Microagents: YAML+Markdown-based trigger-driven special agents — *planned*
+  - Skills System (reusable Python snippets, automatically in prompt) — *planned*
   - Risk Management with LLMSecurityAnalyzer (InvariantAnalyzer)
   - V0→V1 SDK Migration Pattern (AgentSkills as MCP server)
-  - RouterLLM for local routing decisions (OpenRouter as fallback)
+  - RouterLLM for local routing decisions (OpenRouter as fallback) — *planned, using LiteLLM Proxy instead*
   - ACI (Agent-Computer Interface): Shell commands optimized for LLMs
   - Tool Bundles (YAML): Declarative, swappable tool definitions
   - History Processors: Pipeline for context window optimization
@@ -209,7 +210,7 @@ Detailed analysis: docs/research/market-analysis.md
   - Go Core + Python Workers communicate via OpenAI-compatible API against LiteLLM
   - Scenario-based routing via LiteLLM Tags (default/background/think/longContext/review/plan)
   - OpenRouter as optional provider behind LiteLLM
-  - GitHub Copilot Token Exchange as provider (Go Core)
+  - GitHub Copilot Token Exchange as provider (Go Core) — *planned*
   - Local Model Auto-Discovery (Ollama/LM Studio `/v1/models`)
   - LiteLLM Config Manager, User Key Mapping, Cost Dashboard as custom development
 - Detailed description: docs/architecture.md
