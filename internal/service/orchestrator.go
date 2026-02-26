@@ -621,7 +621,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 // handleDebateComplete is called when a debate sub-plan finishes.
 // It extracts the moderator's synthesis, injects it into shared context,
 // and dispatches the original step's run.
-func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePlanID string, status string) {
+func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePlanID, status string) {
 	s.debateMu.Lock()
 	ds, ok := s.debateSteps[debatePlanID]
 	if ok {

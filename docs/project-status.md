@@ -1087,3 +1087,24 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-02-26) **WP2: Agent Backend Routing** — Python `BackendRouter` dispatcher with 5 registered executors. `AiderExecutor` wraps real CLI subprocess with streaming, timeout, cancel. Goose/OpenHands/OpenCode/Plandex return explicit "not yet implemented" errors. Consumer extracts backend name from NATS subject (`tasks.agent.<name>`). 5 backend CLI path env vars in `config.py`.
 - 40 new Python tests (10 router, 12 aider subprocess, 12 stub executors, 6 consumer updates)
 - Go build clean, all pre-commit hooks pass (ruff, go-fmt)
+
+### Phase 22: Planned Pattern Implementation (COMPLETED)
+
+> Implements all 8 patterns previously marked `— *planned*` in CLAUDE.md.
+
+- [x] (2026-02-26) **A1: RouterLLM Scenario Wiring** — `ConversationService` populates LLMScenario in NATS payload, Python consumer resolves tags via `resolve_scenario()`, passes to `LoopConfig`
+- [x] (2026-02-26) **A2: GitHub Copilot Token Exchange** — `internal/adapter/copilot/client.go` (token read + exchange + caching), REST: `POST /api/v1/copilot/exchange`, config: `CODEFORGE_COPILOT_ENABLED`
+- [x] (2026-02-26) **B1: Composite Memory Scoring** — 3-factor scoring formula, Python `workers/codeforge/memory/` (scorer, storage, models), Go domain + service + REST, migration 042
+- [x] (2026-02-26) **B2: Experience Pool / @exp_cache** — Similarity-based run caching, `@exp_cache` decorator, Go CRUD + REST, migration 043
+- [x] (2026-02-26) **C1: HandoffMessage Pattern** — Agent-to-agent handoff: domain type, service, `handoff_to` built-in tool, NATS consumer handler
+- [x] (2026-02-26) **C2: Microagents** — YAML+Markdown trigger-driven agents: domain + loader, service, PostgreSQL store, CRUD REST, consumer injection, migration 044
+- [x] (2026-02-26) **D1: Skills System** — BM25-recommended code snippets: Python skills package (registry, recommender), Go domain + service, consumer injection, migration 045
+- [x] (2026-02-26) **D2: Human Feedback Provider Protocol** — Multi-channel HITL: `FeedbackProvider` interface, Slack (Block Kit) + Email (SMTP) adapters, fan-out in `waitForApproval()`, audit trail, migration 046
+
+#### Phase 22 Key Deliverables
+- **New Go files:** 16 (domain: memory, experience, orchestration/handoff, microagent, skill, feedback; service: memory, experience_pool, handoff, microagent, skill, model_registry; adapter: copilot/client, email/notifier+feedback, slack/feedback; port: feedback/provider)
+- **New Python files:** 10 (memory: scorer, storage, models, experience, __init__; skills: registry, recommender, models, __init__; tools: handoff)
+- **New migrations:** 5 (042-046)
+- **New PostgreSQL store adapters:** 5 (store_memory, store_experience, store_microagent, store_skill, store_feedback)
+- **New REST endpoints:** 19 (model registry 2, copilot 1, memories 3, experience 2, microagents 5, skills 5, feedback 2 — audit + callback)
+- **All 8 `— *planned*` markers** removed from CLAUDE.md, replaced with file paths

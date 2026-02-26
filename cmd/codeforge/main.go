@@ -18,6 +18,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
 	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
+	emailAdapter "github.com/Strob0t/CodeForge/internal/adapter/email"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
@@ -30,6 +31,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/plandex"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	ristrettoAdapter "github.com/Strob0t/CodeForge/internal/adapter/ristretto"
+	slackAdapter "github.com/Strob0t/CodeForge/internal/adapter/slack"
 	"github.com/Strob0t/CodeForge/internal/adapter/tiered"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -507,6 +509,25 @@ func run() error {
 	// --- Skill Service (Phase 22D) ---
 	skillSvc := service.NewSkillService(store)
 	slog.Info("skill service initialized")
+
+	// --- Feedback Providers (Phase 22D) ---
+	if cfg.Notification.SlackWebhookURL != "" {
+		slackFB := slackAdapter.NewFeedbackProvider(cfg.Notification.SlackWebhookURL)
+		runtimeSvc.RegisterFeedbackProvider(slackFB)
+		slog.Info("slack feedback provider registered")
+	}
+	if cfg.Notification.SMTPHost != "" {
+		emailNotifier := emailAdapter.NewNotifier(emailAdapter.SMTPConfig{
+			Host:     cfg.Notification.SMTPHost,
+			Port:     cfg.Notification.SMTPPort,
+			From:     cfg.Notification.SMTPFrom,
+			Password: cfg.Notification.SMTPPassword,
+		})
+		callbackURL := fmt.Sprintf("http://localhost:%s/api/v1/feedback", cfg.Server.Port)
+		emailFB := emailAdapter.NewFeedbackProvider(emailNotifier, nil, callbackURL)
+		runtimeSvc.RegisterFeedbackProvider(emailFB)
+		slog.Info("email feedback provider registered")
+	}
 
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,

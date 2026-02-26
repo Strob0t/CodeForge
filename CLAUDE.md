@@ -105,10 +105,10 @@ Detailed analysis: docs/research/market-analysis.md
   - Config: `Agent.MaxLoopIterations` (50), `Agent.MaxContextTokens` (120K), `Runtime.ApprovalTimeoutSeconds` (60)
   - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
-  > Reference patterns from framework analysis. Items without a file path are planned, not yet implemented.
-  - Composite Memory Scoring (Semantic + Recency + Importance) — *planned*
+  > Reference patterns from framework analysis.
+  - Composite Memory Scoring (Semantic + Recency + Importance) — `workers/codeforge/memory/scorer.py`, `internal/service/memory.go`
   - Context Window Strategies (Buffered, TokenLimited, HeadAndTail)
-  - Experience Pool (@exp_cache) for caching successful runs — *planned*
+  - Experience Pool (@exp_cache) for caching successful runs — `workers/codeforge/memory/experience.py`, `internal/service/experience_pool.go`
   - Tool Recommendation via BM25 (automatic tool selection)
   - Workbench (tool container with shared state, MCP integration)
   - LLM Guardrail Agent (agent validates agent output)
@@ -119,8 +119,8 @@ Detailed analysis: docs/research/market-analysis.md
   - Component System (Agents/Tools/Workflows as JSON serializable, GUI editor)
   - Document Pipeline PRD→Design→Tasks→Code (reduces hallucination)
   - MagenticOne Planning Loop (Stall Detection + Re-Planning)
-  - HandoffMessage Pattern (agent handoff between specialists) — *planned*
-  - Human Feedback Provider Protocol (Web GUI, Slack, Email extensible) — *planned*
+  - HandoffMessage Pattern (agent handoff between specialists) — `internal/domain/orchestration/handoff.go`, `internal/service/handoff.go`, `workers/codeforge/tools/handoff.py`
+  - Human Feedback Provider Protocol (Web GUI, Slack, Email extensible) — `internal/port/feedback/provider.go`, `internal/adapter/slack/feedback.go`, `internal/adapter/email/feedback.go`
 - **Coding Agent Insights (Cline, Devika):**
   - Plan/Act Mode Pattern (separate LLM configs per phase, user toggle)
   - Shadow Git Checkpoints (isolated git repo for rollback)
@@ -137,11 +137,11 @@ Detailed analysis: docs/research/market-analysis.md
   - Event-Sourcing Architecture (EventStream as central abstraction)
   - Workspace Abstraction (Local/Docker/Remote, self-healing containers)
   - AgentHub with specialized agents (CodeAct, Browsing, Delegator, Microagents)
-  - Microagents: YAML+Markdown-based trigger-driven special agents — *planned*
-  - Skills System (reusable Python snippets, automatically in prompt) — *planned*
+  - Microagents: YAML+Markdown-based trigger-driven special agents — `internal/domain/microagent/`, `internal/service/microagent.go`
+  - Skills System (reusable Python snippets, automatically in prompt) — `workers/codeforge/skills/`, `internal/service/skill.go`
   - Risk Management with LLMSecurityAnalyzer (InvariantAnalyzer)
   - V0→V1 SDK Migration Pattern (AgentSkills as MCP server)
-  - RouterLLM for local routing decisions (OpenRouter as fallback) — *planned, using LiteLLM Proxy instead*
+  - RouterLLM scenario wiring via LiteLLM tag-based routing — `internal/service/conversation.go`, `workers/codeforge/consumer.py`
   - ACI (Agent-Computer Interface): Shell commands optimized for LLMs
   - Tool Bundles (YAML): Declarative, swappable tool definitions
   - History Processors: Pipeline for context window optimization
@@ -210,7 +210,7 @@ Detailed analysis: docs/research/market-analysis.md
   - Go Core + Python Workers communicate via OpenAI-compatible API against LiteLLM
   - Scenario-based routing via LiteLLM Tags (default/background/think/longContext/review/plan)
   - OpenRouter as optional provider behind LiteLLM
-  - GitHub Copilot Token Exchange as provider (Go Core) — *planned*
+  - GitHub Copilot Token Exchange as provider (Go Core) — `internal/adapter/copilot/client.go`, `POST /api/v1/copilot/exchange`
   - Local Model Auto-Discovery (Ollama/LM Studio `/v1/models`)
   - LiteLLM Config Manager, User Key Mapping, Cost Dashboard as custom development
 - Detailed description: docs/architecture.md

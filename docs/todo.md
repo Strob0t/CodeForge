@@ -1786,9 +1786,22 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-26) `workers/tests/test_backend_stubs.py`: 12 parametrized stub executor tests (4 backends x 3 test classes)
 - [x] (2026-02-26) `workers/tests/test_consumer.py`: 6 updated consumer tests with backend routing mocks
 
-#### Planned/Unimplemented Features
+#### Phase 22: Planned Pattern Implementation (2026-02-26)
 
-- [ ] GitHub Copilot Token Exchange — listed in CLAUDE.md as LLM provider but not yet implemented (Go Core token exchange endpoint + LiteLLM provider config)
+> Implements all 8 patterns previously marked `— *planned*` in CLAUDE.md.
+
+- [x] (2026-02-26) A1: RouterLLM Scenario Wiring — `ConversationService.SendMessageAgentic()` populates LLMScenario in NATS payload, Python consumer resolves scenario tags via `resolve_scenario()` and passes to `LoopConfig(tags=[...])`
+- [x] (2026-02-26) A2: GitHub Copilot Token Exchange — `internal/adapter/copilot/client.go` reads OAuth token from `~/.config/github-copilot/hosts.json`, exchanges via GitHub API for bearer token, registers with LiteLLM. Config: `CODEFORGE_COPILOT_ENABLED`. Route: `POST /api/v1/copilot/exchange`
+- [x] (2026-02-26) B1: Composite Memory Scoring — Three-factor scoring: `Score = (0.5 * cosine) + (0.3 * recency_decay) + (0.2 * importance)`. Python: `workers/codeforge/memory/` (scorer, storage, models). Go: `internal/domain/memory/`, `internal/service/memory.go`. Migration: 042. Routes: `GET/POST /projects/{id}/memories`, `POST /projects/{id}/memories/recall`
+- [x] (2026-02-26) B2: Experience Pool / @exp_cache — Cache successful agent runs via similarity matching. Python: `workers/codeforge/memory/experience.py` with `@exp_cache` decorator. Go: `internal/domain/experience/`, `internal/service/experience_pool.go`. Migration: 043. Routes: `GET /projects/{id}/experience`, `DELETE /experience/{id}`
+- [x] (2026-02-26) C1: HandoffMessage Pattern — Agent-to-agent handoff with context: `internal/domain/orchestration/handoff.go`, `internal/service/handoff.go`. Python tool: `workers/codeforge/tools/handoff.py` (handoff_to built-in tool). NATS: `handoff.request` subject with consumer handler
+- [x] (2026-02-26) C2: Microagents — YAML+Markdown trigger-driven agents: `internal/domain/microagent/` (domain + loader), `internal/service/microagent.go`, `internal/adapter/postgres/store_microagent.go`. Migration: 044. Routes: CRUD at `/projects/{id}/microagents` and `/microagents/{id}`. Injected into system prompt via `run_msg.microagent_prompts`
+- [x] (2026-02-26) D1: Skills System — BM25-recommended code snippets: `workers/codeforge/skills/` (registry, recommender, models). Go: `internal/domain/skill/`, `internal/service/skill.go`. Migration: 045. Routes: CRUD at `/projects/{id}/skills` and `/skills/{id}`. Consumer injects skill snippets into system prompt
+- [x] (2026-02-26) D2: Human Feedback Provider Protocol — Multi-channel HITL approval: `internal/port/feedback/provider.go` interface, `internal/adapter/slack/feedback.go` (Block Kit), `internal/adapter/email/feedback.go` + `notifier.go` (SMTP). Fan-out in `RuntimeService.waitForApproval()`. Migration: 046. Routes: `POST /feedback/{run_id}/{call_id}`, `GET /runs/{id}/feedback`
+
+#### Previously Planned/Unimplemented Features (now completed)
+
+- [x] (2026-02-26) GitHub Copilot Token Exchange — see A2 above
 
 ---
 

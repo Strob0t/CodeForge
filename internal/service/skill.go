@@ -19,7 +19,7 @@ func NewSkillService(db database.Store) *SkillService {
 }
 
 // Create creates a new skill.
-func (s *SkillService) Create(ctx context.Context, req skill.CreateRequest) (*skill.Skill, error) {
+func (s *SkillService) Create(ctx context.Context, req *skill.CreateRequest) (*skill.Skill, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (s *SkillService) List(ctx context.Context, projectID string) ([]skill.Skil
 }
 
 // Update updates a skill.
-func (s *SkillService) Update(ctx context.Context, id string, req skill.UpdateRequest) (*skill.Skill, error) {
+func (s *SkillService) Update(ctx context.Context, id string, req *skill.UpdateRequest) (*skill.Skill, error) {
 	sk, err := s.db.GetSkill(ctx, id)
 	if err != nil {
 		return nil, err

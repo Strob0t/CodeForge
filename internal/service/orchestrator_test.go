@@ -556,7 +556,7 @@ func TestCancelPlan(t *testing.T) {
 
 // --- Phase 21D: Debate Protocol Tests ---
 
-func newOrchTestSetupWithDebate() (*orchMockStore, *service.OrchestratorService) {
+func newOrchTestSetupWithDebate() *service.OrchestratorService {
 	store := &orchMockStore{}
 	store.agents = newIdleAgents("a1", "a2", "a3")
 	store.tasks = newPendingTasks("t1", "t2", "t3")
@@ -580,7 +580,7 @@ func newOrchTestSetupWithDebate() (*orchMockStore, *service.OrchestratorService)
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
 	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
 
-	return store, orchSvc
+	return orchSvc
 }
 
 func TestDebate_BuiltinModesExist(t *testing.T) {
@@ -634,7 +634,7 @@ func TestDebate_ProponentReadOnly(t *testing.T) {
 }
 
 func TestDebate_DebateRoundsConfig(t *testing.T) {
-	_, orchSvc := newOrchTestSetupWithDebate()
+	orchSvc := newOrchTestSetupWithDebate()
 	// Just verify the service was created with debate config —
 	// the debate is triggered through the review router which is nil here,
 	// so no debate will actually fire. This is a config sanity check.
@@ -667,7 +667,7 @@ func TestDebate_DebateRoundsClampedToMax3(t *testing.T) {
 }
 
 func TestDebate_HandleDebateComplete_NotADebatePlan(t *testing.T) {
-	_, orchSvc := newOrchTestSetupWithDebate()
+	orchSvc := newOrchTestSetupWithDebate()
 	ctx := context.Background()
 
 	// HandleRunCompleted for a non-existent run should not panic

@@ -12,7 +12,7 @@ type SMTPConfig struct {
 	Host     string
 	Port     int
 	From     string
-	Password string
+	Password string //nolint:gosec // G117: config field, not a hardcoded credential
 }
 
 // Notifier sends email notifications via SMTP.

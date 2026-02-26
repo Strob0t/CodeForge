@@ -8,6 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
+
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -25,10 +30,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // RuntimeService orchestrates the step-by-step execution protocol between
@@ -337,8 +338,8 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		if maErr != nil {
 			slog.Warn("microagent match failed", "run_id", r.ID, "error", maErr)
 		} else if len(matched) > 0 {
-			for _, ma := range matched {
-				payload.MicroagentPrompts = append(payload.MicroagentPrompts, ma.Prompt)
+			for i := range matched {
+				payload.MicroagentPrompts = append(payload.MicroagentPrompts, matched[i].Prompt)
 			}
 			slog.Info("microagents matched", "run_id", r.ID, "count", len(matched))
 		}

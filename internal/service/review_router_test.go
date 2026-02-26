@@ -26,15 +26,15 @@ func newTestLiteLLMServer(content string) *httptest.Server {
 			"model": "test-model",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec // G104: test code
 	}))
 }
 
-func newTestReviewRouter(serverURL string, enabled bool, threshold float64) *ReviewRouterService {
+func newTestReviewRouter(serverURL string, enabled bool) *ReviewRouterService {
 	llm := litellm.NewClient(serverURL, "test-key")
 	cfg := &config.Orchestrator{
 		ReviewRouterEnabled:       enabled,
-		ReviewConfidenceThreshold: threshold,
+		ReviewConfidenceThreshold: 0.7,
 		ReviewRouterModel:         "test-model",
 		DecomposeModel:            "test-model",
 	}
@@ -42,7 +42,7 @@ func newTestReviewRouter(serverURL string, enabled bool, threshold float64) *Rev
 }
 
 func TestReviewRouter_DisabledReturnsNoReview(t *testing.T) {
-	router := newTestReviewRouter("http://unused", false, 0.7)
+	router := newTestReviewRouter("http://unused", false)
 
 	step := &plan.Step{ID: "step-1", TaskID: "task-1", AgentID: "agent-1"}
 	decision, err := router.Evaluate(context.Background(), step, "test task")
@@ -63,7 +63,7 @@ func TestReviewRouter_HighConfidenceNoReview(t *testing.T) {
 	srv := newTestLiteLLMServer(resp)
 	defer srv.Close()
 
-	router := newTestReviewRouter(srv.URL, true, 0.7)
+	router := newTestReviewRouter(srv.URL, true)
 	step := &plan.Step{ID: "step-1", TaskID: "task-1", AgentID: "agent-1"}
 
 	decision, err := router.Evaluate(context.Background(), step, "add a test file")
@@ -84,7 +84,7 @@ func TestReviewRouter_LowConfidenceNeedsReview(t *testing.T) {
 	srv := newTestLiteLLMServer(resp)
 	defer srv.Close()
 
-	router := newTestReviewRouter(srv.URL, true, 0.7)
+	router := newTestReviewRouter(srv.URL, true)
 	step := &plan.Step{ID: "step-2", TaskID: "task-2", AgentID: "agent-1"}
 
 	decision, err := router.Evaluate(context.Background(), step, "refactor auth system")
@@ -109,7 +109,7 @@ func TestReviewRouter_ThresholdBoundaryExact(t *testing.T) {
 	srv := newTestLiteLLMServer(resp)
 	defer srv.Close()
 
-	router := newTestReviewRouter(srv.URL, true, 0.7)
+	router := newTestReviewRouter(srv.URL, true)
 	step := &plan.Step{ID: "step-3", TaskID: "task-3", AgentID: "agent-1"}
 
 	decision, err := router.Evaluate(context.Background(), step, "update config")
@@ -133,7 +133,7 @@ func TestReviewRouter_ThresholdBoundaryJustBelow(t *testing.T) {
 	srv := newTestLiteLLMServer(resp)
 	defer srv.Close()
 
-	router := newTestReviewRouter(srv.URL, true, 0.7)
+	router := newTestReviewRouter(srv.URL, true)
 	step := &plan.Step{ID: "step-4", TaskID: "task-4", AgentID: "agent-1"}
 
 	decision, err := router.Evaluate(context.Background(), step, "database migration")
@@ -150,7 +150,7 @@ func TestReviewRouter_InvalidJSONFallsBackToNoReview(t *testing.T) {
 	srv := newTestLiteLLMServer("This is not JSON at all, just some random text.")
 	defer srv.Close()
 
-	router := newTestReviewRouter(srv.URL, true, 0.7)
+	router := newTestReviewRouter(srv.URL, true)
 	step := &plan.Step{ID: "step-5", TaskID: "task-5", AgentID: "agent-1"}
 
 	decision, err := router.Evaluate(context.Background(), step, "some task")
@@ -182,7 +182,7 @@ func TestReviewRouter_ConfidenceClampedToRange(t *testing.T) {
 			srv := newTestLiteLLMServer(tt.input)
 			defer srv.Close()
 
-			router := newTestReviewRouter(srv.URL, true, 0.7)
+			router := newTestReviewRouter(srv.URL, true)
 			step := &plan.Step{ID: "step-clamp", TaskID: "task-clamp"}
 
 			decision, err := router.Evaluate(context.Background(), step, "test")
@@ -198,7 +198,7 @@ func TestReviewRouter_ConfidenceClampedToRange(t *testing.T) {
 }
 
 func TestReviewRouter_ShouldRouteLogic(t *testing.T) {
-	router := newTestReviewRouter("http://unused", true, 0.7)
+	router := newTestReviewRouter("http://unused", true)
 
 	tests := []struct {
 		name     string
@@ -243,7 +243,7 @@ func TestReviewRouter_PromptTemplateRendering(t *testing.T) {
 	srv := newTestLiteLLMServer(resp)
 	defer srv.Close()
 
-	router := newTestReviewRouter(srv.URL, true, 0.7)
+	router := newTestReviewRouter(srv.URL, true)
 	step := &plan.Step{
 		ID:      "step-tmpl",
 		TaskID:  "task-tmpl",
@@ -265,11 +265,11 @@ func TestReviewRouter_LLMErrorReturnsError(t *testing.T) {
 	// Server that always returns 500
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, "internal server error")
+		_, _ = fmt.Fprint(w, "internal server error")
 	}))
 	defer srv.Close()
 
-	router := newTestReviewRouter(srv.URL, true, 0.7)
+	router := newTestReviewRouter(srv.URL, true)
 	step := &plan.Step{ID: "step-err", TaskID: "task-err"}
 
 	_, err := router.Evaluate(context.Background(), step, "test")

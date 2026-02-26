@@ -17,11 +17,12 @@ import (
 //	---
 //	When working with Python test files, always use pytest fixtures...
 func LoadFromFile(path string) (*Microagent, error) {
+	//nolint:gosec // G304: path comes from trusted config directory
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open microagent file %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	m := &Microagent{Enabled: true}
 	scanner := bufio.NewScanner(f)
@@ -91,8 +92,8 @@ func LoadFromDirectory(dir string) ([]*Microagent, error) {
 }
 
 // parseYAMLLine extracts a key-value pair from a simple "key: value" YAML line.
-func parseYAMLLine(line string) (string, string, bool) {
-	key, value, ok := strings.Cut(line, ":")
+func parseYAMLLine(line string) (key, value string, ok bool) {
+	key, value, ok = strings.Cut(line, ":")
 	if !ok {
 		return "", "", false
 	}

@@ -29,6 +29,8 @@ func (p *FeedbackProvider) Name() string {
 }
 
 // RequestFeedback sends an email with approve/deny links.
+//
+//nolint:gocritic // hugeParam: req must be passed by value to match feedback.Provider interface
 func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackRequest) (fb.FeedbackResult, error) {
 	approveURL := fmt.Sprintf("%s/%s/%s?decision=allow", p.callbackURL, req.RunID, req.CallID)
 	denyURL := fmt.Sprintf("%s/%s/%s?decision=deny", p.callbackURL, req.RunID, req.CallID)

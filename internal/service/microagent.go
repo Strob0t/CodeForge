@@ -21,7 +21,7 @@ func NewMicroagentService(db database.Store) *MicroagentService {
 }
 
 // Create creates a new microagent from a request.
-func (s *MicroagentService) Create(ctx context.Context, req microagent.CreateRequest) (*microagent.Microagent, error) {
+func (s *MicroagentService) Create(ctx context.Context, req *microagent.CreateRequest) (*microagent.Microagent, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -90,12 +90,12 @@ func (s *MicroagentService) Match(ctx context.Context, projectID, text string) (
 	}
 
 	var matched []microagent.Microagent
-	for _, m := range all {
-		if !m.Enabled {
+	for i := range all {
+		if !all[i].Enabled {
 			continue
 		}
-		if matchesTrigger(m.TriggerPattern, text) {
-			matched = append(matched, m)
+		if matchesTrigger(all[i].TriggerPattern, text) {
+			matched = append(matched, all[i])
 		}
 	}
 	return matched, nil

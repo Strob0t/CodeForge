@@ -155,15 +155,15 @@ func (r *ModelRegistry) broadcastHealth(ctx context.Context, models []litellm.Di
 
 	entries := make([]ws.ModelHealthEntry, len(models))
 	healthy, unhealthy := 0, 0
-	for i, m := range models {
+	for i := range models {
 		entries[i] = ws.ModelHealthEntry{
-			ModelName:   m.ModelName,
-			Status:      m.Status,
-			Provider:    m.Provider,
-			ErrorDetail: m.ErrorDetail,
-			Source:      m.Source,
+			ModelName:   models[i].ModelName,
+			Status:      models[i].Status,
+			Provider:    models[i].Provider,
+			ErrorDetail: models[i].ErrorDetail,
+			Source:      models[i].Source,
 		}
-		if m.Status == "reachable" {
+		if models[i].Status == "reachable" {
 			healthy++
 		} else {
 			unhealthy++

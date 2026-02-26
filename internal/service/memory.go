@@ -32,7 +32,7 @@ func NewMemoryService(db database.Store, queue messagequeue.Queue) *MemoryServic
 
 // Store publishes a memory store request to the Python worker (which computes
 // embeddings and importance) and persists it.
-func (s *MemoryService) Store(ctx context.Context, req memory.CreateRequest) error {
+func (s *MemoryService) Store(ctx context.Context, req *memory.CreateRequest) error {
 	if err := req.Validate(); err != nil {
 		return err
 	}

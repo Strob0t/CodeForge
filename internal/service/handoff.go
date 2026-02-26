@@ -24,7 +24,7 @@ func NewHandoffService(db database.Store, queue messagequeue.Queue) *HandoffServ
 
 // CreateHandoff initiates a handoff from one agent to another,
 // publishing a handoff request to the Python worker.
-func (s *HandoffService) CreateHandoff(ctx context.Context, msg orchestration.HandoffMessage) error {
+func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.HandoffMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}

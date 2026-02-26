@@ -34,7 +34,7 @@ func (s *ExperiencePoolService) Delete(ctx context.Context, id string) error {
 }
 
 // Store creates a new experience entry.
-func (s *ExperiencePoolService) Store(ctx context.Context, req experience.CreateRequest) error {
+func (s *ExperiencePoolService) Store(ctx context.Context, req *experience.CreateRequest) error {
 	if err := req.Validate(); err != nil {
 		return err
 	}

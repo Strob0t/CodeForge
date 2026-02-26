@@ -1098,7 +1098,8 @@ func (h *Handlers) GetPlanGraph(w http.ResponseWriter, r *http.Request) {
 		Edges:    make([]GraphEdge, 0),
 	}
 
-	for _, step := range p.Steps {
+	for i := range p.Steps {
+		step := &p.Steps[i]
 		graph.Nodes = append(graph.Nodes, GraphNode{
 			ID:        step.ID,
 			TaskID:    step.TaskID,
@@ -3364,7 +3365,7 @@ func (h *Handlers) StoreMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ProjectID = projectID
-	if err := h.Memory.Store(r.Context(), req); err != nil {
+	if err := h.Memory.Store(r.Context(), &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -3436,7 +3437,7 @@ func (h *Handlers) CreateMicroagent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ProjectID = projectID
-	m, err := h.Microagents.Create(r.Context(), req)
+	m, err := h.Microagents.Create(r.Context(), &req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -3504,7 +3505,7 @@ func (h *Handlers) CreateSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ProjectID = projectID
-	s, err := h.Skills.Create(r.Context(), req)
+	s, err := h.Skills.Create(r.Context(), &req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -3530,7 +3531,7 @@ func (h *Handlers) UpdateSkill(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s, err := h.Skills.Update(r.Context(), id, req)
+	s, err := h.Skills.Update(r.Context(), id, &req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

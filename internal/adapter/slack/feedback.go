@@ -35,6 +35,8 @@ func (p *FeedbackProvider) Name() string {
 // In a full implementation, this would listen for a callback via Slack's
 // interaction endpoint. For now, it posts the notification and returns
 // a pending result (the actual decision is received via the HTTP callback).
+//
+//nolint:gocritic // hugeParam: req must be passed by value to match feedback.Provider interface
 func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackRequest) (fb.FeedbackResult, error) {
 	msg := map[string]any{
 		"blocks": []map[string]any{
@@ -79,11 +81,12 @@ func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackR
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	//nolint:gosec // G704: webhook URL is from config, not user-controlled
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
 		return fb.FeedbackResult{}, fmt.Errorf("send slack message: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fb.FeedbackResult{}, fmt.Errorf("slack webhook returned %d", resp.StatusCode)

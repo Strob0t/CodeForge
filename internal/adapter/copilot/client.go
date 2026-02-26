@@ -90,7 +90,7 @@ func (c *Client) ExchangeToken(ctx context.Context) (string, time.Time, error) {
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://api.github.com/copilot_internal/v2/token", nil)
+		"https://api.github.com/copilot_internal/v2/token", http.NoBody)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("build request: %w", err)
 	}

@@ -11,6 +11,10 @@ import (
 	"strings"
 	"text/template"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
@@ -20,9 +24,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
 )
 
 //go:embed templates/conversation_system.tmpl
@@ -414,8 +415,8 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		if maErr != nil {
 			slog.Warn("microagent match failed", "conversation_id", conversationID, "error", maErr)
 		} else if len(matched) > 0 {
-			for _, ma := range matched {
-				microagentPrompts = append(microagentPrompts, ma.Prompt)
+			for i := range matched {
+				microagentPrompts = append(microagentPrompts, matched[i].Prompt)
 			}
 			slog.Info("microagents matched for conversation", "conversation_id", conversationID, "count", len(matched))
 		}
