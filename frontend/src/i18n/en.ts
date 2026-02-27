@@ -699,6 +699,17 @@ const en = {
   "auth.toast.userCreated": "User created",
   "auth.toast.userDeleted": "User deleted",
 
+  // -- Change Password -------------------------------------------------------
+  "auth.cp.title": "Change Password",
+  "auth.cp.description": "You must change your password before continuing.",
+  "auth.cp.currentPassword": "Current Password",
+  "auth.cp.newPassword": "New Password",
+  "auth.cp.confirmPassword": "Confirm New Password",
+  "auth.cp.submit": "Change Password",
+  "auth.cp.changing": "Changing...",
+  "auth.cp.mismatch": "Passwords do not match.",
+  "auth.cp.failed": "Password change failed.",
+
   // -- Trajectory -----------------------------------------------------------
   "trajectory.title": "Event Trajectory",
   "trajectory.exportJson": "Export JSON",
@@ -780,6 +791,8 @@ const en = {
   "teams.toast.createFailed": "Failed to create team",
   "teams.toast.deleteFailed": "Failed to delete team",
   "teams.toast.nameRequired": "Team name is required",
+  "teams.noAgentsHint": "No agents in this project yet. Create one to add team members.",
+  "teams.createAgent": "Create Agent",
   "teams.toast.membersRequired": "At least one member is required",
 
   // -- Progress indicators --------------------------------------------------
@@ -1019,6 +1032,10 @@ const en = {
   "modes.toast.updateFailed": "Failed to update mode",
   "modes.edit": "Edit",
   "modes.editAria": "Edit mode {{name}}",
+  "modes.delete": "Delete",
+  "modes.deleteAria": "Delete mode {{name}}",
+  "modes.toast.deleted": "Mode deleted",
+  "modes.toast.deleteFailed": "Failed to delete mode",
 
   // -- Developer Tools (Phase 13.7B) --
   "settings.devTools": "Developer Tools",

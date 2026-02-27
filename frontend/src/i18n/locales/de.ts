@@ -706,6 +706,18 @@ const de: Translations = {
   "auth.toast.userCreated": "Benutzer erstellt",
   "auth.toast.userDeleted": "Benutzer gel\u00f6scht",
 
+  // -- Change Password -------------------------------------------------------
+  "auth.cp.title": "Passwort \u00e4ndern",
+  "auth.cp.description":
+    "Sie m\u00fcssen Ihr Passwort \u00e4ndern, bevor Sie fortfahren k\u00f6nnen.",
+  "auth.cp.currentPassword": "Aktuelles Passwort",
+  "auth.cp.newPassword": "Neues Passwort",
+  "auth.cp.confirmPassword": "Neues Passwort best\u00e4tigen",
+  "auth.cp.submit": "Passwort \u00e4ndern",
+  "auth.cp.changing": "\u00c4ndere...",
+  "auth.cp.mismatch": "Passw\u00f6rter stimmen nicht \u00fcberein.",
+  "auth.cp.failed": "Passwort\u00e4nderung fehlgeschlagen.",
+
   // -- Trajectory -----------------------------------------------------------
   "trajectory.title": "Event-Trajektorie",
   "trajectory.exportJson": "JSON exportieren",
@@ -773,6 +785,9 @@ const de: Translations = {
   "teams.toast.createFailed": "Team konnte nicht erstellt werden",
   "teams.toast.deleteFailed": "Team konnte nicht gel\u00f6scht werden",
   "teams.toast.nameRequired": "Teamname ist erforderlich",
+  "teams.noAgentsHint":
+    "Noch keine Agenten in diesem Projekt. Erstellen Sie einen, um Teammitglieder hinzuzufügen.",
+  "teams.createAgent": "Agent erstellen",
   "teams.toast.membersRequired": "Mindestens ein Mitglied ist erforderlich",
 
   // -- Progress indicators --------------------------------------------------
@@ -1032,6 +1047,10 @@ const de: Translations = {
   "modes.toast.updateFailed": "Modus konnte nicht aktualisiert werden",
   "modes.edit": "Bearbeiten",
   "modes.editAria": "Modus {{name}} bearbeiten",
+  "modes.delete": "Löschen",
+  "modes.deleteAria": "Modus {{name}} löschen",
+  "modes.toast.deleted": "Modus gelöscht",
+  "modes.toast.deleteFailed": "Modus konnte nicht gelöscht werden",
 
   // -- Developer Tools (Phase 13.7B) --
   "settings.devTools": "Entwicklerwerkzeuge",

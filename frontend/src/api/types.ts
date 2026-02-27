@@ -1040,8 +1040,15 @@ export interface User {
   role: UserRole;
   tenant_id: string;
   enabled: boolean;
+  must_change_password?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** Matches Go domain/user.ChangePasswordRequest */
+export interface ChangePasswordRequest {
+  old_password: string;
+  new_password: string;
 }
 
 /** Matches Go domain/user.LoginRequest */

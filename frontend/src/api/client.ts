@@ -137,7 +137,12 @@ async function executeRequest<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
-    const body = (await res.json()) as ApiError;
+    let body: ApiError;
+    try {
+      body = (await res.json()) as ApiError;
+    } catch {
+      body = { error: `HTTP ${res.status} ${res.statusText || "Error"}` };
+    }
     throw new FetchError(res.status, body);
   }
 
@@ -468,6 +473,9 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
+    delete: (id: string) =>
+      request<undefined>(`/modes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
     scenarios: () => request<string[]>("/modes/scenarios"),
   },
 
@@ -684,6 +692,12 @@ export const api = {
       }),
 
     me: () => request<User>("/auth/me"),
+
+    changePassword: (data: import("./types").ChangePasswordRequest) =>
+      request<{ status: string }>("/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
 
     createAPIKey: (data: CreateAPIKeyRequest) =>
       request<CreateAPIKeyResponse>("/auth/api-keys", {

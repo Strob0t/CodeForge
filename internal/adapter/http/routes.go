@@ -149,6 +149,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/modes/{id}", h.GetMode)
 		r.Post("/modes", h.CreateMode)
 		r.Put("/modes/{id}", h.UpdateMode)
+		r.Delete("/modes/{id}", h.DeleteMode)
 
 		// Pipeline Templates
 		r.Get("/pipelines", h.ListPipelines)

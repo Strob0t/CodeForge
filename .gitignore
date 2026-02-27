@@ -60,3 +60,4 @@ backups/
 # -- Debug logs -----------------------------------
 debug.log
 *.log
+__debug_bin*

@@ -165,6 +165,27 @@ export function CommandPalette(): JSX.Element {
       }
     }
 
+    // Enter — execute selected command (when palette is open)
+    if (e.key === "Enter" && open()) {
+      e.preventDefault();
+      executeSelected();
+      return;
+    }
+
+    // ArrowDown / ArrowUp — navigate commands (when palette is open)
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && open()) {
+      e.preventDefault();
+      const items = filtered();
+      const len = items.length;
+      if (len === 0) return;
+      if (e.key === "ArrowDown") {
+        setSelectedIndex((i) => (i + 1) % len);
+      } else {
+        setSelectedIndex((i) => (i - 1 + len) % len);
+      }
+      return;
+    }
+
     // Escape — close palette
     if (e.key === "Escape" && open()) {
       e.preventDefault();
@@ -267,6 +288,7 @@ export function CommandPalette(): JSX.Element {
               onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) =>
                 setQuery(e.currentTarget.value)
               }
+              onKeyDown={handlePaletteKeydown}
               aria-label={t("palette.searchLabel")}
               aria-activedescendant={
                 filtered()[selectedIndex()] ? `cmd-${filtered()[selectedIndex()].id}` : undefined

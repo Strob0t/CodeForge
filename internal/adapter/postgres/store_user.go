@@ -83,9 +83,9 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, er
 func (s *Store) UpdateUser(ctx context.Context, u *user.User) error {
 	u.UpdatedAt = time.Now().UTC()
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE users SET name = $2, role = $3, enabled = $4, must_change_password = $5, failed_attempts = $6, locked_until = $7, updated_at = $8
+		UPDATE users SET name = $2, role = $3, enabled = $4, must_change_password = $5, failed_attempts = $6, locked_until = $7, updated_at = $8, password_hash = $9
 		WHERE id = $1`,
-		u.ID, u.Name, u.Role, u.Enabled, u.MustChangePassword, u.FailedAttempts, u.LockedUntil, u.UpdatedAt,
+		u.ID, u.Name, u.Role, u.Enabled, u.MustChangePassword, u.FailedAttempts, u.LockedUntil, u.UpdatedAt, u.PasswordHash,
 	)
 	if err != nil {
 		return fmt.Errorf("update user: %w", err)

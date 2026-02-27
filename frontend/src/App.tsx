@@ -157,7 +157,8 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const { connected } = createCodeForgeWS();
   const location = useLocation();
 
-  const isLoginPage = (): boolean => location.pathname === "/login";
+  const isLoginPage = (): boolean =>
+    location.pathname === "/login" || location.pathname === "/change-password";
 
   return (
     <ToastProvider>

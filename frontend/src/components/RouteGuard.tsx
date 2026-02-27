@@ -9,7 +9,7 @@ import { useAuth } from "./AuthProvider";
  * Wrap protected page content with this component.
  */
 export function RouteGuard(props: { children: JSX.Element }): JSX.Element {
-  const { isAuthenticated, initializing } = useAuth();
+  const { isAuthenticated, initializing, mustChangePassword } = useAuth();
   const navigate = useNavigate();
 
   createEffect(() => {
@@ -17,8 +17,17 @@ export function RouteGuard(props: { children: JSX.Element }): JSX.Element {
     if (initializing()) return;
     if (!isAuthenticated()) {
       navigate("/login", { replace: true });
+      return;
+    }
+    // Force password change before allowing access to protected pages.
+    if (mustChangePassword()) {
+      navigate("/change-password", { replace: true });
     }
   });
 
-  return <Show when={!initializing() && isAuthenticated()}>{props.children}</Show>;
+  return (
+    <Show when={!initializing() && isAuthenticated() && !mustChangePassword()}>
+      {props.children}
+    </Show>
+  );
 }

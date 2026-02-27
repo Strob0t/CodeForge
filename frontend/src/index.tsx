@@ -6,6 +6,7 @@ import { render } from "solid-js/web";
 
 import App from "./App.tsx";
 import ActivityPage from "./features/activity/ActivityPage.tsx";
+import ChangePasswordPage from "./features/auth/ChangePasswordPage.tsx";
 import LoginPage from "./features/auth/LoginPage.tsx";
 import BenchmarkPage from "./features/benchmarks/BenchmarkPage.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
@@ -31,6 +32,7 @@ render(
   () => (
     <Router root={App}>
       <Route path="/login" component={LoginPage} />
+      <Route path="/change-password" component={ChangePasswordPage} />
       <Route path="/" component={DashboardPage} />
       <Route path="/projects" component={DashboardPage} />
       <Route path="/projects/:id" component={ProjectDetailPage} />

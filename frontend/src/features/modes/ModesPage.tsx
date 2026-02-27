@@ -136,6 +136,17 @@ export default function ModesPage() {
     }
   };
 
+  const handleDelete = async (mode: Mode) => {
+    try {
+      await api.modes.delete(mode.id);
+      toast("success", t("modes.toast.deleted"));
+      refetch();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : t("modes.toast.deleteFailed");
+      toast("error", msg);
+    }
+  };
+
   const sorted = () => {
     const list = modes() ?? [];
     return [...list].sort((a, b) => {
@@ -293,7 +304,9 @@ export default function ModesPage() {
       <Show when={!modes.loading && !modes.error}>
         <Show when={sorted().length} fallback={<EmptyState title={t("modes.empty")} />}>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <For each={sorted()}>{(mode) => <ModeCard mode={mode} onEdit={handleEdit} />}</For>
+            <For each={sorted()}>
+              {(mode) => <ModeCard mode={mode} onEdit={handleEdit} onDelete={handleDelete} />}
+            </For>
           </div>
         </Show>
       </Show>
@@ -301,7 +314,11 @@ export default function ModesPage() {
   );
 }
 
-function ModeCard(props: { mode: Mode; onEdit: (mode: Mode) => void }) {
+function ModeCard(props: {
+  mode: Mode;
+  onEdit: (mode: Mode) => void;
+  onDelete: (mode: Mode) => void;
+}) {
   const { t } = useI18n();
   const [showPrompt, setShowPrompt] = createSignal(false);
 
@@ -339,6 +356,14 @@ function ModeCard(props: { mode: Mode; onEdit: (mode: Mode) => void }) {
                 aria-label={t("modes.editAria", { name: props.mode.name })}
               >
                 {t("modes.edit")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => props.onDelete(props.mode)}
+                aria-label={t("modes.deleteAria", { name: props.mode.name })}
+              >
+                {t("modes.delete")}
               </Button>
             </Show>
             <Badge variant={props.mode.builtin ? "default" : "primary"} pill>

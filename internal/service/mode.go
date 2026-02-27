@@ -59,6 +59,21 @@ func (s *ModeService) Register(m *mode.Mode) error {
 	return nil
 }
 
+// Delete removes a custom mode. Built-in modes cannot be deleted.
+func (s *ModeService) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.modes[id]
+	if !ok {
+		return fmt.Errorf("mode %q not found", id)
+	}
+	if existing.Builtin {
+		return fmt.Errorf("cannot delete built-in mode %q", id)
+	}
+	delete(s.modes, id)
+	return nil
+}
+
 // Update modifies a custom mode. Built-in modes cannot be updated.
 func (s *ModeService) Update(id string, m *mode.Mode) error {
 	if err := m.Validate(); err != nil {

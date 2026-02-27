@@ -56,10 +56,11 @@ export default function TeamsPage() {
     () => selectedProjectId(),
     (pid) => (pid ? api.teams.list(pid) : []),
   );
-  const [agents] = createResource(
+  const [agents, { refetch: refetchAgents }] = createResource(
     () => selectedProjectId(),
     (pid) => (pid ? api.agents.list(pid) : []),
   );
+  const [backends] = createResource(() => api.providers.agent());
 
   const [sharedCtx] = createResource(
     () => expandedTeamId(),
@@ -115,6 +116,28 @@ export default function TeamsPage() {
       toast("error", msg);
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Inline agent creation (when no agents exist yet)
+  const [newAgentName, setNewAgentName] = createSignal("");
+  const [newAgentBackend, setNewAgentBackend] = createSignal("");
+  const [creatingAgent, setCreatingAgent] = createSignal(false);
+
+  const handleCreateAgent = async () => {
+    const pid = selectedProjectId();
+    if (!pid || !newAgentName().trim() || !newAgentBackend()) return;
+    setCreatingAgent(true);
+    try {
+      await api.agents.create(pid, { name: newAgentName().trim(), backend: newAgentBackend() });
+      toast("success", t("agent.toast.created"));
+      setNewAgentName("");
+      setNewAgentBackend("");
+      refetchAgents();
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : t("agent.toast.createFailed"));
+    } finally {
+      setCreatingAgent(false);
     }
   };
 
@@ -186,6 +209,40 @@ export default function TeamsPage() {
                   {t("teams.form.addMember")}
                 </Button>
               </div>
+              <Show when={(agents() ?? []).length === 0 && !agents.loading}>
+                <div class="mb-2 rounded-cf-sm border border-cf-border bg-cf-bg-surface-alt p-3 text-sm">
+                  <p class="mb-2 text-cf-text-muted">{t("teams.noAgentsHint")}</p>
+                  <div class="flex flex-wrap items-end gap-2">
+                    <Input
+                      type="text"
+                      value={newAgentName()}
+                      onInput={(e) => setNewAgentName(e.currentTarget.value)}
+                      placeholder={t("agent.form.namePlaceholder")}
+                      aria-label={t("agent.form.name")}
+                      class="w-auto"
+                    />
+                    <Select
+                      value={newAgentBackend()}
+                      onChange={(e) => setNewAgentBackend(e.currentTarget.value)}
+                      aria-label={t("agent.form.backend")}
+                      class="w-auto"
+                    >
+                      <option value="">{t("agent.form.backendPlaceholder")}</option>
+                      <For each={backends()?.backends ?? []}>
+                        {(b) => <option value={b}>{b}</option>}
+                      </For>
+                    </Select>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleCreateAgent}
+                      loading={creatingAgent()}
+                    >
+                      {t("teams.createAgent")}
+                    </Button>
+                  </div>
+                </div>
+              </Show>
               <div class="space-y-1">
                 <For each={formMembers()}>
                   {(member, idx) => (
@@ -306,42 +363,49 @@ export default function TeamsPage() {
 
                       {/* Shared context */}
                       <Show when={sharedCtx()}>
-                        {(ctx) => (
-                          <div>
-                            <h4 class="mb-2 text-sm font-medium text-cf-text-tertiary">
-                              {t("teams.sharedContext")}{" "}
-                              <span class="text-xs font-normal text-cf-text-muted">
-                                v{(ctx() as SharedContext).version}
-                              </span>
-                            </h4>
-                            <Show
-                              when={(ctx() as SharedContext).items.length > 0}
-                              fallback={
-                                <p class="text-xs text-cf-text-muted">
-                                  {t("teams.noSharedContext")}
-                                </p>
-                              }
-                            >
-                              <div class="space-y-1">
-                                <For each={(ctx() as SharedContext).items}>
-                                  {(item) => (
-                                    <div class="rounded bg-cf-bg-surface-alt px-3 py-1.5 text-xs">
-                                      <span class="font-mono font-medium text-cf-text-tertiary">
-                                        {item.key}
-                                      </span>
-                                      <span class="ml-2 text-cf-text-muted">
-                                        by {item.author} ({item.tokens} tok)
-                                      </span>
-                                      <p class="mt-0.5 truncate text-cf-text-secondary">
-                                        {item.value.slice(0, 200)}
+                        {(ctx) => {
+                          const sc = () => ctx() as SharedContext | null;
+                          return (
+                            <Show when={sc()} keyed>
+                              {(resolved) => (
+                                <div>
+                                  <h4 class="mb-2 text-sm font-medium text-cf-text-tertiary">
+                                    {t("teams.sharedContext")}{" "}
+                                    <span class="text-xs font-normal text-cf-text-muted">
+                                      v{resolved.version}
+                                    </span>
+                                  </h4>
+                                  <Show
+                                    when={(resolved.items?.length ?? 0) > 0}
+                                    fallback={
+                                      <p class="text-xs text-cf-text-muted">
+                                        {t("teams.noSharedContext")}
                                       </p>
+                                    }
+                                  >
+                                    <div class="space-y-1">
+                                      <For each={resolved.items}>
+                                        {(item) => (
+                                          <div class="rounded bg-cf-bg-surface-alt px-3 py-1.5 text-xs">
+                                            <span class="font-mono font-medium text-cf-text-tertiary">
+                                              {item.key}
+                                            </span>
+                                            <span class="ml-2 text-cf-text-muted">
+                                              by {item.author} ({item.tokens} tok)
+                                            </span>
+                                            <p class="mt-0.5 truncate text-cf-text-secondary">
+                                              {item.value.slice(0, 200)}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </For>
                                     </div>
-                                  )}
-                                </For>
-                              </div>
+                                  </Show>
+                                </div>
+                              )}
                             </Show>
-                          </div>
-                        )}
+                          );
+                        }}
                       </Show>
                     </div>
                   </Show>

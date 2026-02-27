@@ -7,7 +7,7 @@ import { Alert, Button, Card, FormField, Input } from "~/ui";
 
 export default function LoginPage(): JSX.Element {
   const { t } = useI18n();
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = createSignal("");
@@ -22,7 +22,9 @@ export default function LoginPage(): JSX.Element {
 
     try {
       await login(email(), password());
-      navigate("/", { replace: true });
+      // Redirect to change-password if backend requires it, otherwise dashboard.
+      const target = user()?.must_change_password ? "/change-password" : "/";
+      navigate(target, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.loginFailed"));
     } finally {

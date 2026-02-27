@@ -1342,6 +1342,16 @@ func (h *Handlers) UpdateMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// DeleteMode handles DELETE /api/v1/modes/{id}
+func (h *Handlers) DeleteMode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Modes.Delete(id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- RepoMap Endpoints ---
 
 // GetRepoMap handles GET /api/v1/projects/{id}/repomap

@@ -2,12 +2,20 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
+
+// writeJSONError writes a JSON error response with the correct Content-Type.
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
 
 type authUserCtxKey struct{}
 type apiKeyCtxKey struct{}
@@ -71,12 +79,12 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 			if r.URL.Path == "/ws" {
 				tokenParam := r.URL.Query().Get("token")
 				if tokenParam == "" {
-					http.Error(w, `{"error":"authorization required"}`, http.StatusUnauthorized)
+					writeJSONError(w, http.StatusUnauthorized, "authorization required")
 					return
 				}
 				claims, err := authSvc.ValidateAccessToken(tokenParam)
 				if err != nil {
-					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					writeJSONError(w, http.StatusUnauthorized, "invalid token")
 					return
 				}
 				u := &user.User{
@@ -96,11 +104,11 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
 				u, key, err := authSvc.ValidateAPIKey(r.Context(), apiKey)
 				if err != nil {
-					http.Error(w, `{"error":"invalid api key"}`, http.StatusUnauthorized)
+					writeJSONError(w, http.StatusUnauthorized, "invalid api key")
 					return
 				}
 				if u.MustChangePassword && !passwordChangeExempt[r.URL.Path] {
-					http.Error(w, `{"error":"password change required"}`, http.StatusForbidden)
+					writeJSONError(w, http.StatusForbidden, "password change required")
 					return
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
@@ -112,25 +120,25 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 			// Try Authorization: Bearer <token> header.
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				http.Error(w, `{"error":"authorization required"}`, http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "authorization required")
 				return
 			}
 
 			token := strings.TrimPrefix(authHeader, "Bearer ")
 			if token == authHeader {
-				http.Error(w, `{"error":"invalid authorization header"}`, http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "invalid authorization header")
 				return
 			}
 
 			claims, err := authSvc.ValidateAccessToken(token)
 			if err != nil {
-				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, "invalid token")
 				return
 			}
 
 			// MustChangePassword check (P2-2): force password change except on exempt paths
 			if claims.MustChangePassword && !passwordChangeExempt[r.URL.Path] {
-				http.Error(w, `{"error":"password change required"}`, http.StatusForbidden)
+				writeJSONError(w, http.StatusForbidden, "password change required")
 				return
 			}
 

@@ -10,8 +10,12 @@ interface AuthContextValue {
   isAuthenticated: () => boolean;
   /** True while the initial session restore (refresh cookie) is in progress. */
   initializing: () => boolean;
+  /** True when the backend requires a password change before any other action. */
+  mustChangePassword: () => boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Change password and re-login to get a fresh token without the mcp flag. */
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
   hasRole: (...roles: UserRole[]) => boolean;
 }
 
@@ -52,11 +56,25 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
     }
   };
 
+  const mustChangePassword = (): boolean => user()?.must_change_password === true;
+
   const login = async (email: string, password: string): Promise<void> => {
     const resp = await api.auth.login({ email, password });
     setAccessToken(resp.access_token);
     setUser(resp.user);
     scheduleRefresh(resp.expires_in);
+  };
+
+  const changePassword = async (oldPassword: string, newPassword: string): Promise<void> => {
+    await api.auth.changePassword({ old_password: oldPassword, new_password: newPassword });
+    // Re-login to get a fresh token without must_change_password flag.
+    const u = user();
+    if (u) {
+      const resp = await api.auth.login({ email: u.email, password: newPassword });
+      setAccessToken(resp.access_token);
+      setUser(resp.user);
+      scheduleRefresh(resp.expires_in);
+    }
   };
 
   const logout = async (): Promise<void> => {
@@ -88,8 +106,10 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
     user,
     isAuthenticated,
     initializing,
+    mustChangePassword,
     login,
     logout,
+    changePassword,
     hasRole,
   };
 
