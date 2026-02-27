@@ -38,6 +38,16 @@ func (s *ProjectService) SetSpecDetector(sd SpecDetector) {
 	s.specDetector = sd
 }
 
+// resolveGitProvider creates a git provider for the given project.
+// For local projects with an empty provider field, it defaults to "local".
+func resolveGitProvider(p *project.Project) (gitprovider.Provider, error) {
+	name := p.Provider
+	if name == "" {
+		name = "local"
+	}
+	return gitprovider.New(name, p.Config)
+}
+
 // List returns all projects.
 func (s *ProjectService) List(ctx context.Context) ([]project.Project, error) {
 	return s.store.ListProjects(ctx)
@@ -127,7 +137,7 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 		return nil, fmt.Errorf("project %s has no repo_url", id)
 	}
 
-	provider, err := gitprovider.New(p.Provider, p.Config)
+	gp, err := resolveGitProvider(p)
 	if err != nil {
 		return nil, fmt.Errorf("create git provider: %w", err)
 	}
@@ -138,7 +148,7 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 	}
 
 	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
-	if err := provider.Clone(ctx, p.RepoURL, destPath, opts...); err != nil {
+	if err := gp.Clone(ctx, p.RepoURL, destPath, opts...); err != nil {
 		return nil, fmt.Errorf("clone: %w", err)
 	}
 
@@ -234,12 +244,12 @@ func (s *ProjectService) Status(ctx context.Context, id string) (*project.GitSta
 		return nil, fmt.Errorf("project %s has no workspace (not cloned)", id)
 	}
 
-	provider, err := gitprovider.New(p.Provider, p.Config)
+	gp, err := resolveGitProvider(p)
 	if err != nil {
 		return nil, fmt.Errorf("create git provider: %w", err)
 	}
 
-	return provider.Status(ctx, p.WorkspacePath)
+	return gp.Status(ctx, p.WorkspacePath)
 }
 
 // Pull fetches and merges updates for a project's workspace.
@@ -252,12 +262,12 @@ func (s *ProjectService) Pull(ctx context.Context, id string) error {
 		return fmt.Errorf("project %s has no workspace (not cloned)", id)
 	}
 
-	provider, err := gitprovider.New(p.Provider, p.Config)
+	gp, err := resolveGitProvider(p)
 	if err != nil {
 		return fmt.Errorf("create git provider: %w", err)
 	}
 
-	return provider.Pull(ctx, p.WorkspacePath)
+	return gp.Pull(ctx, p.WorkspacePath)
 }
 
 // ListBranches returns all branches of a project's workspace.
@@ -270,12 +280,12 @@ func (s *ProjectService) ListBranches(ctx context.Context, id string) ([]project
 		return nil, fmt.Errorf("project %s has no workspace (not cloned)", id)
 	}
 
-	provider, err := gitprovider.New(p.Provider, p.Config)
+	gp, err := resolveGitProvider(p)
 	if err != nil {
 		return nil, fmt.Errorf("create git provider: %w", err)
 	}
 
-	return provider.ListBranches(ctx, p.WorkspacePath)
+	return gp.ListBranches(ctx, p.WorkspacePath)
 }
 
 // Checkout switches a project's workspace to the specified branch.
@@ -288,12 +298,12 @@ func (s *ProjectService) Checkout(ctx context.Context, id, branch string) error 
 		return fmt.Errorf("project %s has no workspace (not cloned)", id)
 	}
 
-	provider, err := gitprovider.New(p.Provider, p.Config)
+	gp, err := resolveGitProvider(p)
 	if err != nil {
 		return fmt.Errorf("create git provider: %w", err)
 	}
 
-	return provider.Checkout(ctx, p.WorkspacePath, branch)
+	return gp.Checkout(ctx, p.WorkspacePath, branch)
 }
 
 // DetectStack scans an existing project's workspace and returns stack detection results.

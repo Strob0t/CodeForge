@@ -8,6 +8,8 @@ import type { User, UserRole } from "~/api/types";
 interface AuthContextValue {
   user: () => User | null;
   isAuthenticated: () => boolean;
+  /** True while the initial session restore (refresh cookie) is in progress. */
+  initializing: () => boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRole: (...roles: UserRole[]) => boolean;
@@ -19,6 +21,7 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
   const navigate = useNavigate();
   const [user, setUser] = createSignal<User | null>(null);
   const [accessToken, setAccessToken] = createSignal<string | null>(null);
+  const [initializing, setInitializing] = createSignal(true);
 
   // Wire up token getter for API client — createEffect tracks the signal
   // and re-registers the getter whenever the token changes.
@@ -76,13 +79,15 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
   const isAuthenticated = (): boolean => user() !== null;
 
   // Try to restore session via refresh cookie on mount.
-  onMount(() => {
-    void refreshTokens();
+  onMount(async () => {
+    await refreshTokens();
+    setInitializing(false);
   });
 
   const value: AuthContextValue = {
     user,
     isAuthenticated,
+    initializing,
     login,
     logout,
     hasRole,

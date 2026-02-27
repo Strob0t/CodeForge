@@ -1,4 +1,3 @@
-import { createReconnectingWS } from "@solid-primitives/websocket";
 import { createSignal, onCleanup } from "solid-js";
 
 import { getAccessToken } from "~/api/client";
@@ -81,34 +80,71 @@ function buildWSURL(): string {
   return `${proto}//${location.host}/ws${qs}`;
 }
 
+/**
+ * Creates a reconnecting WebSocket that rebuilds the URL (with a fresh token)
+ * on every reconnection attempt. This ensures the auth token is always current.
+ */
 export function createCodeForgeWS() {
-  const ws = createReconnectingWS(buildWSURL(), undefined, {
-    delay: 1000,
-    retries: Infinity,
-  });
-
+  const RECONNECT_DELAY = 1000;
   const [connected, setConnected] = createSignal(false);
 
-  ws.addEventListener("open", () => setConnected(true));
-  ws.addEventListener("close", () => setConnected(false));
+  let ws: WebSocket | null = null;
+  let disposed = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const listeners: ((ev: MessageEvent) => void)[] = [];
 
-  // Poll readyState as fallback for reconnection state changes
-  const interval = setInterval(() => {
-    setConnected(ws.readyState === WebSocket.OPEN);
-  }, 2000);
+  function connect(): void {
+    if (disposed) return;
 
-  onCleanup(() => clearInterval(interval));
+    const token = getAccessToken();
+    if (!token) {
+      // No token yet — retry after delay.
+      reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
+      return;
+    }
+
+    const url = buildWSURL();
+    ws = new WebSocket(url);
+
+    ws.addEventListener("open", () => setConnected(true));
+
+    ws.addEventListener("close", () => {
+      setConnected(false);
+      if (!disposed) {
+        reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
+      }
+    });
+
+    ws.addEventListener("error", () => {
+      // error is always followed by close, which triggers reconnect
+    });
+
+    ws.addEventListener("message", (ev) => {
+      for (const listener of listeners) {
+        listener(ev);
+      }
+    });
+  }
+
+  connect();
+
+  onCleanup(() => {
+    disposed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    ws?.close();
+  });
 
   function onMessage(handler: (msg: WSMessage) => void): () => void {
-    const listener = (ev: MessageEvent) => {
+    const listener = (ev: MessageEvent): void => {
       const data = JSON.parse(ev.data as string) as WSMessage;
       handler(data);
     };
 
-    ws.addEventListener("message", listener);
+    listeners.push(listener);
 
     return () => {
-      ws.removeEventListener("message", listener);
+      const idx = listeners.indexOf(listener);
+      if (idx >= 0) listeners.splice(idx, 1);
     };
   }
 

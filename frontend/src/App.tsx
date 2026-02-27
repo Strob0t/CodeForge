@@ -7,6 +7,7 @@ import { createCodeForgeWS } from "~/api/websocket";
 import { AuthProvider, useAuth } from "~/components/AuthProvider";
 import { CommandPalette } from "~/components/CommandPalette";
 import { OfflineBanner } from "~/components/OfflineBanner";
+import { RouteGuard } from "~/components/RouteGuard";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
 import { ToastProvider } from "~/components/Toast";
 import { I18nProvider, useI18n } from "~/i18n";
@@ -150,26 +151,34 @@ function AppShell(props: {
 // App shell
 // ---------------------------------------------------------------------------
 
-export default function App(props: RouteSectionProps) {
+/** Inner component rendered inside AuthProvider so the WS has access to the auth token. */
+function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const [health] = createResource(() => api.health.check());
   const { connected } = createCodeForgeWS();
   const location = useLocation();
 
-  // Skip AppShell for the login page.
   const isLoginPage = (): boolean => location.pathname === "/login";
 
+  return (
+    <ToastProvider>
+      <Show when={!isLoginPage()} fallback={props.children}>
+        <RouteGuard>
+          <AppShell health={health} connected={connected}>
+            {props.children}
+          </AppShell>
+        </RouteGuard>
+      </Show>
+    </ToastProvider>
+  );
+}
+
+export default function App(props: RouteSectionProps) {
   return (
     <I18nProvider>
       <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
         <ThemeProvider>
           <AuthProvider>
-            <ToastProvider>
-              <Show when={!isLoginPage()} fallback={props.children}>
-                <AppShell health={health} connected={connected}>
-                  {props.children}
-                </AppShell>
-              </Show>
-            </ToastProvider>
+            <AuthenticatedApp>{props.children}</AuthenticatedApp>
           </AuthProvider>
         </ThemeProvider>
       </ErrorBoundary>

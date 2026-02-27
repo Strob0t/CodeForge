@@ -14,6 +14,17 @@ import (
 
 const refreshCookieName = "codeforge_refresh"
 
+// isSecureRequest returns true when the request arrived over TLS or behind
+// a reverse proxy that set X-Forwarded-Proto: https. Refresh token cookies
+// must only set Secure=true when the client is using HTTPS; otherwise the
+// browser silently discards the cookie.
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
 // Login handles POST /api/v1/auth/login
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	req, ok := readJSON[user.LoginRequest](w, r)
@@ -35,8 +46,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		Value:    rawRefresh,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(7 * 24 * time.Hour / time.Second),
 	})
 
@@ -60,8 +71,8 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 			Value:    "",
 			Path:     "/api/v1/auth",
 			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteStrictMode,
+			Secure:   isSecureRequest(r),
+			SameSite: http.SameSiteLaxMode,
 			MaxAge:   -1,
 		})
 		writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
@@ -73,8 +84,8 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 		Value:    newRawRefresh,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(7 * 24 * time.Hour / time.Second),
 	})
 
@@ -114,8 +125,8 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 
