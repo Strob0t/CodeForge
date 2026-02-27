@@ -92,6 +92,8 @@ class RunStartMessage(BaseModel):
     termination: TerminationConfig = Field(default_factory=TerminationConfig)
 
     mcp_servers: list[MCPServerDef] = Field(default_factory=list)
+    context: list[ContextEntry] = Field(default_factory=list)
+    microagent_prompts: list[str] = Field(default_factory=list)
 
     @field_validator("config", mode="before")
     @classmethod
@@ -105,7 +107,17 @@ class RunStartMessage(BaseModel):
         """Go serializes nil slices as null; coerce to empty list."""
         return v if v is not None else []
 
-    context: list[ContextEntry] = Field(default_factory=list)
+    @field_validator("context", mode="before")
+    @classmethod
+    def _coerce_context_none(cls, v: list[ContextEntry] | None) -> list[ContextEntry]:
+        """Go serializes nil slices as null; coerce to empty list."""
+        return v if v is not None else []
+
+    @field_validator("microagent_prompts", mode="before")
+    @classmethod
+    def _coerce_microagent_prompts_none(cls, v: list[str] | None) -> list[str]:
+        """Go serializes nil slices as null; coerce to empty list."""
+        return v if v is not None else []
 
 
 class ToolCallDecision(BaseModel):
@@ -399,6 +411,7 @@ class ConversationRunStartMessage(BaseModel):
     context: list[ContextEntry] = Field(default_factory=list)
     mcp_servers: list[MCPServerDef] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
+    microagent_prompts: list[str] = Field(default_factory=list)
 
     @field_validator("mcp_servers", mode="before")
     @classmethod
@@ -415,6 +428,12 @@ class ConversationRunStartMessage(BaseModel):
     @field_validator("tools", mode="before")
     @classmethod
     def _coerce_tools_none(cls, v: list[str] | None) -> list[str]:
+        """Go serializes nil slices as null; coerce to empty list."""
+        return v if v is not None else []
+
+    @field_validator("microagent_prompts", mode="before")
+    @classmethod
+    def _coerce_microagent_prompts_none(cls, v: list[str] | None) -> list[str]:
         """Go serializes nil slices as null; coerce to empty list."""
         return v if v is not None else []
 
