@@ -1824,3 +1824,302 @@ Bug Fixes --- independent, anytime
 - [x] (2026-02-26) WP5: Frontend type safety — typed `AGUIEventMap` on WebSocket, `AppSettings` interface on settings API, `ConfirmDialog` replacing `confirm()` in RoadmapPanel, remove `as string`/`as boolean` casts in SettingsPage
 - [x] (2026-02-26) WP6: Tracing module cleanup — `TracerProtocol` replacing `Any` types, remove dead `_NOOP` sentinel, split exception handlers with specific messages, export public API from `__init__.py`
 - [x] (2026-02-26) WP7: A2A handler documentation — Phase 2-3 stub doc comments, hardcoded skills placeholder note, fix stale roadmap.go comment
+
+---
+
+### QA Audit — Comprehensive Test Coverage Work Plan (2026-03-01)
+
+> Results of full QA audit: 842 test functions across 96 files.
+> **Critical finding:** HTTP handler layer at 14% coverage (60/282 handler functions tested).
+> 34 service files have zero test coverage. New features (auto-agent, file browser) completely untested.
+> Plan adds ~90 new tests across 4 priority tiers.
+
+#### Current Test Inventory (Baseline)
+
+| Layer | Tests | Files | Assessment |
+|---|---|---|---|
+| Service | 300 | 30 | Good, but 34 files untested |
+| Domain | 204 | 24 | Good coverage |
+| Adapter (handlers) | 212 | 17 | 60/282 handler funcs tested (14%) |
+| Middleware | 37 | 7 | Solid (after P1 auth work) |
+| Port | 21 | 3 | Adequate |
+| Infra (config/log/etc) | 54 | 6 | Adequate |
+| Integration | 14 | 4 | Minimal |
+
+#### Handler Coverage Gap (16 of 18 handler files at 0%)
+
+| Handler File | Functions | Tests | Priority |
+|---|---|---|---|
+| `handlers.go` | 40 | 60 | Partial (23/40) |
+| `handlers_auth.go` | 18 | 0 | **P0 — security** |
+| `handlers_orchestration.go` | 21 | 0 | **P0 — core** |
+| `handlers_roadmap.go` | 21 | 0 | **P1 — pillar** |
+| `handlers_agent_features.go` | 26 | 0 | **P1 — pillar** |
+| `handlers_settings.go` | 24 | 0 | P2 |
+| `handlers_session.go` | 14 | 0 | P2 |
+| `handlers_mcp.go` | 11 | 0 | P2 |
+| `handlers_knowledgebase.go` | 9 | 0 | P2 |
+| `handlers_retrieval.go` | 9 | 0 | P2 |
+| `handlers_scope.go` | 9 | 0 | P2 |
+| `handlers_conversation.go` | 8 | 0 | P2 |
+| `handlers_llm.go` | 8 | 0 | P2 |
+| `handlers_cost.go` | 7 | 0 | P2 |
+| `handlers_benchmark.go` | 7 | 0 | P3 |
+| `handlers_prompt_section.go` | 4 | 0 | P3 |
+| `handlers_autoagent.go` | 3 | 0 | P1 — new feature |
+| `handlers_files.go` | 3 | 0 | P1 — new feature |
+
+#### Untested Service Files (34 files, 0 tests)
+
+Critical gaps: `autoagent.go`, `files.go`, `conversation.go`, `conversation_agent.go`, `cost.go`, `session.go`, `runtime_execution.go`, `runtime_lifecycle.go`, `runtime_approval.go`, `handoff.go`, `pipeline.go`, `settings.go`, `scope.go`, `prompt_section.go`, `benchmark.go`, `branchprotection.go`, `experience_pool.go`, `graph.go`, `lsp.go`, `mcp_db.go`, `mcp_test_connection.go`, `memory.go`, `microagent.go`, `orchestrator_consensus.go`, `pm_webhook.go`, `replay.go`, `repomap.go`, `review.go`, `skill.go`, `spec_detector_adapter.go`, `sync.go`, `syncwaiter.go`, `tenant.go`, `vcsaccount.go`.
+
+#### Duplicate Test Names (31 collisions across packages)
+
+Names like `TestCreateItem`, `TestRegister`, `TestProviderName`, `TestSendSuccess` appear in 2-3 packages. Go allows this but makes test output ambiguous. **Recommendation:** Prefix with domain context (e.g., `TestRoadmap_CreateItem`, `TestGitProvider_Register`).
+
+---
+
+#### P0 — Auth Handler Tests (security-critical, 10 tests)
+
+> **File:** `internal/adapter/http/handlers_auth_test.go` (new)
+> **Why:** 18 auth handler functions with zero HTTP-layer tests. Auth is the most security-critical untested code path.
+> **Pattern:** Follow existing `handlers_test.go` httptest + mock store pattern.
+
+- [ ] `TestHandleLogin_Success` — HTTP 200, returns access + refresh tokens for valid credentials
+- [ ] `TestHandleLogin_InvalidCredentials` — HTTP 401 for wrong password
+- [ ] `TestHandleLogin_AccountLocked` — HTTP 423 for locked account (5 failed attempts)
+- [ ] `TestHandleRegister_Success` — HTTP 201 for valid registration with all required fields
+- [ ] `TestHandleRegister_DuplicateEmail` — HTTP 409 for duplicate email (unique constraint)
+- [ ] `TestHandleChangePassword_Success` — HTTP 200 with valid old + new password
+- [ ] `TestHandleRefreshToken_Success` — HTTP 200, returns new token pair, old refresh invalidated
+- [ ] `TestHandleRefreshToken_Expired` — HTTP 401 for expired refresh token
+- [ ] `TestHandleSetupStatus` — HTTP 200, returns correct `needsSetup` flag (true when no users, false otherwise)
+- [ ] `TestHandleLogout` — HTTP 200, token revoked, refresh tokens cleared
+
+#### P0 — Orchestration Handler Tests (core feature, 8 tests)
+
+> **File:** `internal/adapter/http/handlers_orchestration_test.go` (new)
+> **Why:** 21 orchestration handler functions with zero tests. Run lifecycle is core agent functionality.
+
+- [ ] `TestHandleStartRun_Success` — HTTP 202, run created in DB, NATS message dispatched
+- [ ] `TestHandleStartRun_InvalidBody` — HTTP 400 for malformed/missing fields
+- [ ] `TestHandleGetRunStatus` — HTTP 200, returns correct run state (pending/running/completed/failed)
+- [ ] `TestHandleGetRunStatus_NotFound` — HTTP 404 for non-existent run ID
+- [ ] `TestHandleCancelRun_Success` — HTTP 200, run status set to cancelled, cancellation propagated
+- [ ] `TestHandleCancelRun_NotFound` — HTTP 404 for non-existent run ID
+- [ ] `TestHandleListRuns` — HTTP 200, returns paginated list filtered by project
+- [ ] `TestHandleApproveToolCall` — HTTP 200, pending tool call approved, execution resumes
+
+#### P1 — New Feature Tests: Auto-Agent (6 tests)
+
+> **Files:** `internal/adapter/http/handlers_autoagent_test.go` (new), `internal/service/autoagent_test.go` (new), `internal/domain/autoagent/autoagent_test.go` (new)
+> **Why:** Entire auto-agent feature (commit `fb4d475`) shipped with zero tests at any layer.
+
+Handler tests:
+- [ ] `TestHandleCreateAutoAgent_Success` — HTTP 201, auto-agent created with valid config
+- [ ] `TestHandleListAutoAgents` — HTTP 200, returns agents filtered by project ID
+- [ ] `TestHandleDeleteAutoAgent` — HTTP 204, agent removed from DB
+
+Service tests:
+- [ ] `TestAutoAgentService_Create` — Service-layer creation logic, validation, store interaction
+- [ ] `TestAutoAgentService_List` — Filtering by project, empty results
+
+Domain tests:
+- [ ] `TestAutoAgent_Validate` — Domain validation rules (required fields, config constraints)
+
+#### P1 — New Feature Tests: File Browser (6 tests)
+
+> **Files:** `internal/adapter/http/handlers_files_test.go` (new), `internal/service/files_test.go` (new)
+> **Why:** File browser feature (commit `fb4d475`) shipped with zero tests. Path traversal prevention is security-relevant.
+
+Handler tests:
+- [ ] `TestHandleListFiles_Success` — HTTP 200, returns directory listing for valid project + path
+- [ ] `TestHandleListFiles_PathTraversal` — HTTP 400/403, rejects `../` escape attempts
+- [ ] `TestHandleReadFile_Success` — HTTP 200, returns file content with correct MIME type
+
+Service tests:
+- [ ] `TestFileService_List` — Lists directory contents, sorts dirs-first
+- [ ] `TestFileService_Read` — Returns file content for valid path
+- [ ] `TestFileService_PathTraversal` — Rejects `../`, absolute paths, symlink escapes
+
+#### P1 — Roadmap Handler Tests (pillar feature, 8 tests)
+
+> **File:** `internal/adapter/http/handlers_roadmap_test.go` (new)
+> **Why:** 21 roadmap handler functions with zero tests. Roadmap is Pillar 2 (one of four core pillars).
+
+- [ ] `TestHandleListRoadmapItems` — HTTP 200, paginated list with filtering
+- [ ] `TestHandleCreateRoadmapItem_Success` — HTTP 201, validates required fields (title, type)
+- [ ] `TestHandleCreateRoadmapItem_InvalidBody` — HTTP 400, missing required fields
+- [ ] `TestHandleGetRoadmapItem` — HTTP 200, returns item by ID
+- [ ] `TestHandleGetRoadmapItem_NotFound` — HTTP 404 for non-existent ID
+- [ ] `TestHandleUpdateRoadmapItem_OptimisticLock` — HTTP 409, version mismatch rejected
+- [ ] `TestHandleDeleteRoadmapItem` — HTTP 204, item removed
+- [ ] `TestHandleListMilestones` — HTTP 200, returns milestones for project
+
+#### P1 — Agent Features Handler Tests (pillar feature, 8 tests)
+
+> **File:** `internal/adapter/http/handlers_agent_features_test.go` (new)
+> **Why:** 26 agent feature handler functions with zero tests. Agent orchestration is Pillar 4.
+
+- [ ] `TestHandleListModes` — HTTP 200, returns built-in + custom modes
+- [ ] `TestHandleGetMode` — HTTP 200, returns mode definition by name
+- [ ] `TestHandleCreateMode` — HTTP 201, custom mode created from YAML config
+- [ ] `TestHandleDeleteMode` — HTTP 204, custom mode removed (built-in protected)
+- [ ] `TestHandleListToolBundles` — HTTP 200, returns available tool bundles
+- [ ] `TestHandleListPolicies` — HTTP 200, returns 4 built-in presets + custom policies
+- [ ] `TestHandleEvaluatePolicy` — HTTP 200, correct allow/deny/ask decision for tool call
+- [ ] `TestHandleCreatePlan` — HTTP 201, DAG plan created with validated step dependencies
+
+#### P2 — Conversation Handler Tests (agentic loop, 6 tests)
+
+> **File:** `internal/adapter/http/handlers_conversation_test.go` (new)
+> **Why:** 8 conversation handler functions with zero tests. Agentic conversation loop is core Phase 17 feature.
+
+- [ ] `TestHandleSendMessage_Success` — HTTP 200, message persisted, NATS published to agent loop
+- [ ] `TestHandleSendMessage_EmptyContent` — HTTP 400, empty message rejected
+- [ ] `TestHandleGetConversationHistory` — HTTP 200, paginated history with tool results
+- [ ] `TestHandleListConversations` — HTTP 200, conversations listed by project
+- [ ] `TestHandleDeleteConversation` — HTTP 204, conversation and messages removed
+- [ ] `TestHandleSendMessageAgentic` — HTTP 202, multi-turn agent loop dispatched via NATS
+
+#### P2 — Cost Handler Tests (budget enforcement, 5 tests)
+
+> **File:** `internal/adapter/http/handlers_cost_test.go` (new)
+> **Why:** 7 cost handler functions with zero tests. Budget enforcement is a safety mechanism.
+
+- [ ] `TestHandleGetCostSummary` — HTTP 200, correct aggregation by project/time range
+- [ ] `TestHandleGetRunCosts` — HTTP 200, per-run cost breakdown (tokens, API calls, total)
+- [ ] `TestHandleSetBudgetLimit` — HTTP 200, budget limit persisted for project
+- [ ] `TestHandleGetBudgetStatus` — HTTP 200, remaining budget calculated correctly
+- [ ] `TestHandleListCostEntries` — HTTP 200, paginated cost entries with filtering
+
+#### P2 — Settings Handler Tests (system config, 5 tests)
+
+> **File:** `internal/adapter/http/handlers_settings_test.go` (new)
+> **Why:** 24 settings handler functions with zero tests. Settings affect global system behavior.
+
+- [ ] `TestHandleGetSettings` — HTTP 200, returns current system settings
+- [ ] `TestHandleUpdateSettings` — HTTP 200, settings persisted and applied
+- [ ] `TestHandleGetVCSAccounts` — HTTP 200, lists registered VCS accounts
+- [ ] `TestHandleCreateVCSAccount` — HTTP 201, VCS account created with encrypted token
+- [ ] `TestHandleDeleteVCSAccount` — HTTP 204, account removed, token wiped
+
+#### P2 — Session Handler Tests (user sessions, 4 tests)
+
+> **File:** `internal/adapter/http/handlers_session_test.go` (new)
+> **Why:** 14 session handler functions with zero tests. Session management is part of agent state.
+
+- [ ] `TestHandleListSessions` — HTTP 200, sessions listed by project
+- [ ] `TestHandleGetSession` — HTTP 200, returns session with events
+- [ ] `TestHandleResumeSession` — HTTP 200, session resumed from checkpoint
+- [ ] `TestHandleForkSession` — HTTP 201, new session forked from existing
+
+#### P2 — MCP Handler Tests (protocol integration, 4 tests)
+
+> **File:** `internal/adapter/http/handlers_mcp_test.go` (new)
+> **Why:** 11 MCP handler functions with zero tests. MCP is the primary tool protocol (Phase 15).
+
+- [ ] `TestHandleListMCPServers` — HTTP 200, returns registered MCP servers
+- [ ] `TestHandleCreateMCPServer` — HTTP 201, MCP server registered with config
+- [ ] `TestHandleTestMCPConnection` — HTTP 200, connection test result (success/failure)
+- [ ] `TestHandleDeleteMCPServer` — HTTP 204, server removed
+
+#### P2 — Knowledgebase Handler Tests (4 tests)
+
+> **File:** `internal/adapter/http/handlers_knowledgebase_test.go` (new)
+> **Why:** 9 knowledgebase handler functions with zero tests.
+
+- [ ] `TestHandleCreateKnowledgebase` — HTTP 201, KB created with required fields
+- [ ] `TestHandleListKnowledgebases` — HTTP 200, KBs listed by project
+- [ ] `TestHandleIndexKnowledgebase` — HTTP 202, index build dispatched
+- [ ] `TestHandleQueryKnowledgebase` — HTTP 200, search results returned
+
+#### P2 — LLM Handler Tests (4 tests)
+
+> **File:** `internal/adapter/http/handlers_llm_test.go` (new)
+> **Why:** 8 LLM handler functions with zero tests. LLM management is Pillar 3.
+
+- [ ] `TestHandleListModels` — HTTP 200, returns models from LiteLLM registry
+- [ ] `TestHandleGetModelHealth` — HTTP 200, model health status checked
+- [ ] `TestHandleListProviders` — HTTP 200, returns configured LLM providers
+- [ ] `TestHandleSetUserAPIKey` — HTTP 200, user API key stored for provider
+
+#### P3 — Service-Layer Gap Tests (12 tests)
+
+> **Files:** Various `internal/service/*_test.go` (new)
+> **Why:** Critical service files have zero unit tests. These verify business logic independently of HTTP layer.
+
+Conversation service (`internal/service/conversation_test.go`):
+- [ ] `TestConversation_SendMessage` — Message persisted in DB, NATS message published
+- [ ] `TestConversation_GetHistory` — History retrieval with cursor pagination
+- [ ] `TestConversation_SendMessageAgentic` — Agent loop dispatched, run ID returned
+
+Cost service (`internal/service/cost_test.go`):
+- [ ] `TestCostService_TrackUsage` — Usage entry recorded with correct fields
+- [ ] `TestCostService_GetSummary` — Aggregation by project/time range
+- [ ] `TestCostService_BudgetEnforcement` — Over-budget request rejected
+
+Session service (`internal/service/session_test.go`):
+- [ ] `TestSessionService_Create` — Session created with initial state
+- [ ] `TestSessionService_Resume` — Session resumed from checkpoint, events appended
+- [ ] `TestSessionService_Fork` — New session forked, history preserved
+
+Settings service (`internal/service/settings_test.go`):
+- [ ] `TestSettingsService_GetSet` — Read/write system settings round-trip
+
+Pipeline service (`internal/service/pipeline_test.go`):
+- [ ] `TestPipeline_ExecuteDAG` — DAG nodes execute in topological order
+
+Handoff service (`internal/service/handoff_test.go`):
+- [ ] `TestHandoff_Transfer` — Agent-to-agent handoff with context preservation
+
+#### P3 — Remaining Handler Tests (13 tests)
+
+> **Files:** Various `internal/adapter/http/handlers_*_test.go` (new)
+> **Why:** Complete handler coverage to close remaining gaps.
+
+Retrieval handlers (`handlers_retrieval_test.go`):
+- [ ] `TestHandleSearchProject` — HTTP 200, BM25 search results returned
+- [ ] `TestHandleIndexProject` — HTTP 202, index build dispatched
+- [ ] `TestHandleGetRepoMap` — HTTP 200, tree-sitter repo map returned
+
+Scope handlers (`handlers_scope_test.go`):
+- [ ] `TestHandleListScopes` — HTTP 200, RAG scopes listed by project
+- [ ] `TestHandleCreateScope` — HTTP 201, scope created with file patterns
+- [ ] `TestHandleDeleteScope` — HTTP 204, scope removed
+
+Benchmark handlers (`handlers_benchmark_test.go`):
+- [ ] `TestHandleListBenchmarkSuites` — HTTP 200, benchmark suites listed
+- [ ] `TestHandleRunBenchmark` — HTTP 202, benchmark run dispatched
+- [ ] `TestHandleGetBenchmarkResults` — HTTP 200, results with metrics
+
+Prompt section handlers (`handlers_prompt_section_test.go`):
+- [ ] `TestHandleListPromptSections` — HTTP 200, prompt sections listed by mode
+- [ ] `TestHandleCreatePromptSection` — HTTP 201, section created with template
+
+Remaining `handlers.go` coverage:
+- [ ] `TestHandleGetProjectGitStatus` — HTTP 200, git status returned for cloned project
+- [ ] `TestHandlePullProject` — HTTP 200, git pull executed on project repo
+
+#### P3 — Test Quality Improvements (non-blocking)
+
+> **Why:** Improve maintainability and test output clarity. Not blocking — can be done incrementally.
+
+- [ ] Rename 31 duplicate test function names with domain prefixes (e.g., `TestCreateItem` → `TestRoadmap_CreateItem`, `TestRegister` → `TestGitProvider_Register`)
+- [ ] Add `TestAuthService_Register_DuplicateEmail` to `internal/service/auth_test.go` — verify unique constraint behavior at service layer
+- [ ] Expand integration tests (`tests/integration/`) with auth flow: login → JWT → protected endpoint → logout
+
+---
+
+#### Implementation Notes
+
+**Test pattern:** All new handler tests follow the established pattern in `handlers_test.go`:
+1. Create `httptest.NewRecorder` + `httptest.NewRequest`
+2. Wire handler with mock store (from `project_test.go` mockStore or new minimal mocks)
+3. Assert HTTP status code, response body, and side effects
+
+**Mock strategy:** Extend existing `mockStore` in `project_test.go` or create per-file minimal mocks as needed. The middleware `teststore_test.go` pattern works well for focused tests.
+
+**Execution order:** P0 → P1 → P2 → P3. Each tier is independently committable.
+
+**Estimated scope:** ~90 new test functions across ~20 new/modified test files.
