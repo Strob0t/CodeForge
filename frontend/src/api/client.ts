@@ -85,9 +85,7 @@ import type {
 
 const BASE = "/api/v1";
 
-const MAX_RETRIES = 3;
-const RETRY_BASE_MS = 1000;
-const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+import { MAX_RETRIES, RETRY_BASE_MS, RETRYABLE_STATUSES } from "~/config/constants";
 
 // Access token getter — set by AuthProvider to inject JWT into requests.
 let accessTokenGetter: (() => string | null) | null = null;

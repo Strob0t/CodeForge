@@ -1,8 +1,9 @@
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { AgentTeam, TeamMember, TeamRole, TeamStatus } from "~/api/types";
+import type { AgentTeam, TeamMember, TeamRole } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
+import { getVariant, teamStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card } from "~/ui";
 
@@ -38,19 +39,6 @@ const STATUS_RING: Record<string, string> = {
   active: "#22c55e",
   error: "#ef4444",
 };
-
-function teamStatusVariant(status: TeamStatus): "warning" | "success" | "default" | "danger" {
-  switch (status) {
-    case "initializing":
-      return "warning";
-    case "active":
-      return "success";
-    case "completed":
-      return "default";
-    case "failed":
-      return "danger";
-  }
-}
 
 /** Arrange nodes in a circle */
 function circleLayout(members: TeamMember[], agentNames: Map<string, string>): NetworkNode[] {
@@ -203,7 +191,7 @@ export default function AgentNetwork(props: AgentNetworkProps) {
                   onClick={() => selectTeam(team)}
                 >
                   {team.name}
-                  <Badge variant={teamStatusVariant(team.status)} class="ml-1.5">
+                  <Badge variant={getVariant(teamStatusVariant, team.status)} class="ml-1.5">
                     {team.status}
                   </Badge>
                 </Button>

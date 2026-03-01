@@ -3,13 +3,9 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
@@ -35,10 +31,7 @@ func (s *Store) GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIK
 	var expiresAt sql.NullTime
 	err := row.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.Scopes, &expiresAt, &key.CreatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get api key: %w", domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get api key: %w", err)
+		return nil, notFoundWrap(err, "get api key")
 	}
 	if expiresAt.Valid {
 		key.ExpiresAt = expiresAt.Time
@@ -72,19 +65,5 @@ func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.AP
 
 func (s *Store) DeleteAPIKey(ctx context.Context, id, userID string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM api_keys WHERE id = $1 AND user_id = $2`, id, userID)
-	if err != nil {
-		return fmt.Errorf("delete api key: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete api key %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
-}
-
-// nullTime converts a zero time to nil for nullable DB columns.
-func nullTime(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t
+	return execExpectOne(tag, err, "delete api key %s", id)
 }

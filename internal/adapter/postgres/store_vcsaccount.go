@@ -2,12 +2,8 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 )
 
@@ -43,10 +39,7 @@ func (s *Store) GetVCSAccount(ctx context.Context, id string) (*vcsaccount.VCSAc
 	).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.ServerURL,
 		&a.AuthMethod, &a.EncryptedToken, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get vcs account %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get vcs account %s: %w", id, err)
+		return nil, notFoundWrap(err, "get vcs account %s", id)
 	}
 	return &a, nil
 }
@@ -69,11 +62,5 @@ func (s *Store) CreateVCSAccount(ctx context.Context, a *vcsaccount.VCSAccount) 
 
 func (s *Store) DeleteVCSAccount(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM vcs_accounts WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("delete vcs account %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete vcs account %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete vcs account %s", id)
 }

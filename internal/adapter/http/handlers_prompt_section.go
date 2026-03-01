@@ -29,7 +29,7 @@ func (h *Handlers) ListPromptSections(w http.ResponseWriter, r *http.Request) {
 
 // UpsertPromptSection handles PUT /api/v1/prompt-sections
 func (h *Handlers) UpsertPromptSection(w http.ResponseWriter, r *http.Request) {
-	row, ok := readJSON[prompt.SectionRow](w, r)
+	row, ok := readJSON[prompt.SectionRow](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -75,7 +75,7 @@ type previewResponse struct {
 
 // PreviewPromptSections handles POST /api/v1/prompt-sections/preview
 func (h *Handlers) PreviewPromptSections(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[previewRequest](w, r)
+	req, ok := readJSON[previewRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}

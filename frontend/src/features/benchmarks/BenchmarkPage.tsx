@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { BenchmarkDatasetInfo, BenchmarkRun, CreateBenchmarkRunRequest } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -77,17 +78,6 @@ export default function BenchmarkPage() {
       refetch();
     } catch {
       toast("error", t("benchmark.toast.deleteError"));
-    }
-  };
-
-  const statusVariant = (s: BenchmarkRun["status"]) => {
-    switch (s) {
-      case "completed":
-        return "success" as const;
-      case "failed":
-        return "danger" as const;
-      default:
-        return "warning" as const;
     }
   };
 
@@ -192,7 +182,9 @@ export default function BenchmarkPage() {
                         <span class="ml-2 text-sm text-gray-500">{run.model}</span>
                       </div>
                       <div class="flex items-center gap-2">
-                        <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
+                        <Badge variant={getVariant(benchmarkStatusVariant, run.status, "warning")}>
+                          {run.status}
+                        </Badge>
                         <span class="text-xs text-gray-400">
                           {formatDuration(run.total_duration_ms)}
                         </span>

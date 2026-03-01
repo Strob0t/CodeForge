@@ -2,12 +2,8 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 )
 
@@ -39,10 +35,7 @@ func (s *Store) GetExperienceEntry(ctx context.Context, id string) (*experience.
 		&e.Confidence, &e.HitCount, &e.CreatedAt, &e.LastUsedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get experience %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get experience %s: %w", id, err)
+		return nil, notFoundWrap(err, "get experience %s", id)
 	}
 	return &e, nil
 }
@@ -82,13 +75,7 @@ func (s *Store) DeleteExperienceEntry(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM experience_entries WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete experience %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete experience %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete experience %s", id)
 }
 
 // UpdateExperienceHit increments the hit count and updates last_used_at.
@@ -97,11 +84,5 @@ func (s *Store) UpdateExperienceHit(ctx context.Context, id string) error {
 		`UPDATE experience_entries SET hit_count = hit_count + 1, last_used_at = now()
 		 WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update experience hit %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update experience hit %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update experience hit %s", id)
 }

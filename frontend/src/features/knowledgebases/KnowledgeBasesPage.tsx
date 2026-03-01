@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateKnowledgeBaseRequest, KnowledgeBase } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { kbCategoryVariant, kbStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -15,7 +16,6 @@ import {
   PageLayout,
   Select,
 } from "~/ui";
-import type { BadgeVariant } from "~/ui/primitives/Badge";
 
 const CATEGORIES = ["framework", "paradigm", "language", "security", "custom"] as const;
 
@@ -194,20 +194,6 @@ export default function KnowledgeBasesPage() {
   );
 }
 
-const statusVariants: Record<string, BadgeVariant> = {
-  pending: "warning",
-  indexed: "success",
-  error: "danger",
-};
-
-const categoryVariants: Record<string, BadgeVariant> = {
-  framework: "info",
-  paradigm: "primary",
-  language: "success",
-  security: "danger",
-  custom: "default",
-};
-
 function KBCard(props: {
   kb: KnowledgeBase;
   onDelete: (id: string) => void;
@@ -238,10 +224,10 @@ function KBCard(props: {
         </Show>
 
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          <Badge variant={categoryVariants[props.kb.category] ?? "default"} pill>
+          <Badge variant={kbCategoryVariant[props.kb.category] ?? "default"} pill>
             {t(categoryKey())}
           </Badge>
-          <Badge variant={statusVariants[props.kb.status] ?? "warning"} pill>
+          <Badge variant={kbStatusVariant[props.kb.status] ?? "warning"} pill>
             {t(statusKey())}
           </Badge>
           <Show when={props.kb.chunk_count > 0}>

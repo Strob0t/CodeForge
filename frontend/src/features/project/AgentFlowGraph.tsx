@@ -1,6 +1,7 @@
 import { createMemo, For, Show } from "solid-js";
 
 import type { PlanGraph, PlanGraphEdge, PlanGraphNode } from "~/api/types";
+import { getVariant, nodeStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Card } from "~/ui";
 
@@ -91,22 +92,6 @@ function statusColor(status: string): string {
   }
 }
 
-function statusVariant(status: string): "default" | "info" | "success" | "danger" | "warning" {
-  switch (status) {
-    case "running":
-      return "info";
-    case "completed":
-      return "success";
-    case "failed":
-      return "danger";
-    case "review":
-    case "cancelled":
-      return "warning";
-    default:
-      return "default";
-  }
-}
-
 export default function AgentFlowGraph(props: AgentFlowGraphProps) {
   const { t } = useI18n();
 
@@ -156,7 +141,9 @@ export default function AgentFlowGraph(props: AgentFlowGraphProps) {
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold">{t("plan.flow.title")}</h3>
           <div class="flex items-center gap-2">
-            <Badge variant={statusVariant(props.graph.status)}>{props.graph.status}</Badge>
+            <Badge variant={getVariant(nodeStatusVariant, props.graph.status)}>
+              {props.graph.status}
+            </Badge>
             <Badge variant="default">{props.graph.protocol}</Badge>
           </div>
         </div>

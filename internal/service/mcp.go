@@ -26,14 +26,16 @@ type MCPService struct {
 	servers    map[string]mcp.ServerDef
 	serversDir string
 	db         database.Store
+	limits     *config.Limits
 }
 
 // NewMCPService creates an MCPService. If cfg.ServersDir is set, definitions
 // are loaded from that directory on creation.
-func NewMCPService(cfg *config.MCP) *MCPService {
+func NewMCPService(cfg *config.MCP, limits *config.Limits) *MCPService {
 	s := &MCPService{
 		servers:    make(map[string]mcp.ServerDef),
 		serversDir: cfg.ServersDir,
+		limits:     limits,
 	}
 
 	if cfg.ServersDir != "" {

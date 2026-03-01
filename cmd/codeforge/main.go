@@ -260,11 +260,11 @@ func run() error {
 	llmClient.SetVault(vault)
 
 	// --- Review Router Service (Phase 21A) ---
-	reviewRouterSvc := service.NewReviewRouterService(llmClient, &cfg.Orchestrator)
+	reviewRouterSvc := service.NewReviewRouterService(llmClient, &cfg.Orchestrator, &cfg.Limits)
 	orchSvc.SetReviewRouter(reviewRouterSvc)
 
 	// --- Meta-Agent Service (Phase 5B) ---
-	metaAgentSvc := service.NewMetaAgentService(store, llmClient, orchSvc, &cfg.Orchestrator)
+	metaAgentSvc := service.NewMetaAgentService(store, llmClient, orchSvc, &cfg.Orchestrator, &cfg.Limits)
 	slog.Info("meta-agent service initialized",
 		"mode", cfg.Orchestrator.Mode,
 		"decompose_model", cfg.Orchestrator.DecomposeModel,
@@ -272,13 +272,13 @@ func run() error {
 
 	// --- Pool Manager + Task Planner (Phase 5C) ---
 	poolManagerSvc := service.NewPoolManagerService(store, hub, &cfg.Orchestrator)
-	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, &cfg.Orchestrator)
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, &cfg.Orchestrator, &cfg.Limits)
 	slog.Info("pool manager and task planner initialized",
 		"max_team_size", cfg.Orchestrator.MaxTeamSize,
 	)
 
 	// --- Context Optimizer + Shared Context (Phase 5D) ---
-	contextOptSvc := service.NewContextOptimizerService(store, &cfg.Orchestrator)
+	contextOptSvc := service.NewContextOptimizerService(store, &cfg.Orchestrator, &cfg.Limits)
 	sharedCtxSvc := service.NewSharedContextService(store, hub, queue)
 	runtimeSvc.SetContextOptimizer(contextOptSvc)
 	slog.Info("context optimizer and shared context initialized",
@@ -295,7 +295,7 @@ func run() error {
 	slog.Info("repomap service initialized", "token_budget", cfg.Orchestrator.RepoMapTokenBudget)
 
 	// --- Retrieval Service (Phase 6B) ---
-	retrievalSvc := service.NewRetrievalService(store, queue, hub, &cfg.Orchestrator)
+	retrievalSvc := service.NewRetrievalService(store, queue, hub, &cfg.Orchestrator, &cfg.Limits)
 	retrievalSvc.SetEventStore(eventStore)
 	retrievalCancels, err := retrievalSvc.StartSubscribers(ctx)
 	if err != nil {
@@ -305,7 +305,7 @@ func run() error {
 	slog.Info("retrieval service initialized")
 
 	// --- Graph Service (Phase 6D) ---
-	graphSvc := service.NewGraphService(store, queue, hub, &cfg.Orchestrator)
+	graphSvc := service.NewGraphService(store, queue, hub, &cfg.Orchestrator, &cfg.Limits)
 	graphCancels, err := graphSvc.StartSubscribers(ctx)
 	if err != nil {
 		return fmt.Errorf("graph subscribers: %w", err)
@@ -450,7 +450,7 @@ func run() error {
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
 	// --- MCP Service (Phase 15C) ---
-	mcpSvc := service.NewMCPService(&cfg.MCP)
+	mcpSvc := service.NewMCPService(&cfg.MCP, &cfg.Limits)
 	mcpSvc.SetStore(store)
 	runtimeSvc.SetMCPService(mcpSvc)
 	slog.Info("mcp service initialized", "enabled", cfg.MCP.Enabled)
@@ -592,6 +592,7 @@ func run() error {
 		ExperiencePool:   experienceSvc,
 		Microagents:      microagentSvc,
 		Skills:           skillSvc,
+		Limits:           &cfg.Limits,
 	}
 
 	r := chi.NewRouter()

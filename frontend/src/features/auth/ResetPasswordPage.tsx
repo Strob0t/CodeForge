@@ -3,7 +3,7 @@ import { createSignal, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { useI18n } from "~/i18n";
-import { Alert, Button, Card, FormField, Input } from "~/ui";
+import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function ResetPasswordPage(): JSX.Element {
   const { t } = useI18n();
@@ -66,11 +66,7 @@ export default function ResetPasswordPage(): JSX.Element {
             </Alert>
           </Show>
 
-          <Show when={error()}>
-            <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
-              {error()}
-            </Alert>
-          </Show>
+          <ErrorBanner error={error} onDismiss={() => setError("")} />
 
           <form onSubmit={handleSubmit}>
             <FormField label={t("auth.reset.password")} id="reset_password" required class="mb-4">

@@ -6,11 +6,12 @@ import asyncio
 import logging
 from typing import Any
 
+from codeforge.constants import MAX_OUTPUT_CHARS
 from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
 
-MAX_OUTPUT = 50_000
+MAX_OUTPUT = MAX_OUTPUT_CHARS
 HALF_OUTPUT = MAX_OUTPUT // 2
 
 DEFINITION = ToolDefinition(

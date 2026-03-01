@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.constants import NATS_RESPONSE_TIMEOUT_SECONDS
+from codeforge.metrics import ExecutionMetrics
 from codeforge.models import RunCompleteMessage, ToolCallDecision
 
 if TYPE_CHECKING:
@@ -33,7 +35,7 @@ SUBJECT_RUN_CANCEL = "runs.cancel"
 SUBJECT_CONVERSATION_RUN_CANCEL = "conversation.run.cancel"
 SUBJECT_RUN_HEARTBEAT = "runs.heartbeat"
 
-RESPONSE_TIMEOUT_SECONDS = 30
+RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
 
 logger = structlog.get_logger()
 
@@ -58,11 +60,7 @@ class RuntimeClient:
         self.task_id = task_id
         self.project_id = project_id
         self.termination = termination
-        self._step_count = 0
-        self._total_cost = 0.0
-        self._total_tokens_in = 0
-        self._total_tokens_out = 0
-        self._model = ""
+        self._metrics = ExecutionMetrics()
         self._cancelled = False
         self._cancel_sub: object | None = None
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -130,12 +128,12 @@ class RuntimeClient:
     @property
     def step_count(self) -> int:
         """Number of tool calls executed so far."""
-        return self._step_count
+        return self._metrics.step_count
 
     @property
     def total_cost(self) -> float:
         """Accumulated cost of this run."""
-        return self._total_cost
+        return self._metrics.total_cost
 
     async def request_tool_call(
         self,
@@ -216,12 +214,8 @@ class RuntimeClient:
         model: str = "",
     ) -> None:
         """Report the outcome of an executed tool call back to the control plane."""
-        self._step_count += 1
-        self._total_cost += cost_usd
-        self._total_tokens_in += tokens_in
-        self._total_tokens_out += tokens_out
-        if model:
-            self._model = model
+        self._metrics.step_count += 1
+        self._metrics.record(cost=cost_usd, tokens_in=tokens_in, tokens_out=tokens_out, model=model)
 
         result = {
             "run_id": self.run_id,
@@ -255,11 +249,11 @@ class RuntimeClient:
             status=status,
             output=output,
             error=error,
-            cost_usd=self._total_cost,
-            step_count=self._step_count,
-            tokens_in=self._total_tokens_in,
-            tokens_out=self._total_tokens_out,
-            model=self._model,
+            cost_usd=self._metrics.total_cost,
+            step_count=self._metrics.step_count,
+            tokens_in=self._metrics.total_tokens_in,
+            tokens_out=self._metrics.total_tokens_out,
+            model=self._metrics.model,
         )
         await self._js.publish(
             SUBJECT_RUN_COMPLETE,
@@ -268,8 +262,8 @@ class RuntimeClient:
         self._log.info(
             "run completed",
             status=status,
-            steps=self._step_count,
-            cost=self._total_cost,
+            steps=self._metrics.step_count,
+            cost=self._metrics.total_cost,
         )
 
     async def send_output(self, line: str, stream: str = "stdout") -> None:

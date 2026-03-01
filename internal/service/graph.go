@@ -15,8 +15,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
-const graphSearchTimeout = 30 * time.Second
-
 // GraphStatusInfo holds the in-memory state of a project's graph.
 type GraphStatusInfo struct {
 	ProjectID string   `json:"project_id"`
@@ -33,6 +31,7 @@ type GraphService struct {
 	queue   messagequeue.Queue
 	hub     broadcast.Broadcaster
 	orchCfg *config.Orchestrator
+	limits  *config.Limits
 
 	mu     sync.RWMutex
 	graphs map[string]*GraphStatusInfo
@@ -44,12 +43,13 @@ type GraphService struct {
 }
 
 // NewGraphService creates a GraphService.
-func NewGraphService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster, orchCfg *config.Orchestrator) *GraphService {
+func NewGraphService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster, orchCfg *config.Orchestrator, limits *config.Limits) *GraphService {
 	return &GraphService{
 		store:        store,
 		queue:        queue,
 		hub:          hub,
 		orchCfg:      orchCfg,
+		limits:       limits,
 		graphs:       make(map[string]*GraphStatusInfo),
 		searchWaiter: newSyncWaiter[messagequeue.GraphSearchResultPayload]("graph-search"),
 	}
@@ -159,7 +159,7 @@ func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSym
 		return nil, fmt.Errorf("publish graph search request: %w", err)
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, graphSearchTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, s.limits.GraphSearchTimeout)
 	defer cancel()
 
 	select {

@@ -2,12 +2,8 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 )
 
@@ -38,10 +34,7 @@ func (s *Store) GetMicroagent(ctx context.Context, id string) (*microagent.Micro
 		&m.CreatedAt, &m.UpdatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get microagent %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get microagent %s: %w", id, err)
+		return nil, notFoundWrap(err, "get microagent %s", id)
 	}
 	return &m, nil
 }
@@ -86,13 +79,7 @@ func (s *Store) UpdateMicroagent(ctx context.Context, m *microagent.Microagent) 
 		m.ID, m.Name, m.TriggerPattern, m.Description, m.Prompt, m.Enabled,
 		tenantFromCtx(ctx),
 	)
-	if err != nil {
-		return fmt.Errorf("update microagent %s: %w", m.ID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update microagent %s: %w", m.ID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update microagent %s", m.ID)
 }
 
 // DeleteMicroagent removes a microagent by ID.
@@ -100,11 +87,5 @@ func (s *Store) DeleteMicroagent(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM microagents WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete microagent %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete microagent %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete microagent %s", id)
 }

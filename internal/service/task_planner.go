@@ -20,6 +20,7 @@ type TaskPlannerService struct {
 	pool    *PoolManagerService
 	store   database.Store
 	orchCfg *config.Orchestrator
+	limits  *config.Limits
 }
 
 // NewTaskPlannerService creates a TaskPlannerService with all dependencies.
@@ -28,12 +29,14 @@ func NewTaskPlannerService(
 	pool *PoolManagerService,
 	store database.Store,
 	orchCfg *config.Orchestrator,
+	limits *config.Limits,
 ) *TaskPlannerService {
 	return &TaskPlannerService{
 		meta:    meta,
 		pool:    pool,
 		store:   store,
 		orchCfg: orchCfg,
+		limits:  limits,
 	}
 }
 
@@ -113,7 +116,7 @@ func (s *TaskPlannerService) gatherProjectContext(ctx context.Context, projectID
 	}
 
 	var b strings.Builder
-	const maxEntries = 100
+	maxEntries := s.limits.MaxEntries
 	count := 0
 
 	for _, e := range entries {

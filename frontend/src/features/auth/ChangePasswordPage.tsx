@@ -3,7 +3,7 @@ import { createSignal, type JSX, Show } from "solid-js";
 
 import { useAuth } from "~/components/AuthProvider";
 import { useI18n } from "~/i18n";
-import { Alert, Button, Card, FormField, Input } from "~/ui";
+import { Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function ChangePasswordPage(): JSX.Element {
   const { t } = useI18n();
@@ -45,11 +45,7 @@ export default function ChangePasswordPage(): JSX.Element {
           </h1>
           <p class="mb-6 text-center text-sm text-cf-text-secondary">{t("auth.cp.description")}</p>
 
-          <Show when={error()}>
-            <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
-              {error()}
-            </Alert>
-          </Show>
+          <ErrorBanner error={error} onDismiss={() => setError("")} />
 
           <form onSubmit={handleSubmit}>
             <Show when={user()?.email}>

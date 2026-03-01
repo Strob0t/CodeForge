@@ -12,6 +12,7 @@ import {
   Checkbox,
   ConfirmDialog,
   EmptyState,
+  ErrorBanner,
   FormField,
   Input,
   LoadingState,
@@ -286,11 +287,7 @@ export default function MCPServersPage() {
         </Button>
       }
     >
-      <Show when={error()}>
-        <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
-          {error()}
-        </Alert>
-      </Show>
+      <ErrorBanner error={error} onDismiss={() => setError("")} />
 
       {/* Add / Edit Form */}
       <Show when={showForm()}>

@@ -6,11 +6,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from codeforge.constants import MAX_TOOL_RESULTS
 from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
 
-MAX_RESULTS = 500
+MAX_RESULTS = MAX_TOOL_RESULTS
 
 DEFINITION = ToolDefinition(
     name="glob_files",

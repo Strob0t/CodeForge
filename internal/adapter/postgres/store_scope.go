@@ -2,12 +2,8 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 )
 
@@ -60,10 +56,7 @@ func (s *Store) GetScope(ctx context.Context, id string) (*cfcontext.RetrievalSc
 		 FROM retrieval_scopes WHERE id = $1 AND tenant_id = $2`, id, tid,
 	).Scan(&sc.ID, &sc.Name, &sc.Type, &sc.Description, &sc.CreatedAt, &sc.UpdatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get scope %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get scope %s: %w", id, err)
+		return nil, notFoundWrap(err, "get scope %s", id)
 	}
 
 	pids, err := s.scopeProjectIDs(ctx, sc.ID)
@@ -115,11 +108,8 @@ func (s *Store) UpdateScope(ctx context.Context, id string, req cfcontext.Update
 		tag, err := tx.Exec(ctx,
 			`UPDATE retrieval_scopes SET name = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3`,
 			*req.Name, id, tid)
-		if err != nil {
-			return nil, fmt.Errorf("update scope name: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return nil, fmt.Errorf("update scope %s: %w", id, domain.ErrNotFound)
+		if err := execExpectOne(tag, err, "update scope %s", id); err != nil {
+			return nil, err
 		}
 	}
 	if req.Description != nil {
@@ -158,13 +148,7 @@ func (s *Store) DeleteScope(ctx context.Context, id string) error {
 	tid := tenantFromCtx(ctx)
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM retrieval_scopes WHERE id = $1 AND tenant_id = $2`, id, tid)
-	if err != nil {
-		return fmt.Errorf("delete scope %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete scope %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete scope %s", id)
 }
 
 func (s *Store) ListScopesByProject(ctx context.Context, projectID string) ([]cfcontext.RetrievalScope, error) {
@@ -212,13 +196,7 @@ func (s *Store) RemoveProjectFromScope(ctx context.Context, scopeID, projectID s
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM retrieval_scope_projects WHERE scope_id = $1 AND project_id = $2`,
 		scopeID, projectID)
-	if err != nil {
-		return fmt.Errorf("remove project from scope: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("project %s not in scope %s: %w", projectID, scopeID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "project %s not in scope %s", projectID, scopeID)
 }
 
 // scopeProjectIDs returns the project IDs belonging to a scope.

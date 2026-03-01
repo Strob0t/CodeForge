@@ -1,9 +1,9 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 
 import { createCodeForgeWS, type WSMessage } from "~/api/websocket";
+import { severityVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, EmptyState, PageLayout, Select } from "~/ui";
-import type { BadgeVariant } from "~/ui/primitives/Badge";
 
 /** A single activity entry shown in the stream */
 interface ActivityEntry {
@@ -18,13 +18,6 @@ interface ActivityEntry {
 const MAX_ENTRIES = 200;
 
 let nextId = 0;
-
-const SEVERITY_VARIANTS: Record<ActivityEntry["severity"], BadgeVariant> = {
-  info: "info",
-  success: "success",
-  warning: "warning",
-  error: "danger",
-};
 
 const TYPE_ICONS: Record<string, string> = {
   "run.status": "\u25B6",
@@ -182,6 +175,7 @@ export default function ActivityPage() {
   const [filterType, setFilterType] = createSignal<string>("");
   const [paused, setPaused] = createSignal(false);
 
+  // eslint-disable-next-line solid/reactivity -- paused() is intentionally read at message-receive time
   const cleanup = onMessage((msg) => {
     if (paused()) return;
     const entry = classifyMessage(msg);
@@ -189,7 +183,6 @@ export default function ActivityPage() {
       setEntries((prev) => [entry, ...prev].slice(0, MAX_ENTRIES));
     }
   });
-
   onCleanup(cleanup);
 
   const filtered = () => {
@@ -256,7 +249,7 @@ export default function ActivityPage() {
                   <span class="whitespace-nowrap text-xs tabular-nums text-cf-text-muted">
                     {fmt.time(entry.time.toISOString())}
                   </span>
-                  <Badge variant={SEVERITY_VARIANTS[entry.severity]} pill>
+                  <Badge variant={severityVariant[entry.severity]} pill>
                     {entry.type.split(".").pop()}
                   </Badge>
                   <span class="flex-1 text-sm text-cf-text-secondary">{entry.summary}</span>

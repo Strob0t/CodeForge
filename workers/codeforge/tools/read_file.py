@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
 
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
+from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +37,10 @@ class ReadFileTool(ToolExecutor):
     """Read a file's contents with optional line offset and limit."""
 
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
-        workspace = Path(workspace_path).resolve()
         rel = arguments.get("file_path", "")
-        target = (workspace / rel).resolve()
-
-        if not str(target).startswith(str(workspace)):
-            return ToolResult(output="", error="path traversal blocked", success=False)
-
-        if not target.is_file():
-            return ToolResult(output="", error=f"file not found: {rel}", success=False)
+        target, err = resolve_safe_path(workspace_path, rel, must_be_file=True)
+        if err is not None:
+            return err
 
         try:
             text = target.read_text(encoding="utf-8", errors="replace")

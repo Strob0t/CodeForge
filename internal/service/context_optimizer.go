@@ -22,6 +22,7 @@ import (
 type ContextOptimizerService struct {
 	store     database.Store
 	orchCfg   *config.Orchestrator
+	limits    *config.Limits
 	retrieval *RetrievalService
 	graph     *GraphService
 	lsp       *LSPService
@@ -32,10 +33,11 @@ type ContextOptimizerService struct {
 }
 
 // NewContextOptimizerService creates a ContextOptimizerService.
-func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrator) *ContextOptimizerService {
+func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrator, limits *config.Limits) *ContextOptimizerService {
 	return &ContextOptimizerService{
 		store:      store,
 		orchCfg:    orchCfg,
+		limits:     limits,
 		builtTasks: make(map[string]bool),
 	}
 }
@@ -144,7 +146,7 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 				retrievalTimeout = defaultSubAgentSearchTimeout
 			}
 			// Add headroom for the single-shot fallback.
-			retrievalTimeout += searchTimeout
+			retrievalTimeout += s.limits.SearchTimeout
 			retrievalCtx, cancel := context.WithTimeout(ctx, retrievalTimeout)
 			defer cancel()
 
@@ -397,8 +399,8 @@ func (s *ContextOptimizerService) fetchGraphEntries(ctx context.Context, project
 
 // scanWorkspaceFiles reads workspace files and scores them against the task prompt.
 func (s *ContextOptimizerService) scanWorkspaceFiles(workspacePath, taskPrompt string) []cfcontext.ContextEntry {
-	const maxFiles = 50
-	const maxFileSize = 32 * 1024 // 32 KB per file
+	maxFiles := s.limits.MaxFiles
+	maxFileSize := int64(s.limits.MaxFileSize)
 
 	entries, err := os.ReadDir(workspacePath)
 	if err != nil {

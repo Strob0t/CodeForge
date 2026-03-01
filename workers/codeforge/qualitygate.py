@@ -11,11 +11,12 @@ import shlex
 
 import structlog
 
+from codeforge.constants import DEFAULT_QG_TIMEOUT_SECONDS
 from codeforge.models import QualityGateRequest, QualityGateResult
 
 logger = structlog.get_logger()
 
-DEFAULT_TIMEOUT_SECONDS = 120
+DEFAULT_TIMEOUT_SECONDS = DEFAULT_QG_TIMEOUT_SECONDS
 
 
 class QualityGateExecutor:

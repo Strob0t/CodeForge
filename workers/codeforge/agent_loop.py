@@ -9,11 +9,11 @@ This is the heart of the interactive agent. The loop:
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from codeforge.json_utils import safe_json_loads
 from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
@@ -261,10 +261,7 @@ class AgentLoopExecutor:
         state: _LoopState,
     ) -> None:
         """Execute a single tool call with policy check and error handling."""
-        try:
-            arguments = json.loads(tc.arguments) if tc.arguments else {}
-        except json.JSONDecodeError:
-            arguments = {}
+        arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
 
         decision = await self._runtime.request_tool_call(
             tool=tc.name,

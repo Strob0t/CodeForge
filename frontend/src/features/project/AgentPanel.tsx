@@ -1,8 +1,9 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { AgentStatus, CreateAgentRequest, Task } from "~/api/types";
+import type { CreateAgentRequest, Task } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { agentStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, FormField, Input, Select } from "~/ui";
 
@@ -10,19 +11,6 @@ interface AgentPanelProps {
   projectId: string;
   tasks: Task[];
   onError: (msg: string) => void;
-}
-
-function agentStatusVariant(status: AgentStatus): "success" | "info" | "danger" | "default" {
-  switch (status) {
-    case "idle":
-      return "success";
-    case "running":
-      return "info";
-    case "error":
-      return "danger";
-    case "stopped":
-      return "default";
-  }
 }
 
 export default function AgentPanel(props: AgentPanelProps) {
@@ -184,7 +172,7 @@ export default function AgentPanel(props: AgentPanelProps) {
                       <span class="font-medium">{agent.name}</span>
                       <span class="text-xs text-cf-text-muted">({agent.backend})</span>
                       <Badge
-                        variant={agentStatusVariant(agent.status)}
+                        variant={getVariant(agentStatusVariant, agent.status)}
                         pill
                         aria-label={`Agent ${agent.name} status: ${agent.status}`}
                       >
@@ -250,5 +238,3 @@ export default function AgentPanel(props: AgentPanelProps) {
     </Card>
   );
 }
-
-export { agentStatusVariant };

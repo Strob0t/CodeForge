@@ -20,66 +20,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
-const searchTimeout = 30 * time.Second
-
 // defaultSubAgentSearchTimeout is the fallback when config value is zero.
 const defaultSubAgentSearchTimeout = 60 * time.Second
 
 // healthCooldown is the duration after a failure during which requests fast-fail.
 const healthCooldown = 30 * time.Second
-
-// ---------------------------------------------------------------------------
-// syncWaiter — generic correlation-ID-based waiter (#7 DRY)
-// ---------------------------------------------------------------------------
-
-// syncWaiter manages a set of channel-based waiters keyed by correlation ID.
-type syncWaiter[T any] struct {
-	mu      sync.Mutex
-	waiters map[string]chan *T
-	label   string // for logging
-}
-
-func newSyncWaiter[T any](label string) *syncWaiter[T] {
-	return &syncWaiter[T]{
-		waiters: make(map[string]chan *T),
-		label:   label,
-	}
-}
-
-// register creates a buffered channel for the given request ID.
-func (w *syncWaiter[T]) register(requestID string) chan *T {
-	ch := make(chan *T, 1)
-	w.mu.Lock()
-	w.waiters[requestID] = ch
-	w.mu.Unlock()
-	return ch
-}
-
-// unregister removes the waiter for the given request ID.
-func (w *syncWaiter[T]) unregister(requestID string) {
-	w.mu.Lock()
-	delete(w.waiters, requestID)
-	w.mu.Unlock()
-}
-
-// deliver sends a result to the waiting channel and removes the waiter.
-// Returns false if no waiter was registered for the given ID.
-func (w *syncWaiter[T]) deliver(requestID string, payload *T) bool {
-	w.mu.Lock()
-	ch, ok := w.waiters[requestID]
-	if ok {
-		delete(w.waiters, requestID)
-	}
-	w.mu.Unlock()
-
-	if !ok {
-		slog.Warn("no waiter for "+w.label+" result", "request_id", requestID)
-		return false
-	}
-
-	ch <- payload
-	return true
-}
 
 // ---------------------------------------------------------------------------
 // RetrievalService
@@ -106,6 +51,7 @@ type RetrievalService struct {
 	queue   messagequeue.Queue
 	hub     broadcast.Broadcaster
 	orchCfg *config.Orchestrator
+	limits  *config.Limits
 	events  eventstore.Store
 
 	mu      sync.RWMutex
@@ -123,12 +69,13 @@ type RetrievalService struct {
 }
 
 // NewRetrievalService creates a RetrievalService.
-func NewRetrievalService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster, orchCfg *config.Orchestrator) *RetrievalService {
+func NewRetrievalService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster, orchCfg *config.Orchestrator, limits *config.Limits) *RetrievalService {
 	return &RetrievalService{
 		store:          store,
 		queue:          queue,
 		hub:            hub,
 		orchCfg:        orchCfg,
+		limits:         limits,
 		indexes:        make(map[string]*RetrievalIndexInfo),
 		searchWaiter:   newSyncWaiter[messagequeue.RetrievalSearchResultPayload]("search"),
 		subAgentWaiter: newSyncWaiter[messagequeue.SubAgentSearchResultPayload]("subagent"),
@@ -283,7 +230,7 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 	}
 
 	// Wait for result with timeout.
-	timeoutCtx, cancel := context.WithTimeout(ctx, searchTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, s.limits.SearchTimeout)
 	defer cancel()
 
 	select {

@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -61,10 +60,7 @@ func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, er
 
 	p, err := scanProject(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get project %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get project %s: %w", id, err)
+		return nil, notFoundWrap(err, "get project %s", id)
 	}
 	return &p, nil
 }
@@ -76,10 +72,7 @@ func (s *Store) GetProjectByRepoName(ctx context.Context, repoName string) (*pro
 
 	p, err := scanProject(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get project by repo %s: %w", repoName, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get project by repo %s: %w", repoName, err)
+		return nil, notFoundWrap(err, "get project by repo %s", repoName)
 	}
 	return &p, nil
 }
@@ -124,13 +117,7 @@ func (s *Store) UpdateProject(ctx context.Context, p *project.Project) error {
 
 func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete project %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete project %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete project %s", id)
 }
 
 // --- Agents ---
@@ -162,10 +149,7 @@ func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 
 	a, err := scanAgent(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get agent %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get agent %s: %w", id, err)
+		return nil, notFoundWrap(err, "get agent %s", id)
 	}
 	return &a, nil
 }
@@ -199,24 +183,12 @@ func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string
 
 func (s *Store) UpdateAgentStatus(ctx context.Context, id string, status agent.Status) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE agents SET status = $2 WHERE id = $1 AND tenant_id = $3`, id, string(status), tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update agent status %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update agent status %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update agent status %s", id)
 }
 
 func (s *Store) DeleteAgent(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM agents WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete agent %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete agent %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete agent %s", id)
 }
 
 // --- Tasks ---
@@ -248,10 +220,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (*task.Task, error) {
 
 	t, err := scanTask(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get task %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get task %s: %w", id, err)
+		return nil, notFoundWrap(err, "get task %s", id)
 	}
 	return &t, nil
 }
@@ -272,13 +241,7 @@ func (s *Store) CreateTask(ctx context.Context, req task.CreateRequest) (*task.T
 
 func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Status) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE tasks SET status = $2 WHERE id = $1 AND tenant_id = $3`, id, string(status), tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update task status %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update task status %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update task status %s", id)
 }
 
 func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Result, costUSD float64) error {
@@ -289,13 +252,7 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Res
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE tasks SET result = $2, cost_usd = $3, status = $4 WHERE id = $1 AND tenant_id = $5`,
 		id, resultJSON, costUSD, string(task.StatusCompleted), tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update task result %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update task result %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update task result %s", id)
 }
 
 // --- Runs ---
@@ -319,10 +276,7 @@ func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 
 	r, err := scanRun(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get run %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get run %s: %w", id, err)
+		return nil, notFoundWrap(err, "get run %s", id)
 	}
 	return &r, nil
 }
@@ -332,13 +286,7 @@ func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Statu
 		`UPDATE runs SET status = $2, step_count = $3, cost_usd = $4, tokens_in = $5, tokens_out = $6, updated_at = now()
 		 WHERE id = $1 AND tenant_id = $7`,
 		id, string(status), stepCount, costUSD, tokensIn, tokensOut, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update run status %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update run status %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update run status %s", id)
 }
 
 func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error {
@@ -347,14 +295,7 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, o
 		 tokens_in = $7, tokens_out = $8, model = $9, completed_at = now(), updated_at = now()
 		 WHERE id = $1 AND tenant_id = $10`,
 		id, string(status), output, errMsg, costUSD, stepCount, tokensIn, tokensOut, model, tenantFromCtx(ctx))
-
-	if err != nil {
-		return fmt.Errorf("complete run %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("complete run %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "complete run %s", id)
 }
 
 func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errs []string) error {
@@ -366,13 +307,7 @@ func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, 
 		`UPDATE runs SET artifact_type = $2, artifact_valid = $3, artifact_errors = $4, updated_at = now()
 		 WHERE id = $1 AND tenant_id = $5`,
 		id, artifactType, valid, errJSON, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update run artifact %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update run artifact %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update run artifact %s", id)
 }
 
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
@@ -446,10 +381,7 @@ func (s *Store) GetTeam(ctx context.Context, id string) (*agent.Team, error) {
 
 	t, err := scanTeam(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get team %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get team %s: %w", id, err)
+		return nil, notFoundWrap(err, "get team %s", id)
 	}
 
 	members, err := s.listTeamMembers(ctx, t.ID)
@@ -496,24 +428,12 @@ func (s *Store) UpdateTeamStatus(ctx context.Context, id string, status agent.Te
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE agent_teams SET status = $2 WHERE id = $1 AND tenant_id = $3`,
 		id, string(status), tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update team status %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update team status %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update team status %s", id)
 }
 
 func (s *Store) DeleteTeam(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM agent_teams WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete team %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete team %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete team %s", id)
 }
 
 func (s *Store) listTeamMembers(ctx context.Context, teamID string) ([]agent.TeamMember, error) {
@@ -609,10 +529,7 @@ func (s *Store) GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, er
 
 	p, err := scanPlan(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get plan %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get plan %s: %w", id, err)
+		return nil, notFoundWrap(err, "get plan %s", id)
 	}
 
 	steps, err := s.ListPlanSteps(ctx, p.ID)
@@ -647,13 +564,7 @@ func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Sta
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE execution_plans SET status = $2 WHERE id = $1 AND tenant_id = $3`,
 		id, string(status), tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update plan status %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update plan status %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update plan status %s", id)
 }
 
 func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {
@@ -691,13 +602,7 @@ func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status 
 		`UPDATE plan_steps SET status = $2, run_id = CASE WHEN $3 = '' THEN run_id ELSE $3::uuid END, error = $4
 		 WHERE id = $1 AND tenant_id = $5`,
 		stepID, string(status), runID, errMsg, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update plan step status %s: %w", stepID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update plan step status %s: %w", stepID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update plan step status %s", stepID)
 }
 
 func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error) {
@@ -707,10 +612,7 @@ func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Ste
 
 	st, err := scanPlanStep(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get plan step by run %s: %w", runID, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get plan step by run %s: %w", runID, err)
+		return nil, notFoundWrap(err, "get plan step by run %s", runID)
 	}
 	return &st, nil
 }
@@ -719,20 +621,10 @@ func (s *Store) UpdatePlanStepRound(ctx context.Context, stepID string, round in
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE plan_steps SET round = $2 WHERE id = $1 AND tenant_id = $3`,
 		stepID, round, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update plan step round %s: %w", stepID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update plan step round %s: %w", stepID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update plan step round %s", stepID)
 }
 
 // --- Scanners ---
-
-type scannable interface {
-	Scan(dest ...any) error
-}
 
 func scanAgent(row scannable) (agent.Agent, error) {
 	var a agent.Agent
@@ -883,10 +775,7 @@ func (s *Store) GetContextPack(ctx context.Context, id string) (*cfcontext.Conte
 		 FROM context_packs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx),
 	).Scan(&p.ID, &p.TaskID, &p.ProjectID, &p.TokenBudget, &p.TokensUsed, &p.CreatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("get context_pack: %w", err)
+		return nil, notFoundWrap(err, "get context_pack %s", id)
 	}
 
 	entries, err := s.loadContextEntries(ctx, p.ID)
@@ -905,10 +794,7 @@ func (s *Store) GetContextPackByTask(ctx context.Context, taskID string) (*cfcon
 		 FROM context_packs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 1`, taskID, tenantFromCtx(ctx),
 	).Scan(&p.ID, &p.TaskID, &p.ProjectID, &p.TokenBudget, &p.TokensUsed, &p.CreatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("get context_pack by task: %w", err)
+		return nil, notFoundWrap(err, "get context_pack by task %s", taskID)
 	}
 
 	entries, err := s.loadContextEntries(ctx, p.ID)
@@ -922,13 +808,7 @@ func (s *Store) GetContextPackByTask(ctx context.Context, taskID string) (*cfcon
 // DeleteContextPack removes a context pack and its entries (CASCADE).
 func (s *Store) DeleteContextPack(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM context_packs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete context_pack: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return execExpectOne(tag, err, "delete context_pack %s", id)
 }
 
 func (s *Store) loadContextEntries(ctx context.Context, packID string) ([]cfcontext.ContextEntry, error) {
@@ -970,10 +850,7 @@ func (s *Store) GetSharedContext(ctx context.Context, id string) (*cfcontext.Sha
 		 FROM shared_contexts WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx),
 	).Scan(&sc.ID, &sc.TeamID, &sc.ProjectID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("get shared_context: %w", err)
+		return nil, notFoundWrap(err, "get shared_context %s", id)
 	}
 
 	items, err := s.loadSharedContextItems(ctx, sc.ID)
@@ -992,10 +869,7 @@ func (s *Store) GetSharedContextByTeam(ctx context.Context, teamID string) (*cfc
 		 FROM shared_contexts WHERE team_id = $1 AND tenant_id = $2`, teamID, tenantFromCtx(ctx),
 	).Scan(&sc.ID, &sc.TeamID, &sc.ProjectID, &sc.Version, &sc.CreatedAt, &sc.UpdatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("get shared_context by team: %w", err)
+		return nil, notFoundWrap(err, "get shared_context by team %s", teamID)
 	}
 
 	items, err := s.loadSharedContextItems(ctx, sc.ID)
@@ -1022,10 +896,7 @@ func (s *Store) AddSharedContextItem(ctx context.Context, req cfcontext.AddShare
 		`SELECT id FROM shared_contexts WHERE team_id = $1 AND tenant_id = $2`, req.TeamID, tid,
 	).Scan(&sharedID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("resolve shared_context: %w", err)
+		return nil, notFoundWrap(err, "resolve shared_context for team %s", req.TeamID)
 	}
 
 	tokens := cfcontext.EstimateTokens(req.Value)
@@ -1057,13 +928,7 @@ func (s *Store) AddSharedContextItem(ctx context.Context, req cfcontext.AddShare
 // DeleteSharedContext removes a shared context and its items (CASCADE).
 func (s *Store) DeleteSharedContext(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM shared_contexts WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete shared_context: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return execExpectOne(tag, err, "delete shared_context %s", id)
 }
 
 // --- Repo Maps ---
@@ -1098,10 +963,7 @@ func (s *Store) GetRepoMap(ctx context.Context, projectID string) (*cfcontext.Re
 		 FROM repo_maps WHERE project_id = $1 AND tenant_id = $2`, projectID, tenantFromCtx(ctx),
 	).Scan(&m.ID, &m.ProjectID, &m.MapText, &m.TokenCount, &m.FileCount, &m.SymbolCount, &m.Languages, &m.Version, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get repo_map for project %s: %w", projectID, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get repo_map: %w", err)
+		return nil, notFoundWrap(err, "get repo_map for project %s", projectID)
 	}
 	return &m, nil
 }
@@ -1109,13 +971,7 @@ func (s *Store) GetRepoMap(ctx context.Context, projectID string) (*cfcontext.Re
 // DeleteRepoMap removes the repo map for a project.
 func (s *Store) DeleteRepoMap(ctx context.Context, projectID string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM repo_maps WHERE project_id = $1 AND tenant_id = $2`, projectID, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete repo_map: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete repo_map for project %s: %w", projectID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete repo_map for project %s", projectID)
 }
 
 // --- Roadmaps ---
@@ -1141,10 +997,7 @@ func (s *Store) GetRoadmap(ctx context.Context, id string) (*roadmap.Roadmap, er
 
 	r, err := scanRoadmap(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get roadmap %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get roadmap %s: %w", id, err)
+		return nil, notFoundWrap(err, "get roadmap %s", id)
 	}
 	return &r, nil
 }
@@ -1156,10 +1009,7 @@ func (s *Store) GetRoadmapByProject(ctx context.Context, projectID string) (*roa
 
 	r, err := scanRoadmap(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get roadmap for project %s: %w", projectID, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get roadmap for project %s: %w", projectID, err)
+		return nil, notFoundWrap(err, "get roadmap for project %s", projectID)
 	}
 	return &r, nil
 }
@@ -1181,13 +1031,7 @@ func (s *Store) UpdateRoadmap(ctx context.Context, r *roadmap.Roadmap) error {
 
 func (s *Store) DeleteRoadmap(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM roadmaps WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete roadmap %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete roadmap %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete roadmap %s", id)
 }
 
 // --- Milestones ---
@@ -1213,10 +1057,7 @@ func (s *Store) GetMilestone(ctx context.Context, id string) (*roadmap.Milestone
 
 	m, err := scanMilestone(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get milestone %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get milestone %s: %w", id, err)
+		return nil, notFoundWrap(err, "get milestone %s", id)
 	}
 	return &m, nil
 }
@@ -1258,13 +1099,7 @@ func (s *Store) UpdateMilestone(ctx context.Context, m *roadmap.Milestone) error
 
 func (s *Store) DeleteMilestone(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM milestones WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete milestone %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete milestone %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete milestone %s", id)
 }
 
 // --- Features ---
@@ -1282,16 +1117,10 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 	if err := s.pool.QueryRow(ctx,
 		`SELECT roadmap_id FROM milestones WHERE id = $1 AND tenant_id = $2`, req.MilestoneID, tid,
 	).Scan(&roadmapID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("milestone %s: %w", req.MilestoneID, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("resolve roadmap_id: %w", err)
+		return nil, notFoundWrap(err, "milestone %s", req.MilestoneID)
 	}
 
-	labels := req.Labels
-	if labels == nil {
-		labels = []string{}
-	}
+	labels := orEmpty(req.Labels)
 
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO features (tenant_id, milestone_id, roadmap_id, title, description, labels, spec_ref, external_ids)
@@ -1313,10 +1142,7 @@ func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, er
 
 	f, err := scanFeature(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get feature %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get feature %s: %w", id, err)
+		return nil, notFoundWrap(err, "get feature %s", id)
 	}
 	return &f, nil
 }
@@ -1367,10 +1193,7 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 		return fmt.Errorf("marshal external_ids: %w", err)
 	}
 
-	labels := f.Labels
-	if labels == nil {
-		labels = []string{}
-	}
+	labels := orEmpty(f.Labels)
 
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8
@@ -1388,13 +1211,7 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 
 func (s *Store) DeleteFeature(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM features WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete feature %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete feature %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete feature %s", id)
 }
 
 func scanRoadmap(row scannable) (roadmap.Roadmap, error) {
@@ -1422,14 +1239,6 @@ func scanFeature(row scannable) (roadmap.Feature, error) {
 		}
 	}
 	return f, nil
-}
-
-// nullIfEmpty returns nil for empty strings (for nullable UUID columns).
-func nullIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 func (s *Store) loadSharedContextItems(ctx context.Context, sharedID string) ([]cfcontext.SharedContextItem, error) {
@@ -1640,10 +1449,7 @@ func (s *Store) GetBranchProtectionRule(ctx context.Context, id string) (*bp.Pro
 
 	r, err := scanBranchProtectionRule(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("get branch protection rule: %w", err)
+		return nil, notFoundWrap(err, "get branch protection rule %s", id)
 	}
 	return &r, nil
 }
@@ -1691,13 +1497,7 @@ func (s *Store) UpdateBranchProtectionRule(ctx context.Context, rule *bp.Protect
 func (s *Store) DeleteBranchProtectionRule(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM branch_protection_rules WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete branch protection rule: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return execExpectOne(tag, err, "delete branch protection rule %s", id)
 }
 
 // scanBranchProtectionRule scans a single row into a ProtectionRule.
@@ -1737,10 +1537,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (*run.Session, error)
 		        COALESCE(current_run_id::text, ''), status, COALESCE(metadata::text, '{}'), created_at, updated_at
 		 FROM sessions WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx)))
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("get session: %w", err)
+		return nil, notFoundWrap(err, "get session %s", id)
 	}
 	return &sess, nil
 }
@@ -1774,13 +1571,7 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id string, status run.S
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE sessions SET status = $1, current_run_id = $2 WHERE id = $3 AND tenant_id = $4`,
 		string(status), nullIfEmpty(currentRunID), id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("update session status: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return execExpectOne(tag, err, "update session status %s", id)
 }
 
 // scanSession scans a single row into a Session.

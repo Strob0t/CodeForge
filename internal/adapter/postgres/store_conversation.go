@@ -6,7 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 )
 
@@ -33,10 +32,7 @@ func (s *Store) GetConversation(ctx context.Context, id string) (*conversation.C
 		id,
 	).Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("get conversation %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get conversation %s: %w", id, err)
+		return nil, notFoundWrap(err, "get conversation %s", id)
 	}
 	return &c, nil
 }
@@ -64,13 +60,7 @@ func (s *Store) ListConversationsByProject(ctx context.Context, projectID string
 
 func (s *Store) DeleteConversation(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM conversations WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("delete conversation %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete conversation %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete conversation %s", id)
 }
 
 func (s *Store) CreateMessage(ctx context.Context, m *conversation.Message) (*conversation.Message, error) {

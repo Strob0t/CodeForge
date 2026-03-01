@@ -19,7 +19,7 @@ class TestCheckAvailable:
 
     @pytest.mark.asyncio
     async def test_available_via_shutil_which(self, executor: AiderExecutor) -> None:
-        with patch("codeforge.backends.aider.shutil.which", return_value="/usr/bin/aider"):
+        with patch("codeforge.subprocess_utils.shutil.which", return_value="/usr/bin/aider"):
             assert await executor.check_available() is True
 
     @pytest.mark.asyncio
@@ -29,7 +29,7 @@ class TestCheckAvailable:
         mock_proc.communicate = AsyncMock(return_value=(b"aider 0.50.0", b""))
 
         with (
-            patch("codeforge.backends.aider.shutil.which", return_value=None),
+            patch("codeforge.subprocess_utils.shutil.which", return_value=None),
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
         ):
             assert await executor.check_available() is True
@@ -37,7 +37,7 @@ class TestCheckAvailable:
     @pytest.mark.asyncio
     async def test_not_available(self, executor: AiderExecutor) -> None:
         with (
-            patch("codeforge.backends.aider.shutil.which", return_value=None),
+            patch("codeforge.subprocess_utils.shutil.which", return_value=None),
             patch("asyncio.create_subprocess_exec", side_effect=OSError("not found")),
         ):
             assert await executor.check_available() is False

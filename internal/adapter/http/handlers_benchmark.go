@@ -3,38 +3,22 @@ package http
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
 // ListBenchmarkRuns handles GET /api/v1/benchmarks/runs
 func (h *Handlers) ListBenchmarkRuns(w http.ResponseWriter, r *http.Request) {
-	runs, err := h.Benchmarks.ListRuns(r.Context())
-	if err != nil {
-		writeInternalError(w, err)
-		return
-	}
-	if runs == nil {
-		runs = []benchmark.Run{}
-	}
-	writeJSON(w, http.StatusOK, runs)
+	handleList(h.Benchmarks.ListRuns)(w, r)
 }
 
 // GetBenchmarkRun handles GET /api/v1/benchmarks/runs/{id}
 func (h *Handlers) GetBenchmarkRun(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	run, err := h.Benchmarks.GetRun(r.Context(), id)
-	if err != nil {
-		writeDomainError(w, err, "benchmark run not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, run)
+	handleGet(h.Benchmarks.GetRun, "benchmark run not found")(w, r)
 }
 
 // CreateBenchmarkRun handles POST /api/v1/benchmarks/runs
 func (h *Handlers) CreateBenchmarkRun(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[benchmark.CreateRunRequest](w, r)
+	req, ok := readJSON[benchmark.CreateRunRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -48,31 +32,17 @@ func (h *Handlers) CreateBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 
 // DeleteBenchmarkRun handles DELETE /api/v1/benchmarks/runs/{id}
 func (h *Handlers) DeleteBenchmarkRun(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := h.Benchmarks.DeleteRun(r.Context(), id); err != nil {
-		writeDomainError(w, err, "benchmark run not found")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	handleDelete(h.Benchmarks.DeleteRun, "benchmark run not found")(w, r)
 }
 
 // ListBenchmarkResults handles GET /api/v1/benchmarks/runs/{id}/results
 func (h *Handlers) ListBenchmarkResults(w http.ResponseWriter, r *http.Request) {
-	runID := chi.URLParam(r, "id")
-	results, err := h.Benchmarks.ListResults(r.Context(), runID)
-	if err != nil {
-		writeInternalError(w, err)
-		return
-	}
-	if results == nil {
-		results = []benchmark.Result{}
-	}
-	writeJSON(w, http.StatusOK, results)
+	handleListByParam("id", h.Benchmarks.ListResults, "benchmark run not found")(w, r)
 }
 
 // CompareBenchmarkRuns handles POST /api/v1/benchmarks/compare
 func (h *Handlers) CompareBenchmarkRuns(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[benchmark.CompareRequest](w, r)
+	req, ok := readJSON[benchmark.CompareRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}

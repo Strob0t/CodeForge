@@ -53,7 +53,7 @@ func TestRetrievalService_RequestIndex(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{DefaultEmbeddingModel: "text-embedding-3-small"}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	err := svc.RequestIndex(context.Background(), "proj-1", "", "")
 	if err != nil {
@@ -85,7 +85,7 @@ func TestRetrievalService_HandleIndexResult_Ready(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	err := svc.HandleIndexResult(context.Background(), &messagequeue.RetrievalIndexResultPayload{
 		ProjectID:      "proj-1",
@@ -118,7 +118,7 @@ func TestRetrievalService_HandleIndexResult_Error(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	err := svc.HandleIndexResult(context.Background(), &messagequeue.RetrievalIndexResultPayload{
 		ProjectID: "proj-1",
@@ -146,7 +146,7 @@ func TestRetrievalService_GetIndexStatus_NotFound(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	info := svc.GetIndexStatus("nonexistent")
 	if info != nil {
@@ -159,7 +159,7 @@ func TestRetrievalService_SearchSync_Timeout(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	// Use a very short context deadline to trigger timeout quickly.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
@@ -180,7 +180,7 @@ func TestRetrievalService_SubAgentSearchSync_Publishes(t *testing.T) {
 		SubAgentMaxQueries: 5,
 		SubAgentRerank:     true,
 	}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	// Use a very short context deadline to trigger timeout quickly.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
@@ -223,7 +223,7 @@ func TestRetrievalService_HandleSubAgentSearchResult(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	// Start a goroutine that calls SubAgentSearchSync.
 	resultCh := make(chan *messagequeue.SubAgentSearchResultPayload, 1)
@@ -286,7 +286,7 @@ func TestRetrievalService_HandleSubAgentSearchResult_NoWaiter(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	// Delivering a result with no waiter should not panic.
 	svc.HandleSubAgentSearchResult(context.Background(), &messagequeue.SubAgentSearchResultPayload{
@@ -302,7 +302,7 @@ func TestRetrievalService_SearchSync_ErrorInPayload(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	resultCh := make(chan error, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -343,7 +343,7 @@ func TestRetrievalService_SubAgentSearchSync_ErrorInPayload(t *testing.T) {
 	q := &captureQueue{}
 	bc := &runtimeMockBroadcaster{}
 	orchCfg := &config.Orchestrator{SubAgentTimeout: 2 * time.Second}
-	svc := service.NewRetrievalService(store, q, bc, orchCfg)
+	svc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	resultCh := make(chan error, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -2,13 +2,8 @@ package postgres
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
@@ -39,10 +34,7 @@ func (s *Store) GetReviewPolicy(ctx context.Context, id string) (*review.ReviewP
 		&p.Enabled, &p.CommitCounter, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get review policy %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get review policy %s: %w", id, err)
+		return nil, notFoundWrap(err, "get review policy %s", id)
 	}
 	return p, nil
 }
@@ -165,10 +157,7 @@ func (s *Store) GetReview(ctx context.Context, id string) (*review.Review, error
 		&r.Status, &r.TriggerRef, &r.CreatedAt, &r.CompletedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get review %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get review %s: %w", id, err)
+		return nil, notFoundWrap(err, "get review %s", id)
 	}
 	return r, nil
 }
@@ -221,10 +210,7 @@ func (s *Store) GetReviewByPlanID(ctx context.Context, planID string) (*review.R
 		&r.Status, &r.TriggerRef, &r.CreatedAt, &r.CompletedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get review by plan %s: %w", planID, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get review by plan %s: %w", planID, err)
+		return nil, notFoundWrap(err, "get review by plan %s", planID)
 	}
 	return r, nil
 }

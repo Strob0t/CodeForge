@@ -39,6 +39,7 @@ type MetaAgentService struct {
 	llm     *litellm.Client
 	orchSvc *OrchestratorService
 	orchCfg *config.Orchestrator
+	limits  *config.Limits
 }
 
 // NewMetaAgentService creates a MetaAgentService with all dependencies.
@@ -47,12 +48,14 @@ func NewMetaAgentService(
 	llm *litellm.Client,
 	orchSvc *OrchestratorService,
 	orchCfg *config.Orchestrator,
+	limits *config.Limits,
 ) *MetaAgentService {
 	return &MetaAgentService{
 		store:   store,
 		llm:     llm,
 		orchSvc: orchSvc,
 		orchCfg: orchCfg,
+		limits:  limits,
 	}
 }
 
@@ -93,7 +96,7 @@ func (s *MetaAgentService) DecomposeFeature(ctx context.Context, req *plan.Decom
 		maxTokens = 4096
 	}
 
-	systemPrompt, userPrompt := buildDecomposePrompt(req.Feature, req.Context, agents, tasks)
+	systemPrompt, userPrompt := buildDecomposePrompt(req.Feature, req.Context, agents, tasks, s.limits.MaxInputLen)
 
 	llmResp, err := s.llm.ChatCompletion(ctx, litellm.ChatCompletionRequest{
 		Model: model,
@@ -193,7 +196,7 @@ func (s *MetaAgentService) DecomposeFeature(ctx context.Context, req *plan.Decom
 // patterns from user-supplied text before it is embedded in an LLM prompt.
 // This prevents role-override attacks (e.g., "system: ignore all previous
 // instructions") and fence escaping.
-func sanitizePromptInput(s string) string {
+func sanitizePromptInput(s string, maxInputLen int) string {
 	// Strip non-printable control characters (keep newlines, tabs, spaces).
 	s = strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\t' || r == '\r' {
@@ -225,8 +228,7 @@ func sanitizePromptInput(s string) string {
 	s = strings.Join(lines, "\n")
 
 	// Enforce a reasonable length limit to prevent context flooding.
-	const maxInputLen = 10000
-	if len(s) > maxInputLen {
+	if maxInputLen > 0 && len(s) > maxInputLen {
 		s = s[:maxInputLen] + "\n[truncated]"
 	}
 
@@ -235,10 +237,10 @@ func sanitizePromptInput(s string) string {
 
 // buildDecomposePrompt constructs the system and user prompts for feature decomposition
 // using embedded text/template files (P1-2).
-func buildDecomposePrompt(feature, extraContext string, agents []agent.Agent, tasks []task.Task) (system, userPrompt string) {
+func buildDecomposePrompt(feature, extraContext string, agents []agent.Agent, tasks []task.Task, maxInputLen int) (system, userPrompt string) {
 	// Sanitize user-provided inputs before passing to template.
-	feature = sanitizePromptInput(feature)
-	extraContext = sanitizePromptInput(extraContext)
+	feature = sanitizePromptInput(feature, maxInputLen)
+	extraContext = sanitizePromptInput(extraContext, maxInputLen)
 
 	data := decomposeData{
 		Feature: feature,

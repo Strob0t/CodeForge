@@ -27,7 +27,7 @@ func isSecureRequest(r *http.Request) bool {
 
 // Login handles POST /api/v1/auth/login
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[user.LoginRequest](w, r)
+	req, ok := readJSON[user.LoginRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -141,7 +141,7 @@ func (h *Handlers) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, ok := readJSON[user.ChangePasswordRequest](w, r)
+	req, ok := readJSON[user.ChangePasswordRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -172,7 +172,7 @@ func (h *Handlers) CreateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, ok := readJSON[user.CreateAPIKeyRequest](w, r)
+	req, ok := readJSON[user.CreateAPIKeyRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -239,7 +239,7 @@ func (h *Handlers) ListUsersHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreateUserHandler handles POST /api/v1/users (admin only)
 func (h *Handlers) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[user.CreateRequest](w, r)
+	req, ok := readJSON[user.CreateRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -259,7 +259,7 @@ func (h *Handlers) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 // UpdateUserHandler handles PUT /api/v1/users/{id} (admin only)
 func (h *Handlers) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	req, ok := readJSON[user.UpdateRequest](w, r)
+	req, ok := readJSON[user.UpdateRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -318,7 +318,7 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, ok := readJSON[initialSetupRequest](w, r)
+	req, ok := readJSON[initialSetupRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -373,7 +373,7 @@ type forgotPasswordRequest struct {
 // RequestPasswordReset handles POST /api/v1/auth/forgot-password (public)
 // Always returns 200 regardless of whether the email exists to prevent enumeration.
 func (h *Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[forgotPasswordRequest](w, r)
+	req, ok := readJSON[forgotPasswordRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -403,7 +403,7 @@ type resetPasswordRequest struct {
 
 // ConfirmPasswordReset handles POST /api/v1/auth/reset-password (public)
 func (h *Handlers) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[resetPasswordRequest](w, r)
+	req, ok := readJSON[resetPasswordRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -429,7 +429,7 @@ type forcePasswordChangeRequest struct {
 // AdminForcePasswordChange handles POST /api/v1/users/{id}/force-password-change (admin only)
 func (h *Handlers) AdminForcePasswordChange(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	req, ok := readJSON[forcePasswordChangeRequest](w, r)
+	req, ok := readJSON[forcePasswordChangeRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}

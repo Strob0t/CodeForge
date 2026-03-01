@@ -31,7 +31,7 @@ func TestBuildContextPack_WithMatchingFiles(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg)
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "")
 	if err != nil {
@@ -84,7 +84,7 @@ func TestBuildContextPack_WithSharedContext(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg)
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "team-1")
 	if err != nil {
@@ -130,7 +130,7 @@ func TestBuildContextPack_RespectsTokenBudget(t *testing.T) {
 
 	// Set a very tight budget: only room for ~50 tokens of context.
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 100, PromptReserve: 50}
-	svc := service.NewContextOptimizerService(store, orchCfg)
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "")
 	if err != nil {
@@ -153,7 +153,7 @@ func TestBuildContextPack_EmptyWorkspace(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 4096, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg)
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "")
 	if err != nil {
@@ -227,7 +227,7 @@ func setupRetrievalContextTest(t *testing.T, subAgentEnabled bool) (
 		SubAgentTimeout:      2 * time.Second,
 		RetrievalTopK:        5,
 	}
-	retrievalSvc := service.NewRetrievalService(store, q, bc, orchCfg)
+	retrievalSvc := service.NewRetrievalService(store, q, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 
 	// Mark the index as "ready" so fetchRetrievalEntries is triggered.
 	_ = retrievalSvc.HandleIndexResult(context.Background(), &messagequeue.RetrievalIndexResultPayload{
@@ -238,7 +238,7 @@ func setupRetrievalContextTest(t *testing.T, subAgentEnabled bool) (
 		EmbeddingModel: "text-embedding-3-small",
 	})
 
-	ctxSvc := service.NewContextOptimizerService(store, orchCfg)
+	ctxSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 	ctxSvc.SetRetrieval(retrievalSvc)
 
 	return ctxSvc, retrievalSvc, q

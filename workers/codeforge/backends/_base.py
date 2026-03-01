@@ -6,6 +6,8 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from codeforge.subprocess_utils import check_cli_available
+
 
 @dataclass(frozen=True)
 class BackendInfo:
@@ -49,3 +51,38 @@ class BackendExecutor(Protocol):
     ) -> TaskResult: ...
 
     async def cancel(self, task_id: str) -> None: ...
+
+
+class StubBackendExecutor:
+    """Base class for backend executors that are not yet implemented.
+
+    Provides default implementations for ``check_available()`` (CLI probe),
+    ``execute()`` (returns "not yet implemented"), and ``cancel()`` (no-op).
+    Subclasses only need to define ``info`` and ``__init__``.
+    """
+
+    @property
+    def info(self) -> BackendInfo:
+        raise NotImplementedError
+
+    async def check_available(self) -> bool:
+        return await check_cli_available(self.info.cli_command)
+
+    async def execute(
+        self,
+        task_id: str,
+        prompt: str,
+        workspace_path: str,
+        config: dict[str, Any] | None = None,
+        on_output: OutputCallback | None = None,
+    ) -> TaskResult:
+        return TaskResult(
+            status="failed",
+            error=(
+                f"Backend '{self.info.display_name}' is not yet implemented in CodeForge. "
+                f"See docs/features/04-agent-orchestration.md"
+            ),
+        )
+
+    async def cancel(self, task_id: str) -> None:
+        pass

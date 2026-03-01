@@ -22,13 +22,17 @@
       "program": "${workspaceFolder}/cmd/codeforge/",
       "cwd": "${workspaceFolder}",
       "env": {
+        "APP_ENV": "development",
         "NATS_URL": "nats://codeforge-nats:4222",
         "LITELLM_URL": "http://codeforge-litellm:4000",
         "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
         "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!"
       },
       "console": "integratedTerminal",
-      "presentation": { "group": "codeforge", "order": 2 }
+      "presentation": {
+        "group": "codeforge",
+        "order": 2
+      }
     },
     {
       "name": "Python Worker",
@@ -44,7 +48,10 @@
       },
       "console": "integratedTerminal",
       "justMyCode": true,
-      "presentation": { "group": "codeforge", "order": 3 }
+      "presentation": {
+        "group": "codeforge",
+        "order": 3
+      }
     },
     {
       "name": "Go Core + Infra",
@@ -61,7 +68,10 @@
       },
       "preLaunchTask": "docker-compose-up",
       "console": "integratedTerminal",
-      "presentation": { "group": "standalone", "order": 4 }
+      "presentation": {
+        "group": "standalone",
+        "order": 4
+      }
     }
   ]
 }

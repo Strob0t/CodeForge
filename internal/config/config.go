@@ -97,6 +97,20 @@ type Config struct {
 	Benchmark    Benchmark    `yaml:"benchmark"`
 	Copilot      Copilot      `yaml:"copilot"`
 	Experience   Experience   `yaml:"experience"`
+	Limits       Limits       `yaml:"limits"`
+}
+
+// Limits holds configurable caps and timeouts that were previously hardcoded.
+type Limits struct {
+	MaxQueryLength     int           `yaml:"max_query_length"`      // Max length for search queries (default: 2000)
+	MaxRequestBodySize int64         `yaml:"max_request_body_size"` // Max HTTP request body in bytes (default: 1MB)
+	MaxFiles           int           `yaml:"max_files"`             // Max files for workspace scan (default: 50)
+	SearchTimeout      time.Duration `yaml:"search_timeout"`        // BM25/semantic search timeout (default: 30s)
+	GraphSearchTimeout time.Duration `yaml:"graph_search_timeout"`  // Graph traversal timeout (default: 30s)
+	MCPTestTimeout     time.Duration `yaml:"mcp_test_timeout"`      // MCP handshake test timeout (default: 10s)
+	MaxInputLen        int           `yaml:"max_input_len"`         // Max input length for LLM sanitization (default: 10000)
+	MaxEntries         int           `yaml:"max_entries"`           // Max dir entries for task planner (default: 100)
+	MaxFileSize        int           `yaml:"max_file_size"`         // Max single file size for context scan (default: 32KB)
 }
 
 // Benchmark holds benchmark evaluation mode configuration.
@@ -506,6 +520,17 @@ func Defaults() Config {
 			Enabled:             false,
 			ConfidenceThreshold: 0.85,
 			MaxEntries:          1000,
+		},
+		Limits: Limits{
+			MaxQueryLength:     2000,
+			MaxRequestBodySize: 1 << 20, // 1 MB
+			MaxFiles:           50,
+			SearchTimeout:      30 * time.Second,
+			GraphSearchTimeout: 30 * time.Second,
+			MCPTestTimeout:     10 * time.Second,
+			MaxInputLen:        10_000,
+			MaxEntries:         100,
+			MaxFileSize:        32 * 1024, // 32 KB
 		},
 	}
 }

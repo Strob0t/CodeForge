@@ -12,7 +12,7 @@ import (
 
 // CreateScope handles POST /api/v1/scopes
 func (h *Handlers) CreateScope(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[cfcontext.CreateScopeRequest](w, r)
+	req, ok := readJSON[cfcontext.CreateScopeRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -53,7 +53,7 @@ func (h *Handlers) GetScope(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) UpdateScope(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	req, ok := readJSON[cfcontext.UpdateScopeRequest](w, r)
+	req, ok := readJSON[cfcontext.UpdateScopeRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -82,7 +82,7 @@ func (h *Handlers) AddProjectToScope(w http.ResponseWriter, r *http.Request) {
 
 	req, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
-	}](w, r)
+	}](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -119,7 +119,7 @@ func (h *Handlers) SearchScope(w http.ResponseWriter, r *http.Request) {
 		TopK           int     `json:"top_k"`
 		BM25Weight     float64 `json:"bm25_weight"`
 		SemanticWeight float64 `json:"semantic_weight"`
-	}](w, r)
+	}](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -127,7 +127,7 @@ func (h *Handlers) SearchScope(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query is required")
 		return
 	}
-	if len(req.Query) > maxQueryLength {
+	if len(req.Query) > h.Limits.MaxQueryLength {
 		writeError(w, http.StatusBadRequest, "query exceeds maximum length of 2000 characters")
 		return
 	}
@@ -158,7 +158,7 @@ func (h *Handlers) SearchScopeGraph(w http.ResponseWriter, r *http.Request) {
 		SeedSymbols []string `json:"seed_symbols"`
 		MaxHops     int      `json:"max_hops"`
 		TopK        int      `json:"top_k"`
-	}](w, r)
+	}](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}

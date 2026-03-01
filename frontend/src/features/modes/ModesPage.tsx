@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorBanner,
   FormField,
   Input,
   LoadingState,
@@ -173,11 +174,7 @@ export default function ModesPage() {
         </Button>
       }
     >
-      <Show when={error()}>
-        <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
-          {error()}
-        </Alert>
-      </Show>
+      <ErrorBanner error={error} onDismiss={() => setError("")} />
 
       <Show when={showForm()}>
         <Card class="mb-6">

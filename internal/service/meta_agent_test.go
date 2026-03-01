@@ -81,7 +81,7 @@ func newMetaTestSetupFull(t *testing.T, llmBody, mode string) (*orchMockStore, *
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
 	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
 
-	meta := service.NewMetaAgentService(store, llmClient, orchSvc, orchCfg)
+	meta := service.NewMetaAgentService(store, llmClient, orchSvc, orchCfg, &config.Limits{MaxInputLen: 10000})
 	return store, meta, srv
 }
 
@@ -206,7 +206,7 @@ func TestDecomposeFeatureLLMError(t *testing.T) {
 	bc := &runtimeMockBroadcaster{}
 	es := &runtimeMockEventStore{}
 	orchSvc := service.NewOrchestratorService(store, bc, es, nil, orchCfg)
-	meta := service.NewMetaAgentService(store, llmClient, orchSvc, orchCfg)
+	meta := service.NewMetaAgentService(store, llmClient, orchSvc, orchCfg, &config.Limits{MaxInputLen: 10000})
 
 	_, err := meta.DecomposeFeature(context.Background(), &plan.DecomposeRequest{
 		ProjectID: "p1",

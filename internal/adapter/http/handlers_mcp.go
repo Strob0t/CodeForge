@@ -36,7 +36,7 @@ func (h *Handlers) GetMCPServer(w http.ResponseWriter, r *http.Request) {
 
 // CreateMCPServer handles POST /api/v1/mcp/servers
 func (h *Handlers) CreateMCPServer(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[mcp.ServerDef](w, r)
+	req, ok := readJSON[mcp.ServerDef](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -51,7 +51,7 @@ func (h *Handlers) CreateMCPServer(w http.ResponseWriter, r *http.Request) {
 // UpdateMCPServer handles PUT /api/v1/mcp/servers/{id}
 func (h *Handlers) UpdateMCPServer(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	req, ok := readJSON[mcp.ServerDef](w, r)
+	req, ok := readJSON[mcp.ServerDef](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -101,7 +101,7 @@ func (h *Handlers) TestMCPServer(w http.ResponseWriter, r *http.Request) {
 // Accepts a ServerDef body (no ID needed) and performs a real MCP handshake
 // to verify the server is reachable before saving. Returns discovered tools.
 func (h *Handlers) TestMCPServerConnection(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[mcp.ServerDef](w, r)
+	req, ok := readJSON[mcp.ServerDef](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -149,7 +149,7 @@ type assignMCPRequest struct {
 // AssignMCPServerToProject handles POST /api/v1/projects/{id}/mcp-servers
 func (h *Handlers) AssignMCPServerToProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	req, ok := readJSON[assignMCPRequest](w, r)
+	req, ok := readJSON[assignMCPRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}

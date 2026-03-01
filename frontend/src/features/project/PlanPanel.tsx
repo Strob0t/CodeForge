@@ -10,12 +10,11 @@ import type {
   ExecutionPlan,
   PlanGraph,
   PlanProtocol,
-  PlanStatus,
-  PlanStepStatus,
   ReviewDecisionSnapshot,
   Task,
 } from "~/api/types";
 import { StepProgress } from "~/components/StepProgress";
+import { getVariant, planStatusVariant, stepStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, FormField, Input, Select, Textarea } from "~/ui";
 
@@ -27,42 +26,6 @@ interface PlanPanelProps {
   tasks: Task[];
   agents: Agent[];
   onError: (msg: string) => void;
-}
-
-function planStatusVariant(
-  status: PlanStatus,
-): "default" | "info" | "success" | "danger" | "warning" {
-  switch (status) {
-    case "pending":
-      return "default";
-    case "running":
-      return "info";
-    case "completed":
-      return "success";
-    case "failed":
-      return "danger";
-    case "cancelled":
-      return "warning";
-  }
-}
-
-function stepStatusVariant(
-  status: PlanStepStatus,
-): "default" | "info" | "success" | "danger" | "warning" {
-  switch (status) {
-    case "pending":
-      return "default";
-    case "running":
-      return "info";
-    case "completed":
-      return "success";
-    case "failed":
-      return "danger";
-    case "skipped":
-      return "default";
-    case "cancelled":
-      return "warning";
-  }
 }
 
 export default function PlanPanel(props: PlanPanelProps) {
@@ -453,7 +416,9 @@ export default function PlanPanel(props: PlanPanelProps) {
                               </p>
                             </Show>
                           </div>
-                          <Badge variant={stepStatusVariant(step.status)}>{step.status}</Badge>
+                          <Badge variant={getVariant(stepStatusVariant, step.status)}>
+                            {step.status}
+                          </Badge>
                         </div>
                       )}
                     </For>
@@ -617,7 +582,7 @@ export default function PlanPanel(props: PlanPanelProps) {
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                       <span class="font-medium text-sm">{p.name}</span>
-                      <Badge variant={planStatusVariant(p.status)} pill>
+                      <Badge variant={getVariant(planStatusVariant, p.status)} pill>
                         {p.status}
                       </Badge>
                       <Badge variant="default">{p.protocol}</Badge>
@@ -702,7 +667,9 @@ export default function PlanPanel(props: PlanPanelProps) {
                           <span class="w-6 text-center text-xs text-cf-text-muted">
                             {idx() + 1}
                           </span>
-                          <Badge variant={stepStatusVariant(step.status)}>{step.status}</Badge>
+                          <Badge variant={getVariant(stepStatusVariant, step.status)}>
+                            {step.status}
+                          </Badge>
                           <span class="text-cf-text-secondary">
                             {taskName(step.task_id)} / {agentName(step.agent_id)}
                           </span>

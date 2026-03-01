@@ -3,13 +3,9 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 )
 
@@ -49,10 +45,7 @@ func (s *Store) GetMCPServer(ctx context.Context, id string) (*mcp.ServerDef, er
 		FROM mcp_servers WHERE id = $1 AND tenant_id = $2`
 	srv, err := scanMCPServer(s.pool.QueryRow(ctx, q, id, tid))
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get mcp server %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get mcp server %s: %w", id, err)
+		return nil, notFoundWrap(err, "get mcp server %s", id)
 	}
 	return &srv, nil
 }
@@ -104,26 +97,14 @@ func (s *Store) UpdateMCPServer(ctx context.Context, srv *mcp.ServerDef) error {
 		srv.Command, argsJSON, srv.URL, envJSON, headersJSON,
 		srv.Enabled, tid,
 	)
-	if err != nil {
-		return fmt.Errorf("update mcp server %s: %w", srv.ID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update mcp server %s: %w", srv.ID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update mcp server %s", srv.ID)
 }
 
 // DeleteMCPServer deletes an MCP server by ID.
 func (s *Store) DeleteMCPServer(ctx context.Context, id string) error {
 	tid := tenantFromCtx(ctx)
 	tag, err := s.pool.Exec(ctx, `DELETE FROM mcp_servers WHERE id = $1 AND tenant_id = $2`, id, tid)
-	if err != nil {
-		return fmt.Errorf("delete mcp server %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete mcp server %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete mcp server %s", id)
 }
 
 // UpdateMCPServerStatus updates the status and last health check timestamp.
@@ -134,13 +115,7 @@ func (s *Store) UpdateMCPServerStatus(ctx context.Context, id string, status mcp
 		`UPDATE mcp_servers SET status=$2, last_health_check=$3, updated_at=now() WHERE id=$1 AND tenant_id=$4`,
 		id, string(status), now, tid,
 	)
-	if err != nil {
-		return fmt.Errorf("update mcp server status %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update mcp server status %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update mcp server status %s", id)
 }
 
 // AssignMCPServerToProject links an MCP server to a project.
@@ -159,13 +134,7 @@ func (s *Store) UnassignMCPServerFromProject(ctx context.Context, projectID, ser
 		`DELETE FROM project_mcp_servers WHERE project_id = $1 AND mcp_server_id = $2`,
 		projectID, serverID,
 	)
-	if err != nil {
-		return fmt.Errorf("unassign mcp server %s from project %s: %w", serverID, projectID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("unassign mcp server %s from project %s: %w", serverID, projectID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "unassign mcp server %s from project %s", serverID, projectID)
 }
 
 // ListMCPServersByProject returns all MCP servers assigned to a project.

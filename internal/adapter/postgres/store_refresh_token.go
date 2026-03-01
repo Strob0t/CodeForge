@@ -2,13 +2,11 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
@@ -33,10 +31,7 @@ func (s *Store) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*u
 	var rt user.RefreshToken
 	err := row.Scan(&rt.ID, &rt.UserID, &rt.TokenHash, &rt.ExpiresAt, &rt.CreatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get refresh token: %w", domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get refresh token: %w", err)
+		return nil, notFoundWrap(err, "get refresh token")
 	}
 	return &rt, nil
 }
@@ -51,10 +46,7 @@ func (s *Store) getRefreshTokenByHashForUpdate(ctx context.Context, tx pgx.Tx, t
 	var rt user.RefreshToken
 	err := row.Scan(&rt.ID, &rt.UserID, &rt.TokenHash, &rt.ExpiresAt, &rt.CreatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get refresh token: %w", domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get refresh token: %w", err)
+		return nil, notFoundWrap(err, "get refresh token")
 	}
 	return &rt, nil
 }

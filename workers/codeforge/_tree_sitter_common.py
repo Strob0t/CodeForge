@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from codeforge.constants import CHARS_PER_TOKEN
+
 # Directories to skip during file collection
 _SKIP_DIRS: frozenset[str] = frozenset(
     {
@@ -25,8 +27,8 @@ _MAX_FILE_SIZE = 100 * 1024
 # Maximum number of files to collect
 _MAX_FILES = 2000
 
-# Approximate tokens per character ratio (conservative)
-_CHARS_PER_TOKEN = 4
+# Re-export for backwards compatibility within tree-sitter modules.
+_CHARS_PER_TOKEN = CHARS_PER_TOKEN
 
 # File extension to tree-sitter language name mapping
 _EXTENSION_MAP: dict[str, str] = {

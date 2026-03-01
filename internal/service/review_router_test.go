@@ -38,7 +38,7 @@ func newTestReviewRouter(serverURL string, enabled bool) *ReviewRouterService {
 		ReviewRouterModel:         "test-model",
 		DecomposeModel:            "test-model",
 	}
-	return NewReviewRouterService(llm, cfg)
+	return NewReviewRouterService(llm, cfg, &config.Limits{MaxInputLen: 10000})
 }
 
 func TestReviewRouter_DisabledReturnsNoReview(t *testing.T) {

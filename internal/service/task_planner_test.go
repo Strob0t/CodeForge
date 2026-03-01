@@ -28,7 +28,7 @@ func TestGatherProjectContext_ValidWorkspace(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{MaxTeamSize: 5}
-	svc := service.NewTaskPlannerService(nil, nil, store, orchCfg)
+	svc := service.NewTaskPlannerService(nil, nil, store, orchCfg, &config.Limits{MaxEntries: 100})
 
 	ctx := context.Background()
 	result, err := svc.GatherProjectContextForTest(ctx, "proj-1")
@@ -66,7 +66,7 @@ func TestGatherProjectContext_EmptyWorkspace(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{MaxTeamSize: 5}
-	svc := service.NewTaskPlannerService(nil, nil, store, orchCfg)
+	svc := service.NewTaskPlannerService(nil, nil, store, orchCfg, &config.Limits{MaxEntries: 100})
 
 	ctx := context.Background()
 	result, err := svc.GatherProjectContextForTest(ctx, "proj-1")
@@ -80,7 +80,7 @@ func TestGatherProjectContext_EmptyWorkspace(t *testing.T) {
 
 func TestEstimateComplexity(t *testing.T) {
 	orchCfg := &config.Orchestrator{MaxTeamSize: 5}
-	svc := service.NewTaskPlannerService(nil, nil, nil, orchCfg)
+	svc := service.NewTaskPlannerService(nil, nil, nil, orchCfg, &config.Limits{MaxEntries: 100})
 
 	tests := []struct {
 		steps    int

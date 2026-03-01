@@ -6,11 +6,12 @@ import asyncio
 import logging
 from typing import Any
 
+from codeforge.constants import MAX_SEARCH_MATCHES
 from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
 
-MAX_MATCHES = 100
+MAX_MATCHES = MAX_SEARCH_MATCHES
 
 DEFINITION = ToolDefinition(
     name="search_files",

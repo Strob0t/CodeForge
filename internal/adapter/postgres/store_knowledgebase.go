@@ -2,12 +2,8 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 )
 
@@ -16,10 +12,7 @@ import (
 func (s *Store) CreateKnowledgeBase(ctx context.Context, req *knowledgebase.CreateRequest) (*knowledgebase.KnowledgeBase, error) {
 	tid := tenantFromCtx(ctx)
 
-	tags := req.Tags
-	if tags == nil {
-		tags = []string{}
-	}
+	tags := orEmpty(req.Tags)
 
 	var kb knowledgebase.KnowledgeBase
 	err := s.pool.QueryRow(ctx,
@@ -44,10 +37,7 @@ func (s *Store) GetKnowledgeBase(ctx context.Context, id string) (*knowledgebase
 		 FROM knowledge_bases WHERE id = $1 AND tenant_id = $2`, id, tid,
 	).Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get knowledge base %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get knowledge base %s: %w", id, err)
+		return nil, notFoundWrap(err, "get knowledge base %s", id)
 	}
 
 	return &kb, nil
@@ -88,11 +78,8 @@ func (s *Store) UpdateKnowledgeBase(ctx context.Context, id string, req knowledg
 		tag, err := tx.Exec(ctx,
 			`UPDATE knowledge_bases SET name = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3`,
 			*req.Name, id, tid)
-		if err != nil {
-			return nil, fmt.Errorf("update knowledge base name: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return nil, fmt.Errorf("update knowledge base %s: %w", id, domain.ErrNotFound)
+		if err := execExpectOne(tag, err, "update knowledge base %s", id); err != nil {
+			return nil, err
 		}
 	}
 	if req.Description != nil {
@@ -123,13 +110,7 @@ func (s *Store) DeleteKnowledgeBase(ctx context.Context, id string) error {
 	tid := tenantFromCtx(ctx)
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM knowledge_bases WHERE id = $1 AND tenant_id = $2`, id, tid)
-	if err != nil {
-		return fmt.Errorf("delete knowledge base %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete knowledge base %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete knowledge base %s", id)
 }
 
 func (s *Store) UpdateKnowledgeBaseStatus(ctx context.Context, id, status string, chunkCount int) error {
@@ -137,13 +118,7 @@ func (s *Store) UpdateKnowledgeBaseStatus(ctx context.Context, id, status string
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE knowledge_bases SET status = $1, chunk_count = $2, updated_at = now() WHERE id = $3 AND tenant_id = $4`,
 		status, chunkCount, id, tid)
-	if err != nil {
-		return fmt.Errorf("update knowledge base status: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update knowledge base %s status: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update knowledge base %s status", id)
 }
 
 // --- Scope ↔ Knowledge Base join table ---
@@ -163,13 +138,7 @@ func (s *Store) RemoveKnowledgeBaseFromScope(ctx context.Context, scopeID, kbID 
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM scope_knowledge_bases WHERE scope_id = $1 AND knowledge_base_id = $2`,
 		scopeID, kbID)
-	if err != nil {
-		return fmt.Errorf("remove knowledge base from scope: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("knowledge base %s not in scope %s: %w", kbID, scopeID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "knowledge base %s not in scope %s", kbID, scopeID)
 }
 
 func (s *Store) ListKnowledgeBasesByScope(ctx context.Context, scopeID string) ([]knowledgebase.KnowledgeBase, error) {

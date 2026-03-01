@@ -4,22 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import shutil
 from typing import Any
 
 from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
+from codeforge.config import resolve_backend_path
+from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
+from codeforge.subprocess_utils import check_cli_available
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TIMEOUT = 600  # 10 minutes
+_DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
 
 
 class AiderExecutor:
     """Execute tasks using the Aider CLI."""
 
     def __init__(self, cli_path: str | None = None) -> None:
-        self._cli_path = cli_path or os.environ.get("CODEFORGE_AIDER_PATH", "aider")
+        self._cli_path = resolve_backend_path(cli_path, "CODEFORGE_AIDER_PATH", "aider")
         self._processes: dict[str, asyncio.subprocess.Process] = {}
 
     @property
@@ -33,20 +34,7 @@ class AiderExecutor:
 
     async def check_available(self) -> bool:
         """Check if aider CLI is installed and reachable."""
-        path = shutil.which(self._cli_path)
-        if path is not None:
-            return True
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                self._cli_path,
-                "--version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=10)
-            return proc.returncode == 0
-        except (OSError, TimeoutError):
-            return False
+        return await check_cli_available(self._cli_path)
 
     async def execute(
         self,

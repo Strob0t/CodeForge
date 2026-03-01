@@ -9,6 +9,7 @@ import type {
   ScopeType,
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { scopeTypeVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -229,11 +230,6 @@ export default function ScopesPage() {
 // ScopeCard
 // ---------------------------------------------------------------------------
 
-const typeVariants: Record<string, "primary" | "info"> = {
-  shared: "info",
-  global: "primary",
-};
-
 function ScopeCard(props: {
   scope: RetrievalScope;
   projects: Project[];
@@ -272,7 +268,7 @@ function ScopeCard(props: {
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          <Badge variant={typeVariants[props.scope.type] ?? "info"} pill>
+          <Badge variant={scopeTypeVariant[props.scope.type] ?? "info"} pill>
             {t(`scope.type.${props.scope.type}` as keyof typeof import("~/i18n/en").default)}
           </Badge>
           <span class="text-xs text-cf-text-muted">

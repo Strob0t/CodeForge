@@ -4,7 +4,7 @@ import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { api } from "~/api/client";
 import { useAuth } from "~/components/AuthProvider";
 import { useI18n } from "~/i18n";
-import { Alert, Button, Card, FormField, Input } from "~/ui";
+import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function SetupPage(): JSX.Element {
   const { t } = useI18n();
@@ -105,11 +105,7 @@ export default function SetupPage(): JSX.Element {
             </p>
           </Show>
 
-          <Show when={error()}>
-            <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
-              {error()}
-            </Alert>
-          </Show>
+          <ErrorBanner error={error} onDismiss={() => setError("")} />
 
           <form onSubmit={handleSubmit}>
             <FormField label={t("auth.setup.email")} id="setup_email" required class="mb-4">

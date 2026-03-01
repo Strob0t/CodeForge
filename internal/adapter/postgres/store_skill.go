@@ -2,12 +2,8 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
 )
 
@@ -38,10 +34,7 @@ func (s *Store) GetSkill(ctx context.Context, id string) (*skill.Skill, error) {
 		&sk.Language, &sk.Code, &sk.Tags, &sk.Enabled, &sk.CreatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get skill %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get skill %s: %w", id, err)
+		return nil, notFoundWrap(err, "get skill %s", id)
 	}
 	return &sk, nil
 }
@@ -86,13 +79,7 @@ func (s *Store) UpdateSkill(ctx context.Context, sk *skill.Skill) error {
 		sk.ID, sk.Name, sk.Description, sk.Language, sk.Code, tags, sk.Enabled,
 		tenantFromCtx(ctx),
 	)
-	if err != nil {
-		return fmt.Errorf("update skill %s: %w", sk.ID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update skill %s: %w", sk.ID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update skill %s", sk.ID)
 }
 
 // DeleteSkill removes a skill by ID.
@@ -100,11 +87,5 @@ func (s *Store) DeleteSkill(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM skills WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx))
-	if err != nil {
-		return fmt.Errorf("delete skill %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete skill %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete skill %s", id)
 }

@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, RunStatus, Task, ToolCallEvent } from "~/api/types";
 import { StepProgress } from "~/components/StepProgress";
 import { useToast } from "~/components/Toast";
+import { getVariant, runStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Select } from "~/ui";
 
@@ -14,27 +15,6 @@ interface RunPanelProps {
   tasks: Task[];
   agents: Agent[];
   onError: (msg: string) => void;
-}
-
-function runStatusVariant(
-  status: RunStatus,
-): "default" | "info" | "success" | "danger" | "warning" | "primary" {
-  switch (status) {
-    case "pending":
-      return "default";
-    case "running":
-      return "info";
-    case "completed":
-      return "success";
-    case "failed":
-      return "danger";
-    case "cancelled":
-      return "warning";
-    case "timeout":
-      return "warning";
-    case "quality_gate":
-      return "primary";
-  }
 }
 
 export default function RunPanel(props: RunPanelProps) {
@@ -248,7 +228,7 @@ export default function RunPanel(props: RunPanelProps) {
             >
               <div class="mb-2 flex items-center justify-between">
                 <div class="flex items-center gap-2">
-                  <Badge variant={runStatusVariant(run().status)}>{run().status}</Badge>
+                  <Badge variant={getVariant(runStatusVariant, run().status)}>{run().status}</Badge>
                   <span class="text-xs text-cf-text-muted">
                     {t("run.runLabel")} {run().id.slice(0, 8)}
                   </span>
@@ -338,7 +318,7 @@ export default function RunPanel(props: RunPanelProps) {
                 {(r) => (
                   <div class="flex items-center justify-between rounded-cf-sm bg-cf-bg-inset px-3 py-2 text-sm">
                     <div class="flex items-center gap-2">
-                      <Badge variant={runStatusVariant(r.status)} pill>
+                      <Badge variant={getVariant(runStatusVariant, r.status)} pill>
                         {r.status}
                       </Badge>
                       <span class="font-mono text-xs text-cf-text-muted">{r.id.slice(0, 8)}</span>

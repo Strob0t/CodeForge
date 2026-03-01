@@ -7,9 +7,9 @@ import type {
   Milestone,
   ProviderInfo,
   RoadmapFeature,
-  RoadmapStatus,
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { featureStatusVariant, getVariant, roadmapStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, ConfirmDialog, Input, Select } from "~/ui";
 
@@ -18,36 +18,6 @@ import DragList, { type DragHandleProps } from "./DragList";
 interface RoadmapPanelProps {
   projectId: string;
   onError: (msg: string) => void;
-}
-
-function roadmapStatusVariant(status: RoadmapStatus): "default" | "info" | "success" | "warning" {
-  switch (status) {
-    case "draft":
-      return "default";
-    case "active":
-      return "info";
-    case "complete":
-      return "success";
-    case "archived":
-      return "warning";
-  }
-}
-
-function featureStatusVariant(
-  status: FeatureStatus,
-): "default" | "info" | "warning" | "success" | "danger" {
-  switch (status) {
-    case "backlog":
-      return "default";
-    case "planned":
-      return "info";
-    case "in_progress":
-      return "warning";
-    case "done":
-      return "success";
-    case "cancelled":
-      return "danger";
-  }
 }
 
 export default function RoadmapPanel(props: RoadmapPanelProps) {
@@ -322,7 +292,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
             <div class="mb-4 flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="text-base font-medium">{rm().title}</span>
-                <Badge variant={roadmapStatusVariant(rm().status)} pill>
+                <Badge variant={getVariant(roadmapStatusVariant, rm().status)} pill>
                   {rm().status}
                 </Badge>
               </div>
@@ -470,20 +440,22 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
             <DragList
               items={rm().milestones ?? []}
               getId={(m: Milestone) => m.id}
-              onReorder={async (reordered: Milestone[]) => {
-                try {
-                  for (let i = 0; i < reordered.length; i++) {
-                    if (reordered[i].sort_order !== i) {
-                      await api.roadmap.updateMilestone(reordered[i].id, {
-                        sort_order: i,
-                        version: reordered[i].version,
-                      });
+              onReorder={(reordered: Milestone[]) => {
+                void (async () => {
+                  try {
+                    for (let i = 0; i < reordered.length; i++) {
+                      if (reordered[i].sort_order !== i) {
+                        await api.roadmap.updateMilestone(reordered[i].id, {
+                          sort_order: i,
+                          version: reordered[i].version,
+                        });
+                      }
                     }
+                    refetch();
+                  } catch (e) {
+                    toast("error", e instanceof Error ? e.message : "Reorder failed");
                   }
-                  refetch();
-                } catch (e) {
-                  toast("error", e instanceof Error ? e.message : "Reorder failed");
-                }
+                })();
               }}
               renderItem={(m: Milestone, dragHandleProps: DragHandleProps) => (
                 <div class="mb-3 rounded-cf-sm border border-cf-border-subtle bg-cf-bg-surface-alt p-3">
@@ -496,7 +468,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                       &#x2630;
                     </span>
                     <span class="text-sm font-medium">{m.title}</span>
-                    <Badge variant={roadmapStatusVariant(m.status)} pill>
+                    <Badge variant={getVariant(roadmapStatusVariant, m.status)} pill>
                       {m.status}
                     </Badge>
                   </div>
@@ -551,7 +523,9 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                                 {(label) => <Badge variant="default">{label}</Badge>}
                               </For>
                             </Show>
-                            <Badge variant={featureStatusVariant(f.status)}>{f.status}</Badge>
+                            <Badge variant={getVariant(featureStatusVariant, f.status)}>
+                              {f.status}
+                            </Badge>
                           </div>
                         </div>
                       )}

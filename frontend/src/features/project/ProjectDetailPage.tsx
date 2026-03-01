@@ -5,18 +5,19 @@ import { api } from "~/api/client";
 import type { BudgetAlertEvent } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
+import {
+  DEFAULT_SPLIT,
+  MAX_SPLIT,
+  MIN_SPLIT,
+  ROADMAP_COLLAPSED_KEY,
+  SPLIT_RATIO_KEY,
+} from "~/config/constants";
 import { useI18n } from "~/i18n";
-import { Alert, Badge, Button } from "~/ui";
+import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
 import RoadmapPanel from "./RoadmapPanel";
-
-const SPLIT_RATIO_KEY = "codeforge-split-ratio";
-const ROADMAP_COLLAPSED_KEY = "codeforge-roadmap-collapsed";
-const DEFAULT_SPLIT = 50;
-const MIN_SPLIT = 20;
-const MAX_SPLIT = 80;
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
@@ -359,9 +360,7 @@ export default function ProjectDetailPage() {
             {/* Error Banner */}
             <Show when={error()}>
               <div class="mx-4 mt-2 flex-shrink-0">
-                <Alert variant="error" onDismiss={() => setError("")}>
-                  {error()}
-                </Alert>
+                <ErrorBanner error={error} onDismiss={() => setError("")} class="" />
               </div>
             </Show>
 

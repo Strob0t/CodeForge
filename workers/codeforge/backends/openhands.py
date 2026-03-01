@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import os
-from typing import Any
-
-from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
+from codeforge.backends._base import BackendInfo, StubBackendExecutor
+from codeforge.config import resolve_backend_path
 
 
-class OpenHandsExecutor:
+class OpenHandsExecutor(StubBackendExecutor):
     """Stub executor for the OpenHands backend."""
 
     def __init__(self, url: str | None = None) -> None:
-        self._url = url or os.environ.get("CODEFORGE_OPENHANDS_URL", "http://localhost:3000")
+        self._url = resolve_backend_path(url, "CODEFORGE_OPENHANDS_URL", "http://localhost:3000")
 
     @property
     def info(self) -> BackendInfo:
@@ -34,22 +32,3 @@ class OpenHandsExecutor:
                 return resp.status_code == 200
         except Exception:
             return False
-
-    async def execute(
-        self,
-        task_id: str,
-        prompt: str,
-        workspace_path: str,
-        config: dict[str, Any] | None = None,
-        on_output: OutputCallback | None = None,
-    ) -> TaskResult:
-        return TaskResult(
-            status="failed",
-            error=(
-                f"Backend '{self.info.display_name}' is not yet implemented in CodeForge. "
-                "OpenHands support is planned — see docs/features/04-agent-orchestration.md"
-            ),
-        )
-
-    async def cancel(self, task_id: str) -> None:
-        pass  # No-op for stub

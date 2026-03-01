@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -27,17 +26,15 @@ type MCPTestTool struct {
 	Description string `json:"description,omitempty"`
 }
 
-const mcpTestTimeout = 10 * time.Second
-
 // TestConnection performs a real MCP handshake against the given server
 // definition. It creates a client, calls Initialize and ListTools, then
-// closes the connection. The whole operation is bounded by a 10s timeout.
+// closes the connection. The whole operation is bounded by the configured timeout.
 func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*MCPTestResult, error) {
 	if err := def.Validate(); err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, mcpTestTimeout)
+	ctx, cancel := context.WithTimeout(ctx, s.limits.MCPTestTimeout)
 	defer cancel()
 
 	client, err := s.createClient(def)

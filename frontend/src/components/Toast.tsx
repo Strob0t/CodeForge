@@ -46,8 +46,7 @@ export function useToast(): ToastContextValue {
 // Provider
 // ---------------------------------------------------------------------------
 
-const MAX_VISIBLE = 3;
-const DEFAULT_DISMISS_MS = 5000;
+import { DEFAULT_DISMISS_MS, MAX_VISIBLE_TOASTS } from "~/config/constants";
 
 let nextId = 1;
 
@@ -71,7 +70,7 @@ export function ToastProvider(props: ParentProps): JSX.Element {
     setToasts((prev) => {
       const next = [...prev, { id, level, message, dismissMs }];
       // Evict oldest when exceeding max
-      while (next.length > MAX_VISIBLE) {
+      while (next.length > MAX_VISIBLE_TOASTS) {
         const removed = next.shift();
         if (removed) {
           clearTimeout(timers.get(removed.id));

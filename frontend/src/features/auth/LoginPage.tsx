@@ -1,9 +1,9 @@
 import { useNavigate } from "@solidjs/router";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, type JSX } from "solid-js";
 
 import { useAuth } from "~/components/AuthProvider";
 import { useI18n } from "~/i18n";
-import { Alert, Button, Card, FormField, Input } from "~/ui";
+import { Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function LoginPage(): JSX.Element {
   const { t } = useI18n();
@@ -40,11 +40,7 @@ export default function LoginPage(): JSX.Element {
             {t("auth.title")}
           </h1>
 
-          <Show when={error()}>
-            <Alert variant="error" class="mb-4" onDismiss={() => setError("")}>
-              {error()}
-            </Alert>
-          </Show>
+          <ErrorBanner error={error} onDismiss={() => setError("")} />
 
           <form onSubmit={handleSubmit}>
             <FormField label={t("auth.email")} id="email" required class="mb-4">

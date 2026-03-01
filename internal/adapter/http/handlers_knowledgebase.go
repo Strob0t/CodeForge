@@ -12,68 +12,27 @@ import (
 
 // ListKnowledgeBases handles GET /api/v1/knowledge-bases
 func (h *Handlers) ListKnowledgeBases(w http.ResponseWriter, r *http.Request) {
-	kbs, err := h.KnowledgeBases.List(r.Context())
-	if err != nil {
-		writeDomainError(w, err, "failed to list knowledge bases")
-		return
-	}
-	if kbs == nil {
-		kbs = []knowledgebase.KnowledgeBase{}
-	}
-	writeJSON(w, http.StatusOK, kbs)
+	handleList(h.KnowledgeBases.List)(w, r)
 }
 
 // GetKnowledgeBase handles GET /api/v1/knowledge-bases/{id}
 func (h *Handlers) GetKnowledgeBase(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	kb, err := h.KnowledgeBases.Get(r.Context(), id)
-	if err != nil {
-		writeDomainError(w, err, "knowledge base not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, kb)
+	handleGet(h.KnowledgeBases.Get, "knowledge base not found")(w, r)
 }
 
 // CreateKnowledgeBase handles POST /api/v1/knowledge-bases
 func (h *Handlers) CreateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[knowledgebase.CreateRequest](w, r)
-	if !ok {
-		return
-	}
-
-	kb, err := h.KnowledgeBases.Create(r.Context(), &req)
-	if err != nil {
-		writeDomainError(w, err, "failed to create knowledge base")
-		return
-	}
-	writeJSON(w, http.StatusCreated, kb)
+	handleCreate(h.Limits.MaxRequestBodySize, h.KnowledgeBases.Create)(w, r)
 }
 
 // UpdateKnowledgeBase handles PUT /api/v1/knowledge-bases/{id}
 func (h *Handlers) UpdateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	req, ok := readJSON[knowledgebase.UpdateRequest](w, r)
-	if !ok {
-		return
-	}
-
-	kb, err := h.KnowledgeBases.Update(r.Context(), id, req)
-	if err != nil {
-		writeDomainError(w, err, "failed to update knowledge base")
-		return
-	}
-	writeJSON(w, http.StatusOK, kb)
+	handleUpdate(h.Limits.MaxRequestBodySize, h.KnowledgeBases.Update, "knowledge base not found")(w, r)
 }
 
 // DeleteKnowledgeBase handles DELETE /api/v1/knowledge-bases/{id}
 func (h *Handlers) DeleteKnowledgeBase(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := h.KnowledgeBases.Delete(r.Context(), id); err != nil {
-		writeDomainError(w, err, "failed to delete knowledge base")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	handleDelete(h.KnowledgeBases.Delete, "knowledge base not found")(w, r)
 }
 
 // IndexKnowledgeBase handles POST /api/v1/knowledge-bases/{id}/index
@@ -92,12 +51,11 @@ func (h *Handlers) AttachKnowledgeBaseToScope(w http.ResponseWriter, r *http.Req
 
 	req, ok := readJSON[struct {
 		KnowledgeBaseID string `json:"knowledge_base_id"`
-	}](w, r)
+	}](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
-	if req.KnowledgeBaseID == "" {
-		writeError(w, http.StatusBadRequest, "knowledge_base_id is required")
+	if !requireField(w, req.KnowledgeBaseID, "knowledge_base_id") {
 		return
 	}
 
@@ -122,7 +80,7 @@ func (h *Handlers) DetachKnowledgeBaseFromScope(w http.ResponseWriter, r *http.R
 
 // ListScopeKnowledgeBases handles GET /api/v1/scopes/{id}/knowledge-bases
 func (h *Handlers) ListScopeKnowledgeBases(w http.ResponseWriter, r *http.Request) {
-	scopeID := chi.URLParam(r, "id")
+	scopeID := urlParam(r, "id")
 
 	kbs, err := h.KnowledgeBases.ListByScope(r.Context(), scopeID)
 	if err != nil {

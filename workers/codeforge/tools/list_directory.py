@@ -6,12 +6,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
+from codeforge.constants import MAX_DIR_ENTRIES, MAX_LIST_DEPTH
+from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
 
-MAX_ENTRIES = 500
-MAX_DEPTH = 3
+MAX_ENTRIES = MAX_DIR_ENTRIES
+MAX_DEPTH = MAX_LIST_DEPTH
 
 DEFINITION = ToolDefinition(
     name="list_directory",
@@ -59,17 +60,13 @@ class ListDirectoryTool(ToolExecutor):
     """List directory contents."""
 
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
-        workspace = Path(workspace_path).resolve()
         rel = arguments.get("path", ".")
         recursive = arguments.get("recursive", False)
 
-        target = (workspace / rel).resolve()
-
-        if not str(target).startswith(str(workspace)):
-            return ToolResult(output="", error="path traversal blocked", success=False)
-
-        if not target.is_dir():
-            return ToolResult(output="", error=f"not a directory: {rel}", success=False)
+        target, err = resolve_safe_path(workspace_path, rel, must_be_dir=True)
+        if err is not None:
+            return err
+        workspace = Path(workspace_path).resolve()
 
         entries = _list_entries(target, workspace, recursive)
 

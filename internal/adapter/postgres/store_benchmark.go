@@ -3,12 +3,8 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
@@ -40,10 +36,7 @@ func (s *Store) GetBenchmarkRun(ctx context.Context, id string) (*benchmark.Run,
 		FROM benchmark_runs WHERE id = $1`
 	r, err := scanBenchmarkRun(s.pool.QueryRow(ctx, q, id))
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("get benchmark run %s: %w", id, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get benchmark run %s: %w", id, err)
+		return nil, notFoundWrap(err, "get benchmark run %s", id)
 	}
 	return &r, nil
 }
@@ -84,25 +77,13 @@ func (s *Store) UpdateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 		r.ID, string(r.Status), scores, r.TotalCost,
 		r.TotalTokens, r.TotalDurationMs, r.CompletedAt,
 	)
-	if err != nil {
-		return fmt.Errorf("update benchmark run %s: %w", r.ID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("update benchmark run %s: %w", r.ID, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "update benchmark run %s", r.ID)
 }
 
 // DeleteBenchmarkRun deletes a benchmark run and its results (ON DELETE CASCADE).
 func (s *Store) DeleteBenchmarkRun(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM benchmark_runs WHERE id=$1`, id)
-	if err != nil {
-		return fmt.Errorf("delete benchmark run %s: %w", id, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete benchmark run %s: %w", id, domain.ErrNotFound)
-	}
-	return nil
+	return execExpectOne(tag, err, "delete benchmark run %s", id)
 }
 
 // CreateBenchmarkResult inserts a single benchmark result.
@@ -170,12 +151,4 @@ func scanBenchmarkRun(row scannable) (benchmark.Run, error) {
 	}
 	r.Metrics = metrics
 	return r, nil
-}
-
-// pgTextArray converts a string slice to a pgx-compatible text array.
-func pgTextArray(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
 }

@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorBanner,
   FormField,
   Input,
   LoadingState,
@@ -107,11 +108,7 @@ export default function ModelsPage() {
         </div>
       }
     >
-      <Show when={error()}>
-        <Alert variant="error" onDismiss={() => setError("")} class="mb-4">
-          {error()}
-        </Alert>
-      </Show>
+      <ErrorBanner error={error} onDismiss={() => setError("")} />
 
       <Show when={showForm()}>
         <form onSubmit={handleAdd} class="mb-6" aria-label="Add model">

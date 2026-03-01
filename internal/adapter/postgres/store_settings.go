@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 )
 
@@ -39,10 +36,7 @@ func (s *Store) GetSetting(ctx context.Context, key string) (*settings.Setting, 
 		`SELECT key, value, updated_at FROM settings WHERE key = $1 AND tenant_id = $2`,
 		key, tenantFromCtx(ctx)).Scan(&st.Key, &st.Value, &st.UpdatedAt)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("get setting %s: %w", key, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get setting %s: %w", key, err)
+		return nil, notFoundWrap(err, "get setting %s", key)
 	}
 	return &st, nil
 }

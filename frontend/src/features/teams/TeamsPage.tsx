@@ -8,27 +8,11 @@ import type {
   Project,
   SharedContext,
   TeamRole,
-  TeamStatus,
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { teamRoleVariant, teamStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, EmptyState, Input, PageLayout, Select } from "~/ui";
-import type { BadgeVariant } from "~/ui/primitives/Badge";
-
-const TEAM_STATUS_VARIANTS: Record<TeamStatus, BadgeVariant> = {
-  initializing: "default",
-  active: "success",
-  completed: "info",
-  failed: "danger",
-};
-
-const ROLE_VARIANTS: Record<TeamRole, BadgeVariant> = {
-  coder: "info",
-  reviewer: "primary",
-  tester: "success",
-  documenter: "warning",
-  planner: "danger",
-};
 
 const PROTOCOLS = ["round-robin", "pipeline", "parallel", "consensus", "ping-pong"] as const;
 const ROLES: TeamRole[] = ["coder", "reviewer", "tester", "documenter", "planner"];
@@ -320,7 +304,7 @@ export default function TeamsPage() {
                       >
                         {team.name}
                       </button>
-                      <Badge variant={TEAM_STATUS_VARIANTS[team.status]} pill>
+                      <Badge variant={teamStatusVariant[team.status]} pill>
                         {team.status}
                       </Badge>
                       <Badge variant="default">{team.protocol}</Badge>
@@ -352,7 +336,7 @@ export default function TeamsPage() {
                         <For each={team.members}>
                           {(m) => (
                             <div class="flex items-center gap-2 text-sm">
-                              <Badge variant={ROLE_VARIANTS[m.role]} pill>
+                              <Badge variant={teamRoleVariant[m.role]} pill>
                                 {t(`teams.role.${m.role}`)}
                               </Badge>
                               <span class="text-cf-text-secondary">{agentName(m.agent_id)}</span>

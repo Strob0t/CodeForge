@@ -10,13 +10,12 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from codeforge.constants import CHARS_PER_TOKEN
+
 if TYPE_CHECKING:
     from codeforge.models import ContextEntry, ConversationMessagePayload
 
 logger = logging.getLogger(__name__)
-
-# Rough estimate: 1 token ~ 4 characters.
-_CHARS_PER_TOKEN = 4
 
 # Maximum characters for tool result output before truncation.
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 10_000
@@ -24,7 +23,7 @@ DEFAULT_TOOL_OUTPUT_MAX_CHARS = 10_000
 
 def estimate_tokens(text: str) -> int:
     """Fast token estimate using 4-chars-per-token heuristic."""
-    return max(1, len(text) // _CHARS_PER_TOKEN)
+    return max(1, len(text) // CHARS_PER_TOKEN)
 
 
 def truncate_tool_result(text: str, max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS) -> str:

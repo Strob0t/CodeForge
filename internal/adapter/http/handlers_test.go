@@ -748,13 +748,13 @@ func newTestRouter() chi.Router {
 	}
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
-	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg)
-	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
+	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
-	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
+	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg, &config.Limits{})
 	costSvc := service.NewCostService(store)
 	settingsSvc := service.NewSettingsService(store)
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
@@ -780,6 +780,14 @@ func newTestRouter() chi.Router {
 		Settings:         settingsSvc,
 		VCSAccounts:      vcsAccountSvc,
 		Conversations:    conversationSvc,
+		Limits: &config.Limits{
+			MaxRequestBodySize: 1 << 20,
+			MaxQueryLength:     2000,
+			MaxFiles:           50,
+			MaxFileSize:        32768,
+			MaxInputLen:        10000,
+			MaxEntries:         100,
+		},
 	}
 
 	r := chi.NewRouter()
@@ -1626,13 +1634,13 @@ func TestGenerateRepoMap(t *testing.T) {
 	}
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
-	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg)
-	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
+	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
-	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
+	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg, &config.Limits{})
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
@@ -1650,6 +1658,7 @@ func TestGenerateRepoMap(t *testing.T) {
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
 		Cost:             service.NewCostService(store),
+		Limits:           &config.Limits{MaxRequestBodySize: 1 << 20, MaxQueryLength: 2000},
 	}
 
 	r := chi.NewRouter()
@@ -1683,13 +1692,13 @@ func TestIndexProject(t *testing.T) {
 	}
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
-	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg)
-	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg)
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg)
+	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
+	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
-	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg)
+	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg, &config.Limits{})
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
@@ -1707,6 +1716,7 @@ func TestIndexProject(t *testing.T) {
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
 		Cost:             service.NewCostService(store),
+		Limits:           &config.Limits{MaxRequestBodySize: 1 << 20, MaxQueryLength: 2000},
 	}
 
 	r := chi.NewRouter()

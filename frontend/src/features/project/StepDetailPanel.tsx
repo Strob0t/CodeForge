@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 
 import type { DebateStatusEvent, PlanGraphNode, ReviewDecisionSnapshot } from "~/api/types";
+import { getVariant, nodeStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Card } from "~/ui";
 
@@ -13,22 +14,6 @@ interface StepDetailPanelProps {
   onClose: () => void;
 }
 
-function statusVariant(status: string): "default" | "info" | "success" | "danger" | "warning" {
-  switch (status) {
-    case "running":
-      return "info";
-    case "completed":
-      return "success";
-    case "failed":
-      return "danger";
-    case "review":
-    case "cancelled":
-      return "warning";
-    default:
-      return "default";
-  }
-}
-
 export default function StepDetailPanel(props: StepDetailPanelProps) {
   const { t } = useI18n();
 
@@ -38,11 +23,13 @@ export default function StepDetailPanel(props: StepDetailPanelProps) {
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <h4 class="text-sm font-semibold">{props.taskName}</h4>
-            <Badge variant={statusVariant(props.step.status)}>{props.step.status}</Badge>
+            <Badge variant={getVariant(nodeStatusVariant, props.step.status)}>
+              {props.step.status}
+            </Badge>
           </div>
           <button
             class="text-cf-text-muted hover:text-cf-text-primary text-xs"
-            onClick={props.onClose}
+            onClick={() => props.onClose()}
             aria-label={t("common.close")}
           >
             {t("common.close")}

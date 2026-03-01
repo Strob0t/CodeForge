@@ -5,6 +5,13 @@ from __future__ import annotations
 import os
 
 
+def resolve_backend_path(explicit: str | None, env_var: str, default: str) -> str:
+    """Resolve a backend CLI/URL path using explicit value, env var, or default."""
+    if explicit:
+        return explicit
+    return os.environ.get(env_var, default)
+
+
 class WorkerSettings:
     """Configuration for the Python worker, loaded from environment variables.
 

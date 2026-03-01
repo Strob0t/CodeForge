@@ -26,16 +26,19 @@ type reviewRouterData struct {
 type ReviewRouterService struct {
 	llm     *litellm.Client
 	orchCfg *config.Orchestrator
+	limits  *config.Limits
 }
 
 // NewReviewRouterService creates a ReviewRouterService.
 func NewReviewRouterService(
 	llm *litellm.Client,
 	orchCfg *config.Orchestrator,
+	limits *config.Limits,
 ) *ReviewRouterService {
 	return &ReviewRouterService{
 		llm:     llm,
 		orchCfg: orchCfg,
+		limits:  limits,
 	}
 }
 
@@ -55,7 +58,7 @@ func (s *ReviewRouterService) Evaluate(ctx context.Context, step *plan.Step, tas
 		TaskID:      step.TaskID,
 		AgentID:     step.AgentID,
 		ModeID:      step.ModeID,
-		Description: sanitizePromptInput(taskDescription),
+		Description: sanitizePromptInput(taskDescription, s.limits.MaxInputLen),
 	}
 
 	var buf bytes.Buffer

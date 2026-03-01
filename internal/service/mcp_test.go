@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestNewMCPService(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 	if svc == nil {
 		t.Fatal("expected non-nil MCPService")
 	}
@@ -22,7 +23,7 @@ func TestNewMCPService(t *testing.T) {
 }
 
 func TestRegister(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	def := mcp.ServerDef{
 		Name:      "test-server",
@@ -51,7 +52,7 @@ func TestRegister(t *testing.T) {
 }
 
 func TestRegisterDuplicate(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	def := mcp.ServerDef{
 		ID:        "dup-id",
@@ -75,7 +76,7 @@ func TestRegisterDuplicate(t *testing.T) {
 }
 
 func TestRegisterValidation(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	tests := []struct {
 		name string
@@ -117,7 +118,7 @@ func TestRegisterValidation(t *testing.T) {
 }
 
 func TestListAndGet(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	defs := []mcp.ServerDef{
 		{ID: "aaa", Name: "server-a", Transport: mcp.TransportStdio, Command: "a", Enabled: true},
@@ -158,7 +159,7 @@ func TestListAndGet(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	def := mcp.ServerDef{
 		ID:        "rm-me",
@@ -190,7 +191,7 @@ func TestRemove(t *testing.T) {
 }
 
 func TestResolveForRun(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	defs := []mcp.ServerDef{
 		{ID: "enabled-1", Name: "e1", Transport: mcp.TransportStdio, Command: "e1", Enabled: true},
@@ -242,7 +243,7 @@ env:
 		t.Fatal(err)
 	}
 
-	svc := NewMCPService(&config.MCP{ServersDir: dir})
+	svc := NewMCPService(&config.MCP{ServersDir: dir}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	servers := svc.List()
 	if len(servers) != 2 {
@@ -263,7 +264,7 @@ env:
 }
 
 func TestLoadFromDirectoryMissing(t *testing.T) {
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	// Loading from a non-existent directory returns nil (not an error).
 	err := svc.LoadFromDirectory("/nonexistent/path/mcp-servers")
@@ -283,7 +284,7 @@ transport: stdio
 		t.Fatal(err)
 	}
 
-	svc := NewMCPService(&config.MCP{})
+	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 	err := svc.LoadFromDirectory(dir)
 	if err == nil {
 		t.Fatal("expected error for invalid server definition")

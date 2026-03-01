@@ -144,9 +144,9 @@ async def test_report_tool_result(runtime: RuntimeClient, mock_js: AsyncMock) ->
 
     assert runtime.step_count == 1
     assert runtime.total_cost == pytest.approx(0.005)
-    assert runtime._total_tokens_in == 100
-    assert runtime._total_tokens_out == 50
-    assert runtime._model == "gpt-4o"
+    assert runtime._metrics.total_tokens_in == 100
+    assert runtime._metrics.total_tokens_out == 50
+    assert runtime._metrics.model == "gpt-4o"
 
     mock_js.publish.assert_called_once()
     call_args = mock_js.publish.call_args
@@ -192,18 +192,18 @@ async def test_report_tool_result_accumulates(runtime: RuntimeClient, mock_js: A
 
     assert runtime.step_count == 3
     assert runtime.total_cost == pytest.approx(0.035)
-    assert runtime._total_tokens_in == 550
-    assert runtime._total_tokens_out == 260
-    assert runtime._model == "gpt-4o"
+    assert runtime._metrics.total_tokens_in == 550
+    assert runtime._metrics.total_tokens_out == 260
+    assert runtime._metrics.model == "gpt-4o"
 
 
 async def test_complete_run(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
     """complete_run should publish a completion message with tokens."""
-    runtime._step_count = 5
-    runtime._total_cost = 0.05
-    runtime._total_tokens_in = 1000
-    runtime._total_tokens_out = 500
-    runtime._model = "gpt-4o"
+    runtime._metrics.step_count = 5
+    runtime._metrics.total_cost = 0.05
+    runtime._metrics.total_tokens_in = 1000
+    runtime._metrics.total_tokens_out = 500
+    runtime._metrics.model = "gpt-4o"
 
     await runtime.complete_run(status="completed", output="all done")
 
