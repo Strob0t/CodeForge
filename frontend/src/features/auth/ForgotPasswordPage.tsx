@@ -1,6 +1,7 @@
 import { createSignal, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
@@ -8,23 +9,16 @@ export default function ForgotPasswordPage(): JSX.Element {
   const { t } = useI18n();
 
   const [email, setEmail] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
   const [submitted, setSubmitted] = createSignal(false);
 
-  const handleSubmit = async (e: SubmitEvent): Promise<void> => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
+  const { run, loading, error, clearError } = useAsyncAction(async () => {
+    await api.auth.forgotPassword({ email: email() });
+    setSubmitted(true);
+  });
 
-    try {
-      await api.auth.forgotPassword({ email: email() });
-      setSubmitted(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed.");
-    } finally {
-      setLoading(false);
-    }
+  const handleSubmit = (e: SubmitEvent): void => {
+    e.preventDefault();
+    void run();
   };
 
   return (
@@ -44,7 +38,7 @@ export default function ForgotPasswordPage(): JSX.Element {
             </Alert>
           </Show>
 
-          <ErrorBanner error={error} onDismiss={() => setError("")} />
+          <ErrorBanner error={error} onDismiss={clearError} />
 
           <Show when={!submitted()}>
             <form onSubmit={handleSubmit}>

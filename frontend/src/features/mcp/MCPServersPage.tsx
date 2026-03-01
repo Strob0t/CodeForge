@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateMCPServerRequest, MCPServer, MCPServerTool, MCPTestResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction, useConfirmAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Alert,
@@ -27,111 +28,122 @@ import type { TableColumn } from "~/ui/composites/Table";
 // MCP Servers Page
 // ---------------------------------------------------------------------------
 
+interface MCPFormState {
+  name: string;
+  desc: string;
+  transport: "stdio" | "sse" | "streamable_http";
+  command: string;
+  args: string;
+  url: string;
+  env: { key: string; value: string }[];
+  enabled: boolean;
+}
+
+const FORM_DEFAULTS: MCPFormState = {
+  name: "",
+  desc: "",
+  transport: "stdio",
+  command: "",
+  args: "",
+  url: "",
+  env: [],
+  enabled: true,
+};
+
 export default function MCPServersPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [servers, { refetch }] = createResource(() => api.mcp.listServers());
   const [showForm, setShowForm] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [error, setError] = createSignal("");
-
-  // Delete confirmation state
-  const [deleteTarget, setDeleteTarget] = createSignal<MCPServer | null>(null);
 
   // Pre-save test state
-  const [testingConnection, setTestingConnection] = createSignal(false);
   const [testFailError, setTestFailError] = createSignal("");
   const [pendingRequest, setPendingRequest] = createSignal<CreateMCPServerRequest | null>(null);
 
-  // -- Form state --
-  const [formName, setFormName] = createSignal("");
-  const [formDesc, setFormDesc] = createSignal("");
-  const [formTransport, setFormTransport] = createSignal<"stdio" | "sse" | "streamable_http">(
-    "stdio",
-  );
-  const [formCommand, setFormCommand] = createSignal("");
-  const [formArgs, setFormArgs] = createSignal("");
-  const [formUrl, setFormUrl] = createSignal("");
-  const [formEnv, setFormEnv] = createSignal<{ key: string; value: string }[]>([]);
-  const [formEnabled, setFormEnabled] = createSignal(true);
+  const form = useFormState(FORM_DEFAULTS);
+
+  const del = useConfirmAction(async (server: MCPServer) => {
+    await api.mcp.deleteServer(server.id);
+    toast("success", t("mcp.toast.deleted"));
+    refetch();
+  });
 
   function isEditing(): boolean {
     return editingId() !== null;
   }
 
-  function resetForm(): void {
-    setFormName("");
-    setFormDesc("");
-    setFormTransport("stdio");
-    setFormCommand("");
-    setFormArgs("");
-    setFormUrl("");
-    setFormEnv([]);
-    setFormEnabled(true);
-    setEditingId(null);
-  }
-
   function handleCancelForm(): void {
     setShowForm(false);
-    resetForm();
-    setError("");
+    form.reset();
+    setEditingId(null);
+    clearError();
   }
 
   function handleEdit(server: MCPServer): void {
-    setFormName(server.name);
-    setFormDesc(server.description);
-    setFormTransport(server.transport);
-    setFormCommand(server.command);
-    setFormArgs((server.args ?? []).join("\n"));
-    setFormUrl(server.url);
     const envEntries = Object.entries(server.env ?? {}).map(([key, value]) => ({ key, value }));
-    setFormEnv(envEntries);
-    setFormEnabled(server.enabled);
+    form.populate({
+      name: server.name,
+      desc: server.description,
+      transport: server.transport,
+      command: server.command,
+      args: (server.args ?? []).join("\n"),
+      url: server.url,
+      env: envEntries,
+      enabled: server.enabled,
+    });
     setEditingId(server.id);
     setShowForm(true);
   }
 
   function addEnvRow(): void {
-    setFormEnv([...formEnv(), { key: "", value: "" }]);
+    form.setState("env", [...form.state.env, { key: "", value: "" }]);
   }
 
   function removeEnvRow(index: number): void {
-    setFormEnv(formEnv().filter((_, i) => i !== index));
+    form.setState(
+      "env",
+      form.state.env.filter((_, i) => i !== index),
+    );
   }
 
   function updateEnvRow(index: number, field: "key" | "value", val: string): void {
-    setFormEnv(formEnv().map((row, i) => (i === index ? { ...row, [field]: val } : row)));
+    form.setState(
+      "env",
+      form.state.env.map((row, i) => (i === index ? { ...row, [field]: val } : row)),
+    );
   }
 
   function buildRequest(): CreateMCPServerRequest | null {
-    const name = formName().trim();
+    const name = form.state.name.trim();
     if (!name) {
       toast("error", t("mcp.toast.nameRequired"));
       return null;
     }
     const envObj: Record<string, string> = {};
-    for (const row of formEnv()) {
+    for (const row of form.state.env) {
       const k = row.key.trim();
       if (k) envObj[k] = row.value;
     }
     return {
       name,
-      description: formDesc().trim() || undefined,
-      transport: formTransport(),
-      command: formTransport() === "stdio" ? formCommand().trim() || undefined : undefined,
+      description: form.state.desc.trim() || undefined,
+      transport: form.state.transport,
+      command:
+        form.state.transport === "stdio" ? form.state.command.trim() || undefined : undefined,
       args:
-        formTransport() === "stdio"
-          ? formArgs()
+        form.state.transport === "stdio"
+          ? form.state.args
               .split("\n")
               .map((s) => s.trim())
               .filter(Boolean)
           : undefined,
       url:
-        formTransport() === "sse" || formTransport() === "streamable_http"
-          ? formUrl().trim() || undefined
+        form.state.transport === "sse" || form.state.transport === "streamable_http"
+          ? form.state.url.trim() || undefined
           : undefined,
       env: Object.keys(envObj).length > 0 ? envObj : undefined,
-      enabled: formEnabled(),
+      enabled: form.state.enabled,
     };
   }
 
@@ -147,25 +159,27 @@ export default function MCPServersPage() {
         : t("mcp.toast.created");
       toast("success", msg);
     }
-    resetForm();
+    form.reset();
+    setEditingId(null);
     setShowForm(false);
     refetch();
   }
 
-  const handleSubmit = async (e: SubmitEvent) => {
-    e.preventDefault();
-    const req = buildRequest();
-    if (!req) return;
-    setError("");
-    setTestingConnection(true);
+  const {
+    run: handleSubmit,
+    loading: testingConnection,
+    error,
+    clearError,
+  } = useAsyncAction(
+    async () => {
+      const req = buildRequest();
+      if (!req) return;
 
-    try {
       // Pre-save connection test.
       let testResult: MCPTestResult | null = null;
       try {
         testResult = await api.mcp.testConnection(req);
       } catch {
-        // Test endpoint itself failed — treat as test failure.
         testResult = { success: false, error: t("mcp.testFailed") };
       }
 
@@ -176,50 +190,39 @@ export default function MCPServersPage() {
         setPendingRequest(req);
         setTestFailError(testResult.error ?? t("mcp.testFailed"));
       }
-    } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : isEditing()
-            ? t("mcp.toast.updateFailed")
-            : t("mcp.toast.createFailed");
-      setError(msg);
-      toast("error", msg);
-    } finally {
-      setTestingConnection(false);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : isEditing()
+              ? t("mcp.toast.updateFailed")
+              : t("mcp.toast.createFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
-  const handleTestFailConfirm = async () => {
-    const req = pendingRequest();
-    if (!req) return;
-    setPendingRequest(null);
-    setTestFailError("");
-    try {
+  const { run: handleTestFailConfirm } = useAsyncAction(
+    async () => {
+      const req = pendingRequest();
+      if (!req) return;
+      setPendingRequest(null);
+      setTestFailError("");
       await saveServer(req);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : t("mcp.toast.createFailed");
-      setError(msg);
-      toast("error", msg);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : t("mcp.toast.createFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
   const handleTestFailCancel = () => {
     setPendingRequest(null);
     setTestFailError("");
-  };
-
-  const handleDeleteConfirm = async () => {
-    const server = deleteTarget();
-    if (!server) return;
-    setDeleteTarget(null);
-    try {
-      await api.mcp.deleteServer(server.id);
-      toast("success", t("mcp.toast.deleted"));
-      refetch();
-    } catch {
-      toast("error", t("mcp.toast.deleteFailed"));
-    }
   };
 
   const serverColumns: TableColumn<MCPServer>[] = [
@@ -261,7 +264,7 @@ export default function MCPServersPage() {
         <MCPServerActions
           server={server}
           onEdit={handleEdit}
-          onDelete={(s) => setDeleteTarget(s)}
+          onDelete={(s) => del.requestConfirm(s)}
           onRefetch={refetch}
         />
       ),
@@ -287,14 +290,17 @@ export default function MCPServersPage() {
         </Button>
       }
     >
-      <ErrorBanner error={error} onDismiss={() => setError("")} />
+      <ErrorBanner error={error} onDismiss={clearError} />
 
       {/* Add / Edit Form */}
       <Show when={showForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
-              onSubmit={handleSubmit}
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSubmit();
+              }}
               aria-label={isEditing() ? t("mcp.editServer") : t("mcp.addServer")}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -303,8 +309,8 @@ export default function MCPServersPage() {
                   <Input
                     id="mcp-name"
                     type="text"
-                    value={formName()}
-                    onInput={(e) => setFormName(e.currentTarget.value)}
+                    value={form.state.name}
+                    onInput={(e) => form.setState("name", e.currentTarget.value)}
                     placeholder={t("mcp.form.namePlaceholder")}
                     aria-required="true"
                   />
@@ -314,9 +320,12 @@ export default function MCPServersPage() {
                 <FormField label={t("mcp.form.transport")} id="mcp-transport">
                   <Select
                     id="mcp-transport"
-                    value={formTransport()}
+                    value={form.state.transport}
                     onChange={(e) =>
-                      setFormTransport(e.currentTarget.value as "stdio" | "sse" | "streamable_http")
+                      form.setState(
+                        "transport",
+                        e.currentTarget.value as "stdio" | "sse" | "streamable_http",
+                      )
                     }
                   >
                     <option value="stdio">{t("mcp.transport.stdio")}</option>
@@ -330,20 +339,20 @@ export default function MCPServersPage() {
                   <Input
                     id="mcp-desc"
                     type="text"
-                    value={formDesc()}
-                    onInput={(e) => setFormDesc(e.currentTarget.value)}
+                    value={form.state.desc}
+                    onInput={(e) => form.setState("desc", e.currentTarget.value)}
                     placeholder={t("mcp.form.descriptionPlaceholder")}
                   />
                 </FormField>
 
                 {/* Command (stdio only) */}
-                <Show when={formTransport() === "stdio"}>
+                <Show when={form.state.transport === "stdio"}>
                   <FormField label={t("mcp.form.command")} id="mcp-command" class="sm:col-span-2">
                     <Input
                       id="mcp-command"
                       type="text"
-                      value={formCommand()}
-                      onInput={(e) => setFormCommand(e.currentTarget.value)}
+                      value={form.state.command}
+                      onInput={(e) => form.setState("command", e.currentTarget.value)}
                       mono
                       placeholder={t("mcp.form.commandPlaceholder")}
                     />
@@ -351,8 +360,8 @@ export default function MCPServersPage() {
                   <FormField label={t("mcp.form.args")} id="mcp-args" class="sm:col-span-2">
                     <Textarea
                       id="mcp-args"
-                      value={formArgs()}
-                      onInput={(e) => setFormArgs(e.currentTarget.value)}
+                      value={form.state.args}
+                      onInput={(e) => form.setState("args", e.currentTarget.value)}
                       rows={3}
                       mono
                       placeholder={t("mcp.form.argsPlaceholder")}
@@ -361,13 +370,17 @@ export default function MCPServersPage() {
                 </Show>
 
                 {/* URL (sse / streamable_http) */}
-                <Show when={formTransport() === "sse" || formTransport() === "streamable_http"}>
+                <Show
+                  when={
+                    form.state.transport === "sse" || form.state.transport === "streamable_http"
+                  }
+                >
                   <FormField label={t("mcp.form.url")} id="mcp-url" class="sm:col-span-2">
                     <Input
                       id="mcp-url"
                       type="text"
-                      value={formUrl()}
-                      onInput={(e) => setFormUrl(e.currentTarget.value)}
+                      value={form.state.url}
+                      onInput={(e) => form.setState("url", e.currentTarget.value)}
                       mono
                       placeholder={t("mcp.form.urlPlaceholder")}
                     />
@@ -384,7 +397,7 @@ export default function MCPServersPage() {
                       {t("mcp.form.addEnv")}
                     </Button>
                   </div>
-                  <For each={formEnv()}>
+                  <For each={form.state.env}>
                     {(row, index) => (
                       <div class="mb-2 flex gap-2">
                         <Input
@@ -420,8 +433,8 @@ export default function MCPServersPage() {
                 <div class="flex items-center gap-3 sm:col-span-2">
                   <Checkbox
                     id="mcp-enabled"
-                    checked={formEnabled()}
-                    onChange={(checked) => setFormEnabled(checked)}
+                    checked={form.state.enabled}
+                    onChange={(checked) => form.setState("enabled", checked)}
                   />
                   <label for="mcp-enabled" class="text-sm font-medium text-cf-text-secondary">
                     {t("mcp.form.enabled")}
@@ -468,14 +481,14 @@ export default function MCPServersPage() {
 
       {/* Delete confirm dialog */}
       <ConfirmDialog
-        open={deleteTarget() !== null}
+        open={del.target() !== null}
         title={t("common.delete")}
         message={t("mcp.deleteConfirm")}
         variant="danger"
         confirmLabel={t("common.delete")}
         cancelLabel={t("common.cancel")}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void del.confirm()}
+        onCancel={del.cancel}
       />
 
       {/* Test-failed confirm dialog */}
@@ -486,7 +499,7 @@ export default function MCPServersPage() {
         variant="danger"
         confirmLabel={t("mcp.testFailedSaveAnyway")}
         cancelLabel={t("common.cancel")}
-        onConfirm={handleTestFailConfirm}
+        onConfirm={() => void handleTestFailConfirm()}
         onCancel={handleTestFailCancel}
       />
     </PageLayout>
@@ -533,11 +546,9 @@ function MCPServerActions(props: {
 }) {
   const { t } = useI18n();
   const { show: toast } = useToast();
-  const [testing, setTesting] = createSignal(false);
 
-  const handleTest = async () => {
-    setTesting(true);
-    try {
+  const { run: handleTest, loading: testing } = useAsyncAction(
+    async () => {
       const result = await api.mcp.testServer(props.server.id);
       if (result.success) {
         const toolCount = result.tools?.length ?? 0;
@@ -546,19 +557,20 @@ function MCPServerActions(props: {
         toast("error", result.error ?? t("mcp.testFailed"));
       }
       props.onRefetch();
-    } catch {
-      toast("error", t("mcp.testFailed"));
-    } finally {
-      setTesting(false);
-    }
-  };
+    },
+    {
+      onError: () => {
+        toast("error", t("mcp.testFailed"));
+      },
+    },
+  );
 
   return (
     <div class="flex items-center gap-2">
       <Button
         variant="secondary"
         size="sm"
-        onClick={handleTest}
+        onClick={() => void handleTest()}
         disabled={testing()}
         loading={testing()}
         aria-label={t("mcp.testAria", { name: props.server.name })}
@@ -594,23 +606,26 @@ function MCPServerToolsPanel(props: { server: MCPServer }) {
   const { t } = useI18n();
   const [showTools, setShowTools] = createSignal(false);
   const [tools, setTools] = createSignal<MCPServerTool[] | null>(null);
-  const [toolsLoading, setToolsLoading] = createSignal(false);
 
-  const handleToggleTools = async () => {
+  const { run: loadTools, loading: toolsLoading } = useAsyncAction(
+    async () => {
+      const result = await api.mcp.listTools(props.server.id);
+      setTools(result);
+    },
+    {
+      onError: () => {
+        setTools([]);
+      },
+    },
+  );
+
+  const handleToggleTools = () => {
     if (showTools()) {
       setShowTools(false);
       return;
     }
     if (tools() === null) {
-      setToolsLoading(true);
-      try {
-        const result = await api.mcp.listTools(props.server.id);
-        setTools(result);
-      } catch {
-        setTools([]);
-      } finally {
-        setToolsLoading(false);
-      }
+      void loadTools();
     }
     setShowTools(true);
   };

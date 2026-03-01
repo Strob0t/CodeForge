@@ -3,6 +3,7 @@ import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { useAuth } from "~/components/AuthProvider";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
@@ -15,8 +16,6 @@ export default function SetupPage(): JSX.Element {
   const [name, setName] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [confirmPassword, setConfirmPassword] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
   const [remainingSeconds, setRemainingSeconds] = createSignal(0);
   const [expired, setExpired] = createSignal(false);
 
@@ -53,30 +52,22 @@ export default function SetupPage(): JSX.Element {
   const minutes = () => Math.floor(remainingSeconds() / 60);
   const seconds = () => remainingSeconds() % 60;
 
-  const handleSubmit = async (e: SubmitEvent): Promise<void> => {
-    e.preventDefault();
-    setError("");
-
+  const { run, loading, error, clearError } = useAsyncAction(async () => {
     if (password() !== confirmPassword()) {
-      setError(t("auth.setup.mismatch"));
-      return;
+      throw new Error(t("auth.setup.mismatch"));
     }
+    await api.auth.setup({
+      email: email(),
+      name: name(),
+      password: password(),
+    });
+    await login(email(), password());
+    navigate("/", { replace: true });
+  });
 
-    setLoading(true);
-    try {
-      await api.auth.setup({
-        email: email(),
-        name: name(),
-        password: password(),
-      });
-      // Auto-login with the new credentials
-      await login(email(), password());
-      navigate("/", { replace: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("auth.setup.failed"));
-    } finally {
-      setLoading(false);
-    }
+  const handleSubmit = (e: SubmitEvent): void => {
+    e.preventDefault();
+    void run();
   };
 
   return (
@@ -105,7 +96,7 @@ export default function SetupPage(): JSX.Element {
             </p>
           </Show>
 
-          <ErrorBanner error={error} onDismiss={() => setError("")} />
+          <ErrorBanner error={error} onDismiss={clearError} />
 
           <form onSubmit={handleSubmit}>
             <FormField label={t("auth.setup.email")} id="setup_email" required class="mb-4">

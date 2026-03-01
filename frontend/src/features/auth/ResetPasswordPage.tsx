@@ -2,6 +2,7 @@ import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createSignal, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
@@ -12,8 +13,6 @@ export default function ResetPasswordPage(): JSX.Element {
 
   const [password, setPassword] = createSignal("");
   const [confirmPassword, setConfirmPassword] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
 
   const token = (): string => {
     const t = searchParams.token;
@@ -21,32 +20,23 @@ export default function ResetPasswordPage(): JSX.Element {
     return t ?? "";
   };
 
-  const handleSubmit = async (e: SubmitEvent): Promise<void> => {
-    e.preventDefault();
-    setError("");
-
+  const { run, loading, error, clearError } = useAsyncAction(async () => {
     if (!token()) {
-      setError(t("auth.reset.invalidToken"));
-      return;
+      throw new Error(t("auth.reset.invalidToken"));
     }
-
     if (password() !== confirmPassword()) {
-      setError(t("auth.reset.mismatch"));
-      return;
+      throw new Error(t("auth.reset.mismatch"));
     }
+    await api.auth.resetPassword({
+      token: token(),
+      new_password: password(),
+    });
+    navigate("/login", { replace: true });
+  });
 
-    setLoading(true);
-    try {
-      await api.auth.resetPassword({
-        token: token(),
-        new_password: password(),
-      });
-      navigate("/login", { replace: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("auth.reset.failed"));
-    } finally {
-      setLoading(false);
-    }
+  const handleSubmit = (e: SubmitEvent): void => {
+    e.preventDefault();
+    void run();
   };
 
   return (
@@ -66,7 +56,7 @@ export default function ResetPasswordPage(): JSX.Element {
             </Alert>
           </Show>
 
-          <ErrorBanner error={error} onDismiss={() => setError("")} />
+          <ErrorBanner error={error} onDismiss={clearError} />
 
           <form onSubmit={handleSubmit}>
             <FormField label={t("auth.reset.password")} id="reset_password" required class="mb-4">

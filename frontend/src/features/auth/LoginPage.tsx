@@ -2,6 +2,7 @@ import { useNavigate } from "@solidjs/router";
 import { createSignal, type JSX } from "solid-js";
 
 import { useAuth } from "~/components/AuthProvider";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
@@ -12,24 +13,16 @@ export default function LoginPage(): JSX.Element {
 
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
 
-  const handleSubmit = async (e: SubmitEvent): Promise<void> => {
+  const { run, loading, error, clearError } = useAsyncAction(async () => {
+    await login(email(), password());
+    const target = user()?.must_change_password ? "/change-password" : "/";
+    navigate(target, { replace: true });
+  });
+
+  const handleSubmit = (e: SubmitEvent): void => {
     e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    try {
-      await login(email(), password());
-      // Redirect to change-password if backend requires it, otherwise dashboard.
-      const target = user()?.must_change_password ? "/change-password" : "/";
-      navigate(target, { replace: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("auth.loginFailed"));
-    } finally {
-      setLoading(false);
-    }
+    void run();
   };
 
   return (
@@ -40,7 +33,7 @@ export default function LoginPage(): JSX.Element {
             {t("auth.title")}
           </h1>
 
-          <ErrorBanner error={error} onDismiss={() => setError("")} />
+          <ErrorBanner error={error} onDismiss={clearError} />
 
           <form onSubmit={handleSubmit}>
             <FormField label={t("auth.email")} id="email" required class="mb-4">

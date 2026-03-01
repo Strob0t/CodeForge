@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { CreateKnowledgeBaseRequest, KnowledgeBase } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { kbCategoryVariant, kbStatusVariant } from "~/config/statusVariants";
+import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -19,76 +20,80 @@ import {
 
 const CATEGORIES = ["framework", "paradigm", "language", "security", "custom"] as const;
 
+const KB_FORM_DEFAULTS = {
+  name: "",
+  desc: "",
+  category: "custom",
+  tags: "",
+  contentPath: "",
+};
+
 export default function KnowledgeBasesPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [kbs, { refetch }] = createResource(() => api.knowledgeBases.list());
   const [showForm, setShowForm] = createSignal(false);
+  const [indexingId, setIndexingId] = createSignal<string | null>(null);
 
-  // -- Form state --
-  const [formName, setFormName] = createSignal("");
-  const [formDesc, setFormDesc] = createSignal("");
-  const [formCategory, setFormCategory] = createSignal<string>("custom");
-  const [formTags, setFormTags] = createSignal("");
-  const [formContentPath, setFormContentPath] = createSignal("");
+  const form = useFormState(KB_FORM_DEFAULTS);
 
-  const resetForm = () => {
-    setFormName("");
-    setFormDesc("");
-    setFormCategory("custom");
-    setFormTags("");
-    setFormContentPath("");
-  };
-
-  const handleCreate = async (e: SubmitEvent) => {
-    e.preventDefault();
-    const name = formName().trim();
-    if (!name) return;
-    try {
+  const { run: handleCreate } = useAsyncAction(
+    async () => {
+      const name = form.state.name.trim();
+      if (!name) return;
       const req: CreateKnowledgeBaseRequest = {
         name,
-        description: formDesc().trim(),
-        category: formCategory(),
-        tags: formTags()
+        description: form.state.desc.trim(),
+        category: form.state.category,
+        tags: form.state.tags
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        content_path: formContentPath().trim(),
+        content_path: form.state.contentPath.trim(),
       };
       await api.knowledgeBases.create(req);
-      resetForm();
+      form.reset();
       setShowForm(false);
       refetch();
       toast("success", t("kb.toast.created"));
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to create knowledge base");
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to create knowledge base");
+      },
+    },
+  );
 
-  const handleDelete = async (id: string) => {
-    try {
+  const { run: handleDelete } = useAsyncAction(
+    async (id: string) => {
       await api.knowledgeBases.delete(id);
       refetch();
       toast("success", t("kb.toast.deleted"));
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to delete knowledge base");
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to delete knowledge base");
+      },
+    },
+  );
 
-  const [indexingId, setIndexingId] = createSignal<string | null>(null);
-
-  const handleIndex = async (id: string) => {
-    try {
+  const { run: handleIndex } = useAsyncAction(
+    async (id: string) => {
       setIndexingId(id);
-      await api.knowledgeBases.index(id);
-      refetch();
-      toast("success", t("kb.toast.indexed"));
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to index knowledge base");
-    } finally {
-      setIndexingId(null);
-    }
-  };
+      try {
+        await api.knowledgeBases.index(id);
+        refetch();
+        toast("success", t("kb.toast.indexed"));
+      } finally {
+        setIndexingId(null);
+      }
+    },
+    {
+      onError: (err) => {
+        toast("error", err instanceof Error ? err.message : "Failed to index knowledge base");
+      },
+    },
+  );
 
   const sorted = () => {
     const list = kbs() ?? [];
@@ -106,7 +111,14 @@ export default function KnowledgeBasesPage() {
       }
     >
       <Show when={showForm()}>
-        <form onSubmit={handleCreate} class="mb-6" aria-label={t("kb.form.create")}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleCreate();
+          }}
+          class="mb-6"
+          aria-label={t("kb.form.create")}
+        >
           <Card>
             <Card.Body>
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -114,16 +126,16 @@ export default function KnowledgeBasesPage() {
                   <Input
                     id="kb-name"
                     type="text"
-                    value={formName()}
-                    onInput={(e) => setFormName(e.currentTarget.value)}
+                    value={form.state.name}
+                    onInput={(e) => form.setState("name", e.currentTarget.value)}
                     required
                   />
                 </FormField>
                 <FormField label={t("kb.form.category")} id="kb-category">
                   <Select
                     id="kb-category"
-                    value={formCategory()}
-                    onChange={(e) => setFormCategory(e.currentTarget.value)}
+                    value={form.state.category}
+                    onChange={(e) => form.setState("category", e.currentTarget.value)}
                   >
                     <For each={[...CATEGORIES]}>
                       {(cat) => (
@@ -138,16 +150,16 @@ export default function KnowledgeBasesPage() {
                   <Input
                     id="kb-desc"
                     type="text"
-                    value={formDesc()}
-                    onInput={(e) => setFormDesc(e.currentTarget.value)}
+                    value={form.state.desc}
+                    onInput={(e) => form.setState("desc", e.currentTarget.value)}
                   />
                 </FormField>
                 <FormField label={t("kb.form.tags")} id="kb-tags">
                   <Input
                     id="kb-tags"
                     type="text"
-                    value={formTags()}
-                    onInput={(e) => setFormTags(e.currentTarget.value)}
+                    value={form.state.tags}
+                    onInput={(e) => form.setState("tags", e.currentTarget.value)}
                     placeholder="tag1, tag2, tag3"
                   />
                 </FormField>
@@ -155,8 +167,8 @@ export default function KnowledgeBasesPage() {
                   <Input
                     id="kb-content-path"
                     type="text"
-                    value={formContentPath()}
-                    onInput={(e) => setFormContentPath(e.currentTarget.value)}
+                    value={form.state.contentPath}
+                    onInput={(e) => form.setState("contentPath", e.currentTarget.value)}
                     placeholder="/absolute/path/to/content"
                     required
                   />
@@ -196,8 +208,8 @@ export default function KnowledgeBasesPage() {
 
 function KBCard(props: {
   kb: KnowledgeBase;
-  onDelete: (id: string) => void;
-  onIndex: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
+  onIndex: (id: string) => Promise<void>;
   indexing: boolean;
 }) {
   const { t } = useI18n();
@@ -247,7 +259,7 @@ function KBCard(props: {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => props.onIndex(props.kb.id)}
+            onClick={() => void props.onIndex(props.kb.id)}
             disabled={props.indexing}
           >
             {props.indexing
@@ -256,7 +268,7 @@ function KBCard(props: {
                 ? t("kb.index.reindex")
                 : t("kb.index.button")}
           </Button>
-          <Button variant="danger" size="sm" onClick={() => props.onDelete(props.kb.id)}>
+          <Button variant="danger" size="sm" onClick={() => void props.onDelete(props.kb.id)}>
             Delete
           </Button>
         </div>

@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { DiscoveredModel, LLMModel } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Alert,
@@ -17,77 +18,80 @@ import {
   PageLayout,
 } from "~/ui";
 
+const MODEL_FORM_DEFAULTS = {
+  modelName: "",
+  litellmModel: "",
+  apiBase: "",
+  apiKey: "",
+};
+
 export default function ModelsPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [models, { refetch }] = createResource(() => api.llm.models());
   const [health] = createResource(() => api.llm.health());
   const [showForm, setShowForm] = createSignal(false);
-  const [modelName, setModelName] = createSignal("");
-  const [litellmModel, setLitellmModel] = createSignal("");
-  const [apiBase, setApiBase] = createSignal("");
-  const [apiKey, setApiKey] = createSignal("");
-  const [error, setError] = createSignal("");
   const [discoveredModels, setDiscoveredModels] = createSignal<DiscoveredModel[]>([]);
-  const [discovering, setDiscovering] = createSignal(false);
   const [showDiscovered, setShowDiscovered] = createSignal(false);
 
-  const handleAdd = async (e: SubmitEvent) => {
-    e.preventDefault();
-    if (!modelName().trim() || !litellmModel().trim()) return;
+  const form = useFormState(MODEL_FORM_DEFAULTS);
 
-    setError("");
-    try {
-      const params: Record<string, string> = { model: litellmModel() };
-      if (apiBase().trim()) params.api_base = apiBase();
-      if (apiKey().trim()) params.api_key = apiKey();
+  const {
+    run: handleAdd,
+    error,
+    clearError,
+  } = useAsyncAction(
+    async () => {
+      if (!form.state.modelName.trim() || !form.state.litellmModel.trim()) return;
+
+      const params: Record<string, string> = { model: form.state.litellmModel };
+      if (form.state.apiBase.trim()) params.api_base = form.state.apiBase;
+      if (form.state.apiKey.trim()) params.api_key = form.state.apiKey;
 
       await api.llm.addModel({
-        model_name: modelName(),
+        model_name: form.state.modelName,
         litellm_params: params,
       });
-      setModelName("");
-      setLitellmModel("");
-      setApiBase("");
-      setApiKey("");
+      form.reset();
       setShowForm(false);
       refetch();
       toast("success", t("models.toast.added"));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : t("models.toast.addFailed");
-      setError(msg);
-      toast("error", msg);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : t("models.toast.addFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
-  const handleDelete = async (modelId: string) => {
-    setError("");
-    try {
+  const { run: handleDelete } = useAsyncAction(
+    async (modelId: string) => {
       await api.llm.deleteModel(modelId);
       refetch();
       toast("success", t("models.toast.deleted"));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : t("models.toast.deleteFailed");
-      setError(msg);
-      toast("error", msg);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : t("models.toast.deleteFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
-  const handleDiscover = async () => {
-    setError("");
-    setDiscovering(true);
-    try {
+  const { run: handleDiscover, loading: discovering } = useAsyncAction(
+    async () => {
       const result = await api.llm.discover();
       setDiscoveredModels(result.models);
       setShowDiscovered(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : t("models.toast.discoverFailed");
-      setError(msg);
-      toast("error", msg);
-    } finally {
-      setDiscovering(false);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : t("models.toast.discoverFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
   return (
     <PageLayout
@@ -99,7 +103,11 @@ export default function ModelsPage() {
               LiteLLM: {health()?.status ?? "unknown"}
             </Badge>
           </Show>
-          <Button variant="secondary" onClick={handleDiscover} disabled={discovering()}>
+          <Button
+            variant="secondary"
+            onClick={() => void handleDiscover()}
+            disabled={discovering()}
+          >
             {discovering() ? t("models.discovering") : t("models.discover")}
           </Button>
           <Button onClick={() => setShowForm((v) => !v)}>
@@ -108,10 +116,17 @@ export default function ModelsPage() {
         </div>
       }
     >
-      <ErrorBanner error={error} onDismiss={() => setError("")} />
+      <ErrorBanner error={error} onDismiss={clearError} />
 
       <Show when={showForm()}>
-        <form onSubmit={handleAdd} class="mb-6" aria-label="Add model">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleAdd();
+          }}
+          class="mb-6"
+          aria-label="Add model"
+        >
           <Card>
             <Card.Body>
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -119,8 +134,8 @@ export default function ModelsPage() {
                   <Input
                     id="model-display-name"
                     type="text"
-                    value={modelName()}
-                    onInput={(e) => setModelName(e.currentTarget.value)}
+                    value={form.state.modelName}
+                    onInput={(e) => form.setState("modelName", e.currentTarget.value)}
                     placeholder={t("models.form.namePlaceholder")}
                     aria-required="true"
                   />
@@ -129,8 +144,8 @@ export default function ModelsPage() {
                   <Input
                     id="model-litellm-id"
                     type="text"
-                    value={litellmModel()}
-                    onInput={(e) => setLitellmModel(e.currentTarget.value)}
+                    value={form.state.litellmModel}
+                    onInput={(e) => form.setState("litellmModel", e.currentTarget.value)}
                     placeholder={t("models.form.modelPlaceholder")}
                     aria-required="true"
                   />
@@ -139,8 +154,8 @@ export default function ModelsPage() {
                   <Input
                     id="model-api-base"
                     type="text"
-                    value={apiBase()}
-                    onInput={(e) => setApiBase(e.currentTarget.value)}
+                    value={form.state.apiBase}
+                    onInput={(e) => form.setState("apiBase", e.currentTarget.value)}
                     placeholder={t("models.form.apiBasePlaceholder")}
                   />
                 </FormField>
@@ -148,8 +163,8 @@ export default function ModelsPage() {
                   <Input
                     id="model-api-key"
                     type="password"
-                    value={apiKey()}
-                    onInput={(e) => setApiKey(e.currentTarget.value)}
+                    value={form.state.apiKey}
+                    onInput={(e) => form.setState("apiKey", e.currentTarget.value)}
                     placeholder={t("models.form.apiKeyPlaceholder")}
                   />
                 </FormField>
@@ -212,7 +227,7 @@ export default function ModelsPage() {
 
 interface ModelCardProps {
   model: LLMModel;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
 }
 
 function ModelCard(props: ModelCardProps) {
@@ -231,7 +246,7 @@ function ModelCard(props: ModelCardProps) {
             <Button
               variant="danger"
               size="sm"
-              onClick={() => props.onDelete(props.model.model_id ?? "")}
+              onClick={() => void props.onDelete(props.model.model_id ?? "")}
               aria-label={t("models.deleteAria", { name: props.model.model_name })}
             >
               {t("common.delete")}

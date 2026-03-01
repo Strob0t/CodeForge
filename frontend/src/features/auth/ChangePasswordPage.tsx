@@ -2,6 +2,7 @@ import { useNavigate } from "@solidjs/router";
 import { createSignal, type JSX, Show } from "solid-js";
 
 import { useAuth } from "~/components/AuthProvider";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
@@ -13,27 +14,18 @@ export default function ChangePasswordPage(): JSX.Element {
   const [oldPassword, setOldPassword] = createSignal("");
   const [newPassword, setNewPassword] = createSignal("");
   const [confirmPassword, setConfirmPassword] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
 
-  const handleSubmit = async (e: SubmitEvent): Promise<void> => {
-    e.preventDefault();
-    setError("");
-
+  const { run, loading, error, clearError } = useAsyncAction(async () => {
     if (newPassword() !== confirmPassword()) {
-      setError(t("auth.cp.mismatch"));
-      return;
+      throw new Error(t("auth.cp.mismatch"));
     }
+    await changePassword(oldPassword(), newPassword());
+    navigate("/", { replace: true });
+  });
 
-    setLoading(true);
-    try {
-      await changePassword(oldPassword(), newPassword());
-      navigate("/", { replace: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("auth.cp.failed"));
-    } finally {
-      setLoading(false);
-    }
+  const handleSubmit = (e: SubmitEvent): void => {
+    e.preventDefault();
+    void run();
   };
 
   return (
@@ -45,7 +37,7 @@ export default function ChangePasswordPage(): JSX.Element {
           </h1>
           <p class="mb-6 text-center text-sm text-cf-text-secondary">{t("auth.cp.description")}</p>
 
-          <ErrorBanner error={error} onDismiss={() => setError("")} />
+          <ErrorBanner error={error} onDismiss={clearError} />
 
           <form onSubmit={handleSubmit}>
             <Show when={user()?.email}>

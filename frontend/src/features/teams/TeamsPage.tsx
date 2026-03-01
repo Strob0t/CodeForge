@@ -11,6 +11,7 @@ import type {
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { teamRoleVariant, teamStatusVariant } from "~/config/statusVariants";
+import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, EmptyState, Input, PageLayout, Select } from "~/ui";
 
@@ -30,10 +31,11 @@ export default function TeamsPage() {
   const [expandedTeamId, setExpandedTeamId] = createSignal<string | null>(null);
 
   // Form state
-  const [formName, setFormName] = createSignal("");
-  const [formProtocol, setFormProtocol] = createSignal<string>("round-robin");
+  const form = useFormState({
+    name: "",
+    protocol: "round-robin",
+  });
   const [formMembers, setFormMembers] = createSignal<MemberDraft[]>([]);
-  const [creating, setCreating] = createSignal(false);
 
   const [projects] = createResource(() => api.projects.list());
   const [teams, { refetch: refetchTeams }] = createResource(
@@ -68,74 +70,76 @@ export default function TeamsPage() {
     setFormMembers((prev) => prev.map((m, i) => (i === idx ? { ...m, [field]: value } : m)));
   };
 
-  const handleCreate = async () => {
-    const pid = selectedProjectId();
-    if (!pid) return;
-    const name = formName().trim();
-    if (!name) {
-      toast("error", t("teams.toast.nameRequired"));
-      return;
-    }
-    const members = formMembers().filter((m) => m.agent_id);
-    if (members.length === 0) {
-      toast("error", t("teams.toast.membersRequired"));
-      return;
-    }
+  const { run: handleCreate, loading: creating } = useAsyncAction(
+    async () => {
+      const pid = selectedProjectId();
+      if (!pid) return;
+      const name = form.state.name.trim();
+      if (!name) {
+        toast("error", t("teams.toast.nameRequired"));
+        return;
+      }
+      const members = formMembers().filter((m) => m.agent_id);
+      if (members.length === 0) {
+        toast("error", t("teams.toast.membersRequired"));
+        return;
+      }
 
-    setCreating(true);
-    try {
       const req: CreateTeamRequest = {
         name,
-        protocol: formProtocol(),
+        protocol: form.state.protocol,
         members,
       };
       await api.teams.create(pid, req);
       toast("success", t("teams.toast.created"));
-      setFormName("");
-      setFormProtocol("round-robin");
+      form.reset();
       setFormMembers([]);
       refetchTeams();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("teams.toast.createFailed");
-      toast("error", msg);
-    } finally {
-      setCreating(false);
-    }
-  };
+    },
+    {
+      onError: (e) => {
+        const msg = e instanceof Error ? e.message : t("teams.toast.createFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
   // Inline agent creation (when no agents exist yet)
-  const [newAgentName, setNewAgentName] = createSignal("");
-  const [newAgentBackend, setNewAgentBackend] = createSignal("");
-  const [creatingAgent, setCreatingAgent] = createSignal(false);
+  const agentForm = useFormState({ name: "", backend: "" });
 
-  const handleCreateAgent = async () => {
-    const pid = selectedProjectId();
-    if (!pid || !newAgentName().trim() || !newAgentBackend()) return;
-    setCreatingAgent(true);
-    try {
-      await api.agents.create(pid, { name: newAgentName().trim(), backend: newAgentBackend() });
+  const { run: handleCreateAgent, loading: creatingAgent } = useAsyncAction(
+    async () => {
+      const pid = selectedProjectId();
+      if (!pid || !agentForm.state.name.trim() || !agentForm.state.backend) return;
+      await api.agents.create(pid, {
+        name: agentForm.state.name.trim(),
+        backend: agentForm.state.backend,
+      });
       toast("success", t("agent.toast.created"));
-      setNewAgentName("");
-      setNewAgentBackend("");
+      agentForm.reset();
       refetchAgents();
-    } catch (e) {
-      toast("error", e instanceof Error ? e.message : t("agent.toast.createFailed"));
-    } finally {
-      setCreatingAgent(false);
-    }
-  };
+    },
+    {
+      onError: (e) => {
+        toast("error", e instanceof Error ? e.message : t("agent.toast.createFailed"));
+      },
+    },
+  );
 
-  const handleDelete = async (team: AgentTeam) => {
-    try {
+  const { run: handleDelete } = useAsyncAction(
+    async (team: AgentTeam) => {
       await api.teams.delete(team.id);
       toast("success", t("teams.toast.deleted"));
       if (expandedTeamId() === team.id) setExpandedTeamId(null);
       refetchTeams();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("teams.toast.deleteFailed");
-      toast("error", msg);
-    }
-  };
+    },
+    {
+      onError: (e) => {
+        const msg = e instanceof Error ? e.message : t("teams.toast.deleteFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
   return (
     <PageLayout title={t("teams.title")}>
@@ -168,15 +172,15 @@ export default function TeamsPage() {
               <Input
                 type="text"
                 placeholder={t("teams.form.namePlaceholder")}
-                value={formName()}
-                onInput={(e) => setFormName(e.currentTarget.value)}
+                value={form.state.name}
+                onInput={(e) => form.setState("name", e.currentTarget.value)}
                 aria-label={t("teams.form.name")}
                 class="w-auto"
               />
               <Select
-                value={formProtocol()}
+                value={form.state.protocol}
                 aria-label={t("teams.form.protocol")}
-                onChange={(e) => setFormProtocol(e.currentTarget.value)}
+                onChange={(e) => form.setState("protocol", e.currentTarget.value)}
                 class="w-auto"
               >
                 <For each={PROTOCOLS}>{(p) => <option value={p}>{p}</option>}</For>
@@ -199,15 +203,15 @@ export default function TeamsPage() {
                   <div class="flex flex-wrap items-end gap-2">
                     <Input
                       type="text"
-                      value={newAgentName()}
-                      onInput={(e) => setNewAgentName(e.currentTarget.value)}
+                      value={agentForm.state.name}
+                      onInput={(e) => agentForm.setState("name", e.currentTarget.value)}
                       placeholder={t("agent.form.namePlaceholder")}
                       aria-label={t("agent.form.name")}
                       class="w-auto"
                     />
                     <Select
-                      value={newAgentBackend()}
-                      onChange={(e) => setNewAgentBackend(e.currentTarget.value)}
+                      value={agentForm.state.backend}
+                      onChange={(e) => agentForm.setState("backend", e.currentTarget.value)}
                       aria-label={t("agent.form.backend")}
                       class="w-auto"
                     >
@@ -219,7 +223,7 @@ export default function TeamsPage() {
                     <Button
                       variant="primary"
                       size="sm"
-                      onClick={handleCreateAgent}
+                      onClick={() => void handleCreateAgent()}
                       loading={creatingAgent()}
                     >
                       {t("teams.createAgent")}
@@ -270,7 +274,7 @@ export default function TeamsPage() {
               </div>
             </div>
 
-            <Button onClick={handleCreate} loading={creating()}>
+            <Button onClick={() => void handleCreate()} loading={creating()}>
               {creating() ? t("common.creating") : t("teams.form.create")}
             </Button>
           </Card.Body>
@@ -317,7 +321,7 @@ export default function TeamsPage() {
                       <Button
                         variant="danger"
                         size="sm"
-                        onClick={() => handleDelete(team)}
+                        onClick={() => void handleDelete(team)}
                         aria-label={t("teams.deleteAria", { name: team.name })}
                       >
                         {t("common.delete")}

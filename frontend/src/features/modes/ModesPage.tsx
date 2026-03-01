@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateModeRequest, Mode } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Alert,
@@ -19,100 +20,106 @@ import {
   Textarea,
 } from "~/ui";
 
+interface ModeFormState {
+  id: string;
+  name: string;
+  desc: string;
+  tools: string;
+  deniedTools: string;
+  deniedActions: string;
+  requiredArtifact: string;
+  scenario: string;
+  autonomy: number;
+  prompt: string;
+}
+
+const FORM_DEFAULTS: ModeFormState = {
+  id: "",
+  name: "",
+  desc: "",
+  tools: "",
+  deniedTools: "",
+  deniedActions: "",
+  requiredArtifact: "",
+  scenario: "default",
+  autonomy: 3,
+  prompt: "",
+};
+
 export default function ModesPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [modes, { refetch }] = createResource(() => api.modes.list());
   const [scenarios] = createResource(() => api.modes.scenarios());
   const [showForm, setShowForm] = createSignal(false);
-  const [error, setError] = createSignal("");
   const [editingId, setEditingId] = createSignal<string | null>(null);
 
-  // -- Form state --
-  const [formId, setFormId] = createSignal("");
-  const [formName, setFormName] = createSignal("");
-  const [formDesc, setFormDesc] = createSignal("");
-  const [formTools, setFormTools] = createSignal("");
-  const [formDeniedTools, setFormDeniedTools] = createSignal("");
-  const [formDeniedActions, setFormDeniedActions] = createSignal("");
-  const [formRequiredArtifact, setFormRequiredArtifact] = createSignal("");
-  const [formScenario, setFormScenario] = createSignal("default");
-  const [formAutonomy, setFormAutonomy] = createSignal(3);
-  const [formPrompt, setFormPrompt] = createSignal("");
+  const form = useFormState(FORM_DEFAULTS);
 
   function isEditing() {
     return editingId() !== null;
   }
 
-  const resetForm = () => {
-    setFormId("");
-    setFormName("");
-    setFormDesc("");
-    setFormTools("");
-    setFormDeniedTools("");
-    setFormDeniedActions("");
-    setFormRequiredArtifact("");
-    setFormScenario("default");
-    setFormAutonomy(3);
-    setFormPrompt("");
-    setEditingId(null);
-  };
-
   function handleCancelForm() {
     setShowForm(false);
-    resetForm();
-    setError("");
+    form.reset();
+    setEditingId(null);
+    clearError();
   }
 
   function handleEdit(mode: Mode) {
-    setFormId(mode.id);
-    setFormName(mode.name);
-    setFormDesc(mode.description);
-    setFormTools(mode.tools.join(", "));
-    setFormDeniedTools((mode.denied_tools ?? []).join(", "));
-    setFormDeniedActions((mode.denied_actions ?? []).join(", "));
-    setFormRequiredArtifact(mode.required_artifact ?? "");
-    setFormScenario(mode.llm_scenario || "default");
-    setFormAutonomy(mode.autonomy);
-    setFormPrompt(mode.prompt_prefix ?? "");
+    form.populate({
+      id: mode.id,
+      name: mode.name,
+      desc: mode.description,
+      tools: mode.tools.join(", "),
+      deniedTools: (mode.denied_tools ?? []).join(", "),
+      deniedActions: (mode.denied_actions ?? []).join(", "),
+      requiredArtifact: mode.required_artifact ?? "",
+      scenario: mode.llm_scenario || "default",
+      autonomy: mode.autonomy,
+      prompt: mode.prompt_prefix ?? "",
+    });
     setEditingId(mode.id);
     setShowForm(true);
   }
 
-  const handleSubmit = async (e: SubmitEvent) => {
-    e.preventDefault();
-    const id = formId().trim();
-    const name = formName().trim();
-    if (!id) {
-      toast("error", t("modes.toast.idRequired"));
-      return;
-    }
-    if (!name) {
-      toast("error", t("modes.toast.nameRequired"));
-      return;
-    }
-    setError("");
-    try {
+  const {
+    run: handleSubmit,
+    error,
+    clearError,
+  } = useAsyncAction(
+    async () => {
+      const id = form.state.id.trim();
+      const name = form.state.name.trim();
+      if (!id) {
+        toast("error", t("modes.toast.idRequired"));
+        return;
+      }
+      if (!name) {
+        toast("error", t("modes.toast.nameRequired"));
+        return;
+      }
       const req: CreateModeRequest = {
         id,
         name,
-        description: formDesc().trim() || undefined,
-        tools: formTools()
+        description: form.state.desc.trim() || undefined,
+        tools: form.state.tools
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        denied_tools: formDeniedTools()
+        denied_tools: form.state.deniedTools
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        denied_actions: formDeniedActions()
+        denied_actions: form.state.deniedActions
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        required_artifact: formRequiredArtifact().trim() || undefined,
-        llm_scenario: formScenario().trim() || undefined,
-        autonomy: formAutonomy(),
-        prompt_prefix: formPrompt().trim() || undefined,
+        required_artifact: form.state.requiredArtifact.trim() || undefined,
+        llm_scenario: form.state.scenario.trim() || undefined,
+        autonomy: form.state.autonomy,
+        prompt_prefix: form.state.prompt.trim() || undefined,
       };
       const eid = editingId();
       if (isEditing() && eid) {
@@ -122,31 +129,37 @@ export default function ModesPage() {
         await api.modes.create(req);
         toast("success", t("modes.toast.created"));
       }
-      resetForm();
+      form.reset();
+      setEditingId(null);
       setShowForm(false);
       refetch();
-    } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : isEditing()
-            ? t("modes.toast.updateFailed")
-            : t("modes.toast.createFailed");
-      setError(msg);
-      toast("error", msg);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : isEditing()
+              ? t("modes.toast.updateFailed")
+              : t("modes.toast.createFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
-  const handleDelete = async (mode: Mode) => {
-    try {
+  const { run: handleDelete } = useAsyncAction(
+    async (mode: Mode) => {
       await api.modes.delete(mode.id);
       toast("success", t("modes.toast.deleted"));
       refetch();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : t("modes.toast.deleteFailed");
-      toast("error", msg);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : t("modes.toast.deleteFailed");
+        toast("error", msg);
+      },
+    },
+  );
 
   const sorted = () => {
     const list = modes() ?? [];
@@ -174,13 +187,16 @@ export default function ModesPage() {
         </Button>
       }
     >
-      <ErrorBanner error={error} onDismiss={() => setError("")} />
+      <ErrorBanner error={error} onDismiss={clearError} />
 
       <Show when={showForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
-              onSubmit={handleSubmit}
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSubmit();
+              }}
               aria-label={isEditing() ? t("modes.edit") : t("modes.addMode")}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -188,8 +204,8 @@ export default function ModesPage() {
                   <Input
                     id="mode-id"
                     type="text"
-                    value={formId()}
-                    onInput={(e) => setFormId(e.currentTarget.value)}
+                    value={form.state.id}
+                    onInput={(e) => form.setState("id", e.currentTarget.value)}
                     placeholder={t("modes.form.idPlaceholder")}
                     aria-required="true"
                     disabled={isEditing()}
@@ -199,8 +215,8 @@ export default function ModesPage() {
                   <Input
                     id="mode-name"
                     type="text"
-                    value={formName()}
-                    onInput={(e) => setFormName(e.currentTarget.value)}
+                    value={form.state.name}
+                    onInput={(e) => form.setState("name", e.currentTarget.value)}
                     placeholder={t("modes.form.namePlaceholder")}
                     aria-required="true"
                   />
@@ -209,8 +225,8 @@ export default function ModesPage() {
                   <Input
                     id="mode-desc"
                     type="text"
-                    value={formDesc()}
-                    onInput={(e) => setFormDesc(e.currentTarget.value)}
+                    value={form.state.desc}
+                    onInput={(e) => form.setState("desc", e.currentTarget.value)}
                     placeholder={t("modes.form.descriptionPlaceholder")}
                   />
                 </FormField>
@@ -218,8 +234,8 @@ export default function ModesPage() {
                   <Input
                     id="mode-tools"
                     type="text"
-                    value={formTools()}
-                    onInput={(e) => setFormTools(e.currentTarget.value)}
+                    value={form.state.tools}
+                    onInput={(e) => form.setState("tools", e.currentTarget.value)}
                     placeholder={t("modes.form.toolsPlaceholder")}
                   />
                 </FormField>
@@ -227,8 +243,8 @@ export default function ModesPage() {
                   <Input
                     id="mode-denied-tools"
                     type="text"
-                    value={formDeniedTools()}
-                    onInput={(e) => setFormDeniedTools(e.currentTarget.value)}
+                    value={form.state.deniedTools}
+                    onInput={(e) => form.setState("deniedTools", e.currentTarget.value)}
                     placeholder={t("modes.form.deniedToolsPlaceholder")}
                   />
                 </FormField>
@@ -236,8 +252,8 @@ export default function ModesPage() {
                   <Input
                     id="mode-denied-actions"
                     type="text"
-                    value={formDeniedActions()}
-                    onInput={(e) => setFormDeniedActions(e.currentTarget.value)}
+                    value={form.state.deniedActions}
+                    onInput={(e) => form.setState("deniedActions", e.currentTarget.value)}
                     placeholder={t("modes.form.deniedActionsPlaceholder")}
                   />
                 </FormField>
@@ -245,16 +261,16 @@ export default function ModesPage() {
                   <Input
                     id="mode-required-artifact"
                     type="text"
-                    value={formRequiredArtifact()}
-                    onInput={(e) => setFormRequiredArtifact(e.currentTarget.value)}
+                    value={form.state.requiredArtifact}
+                    onInput={(e) => form.setState("requiredArtifact", e.currentTarget.value)}
                     placeholder={t("modes.form.requiredArtifactPlaceholder")}
                   />
                 </FormField>
                 <FormField label={t("modes.form.scenario")} id="mode-scenario">
                   <Select
                     id="mode-scenario"
-                    value={formScenario()}
-                    onChange={(e) => setFormScenario(e.currentTarget.value)}
+                    value={form.state.scenario}
+                    onChange={(e) => form.setState("scenario", e.currentTarget.value)}
                   >
                     <option value="">{t("modes.form.scenarioPlaceholder")}</option>
                     <For each={scenarios() ?? []}>{(s) => <option value={s}>{s}</option>}</For>
@@ -266,15 +282,15 @@ export default function ModesPage() {
                     type="number"
                     min="1"
                     max="5"
-                    value={formAutonomy()}
-                    onInput={(e) => setFormAutonomy(Number(e.currentTarget.value))}
+                    value={form.state.autonomy}
+                    onInput={(e) => form.setState("autonomy", Number(e.currentTarget.value))}
                   />
                 </FormField>
                 <FormField label={t("modes.form.prompt")} id="mode-prompt" class="sm:col-span-2">
                   <Textarea
                     id="mode-prompt"
-                    value={formPrompt()}
-                    onInput={(e) => setFormPrompt(e.currentTarget.value)}
+                    value={form.state.prompt}
+                    onInput={(e) => form.setState("prompt", e.currentTarget.value)}
                     rows={3}
                     placeholder={t("modes.form.promptPlaceholder")}
                   />
@@ -314,7 +330,7 @@ export default function ModesPage() {
 function ModeCard(props: {
   mode: Mode;
   onEdit: (mode: Mode) => void;
-  onDelete: (mode: Mode) => void;
+  onDelete: (mode: Mode) => Promise<void>;
 }) {
   const { t } = useI18n();
   const [showPrompt, setShowPrompt] = createSignal(false);
@@ -357,7 +373,7 @@ function ModeCard(props: {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => props.onDelete(props.mode)}
+                onClick={() => void props.onDelete(props.mode)}
                 aria-label={t("modes.deleteAria", { name: props.mode.name })}
               >
                 {t("modes.delete")}

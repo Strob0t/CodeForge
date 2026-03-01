@@ -87,6 +87,8 @@ const BASE = "/api/v1";
 
 import { MAX_RETRIES, RETRY_BASE_MS, RETRYABLE_STATUSES } from "~/config/constants";
 
+import { url } from "./factory";
+
 // Access token getter — set by AuthProvider to inject JWT into requests.
 let accessTokenGetter: (() => string | null) | null = null;
 
@@ -224,7 +226,7 @@ export const api = {
   projects: {
     list: () => request<Project[]>("/projects"),
 
-    get: (id: string) => request<Project>(`/projects/${encodeURIComponent(id)}`),
+    get: (id: string) => request<Project>(url`/projects/${id}`),
 
     create: (data: CreateProjectRequest) =>
       request<Project>("/projects", {
@@ -233,49 +235,44 @@ export const api = {
       }),
 
     update: (id: string, data: import("./types").UpdateProjectRequest) =>
-      request<Project>(`/projects/${encodeURIComponent(id)}`, {
+      request<Project>(url`/projects/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
     delete: (id: string) =>
-      request<undefined>(`/projects/${encodeURIComponent(id)}`, {
+      request<undefined>(url`/projects/${id}`, {
         method: "DELETE",
       }),
 
-    parseRepoURL: (url: string) =>
+    parseRepoURL: (repoUrl: string) =>
       request<import("./types").ParsedRepoURL>("/parse-repo-url", {
         method: "POST",
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: repoUrl }),
       }),
 
     clone: (id: string) =>
-      request<Project>(`/projects/${encodeURIComponent(id)}/clone`, {
+      request<Project>(url`/projects/${id}/clone`, {
         method: "POST",
       }),
 
-    gitStatus: (id: string) => request<GitStatus>(`/projects/${encodeURIComponent(id)}/git/status`),
+    gitStatus: (id: string) => request<GitStatus>(url`/projects/${id}/git/status`),
 
     pull: (id: string) =>
-      request<{ status: string }>(`/projects/${encodeURIComponent(id)}/git/pull`, {
+      request<{ status: string }>(url`/projects/${id}/git/pull`, {
         method: "POST",
       }),
 
-    branches: (id: string) => request<Branch[]>(`/projects/${encodeURIComponent(id)}/git/branches`),
+    branches: (id: string) => request<Branch[]>(url`/projects/${id}/git/branches`),
 
     checkout: (id: string, branch: string) =>
-      request<{ status: string; branch: string }>(
-        `/projects/${encodeURIComponent(id)}/git/checkout`,
-        {
-          method: "POST",
-          body: JSON.stringify({ branch }),
-        },
-      ),
+      request<{ status: string; branch: string }>(url`/projects/${id}/git/checkout`, {
+        method: "POST",
+        body: JSON.stringify({ branch }),
+      }),
 
     detectStack: (id: string) =>
-      request<import("./types").StackDetectionResult>(
-        `/projects/${encodeURIComponent(id)}/detect-stack`,
-      ),
+      request<import("./types").StackDetectionResult>(url`/projects/${id}/detect-stack`),
 
     detectStackByPath: (path: string) =>
       request<import("./types").StackDetectionResult>("/detect-stack", {
@@ -284,71 +281,66 @@ export const api = {
       }),
 
     setup: (id: string, branch?: string) =>
-      request<import("./types").SetupResult>(`/projects/${encodeURIComponent(id)}/setup`, {
+      request<import("./types").SetupResult>(url`/projects/${id}/setup`, {
         method: "POST",
         body: JSON.stringify(branch ? { branch } : {}),
       }),
 
     adopt: (id: string, body: { path: string }) =>
-      request<Project>(`/projects/${encodeURIComponent(id)}/adopt`, {
+      request<Project>(url`/projects/${id}/adopt`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
 
-    remoteBranches: (url: string) =>
-      request<{ branches: string[] }>(
-        `/projects/remote-branches?url=${encodeURIComponent(url)}`,
-      ).then((r) => r.branches),
+    remoteBranches: (repoUrl: string) =>
+      request<{ branches: string[] }>(url`/projects/remote-branches?url=${repoUrl}`).then(
+        (r) => r.branches,
+      ),
   },
 
   agents: {
-    list: (projectId: string) =>
-      request<Agent[]>(`/projects/${encodeURIComponent(projectId)}/agents`),
+    list: (projectId: string) => request<Agent[]>(url`/projects/${projectId}/agents`),
 
-    get: (id: string) => request<Agent>(`/agents/${encodeURIComponent(id)}`),
+    get: (id: string) => request<Agent>(url`/agents/${id}`),
 
     create: (projectId: string, data: CreateAgentRequest) =>
-      request<Agent>(`/projects/${encodeURIComponent(projectId)}/agents`, {
+      request<Agent>(url`/projects/${projectId}/agents`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
-    delete: (id: string) =>
-      request<undefined>(`/agents/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    delete: (id: string) => request<undefined>(url`/agents/${id}`, { method: "DELETE" }),
 
     dispatch: (agentId: string, taskId: string) =>
-      request<{ status: string }>(`/agents/${encodeURIComponent(agentId)}/dispatch`, {
+      request<{ status: string }>(url`/agents/${agentId}/dispatch`, {
         method: "POST",
         body: JSON.stringify({ task_id: taskId }),
       }),
 
     stop: (agentId: string, taskId: string) =>
-      request<{ status: string }>(`/agents/${encodeURIComponent(agentId)}/stop`, {
+      request<{ status: string }>(url`/agents/${agentId}/stop`, {
         method: "POST",
         body: JSON.stringify({ task_id: taskId }),
       }),
   },
 
   tasks: {
-    list: (projectId: string) =>
-      request<Task[]>(`/projects/${encodeURIComponent(projectId)}/tasks`),
+    list: (projectId: string) => request<Task[]>(url`/projects/${projectId}/tasks`),
 
-    get: (id: string) => request<Task>(`/tasks/${encodeURIComponent(id)}`),
+    get: (id: string) => request<Task>(url`/tasks/${id}`),
 
     create: (projectId: string, data: CreateTaskRequest) =>
-      request<Task>(`/projects/${encodeURIComponent(projectId)}/tasks`, {
+      request<Task>(url`/projects/${projectId}/tasks`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
-    events: (taskId: string) =>
-      request<AgentEvent[]>(`/tasks/${encodeURIComponent(taskId)}/events`),
+    events: (taskId: string) => request<AgentEvent[]>(url`/tasks/${taskId}/events`),
 
-    context: (taskId: string) =>
-      request<ContextPack>(`/tasks/${encodeURIComponent(taskId)}/context`),
+    context: (taskId: string) => request<ContextPack>(url`/tasks/${taskId}/context`),
 
     buildContext: (taskId: string, projectId: string, teamId?: string) =>
-      request<ContextPack>(`/tasks/${encodeURIComponent(taskId)}/context`, {
+      request<ContextPack>(url`/tasks/${taskId}/context`, {
         method: "POST",
         body: JSON.stringify({ project_id: projectId, team_id: teamId ?? "" }),
       }),
@@ -364,7 +356,7 @@ export const api = {
       }),
 
     deleteModel: (modelId: string) =>
-      request<undefined>(`/llm/models/${encodeURIComponent(modelId)}`, {
+      request<undefined>(url`/llm/models/${modelId}`, {
         method: "DELETE",
       }),
 
@@ -380,36 +372,33 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
-    get: (id: string) => request<Run>(`/runs/${encodeURIComponent(id)}`),
+    get: (id: string) => request<Run>(url`/runs/${id}`),
 
     cancel: (id: string) =>
-      request<{ status: string }>(`/runs/${encodeURIComponent(id)}/cancel`, {
+      request<{ status: string }>(url`/runs/${id}/cancel`, {
         method: "POST",
       }),
 
-    listByTask: (taskId: string) => request<Run[]>(`/tasks/${encodeURIComponent(taskId)}/runs`),
+    listByTask: (taskId: string) => request<Run[]>(url`/tasks/${taskId}/runs`),
   },
 
   teams: {
-    list: (projectId: string) =>
-      request<AgentTeam[]>(`/projects/${encodeURIComponent(projectId)}/teams`),
+    list: (projectId: string) => request<AgentTeam[]>(url`/projects/${projectId}/teams`),
 
-    get: (id: string) => request<AgentTeam>(`/teams/${encodeURIComponent(id)}`),
+    get: (id: string) => request<AgentTeam>(url`/teams/${id}`),
 
     create: (projectId: string, data: CreateTeamRequest) =>
-      request<AgentTeam>(`/projects/${encodeURIComponent(projectId)}/teams`, {
+      request<AgentTeam>(url`/projects/${projectId}/teams`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
-    delete: (id: string) =>
-      request<undefined>(`/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    delete: (id: string) => request<undefined>(url`/teams/${id}`, { method: "DELETE" }),
 
-    sharedContext: (teamId: string) =>
-      request<SharedContext>(`/teams/${encodeURIComponent(teamId)}/shared-context`),
+    sharedContext: (teamId: string) => request<SharedContext>(url`/teams/${teamId}/shared-context`),
 
     addSharedItem: (teamId: string, data: AddSharedItemRequest) =>
-      request<SharedContextItem>(`/teams/${encodeURIComponent(teamId)}/shared-context`, {
+      request<SharedContextItem>(url`/teams/${teamId}/shared-context`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -417,51 +406,47 @@ export const api = {
 
   plans: {
     decompose: (projectId: string, data: DecomposeRequest) =>
-      request<ExecutionPlan>(`/projects/${encodeURIComponent(projectId)}/decompose`, {
+      request<ExecutionPlan>(url`/projects/${projectId}/decompose`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     planFeature: (projectId: string, data: PlanFeatureRequest) =>
-      request<ExecutionPlan>(`/projects/${encodeURIComponent(projectId)}/plan-feature`, {
+      request<ExecutionPlan>(url`/projects/${projectId}/plan-feature`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
-    list: (projectId: string) =>
-      request<ExecutionPlan[]>(`/projects/${encodeURIComponent(projectId)}/plans`),
+    list: (projectId: string) => request<ExecutionPlan[]>(url`/projects/${projectId}/plans`),
 
-    get: (id: string) => request<ExecutionPlan>(`/plans/${encodeURIComponent(id)}`),
+    get: (id: string) => request<ExecutionPlan>(url`/plans/${id}`),
 
     create: (projectId: string, data: CreatePlanRequest) =>
-      request<ExecutionPlan>(`/projects/${encodeURIComponent(projectId)}/plans`, {
+      request<ExecutionPlan>(url`/projects/${projectId}/plans`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     start: (id: string) =>
-      request<ExecutionPlan>(`/plans/${encodeURIComponent(id)}/start`, {
+      request<ExecutionPlan>(url`/plans/${id}/start`, {
         method: "POST",
       }),
 
     cancel: (id: string) =>
-      request<{ status: string }>(`/plans/${encodeURIComponent(id)}/cancel`, {
+      request<{ status: string }>(url`/plans/${id}/cancel`, {
         method: "POST",
       }),
 
-    graph: (id: string) => request<PlanGraph>(`/plans/${encodeURIComponent(id)}/graph`),
+    graph: (id: string) => request<PlanGraph>(url`/plans/${id}/graph`),
 
     evaluateStep: (planId: string, stepId: string) =>
-      request<ReviewDecision>(
-        `/plans/${encodeURIComponent(planId)}/steps/${encodeURIComponent(stepId)}/evaluate`,
-        { method: "POST" },
-      ),
+      request<ReviewDecision>(url`/plans/${planId}/steps/${stepId}/evaluate`, { method: "POST" }),
   },
 
   modes: {
     list: () => request<Mode[]>("/modes"),
 
-    get: (id: string) => request<Mode>(`/modes/${encodeURIComponent(id)}`),
+    get: (id: string) => request<Mode>(url`/modes/${id}`),
 
     create: (data: CreateModeRequest) =>
       request<Mode>("/modes", {
@@ -470,23 +455,21 @@ export const api = {
       }),
 
     update: (id: string, data: CreateModeRequest) =>
-      request<Mode>(`/modes/${encodeURIComponent(id)}`, {
+      request<Mode>(url`/modes/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
-    delete: (id: string) =>
-      request<undefined>(`/modes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    delete: (id: string) => request<undefined>(url`/modes/${id}`, { method: "DELETE" }),
 
     scenarios: () => request<string[]>("/modes/scenarios"),
   },
 
   repomap: {
-    get: (projectId: string) =>
-      request<RepoMap>(`/projects/${encodeURIComponent(projectId)}/repomap`),
+    get: (projectId: string) => request<RepoMap>(url`/projects/${projectId}/repomap`),
 
     generate: (projectId: string, activeFiles?: string[]) =>
-      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/repomap`, {
+      request<{ status: string }>(url`/projects/${projectId}/repomap`, {
         method: "POST",
         body: JSON.stringify({ active_files: activeFiles ?? [] }),
       }),
@@ -494,38 +477,37 @@ export const api = {
 
   retrieval: {
     indexStatus: (projectId: string) =>
-      request<RetrievalIndexStatus>(`/projects/${encodeURIComponent(projectId)}/index`),
+      request<RetrievalIndexStatus>(url`/projects/${projectId}/index`),
 
     buildIndex: (projectId: string, embeddingModel?: string) =>
-      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/index`, {
+      request<{ status: string }>(url`/projects/${projectId}/index`, {
         method: "POST",
         body: JSON.stringify({ embedding_model: embeddingModel ?? "" }),
       }),
 
     search: (projectId: string, data: SearchRequest) =>
-      request<RetrievalSearchResult>(`/projects/${encodeURIComponent(projectId)}/search`, {
+      request<RetrievalSearchResult>(url`/projects/${projectId}/search`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     agentSearch: (projectId: string, data: SubAgentSearchRequest) =>
-      request<SubAgentSearchResult>(`/projects/${encodeURIComponent(projectId)}/search/agent`, {
+      request<SubAgentSearchResult>(url`/projects/${projectId}/search/agent`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
   },
 
   graph: {
-    status: (projectId: string) =>
-      request<GraphStatus>(`/projects/${encodeURIComponent(projectId)}/graph/status`),
+    status: (projectId: string) => request<GraphStatus>(url`/projects/${projectId}/graph/status`),
 
     build: (projectId: string) =>
-      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/graph/build`, {
+      request<{ status: string }>(url`/projects/${projectId}/graph/build`, {
         method: "POST",
       }),
 
     search: (projectId: string, data: GraphSearchRequest) =>
-      request<GraphSearchResult>(`/projects/${encodeURIComponent(projectId)}/graph/search`, {
+      request<GraphSearchResult>(url`/projects/${projectId}/graph/search`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -534,7 +516,7 @@ export const api = {
   policies: {
     list: () => request<{ profiles: string[] }>("/policies"),
 
-    get: (name: string) => request<PolicyProfile>(`/policies/${encodeURIComponent(name)}`),
+    get: (name: string) => request<PolicyProfile>(url`/policies/${name}`),
 
     create: (profile: PolicyProfile) =>
       request<PolicyProfile>("/policies", {
@@ -543,12 +525,12 @@ export const api = {
       }),
 
     delete: (name: string) =>
-      request<undefined>(`/policies/${encodeURIComponent(name)}`, {
+      request<undefined>(url`/policies/${name}`, {
         method: "DELETE",
       }),
 
     evaluate: (name: string, call: PolicyToolCall) =>
-      request<EvaluationResult>(`/policies/${encodeURIComponent(name)}/evaluate`, {
+      request<EvaluationResult>(url`/policies/${name}/evaluate`, {
         method: "POST",
         body: JSON.stringify(call),
       }),
@@ -557,101 +539,93 @@ export const api = {
   costs: {
     global: () => request<ProjectCostSummary[]>("/costs"),
 
-    project: (id: string) => request<CostSummary>(`/projects/${encodeURIComponent(id)}/costs`),
+    project: (id: string) => request<CostSummary>(url`/projects/${id}/costs`),
 
-    byModel: (id: string) =>
-      request<ModelCostSummary[]>(`/projects/${encodeURIComponent(id)}/costs/by-model`),
+    byModel: (id: string) => request<ModelCostSummary[]>(url`/projects/${id}/costs/by-model`),
 
     daily: (id: string, days = 30) =>
-      request<DailyCost[]>(`/projects/${encodeURIComponent(id)}/costs/daily?days=${days}`),
+      request<DailyCost[]>(url`/projects/${id}/costs/daily?days=${days}`),
 
     recentRuns: (id: string, limit = 20) =>
-      request<Run[]>(`/projects/${encodeURIComponent(id)}/costs/runs?limit=${limit}`),
+      request<Run[]>(url`/projects/${id}/costs/runs?limit=${limit}`),
 
-    byTool: (id: string) =>
-      request<ToolCostSummary[]>(`/projects/${encodeURIComponent(id)}/costs/by-tool`),
+    byTool: (id: string) => request<ToolCostSummary[]>(url`/projects/${id}/costs/by-tool`),
 
-    byToolForRun: (runId: string) =>
-      request<ToolCostSummary[]>(`/runs/${encodeURIComponent(runId)}/costs/by-tool`),
+    byToolForRun: (runId: string) => request<ToolCostSummary[]>(url`/runs/${runId}/costs/by-tool`),
   },
 
   roadmap: {
-    get: (projectId: string) =>
-      request<Roadmap>(`/projects/${encodeURIComponent(projectId)}/roadmap`),
+    get: (projectId: string) => request<Roadmap>(url`/projects/${projectId}/roadmap`),
 
     create: (projectId: string, data: CreateRoadmapRequest) =>
-      request<Roadmap>(`/projects/${encodeURIComponent(projectId)}/roadmap`, {
+      request<Roadmap>(url`/projects/${projectId}/roadmap`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     update: (projectId: string, data: Partial<Roadmap> & { version: number }) =>
-      request<Roadmap>(`/projects/${encodeURIComponent(projectId)}/roadmap`, {
+      request<Roadmap>(url`/projects/${projectId}/roadmap`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
     delete: (projectId: string) =>
-      request<undefined>(`/projects/${encodeURIComponent(projectId)}/roadmap`, {
+      request<undefined>(url`/projects/${projectId}/roadmap`, {
         method: "DELETE",
       }),
 
     ai: (projectId: string, format: "json" | "yaml" | "markdown" = "markdown") =>
-      request<AIRoadmapView>(
-        `/projects/${encodeURIComponent(projectId)}/roadmap/ai?format=${format}`,
-      ),
+      request<AIRoadmapView>(url`/projects/${projectId}/roadmap/ai?format=${format}`),
 
     detect: (projectId: string) =>
-      request<DetectionResult>(`/projects/${encodeURIComponent(projectId)}/roadmap/detect`, {
+      request<DetectionResult>(url`/projects/${projectId}/roadmap/detect`, {
         method: "POST",
       }),
 
     createMilestone: (projectId: string, data: CreateMilestoneRequest) =>
-      request<Milestone>(`/projects/${encodeURIComponent(projectId)}/roadmap/milestones`, {
+      request<Milestone>(url`/projects/${projectId}/roadmap/milestones`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     updateMilestone: (id: string, data: Partial<Milestone> & { version: number }) =>
-      request<Milestone>(`/milestones/${encodeURIComponent(id)}`, {
+      request<Milestone>(url`/milestones/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
     deleteMilestone: (id: string) =>
-      request<undefined>(`/milestones/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      request<undefined>(url`/milestones/${id}`, { method: "DELETE" }),
 
     createFeature: (milestoneId: string, data: CreateFeatureRequest) =>
-      request<RoadmapFeature>(`/milestones/${encodeURIComponent(milestoneId)}/features`, {
+      request<RoadmapFeature>(url`/milestones/${milestoneId}/features`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     updateFeature: (id: string, data: Partial<RoadmapFeature> & { version: number }) =>
-      request<RoadmapFeature>(`/features/${encodeURIComponent(id)}`, {
+      request<RoadmapFeature>(url`/features/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
-    deleteFeature: (id: string) =>
-      request<undefined>(`/features/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    deleteFeature: (id: string) => request<undefined>(url`/features/${id}`, { method: "DELETE" }),
 
     importSpecs: (projectId: string) =>
-      request<ImportResult>(`/projects/${encodeURIComponent(projectId)}/roadmap/import`, {
+      request<ImportResult>(url`/projects/${projectId}/roadmap/import`, {
         method: "POST",
       }),
 
     importPMItems: (projectId: string, data: PMImportRequest) =>
-      request<ImportResult>(`/projects/${encodeURIComponent(projectId)}/roadmap/import/pm`, {
+      request<ImportResult>(url`/projects/${projectId}/roadmap/import/pm`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     syncToFile: (projectId: string) =>
-      request<{ status: string }>(
-        `/projects/${encodeURIComponent(projectId)}/roadmap/sync-to-file`,
-        { method: "POST" },
-      ),
+      request<{ status: string }>(url`/projects/${projectId}/roadmap/sync-to-file`, {
+        method: "POST",
+      }),
   },
 
   trajectory: {
@@ -730,7 +704,7 @@ export const api = {
     listAPIKeys: () => request<APIKeyInfo[]>("/auth/api-keys"),
 
     deleteAPIKey: (id: string) =>
-      request<undefined>(`/auth/api-keys/${encodeURIComponent(id)}`, {
+      request<undefined>(url`/auth/api-keys/${id}`, {
         method: "DELETE",
       }),
   },
@@ -745,58 +719,53 @@ export const api = {
       }),
 
     update: (id: string, data: UpdateUserRequest) =>
-      request<User>(`/users/${encodeURIComponent(id)}`, {
+      request<User>(url`/users/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
     delete: (id: string) =>
-      request<undefined>(`/users/${encodeURIComponent(id)}`, {
+      request<undefined>(url`/users/${id}`, {
         method: "DELETE",
       }),
   },
 
   reviews: {
     listPolicies: (projectId: string) =>
-      request<import("./types").ReviewPolicy[]>(
-        `/projects/${encodeURIComponent(projectId)}/review-policies`,
-      ),
+      request<import("./types").ReviewPolicy[]>(url`/projects/${projectId}/review-policies`),
 
     createPolicy: (projectId: string, data: Partial<import("./types").ReviewPolicy>) =>
-      request<import("./types").ReviewPolicy>(
-        `/projects/${encodeURIComponent(projectId)}/review-policies`,
-        { method: "POST", body: JSON.stringify(data) },
-      ),
+      request<import("./types").ReviewPolicy>(url`/projects/${projectId}/review-policies`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
 
-    getPolicy: (id: string) =>
-      request<import("./types").ReviewPolicy>(`/review-policies/${encodeURIComponent(id)}`),
+    getPolicy: (id: string) => request<import("./types").ReviewPolicy>(url`/review-policies/${id}`),
 
     updatePolicy: (id: string, data: Partial<import("./types").ReviewPolicy>) =>
-      request<import("./types").ReviewPolicy>(`/review-policies/${encodeURIComponent(id)}`, {
+      request<import("./types").ReviewPolicy>(url`/review-policies/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
     deletePolicy: (id: string) =>
-      request<undefined>(`/review-policies/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      request<undefined>(url`/review-policies/${id}`, { method: "DELETE" }),
 
     trigger: (policyId: string) =>
-      request<import("./types").Review>(
-        `/review-policies/${encodeURIComponent(policyId)}/trigger`,
-        { method: "POST" },
-      ),
+      request<import("./types").Review>(url`/review-policies/${policyId}/trigger`, {
+        method: "POST",
+      }),
 
     list: (projectId: string) =>
-      request<import("./types").Review[]>(`/projects/${encodeURIComponent(projectId)}/reviews`),
+      request<import("./types").Review[]>(url`/projects/${projectId}/reviews`),
 
-    get: (id: string) => request<import("./types").Review>(`/reviews/${encodeURIComponent(id)}`),
+    get: (id: string) => request<import("./types").Review>(url`/reviews/${id}`),
   },
 
   scopes: {
     list: () => request<import("./types").RetrievalScope[]>("/scopes"),
 
-    get: (id: string) =>
-      request<import("./types").RetrievalScope>(`/scopes/${encodeURIComponent(id)}`),
+    get: (id: string) => request<import("./types").RetrievalScope>(url`/scopes/${id}`),
 
     create: (data: import("./types").CreateScopeRequest) =>
       request<import("./types").RetrievalScope>("/scopes", {
@@ -805,34 +774,30 @@ export const api = {
       }),
 
     update: (id: string, data: import("./types").UpdateScopeRequest) =>
-      request<import("./types").RetrievalScope>(`/scopes/${encodeURIComponent(id)}`, {
+      request<import("./types").RetrievalScope>(url`/scopes/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
-    delete: (id: string) =>
-      request<undefined>(`/scopes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    delete: (id: string) => request<undefined>(url`/scopes/${id}`, { method: "DELETE" }),
 
     addProject: (scopeId: string, projectId: string) =>
-      request<undefined>(`/scopes/${encodeURIComponent(scopeId)}/projects`, {
+      request<undefined>(url`/scopes/${scopeId}/projects`, {
         method: "POST",
         body: JSON.stringify({ project_id: projectId }),
       }),
 
     removeProject: (scopeId: string, projectId: string) =>
-      request<undefined>(
-        `/scopes/${encodeURIComponent(scopeId)}/projects/${encodeURIComponent(projectId)}`,
-        { method: "DELETE" },
-      ),
+      request<undefined>(url`/scopes/${scopeId}/projects/${projectId}`, { method: "DELETE" }),
 
     search: (scopeId: string, data: SearchRequest) =>
-      request<RetrievalSearchResult>(`/scopes/${encodeURIComponent(scopeId)}/search`, {
+      request<RetrievalSearchResult>(url`/scopes/${scopeId}/search`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
 
     graphSearch: (scopeId: string, data: GraphSearchRequest) =>
-      request<GraphSearchResult>(`/scopes/${encodeURIComponent(scopeId)}/graph/search`, {
+      request<GraphSearchResult>(url`/scopes/${scopeId}/graph/search`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -841,8 +806,7 @@ export const api = {
   knowledgeBases: {
     list: () => request<import("./types").KnowledgeBase[]>("/knowledge-bases"),
 
-    get: (id: string) =>
-      request<import("./types").KnowledgeBase>(`/knowledge-bases/${encodeURIComponent(id)}`),
+    get: (id: string) => request<import("./types").KnowledgeBase>(url`/knowledge-bases/${id}`),
 
     create: (data: import("./types").CreateKnowledgeBaseRequest) =>
       request<import("./types").KnowledgeBase>("/knowledge-bases", {
@@ -850,30 +814,24 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
-    delete: (id: string) =>
-      request<undefined>(`/knowledge-bases/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    delete: (id: string) => request<undefined>(url`/knowledge-bases/${id}`, { method: "DELETE" }),
 
     index: (id: string) =>
-      request<{ status: string }>(`/knowledge-bases/${encodeURIComponent(id)}/index`, {
+      request<{ status: string }>(url`/knowledge-bases/${id}/index`, {
         method: "POST",
       }),
 
     listByScope: (scopeId: string) =>
-      request<import("./types").KnowledgeBase[]>(
-        `/scopes/${encodeURIComponent(scopeId)}/knowledge-bases`,
-      ),
+      request<import("./types").KnowledgeBase[]>(url`/scopes/${scopeId}/knowledge-bases`),
 
     attachToScope: (scopeId: string, kbId: string) =>
-      request<undefined>(`/scopes/${encodeURIComponent(scopeId)}/knowledge-bases`, {
+      request<undefined>(url`/scopes/${scopeId}/knowledge-bases`, {
         method: "POST",
         body: JSON.stringify({ knowledge_base_id: kbId }),
       }),
 
     detachFromScope: (scopeId: string, kbId: string) =>
-      request<undefined>(
-        `/scopes/${encodeURIComponent(scopeId)}/knowledge-bases/${encodeURIComponent(kbId)}`,
-        { method: "DELETE" },
-      ),
+      request<undefined>(url`/scopes/${scopeId}/knowledge-bases/${kbId}`, { method: "DELETE" }),
   },
   settings: {
     get: () => request<import("./types").AppSettings>("/settings"),
@@ -887,46 +845,34 @@ export const api = {
 
   conversations: {
     create: (projectId: string, data?: import("./types").CreateConversationRequest) =>
-      request<import("./types").Conversation>(
-        `/projects/${encodeURIComponent(projectId)}/conversations`,
-        {
-          method: "POST",
-          body: JSON.stringify(data ?? {}),
-        },
-      ),
+      request<import("./types").Conversation>(url`/projects/${projectId}/conversations`, {
+        method: "POST",
+        body: JSON.stringify(data ?? {}),
+      }),
 
     list: (projectId: string) =>
-      request<import("./types").Conversation[]>(
-        `/projects/${encodeURIComponent(projectId)}/conversations`,
-      ),
+      request<import("./types").Conversation[]>(url`/projects/${projectId}/conversations`),
 
-    get: (id: string) =>
-      request<import("./types").Conversation>(`/conversations/${encodeURIComponent(id)}`),
+    get: (id: string) => request<import("./types").Conversation>(url`/conversations/${id}`),
 
     delete: (id: string) =>
-      request<undefined>(`/conversations/${encodeURIComponent(id)}`, {
+      request<undefined>(url`/conversations/${id}`, {
         method: "DELETE",
       }),
 
     messages: (id: string) =>
-      request<import("./types").ConversationMessage[]>(
-        `/conversations/${encodeURIComponent(id)}/messages`,
-      ),
+      request<import("./types").ConversationMessage[]>(url`/conversations/${id}/messages`),
 
     send: (id: string, data: import("./types").SendMessageRequest) =>
-      request<import("./types").ConversationMessage>(
-        `/conversations/${encodeURIComponent(id)}/messages`,
-        {
-          method: "POST",
-          body: JSON.stringify(data),
-        },
-      ),
+      request<import("./types").ConversationMessage>(url`/conversations/${id}/messages`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
 
     stop: (id: string) =>
-      request<{ status: string; conversation_id: string }>(
-        `/conversations/${encodeURIComponent(id)}/stop`,
-        { method: "POST" },
-      ),
+      request<{ status: string; conversation_id: string }>(url`/conversations/${id}/stop`, {
+        method: "POST",
+      }),
   },
 
   vcsAccounts: {
@@ -939,30 +885,29 @@ export const api = {
       }),
 
     delete: (id: string) =>
-      request<undefined>(`/vcs-accounts/${encodeURIComponent(id)}`, {
+      request<undefined>(url`/vcs-accounts/${id}`, {
         method: "DELETE",
       }),
 
     test: (id: string) =>
-      request<{ status: string }>(`/vcs-accounts/${encodeURIComponent(id)}/test`, {
+      request<{ status: string }>(url`/vcs-accounts/${id}/test`, {
         method: "POST",
       }),
   },
 
   lsp: {
     start: (projectId: string, languages?: string[]) =>
-      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/lsp/start`, {
+      request<{ status: string }>(url`/projects/${projectId}/lsp/start`, {
         method: "POST",
         body: JSON.stringify({ languages }),
       }),
 
     stop: (projectId: string) =>
-      request<{ status: string }>(`/projects/${encodeURIComponent(projectId)}/lsp/stop`, {
+      request<{ status: string }>(url`/projects/${projectId}/lsp/stop`, {
         method: "POST",
       }),
 
-    status: (projectId: string) =>
-      request<LSPServerInfo[]>(`/projects/${encodeURIComponent(projectId)}/lsp/status`),
+    status: (projectId: string) => request<LSPServerInfo[]>(url`/projects/${projectId}/lsp/status`),
 
     diagnostics: (projectId: string, uri?: string) =>
       request<LSPDiagnostic[]>(
@@ -970,25 +915,25 @@ export const api = {
       ),
 
     definition: (projectId: string, uri: string, line: number, character: number) =>
-      request<LSPLocation[]>(`/projects/${encodeURIComponent(projectId)}/lsp/definition`, {
+      request<LSPLocation[]>(url`/projects/${projectId}/lsp/definition`, {
         method: "POST",
         body: JSON.stringify({ uri, line, character }),
       }),
 
     references: (projectId: string, uri: string, line: number, character: number) =>
-      request<LSPLocation[]>(`/projects/${encodeURIComponent(projectId)}/lsp/references`, {
+      request<LSPLocation[]>(url`/projects/${projectId}/lsp/references`, {
         method: "POST",
         body: JSON.stringify({ uri, line, character }),
       }),
 
     symbols: (projectId: string, uri: string) =>
-      request<LSPDocumentSymbol[]>(`/projects/${encodeURIComponent(projectId)}/lsp/symbols`, {
+      request<LSPDocumentSymbol[]>(url`/projects/${projectId}/lsp/symbols`, {
         method: "POST",
         body: JSON.stringify({ uri }),
       }),
 
     hover: (projectId: string, uri: string, line: number, character: number) =>
-      request<LSPHoverResult>(`/projects/${encodeURIComponent(projectId)}/lsp/hover`, {
+      request<LSPHoverResult>(url`/projects/${projectId}/lsp/hover`, {
         method: "POST",
         body: JSON.stringify({ uri, line, character }),
       }),
@@ -1005,7 +950,7 @@ export const api = {
   mcp: {
     listServers: () => request<MCPServer[]>("/mcp/servers"),
 
-    getServer: (id: string) => request<MCPServer>(`/mcp/servers/${encodeURIComponent(id)}`),
+    getServer: (id: string) => request<MCPServer>(url`/mcp/servers/${id}`),
 
     createServer: (data: CreateMCPServerRequest) =>
       request<MCPServer>("/mcp/servers", {
@@ -1014,16 +959,15 @@ export const api = {
       }),
 
     updateServer: (id: string, data: CreateMCPServerRequest) =>
-      request<MCPServer>(`/mcp/servers/${encodeURIComponent(id)}`, {
+      request<MCPServer>(url`/mcp/servers/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
 
-    deleteServer: (id: string) =>
-      request<undefined>(`/mcp/servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    deleteServer: (id: string) => request<undefined>(url`/mcp/servers/${id}`, { method: "DELETE" }),
 
     testServer: (id: string) =>
-      request<MCPTestResult>(`/mcp/servers/${encodeURIComponent(id)}/test`, {
+      request<MCPTestResult>(url`/mcp/servers/${id}/test`, {
         method: "POST",
       }),
 
@@ -1033,30 +977,24 @@ export const api = {
         body: JSON.stringify(data),
       }),
 
-    listTools: (id: string) =>
-      request<MCPServerTool[]>(`/mcp/servers/${encodeURIComponent(id)}/tools`),
+    listTools: (id: string) => request<MCPServerTool[]>(url`/mcp/servers/${id}/tools`),
 
     listProjectServers: (projectId: string) =>
-      request<MCPServer[]>(`/projects/${encodeURIComponent(projectId)}/mcp-servers`),
+      request<MCPServer[]>(url`/projects/${projectId}/mcp-servers`),
 
     assignToProject: (projectId: string, serverId: string) =>
-      request<undefined>(`/projects/${encodeURIComponent(projectId)}/mcp-servers`, {
+      request<undefined>(url`/projects/${projectId}/mcp-servers`, {
         method: "POST",
         body: JSON.stringify({ server_id: serverId }),
       }),
 
     unassignFromProject: (projectId: string, serverId: string) =>
-      request<undefined>(
-        `/projects/${encodeURIComponent(projectId)}/mcp-servers/${encodeURIComponent(serverId)}`,
-        { method: "DELETE" },
-      ),
+      request<undefined>(url`/projects/${projectId}/mcp-servers/${serverId}`, { method: "DELETE" }),
   },
 
   promptSections: {
     list: (scope = "global") =>
-      request<import("./types").PromptSectionRow[]>(
-        `/prompt-sections?scope=${encodeURIComponent(scope)}`,
-      ),
+      request<import("./types").PromptSectionRow[]>(url`/prompt-sections?scope=${scope}`),
 
     upsert: (data: import("./types").PromptSectionRow) =>
       request<import("./types").PromptSectionRow>("/prompt-sections", {
@@ -1065,7 +1003,7 @@ export const api = {
       }),
 
     delete: (id: string) =>
-      request<undefined>(`/prompt-sections/${encodeURIComponent(id)}`, {
+      request<undefined>(url`/prompt-sections/${id}`, {
         method: "DELETE",
       }),
 
@@ -1080,8 +1018,7 @@ export const api = {
   benchmarks: {
     listRuns: () => request<import("./types").BenchmarkRun[]>("/benchmarks/runs"),
 
-    getRun: (id: string) =>
-      request<import("./types").BenchmarkRun>(`/benchmarks/runs/${encodeURIComponent(id)}`),
+    getRun: (id: string) => request<import("./types").BenchmarkRun>(url`/benchmarks/runs/${id}`),
 
     createRun: (data: import("./types").CreateBenchmarkRunRequest) =>
       request<import("./types").BenchmarkRun>("/benchmarks/runs", {
@@ -1090,14 +1027,12 @@ export const api = {
       }),
 
     deleteRun: (id: string) =>
-      request<undefined>(`/benchmarks/runs/${encodeURIComponent(id)}`, {
+      request<undefined>(url`/benchmarks/runs/${id}`, {
         method: "DELETE",
       }),
 
     listResults: (runId: string) =>
-      request<import("./types").BenchmarkResult[]>(
-        `/benchmarks/runs/${encodeURIComponent(runId)}/results`,
-      ),
+      request<import("./types").BenchmarkResult[]>(url`/benchmarks/runs/${runId}/results`),
 
     compare: (runIdA: string, runIdB: string) =>
       request<import("./types").BenchmarkCompareResult>("/benchmarks/compare", {
