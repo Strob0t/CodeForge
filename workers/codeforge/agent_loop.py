@@ -284,6 +284,9 @@ class AgentLoopExecutor:
         except Exception as exc:
             logger.exception("tool %s execution error", tc.name)
             result_text = f"Error executing {tc.name}: {exc}"
+            correction = _build_correction_hint(tc.name, str(exc))
+            if correction:
+                result_text = f"{result_text}\n\n{correction}"
             self._append_tool_result(tc, result_text, messages, state)
             await self._runtime.report_tool_result(
                 call_id=decision.call_id,
@@ -293,11 +296,13 @@ class AgentLoopExecutor:
             )
             return
 
-        result_text = (
-            result.output
-            if result.success
-            else (f"Error: {result.error}" if result.error else "Tool returned an error")
-        )
+        if not result.success and result.error:
+            correction = _build_correction_hint(tc.name, result.error)
+            result_text = f"Error: {result.error}\n\n{correction}" if correction else f"Error: {result.error}"
+        elif not result.success:
+            result_text = "Tool returned an error"
+        else:
+            result_text = result.output
         self._append_tool_result(tc, result_text, messages, state)
         await self._runtime.report_tool_result(
             call_id=decision.call_id,
@@ -318,6 +323,47 @@ class AgentLoopExecutor:
         msg = _build_tool_result_message(tc, content)
         state.tool_messages.append(msg)
         messages.append(_payload_to_dict(msg))
+
+
+def _build_correction_hint(tool_name: str, error: str) -> str:
+    """Generate a correction hint for common tool argument errors.
+
+    Returns an empty string if no specific hint applies.
+    """
+    error_lower = error.lower()
+
+    if "not found" in error_lower or "no such file" in error_lower:
+        return (
+            f"Hint: The file or path was not found. Use list_directory or glob_files "
+            f"to verify the correct path before retrying {tool_name}."
+        )
+
+    if "path traversal" in error_lower:
+        return "Hint: Use paths relative to the workspace root. Do not use absolute paths or '..'."
+
+    if tool_name == "edit_file":
+        if "not found in file" in error_lower:
+            return (
+                "Hint: The old_text was not found. Use read_file to view the current file "
+                "content and copy the exact text (including whitespace and indentation)."
+            )
+        if "found" in error_lower and "times" in error_lower:
+            return (
+                "Hint: The old_text matches multiple locations. Include more surrounding "
+                "context lines in old_text to make it unique."
+            )
+
+    if "timed out" in error_lower:
+        return "Hint: The command timed out. Try increasing the timeout parameter or breaking it into smaller steps."
+
+    if "permission denied" in error_lower:
+        return "Hint: Permission denied. Check if the file exists and is writable."
+
+    # Generic argument error patterns.
+    if "missing" in error_lower and ("required" in error_lower or "argument" in error_lower):
+        return f"Hint: A required argument is missing. Check the {tool_name} tool definition for required parameters."
+
+    return ""
 
 
 def _resolve_schema(name: str) -> type | None:

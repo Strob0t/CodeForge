@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from codeforge.constants import MAX_DIR_ENTRIES, MAX_LIST_DEPTH
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,24 @@ DEFINITION = ToolDefinition(
             },
         },
     },
+    when_to_use="Use to explore directory structure. Start with the root to understand project layout, then drill into subdirectories.",
+    output_format="Lines prefixed with [DIR] or [FILE] followed by relative path. Directories sorted first.",
+    common_mistakes=[
+        "Using recursive on large directories — start with non-recursive to get an overview first",
+        "Passing a file path instead of a directory path",
+    ],
+    examples=[
+        ToolExample(
+            description="List project root",
+            tool_call_json='{"path": "."}',
+            expected_result="[DIR]  src\\n[DIR]  tests\\n[FILE] README.md\\n[FILE] pyproject.toml",
+        ),
+        ToolExample(
+            description="Recursively list a small directory",
+            tool_call_json='{"path": "src", "recursive": true}',
+            expected_result="[DIR]  src/utils\\n[FILE] src/utils/helpers.py\\n[FILE] src/main.py",
+        ),
+    ],
 )
 
 

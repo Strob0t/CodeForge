@@ -11,6 +11,15 @@ type Spec struct {
 	Title  string `json:"title"`
 }
 
+// SpecItemDetail represents a single actionable item within a spec file
+// (e.g., a checkbox, list entry, or heading from a TODO/roadmap document).
+type SpecItemDetail struct {
+	Title      string `json:"title"`
+	Status     string `json:"status"` // "todo", "done", "in_progress"
+	SourceLine int    `json:"source_line"`
+	Level      string `json:"level"` // "h1", "h2", "h3", "checkbox", "list_item"
+}
+
 // Capabilities declares what a spec provider supports.
 type Capabilities struct {
 	Read  bool `json:"read"`
@@ -34,4 +43,19 @@ type Provider interface {
 
 	// ReadSpec returns the raw content of a spec file.
 	ReadSpec(ctx context.Context, workspacePath, specPath string) ([]byte, error)
+}
+
+// ItemParser is an optional interface that providers can implement to support
+// parsing individual items from spec files. When supported, ImportSpecs()
+// creates one Feature per item instead of one Feature per file.
+type ItemParser interface {
+	// ParseItems returns individual actionable items from a spec file.
+	ParseItems(ctx context.Context, workspacePath, specPath string) ([]SpecItemDetail, error)
+}
+
+// ItemWriter is an optional interface that providers can implement to support
+// writing feature status changes back to spec files.
+type ItemWriter interface {
+	// WriteItems writes spec items back to the spec file, updating statuses.
+	WriteItems(ctx context.Context, workspacePath, specPath string, items []SpecItemDetail) error
 }

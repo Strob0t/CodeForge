@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -314,7 +316,9 @@ func containsKeyword(path string) bool {
 }
 
 // ImportSpecs discovers specs in the workspace via providers and imports them
-// into the roadmap as milestones and features.
+// into the roadmap as milestones and features. It uses an upsert pattern:
+// milestones are matched by title, features by spec_ref, to prevent duplicates
+// on re-import.
 func (s *RoadmapService) ImportSpecs(ctx context.Context, projectID string) (*roadmap.ImportResult, error) {
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
@@ -352,34 +356,103 @@ func (s *RoadmapService) ImportSpecs(ctx context.Context, projectID string) (*ro
 			continue
 		}
 
-		// Create a milestone per spec format.
-		ms, err := s.store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
-			RoadmapID:   rm.ID,
-			Title:       fmt.Sprintf("Imported from %s", prov.Name()),
-			Description: fmt.Sprintf("Specs discovered by the %s provider", prov.Name()),
-		})
+		// Upsert milestone: find existing by title or create new.
+		msTitle := fmt.Sprintf("Imported from %s", prov.Name())
+		ms, err := s.store.FindMilestoneByTitle(ctx, rm.ID, msTitle)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("create milestone for %s: %v", prov.Name(), err))
-			continue
-		}
-		result.MilestonesCreated++
-
-		for _, spec := range specs {
-			_, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
-				MilestoneID: ms.ID,
-				Title:       spec.Title,
-				SpecRef:     spec.Path,
-				Labels:      []string{prov.Name()},
-			})
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("create feature %q: %v", spec.Title, err))
+			if !errors.Is(err, domain.ErrNotFound) {
+				result.Errors = append(result.Errors, fmt.Sprintf("find milestone for %s: %v", prov.Name(), err))
 				continue
 			}
-			result.FeaturesCreated++
+			ms, err = s.store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
+				RoadmapID:   rm.ID,
+				Title:       msTitle,
+				Description: fmt.Sprintf("Specs discovered by the %s provider", prov.Name()),
+			})
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("create milestone for %s: %v", prov.Name(), err))
+				continue
+			}
+			result.MilestonesCreated++
+		}
+
+		// If the provider supports item-level parsing, import individual items
+		// as separate features instead of one feature per file.
+		itemParser, hasItemParser := prov.(specprovider.ItemParser)
+
+		for _, spec := range specs {
+			if hasItemParser {
+				s.importSpecItems(ctx, itemParser, proj.WorkspacePath, spec, ms, prov.Name(), result)
+				continue
+			}
+
+			// Fallback: one feature per spec file.
+			s.upsertFeature(ctx, ms.ID, spec.Title, spec.Path, prov.Name(), result)
 		}
 	}
 
 	return result, nil
+}
+
+// importSpecItems parses individual items from a spec file and creates/updates
+// one feature per item. The spec_ref format is "specPath#Lline".
+func (s *RoadmapService) importSpecItems(
+	ctx context.Context,
+	parser specprovider.ItemParser,
+	workspacePath string,
+	spec specprovider.Spec,
+	ms *roadmap.Milestone,
+	provName string,
+	result *roadmap.ImportResult,
+) {
+	items, err := parser.ParseItems(ctx, workspacePath, spec.Path)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("parse items from %s: %v", spec.Path, err))
+		return
+	}
+
+	for _, item := range items {
+		specRef := fmt.Sprintf("%s#L%d", spec.Path, item.SourceLine)
+		s.upsertFeature(ctx, ms.ID, item.Title, specRef, provName, result)
+	}
+}
+
+// upsertFeature finds an existing feature by spec_ref and updates it, or creates
+// a new one. Updates the result counters accordingly.
+func (s *RoadmapService) upsertFeature(
+	ctx context.Context,
+	milestoneID, title, specRef, provName string,
+	result *roadmap.ImportResult,
+) {
+	existing, findErr := s.store.FindFeatureBySpecRef(ctx, milestoneID, specRef)
+	if findErr != nil && !errors.Is(findErr, domain.ErrNotFound) {
+		result.Errors = append(result.Errors, fmt.Sprintf("find feature %q: %v", title, findErr))
+		return
+	}
+
+	if existing != nil {
+		if existing.Title != title {
+			existing.Title = title
+			if err := s.store.UpdateFeature(ctx, existing); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("update feature %q: %v", title, err))
+				return
+			}
+			result.FeaturesUpdated++
+		}
+		return
+	}
+
+	_, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
+		MilestoneID: milestoneID,
+		Title:       title,
+		SpecRef:     specRef,
+		Labels:      []string{provName},
+	})
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("create feature %q: %v", title, err))
+		return
+	}
+	result.FeaturesCreated++
 }
 
 // ImportPMItems imports work items from a PM provider into the roadmap.
@@ -552,8 +625,9 @@ func renderYAML(r *roadmap.Roadmap) string {
 }
 
 // SyncToSpecFile writes the current roadmap state back to a markdown spec file
-// in the project's workspace. It finds the original detected spec file path and
-// renders milestones/features as markdown checkboxes.
+// in the project's workspace. If an ItemWriter provider is available and features
+// have line-level spec_refs, it performs item-level write-back preserving the
+// original file structure. Otherwise it falls back to a full markdown render.
 func (s *RoadmapService) SyncToSpecFile(ctx context.Context, projectID string) error {
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
@@ -569,25 +643,14 @@ func (s *RoadmapService) SyncToSpecFile(ctx context.Context, projectID string) e
 		return fmt.Errorf("get roadmap: %w", err)
 	}
 
-	// Find target spec file: check known candidates for existence.
-	var targetPath string
-	for _, name := range []string{
-		"ROADMAP.md", "roadmap.md", "TODO.md", "todo.md",
-		"docs/ROADMAP.md", "docs/roadmap.md", "docs/TODO.md", "docs/todo.md",
-	} {
-		fp := filepath.Join(proj.WorkspacePath, name)
-		info, statErr := os.Stat(fp)
-		if statErr == nil && !info.IsDir() {
-			targetPath = fp
-			break
-		}
-	}
-	if targetPath == "" {
-		// Default to ROADMAP.md in workspace root.
-		targetPath = filepath.Join(proj.WorkspacePath, "ROADMAP.md")
+	// Try item-level write-back via spec providers that support ItemWriter.
+	if s.syncViaItemWriter(ctx, proj.WorkspacePath, rm) {
+		slog.Info("synced roadmap via item writer", "project", projectID)
+		return nil
 	}
 
-	// Render roadmap as markdown.
+	// Fallback: full markdown render.
+	targetPath := s.findSpecFile(proj.WorkspacePath)
 	content := renderMarkdown(rm)
 
 	if err := os.WriteFile(targetPath, []byte(content), 0o644); err != nil { //nolint:gosec // workspace path is trusted
@@ -596,6 +659,124 @@ func (s *RoadmapService) SyncToSpecFile(ctx context.Context, projectID string) e
 
 	slog.Info("synced roadmap to spec file", "project", projectID, "path", targetPath)
 	return nil
+}
+
+// syncViaItemWriter attempts to write features back to spec files using
+// ItemWriter providers. It groups features by their spec file (from spec_ref)
+// and writes each file separately. Returns true if at least one file was synced.
+func (s *RoadmapService) syncViaItemWriter(ctx context.Context, workspacePath string, rm *roadmap.Roadmap) bool {
+	// Find an ItemWriter provider.
+	var writer specprovider.ItemWriter
+	for _, prov := range s.specProvs {
+		if w, ok := prov.(specprovider.ItemWriter); ok {
+			writer = w
+			break
+		}
+	}
+	if writer == nil {
+		return false
+	}
+
+	// Group features by spec file path (extracted from spec_ref "path#Lline").
+	type featureRef struct {
+		feature *roadmap.Feature
+		line    int
+	}
+	fileFeatures := map[string][]featureRef{}
+
+	for i := range rm.Milestones {
+		for j := range rm.Milestones[i].Features {
+			f := &rm.Milestones[i].Features[j]
+			filePath, line := parseSpecRef(f.SpecRef)
+			if filePath == "" || line == 0 {
+				continue
+			}
+			fileFeatures[filePath] = append(fileFeatures[filePath], featureRef{feature: f, line: line})
+		}
+	}
+
+	if len(fileFeatures) == 0 {
+		return false
+	}
+
+	synced := false
+	for filePath, refs := range fileFeatures {
+		// Read current file to get existing items, then update statuses.
+		parser, ok := writer.(specprovider.ItemParser)
+		if !ok {
+			continue
+		}
+
+		items, err := parser.ParseItems(ctx, workspacePath, filePath)
+		if err != nil {
+			slog.Warn("sync write-back: failed to parse spec file", "path", filePath, "error", err)
+			continue
+		}
+
+		// Build a lookup from line number to feature status.
+		lineStatus := make(map[int]string, len(refs))
+		for _, ref := range refs {
+			lineStatus[ref.line] = featureStatusToItemStatus(ref.feature.Status)
+		}
+
+		// Update item statuses from features.
+		for i := range items {
+			if status, ok := lineStatus[items[i].SourceLine]; ok {
+				items[i].Status = status
+			}
+		}
+
+		if err := writer.WriteItems(ctx, workspacePath, filePath, items); err != nil {
+			slog.Warn("sync write-back: failed to write spec file", "path", filePath, "error", err)
+			continue
+		}
+		synced = true
+	}
+
+	return synced
+}
+
+// parseSpecRef extracts the file path and line number from a spec_ref
+// in the format "path/to/file.md#L42". Returns ("", 0) if the format
+// is not recognized.
+func parseSpecRef(specRef string) (filePath string, line int) {
+	idx := strings.LastIndex(specRef, "#L")
+	if idx < 0 {
+		return "", 0
+	}
+	filePath = specRef[:idx]
+	if _, err := fmt.Sscanf(specRef[idx:], "#L%d", &line); err != nil {
+		return "", 0
+	}
+	return filePath, line
+}
+
+// featureStatusToItemStatus maps roadmap feature status to spec item status.
+func featureStatusToItemStatus(status roadmap.FeatureStatus) string {
+	switch status {
+	case roadmap.FeatureDone:
+		return "done"
+	case roadmap.FeatureInProgress:
+		return "in_progress"
+	default:
+		return "todo"
+	}
+}
+
+// findSpecFile returns the path to the first existing spec file candidate,
+// or defaults to ROADMAP.md in the workspace root.
+func (s *RoadmapService) findSpecFile(workspacePath string) string {
+	for _, name := range []string{
+		"ROADMAP.md", "roadmap.md", "TODO.md", "todo.md",
+		"docs/ROADMAP.md", "docs/roadmap.md", "docs/TODO.md", "docs/todo.md",
+	} {
+		fp := filepath.Join(workspacePath, name)
+		info, statErr := os.Stat(fp)
+		if statErr == nil && !info.IsDir() {
+			return fp
+		}
+	}
+	return filepath.Join(workspacePath, "ROADMAP.md")
 }
 
 func (s *RoadmapService) broadcastStatus(ctx context.Context, r *roadmap.Roadmap) {

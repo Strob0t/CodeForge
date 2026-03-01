@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,24 @@ DEFINITION = ToolDefinition(
         },
         "required": ["file_path"],
     },
+    when_to_use="Use to inspect file contents before editing, understand code structure, or verify changes.",
+    output_format="Numbered lines: '   1\\tline content'. Use offset/limit for large files.",
+    common_mistakes=[
+        "Using absolute paths instead of workspace-relative paths",
+        "Reading entire large files when only a section is needed — use offset and limit",
+    ],
+    examples=[
+        ToolExample(
+            description="Read the first 20 lines of a Python file",
+            tool_call_json='{"file_path": "src/main.py", "limit": 20}',
+            expected_result="     1\\timport os\\n     2\\timport sys\\n...",
+        ),
+        ToolExample(
+            description="Read lines 50-70 of a file",
+            tool_call_json='{"file_path": "src/main.py", "offset": 50, "limit": 20}',
+            expected_result="    50\\tdef process():\\n    51\\t    ...",
+        ),
+    ],
 )
 
 

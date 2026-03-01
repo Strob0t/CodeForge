@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -496,10 +497,16 @@ func (m *runtimeMockStore) ListMilestones(_ context.Context, _ string) ([]roadma
 }
 func (m *runtimeMockStore) UpdateMilestone(_ context.Context, _ *roadmap.Milestone) error { return nil }
 func (m *runtimeMockStore) DeleteMilestone(_ context.Context, _ string) error             { return nil }
+func (m *runtimeMockStore) FindMilestoneByTitle(_ context.Context, _, _ string) (*roadmap.Milestone, error) {
+	return nil, errMockNotFound
+}
 func (m *runtimeMockStore) CreateFeature(_ context.Context, _ *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
 	return &roadmap.Feature{}, nil
 }
 func (m *runtimeMockStore) GetFeature(_ context.Context, _ string) (*roadmap.Feature, error) {
+	return nil, errMockNotFound
+}
+func (m *runtimeMockStore) FindFeatureBySpecRef(_ context.Context, _, _ string) (*roadmap.Feature, error) {
 	return nil, errMockNotFound
 }
 func (m *runtimeMockStore) ListFeatures(_ context.Context, _ string) ([]roadmap.Feature, error) {
@@ -836,6 +843,21 @@ func (m *runtimeMockStore) CreateFeedbackAudit(_ context.Context, _ *feedback.Au
 func (m *runtimeMockStore) ListFeedbackByRun(_ context.Context, _ string) ([]feedback.AuditEntry, error) {
 	return nil, nil
 }
+
+// Auto-Agent stubs
+func (m *runtimeMockStore) UpsertAutoAgent(_ context.Context, _ *autoagent.AutoAgent) error {
+	return nil
+}
+func (m *runtimeMockStore) GetAutoAgent(_ context.Context, _ string) (*autoagent.AutoAgent, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateAutoAgentStatus(_ context.Context, _ string, _ autoagent.Status, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) UpdateAutoAgentProgress(_ context.Context, _ *autoagent.AutoAgent) error {
+	return nil
+}
+func (m *runtimeMockStore) DeleteAutoAgent(_ context.Context, _ string) error { return nil }
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

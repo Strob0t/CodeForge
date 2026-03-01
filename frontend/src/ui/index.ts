@@ -23,10 +23,12 @@ export { Textarea } from "./primitives";
 // Composites (Phase 3)
 export { Card } from "./composites";
 export { ConfirmDialog } from "./composites";
+export { CostDisplay } from "./composites";
 export { EmptyState } from "./composites";
 export { ErrorBanner } from "./composites";
 export { LoadingState } from "./composites";
 export { Modal } from "./composites";
+export { ModelCombobox } from "./composites";
 export { ResourceGuard } from "./composites";
 export { SectionHeader } from "./composites";
 export { Table } from "./composites";

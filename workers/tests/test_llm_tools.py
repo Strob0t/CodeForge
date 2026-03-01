@@ -217,6 +217,8 @@ async def test_chat_completion_cost_from_header(client: LiteLLMClient) -> None:
 class FakeStreamResponse:
     """Mock for httpx streaming response with SSE data."""
 
+    status_code: int = 200
+
     def __init__(self, lines: list[str], headers: dict[str, str] | None = None) -> None:
         self._lines = lines
         self.headers = headers or {}

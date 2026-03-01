@@ -9,6 +9,12 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 )
 
+// Compile-time checks for optional interface compliance.
+var (
+	_ specprovider.ItemParser = (*Provider)(nil)
+	_ specprovider.ItemWriter = (*Provider)(nil)
+)
+
 const providerName = "markdown"
 
 // candidates lists the filenames to detect, in priority order.
@@ -70,4 +76,40 @@ func (p *Provider) ParseSpec(_ context.Context, workspacePath, specPath string) 
 func (p *Provider) WriteSpec(_ context.Context, workspacePath, specPath string, items []SpecItem) error {
 	data := RenderMarkdown(items)
 	return os.WriteFile(filepath.Join(workspacePath, specPath), data, 0o644) //nolint:gosec // Path from workspace + known spec file.
+}
+
+// ParseItems implements specprovider.ItemParser by converting internal SpecItems
+// to the port-level SpecItemDetail type.
+func (p *Provider) ParseItems(ctx context.Context, workspacePath, specPath string) ([]specprovider.SpecItemDetail, error) {
+	items, err := p.ParseSpec(ctx, workspacePath, specPath)
+	if err != nil {
+		return nil, err
+	}
+
+	details := make([]specprovider.SpecItemDetail, 0, len(items))
+	for _, item := range items {
+		details = append(details, specprovider.SpecItemDetail{
+			Title:      item.Title,
+			Status:     string(item.Status),
+			SourceLine: item.SourceLine,
+			Level:      string(item.Level),
+		})
+	}
+	return details, nil
+}
+
+// WriteItems implements specprovider.ItemWriter by converting port-level
+// SpecItemDetail back to internal SpecItems and writing the file.
+func (p *Provider) WriteItems(ctx context.Context, workspacePath, specPath string, items []specprovider.SpecItemDetail) error {
+	specItems := make([]SpecItem, 0, len(items))
+	for i, item := range items {
+		specItems = append(specItems, SpecItem{
+			Title:      item.Title,
+			Status:     ItemStatus(item.Status),
+			SortOrder:  i + 1,
+			Level:      ItemLevel(item.Level),
+			SourceLine: item.SourceLine,
+		})
+	}
+	return p.WriteSpec(ctx, workspacePath, specPath, specItems)
 }

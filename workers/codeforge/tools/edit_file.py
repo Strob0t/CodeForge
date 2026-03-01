@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,25 @@ DEFINITION = ToolDefinition(
         },
         "required": ["file_path", "old_text", "new_text"],
     },
+    when_to_use="Use to make targeted changes to existing files. Always read_file first to get the exact text to match.",
+    output_format="Confirmation: 'replaced N line(s) with M line(s) in path'.",
+    common_mistakes=[
+        "old_text does not match exactly — copy text from read_file output, including whitespace and indentation",
+        "old_text appears multiple times — include more surrounding context to make it unique",
+        "Editing without reading the file first — always read_file before edit_file",
+    ],
+    examples=[
+        ToolExample(
+            description="Change a function return value",
+            tool_call_json='{"file_path": "src/main.py", "old_text": "    return 0", "new_text": "    return 1"}',
+            expected_result="replaced 1 line(s) with 1 line(s) in src/main.py",
+        ),
+        ToolExample(
+            description="Add an import at the top of a file",
+            tool_call_json='{"file_path": "src/main.py", "old_text": "import os", "new_text": "import os\\nimport sys"}',
+            expected_result="replaced 1 line(s) with 2 line(s) in src/main.py",
+        ),
+    ],
 )
 
 

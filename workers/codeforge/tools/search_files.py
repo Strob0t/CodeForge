@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from codeforge.constants import MAX_SEARCH_MATCHES
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,25 @@ DEFINITION = ToolDefinition(
         },
         "required": ["pattern"],
     },
+    when_to_use="Use to find where a function, variable, string, or pattern is used across the codebase.",
+    output_format="Lines formatted as 'filepath:line_number:matching_line'. Returns 'no matches found' if nothing matches.",
+    common_mistakes=[
+        "Using overly broad patterns that match too many files — use 'include' to filter by file type",
+        "Not escaping regex special characters (dots, brackets, etc.)",
+        "Searching entire workspace when you know the subdirectory — use 'path' to narrow scope",
+    ],
+    examples=[
+        ToolExample(
+            description="Find all usages of a function in Python files",
+            tool_call_json='{"pattern": "def process_data", "include": "*.py"}',
+            expected_result="src/utils.py:42:def process_data(items: list) -> dict:",
+        ),
+        ToolExample(
+            description="Search for TODO comments in a specific directory",
+            tool_call_json='{"pattern": "TODO|FIXME", "path": "src", "include": "*.py"}',
+            expected_result="src/main.py:10:# TODO: add error handling",
+        ),
+    ],
 )
 
 

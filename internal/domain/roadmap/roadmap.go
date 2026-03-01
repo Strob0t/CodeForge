@@ -111,6 +111,7 @@ type ImportResult struct {
 	Source            string   `json:"source"`
 	MilestonesCreated int      `json:"milestones_created"`
 	FeaturesCreated   int      `json:"features_created"`
+	FeaturesUpdated   int      `json:"features_updated"`
 	Errors            []string `json:"errors,omitempty"`
 }
 

@@ -38,7 +38,7 @@ export function Badge(props: BadgeProps): JSX.Element {
     <span
       {...rest}
       class={
-        "inline-flex items-center border px-2 py-0.5 text-xs font-medium " +
+        "inline-flex items-center gap-1 border px-2 py-0.5 text-xs font-medium " +
         variantClasses[variant()] +
         (local.pill ? " rounded-full" : " rounded-cf-sm") +
         (local.class ? " " + local.class : "")

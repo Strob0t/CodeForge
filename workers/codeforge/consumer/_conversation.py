@@ -70,6 +70,10 @@ class ConversationHandlerMixin:
                 run_msg.messages,
                 log,
             )
+
+            # Inject adaptive tool-usage guide for weaker models.
+            system_prompt = self._inject_tool_guide(system_prompt, registry, run_msg.model, log)
+
             self._register_handoff_tool(registry, run_msg.run_id)
 
             history_mgr = ConversationHistoryManager(
@@ -196,6 +200,28 @@ class ConversationHandlerMixin:
         except Exception:
             log.warning("skill recommendation failed, continuing without", exc_info=True)
         return system_prompt
+
+    @staticmethod
+    def _inject_tool_guide(
+        system_prompt: str,
+        registry: object,
+        model: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> str:
+        """Augment system prompt with adaptive tool-usage guide for weaker models."""
+        from codeforge.tools.capability import CapabilityLevel, classify_model
+        from codeforge.tools.tool_guide import build_tool_usage_guide
+
+        level = classify_model(model)
+        if level == CapabilityLevel.FULL:
+            return system_prompt
+
+        guide = build_tool_usage_guide(registry, level)
+        if not guide:
+            return system_prompt
+
+        log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
+        return f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
 
     def _register_handoff_tool(self, registry: object, run_id: str) -> None:
         """Register the handoff tool in the tool registry if NATS is available."""

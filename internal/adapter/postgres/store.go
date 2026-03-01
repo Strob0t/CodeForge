@@ -1102,6 +1102,21 @@ func (s *Store) DeleteMilestone(ctx context.Context, id string) error {
 	return execExpectOne(tag, err, "delete milestone %s", id)
 }
 
+// FindMilestoneByTitle returns the first milestone matching the given title within a roadmap.
+// Returns domain.ErrNotFound if no match exists.
+func (s *Store) FindMilestoneByTitle(ctx context.Context, roadmapID, title string) (*roadmap.Milestone, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, roadmap_id, title, description, status, sort_order, due_date, version, created_at, updated_at
+		 FROM milestones WHERE roadmap_id = $1 AND title = $2 AND tenant_id = $3
+		 LIMIT 1`, roadmapID, title, tenantFromCtx(ctx))
+
+	m, err := scanMilestone(row)
+	if err != nil {
+		return nil, notFoundWrap(err, "find milestone by title %q in roadmap %s", title, roadmapID)
+	}
+	return &m, nil
+}
+
 // --- Features ---
 
 func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
@@ -1143,6 +1158,21 @@ func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, er
 	f, err := scanFeature(row)
 	if err != nil {
 		return nil, notFoundWrap(err, "get feature %s", id)
+	}
+	return &f, nil
+}
+
+// FindFeatureBySpecRef returns the first feature matching the given spec_ref within a milestone.
+// Returns domain.ErrNotFound if no match exists.
+func (s *Store) FindFeatureBySpecRef(ctx context.Context, milestoneID, specRef string) (*roadmap.Feature, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		 FROM features WHERE milestone_id = $1 AND spec_ref = $2 AND tenant_id = $3
+		 LIMIT 1`, milestoneID, specRef, tenantFromCtx(ctx))
+
+	f, err := scanFeature(row)
+	if err != nil {
+		return nil, notFoundWrap(err, "find feature by spec_ref %q in milestone %s", specRef, milestoneID)
 	}
 	return &f, nil
 }

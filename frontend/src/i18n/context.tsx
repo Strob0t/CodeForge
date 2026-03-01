@@ -50,8 +50,10 @@ interface I18nFormatters {
   number: (n: number) => string;
   /** Compact number: "1.2K", "3.4M" */
   compact: (n: number) => string;
-  /** USD currency: "$1.23" */
+  /** USD currency (2 decimals): "$1.23" */
   currency: (usd: number) => string;
+  /** USD currency with full precision: "$0.001234" */
+  currencyExact: (usd: number) => string;
   /** Duration from ms: "1.2s" */
   duration: (ms: number) => string;
   /** Score: "0.847" */
@@ -199,6 +201,7 @@ export function I18nProvider(props: ParentProps): JSX.Element {
     number: (n) => fmt.formatNumber(n, locale()),
     compact: (n) => fmt.formatCompact(n, locale()),
     currency: (usd) => fmt.formatCurrency(usd, locale()),
+    currencyExact: (usd) => fmt.formatCurrencyExact(usd, locale()),
     duration: (ms) => fmt.formatDuration(ms, locale()),
     score: (n) => fmt.formatScore(n, locale()),
     percent: (n) => fmt.formatPercent(n, locale()),

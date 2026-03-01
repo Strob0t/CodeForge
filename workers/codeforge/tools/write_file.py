@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
 
 DEFINITION = ToolDefinition(
     name="write_file",
-    description="Write content to a file. Creates parent directories if needed.",
+    description="Write content to a file. Creates parent directories if needed. Overwrites existing content entirely.",
     parameters={
         "type": "object",
         "properties": {
@@ -26,6 +26,20 @@ DEFINITION = ToolDefinition(
         },
         "required": ["file_path", "content"],
     },
+    when_to_use="Use to create new files or completely replace file content. For partial changes, use edit_file instead.",
+    output_format="Confirmation message: 'wrote N bytes to path'.",
+    common_mistakes=[
+        "Using write_file to make small changes — use edit_file for partial modifications",
+        "Forgetting that write_file overwrites the entire file",
+        "Not including the full desired content (write_file replaces everything)",
+    ],
+    examples=[
+        ToolExample(
+            description="Create a new Python module",
+            tool_call_json='{"file_path": "src/utils.py", "content": "def add(a: int, b: int) -> int:\\n    return a + b\\n"}',
+            expected_result="wrote 42 bytes to src/utils.py",
+        ),
+    ],
 )
 
 

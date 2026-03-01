@@ -8,12 +8,29 @@ from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
+class ToolExample:
+    """Example invocation of a tool for weaker model guidance."""
+
+    description: str
+    tool_call_json: str
+    expected_result: str
+
+
+@dataclass(frozen=True)
 class ToolDefinition:
-    """Declarative description of a tool (name, description, JSON Schema parameters)."""
+    """Declarative description of a tool (name, description, JSON Schema parameters).
+
+    Extended metadata fields (when_to_use, output_format, common_mistakes,
+    examples) are used by the adaptive tool guide to help weaker models.
+    """
 
     name: str
     description: str
     parameters: dict[str, Any] = field(default_factory=dict)
+    when_to_use: str = ""
+    output_format: str = ""
+    common_mistakes: list[str] = field(default_factory=list)
+    examples: list[ToolExample] = field(default_factory=list)
 
 
 @dataclass

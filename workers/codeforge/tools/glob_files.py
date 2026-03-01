@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from codeforge.constants import MAX_TOOL_RESULTS
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,24 @@ DEFINITION = ToolDefinition(
         },
         "required": ["pattern"],
     },
+    when_to_use="Use to discover files by name or extension. Helpful for finding project structure or locating specific file types.",
+    output_format="Newline-separated list of relative file paths. Returns 'no matches found' if empty.",
+    common_mistakes=[
+        "Forgetting '**/' prefix for recursive search — '*.py' only matches root, '**/*.py' matches all directories",
+        "Using regex syntax instead of glob syntax — use * and ** not .* or .+",
+    ],
+    examples=[
+        ToolExample(
+            description="Find all Python files in the project",
+            tool_call_json='{"pattern": "**/*.py"}',
+            expected_result="src/main.py\\nsrc/utils.py\\ntests/test_main.py",
+        ),
+        ToolExample(
+            description="Find configuration files",
+            tool_call_json='{"pattern": "**/*.{yaml,yml,toml}"}',
+            expected_result="config.yaml\\npyproject.toml",
+        ),
+    ],
 )
 
 

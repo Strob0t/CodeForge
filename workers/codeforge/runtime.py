@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -162,25 +163,58 @@ class RuntimeClient:
             "path": path,
         }
 
+        start_time = time.monotonic()
         self._log.debug("requesting tool call", tool=tool, call_id=call_id)
 
         # Subscribe BEFORE publishing to avoid a race condition where Go
         # responds before the subscription is established.
         sub = await self._js.subscribe(SUBJECT_TOOLCALL_RESPONSE)
         try:
-            await self._js.publish(
-                SUBJECT_TOOLCALL_REQUEST,
-                json.dumps(request).encode(),
+            try:
+                await self._js.publish(
+                    SUBJECT_TOOLCALL_REQUEST,
+                    json.dumps(request).encode(),
+                )
+            except Exception as pub_err:
+                elapsed_ms = (time.monotonic() - start_time) * 1000
+                self._log.error(
+                    "NATS publish failed for tool call request",
+                    call_id=call_id,
+                    tool=tool,
+                    elapsed_ms=round(elapsed_ms, 1),
+                    error=str(pub_err),
+                )
+                return ToolCallDecision(
+                    call_id=call_id,
+                    decision="deny",
+                    reason=f"NATS publish failed: {pub_err}",
+                )
+
+            publish_ms = (time.monotonic() - start_time) * 1000
+            self._log.debug(
+                "tool call request published",
+                call_id=call_id,
+                tool=tool,
+                publish_ms=round(publish_ms, 1),
             )
+
             deadline = asyncio.get_event_loop().time() + RESPONSE_TIMEOUT_SECONDS
             while True:
                 remaining = deadline - asyncio.get_event_loop().time()
                 if remaining <= 0:
-                    self._log.warning("tool call response timed out", call_id=call_id)
+                    elapsed_ms = (time.monotonic() - start_time) * 1000
+                    self._log.warning(
+                        "NATS response timeout waiting for policy decision from Go control plane",
+                        call_id=call_id,
+                        tool=tool,
+                        elapsed_ms=round(elapsed_ms, 1),
+                        timeout_seconds=RESPONSE_TIMEOUT_SECONDS,
+                    )
                     return ToolCallDecision(
                         call_id=call_id,
                         decision="deny",
-                        reason="response timeout",
+                        reason=f"NATS response timeout after {RESPONSE_TIMEOUT_SECONDS}s "
+                        f"waiting for policy decision (not an LLM timeout)",
                     )
 
                 try:
@@ -193,10 +227,24 @@ class RuntimeClient:
 
                 data = json.loads(msg.data)
                 if data.get("call_id") == call_id:
+                    elapsed_ms = (time.monotonic() - start_time) * 1000
+                    decision = data.get("decision", "deny")
+                    reason = data.get("reason", "")
+
+                    log_method = self._log.debug if decision == "allow" else self._log.info
+                    log_method(
+                        "tool call decision received",
+                        call_id=call_id,
+                        tool=tool,
+                        decision=decision,
+                        reason=reason,
+                        elapsed_ms=round(elapsed_ms, 1),
+                    )
+
                     return ToolCallDecision(
                         call_id=call_id,
-                        decision=data.get("decision", "deny"),
-                        reason=data.get("reason", ""),
+                        decision=decision,
+                        reason=reason,
                     )
         finally:
             await sub.unsubscribe()

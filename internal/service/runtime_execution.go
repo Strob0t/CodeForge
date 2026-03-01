@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -20,6 +21,16 @@ import (
 )
 
 func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *messagequeue.ToolCallRequestPayload) error {
+	start := time.Now()
+	defer func() {
+		slog.Info("HandleToolCallRequest completed",
+			"run_id", req.RunID,
+			"call_id", req.CallID,
+			"tool", req.Tool,
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
+	}()
+
 	r, err := s.store.GetRun(ctx, req.RunID)
 	if err != nil {
 		// The run_id might be a conversation_id (agentic conversation mode
@@ -159,6 +170,16 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 // that don't have a formal run record. It resolves the conversation's project to
 // determine the policy profile, evaluates the policy, and supports HITL approval.
 func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *messagequeue.ToolCallRequestPayload) error {
+	start := time.Now()
+	defer func() {
+		slog.Info("handleConversationToolCall completed",
+			"conversation_id", req.RunID,
+			"call_id", req.CallID,
+			"tool", req.Tool,
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
+	}()
+
 	conv, err := s.store.GetConversation(ctx, req.RunID)
 	if err != nil {
 		// Neither a run nor a conversation — likely a stale NATS message.

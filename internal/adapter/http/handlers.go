@@ -81,6 +81,8 @@ type Handlers struct {
 	ExperiencePool   *service.ExperiencePoolService
 	Microagents      *service.MicroagentService
 	Skills           *service.SkillService
+	Files            *service.FileService
+	AutoAgent        *service.AutoAgentService
 	Limits           *config.Limits
 }
 
@@ -172,6 +174,22 @@ func (h *Handlers) ParseRepoURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, parsed)
+}
+
+// FetchRepoInfo handles GET /api/v1/repos/info?url=<repo_url>
+// It queries the hosting platform's API to fetch repository metadata.
+func (h *Handlers) FetchRepoInfo(w http.ResponseWriter, r *http.Request) {
+	repoURL := r.URL.Query().Get("url")
+	if repoURL == "" {
+		writeError(w, http.StatusBadRequest, "url query parameter is required")
+		return
+	}
+	info, err := h.Projects.FetchRepoInfo(r.Context(), repoURL)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 // ListTasks handles GET /api/v1/projects/{id}/tasks

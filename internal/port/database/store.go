@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -124,9 +125,13 @@ type Store interface {
 	UpdateMilestone(ctx context.Context, m *roadmap.Milestone) error
 	DeleteMilestone(ctx context.Context, id string) error
 
+	// Milestones (finders)
+	FindMilestoneByTitle(ctx context.Context, roadmapID, title string) (*roadmap.Milestone, error)
+
 	// Features
 	CreateFeature(ctx context.Context, req *roadmap.CreateFeatureRequest) (*roadmap.Feature, error)
 	GetFeature(ctx context.Context, id string) (*roadmap.Feature, error)
+	FindFeatureBySpecRef(ctx context.Context, milestoneID, specRef string) (*roadmap.Feature, error)
 	ListFeatures(ctx context.Context, milestoneID string) ([]roadmap.Feature, error)
 	ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error)
 	UpdateFeature(ctx context.Context, f *roadmap.Feature) error
@@ -300,4 +305,11 @@ type Store interface {
 	// Feedback Audit (Phase 22D)
 	CreateFeedbackAudit(ctx context.Context, a *feedback.AuditEntry) error
 	ListFeedbackByRun(ctx context.Context, runID string) ([]feedback.AuditEntry, error)
+
+	// Auto-Agent
+	UpsertAutoAgent(ctx context.Context, aa *autoagent.AutoAgent) error
+	GetAutoAgent(ctx context.Context, projectID string) (*autoagent.AutoAgent, error)
+	UpdateAutoAgentStatus(ctx context.Context, projectID string, status autoagent.Status, errMsg string) error
+	UpdateAutoAgentProgress(ctx context.Context, aa *autoagent.AutoAgent) error
+	DeleteAutoAgent(ctx context.Context, projectID string) error
 }

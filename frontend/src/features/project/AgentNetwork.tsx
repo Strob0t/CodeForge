@@ -77,15 +77,11 @@ function buildEdges(members: TeamMember[]): NetworkEdge[] {
 export default function AgentNetwork(props: AgentNetworkProps) {
   const { t } = useI18n();
 
+  // Teams API routes removed (backend teams are orchestrator-internal).
+  // Always return empty array so the "no teams" fallback renders.
   const [teams] = createResource(
     () => props.projectId,
-    async (id) => {
-      try {
-        return await api.teams.list(id);
-      } catch {
-        return [];
-      }
-    },
+    async () => [] as AgentTeam[],
   );
 
   const [agents] = createResource(

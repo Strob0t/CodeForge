@@ -2,7 +2,7 @@ import { useParams } from "@solidjs/router";
 import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { BudgetAlertEvent } from "~/api/types";
+import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
 import {
@@ -15,8 +15,10 @@ import {
 import { useI18n } from "~/i18n";
 import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 
+import AutoAgentButton from "./AutoAgentButton";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
+import FilePanel from "./FilePanel";
 import RoadmapPanel from "./RoadmapPanel";
 
 export default function ProjectDetailPage() {
@@ -52,6 +54,11 @@ export default function ProjectDetailPage() {
   const [error, setError] = createSignal("");
   const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
+
+  // Left panel tab: "roadmap" or "files"
+  type LeftTab = "roadmap" | "files";
+  const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
 
   // Resizable split + collapsible roadmap
   const [splitRatio, setSplitRatio] = createSignal(DEFAULT_SPLIT);
@@ -209,6 +216,13 @@ export default function ProjectDetailPage() {
         // Task output handled by individual panels
         break;
       }
+      case "autoagent.status": {
+        const aaProjectId = payload.project_id as string;
+        if (aaProjectId === projectId) {
+          setAutoAgentStatus(payload as unknown as AutoAgentStatus);
+        }
+        break;
+      }
     }
   });
   onCleanup(cleanup);
@@ -279,7 +293,7 @@ export default function ProjectDetailPage() {
                 <Show when={gitStatus()}>
                   {(gs) => (
                     <Badge variant={gs().dirty ? "warning" : "success"} pill>
-                      <span class="font-mono">{gs().branch}</span>{" "}
+                      <span class="font-mono">{gs().branch}</span>
                       <span>{gs().dirty ? t("detail.dirty") : t("detail.clean")}</span>
                     </Badge>
                   )}
@@ -313,6 +327,11 @@ export default function ProjectDetailPage() {
                   >
                     {pulling() ? t("detail.pulling") : t("detail.pull")}
                   </Button>
+                </Show>
+
+                {/* Auto-Agent Toggle */}
+                <Show when={p().workspace_path}>
+                  <AutoAgentButton projectId={params.id} wsStatus={autoAgentStatus} />
                 </Show>
 
                 {/* Settings Gear Icon */}
@@ -389,7 +408,7 @@ export default function ProjectDetailPage() {
             >
               <Show when={!roadmapCollapsed()}>
                 <div
-                  class="overflow-y-auto p-4"
+                  class={`flex flex-col ${leftTab() === "files" ? "" : "overflow-y-auto"}`}
                   style={
                     isNarrow()
                       ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }
@@ -399,10 +418,33 @@ export default function ProjectDetailPage() {
                         }
                   }
                 >
-                  <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-sm font-semibold text-cf-text-secondary">
-                      {t("detail.tab.roadmap")}
-                    </h3>
+                  <div class="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
+                    <div class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        class={`px-2 py-1 text-sm font-medium rounded transition-colors ${
+                          leftTab() === "roadmap"
+                            ? "bg-cf-accent/15 text-cf-accent"
+                            : "text-cf-text-tertiary hover:text-cf-text-secondary"
+                        }`}
+                        onClick={() => setLeftTab("roadmap")}
+                      >
+                        {t("detail.tab.roadmap")}
+                      </button>
+                      <Show when={p().workspace_path}>
+                        <button
+                          type="button"
+                          class={`px-2 py-1 text-sm font-medium rounded transition-colors ${
+                            leftTab() === "files"
+                              ? "bg-cf-accent/15 text-cf-accent"
+                              : "text-cf-text-tertiary hover:text-cf-text-secondary"
+                          }`}
+                          onClick={() => setLeftTab("files")}
+                        >
+                          Files
+                        </button>
+                      </Show>
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -424,7 +466,16 @@ export default function ProjectDetailPage() {
                       </svg>
                     </Button>
                   </div>
-                  <RoadmapPanel projectId={params.id} onError={setError} />
+                  <Show when={leftTab() === "roadmap"}>
+                    <div class="flex-1 overflow-y-auto px-4 pb-4">
+                      <RoadmapPanel projectId={params.id} onError={setError} />
+                    </div>
+                  </Show>
+                  <Show when={leftTab() === "files"}>
+                    <div class="flex-1 min-h-0">
+                      <FilePanel projectId={params.id} />
+                    </div>
+                  </Show>
                 </div>
 
                 {/* Draggable Divider */}

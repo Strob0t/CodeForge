@@ -9,10 +9,12 @@ import {
   Badge,
   Button,
   Card,
+  CostDisplay,
   EmptyState,
   FormField,
   Input,
   LoadingState,
+  ModelCombobox,
   PageLayout,
   Select,
 } from "~/ui";
@@ -128,12 +130,7 @@ export default function BenchmarkPage() {
             </FormField>
 
             <FormField label={t("benchmark.model")} id="benchmark-model">
-              <Input
-                value={model()}
-                onInput={(e) => setModel(e.currentTarget.value)}
-                placeholder="openai/gpt-4o"
-                required
-              />
+              <ModelCombobox id="benchmark-model" value={model()} onInput={setModel} required />
             </FormField>
 
             <FormField label={t("benchmark.metrics")} id="benchmark-metrics">
@@ -188,7 +185,7 @@ export default function BenchmarkPage() {
                         <span class="text-xs text-gray-400">
                           {formatDuration(run.total_duration_ms)}
                         </span>
-                        <span class="text-xs text-gray-400">${run.total_cost.toFixed(4)}</span>
+                        <CostDisplay usd={run.total_cost} class="text-xs text-gray-400" />
                         <Button
                           size="sm"
                           variant="danger"

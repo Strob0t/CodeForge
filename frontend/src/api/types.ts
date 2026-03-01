@@ -45,6 +45,16 @@ export interface ParsedRepoURL {
   host: string;
 }
 
+/** Matches Go domain/project.RepoInfo — metadata from remote hosting API */
+export interface RepoInfo {
+  name: string;
+  description: string;
+  default_branch: string;
+  language?: string;
+  stars: number;
+  private: boolean;
+}
+
 /** Task status enum matching Go domain/task.Status */
 export type TaskStatus = "pending" | "queued" | "running" | "completed" | "failed" | "cancelled";
 
@@ -1133,6 +1143,7 @@ export interface ApiError {
 /** Health endpoint response */
 export interface HealthStatus {
   status: string;
+  dev_mode?: boolean;
   postgres: string;
   nats: string;
   litellm: string;
@@ -1617,4 +1628,42 @@ export interface BenchmarkDatasetInfo {
   description?: string;
   task_count: number;
   path: string;
+}
+
+// --- File operations (File Editor) ---
+
+/** Matches Go service.FileEntry */
+export interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  mod_time: string;
+}
+
+/** Matches Go service.FileContent */
+export interface FileContent {
+  path: string;
+  content: string;
+  size: number;
+  mod_time: string;
+  language: string;
+}
+
+// --- Auto-Agent (PR3.3) ---
+
+/** Matches Go domain/autoagent.AutoAgent */
+export interface AutoAgentStatus {
+  id: string;
+  project_id: string;
+  status: "idle" | "running" | "stopping" | "failed";
+  current_feature_id?: string;
+  conversation_id?: string;
+  features_total: number;
+  features_complete: number;
+  features_failed: number;
+  total_cost_usd: number;
+  error?: string;
+  started_at: string;
+  updated_at: string;
 }

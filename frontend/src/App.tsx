@@ -3,6 +3,7 @@ import { useLocation } from "@solidjs/router";
 import { createResource, ErrorBoundary, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
+import type { HealthStatus } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { AuthProvider, useAuth } from "~/components/AuthProvider";
 import { CommandPalette } from "~/components/CommandPalette";
@@ -68,7 +69,7 @@ function UserInfo(): JSX.Element {
 }
 
 function AppShell(props: {
-  health: ReturnType<typeof createResource<{ status: string }>>[0];
+  health: ReturnType<typeof createResource<HealthStatus>>[0];
   connected: () => boolean;
   children: JSX.Element;
 }) {
@@ -101,11 +102,12 @@ function AppShell(props: {
               <NavLink href="/activity">{t("app.nav.activity")}</NavLink>
               <NavLink href="/knowledge-bases">{t("kb.title")}</NavLink>
               <NavLink href="/scopes">{t("app.nav.scopes")}</NavLink>
-              <NavLink href="/teams">{t("app.nav.teams")}</NavLink>
               <NavLink href="/mcp">{t("app.nav.mcp")}</NavLink>
               <NavLink href="/prompts">{t("app.nav.prompts")}</NavLink>
               <NavLink href="/settings">{t("app.nav.settings")}</NavLink>
-              <NavLink href="/benchmarks">{t("app.nav.benchmarks")}</NavLink>
+              <Show when={props.health()?.dev_mode}>
+                <NavLink href="/benchmarks">{t("app.nav.benchmarks")}</NavLink>
+              </Show>
             </Sidebar.Nav>
 
             <Sidebar.Footer>

@@ -261,6 +261,18 @@ export default function DashboardPage() {
         setParsingUrl(false);
       }
 
+      // Fetch repo metadata (description, language, etc.) from hosting API
+      try {
+        const info = await api.projects.repoInfo(url);
+        setForm((prev) => ({
+          ...prev,
+          name: prev.name || info.name,
+          description: prev.description || info.description,
+        }));
+      } catch {
+        // silently ignore — repo may be private or API unavailable
+      }
+
       // Fetch remote branches
       try {
         setLoadingBranches(true);

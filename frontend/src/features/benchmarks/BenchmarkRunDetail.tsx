@@ -2,7 +2,7 @@ import { For, Show } from "solid-js";
 
 import type { BenchmarkResult } from "~/api/types";
 import { useI18n } from "~/i18n";
-import { LoadingState } from "~/ui";
+import { CostDisplay, LoadingState } from "~/ui";
 
 interface BenchmarkRunDetailProps {
   results: BenchmarkResult[] | undefined;
@@ -45,7 +45,9 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                         </For>
                       </div>
                     </td>
-                    <td class="py-2 font-mono text-xs">${res.cost_usd.toFixed(4)}</td>
+                    <td class="py-2 font-mono text-xs">
+                      <CostDisplay usd={res.cost_usd} />
+                    </td>
                     <td class="py-2 text-xs">{props.formatDuration(res.duration_ms)}</td>
                   </tr>
                 )}

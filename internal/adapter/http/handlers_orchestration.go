@@ -6,8 +6,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/Strob0t/CodeForge/internal/domain/agent"
-	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -220,61 +218,6 @@ func (h *Handlers) DecomposeFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, p)
 }
 
-// --- Agent Teams ---
-
-// ListTeams handles GET /api/v1/projects/{id}/teams
-func (h *Handlers) ListTeams(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-	teams, err := h.PoolManager.ListTeams(r.Context(), projectID)
-	if err != nil {
-		writeDomainError(w, err, "project not found")
-		return
-	}
-	if teams == nil {
-		teams = []agent.Team{}
-	}
-	writeJSON(w, http.StatusOK, teams)
-}
-
-// CreateTeam handles POST /api/v1/projects/{id}/teams
-func (h *Handlers) CreateTeam(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "id")
-
-	req, ok := readJSON[agent.CreateTeamRequest](w, r, h.Limits.MaxRequestBodySize)
-	if !ok {
-		return
-	}
-	req.ProjectID = projectID
-
-	team, err := h.PoolManager.CreateTeam(r.Context(), &req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusCreated, team)
-}
-
-// GetTeam handles GET /api/v1/teams/{id}
-func (h *Handlers) GetTeam(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	team, err := h.PoolManager.GetTeam(r.Context(), id)
-	if err != nil {
-		writeDomainError(w, err, "team not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, team)
-}
-
-// DeleteTeam handles DELETE /api/v1/teams/{id}
-func (h *Handlers) DeleteTeam(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := h.PoolManager.DeleteTeam(r.Context(), id); err != nil {
-		writeDomainError(w, err, "team not found")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // --- Context-Optimized Feature Planning ---
 
 // PlanFeature handles POST /api/v1/projects/{id}/plan-feature
@@ -330,37 +273,6 @@ func (h *Handlers) BuildContextPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, pack)
-}
-
-// --- Shared Context Endpoints ---
-
-// GetSharedContext handles GET /api/v1/teams/{id}/shared-context
-func (h *Handlers) GetSharedContext(w http.ResponseWriter, r *http.Request) {
-	teamID := chi.URLParam(r, "id")
-	sc, err := h.SharedContext.Get(r.Context(), teamID)
-	if err != nil {
-		writeDomainError(w, err, "shared context not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, sc)
-}
-
-// AddSharedContextItem handles POST /api/v1/teams/{id}/shared-context
-func (h *Handlers) AddSharedContextItem(w http.ResponseWriter, r *http.Request) {
-	teamID := chi.URLParam(r, "id")
-
-	req, ok := readJSON[cfcontext.AddSharedItemRequest](w, r, h.Limits.MaxRequestBodySize)
-	if !ok {
-		return
-	}
-	req.TeamID = teamID
-
-	item, err := h.SharedContext.AddItem(r.Context(), req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusCreated, item)
 }
 
 // --- Mode Endpoints ---

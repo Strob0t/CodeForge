@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from codeforge.constants import MAX_OUTPUT_CHARS
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ HALF_OUTPUT = MAX_OUTPUT // 2
 
 DEFINITION = ToolDefinition(
     name="bash",
-    description="Execute a bash command and return stdout and stderr.",
+    description="Execute a bash command and return stdout and stderr. Runs in the workspace directory.",
     parameters={
         "type": "object",
         "properties": {
@@ -31,6 +31,29 @@ DEFINITION = ToolDefinition(
         },
         "required": ["command"],
     },
+    when_to_use=(
+        "Use for running tests, installing dependencies, git operations, compiling code, "
+        "or any task that requires shell access. Prefer dedicated tools (read_file, search_files) "
+        "over bash equivalents (cat, grep) when possible."
+    ),
+    output_format="stdout followed by stderr (prefixed with '--- stderr ---') if any. Exit code reported on failure.",
+    common_mistakes=[
+        "Running interactive commands that wait for input (use non-interactive flags)",
+        "Forgetting timeout for long-running commands — set timeout explicitly",
+        "Using bash for file reading/searching when read_file or search_files would be better",
+    ],
+    examples=[
+        ToolExample(
+            description="Run Python tests",
+            tool_call_json='{"command": "python -m pytest tests/ -v", "timeout": 60}',
+            expected_result="===== 5 passed in 2.3s =====",
+        ),
+        ToolExample(
+            description="Check git status",
+            tool_call_json='{"command": "git status --short"}',
+            expected_result="M  src/main.py\\n?? src/new_file.py",
+        ),
+    ],
 )
 
 

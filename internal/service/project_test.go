@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -354,10 +355,16 @@ func (m *mockStore) ListMilestones(_ context.Context, _ string) ([]roadmap.Miles
 }
 func (m *mockStore) UpdateMilestone(_ context.Context, _ *roadmap.Milestone) error { return nil }
 func (m *mockStore) DeleteMilestone(_ context.Context, _ string) error             { return nil }
+func (m *mockStore) FindMilestoneByTitle(_ context.Context, _, _ string) (*roadmap.Milestone, error) {
+	return nil, domain.ErrNotFound
+}
 func (m *mockStore) CreateFeature(_ context.Context, _ *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
 	return &roadmap.Feature{}, nil
 }
 func (m *mockStore) GetFeature(_ context.Context, _ string) (*roadmap.Feature, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) FindFeatureBySpecRef(_ context.Context, _, _ string) (*roadmap.Feature, error) {
 	return nil, domain.ErrNotFound
 }
 func (m *mockStore) ListFeatures(_ context.Context, _ string) ([]roadmap.Feature, error) {
@@ -723,6 +730,19 @@ func (m *mockStore) CreateFeedbackAudit(_ context.Context, _ *feedback.AuditEntr
 func (m *mockStore) ListFeedbackByRun(_ context.Context, _ string) ([]feedback.AuditEntry, error) {
 	return nil, nil
 }
+
+// Auto-Agent stubs
+func (m *mockStore) UpsertAutoAgent(_ context.Context, _ *autoagent.AutoAgent) error { return nil }
+func (m *mockStore) GetAutoAgent(_ context.Context, _ string) (*autoagent.AutoAgent, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateAutoAgentStatus(_ context.Context, _ string, _ autoagent.Status, _ string) error {
+	return nil
+}
+func (m *mockStore) UpdateAutoAgentProgress(_ context.Context, _ *autoagent.AutoAgent) error {
+	return nil
+}
+func (m *mockStore) DeleteAutoAgent(_ context.Context, _ string) error { return nil }
 
 // --- ProjectService Tests ---
 

@@ -9,60 +9,62 @@
    --------------------------------------------------------------------------- */
 
 :root {
+  /* Solarized Light theme */
+
   /* Surface colors */
-  --cf-bg-primary: #f9fafb; /* gray-50  */
-  --cf-bg-surface: #ffffff; /* white    */
-  --cf-bg-surface-alt: #f3f4f6; /* gray-100 */
-  --cf-bg-inset: #e5e7eb; /* gray-200 */
+  --cf-bg-primary: #fdf6e3; /* base3 */
+  --cf-bg-surface: #eee8d5; /* base2 */
+  --cf-bg-surface-alt: #e8e1cb; /* base2 darkened */
+  --cf-bg-inset: #ddd6c1; /* base2 darker */
 
   /* Border colors */
-  --cf-border: #e5e7eb; /* gray-200 */
-  --cf-border-subtle: #f3f4f6; /* gray-100 */
-  --cf-border-input: #d1d5db; /* gray-300 */
+  --cf-border: #d3cbb7; /* base2 border */
+  --cf-border-subtle: #eee8d5; /* base2 */
+  --cf-border-input: #c9c1ad; /* base2 darker */
 
   /* Text colors */
-  --cf-text-primary: #111827; /* gray-900 */
-  --cf-text-secondary: #374151; /* gray-700 */
-  --cf-text-tertiary: #6b7280; /* gray-500 */
-  --cf-text-muted: #6b7280; /* gray-500 (WCAG 2.2 AA: 4.6:1 on white) */
+  --cf-text-primary: #073642; /* base02 */
+  --cf-text-secondary: #586e75; /* base01 */
+  --cf-text-tertiary: #657b83; /* base00 */
+  --cf-text-muted: #93a1a1; /* base1 */
 
   /* Accent */
-  --cf-accent: #2563eb; /* blue-600 */
-  --cf-accent-hover: #1d4ed8; /* blue-700 */
+  --cf-accent: #268bd2; /* blue */
+  --cf-accent-hover: #1a6aa5; /* blue darker */
   --cf-accent-fg: #ffffff; /* white text on accent */
 
   /* Semantic colors — success */
-  --cf-success: #16a34a; /* green-600 */
-  --cf-success-bg: #f0fdf4; /* green-50  */
-  --cf-success-fg: #15803d; /* green-700 */
-  --cf-success-border: #86efac; /* green-300 */
+  --cf-success: #859900; /* green */
+  --cf-success-bg: #f3f7e6; /* green tint */
+  --cf-success-fg: #6b7d00; /* green darker */
+  --cf-success-border: #b5c44d; /* green lighter */
 
   /* Semantic colors — warning */
-  --cf-warning: #ca8a04; /* yellow-600 */
-  --cf-warning-bg: #fefce8; /* yellow-50  */
-  --cf-warning-fg: #a16207; /* yellow-700 */
-  --cf-warning-border: #fde047; /* yellow-300 */
+  --cf-warning: #b58900; /* yellow */
+  --cf-warning-bg: #fdf6e3; /* base3 */
+  --cf-warning-fg: #8f6c00; /* yellow darker */
+  --cf-warning-border: #d4a841; /* yellow lighter */
 
   /* Semantic colors — danger */
-  --cf-danger: #dc2626; /* red-600 */
-  --cf-danger-bg: #fef2f2; /* red-50  */
-  --cf-danger-fg: #b91c1c; /* red-700 */
-  --cf-danger-border: #fca5a5; /* red-300 */
+  --cf-danger: #dc322f; /* red */
+  --cf-danger-bg: #fef2f1; /* red tint */
+  --cf-danger-fg: #b02826; /* red darker */
+  --cf-danger-border: #e87572; /* red lighter */
 
   /* Semantic colors — info */
-  --cf-info: #2563eb; /* blue-600 */
-  --cf-info-bg: #eff6ff; /* blue-50  */
-  --cf-info-fg: #1d4ed8; /* blue-700 */
-  --cf-info-border: #93c5fd; /* blue-300 */
+  --cf-info: #268bd2; /* blue */
+  --cf-info-bg: #eef6fc; /* blue tint */
+  --cf-info-fg: #1a6aa5; /* blue darker */
+  --cf-info-border: #6fb3e0; /* blue lighter */
 
   /* Interactive states */
-  --cf-focus-ring: #2563eb; /* blue-600 */
+  --cf-focus-ring: #268bd2; /* blue */
   --cf-disabled-opacity: 0.5;
 
   /* Shadows */
   --cf-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --cf-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --cf-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --cf-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.08);
+  --cf-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
 
   /* Radii */
   --cf-radius-sm: 0.25rem;
@@ -70,75 +72,82 @@
   --cf-radius-lg: 0.5rem;
 
   /* Agent status design tokens (semantic) */
-  --cf-status-running: #3b82f6; /* blue-500  */
-  --cf-status-idle: #22c55e; /* green-500 */
-  --cf-status-waiting: #eab308; /* yellow-500 */
-  --cf-status-error: #ef4444; /* red-500   */
-  --cf-status-planning: #3b82f6; /* blue-500  */
+  --cf-status-running: #268bd2; /* blue */
+  --cf-status-idle: #859900; /* green */
+  --cf-status-waiting: #b58900; /* yellow */
+  --cf-status-error: #dc322f; /* red */
+  --cf-status-planning: #6c71c4; /* violet */
 }
 
 .dark {
-  --cf-bg-primary: #111827; /* gray-900 */
-  --cf-bg-surface: #1f2937; /* gray-800 */
-  --cf-bg-surface-alt: #374151; /* gray-700 */
-  --cf-bg-inset: #4b5563; /* gray-600 */
+  /* VSCode Dark Modern theme */
 
-  --cf-border: #374151; /* gray-700 */
-  --cf-border-subtle: #374151; /* gray-700 */
-  --cf-border-input: #4b5563; /* gray-600 */
+  /* Surface colors */
+  --cf-bg-primary: #1f1f1f; /* editor background */
+  --cf-bg-surface: #181818; /* sidebar background */
+  --cf-bg-surface-alt: #2b2b2b; /* input/list background */
+  --cf-bg-inset: #333333; /* inset panels */
 
-  --cf-text-primary: #f3f4f6; /* gray-100 */
-  --cf-text-secondary: #d1d5db; /* gray-300 */
-  --cf-text-tertiary: #9ca3af; /* gray-400 */
-  --cf-text-muted: #6b7280; /* gray-500 */
+  /* Border colors */
+  --cf-border: #2b2b2b; /* panel border */
+  --cf-border-subtle: #2b2b2b; /* subtle border */
+  --cf-border-input: #3c3c3c; /* input border */
 
-  --cf-accent: #3b82f6; /* blue-500 */
-  --cf-accent-hover: #2563eb; /* blue-600 */
-  --cf-accent-fg: #ffffff; /* white text on accent */
+  /* Text colors */
+  --cf-text-primary: #cccccc; /* editor foreground */
+  --cf-text-secondary: #9d9d9d; /* description foreground */
+  --cf-text-tertiary: #858585; /* dim text */
+  --cf-text-muted: #6a6a6a; /* muted text */
+
+  /* Accent */
+  --cf-accent: #0078d4; /* button background */
+  --cf-accent-hover: #026ec1; /* button hover */
+  --cf-accent-fg: #ffffff; /* button foreground */
 
   /* Semantic colors — success */
-  --cf-success: #22c55e; /* green-500 */
-  --cf-success-bg: #052e16; /* green-950 */
-  --cf-success-fg: #4ade80; /* green-400 */
-  --cf-success-border: #166534; /* green-800 */
+  --cf-success: #4ec9b0; /* terminal green */
+  --cf-success-bg: #0f2920; /* green tint */
+  --cf-success-fg: #4ec9b0; /* green foreground */
+  --cf-success-border: #1e5c49; /* green border */
 
   /* Semantic colors — warning */
-  --cf-warning: #eab308; /* yellow-500 */
-  --cf-warning-bg: #422006; /* yellow-950 */
-  --cf-warning-fg: #facc15; /* yellow-400 */
-  --cf-warning-border: #854d0e; /* yellow-800 */
+  --cf-warning: #cca700; /* terminal yellow */
+  --cf-warning-bg: #2a2200; /* yellow tint */
+  --cf-warning-fg: #cca700; /* yellow foreground */
+  --cf-warning-border: #5c4d00; /* yellow border */
 
   /* Semantic colors — danger */
-  --cf-danger: #ef4444; /* red-500 */
-  --cf-danger-bg: #450a0a; /* red-950 */
-  --cf-danger-fg: #f87171; /* red-400 */
-  --cf-danger-border: #991b1b; /* red-800 */
+  --cf-danger: #f14c4c; /* error foreground */
+  --cf-danger-bg: #2d0f0f; /* red tint */
+  --cf-danger-fg: #f14c4c; /* red foreground */
+  --cf-danger-border: #6e2020; /* red border */
 
   /* Semantic colors — info */
-  --cf-info: #3b82f6; /* blue-500 */
-  --cf-info-bg: #172554; /* blue-950 */
-  --cf-info-fg: #60a5fa; /* blue-400 */
-  --cf-info-border: #1e3a8a; /* blue-800 */
+  --cf-info: #0078d4; /* link foreground */
+  --cf-info-bg: #0d2240; /* blue tint */
+  --cf-info-fg: #3794ff; /* info foreground */
+  --cf-info-border: #0d4478; /* blue border */
 
   /* Interactive states */
-  --cf-focus-ring: #3b82f6; /* blue-500 */
+  --cf-focus-ring: #0078d4; /* focus border */
   --cf-disabled-opacity: 0.5;
 
   /* Shadows */
-  --cf-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.1);
-  --cf-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
-  --cf-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+  --cf-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.2);
+  --cf-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --cf-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
 
   /* Radii */
   --cf-radius-sm: 0.25rem;
   --cf-radius-md: 0.375rem;
   --cf-radius-lg: 0.5rem;
 
-  --cf-status-running: #60a5fa; /* blue-400  */
-  --cf-status-idle: #4ade80; /* green-400 */
-  --cf-status-waiting: #facc15; /* yellow-400 */
-  --cf-status-error: #f87171; /* red-400   */
-  --cf-status-planning: #60a5fa; /* blue-400  */
+  /* Agent status design tokens */
+  --cf-status-running: #3794ff; /* info foreground */
+  --cf-status-idle: #4ec9b0; /* terminal green */
+  --cf-status-waiting: #cca700; /* terminal yellow */
+  --cf-status-error: #f14c4c; /* error foreground */
+  --cf-status-planning: #c586c0; /* terminal magenta */
 }
 
 /* ---------------------------------------------------------------------------

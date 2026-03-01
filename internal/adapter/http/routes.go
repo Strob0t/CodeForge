@@ -54,6 +54,11 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/setup", h.SetupProject)
 		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
 
+		// File operations (nested under projects)
+		r.Get("/projects/{id}/files", h.ListFiles)
+		r.Get("/projects/{id}/files/content", h.ReadFile)
+		r.Put("/projects/{id}/files/content", h.WriteFile)
+
 		// Stack Detection
 		r.Get("/projects/{id}/detect-stack", h.DetectProjectStack)
 		r.Post("/detect-stack", h.DetectStackByPath)
@@ -107,6 +112,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Parse repo URL
 		r.Post("/parse-repo-url", h.ParseRepoURL)
 
+		// Repo info (fetch metadata from remote hosting API)
+		r.Get("/repos/info", h.FetchRepoInfo)
+
 		// Policy profiles
 		r.Get("/policies", h.ListPolicyProfiles)
 		r.Post("/policies", h.CreatePolicyProfile)
@@ -130,18 +138,6 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/plans/{id}/cancel", h.CancelPlan)
 		r.Get("/plans/{id}/graph", h.GetPlanGraph)
 		r.Post("/plans/{id}/steps/{stepId}/evaluate", h.EvaluateStep)
-
-		// Agent Teams (nested under projects)
-		r.Post("/projects/{id}/teams", h.CreateTeam)
-		r.Get("/projects/{id}/teams", h.ListTeams)
-
-		// Agent Teams (direct access)
-		r.Get("/teams/{id}", h.GetTeam)
-		r.Delete("/teams/{id}", h.DeleteTeam)
-
-		// Shared Context (nested under teams)
-		r.Get("/teams/{id}/shared-context", h.GetSharedContext)
-		r.Post("/teams/{id}/shared-context", h.AddSharedContextItem)
 
 		// Modes
 		r.Get("/modes", h.ListModes)
@@ -399,5 +395,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Human Feedback (Phase 22D)
 		r.Post("/feedback/{run_id}/{call_id}", h.HandleFeedbackCallback)
 		r.Get("/runs/{id}/feedback", h.ListFeedbackAudit)
+
+		// Auto-Agent (PR3.3)
+		r.Post("/projects/{id}/auto-agent/start", h.StartAutoAgent)
+		r.Post("/projects/{id}/auto-agent/stop", h.StopAutoAgent)
+		r.Get("/projects/{id}/auto-agent/status", h.GetAutoAgentStatus)
 	})
 }

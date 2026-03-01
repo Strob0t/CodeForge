@@ -1,9 +1,11 @@
 export { Card } from "./Card";
 export { ConfirmDialog } from "./ConfirmDialog";
+export { CostDisplay } from "./CostDisplay";
 export { EmptyState } from "./EmptyState";
 export { ErrorBanner } from "./ErrorBanner";
 export { LoadingState } from "./LoadingState";
 export { Modal } from "./Modal";
+export { ModelCombobox } from "./ModelCombobox";
 export { ResourceGuard } from "./ResourceGuard";
 export { SectionHeader } from "./SectionHeader";
 export { Table } from "./Table";

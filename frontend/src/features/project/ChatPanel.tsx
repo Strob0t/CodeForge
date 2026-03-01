@@ -12,7 +12,7 @@ import { api } from "~/api/client";
 import type { Conversation, ConversationMessage } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
 import { useI18n } from "~/i18n";
-import { Badge, Button } from "~/ui";
+import { Badge, Button, CostDisplay } from "~/ui";
 
 import Markdown from "./Markdown";
 import ToolCallCard from "./ToolCallCard";
@@ -288,7 +288,7 @@ export default function ChatPanel(props: ChatPanelProps) {
             </Show>
             {/* Running cost during agentic turn */}
             <Show when={agentRunning() && runningCost() > 0}>
-              <span class="text-xs text-cf-text-muted">${runningCost().toFixed(4)}</span>
+              <CostDisplay usd={runningCost()} class="text-xs text-cf-text-muted" />
             </Show>
             {/* Stop button during active agentic runs */}
             <Show when={agentRunning()}>

@@ -1,10 +1,8 @@
 import { getCached, processQueue, queueAction, setCached } from "./cache";
 import type {
   AddModelRequest,
-  AddSharedItemRequest,
   Agent,
   AgentEvent,
-  AgentTeam,
   AIRoadmapView,
   ApiError,
   APIKeyInfo,
@@ -23,7 +21,6 @@ import type {
   CreateProjectRequest,
   CreateRoadmapRequest,
   CreateTaskRequest,
-  CreateTeamRequest,
   CreateUserRequest,
   DailyCost,
   DecomposeRequest,
@@ -61,6 +58,7 @@ import type {
   ProjectCostSummary,
   ProviderInfo,
   ProviderList,
+  RepoInfo,
   RepoMap,
   ResetPasswordRequest,
   RetrievalIndexStatus,
@@ -71,8 +69,6 @@ import type {
   Run,
   SearchRequest,
   SetupStatusResponse,
-  SharedContext,
-  SharedContextItem,
   StartRunRequest,
   SubAgentSearchRequest,
   SubAgentSearchResult,
@@ -251,6 +247,9 @@ export const api = {
         body: JSON.stringify({ url: repoUrl }),
       }),
 
+    repoInfo: (repoUrl: string) =>
+      request<RepoInfo>(`/repos/info?url=${encodeURIComponent(repoUrl)}`),
+
     clone: (id: string) =>
       request<Project>(url`/projects/${id}/clone`, {
         method: "POST",
@@ -380,28 +379,6 @@ export const api = {
       }),
 
     listByTask: (taskId: string) => request<Run[]>(url`/tasks/${taskId}/runs`),
-  },
-
-  teams: {
-    list: (projectId: string) => request<AgentTeam[]>(url`/projects/${projectId}/teams`),
-
-    get: (id: string) => request<AgentTeam>(url`/teams/${id}`),
-
-    create: (projectId: string, data: CreateTeamRequest) =>
-      request<AgentTeam>(url`/projects/${projectId}/teams`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    delete: (id: string) => request<undefined>(url`/teams/${id}`, { method: "DELETE" }),
-
-    sharedContext: (teamId: string) => request<SharedContext>(url`/teams/${teamId}/shared-context`),
-
-    addSharedItem: (teamId: string, data: AddSharedItemRequest) =>
-      request<SharedContextItem>(url`/teams/${teamId}/shared-context`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
   },
 
   plans: {
@@ -1041,6 +1018,39 @@ export const api = {
       }),
 
     listDatasets: () => request<import("./types").BenchmarkDatasetInfo[]>("/benchmarks/datasets"),
+  },
+
+  files: {
+    list: (projectId: string, path = ".") =>
+      request<import("./types").FileEntry[]>(
+        `/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(path)}`,
+      ),
+
+    read: (projectId: string, path: string) =>
+      request<import("./types").FileContent>(
+        `/projects/${encodeURIComponent(projectId)}/files/content?path=${encodeURIComponent(path)}`,
+      ),
+
+    write: (projectId: string, path: string, content: string) =>
+      request<{ status: string }>(url`/projects/${projectId}/files/content`, {
+        method: "PUT",
+        body: JSON.stringify({ path, content }),
+      }),
+  },
+
+  autoAgent: {
+    start: (projectId: string) =>
+      request<import("./types").AutoAgentStatus>(url`/projects/${projectId}/auto-agent/start`, {
+        method: "POST",
+      }),
+
+    stop: (projectId: string) =>
+      request<{ status: string }>(url`/projects/${projectId}/auto-agent/stop`, {
+        method: "POST",
+      }),
+
+    status: (projectId: string) =>
+      request<import("./types").AutoAgentStatus>(url`/projects/${projectId}/auto-agent/status`),
   },
 } as const;
 

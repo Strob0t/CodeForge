@@ -3,12 +3,16 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -464,4 +468,143 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 	}
 
 	return result, nil
+}
+
+// repoInfoClient is the shared HTTP client for repo info API calls.
+var repoInfoClient = &http.Client{Timeout: 10 * time.Second}
+
+// FetchRepoInfo queries the hosting platform's public API to retrieve
+// repository metadata (name, description, default branch, language, etc.).
+// It parses the URL to determine the provider, then makes the appropriate API call.
+func (s *ProjectService) FetchRepoInfo(ctx context.Context, repoURL string) (*project.RepoInfo, error) {
+	parsed, err := project.ParseRepoURL(repoURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse repo URL: %w", err)
+	}
+
+	switch parsed.Provider {
+	case "github":
+		return s.fetchGitHubRepoInfo(ctx, parsed)
+	case "gitlab":
+		return s.fetchGitLabRepoInfo(ctx, parsed)
+	case "gitea":
+		return s.fetchGiteaRepoInfo(ctx, parsed)
+	default:
+		return nil, fmt.Errorf("unsupported provider for repo info: %q (host: %s)", parsed.Provider, parsed.Host)
+	}
+}
+
+// fetchGitHubRepoInfo fetches repo info from the GitHub API.
+func (s *ProjectService) fetchGitHubRepoInfo(ctx context.Context, parsed *project.ParsedRepoURL) (*project.RepoInfo, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", parsed.Owner, parsed.Repo)
+
+	var resp struct {
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		DefaultBranch string `json:"default_branch"`
+		Language      string `json:"language"`
+		Stars         int    `json:"stargazers_count"`
+		Private       bool   `json:"private"`
+	}
+
+	if err := fetchJSON(ctx, apiURL, &resp); err != nil {
+		return nil, fmt.Errorf("github API: %w", err)
+	}
+
+	return &project.RepoInfo{
+		Name:          resp.Name,
+		Description:   resp.Description,
+		DefaultBranch: resp.DefaultBranch,
+		Language:      resp.Language,
+		Stars:         resp.Stars,
+		Private:       resp.Private,
+	}, nil
+}
+
+// fetchGitLabRepoInfo fetches repo info from the GitLab API.
+func (s *ProjectService) fetchGitLabRepoInfo(ctx context.Context, parsed *project.ParsedRepoURL) (*project.RepoInfo, error) {
+	// GitLab uses URL-encoded project path as ID.
+	projectPath := parsed.Owner + "%2F" + parsed.Repo
+	host := parsed.Host
+	if host == "" {
+		host = "gitlab.com"
+	}
+	apiURL := fmt.Sprintf("https://%s/api/v4/projects/%s", host, projectPath)
+
+	var resp struct {
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		DefaultBranch string `json:"default_branch"`
+		Stars         int    `json:"star_count"`
+		Visibility    string `json:"visibility"`
+	}
+
+	if err := fetchJSON(ctx, apiURL, &resp); err != nil {
+		return nil, fmt.Errorf("gitlab API: %w", err)
+	}
+
+	return &project.RepoInfo{
+		Name:          resp.Name,
+		Description:   resp.Description,
+		DefaultBranch: resp.DefaultBranch,
+		Stars:         resp.Stars,
+		Private:       resp.Visibility != "public",
+	}, nil
+}
+
+// fetchGiteaRepoInfo fetches repo info from the Gitea/Forgejo API (GitHub-compatible).
+func (s *ProjectService) fetchGiteaRepoInfo(ctx context.Context, parsed *project.ParsedRepoURL) (*project.RepoInfo, error) {
+	host := parsed.Host
+	if host == "" {
+		return nil, fmt.Errorf("gitea: host is required")
+	}
+	apiURL := fmt.Sprintf("https://%s/api/v1/repos/%s/%s", host, parsed.Owner, parsed.Repo)
+
+	var resp struct {
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		DefaultBranch string `json:"default_branch"`
+		Language      string `json:"language"`
+		Stars         int    `json:"stars_count"`
+		Private       bool   `json:"private"`
+	}
+
+	if err := fetchJSON(ctx, apiURL, &resp); err != nil {
+		return nil, fmt.Errorf("gitea API: %w", err)
+	}
+
+	return &project.RepoInfo{
+		Name:          resp.Name,
+		Description:   resp.Description,
+		DefaultBranch: resp.DefaultBranch,
+		Language:      resp.Language,
+		Stars:         resp.Stars,
+		Private:       resp.Private,
+	}, nil
+}
+
+// fetchJSON performs a GET request and decodes the JSON response body.
+func fetchJSON(ctx context.Context, url string, dest interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "CodeForge/1.0")
+
+	resp, err := repoInfoClient.Do(req) //nolint:gosec // URL from validated project repo config
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
 }

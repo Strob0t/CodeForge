@@ -46,9 +46,18 @@ export function formatCompact(n: number, locale: string): string {
   }).format(n);
 }
 
-/** Format a USD currency amount with appropriate precision. */
+/** Format a USD currency amount with 2 decimal places (display-friendly). */
 export function formatCurrency(usd: number, locale: string): string {
-  // Use more decimal places for very small amounts.
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(usd);
+}
+
+/** Format a USD currency amount with full precision (for tooltips / exact display). */
+export function formatCurrencyExact(usd: number, locale: string): string {
   const fractionDigits = usd > 0 && usd < 0.01 ? 6 : usd < 1 ? 4 : 2;
   return new Intl.NumberFormat(locale, {
     style: "currency",

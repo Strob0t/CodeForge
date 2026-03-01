@@ -15,6 +15,6 @@ test.describe("Health checks", () => {
     const res = await request.get("http://localhost:8080/health");
     expect(res.ok()).toBe(true);
     const body = await res.json();
-    expect(body).toEqual({ status: "ok" });
+    expect(body.status).toBe("ok");
   });
 });

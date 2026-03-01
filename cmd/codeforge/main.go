@@ -526,6 +526,10 @@ func run() error {
 	skillSvc := service.NewSkillService(store)
 	slog.Info("skill service initialized")
 
+	// --- File Service ---
+	fileSvc := service.NewFileService(store)
+	slog.Info("file service initialized")
+
 	// --- Feedback Providers (Phase 22D) ---
 	if cfg.Notification.SlackWebhookURL != "" {
 		slackFB := slackAdapter.NewFeedbackProvider(cfg.Notification.SlackWebhookURL)
@@ -592,6 +596,7 @@ func run() error {
 		ExperiencePool:   experienceSvc,
 		Microagents:      microagentSvc,
 		Skills:           skillSvc,
+		Files:            fileSvc,
 		Limits:           &cfg.Limits,
 	}
 
@@ -749,10 +754,19 @@ func run() error {
 }
 
 // livenessHandler always returns 200 (Kubernetes liveness probe).
+// It also includes a dev_mode flag so the frontend can conditionally
+// show development-only features like the benchmark page.
 func livenessHandler(w http.ResponseWriter, _ *http.Request) {
+	devMode := os.Getenv("APP_ENV") == "development"
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+	_ = json.NewEncoder(w).Encode(struct {
+		Status  string `json:"status"`
+		DevMode bool   `json:"dev_mode"`
+	}{
+		Status:  "ok",
+		DevMode: devMode,
+	})
 }
 
 // readinessHandler checks all dependencies and returns 503 if any are down.

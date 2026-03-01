@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from codeforge.tools._base import ToolDefinition, ToolExecutor, ToolResult
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 if TYPE_CHECKING:
     from codeforge.mcp_workbench import McpWorkbench
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ToolDefinition",
+    "ToolExample",
     "ToolExecutor",
     "ToolRegistry",
     "ToolResult",
@@ -85,6 +86,10 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         """Return sorted list of registered tool names."""
         return sorted(self._tools.keys())
+
+    def get_definitions(self) -> list[ToolDefinition]:
+        """Return all registered tool definitions (sorted by name)."""
+        return [defn for defn, _ in sorted(self._tools.values(), key=lambda t: t[0].name)]
 
 
 class _McpToolProxy:
