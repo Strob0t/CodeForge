@@ -385,6 +385,11 @@ func (s *AuthService) BootstrapAdmin(ctx context.Context, tenantID string) error
 		return fmt.Errorf("list users: %w", err)
 	}
 	if len(users) > 0 {
+		// If an explicit password is configured via env var, sync it to the admin user
+		// so F5-debugging always works with the configured credentials.
+		if s.cfg.DefaultAdminPass != "" {
+			return s.syncAdminPassword(ctx, tenantID)
+		}
 		return nil // already bootstrapped
 	}
 
@@ -439,6 +444,33 @@ func (s *AuthService) createAdminWithPassword(ctx context.Context, tenantID, pas
 	}
 
 	slog.Info("bootstrapped admin user", "email", s.cfg.DefaultAdminEmail)
+	return nil
+}
+
+// syncAdminPassword ensures the default admin user's password matches the configured env var.
+func (s *AuthService) syncAdminPassword(ctx context.Context, tenantID string) error {
+	u, err := s.store.GetUserByEmail(ctx, s.cfg.DefaultAdminEmail, tenantID)
+	if err != nil {
+		return nil // admin user doesn't exist (different email), skip
+	}
+
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(s.cfg.DefaultAdminPass)) == nil {
+		return nil // password already matches
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(s.cfg.DefaultAdminPass), s.cfg.BcryptCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	u.PasswordHash = string(hash)
+	u.FailedAttempts = 0
+	u.LockedUntil = time.Time{}
+	if err := s.store.UpdateUser(ctx, u); err != nil {
+		return fmt.Errorf("sync admin password: %w", err)
+	}
+
+	slog.Info("admin password synced from env var", "email", s.cfg.DefaultAdminEmail)
 	return nil
 }
 
