@@ -109,6 +109,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   // --- AG-UI event subscriptions ---
 
   // When a run starts for the active conversation, show the thinking indicator
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
   const cleanupRunStarted = onAGUIEvent("agui.run_started", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
@@ -121,6 +122,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   });
 
   // When a text_message arrives for the active conversation, update streaming content
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
   const cleanupTextMessage = onAGUIEvent("agui.text_message", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
@@ -131,6 +133,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   });
 
   // When a tool call starts, add it to the tool calls list and increment step counter
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
   const cleanupToolCall = onAGUIEvent("agui.tool_call", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
@@ -151,6 +154,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   });
 
   // When a tool result arrives, update the corresponding tool call and track cost
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
   const cleanupToolResult = onAGUIEvent("agui.tool_result", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
@@ -171,6 +175,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   });
 
   // When a run finishes, clear streaming state and refetch persisted messages
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
   const cleanupRunFinished = onAGUIEvent("agui.run_finished", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {

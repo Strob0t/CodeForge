@@ -56,8 +56,9 @@ export default function CodeEditor(props: CodeEditorProps): JSX.Element {
     on(editorRef, (editor) => {
       if (!editor) return;
       // Monaco KeyMod.CtrlCmd = 2048, KeyCode.KeyS = 49
+      const saveFn = props.onSave;
       editor.addCommand(2048 | 49, () => {
-        props.onSave();
+        saveFn();
       });
     }),
   );

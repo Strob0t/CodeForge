@@ -50,8 +50,12 @@ interface TreeNodeProps {
 function TreeNode(props: TreeNodeProps): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [children] = createResource(
-    () => (expanded() ? props.entry.path : undefined),
-    (path) => api.files.list(props.projectId, path),
+    () => {
+      const isOpen = expanded();
+      const projId = props.projectId;
+      return isOpen ? { path: props.entry.path, projId } : undefined;
+    },
+    (params) => api.files.list(params.projId, params.path),
   );
 
   function toggle() {
