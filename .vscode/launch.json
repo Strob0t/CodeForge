@@ -24,7 +24,8 @@
       "env": {
         "NATS_URL": "nats://codeforge-nats:4222",
         "LITELLM_URL": "http://codeforge-litellm:4000",
-        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge"
+        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
+        "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!"
       },
       "console": "integratedTerminal",
       "presentation": { "group": "codeforge", "order": 2 }
@@ -55,7 +56,8 @@
       "env": {
         "NATS_URL": "nats://codeforge-nats:4222",
         "LITELLM_URL": "http://codeforge-litellm:4000",
-        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge"
+        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
+        "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!"
       },
       "preLaunchTask": "docker-compose-up",
       "console": "integratedTerminal",
