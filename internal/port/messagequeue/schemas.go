@@ -1,6 +1,10 @@
 package messagequeue
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
+)
 
 // TaskCreatedPayload is the schema for tasks.created messages.
 type TaskCreatedPayload struct {
@@ -73,6 +77,7 @@ type RunStartPayload struct {
 	Context           []ContextEntryPayload `json:"context,omitempty"`            // Pre-packed context entries (Phase 5D)
 	MCPServers        []MCPServerDefPayload `json:"mcp_servers,omitempty"`        // MCP server definitions (Phase 15A)
 	MicroagentPrompts []string              `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
+	Trust             *trust.Annotation     `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
 }
 
 // TerminationPayload carries the termination limits for a run.
@@ -84,11 +89,12 @@ type TerminationPayload struct {
 
 // ToolCallRequestPayload is the schema for runs.toolcall.request messages.
 type ToolCallRequestPayload struct {
-	RunID   string `json:"run_id"`
-	CallID  string `json:"call_id"`
-	Tool    string `json:"tool"`
-	Command string `json:"command"`
-	Path    string `json:"path"`
+	RunID   string            `json:"run_id"`
+	CallID  string            `json:"call_id"`
+	Tool    string            `json:"tool"`
+	Command string            `json:"command"`
+	Path    string            `json:"path"`
+	Trust   *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
 }
 
 // ToolCallResponsePayload is the schema for runs.toolcall.response messages.
@@ -434,6 +440,7 @@ type ConversationRunStartPayload struct {
 	MCPServers        []MCPServerDefPayload        `json:"mcp_servers,omitempty"`
 	Tools             []string                     `json:"tools,omitempty"`
 	MicroagentPrompts []string                     `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
+	Trust             *trust.Annotation            `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
 }
 
 // ConversationRunCompletePayload is the schema for conversation.run.complete messages.

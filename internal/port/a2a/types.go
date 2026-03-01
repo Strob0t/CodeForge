@@ -1,5 +1,7 @@
 package a2a
 
+import "github.com/Strob0t/CodeForge/internal/domain/trust"
+
 // AgentCard describes an agent's capabilities per the A2A protocol.
 type AgentCard struct {
 	Name         string  `json:"name"`
@@ -23,10 +25,11 @@ type Skill struct {
 
 // TaskRequest represents an incoming A2A task request.
 type TaskRequest struct {
-	ID      string         `json:"id"`
-	Skill   string         `json:"skill"`
-	Input   map[string]any `json:"input"`             //nolint:gosec // A2A protocol requires flexible input
-	Context map[string]any `json:"context,omitempty"` //nolint:gosec // A2A protocol requires flexible context
+	ID      string            `json:"id"`
+	Skill   string            `json:"skill"`
+	Input   map[string]any    `json:"input"`             //nolint:gosec // A2A protocol requires flexible input
+	Context map[string]any    `json:"context,omitempty"` //nolint:gosec // A2A protocol requires flexible context
+	Trust   *trust.Annotation `json:"trust,omitempty"`   // Message trust annotation (Phase 23A)
 }
 
 // TaskResponse represents an A2A task response.

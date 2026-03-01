@@ -2,7 +2,11 @@
 // and multi-agent coordination.
 package orchestration
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
+)
 
 // HandoffMessage represents an explicit agent-to-agent handoff with context.
 type HandoffMessage struct {
@@ -14,6 +18,7 @@ type HandoffMessage struct {
 	PlanID        string            `json:"plan_id,omitempty"`
 	StepID        string            `json:"step_id,omitempty"`
 	Metadata      map[string]string `json:"metadata,omitempty"`
+	Trust         *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
 }
 
 // Validate checks that a HandoffMessage has all required fields.

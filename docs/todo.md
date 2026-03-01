@@ -1934,63 +1934,69 @@ Names like `TestCreateItem`, `TestRegister`, `TestProviderName`, `TestSendSucces
 
 #### P1 — New Feature Tests: Auto-Agent (6 tests)
 
-> **Files:** `internal/adapter/http/handlers_autoagent_test.go` (new), `internal/service/autoagent_test.go` (new), `internal/domain/autoagent/autoagent_test.go` (new)
+> **Files:** `internal/adapter/http/handlers_autoagent_test.go` (new)
 > **Why:** Entire auto-agent feature (commit `fb4d475`) shipped with zero tests at any layer.
 
 Handler tests:
-- [ ] `TestHandleCreateAutoAgent_Success` — HTTP 201, auto-agent created with valid config
-- [ ] `TestHandleListAutoAgents` — HTTP 200, returns agents filtered by project ID
-- [ ] `TestHandleDeleteAutoAgent` — HTTP 204, agent removed from DB
+- [x] (2026-03-01) `TestHandleGetAutoAgentStatus_Idle` — HTTP 200, idle status for project with no running agent
+- [x] (2026-03-01) `TestHandleStopAutoAgent` — HTTP 200, returns stopping status
+- [x] (2026-03-01) `TestHandleStartAutoAgent_NoWorkspace` — HTTP 400, project without workspace path
+- [x] (2026-03-01) `TestHandleStartAutoAgent_NoFeatures` — HTTP 400, roadmap with no pending features
+- [x] (2026-03-01) `TestHandleStartAutoAgent_Success` — HTTP 200, running status with feature count
+- [x] (2026-03-01) `TestHandleStartAutoAgent_ProjectNotFound` — HTTP 404 for non-existent project
 
-Service tests:
-- [ ] `TestAutoAgentService_Create` — Service-layer creation logic, validation, store interaction
-- [ ] `TestAutoAgentService_List` — Filtering by project, empty results
+#### P1 — New Feature Tests: File Browser (7 tests)
 
-Domain tests:
-- [ ] `TestAutoAgent_Validate` — Domain validation rules (required fields, config constraints)
-
-#### P1 — New Feature Tests: File Browser (6 tests)
-
-> **Files:** `internal/adapter/http/handlers_files_test.go` (new), `internal/service/files_test.go` (new)
+> **Files:** `internal/adapter/http/handlers_files_test.go` (new)
 > **Why:** File browser feature (commit `fb4d475`) shipped with zero tests. Path traversal prevention is security-relevant.
 
 Handler tests:
-- [ ] `TestHandleListFiles_Success` — HTTP 200, returns directory listing for valid project + path
-- [ ] `TestHandleListFiles_PathTraversal` — HTTP 400/403, rejects `../` escape attempts
-- [ ] `TestHandleReadFile_Success` — HTTP 200, returns file content with correct MIME type
+- [x] (2026-03-01) `TestHandleListFiles_Success` — HTTP 200, returns directory listing with file + dir
+- [x] (2026-03-01) `TestHandleListFiles_DefaultPath` — HTTP 200, omitted path defaults to "."
+- [x] (2026-03-01) `TestHandleListFiles_PathTraversal` — rejects `../../etc` escape attempts
+- [x] (2026-03-01) `TestHandleReadFile_Success` — HTTP 200, returns file content + language detection
+- [x] (2026-03-01) `TestHandleReadFile_MissingPath` — HTTP 400, missing path query param
+- [x] (2026-03-01) `TestHandleWriteFile_Success` — HTTP 200, file written to disk and verified
+- [x] (2026-03-01) `TestHandleWriteFile_MissingPath` — HTTP 400, missing path in body
 
-Service tests:
-- [ ] `TestFileService_List` — Lists directory contents, sorts dirs-first
-- [ ] `TestFileService_Read` — Returns file content for valid path
-- [ ] `TestFileService_PathTraversal` — Rejects `../`, absolute paths, symlink escapes
-
-#### P1 — Roadmap Handler Tests (pillar feature, 8 tests)
+#### P1 — Roadmap Handler Tests (pillar feature, 14 tests)
 
 > **File:** `internal/adapter/http/handlers_roadmap_test.go` (new)
 > **Why:** 21 roadmap handler functions with zero tests. Roadmap is Pillar 2 (one of four core pillars).
 
-- [ ] `TestHandleListRoadmapItems` — HTTP 200, paginated list with filtering
-- [ ] `TestHandleCreateRoadmapItem_Success` — HTTP 201, validates required fields (title, type)
-- [ ] `TestHandleCreateRoadmapItem_InvalidBody` — HTTP 400, missing required fields
-- [ ] `TestHandleGetRoadmapItem` — HTTP 200, returns item by ID
-- [ ] `TestHandleGetRoadmapItem_NotFound` — HTTP 404 for non-existent ID
-- [ ] `TestHandleUpdateRoadmapItem_OptimisticLock` — HTTP 409, version mismatch rejected
-- [ ] `TestHandleDeleteRoadmapItem` — HTTP 204, item removed
-- [ ] `TestHandleListMilestones` — HTTP 200, returns milestones for project
+- [x] (2026-03-01) `TestHandleCreateProjectRoadmap_Success` — HTTP 201, roadmap created with title + project_id
+- [x] (2026-03-01) `TestHandleCreateProjectRoadmap_MissingTitle` — HTTP 400, missing required title
+- [x] (2026-03-01) `TestHandleGetProjectRoadmap_Success` — HTTP 200, returns roadmap with milestones
+- [x] (2026-03-01) `TestHandleGetProjectRoadmap_NotFound` — HTTP 404 for non-existent project
+- [x] (2026-03-01) `TestHandleDeleteProjectRoadmap` — HTTP 204, roadmap removed + verify 404
+- [x] (2026-03-01) `TestHandleCreateMilestone_Success` — HTTP 201, milestone created on roadmap
+- [x] (2026-03-01) `TestHandleCreateMilestone_MissingTitle` — HTTP 400, missing required title
+- [x] (2026-03-01) `TestHandleCreateFeature_Success` — HTTP 201, feature created on milestone
+- [x] (2026-03-01) `TestHandleDeleteFeature` — HTTP 204, feature removed
+- [x] (2026-03-01) `TestHandleGetMilestone_NotFound` — HTTP 404 for non-existent milestone
+- [x] (2026-03-01) `TestHandleGetFeature_NotFound` — HTTP 404 for non-existent feature
+- [x] (2026-03-01) `TestHandleListSpecProviders` — HTTP 200, valid JSON array
+- [x] (2026-03-01) `TestHandleListPMProviders` — HTTP 200, valid JSON array
 
-#### P1 — Agent Features Handler Tests (pillar feature, 8 tests)
+#### P1 — Agent Features Handler Tests (pillar feature, 14 tests)
 
 > **File:** `internal/adapter/http/handlers_agent_features_test.go` (new)
 > **Why:** 26 agent feature handler functions with zero tests. Agent orchestration is Pillar 4.
 
-- [ ] `TestHandleListModes` — HTTP 200, returns built-in + custom modes
-- [ ] `TestHandleGetMode` — HTTP 200, returns mode definition by name
-- [ ] `TestHandleCreateMode` — HTTP 201, custom mode created from YAML config
-- [ ] `TestHandleDeleteMode` — HTTP 204, custom mode removed (built-in protected)
-- [ ] `TestHandleListToolBundles` — HTTP 200, returns available tool bundles
-- [ ] `TestHandleListPolicies` — HTTP 200, returns 4 built-in presets + custom policies
-- [ ] `TestHandleEvaluatePolicy` — HTTP 200, correct allow/deny/ask decision for tool call
-- [ ] `TestHandleCreatePlan` — HTTP 201, DAG plan created with validated step dependencies
+- [x] (2026-03-01) `TestHandleCreateMicroagent` — HTTP 201, microagent created with trigger pattern + enabled by default
+- [x] (2026-03-01) `TestHandleListMicroagents_Empty` — HTTP 200, empty array for new project
+- [x] (2026-03-01) `TestHandleDeleteMicroagent` — HTTP 204, microagent removed
+- [x] (2026-03-01) `TestHandleCreateSkill` — HTTP 201, skill created with code + tags
+- [x] (2026-03-01) `TestHandleListSkills_Empty` — HTTP 200, empty array for new project
+- [x] (2026-03-01) `TestHandleDeleteSkill` — HTTP 204, skill removed
+- [x] (2026-03-01) `TestHandleListMemories_Empty` — HTTP 200, empty array for new project
+- [x] (2026-03-01) `TestHandleStoreMemory` — HTTP 202, memory dispatched to NATS queue
+- [x] (2026-03-01) `TestHandleListExperienceEntries_Empty` — HTTP 200, empty array for new project
+- [x] (2026-03-01) `TestHandleDeleteExperienceEntry` — HTTP 204, experience entry removed
+- [x] (2026-03-01) `TestHandleListPolicies` — HTTP 200, built-in policy profiles returned
+- [x] (2026-03-01) `TestHandleGetPolicyProfile_NotFound` — HTTP 404 for non-existent profile
+- [x] (2026-03-01) `TestHandleEvaluatePolicy` — HTTP 200, decision returned for tool call
+- [x] (2026-03-01) `TestHandleListFeedbackAudit_Empty` — HTTP 200, empty feedback for run
 
 #### P2 — Conversation Handler Tests (agentic loop, 6 tests)
 
@@ -2145,3 +2151,172 @@ Remaining `handlers.go` coverage:
 **Execution order:** P0 → P1 → P2 → P3. Each tier is independently committable.
 
 **Estimated scope:** ~90 new test functions across ~20 new/modified test files.
+
+---
+
+### Phase 23: Security & Identity Patterns (AMP/Maestro Extraction) (2026-03-01)
+
+> Patterns extracted from [AI Maestro](https://github.com/23blocks-OS/ai-maestro) and [AMP](https://agentmessaging.org/) (Agent Messaging Protocol v0.1.2-draft).
+> Analysis: AMP is too immature for protocol adoption (no industry backing vs. MCP/A2A), but 4 patterns are worth extracting into CodeForge's existing architecture.
+> AI Maestro's peer mesh topology conflicts with CodeForge's centralized control plane — not adopted.
+
+#### 23A: Message Trust Annotations (P1 — HIGH priority, ~3-4 days)
+
+> **Pro:** (1) Security-critical for safe A2A activation — without trust metadata, no distinction between internal agent and unknown external agent requesting `bash` execution. (2) Low effort — adding optional `Trust *Annotation` field to existing NATS payload structs is backwards-compatible (nil = internal = full trust). (3) Extends existing policy evaluation pattern — `TrustMinimum` is natural alongside `PathAllow`/`CommandDeny`. (4) Industry alignment — both AMP and Google A2A include provenance metadata. (5) Foundation for P2 (quarantine) and P3 (agent identity).
+> **Kontra:** (1) No immediate user-facing value — A2A is a stub, no external messages exist today. (2) Ed25519 signature verification deferred — `Signature` field exists but is not validated, creating a half-implemented feature. (3) Added boilerplate — every NATS payload producer must stamp trust. (4) Trust levels are subjective — 4-level model may be over-engineered. (5) NATS connection-level auth is the real trust boundary for internal messages.
+
+**Domain model:**
+
+- [ ] Create `internal/domain/trust/trust.go` — `Level` type (`full`/`verified`/`partial`/`untrusted`), `Annotation` struct (Origin, TrustLevel, SourceID, Signature, Timestamp), helper `IsInternal() bool`
+
+**NATS payload integration (Go):**
+
+- [ ] Extend `internal/port/messagequeue/schemas.go` — add `Trust *trust.Annotation` field to `RunStartPayload`, `ToolCallRequestPayload`, `ConversationRunStartPayload`
+- [ ] Extend `internal/domain/orchestration/handoff.go` — add `Trust *trust.Annotation` field to `HandoffMessage`
+- [ ] Extend `internal/port/a2a/types.go` — add `Trust *trust.Annotation` field to `TaskRequest`
+
+**NATS payload integration (Python):**
+
+- [ ] Extend `workers/codeforge/models.py` — add `TrustAnnotation` Pydantic model (origin, trust_level, source_id, signature, timestamp), add optional `trust: TrustAnnotation | None = None` to `RunStartMessage`, `ConversationRunStartMessage`
+
+**Auto-stamping in services:**
+
+- [ ] `internal/service/runtime.go` — in `StartRun`, auto-stamp `Trust{Origin: "internal", TrustLevel: LevelFull, SourceID: agentID}` before publishing to NATS
+- [ ] `internal/service/handoff.go` — in `CreateHandoff`, stamp trust based on source origin (internal agent = `full`, external = `untrusted`)
+- [ ] `internal/port/a2a/handler.go` — in `handleCreateTask`, stamp `LevelUntrusted` + `Origin: "a2a"` on all incoming A2A task requests
+
+**Policy layer extension:**
+
+- [ ] `internal/domain/policy/policy.go` — add optional `TrustMinimum trust.Level` field to `PermissionRule` struct
+- [ ] `internal/domain/policy/evaluation.go` — extend `Evaluate` to accept optional `*trust.Annotation` parameter, check `TrustMinimum` on matching rules (deny if trust level < minimum)
+
+**Tests:**
+
+- [ ] `internal/domain/trust/trust_test.go` — test `IsInternal()`, level comparison, annotation creation (4 tests)
+- [ ] `internal/domain/policy/evaluation_test.go` — add tests for trust-aware evaluation: rule with TrustMinimum=verified denies untrusted calls, allows verified calls (3 tests)
+- [ ] `internal/service/runtime_test.go` — verify auto-stamping sets trust on published payloads (2 tests)
+
+#### 23B: Message Quarantine System (P2 — MEDIUM priority, ~5-7 days, depends on 23A)
+
+> **Pro:** (1) Defense-in-depth — even correctly trusted agents can send malicious content, quarantine inspects content not just provenance. (2) Human-in-the-loop for external inputs — extends CodeForge's autonomy spectrum to message-level approval. (3) Auditable — `quarantined_messages` table creates audit trail. (4) Configurable thresholds per deployment. (5) Reuses existing HITL approval pattern (`DecisionAsk`).
+> **Kontra:** (1) Premature — zero messages cross trust boundaries today (A2A is stub). (2) Regex injection detection is weak — sophisticated attacks bypass simple patterns. (3) Latency — quarantined messages block agent execution, stalls DAG plans. (4) Maintenance burden — injection regex patterns need constant updating. (5) Overlaps with existing Command Safety Evaluator + Policy layer. (6) Admin overhead — no admin in headless/Level 5 mode, quarantine blocks indefinitely or auto-expires (defeating purpose).
+
+**Domain model:**
+
+- [ ] Create `internal/domain/quarantine/quarantine.go` — `QuarantinedMessage` entity (ID, Subject, Payload, RiskScore 0.0-1.0, Severity, Status, Reasons, Trust, ReviewedBy, CreatedAt, ResolvedAt), `RiskThresholds` config struct (QuarantineAbove default 0.7, BlockAbove default 0.95)
+
+**Database:**
+
+- [ ] Create migration `04X_create_quarantine.sql` — `quarantined_messages` table (id UUID PK, nats_subject TEXT, payload JSONB, risk_score NUMERIC, severity TEXT, status TEXT DEFAULT 'pending', reasons TEXT[], trust JSONB, reviewed_by TEXT, created_at TIMESTAMPTZ, resolved_at TIMESTAMPTZ), index on `(status, created_at)`
+- [ ] Extend `internal/port/database/store.go` — add `QuarantineMessage`, `GetQuarantinedMessage`, `ListQuarantinedMessages`, `UpdateQuarantineStatus` methods
+
+**Service:**
+
+- [ ] Create `internal/service/quarantine.go` — `QuarantineService` with `Evaluate(subject, payload, trust) (*QuarantinedMessage, error)` (risk scoring pipeline), `Approve(id, userID)`, `Reject(id, userID)`, `List(status)`
+- [ ] Risk scoring pipeline: trust-based (+0.5 for untrusted, +0.2 for partial) + content-based (regex for "ignore previous instructions", "system:", embedded base64) + sender reputation (allowlist/blocklist by source_id)
+
+**Integration:**
+
+- [ ] `internal/service/runtime.go` — wrap handlers for external-origin messages (`Trust.TrustLevel < LevelFull`) with quarantine check before dispatching
+- [ ] `internal/adapter/http/routes.go` — add admin routes: `GET /api/v1/quarantine`, `POST /api/v1/quarantine/{id}/approve`, `POST /api/v1/quarantine/{id}/reject`
+- [ ] `internal/adapter/ws/events.go` — add `EventQuarantineAlert = "quarantine.alert"` + `QuarantineAlertEvent` struct for real-time frontend notification
+- [ ] `internal/config/config.go` — add `Quarantine` struct to Config (Enabled bool, QuarantineThreshold float64, BlockThreshold float64, ExpiryHours int)
+
+**Tests:**
+
+- [ ] `internal/service/quarantine_test.go` — test risk scoring at various thresholds, approve/reject flow, auto-block above threshold (6 tests)
+- [ ] `internal/domain/quarantine/quarantine_test.go` — test entity validation, severity derivation from risk score (3 tests)
+
+#### 23C: Persistent Agent Identity (P3 — MEDIUM priority, ~5-6 days, depends on 23A)
+
+> **Pro:** (1) Enables intelligent agent selection — orchestrator can choose agents based on success rate and cost history. (2) Cross-run context — agents remember decisions via persistent state map. (3) Handoff persistence — inbox ensures handoff context isn't lost if target agent is offline. (4) Observability — TotalRuns/Cost/SuccessRate directly useful in AgentPanel UI today. (5) Foundation for agent reputation scoring (trust + stats). (6) Extends existing entity — no new domain concept, additive change to `Agent` struct.
+> **Kontra:** (1) Agents are project-scoped — identity doesn't transfer across projects, limiting value. (2) SuccessRate is ambiguous — what counts as "success" without quality evaluation? (3) Inbox duplicates handoff system — two messaging paths creates confusion about which is authoritative. (4) State map (`map[string]string`) has no schema — invites accumulation of stale, conflicting data after many runs. (5) DB migration adds 6+ columns + new table to production schema. (6) Premature — most usage is single-agent, persistent identity valuable only with repeated multi-agent collaboration.
+
+**Domain model:**
+
+- [ ] Extend `internal/domain/agent/agent.go` — add fields: `State map[string]string`, `LastActiveAt *time.Time`, `TotalRuns int`, `TotalCost float64`, `SuccessRate float64`, `Capabilities []string`
+- [ ] Add `InboxMessage` struct to `internal/domain/agent/agent.go` — ID, FromAgent, Content, Priority, Read, CreatedAt
+
+**Database:**
+
+- [ ] Create migration `04X_agent_identity.sql` — add columns to `agents` table (state JSONB DEFAULT '{}', last_active_at TIMESTAMPTZ, total_runs INT DEFAULT 0, total_cost NUMERIC(12,6) DEFAULT 0, success_rate NUMERIC(5,4) DEFAULT 0, capabilities TEXT[] DEFAULT '{}'), create `agent_inbox` table (id UUID PK, agent_id UUID FK CASCADE, from_agent UUID, content TEXT, priority INT DEFAULT 0, read BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ)
+- [ ] Extend `internal/port/database/store.go` — add `SendAgentMessage`, `ListAgentInbox`, `MarkInboxRead`, `IncrementAgentStats`, `UpdateAgentState`
+
+**Service layer:**
+
+- [ ] Extend `internal/service/agent.go` — add `SendMessage(ctx, toAgentID, msg)`, `GetInbox(ctx, agentID, unreadOnly)`, `MarkRead(ctx, messageID)` methods
+- [ ] `internal/service/runtime.go` — on `HandleRunComplete`, call `IncrementAgentStats(agentID, costDelta, success)` to accumulate run count, cost, success rate
+- [ ] `internal/service/handoff.go` — on handoff creation, also deliver `InboxMessage` to target agent with handoff context summary
+
+**NATS:**
+
+- [ ] `internal/port/messagequeue/queue.go` — add `SubjectAgentMessage = "agents.message"` for agent-to-agent direct notifications
+
+**HTTP API:**
+
+- [ ] `internal/adapter/http/routes.go` — add routes: `GET /api/v1/agents/{id}/inbox`, `POST /api/v1/agents/{id}/inbox`, `POST /api/v1/agents/{id}/inbox/{msgId}/read`, `GET /api/v1/agents/{id}/state`, `PUT /api/v1/agents/{id}/state`
+
+**WebSocket:**
+
+- [ ] `internal/adapter/ws/events.go` — add `EventAgentMessage = "agent.message"` + `AgentMessageEvent` struct for real-time inbox push
+
+**Frontend:**
+
+- [ ] `frontend/src/api/types.ts` — extend `Agent` interface with `state`, `last_active_at`, `total_runs`, `total_cost`, `success_rate`, `capabilities`, `inbox_unread_count`
+- [ ] `frontend/src/features/project/AgentPanel.tsx` — display agent stats (total_runs, success_rate %, total_cost $) and inbox badge with unread count
+
+**Tests:**
+
+- [ ] `internal/service/agent_test.go` — test inbox CRUD, stats accumulation across 3 runs, state persistence (6 tests)
+- [ ] `internal/domain/agent/agent_test.go` — test InboxMessage validation, stats calculation (3 tests)
+
+#### 23D: War Room / Live Collaboration View (P4 — LOW priority, ~6-8 days, depends on 23A + 23C)
+
+> **Pro:** (1) Market differentiation — no competing tool has a live multi-agent collaboration view. (2) Operational visibility — shows full picture during parallel DAG execution (who's doing what, handoff flow, bottlenecks). (3) Low backend effort — most WS events already exist, primarily a frontend layout. (4) SolidJS strength — fine-grained reactivity ideal for independent lane updates. (5) Non-disruptive — new tab in existing layout, users who don't need it never see it.
+> **Kontra:** (1) No multi-agent usage to show — single-agent conversations 99% of the time, War Room shows one lane = existing ChatPanel with extra chrome. (2) SVG handoff arrows are complex — coordinate math for dynamic scrollable lanes can eat 2-3 days. (3) Frontend-only — doesn't improve backend multi-agent reliability. (4) Mobile/responsive challenges — swim lanes unreadable on narrow screens. (5) Maintenance cost — every new WS event type must be reflected in War Room. (6) Dependency chain — requires P1 (trust) + P3 (agent identity) first.
+
+**Frontend components (new):**
+
+- [ ] Create `frontend/src/features/project/WarRoom.tsx` — main component with CSS Grid layout (`grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))`), fetches active agents on mount via `GET /projects/{id}/agents/active`, subscribes to WS events
+- [ ] Create `frontend/src/features/project/AgentLane.tsx` — single agent swim lane: name/mode/status badge header, streaming output lines (from `EventRunOutput`), tool call cards (from AG-UI events), cost accumulator
+- [ ] Create `frontend/src/features/project/MessageFlow.tsx` — SVG overlay rendering handoff arrows between lanes using absolute positioning, subscribes to `EventHandoffStatus`
+- [ ] Create `frontend/src/features/project/SharedContextPanel.tsx` — shows team shared context items, subscribes to `EventSharedContextUpdate`
+
+**Frontend integration:**
+
+- [ ] `frontend/src/features/project/ProjectDetailPage.tsx` — add "War Room" tab alongside Roadmap/Files tabs
+- [ ] `frontend/src/api/types.ts` — add `HandoffStatusEvent` (source_agent_id, target_agent_id, plan_id, step_id, status, context) and `AgentActivityEvent` types
+
+**Backend support (minimal):**
+
+- [ ] `internal/adapter/ws/events.go` — add `EventHandoffStatus = "handoff.status"` + `HandoffStatusEvent` struct (SourceAgentID, TargetAgentID, PlanID, StepID, Status, Context)
+- [ ] `internal/service/handoff.go` — after publishing handoff to NATS, broadcast `HandoffStatusEvent` to WS hub
+- [ ] `internal/adapter/http/routes.go` — add `GET /api/v1/projects/{id}/agents/active` returning all agents with `status == running` for a project, including current run IDs
+
+**Tests:**
+
+- [ ] `frontend/e2e/war-room.spec.ts` — E2E test: navigate to War Room tab, verify empty state, verify lane appears when agent starts (2 tests)
+- [ ] `internal/service/handoff_test.go` — verify HandoffStatusEvent is broadcast to WS hub on handoff (1 test)
+
+#### Phase 23 Dependencies
+
+```
+23A (Trust Annotations) -- prerequisite for all others
+    |
+    |---> 23C (Agent Identity)  -- prerequisite for 23D
+    |        |
+    |        +---> 23D (War Room)
+    |
+    +---> 23B (Quarantine)
+```
+
+#### Phase 23 Decision Matrix
+
+| WP | Priority | Effort | Immediate Value | Blocks |
+|----|----------|--------|-----------------|--------|
+| 23A | HIGH | 3-4d | Low (A2A inactive) | 23B, 23C, 23D |
+| 23B | MEDIUM | 5-7d | None (no external msgs) | -- |
+| 23C | MEDIUM | 5-6d | Medium (stats in UI) | 23D |
+| 23D | LOW | 6-8d | None (no multi-agent) | -- |
+
+> **Recommendation:** Start with 23A only. It's foundational, low effort, and will be needed when A2A activates. Defer 23B-23D until multi-agent and A2A usage matures.

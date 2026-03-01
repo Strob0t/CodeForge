@@ -13,6 +13,9 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
+
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -57,6 +60,14 @@ func (h *Handler) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	if req.ID == "" {
 		http.Error(w, `{"error":"id is required"}`, http.StatusBadRequest)
 		return
+	}
+
+	// Stamp untrusted trust annotation for external A2A requests.
+	req.Trust = &trust.Annotation{
+		Origin:     "a2a",
+		TrustLevel: trust.LevelUntrusted,
+		SourceID:   r.RemoteAddr,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 	}
 
 	resp := &TaskResponse{

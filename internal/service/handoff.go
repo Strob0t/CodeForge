@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
@@ -27,6 +28,11 @@ func NewHandoffService(db database.Store, queue messagequeue.Queue) *HandoffServ
 func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.HandoffMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
+	}
+
+	// Stamp internal trust if not already annotated.
+	if msg.Trust == nil {
+		msg.Trust = trust.Internal(msg.SourceAgentID)
 	}
 
 	data, err := json.Marshal(msg)

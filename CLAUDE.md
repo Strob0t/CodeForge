@@ -161,6 +161,8 @@ Detailed analysis: docs/research/market-analysis.md
   - AutoForge (Two-Agent, Test-First, Multi-Session) — workflow pattern
   - Dyad (Local-First, Apache 2.0) — UX reference
   - AutoCodeRover (AST-aware, GPL-3.0, $0.70/task) — niche agent
+  - AI Maestro (Next.js/Node.js, Peer Mesh, AMP Protocol, CozoDB) — multi-machine agent orchestration, War Room UX, persistent agent identity. Patterns extracted: trust annotations, quarantine, agent identity, War Room (Phase 23)
+  - AMP (Agent Messaging Protocol v0.1.2-draft, Apache 2.0, 23blocks) — secure inter-agent messaging with Ed25519 signatures, trust annotations, federation. Too immature for adoption; patterns extracted into Phase 23
 - **Roadmap/Feature-Map Auto-Detection & Adaptive Integration:**
   - **No custom PM tool** — sync with existing tools (Plane, OpenProject, GitHub/GitLab Issues)
   - **Auto-Detection:** Three-tier detection (repo files → platform APIs → file markers)

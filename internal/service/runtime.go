@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
@@ -293,6 +294,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 			TimeoutSeconds: profile.Termination.TimeoutSeconds,
 			MaxCost:        profile.Termination.MaxCost,
 		},
+		Trust: trust.Internal(ag.ID),
 	}
 
 	// Build context pack if context optimizer is available.

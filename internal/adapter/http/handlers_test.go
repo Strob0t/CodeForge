@@ -62,6 +62,14 @@ type mockStore struct {
 	apiKeys             []user.APIKey
 	revokedTokens       map[string]time.Time
 	passwordResetTokens []user.PasswordResetToken
+	// Roadmap fields
+	roadmaps   []roadmap.Roadmap
+	milestones []roadmap.Milestone
+	features   []roadmap.Feature
+	// Agent feature fields
+	microagents []microagent.Microagent
+	skills      []skill.Skill
+	autoAgents  []autoagent.AutoAgent
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -385,49 +393,203 @@ func (m *mockStore) GetReviewByPlanID(_ context.Context, _ string) (*review.Revi
 	return nil, nil
 }
 
-// Roadmap stubs
-func (m *mockStore) CreateRoadmap(_ context.Context, _ roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error) {
-	return &roadmap.Roadmap{}, nil
+// --- Roadmap methods ---
+
+func (m *mockStore) CreateRoadmap(_ context.Context, req roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error) {
+	r := roadmap.Roadmap{
+		ID:          fmt.Sprintf("roadmap-%d", len(m.roadmaps)+1),
+		ProjectID:   req.ProjectID,
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      roadmap.StatusDraft,
+		Version:     1,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	m.roadmaps = append(m.roadmaps, r)
+	return &r, nil
 }
-func (m *mockStore) GetRoadmap(_ context.Context, _ string) (*roadmap.Roadmap, error) {
+
+func (m *mockStore) GetRoadmap(_ context.Context, id string) (*roadmap.Roadmap, error) {
+	for i := range m.roadmaps {
+		if m.roadmaps[i].ID == id {
+			return &m.roadmaps[i], nil
+		}
+	}
 	return nil, errNotFound
 }
-func (m *mockStore) GetRoadmapByProject(_ context.Context, _ string) (*roadmap.Roadmap, error) {
+
+func (m *mockStore) GetRoadmapByProject(_ context.Context, projectID string) (*roadmap.Roadmap, error) {
+	for i := range m.roadmaps {
+		if m.roadmaps[i].ProjectID == projectID {
+			return &m.roadmaps[i], nil
+		}
+	}
 	return nil, errNotFound
 }
-func (m *mockStore) UpdateRoadmap(_ context.Context, _ *roadmap.Roadmap) error { return nil }
-func (m *mockStore) DeleteRoadmap(_ context.Context, _ string) error           { return nil }
-func (m *mockStore) CreateMilestone(_ context.Context, _ roadmap.CreateMilestoneRequest) (*roadmap.Milestone, error) {
-	return &roadmap.Milestone{}, nil
+
+func (m *mockStore) UpdateRoadmap(_ context.Context, r *roadmap.Roadmap) error {
+	for i := range m.roadmaps {
+		if m.roadmaps[i].ID == r.ID {
+			r.UpdatedAt = time.Now().UTC()
+			m.roadmaps[i] = *r
+			return nil
+		}
+	}
+	return errNotFound
 }
-func (m *mockStore) GetMilestone(_ context.Context, _ string) (*roadmap.Milestone, error) {
+
+func (m *mockStore) DeleteRoadmap(_ context.Context, id string) error {
+	for i := range m.roadmaps {
+		if m.roadmaps[i].ID == id {
+			m.roadmaps = append(m.roadmaps[:i], m.roadmaps[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) CreateMilestone(_ context.Context, req roadmap.CreateMilestoneRequest) (*roadmap.Milestone, error) {
+	ms := roadmap.Milestone{
+		ID:          fmt.Sprintf("milestone-%d", len(m.milestones)+1),
+		RoadmapID:   req.RoadmapID,
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      roadmap.StatusDraft,
+		DueDate:     req.DueDate,
+		Version:     1,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	m.milestones = append(m.milestones, ms)
+	return &ms, nil
+}
+
+func (m *mockStore) GetMilestone(_ context.Context, id string) (*roadmap.Milestone, error) {
+	for i := range m.milestones {
+		if m.milestones[i].ID == id {
+			return &m.milestones[i], nil
+		}
+	}
 	return nil, errNotFound
 }
-func (m *mockStore) ListMilestones(_ context.Context, _ string) ([]roadmap.Milestone, error) {
-	return nil, nil
+
+func (m *mockStore) ListMilestones(_ context.Context, roadmapID string) ([]roadmap.Milestone, error) {
+	var result []roadmap.Milestone
+	for i := range m.milestones {
+		if m.milestones[i].RoadmapID == roadmapID {
+			result = append(result, m.milestones[i])
+		}
+	}
+	return result, nil
 }
-func (m *mockStore) UpdateMilestone(_ context.Context, _ *roadmap.Milestone) error { return nil }
-func (m *mockStore) DeleteMilestone(_ context.Context, _ string) error             { return nil }
-func (m *mockStore) FindMilestoneByTitle(_ context.Context, _, _ string) (*roadmap.Milestone, error) {
+
+func (m *mockStore) UpdateMilestone(_ context.Context, ms *roadmap.Milestone) error {
+	for i := range m.milestones {
+		if m.milestones[i].ID == ms.ID {
+			ms.UpdatedAt = time.Now().UTC()
+			m.milestones[i] = *ms
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) DeleteMilestone(_ context.Context, id string) error {
+	for i := range m.milestones {
+		if m.milestones[i].ID == id {
+			m.milestones = append(m.milestones[:i], m.milestones[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) FindMilestoneByTitle(_ context.Context, roadmapID, title string) (*roadmap.Milestone, error) {
+	for i := range m.milestones {
+		if m.milestones[i].RoadmapID == roadmapID && m.milestones[i].Title == title {
+			return &m.milestones[i], nil
+		}
+	}
 	return nil, errNotFound
 }
-func (m *mockStore) CreateFeature(_ context.Context, _ *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
-	return &roadmap.Feature{}, nil
+
+func (m *mockStore) CreateFeature(_ context.Context, req *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
+	f := roadmap.Feature{
+		ID:          fmt.Sprintf("feature-%d", len(m.features)+1),
+		MilestoneID: req.MilestoneID,
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      roadmap.FeatureBacklog,
+		Labels:      req.Labels,
+		SpecRef:     req.SpecRef,
+		ExternalIDs: req.ExternalIDs,
+		Version:     1,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	m.features = append(m.features, f)
+	return &f, nil
 }
-func (m *mockStore) GetFeature(_ context.Context, _ string) (*roadmap.Feature, error) {
+
+func (m *mockStore) GetFeature(_ context.Context, id string) (*roadmap.Feature, error) {
+	for i := range m.features {
+		if m.features[i].ID == id {
+			return &m.features[i], nil
+		}
+	}
 	return nil, errNotFound
 }
-func (m *mockStore) FindFeatureBySpecRef(_ context.Context, _, _ string) (*roadmap.Feature, error) {
+
+func (m *mockStore) FindFeatureBySpecRef(_ context.Context, milestoneID, specRef string) (*roadmap.Feature, error) {
+	for i := range m.features {
+		if m.features[i].MilestoneID == milestoneID && m.features[i].SpecRef == specRef {
+			return &m.features[i], nil
+		}
+	}
 	return nil, errNotFound
 }
-func (m *mockStore) ListFeatures(_ context.Context, _ string) ([]roadmap.Feature, error) {
-	return nil, nil
+
+func (m *mockStore) ListFeatures(_ context.Context, milestoneID string) ([]roadmap.Feature, error) {
+	var result []roadmap.Feature
+	for i := range m.features {
+		if m.features[i].MilestoneID == milestoneID {
+			result = append(result, m.features[i])
+		}
+	}
+	return result, nil
 }
-func (m *mockStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([]roadmap.Feature, error) {
-	return nil, nil
+
+func (m *mockStore) ListFeaturesByRoadmap(_ context.Context, roadmapID string) ([]roadmap.Feature, error) {
+	var result []roadmap.Feature
+	for i := range m.features {
+		if m.features[i].RoadmapID == roadmapID {
+			result = append(result, m.features[i])
+		}
+	}
+	return result, nil
 }
-func (m *mockStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
-func (m *mockStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
+
+func (m *mockStore) UpdateFeature(_ context.Context, f *roadmap.Feature) error {
+	for i := range m.features {
+		if m.features[i].ID == f.ID {
+			f.UpdatedAt = time.Now().UTC()
+			m.features[i] = *f
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) DeleteFeature(_ context.Context, id string) error {
+	for i := range m.features {
+		if m.features[i].ID == id {
+			m.features = append(m.features[:i], m.features[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
 
 // Tenant stubs
 func (m *mockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {
@@ -739,18 +901,24 @@ func (m *mockStore) DeleteVCSAccount(_ context.Context, _ string) error {
 }
 
 // Conversation stubs
-func (m *mockStore) CreateConversation(_ context.Context, _ *conversation.Conversation) (*conversation.Conversation, error) {
-	return nil, nil
+func (m *mockStore) CreateConversation(_ context.Context, c *conversation.Conversation) (*conversation.Conversation, error) {
+	if c.ID == "" {
+		c.ID = fmt.Sprintf("conv-%d", time.Now().UnixNano())
+	}
+	return c, nil
 }
-func (m *mockStore) GetConversation(_ context.Context, _ string) (*conversation.Conversation, error) {
-	return nil, nil
+func (m *mockStore) GetConversation(_ context.Context, id string) (*conversation.Conversation, error) {
+	return &conversation.Conversation{ID: id, ProjectID: "test-proj"}, nil
 }
 func (m *mockStore) ListConversationsByProject(_ context.Context, _ string) ([]conversation.Conversation, error) {
 	return nil, nil
 }
 func (m *mockStore) DeleteConversation(_ context.Context, _ string) error { return nil }
-func (m *mockStore) CreateMessage(_ context.Context, _ *conversation.Message) (*conversation.Message, error) {
-	return nil, nil
+func (m *mockStore) CreateMessage(_ context.Context, msg *conversation.Message) (*conversation.Message, error) {
+	if msg.ID == "" {
+		msg.ID = fmt.Sprintf("msg-%d", time.Now().UnixNano())
+	}
+	return msg, nil
 }
 func (m *mockStore) CreateToolMessages(_ context.Context, _ string, _ []conversation.Message) error {
 	return nil
@@ -821,23 +989,107 @@ func (m *mockStore) ListMemories(_ context.Context, _ string) ([]memory.Memory, 
 	return nil, nil
 }
 
-// Microagent stubs
-func (m *mockStore) CreateMicroagent(_ context.Context, _ *microagent.Microagent) error { return nil }
-func (m *mockStore) GetMicroagent(_ context.Context, _ string) (*microagent.Microagent, error) {
-	return nil, nil
-}
-func (m *mockStore) ListMicroagents(_ context.Context, _ string) ([]microagent.Microagent, error) {
-	return nil, nil
-}
-func (m *mockStore) UpdateMicroagent(_ context.Context, _ *microagent.Microagent) error { return nil }
-func (m *mockStore) DeleteMicroagent(_ context.Context, _ string) error                 { return nil }
+// --- Microagent methods ---
 
-// Skill stubs
-func (m *mockStore) CreateSkill(_ context.Context, _ *skill.Skill) error           { return nil }
-func (m *mockStore) GetSkill(_ context.Context, _ string) (*skill.Skill, error)    { return nil, nil }
-func (m *mockStore) ListSkills(_ context.Context, _ string) ([]skill.Skill, error) { return nil, nil }
-func (m *mockStore) UpdateSkill(_ context.Context, _ *skill.Skill) error           { return nil }
-func (m *mockStore) DeleteSkill(_ context.Context, _ string) error                 { return nil }
+func (m *mockStore) CreateMicroagent(_ context.Context, ma *microagent.Microagent) error {
+	if ma.ID == "" {
+		ma.ID = fmt.Sprintf("microagent-%d", len(m.microagents)+1)
+	}
+	ma.CreatedAt = time.Now().UTC()
+	ma.UpdatedAt = ma.CreatedAt
+	m.microagents = append(m.microagents, *ma)
+	return nil
+}
+
+func (m *mockStore) GetMicroagent(_ context.Context, id string) (*microagent.Microagent, error) {
+	for i := range m.microagents {
+		if m.microagents[i].ID == id {
+			return &m.microagents[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) ListMicroagents(_ context.Context, projectID string) ([]microagent.Microagent, error) {
+	var result []microagent.Microagent
+	for i := range m.microagents {
+		if m.microagents[i].ProjectID == projectID || m.microagents[i].ProjectID == "" {
+			result = append(result, m.microagents[i])
+		}
+	}
+	return result, nil
+}
+
+func (m *mockStore) UpdateMicroagent(_ context.Context, ma *microagent.Microagent) error {
+	for i := range m.microagents {
+		if m.microagents[i].ID == ma.ID {
+			ma.UpdatedAt = time.Now().UTC()
+			m.microagents[i] = *ma
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) DeleteMicroagent(_ context.Context, id string) error {
+	for i := range m.microagents {
+		if m.microagents[i].ID == id {
+			m.microagents = append(m.microagents[:i], m.microagents[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+// --- Skill methods ---
+
+func (m *mockStore) CreateSkill(_ context.Context, sk *skill.Skill) error {
+	if sk.ID == "" {
+		sk.ID = fmt.Sprintf("skill-%d", len(m.skills)+1)
+	}
+	sk.CreatedAt = time.Now().UTC()
+	m.skills = append(m.skills, *sk)
+	return nil
+}
+
+func (m *mockStore) GetSkill(_ context.Context, id string) (*skill.Skill, error) {
+	for i := range m.skills {
+		if m.skills[i].ID == id {
+			return &m.skills[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) ListSkills(_ context.Context, projectID string) ([]skill.Skill, error) {
+	var result []skill.Skill
+	for i := range m.skills {
+		if m.skills[i].ProjectID == projectID || m.skills[i].ProjectID == "" {
+			result = append(result, m.skills[i])
+		}
+	}
+	return result, nil
+}
+
+func (m *mockStore) UpdateSkill(_ context.Context, sk *skill.Skill) error {
+	for i := range m.skills {
+		if m.skills[i].ID == sk.ID {
+			m.skills[i] = *sk
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) DeleteSkill(_ context.Context, id string) error {
+	for i := range m.skills {
+		if m.skills[i].ID == id {
+			m.skills = append(m.skills[:i], m.skills[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
 
 // Feedback Audit stubs
 func (m *mockStore) CreateFeedbackAudit(_ context.Context, _ *feedback.AuditEntry) error {
@@ -847,17 +1099,49 @@ func (m *mockStore) ListFeedbackByRun(_ context.Context, _ string) ([]feedback.A
 	return nil, nil
 }
 
-// Auto-Agent stubs
-func (m *mockStore) UpsertAutoAgent(_ context.Context, _ *autoagent.AutoAgent) error { return nil }
-func (m *mockStore) GetAutoAgent(_ context.Context, _ string) (*autoagent.AutoAgent, error) {
-	return nil, nil
-}
-func (m *mockStore) UpdateAutoAgentStatus(_ context.Context, _ string, _ autoagent.Status, _ string) error {
+// --- Auto-Agent methods ---
+
+func (m *mockStore) UpsertAutoAgent(_ context.Context, aa *autoagent.AutoAgent) error {
+	for i := range m.autoAgents {
+		if m.autoAgents[i].ProjectID == aa.ProjectID {
+			m.autoAgents[i] = *aa
+			return nil
+		}
+	}
+	m.autoAgents = append(m.autoAgents, *aa)
 	return nil
 }
-func (m *mockStore) UpdateAutoAgentProgress(_ context.Context, _ *autoagent.AutoAgent) error {
+
+func (m *mockStore) GetAutoAgent(_ context.Context, projectID string) (*autoagent.AutoAgent, error) {
+	for i := range m.autoAgents {
+		if m.autoAgents[i].ProjectID == projectID {
+			return &m.autoAgents[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) UpdateAutoAgentStatus(_ context.Context, projectID string, status autoagent.Status, errMsg string) error {
+	for i := range m.autoAgents {
+		if m.autoAgents[i].ProjectID == projectID {
+			m.autoAgents[i].Status = status
+			m.autoAgents[i].Error = errMsg
+			return nil
+		}
+	}
 	return nil
 }
+
+func (m *mockStore) UpdateAutoAgentProgress(_ context.Context, aa *autoagent.AutoAgent) error {
+	for i := range m.autoAgents {
+		if m.autoAgents[i].ProjectID == aa.ProjectID {
+			m.autoAgents[i] = *aa
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *mockStore) DeleteAutoAgent(_ context.Context, _ string) error { return nil }
 
 // mockQueue implements messagequeue.Queue for testing.
@@ -949,6 +1233,13 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
+	filesSvc := service.NewFileService(store)
+	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
+	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
+	microagentSvc := service.NewMicroagentService(store)
+	skillSvc := service.NewSkillService(store)
+	memorySvc := service.NewMemoryService(store, queue)
+	experiencePoolSvc := service.NewExperiencePoolService(store)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
@@ -972,6 +1263,13 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		VCSAccounts:      vcsAccountSvc,
 		Conversations:    conversationSvc,
 		Auth:             authSvc,
+		Files:            filesSvc,
+		Roadmap:          roadmapSvc,
+		AutoAgent:        autoAgentSvc,
+		Microagents:      microagentSvc,
+		Skills:           skillSvc,
+		Memory:           memorySvc,
+		ExperiencePool:   experiencePoolSvc,
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,

@@ -3,7 +3,10 @@
 // and with what limits (steps, cost, time).
 package policy
 
-import "github.com/Strob0t/CodeForge/internal/domain/resource"
+import (
+	"github.com/Strob0t/CodeForge/internal/domain/resource"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
+)
 
 // Decision is the result of evaluating a ToolCall against a PolicyProfile.
 type Decision string
@@ -39,6 +42,7 @@ type PermissionRule struct {
 	PathDeny     []string      `json:"path_deny,omitempty" yaml:"path_deny,omitempty"`
 	CommandAllow []string      `json:"command_allow,omitempty" yaml:"command_allow,omitempty"`
 	CommandDeny  []string      `json:"command_deny,omitempty" yaml:"command_deny,omitempty"`
+	TrustMinimum trust.Level   `json:"trust_minimum,omitempty" yaml:"trust_minimum,omitempty"`
 }
 
 // QualityGate defines the "Definition of Done" for a task.

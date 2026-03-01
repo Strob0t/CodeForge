@@ -3,6 +3,8 @@ package policy
 import (
 	"fmt"
 	"path/filepath"
+
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
 
 // Scope defines at which level a policy was resolved.
@@ -25,9 +27,28 @@ type EvaluationResult struct {
 	Reason      string   `json:"reason"`       // explanation of why this decision was made
 }
 
+// evalContext holds optional evaluation parameters.
+type evalContext struct {
+	trust *trust.Annotation
+}
+
+// EvalOption configures optional parameters for Evaluate.
+type EvalOption func(*evalContext)
+
+// WithTrust attaches a trust annotation to the evaluation context.
+func WithTrust(t *trust.Annotation) EvalOption {
+	return func(c *evalContext) { c.trust = t }
+}
+
 // Evaluate checks a ToolCall against the profile's rules using first-match-wins.
 // If no rule matches, the default decision is "deny" (deny-by-default).
-func (p *PolicyProfile) Evaluate(call ToolCall) EvaluationResult {
+// Optional EvalOption parameters extend evaluation (e.g., WithTrust for trust filtering).
+func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationResult {
+	var ctx evalContext
+	for _, o := range opts {
+		o(&ctx)
+	}
+
 	for i := range p.Rules {
 		rule := &p.Rules[i]
 		if !matchTool(rule.Specifier.Tool, call.Tool) {
@@ -35,6 +56,12 @@ func (p *PolicyProfile) Evaluate(call ToolCall) EvaluationResult {
 		}
 		if rule.Specifier.SubPattern != "" && call.Command != "" {
 			if !matchTool(rule.Specifier.SubPattern, call.Command) {
+				continue
+			}
+		}
+		// If rule requires a minimum trust level, check the annotation.
+		if rule.TrustMinimum != "" && ctx.trust != nil {
+			if !ctx.trust.MeetsMinimum(rule.TrustMinimum) {
 				continue
 			}
 		}

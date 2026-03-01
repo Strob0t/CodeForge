@@ -3,6 +3,8 @@ package policy
 import (
 	"strings"
 	"testing"
+
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
 
 func TestPolicyProfileValidateValid(t *testing.T) {
@@ -419,5 +421,77 @@ func TestEvaluateProfileNameInResult(t *testing.T) {
 	}
 	if result.Scope != ScopeProject {
 		t.Errorf("expected scope %q, got %q", ScopeProject, result.Scope)
+	}
+}
+
+// --- Trust-aware evaluation tests (Phase 23A) ---
+
+func TestEvaluateTrustMinimumDenied(t *testing.T) {
+	p := PolicyProfile{
+		Name: "trust-test",
+		Mode: ModeDefault,
+		Rules: []PermissionRule{
+			{
+				Specifier:    ToolSpecifier{Tool: "Bash"},
+				Decision:     DecisionAllow,
+				TrustMinimum: trust.LevelVerified,
+			},
+		},
+	}
+
+	ann := &trust.Annotation{TrustLevel: trust.LevelUntrusted, Origin: "a2a"}
+	result := p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(ann))
+	if result.Decision != DecisionDeny {
+		t.Errorf("expected deny (untrusted < verified), got %q", result.Decision)
+	}
+	if result.RuleIndex != -1 {
+		t.Errorf("expected no rule match, got index %d", result.RuleIndex)
+	}
+}
+
+func TestEvaluateTrustMinimumAllowed(t *testing.T) {
+	p := PolicyProfile{
+		Name: "trust-test",
+		Mode: ModeDefault,
+		Rules: []PermissionRule{
+			{
+				Specifier:    ToolSpecifier{Tool: "Bash"},
+				Decision:     DecisionAllow,
+				TrustMinimum: trust.LevelVerified,
+			},
+		},
+	}
+
+	ann := &trust.Annotation{TrustLevel: trust.LevelVerified, Origin: "a2a"}
+	result := p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(ann))
+	if result.Decision != DecisionAllow {
+		t.Errorf("expected allow (verified >= verified), got %q", result.Decision)
+	}
+	if result.RuleIndex != 0 {
+		t.Errorf("expected rule index 0, got %d", result.RuleIndex)
+	}
+}
+
+func TestEvaluateNoTrustAnnotationBackwardsCompatible(t *testing.T) {
+	p := PolicyProfile{
+		Name: "trust-test",
+		Mode: ModeDefault,
+		Rules: []PermissionRule{
+			{
+				Specifier:    ToolSpecifier{Tool: "Bash"},
+				Decision:     DecisionAllow,
+				TrustMinimum: trust.LevelVerified,
+			},
+		},
+	}
+
+	// No WithTrust option — rule with TrustMinimum should still match
+	// because we only filter when both rule.TrustMinimum and ctx.trust are set.
+	result := p.Evaluate(ToolCall{Tool: "Bash"})
+	if result.Decision != DecisionAllow {
+		t.Errorf("expected allow (no annotation = no filtering), got %q", result.Decision)
+	}
+	if result.RuleIndex != 0 {
+		t.Errorf("expected rule index 0, got %d", result.RuleIndex)
 	}
 }
