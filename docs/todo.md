@@ -1665,36 +1665,31 @@ Bug Fixes --- independent, anytime
 ### Stub Audit Fixes (2026-02-26)
 
 > Audit of stubs, incomplete wiring, and documentation inaccuracies discovered
-> during a systematic codebase review.
+> during a systematic codebase review. All items remediated — see "Stub Audit Remediation" below.
 
 #### WP1: BenchmarkRunner — broken LLM call + empty tool tracking
 
-- [ ] Fix `BenchmarkRunner._run_task()` — uses nonexistent `completion()` instead of `chat_completion()`
-- [ ] Wire `tool_calls` from LLM response into `BenchmarkTaskResult.tool_calls`
+- [x] (2026-02-26) Fix `BenchmarkRunner._run_task()` — `chat()` → `chat_completion()`, wire tool_calls
 
 #### WP2: Wire SyncService.pushToPM — bidirectional sync
 
-- [ ] Implement `pushToPM()` in `internal/service/sync.go` — currently a stub returning nil
-- [ ] Wire push direction so bidirectional sync actually writes to PM providers
+- [x] (2026-02-26) Implement `pushToPM()` — `provider.CreateItem()`/`UpdateItem()`, save external IDs
 
 #### WP3: Render BenchmarkCompare results UI
 
-- [ ] `BenchmarkCompare.tsx` — render compare API results instead of raw JSON
+- [x] (2026-02-26) `BenchmarkCompare.tsx` — `CompareResultsTable` with side-by-side metric comparison
 
 #### WP4: Wire PMWebhookService to trigger sync
 
-- [ ] `PMWebhookService.Handle()` parses webhook events but does not call `SyncService`
+- [x] (2026-02-26) `PMWebhookService.Handle()` — `triggerPullSync()` calls `SyncService.Sync()` async
 
 #### WP5: Frontend type safety (WebSocket, Settings, ConfirmDialog)
 
-- [ ] Fix `websocket.ts` type mismatches (AGUIEvent handler signatures)
-- [ ] Fix `SettingsPage.tsx` — `api.settings.get()` returns single object, not array
-- [ ] Fix `ConfirmDialog.tsx` — use design system `Modal` instead of raw `div`
+- [x] (2026-02-26) Typed `AGUIEventMap` on WebSocket, `AppSettings` interface, `ConfirmDialog` via Modal
 
 #### WP6: Tracing module cleanup
 
-- [ ] Remove unused `_tracer` global and `@_tracer.trace_*` decorators referencing nonexistent module-level tracer
-- [ ] Clean up stale tracing instrumentation in executor, agent_loop, mcp_workbench
+- [x] (2026-02-26) `TracerProtocol` replacing `Any`, remove dead `_NOOP`, split exception handlers
 
 #### WP7: Documentation corrections
 
