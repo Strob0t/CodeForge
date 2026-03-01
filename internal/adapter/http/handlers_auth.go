@@ -282,3 +282,188 @@ func (h *Handlers) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// SetupStatus handles GET /api/v1/auth/setup-status (public)
+func (h *Handlers) SetupStatus(w http.ResponseWriter, r *http.Request) {
+	tenantID := middleware.TenantIDFromContext(r.Context())
+	status, err := h.Auth.GetSetupStatus(r.Context(), tenantID)
+	if err != nil {
+		slog.Error("setup status check failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+// initialSetupRequest is the request body for POST /api/v1/auth/setup.
+type initialSetupRequest struct {
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Password string `json:"password"` //nolint:gosec // not a hardcoded credential
+}
+
+// InitialSetup handles POST /api/v1/auth/setup (public, one-time only)
+func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
+	tenantID := middleware.TenantIDFromContext(r.Context())
+
+	// Check if setup is still needed.
+	status, err := h.Auth.GetSetupStatus(r.Context(), tenantID)
+	if err != nil {
+		slog.Error("setup status check failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if !status.NeedsSetup {
+		writeError(w, http.StatusConflict, "system is already initialized")
+		return
+	}
+
+	req, ok := readJSON[initialSetupRequest](w, r)
+	if !ok {
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+
+	// Create admin user.
+	_, err = h.Auth.Register(r.Context(), &user.CreateRequest{
+		Email:    req.Email,
+		Name:     req.Name,
+		Password: req.Password,
+		Role:     user.RoleAdmin,
+		TenantID: tenantID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Auto-login with the new credentials.
+	loginResp, rawRefresh, err := h.Auth.Login(r.Context(), user.LoginRequest{
+		Email:    req.Email,
+		Password: req.Password,
+	}, tenantID)
+	if err != nil {
+		slog.Error("auto-login after setup failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "admin created but auto-login failed")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    rawRefresh,
+		Path:     "/api/v1/auth",
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(7 * 24 * time.Hour / time.Second),
+	})
+
+	writeJSON(w, http.StatusCreated, loginResp)
+}
+
+// forgotPasswordRequest is the request body for POST /api/v1/auth/forgot-password.
+type forgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+// RequestPasswordReset handles POST /api/v1/auth/forgot-password (public)
+// Always returns 200 regardless of whether the email exists to prevent enumeration.
+func (h *Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	req, ok := readJSON[forgotPasswordRequest](w, r)
+	if !ok {
+		return
+	}
+
+	tenantID := middleware.TenantIDFromContext(r.Context())
+	token, err := h.Auth.RequestPasswordReset(r.Context(), req.Email, tenantID)
+	if err != nil {
+		slog.Error("password reset request failed", "error", err)
+	}
+
+	// Log token for development; in production an email would be sent.
+	if token != "" {
+		slog.Info("password reset token generated (send via email in production)",
+			"email", req.Email, "token", token)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": "if an account with that email exists, a reset link has been sent",
+	})
+}
+
+// resetPasswordRequest is the request body for POST /api/v1/auth/reset-password.
+type resetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+// ConfirmPasswordReset handles POST /api/v1/auth/reset-password (public)
+func (h *Handlers) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	req, ok := readJSON[resetPasswordRequest](w, r)
+	if !ok {
+		return
+	}
+
+	if req.Token == "" || req.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "token and new_password are required")
+		return
+	}
+
+	if err := h.Auth.ConfirmPasswordReset(r.Context(), req.Token, req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+// forcePasswordChangeRequest is the request body for POST /api/v1/users/{id}/force-password-change.
+type forcePasswordChangeRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
+// AdminForcePasswordChange handles POST /api/v1/users/{id}/force-password-change (admin only)
+func (h *Handlers) AdminForcePasswordChange(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	req, ok := readJSON[forcePasswordChangeRequest](w, r)
+	if !ok {
+		return
+	}
+
+	if req.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "new_password is required")
+		return
+	}
+
+	// Get the user to find their email, then use AdminResetPassword.
+	tenantID := middleware.TenantIDFromContext(r.Context())
+	users, err := h.Auth.ListUsers(r.Context(), tenantID)
+	if err != nil {
+		slog.Error("list users failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	var targetEmail string
+	for i := range users {
+		if users[i].ID == id {
+			targetEmail = users[i].Email
+			break
+		}
+	}
+	if targetEmail == "" {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	if err := h.Auth.AdminResetPassword(r.Context(), targetEmail, tenantID, req.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_changed"})
+}

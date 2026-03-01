@@ -7,7 +7,10 @@ import { render } from "solid-js/web";
 import App from "./App.tsx";
 import ActivityPage from "./features/activity/ActivityPage.tsx";
 import ChangePasswordPage from "./features/auth/ChangePasswordPage.tsx";
+import ForgotPasswordPage from "./features/auth/ForgotPasswordPage.tsx";
 import LoginPage from "./features/auth/LoginPage.tsx";
+import ResetPasswordPage from "./features/auth/ResetPasswordPage.tsx";
+import SetupPage from "./features/auth/SetupPage.tsx";
 import BenchmarkPage from "./features/benchmarks/BenchmarkPage.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
@@ -33,6 +36,9 @@ render(
     <Router root={App}>
       <Route path="/login" component={LoginPage} />
       <Route path="/change-password" component={ChangePasswordPage} />
+      <Route path="/setup" component={SetupPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/" component={DashboardPage} />
       <Route path="/projects" component={DashboardPage} />
       <Route path="/projects/:id" component={ProjectDetailPage} />

@@ -1101,6 +1101,30 @@ export interface CreateAPIKeyResponse {
   plain_key: string;
 }
 
+/** Response from GET /api/v1/auth/setup-status */
+export interface SetupStatusResponse {
+  needs_setup: boolean;
+  setup_timeout_minutes: number;
+}
+
+/** Request body for POST /api/v1/auth/setup */
+export interface InitialSetupRequest {
+  email: string;
+  name: string;
+  password: string;
+}
+
+/** Request body for POST /api/v1/auth/forgot-password */
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+/** Request body for POST /api/v1/auth/reset-password */
+export interface ResetPasswordRequest {
+  token: string;
+  new_password: string;
+}
+
 /** Error response from API */
 export interface ApiError {
   error: string;

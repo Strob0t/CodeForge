@@ -106,3 +106,52 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// --- Password Reset Tokens ---
+
+func (s *Store) CreatePasswordResetToken(ctx context.Context, token *user.PasswordResetToken) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		token.ID, token.UserID, token.TokenHash, token.ExpiresAt, token.Used, token.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create password reset token: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetPasswordResetTokenByHash(ctx context.Context, tokenHash string) (*user.PasswordResetToken, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, user_id, token_hash, expires_at, used, created_at
+		FROM password_reset_tokens WHERE token_hash = $1`, tokenHash)
+
+	var t user.PasswordResetToken
+	err := row.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.Used, &t.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get password reset token: %w", domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get password reset token: %w", err)
+	}
+	return &t, nil
+}
+
+func (s *Store) MarkPasswordResetTokenUsed(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE password_reset_tokens SET used = true WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("mark password reset token used: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("mark password reset token %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) DeleteExpiredPasswordResetTokens(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM password_reset_tokens WHERE expires_at < now() OR used = true`)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired password reset tokens: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

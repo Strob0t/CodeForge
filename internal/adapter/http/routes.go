@@ -281,6 +281,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Auth (public routes handled by middleware exemption)
 		r.Post("/auth/login", h.Login)
 		r.Post("/auth/refresh", h.Refresh)
+		r.Get("/auth/setup-status", h.SetupStatus)
+		r.Post("/auth/setup", h.InitialSetup)
+		r.Post("/auth/forgot-password", h.RequestPasswordReset)
+		r.Post("/auth/reset-password", h.ConfirmPasswordReset)
 
 		// Auth (authenticated)
 		r.Post("/auth/logout", h.Logout)
@@ -338,6 +342,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Post("/", h.CreateUserHandler)
 			r.Put("/{id}", h.UpdateUserHandler)
 			r.Delete("/{id}", h.DeleteUserHandler)
+			r.Post("/{id}/force-password-change", h.AdminForcePasswordChange)
 		})
 
 		// Prompt Sections

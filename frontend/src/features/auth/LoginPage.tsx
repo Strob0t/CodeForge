@@ -75,6 +75,13 @@ export default function LoginPage(): JSX.Element {
               {loading() ? t("auth.loggingIn") : t("auth.login")}
             </Button>
           </form>
+
+          <a
+            href="/forgot-password"
+            class="mt-4 block text-center text-sm text-cf-text-muted hover:text-cf-text-secondary"
+          >
+            {t("auth.forgotPassword")}
+          </a>
         </Card.Body>
       </Card>
     </div>

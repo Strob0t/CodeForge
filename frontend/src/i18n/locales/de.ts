@@ -718,6 +718,48 @@ const de: Translations = {
   "auth.cp.mismatch": "Passw\u00f6rter stimmen nicht \u00fcberein.",
   "auth.cp.failed": "Passwort\u00e4nderung fehlgeschlagen.",
 
+  // -- Setup-Assistent -------------------------------------------------------
+  "auth.setup.title": "Willkommen bei CodeForge",
+  "auth.setup.description": "Erstellen Sie Ihr Admin-Konto, um loszulegen.",
+  "auth.setup.email": "Admin-E-Mail",
+  "auth.setup.emailPlaceholder": "admin@localhost",
+  "auth.setup.name": "Anzeigename",
+  "auth.setup.namePlaceholder": "Admin",
+  "auth.setup.password": "Passwort",
+  "auth.setup.confirmPassword": "Passwort best\u00e4tigen",
+  "auth.setup.submit": "Konto erstellen",
+  "auth.setup.creating": "Erstelle...",
+  "auth.setup.mismatch": "Passw\u00f6rter stimmen nicht \u00fcberein.",
+  "auth.setup.failed": "Einrichtung fehlgeschlagen.",
+  "auth.setup.timeout": "Einrichtung l\u00e4uft ab in {{minutes}}m {{seconds}}s",
+  "auth.setup.expired":
+    "Der Einrichtungszeitraum ist abgelaufen. Starten Sie den Server neu, um es erneut zu versuchen.",
+
+  // -- Passwort vergessen ----------------------------------------------------
+  "auth.forgotPassword": "Passwort vergessen?",
+  "auth.forgot.title": "Passwort zur\u00fccksetzen",
+  "auth.forgot.description":
+    "Geben Sie Ihre E-Mail-Adresse ein und wir senden Ihnen Anweisungen zum Zur\u00fccksetzen Ihres Passworts.",
+  "auth.forgot.email": "E-Mail",
+  "auth.forgot.emailPlaceholder": "ihre@email.com",
+  "auth.forgot.submit": "Link senden",
+  "auth.forgot.sending": "Sende...",
+  "auth.forgot.success":
+    "Falls ein Konto mit dieser E-Mail existiert, erhalten Sie Anweisungen zum Zur\u00fccksetzen des Passworts.",
+  "auth.forgot.backToLogin": "Zur\u00fcck zur Anmeldung",
+
+  // -- Passwort zur\u00fccksetzen ------------------------------------------------
+  "auth.reset.title": "Neues Passwort festlegen",
+  "auth.reset.description": "Geben Sie unten Ihr neues Passwort ein.",
+  "auth.reset.password": "Neues Passwort",
+  "auth.reset.confirmPassword": "Neues Passwort best\u00e4tigen",
+  "auth.reset.submit": "Passwort zur\u00fccksetzen",
+  "auth.reset.resetting": "Setze zur\u00fcck...",
+  "auth.reset.mismatch": "Passw\u00f6rter stimmen nicht \u00fcberein.",
+  "auth.reset.failed": "Passwort zur\u00fccksetzen fehlgeschlagen.",
+  "auth.reset.invalidToken": "Ung\u00fcltiger oder abgelaufener Token.",
+  "auth.reset.success": "Passwort erfolgreich zur\u00fcckgesetzt. Bitte melden Sie sich an.",
+
   // -- Trajectory -----------------------------------------------------------
   "trajectory.title": "Event-Trajektorie",
   "trajectory.exportJson": "JSON exportieren",

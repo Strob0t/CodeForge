@@ -710,6 +710,47 @@ const en = {
   "auth.cp.mismatch": "Passwords do not match.",
   "auth.cp.failed": "Password change failed.",
 
+  // -- Setup wizard ----------------------------------------------------------
+  "auth.setup.title": "Welcome to CodeForge",
+  "auth.setup.description": "Create your admin account to get started.",
+  "auth.setup.email": "Admin Email",
+  "auth.setup.emailPlaceholder": "admin@localhost",
+  "auth.setup.name": "Display Name",
+  "auth.setup.namePlaceholder": "Admin",
+  "auth.setup.password": "Password",
+  "auth.setup.confirmPassword": "Confirm Password",
+  "auth.setup.submit": "Create Account",
+  "auth.setup.creating": "Creating...",
+  "auth.setup.mismatch": "Passwords do not match.",
+  "auth.setup.failed": "Setup failed.",
+  "auth.setup.timeout": "Setup expires in {{minutes}}m {{seconds}}s",
+  "auth.setup.expired": "Setup period has expired. Restart the server to try again.",
+
+  // -- Forgot password -------------------------------------------------------
+  "auth.forgotPassword": "Forgot password?",
+  "auth.forgot.title": "Reset Password",
+  "auth.forgot.description":
+    "Enter your email address and we'll send you instructions to reset your password.",
+  "auth.forgot.email": "Email",
+  "auth.forgot.emailPlaceholder": "your@email.com",
+  "auth.forgot.submit": "Send Reset Link",
+  "auth.forgot.sending": "Sending...",
+  "auth.forgot.success":
+    "If an account exists with that email, you will receive password reset instructions.",
+  "auth.forgot.backToLogin": "Back to sign in",
+
+  // -- Reset password --------------------------------------------------------
+  "auth.reset.title": "Set New Password",
+  "auth.reset.description": "Enter your new password below.",
+  "auth.reset.password": "New Password",
+  "auth.reset.confirmPassword": "Confirm New Password",
+  "auth.reset.submit": "Reset Password",
+  "auth.reset.resetting": "Resetting...",
+  "auth.reset.mismatch": "Passwords do not match.",
+  "auth.reset.failed": "Password reset failed.",
+  "auth.reset.invalidToken": "Invalid or expired reset token.",
+  "auth.reset.success": "Password reset successfully. Please sign in.",
+
   // -- Trajectory -----------------------------------------------------------
   "trajectory.title": "Event Trajectory",
   "trajectory.exportJson": "Export JSON",

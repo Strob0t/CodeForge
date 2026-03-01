@@ -491,6 +491,18 @@ func (m *mockStore) RotateRefreshToken(_ context.Context, _ string, _ *user.Refr
 	return nil
 }
 
+// Password Reset Token stubs
+func (m *mockStore) CreatePasswordResetToken(_ context.Context, _ *user.PasswordResetToken) error {
+	return nil
+}
+func (m *mockStore) GetPasswordResetTokenByHash(_ context.Context, _ string) (*user.PasswordResetToken, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) MarkPasswordResetTokenUsed(_ context.Context, _ string) error { return nil }
+func (m *mockStore) DeleteExpiredPasswordResetTokens(_ context.Context) (int64, error) {
+	return 0, nil
+}
+
 // Retrieval Scope stubs
 func (m *mockStore) CreateScope(_ context.Context, _ cfcontext.CreateScopeRequest) (*cfcontext.RetrievalScope, error) {
 	return nil, nil

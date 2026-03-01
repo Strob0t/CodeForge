@@ -22,10 +22,14 @@ type apiKeyCtxKey struct{}
 
 // publicPaths are exempt from authentication.
 var publicPaths = map[string]bool{
-	"/health":              true,
-	"/health/ready":        true,
-	"/api/v1/auth/login":   true,
-	"/api/v1/auth/refresh": true,
+	"/health":                      true,
+	"/health/ready":                true,
+	"/api/v1/auth/login":           true,
+	"/api/v1/auth/refresh":         true,
+	"/api/v1/auth/setup-status":    true,
+	"/api/v1/auth/setup":           true,
+	"/api/v1/auth/forgot-password": true,
+	"/api/v1/auth/reset-password":  true,
 }
 
 // publicPrefixes are path prefixes exempt from authentication.

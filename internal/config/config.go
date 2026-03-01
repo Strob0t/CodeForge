@@ -119,13 +119,16 @@ type Agent struct {
 
 // Auth holds authentication and authorization configuration.
 type Auth struct {
-	Enabled            bool          `yaml:"enabled"`              // Enable auth (default: false)
-	JWTSecret          string        `yaml:"jwt_secret" json:"-"`  // HMAC-SHA256 signing key
-	AccessTokenExpiry  time.Duration `yaml:"access_token_expiry"`  // Access token lifetime (default: 15m)
-	RefreshTokenExpiry time.Duration `yaml:"refresh_token_expiry"` // Refresh token lifetime (default: 168h / 7d)
-	BcryptCost         int           `yaml:"bcrypt_cost"`          // Bcrypt work factor (default: 12)
-	DefaultAdminEmail  string        `yaml:"default_admin_email"`  // Seed admin email (default: admin@localhost)
-	DefaultAdminPass   string        `yaml:"default_admin_pass"`   // Seed admin password (default: changeme123)
+	Enabled                     bool          `yaml:"enabled"`                        // Enable auth (default: false)
+	JWTSecret                   string        `yaml:"jwt_secret" json:"-"`            // HMAC-SHA256 signing key
+	AccessTokenExpiry           time.Duration `yaml:"access_token_expiry"`            // Access token lifetime (default: 15m)
+	RefreshTokenExpiry          time.Duration `yaml:"refresh_token_expiry"`           // Refresh token lifetime (default: 168h / 7d)
+	BcryptCost                  int           `yaml:"bcrypt_cost"`                    // Bcrypt work factor (default: 12)
+	DefaultAdminEmail           string        `yaml:"default_admin_email"`            // Seed admin email (default: admin@localhost)
+	DefaultAdminPass            string        `yaml:"default_admin_pass"`             // Seed admin password (default: empty)
+	AutoGenerateInitialPassword bool          `yaml:"auto_generate_initial_password"` // Generate random password to file (GitLab-style)
+	InitialPasswordFile         string        `yaml:"initial_password_file"`          // Path for generated password (default: data/initial_admin_password)
+	SetupTimeoutMinutes         int           `yaml:"setup_timeout_minutes"`          // Setup wizard timeout in minutes (default: 5)
 }
 
 // Webhook holds VCS/PM webhook verification configuration.
@@ -473,13 +476,15 @@ func Defaults() Config {
 			AutoStart:       true,
 		},
 		Auth: Auth{
-			Enabled:            false,
-			JWTSecret:          "",
-			AccessTokenExpiry:  15 * time.Minute,
-			RefreshTokenExpiry: 7 * 24 * time.Hour,
-			BcryptCost:         12,
-			DefaultAdminEmail:  "admin@localhost",
-			DefaultAdminPass:   "Changeme123",
+			Enabled:             false,
+			JWTSecret:           "",
+			AccessTokenExpiry:   15 * time.Minute,
+			RefreshTokenExpiry:  7 * 24 * time.Hour,
+			BcryptCost:          12,
+			DefaultAdminEmail:   "admin@localhost",
+			DefaultAdminPass:    "",
+			InitialPasswordFile: "data/initial_admin_password",
+			SetupTimeoutMinutes: 5,
 		},
 		Agent: Agent{
 			DefaultModel:       "",

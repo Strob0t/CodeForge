@@ -165,6 +165,12 @@ type Store interface {
 	DeleteRefreshToken(ctx context.Context, id string) error
 	DeleteRefreshTokensByUser(ctx context.Context, userID string) error
 
+	// Password Reset Tokens
+	CreatePasswordResetToken(ctx context.Context, token *user.PasswordResetToken) error
+	GetPasswordResetTokenByHash(ctx context.Context, tokenHash string) (*user.PasswordResetToken, error)
+	MarkPasswordResetTokenUsed(ctx context.Context, id string) error
+	DeleteExpiredPasswordResetTokens(ctx context.Context) (int64, error)
+
 	// API Keys
 	CreateAPIKey(ctx context.Context, key *user.APIKey) error
 	GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIKey, error)

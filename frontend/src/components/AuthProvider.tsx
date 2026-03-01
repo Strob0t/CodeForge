@@ -12,6 +12,8 @@ interface AuthContextValue {
   initializing: () => boolean;
   /** True when the backend requires a password change before any other action. */
   mustChangePassword: () => boolean;
+  /** True when the backend has no users yet and needs initial setup. */
+  needsSetup: () => boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Change password and re-login to get a fresh token without the mcp flag. */
@@ -26,6 +28,7 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
   const [user, setUser] = createSignal<User | null>(null);
   const [accessToken, setAccessToken] = createSignal<string | null>(null);
   const [initializing, setInitializing] = createSignal(true);
+  const [needsSetup, setNeedsSetup] = createSignal(false);
 
   // Wire up token getter for API client — createEffect tracks the signal
   // and re-registers the getter whenever the token changes.
@@ -98,6 +101,18 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
 
   // Try to restore session via refresh cookie on mount.
   onMount(async () => {
+    try {
+      const setupStatus = await api.auth.setupStatus();
+      if (setupStatus.needs_setup) {
+        setNeedsSetup(true);
+        navigate("/setup", { replace: true });
+        setInitializing(false);
+        return;
+      }
+    } catch {
+      // Setup status endpoint unavailable — proceed with normal auth flow.
+    }
+
     await refreshTokens();
     setInitializing(false);
   });
@@ -107,6 +122,7 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
     isAuthenticated,
     initializing,
     mustChangePassword,
+    needsSetup,
     login,
     logout,
     changePassword,

@@ -30,12 +30,14 @@ import type {
   DetectionResult,
   EvaluationResult,
   ExecutionPlan,
+  ForgotPasswordRequest,
   GitStatus,
   GraphSearchRequest,
   GraphSearchResult,
   GraphStatus,
   HealthStatus,
   ImportResult,
+  InitialSetupRequest,
   LLMModel,
   LoginRequest,
   LoginResponse,
@@ -60,6 +62,7 @@ import type {
   ProviderInfo,
   ProviderList,
   RepoMap,
+  ResetPasswordRequest,
   RetrievalIndexStatus,
   RetrievalSearchResult,
   ReviewDecision,
@@ -67,6 +70,7 @@ import type {
   RoadmapFeature,
   Run,
   SearchRequest,
+  SetupStatusResponse,
   SharedContext,
   SharedContextItem,
   StartRunRequest,
@@ -695,6 +699,26 @@ export const api = {
 
     changePassword: (data: import("./types").ChangePasswordRequest) =>
       request<{ status: string }>("/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    setupStatus: () => request<SetupStatusResponse>("/auth/setup-status"),
+
+    setup: (data: InitialSetupRequest) =>
+      request<LoginResponse>("/auth/setup", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    forgotPassword: (data: ForgotPasswordRequest) =>
+      request<{ status: string }>("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    resetPassword: (data: ResetPasswordRequest) =>
+      request<{ status: string }>("/auth/reset-password", {
         method: "POST",
         body: JSON.stringify(data),
       }),

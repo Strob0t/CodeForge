@@ -54,6 +54,15 @@ func main() {
 	// Temporary bootstrap logger until config is loaded.
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	// Dispatch admin subcommands before starting the server.
+	if len(os.Args) > 1 && os.Args[1] == "admin" {
+		if err := runAdmin(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "admin: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := run(); err != nil {
 		// The async log handler is already closed (via defer in run()),
 		// so we must write to stderr directly.
@@ -485,8 +494,15 @@ func run() error {
 	// --- Auth Service (Phase 10C) ---
 	authSvc := service.NewAuthService(store, &cfg.Auth)
 	if cfg.Auth.Enabled {
-		if err := authSvc.SeedDefaultAdmin(context.Background(), middleware.DefaultTenantID); err != nil {
-			slog.Warn("failed to seed default admin", "error", err)
+		if err := authSvc.BootstrapAdmin(context.Background(), middleware.DefaultTenantID); err != nil {
+			slog.Warn("failed to bootstrap admin", "error", err)
+		}
+		// Warn if initial password file still exists (should be changed on first login)
+		if cfg.Auth.InitialPasswordFile != "" {
+			if _, err := os.Stat(cfg.Auth.InitialPasswordFile); err == nil { //nolint:gosec // path from trusted config
+				slog.Warn("initial admin password file exists — change the password and delete this file",
+					"file", cfg.Auth.InitialPasswordFile)
+			}
 		}
 		// Start background cleanup of expired revoked tokens (P1-6)
 		authSvc.StartTokenCleanup(ctx, 15*time.Minute)

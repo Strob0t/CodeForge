@@ -158,7 +158,11 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const location = useLocation();
 
   const isLoginPage = (): boolean =>
-    location.pathname === "/login" || location.pathname === "/change-password";
+    location.pathname === "/login" ||
+    location.pathname === "/change-password" ||
+    location.pathname === "/setup" ||
+    location.pathname === "/forgot-password" ||
+    location.pathname === "/reset-password";
 
   return (
     <ToastProvider>
