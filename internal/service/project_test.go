@@ -51,6 +51,11 @@ type mockStore struct {
 	refreshTokens []user.RefreshToken
 	apiKeys       []user.APIKey
 
+	// Auth-related fields for token revocation and password reset flows.
+	revokedTokens       map[string]time.Time // jti -> expiresAt
+	passwordResetTokens []user.PasswordResetToken
+	isTokenRevokedErr   error // injectable error for fail-closed test
+
 	// Error hooks — set these to inject failures.
 	listProjectsErr  error
 	getProjectErr    error
@@ -539,21 +544,63 @@ func (m *mockStore) DeleteAPIKey(_ context.Context, id, _ string) error {
 	return domain.ErrNotFound
 }
 
-func (m *mockStore) RevokeToken(_ context.Context, _ string, _ time.Time) error { return nil }
-func (m *mockStore) IsTokenRevoked(_ context.Context, _ string) (bool, error)   { return false, nil }
-func (m *mockStore) PurgeExpiredTokens(_ context.Context) (int64, error)        { return 0, nil }
-func (m *mockStore) RotateRefreshToken(_ context.Context, _ string, _ *user.RefreshToken) error {
+func (m *mockStore) RevokeToken(_ context.Context, jti string, expiresAt time.Time) error {
+	if m.revokedTokens == nil {
+		m.revokedTokens = make(map[string]time.Time)
+	}
+	m.revokedTokens[jti] = expiresAt
 	return nil
 }
 
-// Password Reset Token stubs
-func (m *mockStore) CreatePasswordResetToken(_ context.Context, _ *user.PasswordResetToken) error {
+func (m *mockStore) IsTokenRevoked(_ context.Context, jti string) (bool, error) {
+	if m.isTokenRevokedErr != nil {
+		return false, m.isTokenRevokedErr
+	}
+	if m.revokedTokens == nil {
+		return false, nil
+	}
+	_, revoked := m.revokedTokens[jti]
+	return revoked, nil
+}
+
+func (m *mockStore) PurgeExpiredTokens(_ context.Context) (int64, error) { return 0, nil }
+
+func (m *mockStore) RotateRefreshToken(_ context.Context, oldHash string, newRT *user.RefreshToken) error {
+	for i := range m.refreshTokens {
+		if m.refreshTokens[i].TokenHash == oldHash {
+			m.refreshTokens = append(m.refreshTokens[:i], m.refreshTokens[i+1:]...)
+			break
+		}
+	}
+	m.refreshTokens = append(m.refreshTokens, *newRT)
 	return nil
 }
-func (m *mockStore) GetPasswordResetTokenByHash(_ context.Context, _ string) (*user.PasswordResetToken, error) {
+
+// Password Reset Token methods
+func (m *mockStore) CreatePasswordResetToken(_ context.Context, prt *user.PasswordResetToken) error {
+	m.passwordResetTokens = append(m.passwordResetTokens, *prt)
+	return nil
+}
+
+func (m *mockStore) GetPasswordResetTokenByHash(_ context.Context, hash string) (*user.PasswordResetToken, error) {
+	for i := range m.passwordResetTokens {
+		if m.passwordResetTokens[i].TokenHash == hash {
+			return &m.passwordResetTokens[i], nil
+		}
+	}
 	return nil, domain.ErrNotFound
 }
-func (m *mockStore) MarkPasswordResetTokenUsed(_ context.Context, _ string) error { return nil }
+
+func (m *mockStore) MarkPasswordResetTokenUsed(_ context.Context, id string) error {
+	for i := range m.passwordResetTokens {
+		if m.passwordResetTokens[i].ID == id {
+			m.passwordResetTokens[i].Used = true
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
 func (m *mockStore) DeleteExpiredPasswordResetTokens(_ context.Context) (int64, error) {
 	return 0, nil
 }
