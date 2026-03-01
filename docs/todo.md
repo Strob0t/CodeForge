@@ -1879,36 +1879,58 @@ Names like `TestCreateItem`, `TestRegister`, `TestProviderName`, `TestSendSucces
 
 ---
 
-#### P0 — Auth Handler Tests (security-critical, 10 tests)
+#### P0 — Auth Handler Tests (security-critical, 23 tests) — DONE (2026-03-01)
 
 > **File:** `internal/adapter/http/handlers_auth_test.go` (new)
-> **Why:** 18 auth handler functions with zero HTTP-layer tests. Auth is the most security-critical untested code path.
-> **Pattern:** Follow existing `handlers_test.go` httptest + mock store pattern.
+> **Upgrade:** `handlers_test.go` mockStore upgraded with working auth methods, AuthService + PipelineService wired in `newTestRouter`.
 
-- [ ] `TestHandleLogin_Success` — HTTP 200, returns access + refresh tokens for valid credentials
-- [ ] `TestHandleLogin_InvalidCredentials` — HTTP 401 for wrong password
-- [ ] `TestHandleLogin_AccountLocked` — HTTP 423 for locked account (5 failed attempts)
-- [ ] `TestHandleRegister_Success` — HTTP 201 for valid registration with all required fields
-- [ ] `TestHandleRegister_DuplicateEmail` — HTTP 409 for duplicate email (unique constraint)
-- [ ] `TestHandleChangePassword_Success` — HTTP 200 with valid old + new password
-- [ ] `TestHandleRefreshToken_Success` — HTTP 200, returns new token pair, old refresh invalidated
-- [ ] `TestHandleRefreshToken_Expired` — HTTP 401 for expired refresh token
-- [ ] `TestHandleSetupStatus` — HTTP 200, returns correct `needsSetup` flag (true when no users, false otherwise)
-- [ ] `TestHandleLogout` — HTTP 200, token revoked, refresh tokens cleared
+- [x] (2026-03-01) `TestHandleLogin_Success` — HTTP 200, returns access + refresh tokens for valid credentials
+- [x] (2026-03-01) `TestHandleLogin_InvalidCredentials` — HTTP 401 for wrong password
+- [x] (2026-03-01) `TestHandleLogin_BadBody` — HTTP 400 for malformed JSON
+- [x] (2026-03-01) `TestHandleRefresh_Success` — HTTP 200, new token pair from valid refresh cookie
+- [x] (2026-03-01) `TestHandleRefresh_NoCookie` — HTTP 401 without refresh cookie
+- [x] (2026-03-01) `TestHandleSetupStatus_NeedsSetup` — HTTP 200, needs_setup=true (empty DB)
+- [x] (2026-03-01) `TestHandleSetupStatus_AlreadySetup` — HTTP 200, needs_setup=false (user exists)
+- [x] (2026-03-01) `TestHandleInitialSetup_Success` — HTTP 201, admin user created, tokens returned
+- [x] (2026-03-01) `TestHandleInitialSetup_AlreadyDone` — HTTP 409 when user already exists
+- [x] (2026-03-01) `TestHandleRequestPasswordReset` — HTTP 200 always (enumeration prevention)
+- [x] (2026-03-01) `TestHandleConfirmPasswordReset` — HTTP 400 for invalid token
+- [x] (2026-03-01) `TestHandleGetCurrentUser` — HTTP 200, user JSON from context
+- [x] (2026-03-01) `TestHandleGetCurrentUser_NoAuth` — HTTP 401 without user context
+- [x] (2026-03-01) `TestHandleLogout` — HTTP 200, token revoked, refresh cookie cleared
+- [x] (2026-03-01) `TestHandleChangePassword` — HTTP 200 with valid old + new password
+- [x] (2026-03-01) `TestHandleCreateAPIKey` — HTTP 201, key with cfk_ prefix
+- [x] (2026-03-01) `TestHandleListAPIKeys_Empty` — HTTP 200, empty list
+- [x] (2026-03-01) `TestHandleDeleteAPIKey` — HTTP 204
+- [x] (2026-03-01) `TestHandleListUsers` — HTTP 200 with admin context
+- [x] (2026-03-01) `TestHandleCreateUser` — HTTP 201 with admin context
+- [x] (2026-03-01) `TestHandleUpdateUser` — HTTP 200 with admin context
+- [x] (2026-03-01) `TestHandleDeleteUser` — HTTP 204 with admin context
+- [x] (2026-03-01) `TestHandleAdminForcePasswordChange` — HTTP 200 with admin context
 
-#### P0 — Orchestration Handler Tests (core feature, 8 tests)
+#### P0 — Orchestration Handler Tests (core feature, 18 tests) — DONE (2026-03-01)
 
 > **File:** `internal/adapter/http/handlers_orchestration_test.go` (new)
-> **Why:** 21 orchestration handler functions with zero tests. Run lifecycle is core agent functionality.
+> **Coverage:** Plans, Modes, Pipelines, Context Pack, EvaluateStep (nil ReviewRouter guard)
 
-- [ ] `TestHandleStartRun_Success` — HTTP 202, run created in DB, NATS message dispatched
-- [ ] `TestHandleStartRun_InvalidBody` — HTTP 400 for malformed/missing fields
-- [ ] `TestHandleGetRunStatus` — HTTP 200, returns correct run state (pending/running/completed/failed)
-- [ ] `TestHandleGetRunStatus_NotFound` — HTTP 404 for non-existent run ID
-- [ ] `TestHandleCancelRun_Success` — HTTP 200, run status set to cancelled, cancellation propagated
-- [ ] `TestHandleCancelRun_NotFound` — HTTP 404 for non-existent run ID
-- [ ] `TestHandleListRuns` — HTTP 200, returns paginated list filtered by project
-- [ ] `TestHandleApproveToolCall` — HTTP 200, pending tool call approved, execution resumes
+- [x] (2026-03-01) `TestHandleCreatePlan` — HTTP 201, plan created with steps
+- [x] (2026-03-01) `TestHandleListPlans_Empty` — HTTP 200, empty array
+- [x] (2026-03-01) `TestHandleGetPlan_NotFound` — HTTP 404 for unknown plan ID
+- [x] (2026-03-01) `TestHandleStartPlan_NotFound` — HTTP 400 for unknown plan ID
+- [x] (2026-03-01) `TestHandleCancelPlan_NotFound` — HTTP 400 for unknown plan ID
+- [x] (2026-03-01) `TestHandleGetPlanGraph_NotFound` — HTTP 404 for unknown plan ID
+- [x] (2026-03-01) `TestHandleEvaluateStep_NoReviewRouter` — HTTP 503 when ReviewRouter is nil
+- [x] (2026-03-01) `TestHandleListModes` — HTTP 200, built-in modes returned
+- [x] (2026-03-01) `TestHandleGetMode_NotFound` — HTTP 404 for unknown mode
+- [x] (2026-03-01) `TestHandleCreateMode` — HTTP 201, custom mode registered
+- [x] (2026-03-01) `TestHandleUpdateMode` — HTTP 200, mode updated
+- [x] (2026-03-01) `TestHandleDeleteMode` — HTTP 204, mode removed
+- [x] (2026-03-01) `TestHandleListScenarios` — HTTP 200, scenario list returned
+- [x] (2026-03-01) `TestHandleListPipelines_Empty` — HTTP 200, pipeline templates returned
+- [x] (2026-03-01) `TestHandleGetPipeline_NotFound` — HTTP 404 for unknown pipeline
+- [x] (2026-03-01) `TestHandleRegisterPipeline` — HTTP 201, custom pipeline registered
+- [x] (2026-03-01) `TestHandleGetContextPack_NotFound` — HTTP 404 for unknown task
+- [x] (2026-03-01) `TestHandleBuildContextPack_MissingProjectID` — HTTP 400 without project_id
 
 #### P1 — New Feature Tests: Auto-Agent (6 tests)
 

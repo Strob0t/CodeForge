@@ -53,10 +53,15 @@ import (
 
 // mockStore implements database.Store for testing.
 type mockStore struct {
-	projects []project.Project
-	agents   []agent.Agent
-	tasks    []task.Task
-	runs     []run.Run
+	projects            []project.Project
+	agents              []agent.Agent
+	tasks               []task.Task
+	runs                []run.Run
+	users               []user.User
+	refreshTokens       []user.RefreshToken
+	apiKeys             []user.APIKey
+	revokedTokens       map[string]time.Time
+	passwordResetTokens []user.PasswordResetToken
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -463,49 +468,202 @@ func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.Sessi
 	return nil
 }
 
-// User stubs
-func (m *mockStore) CreateUser(_ context.Context, _ *user.User) error        { return nil }
-func (m *mockStore) GetUser(_ context.Context, _ string) (*user.User, error) { return nil, errNotFound }
-func (m *mockStore) GetUserByEmail(_ context.Context, _, _ string) (*user.User, error) {
-	return nil, errNotFound
-}
-func (m *mockStore) ListUsers(_ context.Context, _ string) ([]user.User, error) { return nil, nil }
-func (m *mockStore) UpdateUser(_ context.Context, _ *user.User) error           { return nil }
-func (m *mockStore) DeleteUser(_ context.Context, _ string) error               { return nil }
+// --- User methods ---
 
-// RefreshToken stubs
-func (m *mockStore) CreateRefreshToken(_ context.Context, _ *user.RefreshToken) error { return nil }
-func (m *mockStore) GetRefreshTokenByHash(_ context.Context, _ string) (*user.RefreshToken, error) {
-	return nil, errNotFound
-}
-func (m *mockStore) DeleteRefreshToken(_ context.Context, _ string) error        { return nil }
-func (m *mockStore) DeleteRefreshTokensByUser(_ context.Context, _ string) error { return nil }
-
-// APIKey stubs
-func (m *mockStore) CreateAPIKey(_ context.Context, _ *user.APIKey) error { return nil }
-func (m *mockStore) GetAPIKeyByHash(_ context.Context, _ string) (*user.APIKey, error) {
-	return nil, errNotFound
-}
-func (m *mockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKey, error) {
-	return nil, nil
-}
-func (m *mockStore) DeleteAPIKey(_ context.Context, _, _ string) error { return nil }
-
-func (m *mockStore) RevokeToken(_ context.Context, _ string, _ time.Time) error { return nil }
-func (m *mockStore) IsTokenRevoked(_ context.Context, _ string) (bool, error)   { return false, nil }
-func (m *mockStore) PurgeExpiredTokens(_ context.Context) (int64, error)        { return 0, nil }
-func (m *mockStore) RotateRefreshToken(_ context.Context, _ string, _ *user.RefreshToken) error {
+func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
+	if u.ID == "" {
+		u.ID = fmt.Sprintf("user-%d", len(m.users)+1)
+	}
+	now := time.Now().UTC()
+	u.CreatedAt = now
+	u.UpdatedAt = now
+	m.users = append(m.users, *u)
 	return nil
 }
 
-// Password Reset Token stubs
-func (m *mockStore) CreatePasswordResetToken(_ context.Context, _ *user.PasswordResetToken) error {
+func (m *mockStore) GetUser(_ context.Context, id string) (*user.User, error) {
+	for i := range m.users {
+		if m.users[i].ID == id {
+			return &m.users[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) GetUserByEmail(_ context.Context, email, tenantID string) (*user.User, error) {
+	for i := range m.users {
+		if m.users[i].Email == email && (tenantID == "" || m.users[i].TenantID == tenantID) {
+			return &m.users[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) ListUsers(_ context.Context, tenantID string) ([]user.User, error) {
+	if tenantID == "" {
+		return m.users, nil
+	}
+	var result []user.User
+	for i := range m.users {
+		if m.users[i].TenantID == tenantID {
+			result = append(result, m.users[i])
+		}
+	}
+	return result, nil
+}
+
+func (m *mockStore) UpdateUser(_ context.Context, u *user.User) error {
+	for i := range m.users {
+		if m.users[i].ID == u.ID {
+			u.UpdatedAt = time.Now().UTC()
+			m.users[i] = *u
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) DeleteUser(_ context.Context, id string) error {
+	for i := range m.users {
+		if m.users[i].ID == id {
+			m.users = append(m.users[:i], m.users[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+// --- RefreshToken methods ---
+
+func (m *mockStore) CreateRefreshToken(_ context.Context, rt *user.RefreshToken) error {
+	m.refreshTokens = append(m.refreshTokens, *rt)
 	return nil
 }
-func (m *mockStore) GetPasswordResetTokenByHash(_ context.Context, _ string) (*user.PasswordResetToken, error) {
+
+func (m *mockStore) GetRefreshTokenByHash(_ context.Context, hash string) (*user.RefreshToken, error) {
+	for i := range m.refreshTokens {
+		if m.refreshTokens[i].TokenHash == hash {
+			return &m.refreshTokens[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) DeleteRefreshToken(_ context.Context, id string) error {
+	for i := range m.refreshTokens {
+		if m.refreshTokens[i].ID == id {
+			m.refreshTokens = append(m.refreshTokens[:i], m.refreshTokens[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *mockStore) DeleteRefreshTokensByUser(_ context.Context, userID string) error {
+	filtered := m.refreshTokens[:0]
+	for _, rt := range m.refreshTokens {
+		if rt.UserID != userID {
+			filtered = append(filtered, rt)
+		}
+	}
+	m.refreshTokens = filtered
+	return nil
+}
+
+func (m *mockStore) RotateRefreshToken(_ context.Context, oldHash string, newRT *user.RefreshToken) error {
+	for i := range m.refreshTokens {
+		if m.refreshTokens[i].TokenHash == oldHash {
+			m.refreshTokens = append(m.refreshTokens[:i], m.refreshTokens[i+1:]...)
+			break
+		}
+	}
+	m.refreshTokens = append(m.refreshTokens, *newRT)
+	return nil
+}
+
+// --- Token revocation ---
+
+func (m *mockStore) RevokeToken(_ context.Context, jti string, expiresAt time.Time) error {
+	if m.revokedTokens == nil {
+		m.revokedTokens = make(map[string]time.Time)
+	}
+	m.revokedTokens[jti] = expiresAt
+	return nil
+}
+
+func (m *mockStore) IsTokenRevoked(_ context.Context, jti string) (bool, error) {
+	if m.revokedTokens == nil {
+		return false, nil
+	}
+	_, ok := m.revokedTokens[jti]
+	return ok, nil
+}
+
+func (m *mockStore) PurgeExpiredTokens(_ context.Context) (int64, error) { return 0, nil }
+
+// --- APIKey methods ---
+
+func (m *mockStore) CreateAPIKey(_ context.Context, key *user.APIKey) error {
+	key.CreatedAt = time.Now().UTC()
+	m.apiKeys = append(m.apiKeys, *key)
+	return nil
+}
+
+func (m *mockStore) GetAPIKeyByHash(_ context.Context, hash string) (*user.APIKey, error) {
+	for i := range m.apiKeys {
+		if m.apiKeys[i].KeyHash == hash {
+			return &m.apiKeys[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) ListAPIKeysByUser(_ context.Context, userID string) ([]user.APIKey, error) {
+	var result []user.APIKey
+	for i := range m.apiKeys {
+		if m.apiKeys[i].UserID == userID {
+			result = append(result, m.apiKeys[i])
+		}
+	}
+	return result, nil
+}
+
+func (m *mockStore) DeleteAPIKey(_ context.Context, id, userID string) error {
+	for i := range m.apiKeys {
+		if m.apiKeys[i].ID == id && m.apiKeys[i].UserID == userID {
+			m.apiKeys = append(m.apiKeys[:i], m.apiKeys[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+// --- Password Reset Token methods ---
+
+func (m *mockStore) CreatePasswordResetToken(_ context.Context, prt *user.PasswordResetToken) error {
+	m.passwordResetTokens = append(m.passwordResetTokens, *prt)
+	return nil
+}
+
+func (m *mockStore) GetPasswordResetTokenByHash(_ context.Context, hash string) (*user.PasswordResetToken, error) {
+	for i := range m.passwordResetTokens {
+		if m.passwordResetTokens[i].TokenHash == hash {
+			return &m.passwordResetTokens[i], nil
+		}
+	}
 	return nil, domain.ErrNotFound
 }
-func (m *mockStore) MarkPasswordResetTokenUsed(_ context.Context, _ string) error { return nil }
+
+func (m *mockStore) MarkPasswordResetTokenUsed(_ context.Context, id string) error {
+	for i := range m.passwordResetTokens {
+		if m.passwordResetTokens[i].ID == id {
+			m.passwordResetTokens[i].Used = true
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *mockStore) DeleteExpiredPasswordResetTokens(_ context.Context) (int64, error) {
 	return 0, nil
 }
@@ -755,7 +913,10 @@ func (m *mockEventStore) LoadAudit(_ context.Context, _ *event.AuditFilter, _ st
 var errNotFound = fmt.Errorf("mock: %w", domain.ErrNotFound)
 
 func newTestRouter() chi.Router {
-	store := &mockStore{}
+	return newTestRouterWithStore(&mockStore{})
+}
+
+func newTestRouterWithStore(store *mockStore) chi.Router {
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
 	es := &mockEventStore{}
@@ -773,12 +934,21 @@ func newTestRouter() chi.Router {
 	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
+	pipelineSvc := service.NewPipelineService(modeSvc)
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
 	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg, &config.Limits{})
 	costSvc := service.NewCostService(store)
 	settingsSvc := service.NewSettingsService(store)
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
 	conversationSvc := service.NewConversationService(store, litellm.NewClient("http://localhost:4000", "test-key"), bc, "", nil)
+	authCfg := &config.Auth{
+		Enabled:            true,
+		JWTSecret:          "test-secret-key-32bytes-handler!",
+		AccessTokenExpiry:  15 * time.Minute,
+		RefreshTokenExpiry: 7 * 24 * time.Hour,
+		BcryptCost:         4,
+	}
+	authSvc := service.NewAuthService(store, authCfg)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
@@ -793,6 +963,7 @@ func newTestRouter() chi.Router {
 		ContextOptimizer: contextOptSvc,
 		SharedContext:    sharedCtxSvc,
 		Modes:            modeSvc,
+		Pipelines:        pipelineSvc,
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
 		Events:           es,
@@ -800,6 +971,7 @@ func newTestRouter() chi.Router {
 		Settings:         settingsSvc,
 		VCSAccounts:      vcsAccountSvc,
 		Conversations:    conversationSvc,
+		Auth:             authSvc,
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
