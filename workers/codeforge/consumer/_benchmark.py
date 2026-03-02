@@ -1,162 +1,179 @@
-"""Benchmark and GEMMAS evaluation handler mixins."""
+"""NATS consumer handler for benchmark evaluation runs.
+
+Routes benchmark requests to the appropriate runner based on benchmark_type:
+- simple  → SimpleBenchmarkRunner (prompt → LLM → compare output)
+- tool_use → ToolUseBenchmarkRunner (prompt + tools → LLM → output + tool calls)
+- agent   → (Phase 26D — falls back to simple with warning)
+"""
 
 from __future__ import annotations
 
+import json
+import time
+import traceback
 from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.consumer._subjects import (
-    HEADER_REQUEST_ID,
-    SUBJECT_BENCHMARK_RUN_RESULT,
-    SUBJECT_EVAL_GEMMAS_RESULT,
-)
-from codeforge.models import GemmasEvalRequest, GemmasEvalResult
+from codeforge.evaluation.evaluators.functional_test import FunctionalTestEvaluator
+from codeforge.evaluation.evaluators.llm_judge import LLMJudgeEvaluator
+from codeforge.evaluation.evaluators.sparc import SPARCEvaluator
+from codeforge.evaluation.pipeline import EvaluationPipeline
+from codeforge.evaluation.runners.simple import RunResult, SimpleBenchmarkRunner
+from codeforge.evaluation.runners.tool_use import ToolUseBenchmarkRunner
+from codeforge.models import BenchmarkRunRequest, BenchmarkRunResult, BenchmarkTaskResult
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from codeforge.evaluation.evaluators.base import Evaluator
+    from codeforge.llm import LiteLLMClient
 
-    import nats.aio.msg
-
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 
-class BenchmarkHandlerMixin:
-    """Handles benchmark.run.request and evaluation.gemmas.request messages."""
+async def handle_benchmark_run(
+    msg_data: bytes,
+    llm: LiteLLMClient,
+) -> None:
+    """Handle an incoming benchmark run request from NATS."""
+    raw = json.loads(msg_data)
+    req = BenchmarkRunRequest(**raw)
+    log = logger.bind(run_id=req.run_id, benchmark_type=req.benchmark_type)
+    log.info("benchmark run started")
 
-    async def _handle_benchmark_run(self, msg: nats.aio.msg.Msg) -> None:
-        """Handle a benchmark run request (dev-mode only)."""
-        import os
-        import time
+    start = time.monotonic()
+    try:
+        benchmark_type = req.benchmark_type or "simple"
+        evaluators = _build_evaluators(req.evaluators, req.model)
+        pipeline = EvaluationPipeline(evaluators)
 
-        from codeforge.evaluation.datasets import load_dataset
-        from codeforge.evaluation.litellm_judge import LiteLLMJudge
-        from codeforge.evaluation.runner import BenchmarkRunner
-        from codeforge.models import BenchmarkRunRequest, BenchmarkRunResult, BenchmarkTaskResult
+        if benchmark_type == "tool_use":
+            results = await _run_tool_use_benchmark(req, llm, pipeline)
+        elif benchmark_type == "agent":
+            log.warning("agent benchmark not yet implemented, falling back to simple")
+            results = await _run_simple_benchmark(req, llm, pipeline)
+        else:
+            results = await _run_simple_benchmark(req, llm, pipeline)
 
-        if os.getenv("APP_ENV") != "development":
-            logger.warning("benchmark run ignored (not in dev mode)")
-            await msg.ack()
-            return
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        summary = _compute_summary(results, elapsed_ms)
 
-        request_id = (msg.headers or {}).get(HEADER_REQUEST_ID, "")
-        log = logger.bind(request_id=request_id)
+        run_result = BenchmarkRunResult(
+            run_id=req.run_id,
+            status="completed",
+            results=results,
+            summary=summary,
+        )
+        log.info(
+            "benchmark run completed",
+            task_count=len(results),
+            elapsed_ms=elapsed_ms,
+            avg_score=summary.get("avg_score", 0),
+        )
+    except Exception:
+        log.error("benchmark run failed", exc=traceback.format_exc())
+        run_result = BenchmarkRunResult(
+            run_id=req.run_id,
+            status="failed",
+            results=[],
+            summary={"error": traceback.format_exc()},
+        )
 
-        try:
-            req = BenchmarkRunRequest.model_validate_json(msg.data)
-            log = log.bind(run_id=req.run_id, dataset=req.dataset_path, model=req.model)
-            log.info("benchmark run started")
+    return run_result
 
-            start = time.monotonic()
-            dataset = load_dataset(req.dataset_path)
 
-            judge = LiteLLMJudge(model=req.model, base_url=self._litellm_url + "/v1")
-            runner = BenchmarkRunner(llm=self._llm, model=req.model, metrics=req.metrics, judge=judge)
+async def _run_simple_benchmark(
+    req: BenchmarkRunRequest,
+    llm: LiteLLMClient,
+    pipeline: EvaluationPipeline,
+) -> list[BenchmarkTaskResult]:
+    """Run a simple prompt -> LLM -> compare benchmark."""
+    from codeforge.evaluation.datasets import load_dataset
 
-            task_results = await runner.run(dataset)
-            total_ms = int((time.monotonic() - start) * 1000)
+    runner = SimpleBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
+    tasks = load_dataset(req.dataset_path)
+    run_results: list[RunResult] = await runner.run_tasks(tasks)
+    return [_convert_result(r) for r in run_results]
 
-            summary: dict[str, float] = {}
-            for metric in req.metrics:
-                values = [tr.scores.get(metric, 0.0) for tr in task_results]
-                summary[metric] = sum(values) / len(values) if values else 0.0
 
-            result = BenchmarkRunResult(
-                run_id=req.run_id,
-                status="completed",
-                tasks=[
-                    BenchmarkTaskResult(
-                        task_id=tr.task_id,
-                        task_name=tr.task_name,
-                        scores=tr.scores,
-                        actual_output=tr.actual_output,
-                        expected_output=tr.expected_output,
-                        duration_ms=tr.duration_ms,
-                        cost_usd=tr.cost_usd,
-                        tokens_in=tr.tokens_in,
-                        tokens_out=tr.tokens_out,
-                    )
-                    for tr in task_results
-                ],
-                summary_scores=summary,
-                total_duration_ms=total_ms,
-            )
+async def _run_tool_use_benchmark(
+    req: BenchmarkRunRequest,
+    llm: LiteLLMClient,
+    pipeline: EvaluationPipeline,
+) -> list[BenchmarkTaskResult]:
+    """Run a tool-use benchmark with tools in task metadata."""
+    from codeforge.evaluation.datasets import load_dataset
 
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_BENCHMARK_RUN_RESULT,
-                    result.model_dump_json().encode(),
-                )
+    runner = ToolUseBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
+    tasks = load_dataset(req.dataset_path)
+    run_results: list[RunResult] = await runner.run_tasks(tasks)
+    return [_convert_result(r) for r in run_results]
 
-            await msg.ack()
-            log.info("benchmark run completed", summary=summary, duration_ms=total_ms)
 
-        except Exception:
-            log.exception("benchmark run failed")
-            if self._js is not None:
-                error_result = BenchmarkRunResult(
-                    run_id=req.run_id if "req" in dir() else "",
-                    status="failed",
-                    error=str(log),
-                )
-                await self._js.publish(
-                    SUBJECT_BENCHMARK_RUN_RESULT,
-                    error_result.model_dump_json().encode(),
-                )
-            await msg.ack()
+def _convert_result(r: RunResult) -> BenchmarkTaskResult:
+    """Convert internal RunResult to the NATS-serializable BenchmarkTaskResult."""
+    scores: dict[str, float] = {}
+    evaluator_scores: dict[str, dict[str, float]] = {}
+    if r.eval_score:
+        for dim in r.eval_score.dimensions:
+            scores[dim.name] = dim.score
+            parts = dim.name.split(".", 1)
+            if len(parts) == 2:
+                evaluator_scores.setdefault(parts[0], {})[parts[1]] = dim.score
+            else:
+                evaluator_scores.setdefault("default", {})[dim.name] = dim.score
 
-    async def _handle_gemmas_eval(self, msg: nats.aio.msg.Msg) -> None:
-        """Process a GEMMAS evaluation request: compute IDS + UPR and publish result."""
-        from codeforge.evaluation.executor import handle_gemmas_evaluation
+    return BenchmarkTaskResult(
+        task_id=r.task.id,
+        task_name=r.task.name,
+        scores=scores,
+        actual_output=r.execution.actual_output,
+        expected_output=r.task.expected_output,
+        tool_calls=[{"name": tc.name, "args": tc.args} for tc in r.execution.tool_calls],
+        cost_usd=r.execution.cost_usd,
+        tokens_in=r.execution.tokens_in,
+        tokens_out=r.execution.tokens_out,
+        duration_ms=r.execution.duration_ms,
+        evaluator_scores=evaluator_scores,
+        files_changed=r.execution.files_changed,
+        functional_test_output=r.execution.test_output,
+    )
 
-        try:
-            request = GemmasEvalRequest.model_validate_json(msg.data)
-            log = logger.bind(plan_id=request.plan_id)
-            log.info("received GEMMAS evaluation request", messages=len(request.messages))
 
-            embed_fn = self._build_embed_fn()
-            result_dict = await handle_gemmas_evaluation(
-                messages=request.messages,
-                plan_id=request.plan_id,
-                embed_fn=embed_fn,
-            )
+def _build_evaluators(evaluator_names: list[str], model: str) -> list[Evaluator]:
+    """Create evaluator instances from a list of evaluator names."""
+    evaluators: list[Evaluator] = []
+    for name in evaluator_names:
+        if name == "llm_judge":
+            evaluators.append(LLMJudgeEvaluator(model=model))
+        elif name == "functional_test":
+            evaluators.append(FunctionalTestEvaluator())
+        elif name == "sparc":
+            evaluators.append(SPARCEvaluator())
+        else:
+            logger.warning("unknown evaluator, skipping", evaluator=name)
 
-            result = GemmasEvalResult(**result_dict)
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_EVAL_GEMMAS_RESULT,
-                    result.model_dump_json().encode(),
-                )
+    if not evaluators:
+        evaluators.append(LLMJudgeEvaluator(model=model))
 
-            await msg.ack()
-            log.info(
-                "GEMMAS evaluation completed",
-                ids=result.information_diversity_score,
-                upr=result.unnecessary_path_ratio,
-            )
+    return evaluators
 
-        except Exception:
-            logger.exception("failed to process GEMMAS evaluation request")
-            await msg.ack()
 
-    def _build_embed_fn(self) -> Callable[[list[str]], list[list[float]]] | None:
-        """Build a sync embedding function using LiteLLM's /v1/embeddings endpoint."""
-        import httpx
+def _compute_summary(results: list[BenchmarkTaskResult], elapsed_ms: int) -> dict[str, object]:
+    """Compute summary statistics for a benchmark run."""
+    if not results:
+        return {"task_count": 0, "elapsed_ms": elapsed_ms}
 
-        url = self._litellm_url.rstrip("/") + "/v1/embeddings"
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._litellm_key:
-            headers["Authorization"] = f"Bearer {self._litellm_key}"
+    all_scores = [s for r in results for s in r.scores.values()]
+    avg_score = sum(all_scores) / len(all_scores) if all_scores else 0.0
+    total_cost = sum(r.cost_usd for r in results)
+    total_tokens_in = sum(r.tokens_in for r in results)
+    total_tokens_out = sum(r.tokens_out for r in results)
 
-        def embed(texts: list[str]) -> list[list[float]]:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(
-                    url,
-                    json={"input": texts, "model": "text-embedding-3-small"},
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return [item["embedding"] for item in data["data"]]
-
-        return embed
+    return {
+        "task_count": len(results),
+        "avg_score": round(avg_score, 4),
+        "total_cost_usd": round(total_cost, 6),
+        "total_tokens_in": total_tokens_in,
+        "total_tokens_out": total_tokens_out,
+        "elapsed_ms": elapsed_ms,
+    }
