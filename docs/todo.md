@@ -2175,34 +2175,34 @@ Remaining `handlers.go` coverage:
 
 **Domain model:**
 
-- [ ] Create `internal/domain/trust/trust.go` — `Level` type (`full`/`verified`/`partial`/`untrusted`), `Annotation` struct (Origin, TrustLevel, SourceID, Signature, Timestamp), helper `IsInternal() bool`
+- [x] (2026-03-01) Create `internal/domain/trust/trust.go` — `Level` type (`full`/`verified`/`partial`/`untrusted`), `Annotation` struct (Origin, TrustLevel, SourceID, Signature, Timestamp), helper `IsInternal() bool`
 
 **NATS payload integration (Go):**
 
-- [ ] Extend `internal/port/messagequeue/schemas.go` — add `Trust *trust.Annotation` field to `RunStartPayload`, `ToolCallRequestPayload`, `ConversationRunStartPayload`
-- [ ] Extend `internal/domain/orchestration/handoff.go` — add `Trust *trust.Annotation` field to `HandoffMessage`
-- [ ] Extend `internal/port/a2a/types.go` — add `Trust *trust.Annotation` field to `TaskRequest`
+- [x] (2026-03-01) Extend `internal/port/messagequeue/schemas.go` — add `Trust *trust.Annotation` field to `RunStartPayload`, `ToolCallRequestPayload`, `ConversationRunStartPayload`
+- [x] (2026-03-01) Extend `internal/domain/orchestration/handoff.go` — add `Trust *trust.Annotation` field to `HandoffMessage`
+- [x] (2026-03-01) Extend `internal/port/a2a/types.go` — add `Trust *trust.Annotation` field to `TaskRequest`
 
 **NATS payload integration (Python):**
 
-- [ ] Extend `workers/codeforge/models.py` — add `TrustAnnotation` Pydantic model (origin, trust_level, source_id, signature, timestamp), add optional `trust: TrustAnnotation | None = None` to `RunStartMessage`, `ConversationRunStartMessage`
+- [x] (2026-03-02) Extend `workers/codeforge/models.py` — add `TrustAnnotation` Pydantic model (origin, trust_level, source_id, signature, timestamp), add optional `trust: TrustAnnotation | None = None` to `RunStartMessage`, `ConversationRunStartMessage`
 
 **Auto-stamping in services:**
 
-- [ ] `internal/service/runtime.go` — in `StartRun`, auto-stamp `Trust{Origin: "internal", TrustLevel: LevelFull, SourceID: agentID}` before publishing to NATS
-- [ ] `internal/service/handoff.go` — in `CreateHandoff`, stamp trust based on source origin (internal agent = `full`, external = `untrusted`)
-- [ ] `internal/port/a2a/handler.go` — in `handleCreateTask`, stamp `LevelUntrusted` + `Origin: "a2a"` on all incoming A2A task requests
+- [x] (2026-03-01) `internal/service/runtime.go` — in `StartRun`, auto-stamp `Trust{Origin: "internal", TrustLevel: LevelFull, SourceID: agentID}` before publishing to NATS
+- [x] (2026-03-01) `internal/service/handoff.go` — in `CreateHandoff`, stamp trust based on source origin (internal agent = `full`, external = `untrusted`)
+- [x] (2026-03-01) `internal/port/a2a/handler.go` — in `handleCreateTask`, stamp `LevelUntrusted` + `Origin: "a2a"` on all incoming A2A task requests
 
 **Policy layer extension:**
 
-- [ ] `internal/domain/policy/policy.go` — add optional `TrustMinimum trust.Level` field to `PermissionRule` struct
-- [ ] `internal/domain/policy/evaluation.go` — extend `Evaluate` to accept optional `*trust.Annotation` parameter, check `TrustMinimum` on matching rules (deny if trust level < minimum)
+- [x] (2026-03-01) `internal/domain/policy/policy.go` — add optional `TrustMinimum trust.Level` field to `PermissionRule` struct
+- [x] (2026-03-01) `internal/domain/policy/evaluation.go` — extend `Evaluate` to accept optional `*trust.Annotation` parameter via functional options, check `TrustMinimum` on matching rules (deny if trust level < minimum)
 
 **Tests:**
 
-- [ ] `internal/domain/trust/trust_test.go` — test `IsInternal()`, level comparison, annotation creation (4 tests)
-- [ ] `internal/domain/policy/evaluation_test.go` — add tests for trust-aware evaluation: rule with TrustMinimum=verified denies untrusted calls, allows verified calls (3 tests)
-- [ ] `internal/service/runtime_test.go` — verify auto-stamping sets trust on published payloads (2 tests)
+- [x] (2026-03-01) `internal/domain/trust/trust_test.go` — test `IsInternal()`, level comparison, annotation creation (4 tests)
+- [x] (2026-03-01) `internal/domain/policy/policy_test.go` — add tests for trust-aware evaluation: rule with TrustMinimum=verified denies untrusted calls, allows verified calls, backwards-compatible with no annotation (3 tests)
+- [ ] `internal/service/runtime_test.go` — verify auto-stamping sets trust on published payloads (2 tests) — deferred: requires mock queue infrastructure
 
 #### 23B: Message Quarantine System (P2 — MEDIUM priority, ~5-7 days, depends on 23A)
 

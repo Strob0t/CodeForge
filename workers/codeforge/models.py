@@ -77,6 +77,16 @@ class ModeConfig(BaseModel):
     output_schema: str = ""
 
 
+class TrustAnnotation(BaseModel):
+    """Trust metadata attached to inter-agent messages (Phase 23A)."""
+
+    origin: str = "internal"
+    trust_level: str = "full"
+    source_id: str = ""
+    signature: str = ""
+    timestamp: str = ""
+
+
 class RunStartMessage(BaseModel):
     """Message received from NATS when a run is started."""
 
@@ -94,6 +104,7 @@ class RunStartMessage(BaseModel):
     mcp_servers: list[MCPServerDef] = Field(default_factory=list)
     context: list[ContextEntry] = Field(default_factory=list)
     microagent_prompts: list[str] = Field(default_factory=list)
+    trust: TrustAnnotation | None = None
 
     @field_validator("config", mode="before")
     @classmethod
@@ -412,6 +423,7 @@ class ConversationRunStartMessage(BaseModel):
     mcp_servers: list[MCPServerDef] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     microagent_prompts: list[str] = Field(default_factory=list)
+    trust: TrustAnnotation | None = None
 
     @field_validator("mcp_servers", mode="before")
     @classmethod
