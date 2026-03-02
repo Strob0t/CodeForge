@@ -2172,6 +2172,18 @@ Git handlers (`handlers_test.go`):
 
 **Estimated scope:** ~90 new test functions across ~20 new/modified test files.
 
+#### E2E Playwright Test Fixes (2026-03-02)
+
+> Full E2E suite run: 488 passed, 5 failed, 1 flaky, 1 skipped (19.0m).
+> After fixes: 490 passed, 0 failed, 0 flaky, 1 skipped.
+
+- [x] (2026-03-02) Remove `navigation.spec.ts` "navigate to Teams page" test — Teams page removed from frontend (orchestrator-internal)
+- [x] (2026-03-02) Remove `cross-page-flows.spec.ts` "team workflow" test — `/teams` route doesn't exist
+- [x] (2026-03-02) Remove `/teams` from sequential route navigation in `cross-page-flows.spec.ts`
+- [x] (2026-03-02) Fix `benchmarks.spec.ts` model input selector — `ModelCombobox` renders `<input type="text" list=...>` (role "combobox", not "textbox"); use `#benchmark-model` id selector
+- [x] (2026-03-02) Fix `settings.spec.ts` VCS provider dropdown — `getByRole("combobox")` unreliable for `<select>`; use `select[aria-label='Provider']` locator
+- [x] (2026-03-02) Fix `trajectory-api.spec.ts` flaky replay test — add 429 (rate limited) to expected status codes
+
 ---
 
 ### Phase 23: Security & Identity Patterns (AMP/Maestro Extraction) (2026-03-01)
@@ -2345,3 +2357,129 @@ Git handlers (`handlers_test.go`):
 | 23D | LOW | 6-8d | None (no multi-agent) | -- |
 
 > **Recommendation:** Start with 23A only. It's foundational, low effort, and will be needed when A2A activates. Defer 23B-23D until multi-agent and A2A usage matures.
+
+---
+
+### Phase 24: Active Work Visibility — Parallel Task Deduplication (2026-03-02)
+
+> When multiple agents execute tasks in parallel, both users (frontend) and agents (API/NATS) must see which tasks are currently being worked on. This prevents redundant work and provides operational transparency.
+> **Depends on:** Phase 5A (Execution Plans), Phase 4B (Run Protocol). No dependency on Phase 23.
+
+> **Pro:** (1) Prevents duplicate work — atomic task claiming with optimistic locking guarantees only one agent works on a task. (2) Operational transparency — users see at a glance which agents work on what, with live cost and step counters. (3) Low effort — leverages existing Task/Agent/Run domain models, WebSocket infrastructure, and optimistic locking pattern. (4) Agent self-coordination — agents can query active work before claiming, reducing wasted LLM calls. (5) Stale task recovery — background detector auto-releases tasks stuck by agent crashes.
+> **Kontra:** (1) Plan-based execution already prevents double-dispatch — DAG steps are pre-assigned to agents, so this mainly benefits ad-hoc task dispatch. (2) Additional JOIN query per poll — `ListActiveWork` touches 3 tables (tasks + agents + runs). (3) Frontend component adds complexity — yet another panel in ProjectDetailPage. (4) Stale recovery timer has false-positive risk — long-running tasks may be incorrectly released.
+
+#### 24A: Domain Model — `ActiveWorkItem` View Type
+
+**Domain types:**
+
+- [ ] Create `internal/domain/task/active_work.go` — `ActiveWorkItem` struct (TaskID, TaskTitle, TaskStatus, ProjectID, AgentID, AgentName, AgentMode, RunID, StepCount, CostUSD, StartedAt) as read-only projection; `ClaimResult` struct (Task, Claimed bool, Reason string) for atomic claim responses
+
+**Tests (RED phase):**
+
+- [ ] Create `internal/domain/task/active_work_test.go` — TestActiveWorkItemJSONSerialization (all fields present in JSON output), TestClaimResultJSONSerialization (claimed=true and claimed=false cases), TestActiveWorkItemZeroValues (empty struct produces valid JSON with zero defaults)
+
+#### 24B: Store Interface & Postgres Adapter
+
+**Store interface:**
+
+- [ ] `internal/port/database/store.go` — add 3 new methods to `Store` interface: `ListActiveWork(ctx, projectID) ([]task.ActiveWorkItem, error)`, `ClaimTask(ctx, taskID, agentID string, version int) (*task.ClaimResult, error)`, `ReleaseStaleWork(ctx, threshold time.Duration) ([]task.Task, error)`
+
+**Database migration:**
+
+- [ ] Create `internal/adapter/postgres/migrations/051_active_work_index.sql` — partial composite index `idx_tasks_project_active ON tasks(project_id, status) WHERE status IN ('queued', 'running')`; partial index `idx_tasks_stale ON tasks(status, updated_at) WHERE status IN ('queued', 'running')`
+
+**Postgres adapter:**
+
+- [ ] Create `internal/adapter/postgres/store_active_work.go` — `ListActiveWork` implementation (JOIN query: tasks LEFT JOIN agents ON agent_id LEFT JOIN LATERAL latest run, WHERE status IN queued/running, ordered by updated_at ASC); `ClaimTask` implementation (atomic UPDATE with `WHERE id=$1 AND status='pending' AND version=$3`, returns ClaimResult{Claimed: false} on zero rows affected); `ReleaseStaleWork` implementation (find tasks with running/queued status older than threshold, reset to pending with agent_id=NULL)
+
+**Tests (RED phase):**
+
+- [ ] Create `internal/adapter/postgres/store_active_work_test.go` — TestListActiveWork_Empty (no active tasks returns empty slice), TestListActiveWork_WithRunningTasks (returns running/queued with agent name from JOIN), TestListActiveWork_ExcludesCompletedTasks (completed/failed/cancelled not returned), TestClaimTask_Success (pending task claimed, version incremented, status set to queued), TestClaimTask_AlreadyClaimed (returns Claimed=false when task not pending), TestClaimTask_VersionMismatch (concurrent claim returns Claimed=false), TestClaimTask_NonexistentTask (returns error), TestReleaseStaleWork_FindsStale (tasks beyond threshold found and reset), TestReleaseStaleWork_RecentNotStale (recently updated tasks excluded)
+
+#### 24C: Service Layer — `ActiveWorkService`
+
+**Service:**
+
+- [ ] Create `internal/service/active_work.go` — `ActiveWorkService` struct (store database.Store, hub broadcast.Broadcaster); `NewActiveWorkService(store, hub)` constructor; `ListActiveWork(ctx, projectID)` delegates to store; `ClaimTask(ctx, taskID, agentID)` reads task version via store.GetTask, validates status=pending, calls store.ClaimTask atomically, broadcasts `EventActiveWorkClaimed` on success; `ReleaseStaleWork(ctx, threshold)` calls store.ReleaseStaleWork, broadcasts `EventActiveWorkReleased` per released task with reason
+
+**Tests (RED phase):**
+
+- [ ] Create `internal/service/active_work_test.go` — TestListActiveWork_DelegatesToStore (mock store, verify call), TestClaimTask_Success_BroadcastsEvent (verify WS EventActiveWorkClaimed broadcast on successful claim), TestClaimTask_AlreadyClaimed_NoBroadcast (no broadcast when claim fails), TestClaimTask_TaskNotFound_ReturnsError (store.GetTask returns ErrNotFound), TestClaimTask_NotPending_RejectsWithReason (task with status=running returns Claimed=false), TestReleaseStaleWork_BroadcastsPerTask (verify EventActiveWorkReleased broadcast per released task), TestReleaseStaleWork_NoStale_NoBroadcast (no broadcast when nothing released)
+
+#### 24D: WebSocket Events
+
+**Event types:**
+
+- [ ] `internal/adapter/ws/events.go` — add `EventActiveWorkClaimed = "activework.claimed"` + `ActiveWorkClaimedEvent` struct (TaskID, TaskTitle, ProjectID, AgentID, AgentName); add `EventActiveWorkReleased = "activework.released"` + `ActiveWorkReleasedEvent` struct (TaskID, ProjectID, Reason)
+
+#### 24E: HTTP Handlers & Routes
+
+**Handlers:**
+
+- [ ] `internal/adapter/http/handlers.go` — add `ActiveWork *service.ActiveWorkService` field to `Handlers` struct; implement `ListActiveWork` handler (GET, reads project ID from URL, returns []ActiveWorkItem or empty array); implement `ClaimTask` handler (POST, reads task ID from URL + agent_id from body, returns 200 on success, 409 on conflict, 400 on missing agent_id, 404 on task not found)
+
+**Routes:**
+
+- [ ] `internal/adapter/http/routes.go` — add `r.Get("/projects/{id}/active-work", h.ListActiveWork)` under existing project routes; add `r.Post("/tasks/{id}/claim", h.ClaimTask)` under existing task routes
+
+**Tests (RED phase):**
+
+- [ ] `internal/adapter/http/handlers_test.go` — TestListActiveWork_Empty (200 with []), TestListActiveWork_ReturnsTasks (200 with active work items), TestClaimTask_Success (200 with claimed=true), TestClaimTask_AlreadyClaimed (409 with claimed=false), TestClaimTask_MissingAgentID (400 Bad Request), TestClaimTask_TaskNotFound (404)
+
+#### 24F: Frontend — Types, API Client, ActiveWorkPanel
+
+**TypeScript types:**
+
+- [ ] `frontend/src/api/types.ts` — add `ActiveWorkItem` interface (task_id, task_title, task_status, project_id, agent_id, agent_name, agent_mode?, run_id?, step_count, cost_usd, started_at); add `ActiveWorkClaimedEvent` and `ActiveWorkReleasedEvent` interfaces
+
+**API client:**
+
+- [ ] `frontend/src/api/client.ts` — add `activeWork(projectId)` method returning `request<ActiveWorkItem[]>(url`/projects/${projectId}/active-work`)`
+
+**ActiveWorkPanel component:**
+
+- [ ] Create `frontend/src/features/project/ActiveWorkPanel.tsx` — SolidJS component with props `{projectId: string}`; uses `createResource` to fetch active work from `api.activeWork(projectId)`; listens to WS events (`activework.claimed`, `activework.released`, `task.status`, `run.status`) to trigger refetch; renders header "Active Work" with count badge; each item: agent name + mode badge, task title (truncated), step count, cost, pulsing StatusDot for running; empty state "No active tasks" message
+
+**ProjectDetailPage integration:**
+
+- [ ] `frontend/src/features/project/ProjectDetailPage.tsx` — import and render `<ActiveWorkPanel projectId={params.id} />` above chat panel; add WS event handlers for `activework.claimed` and `activework.released` to event switch
+
+**Activity page integration:**
+
+- [ ] `frontend/src/features/activity/ActivityPage.tsx` — add `activework.claimed` and `activework.released` cases to `classifyMessage` switch for global activity stream
+
+#### 24G: Wiring & Background Stale Recovery
+
+**Main wiring:**
+
+- [ ] `cmd/codeforge/main.go` — create `ActiveWorkService` with store + hub; add to `Handlers` struct; start background goroutine with 60s ticker calling `ActiveWorkService.ReleaseStaleWork(ctx, 30*time.Minute)`; integrate into graceful shutdown
+
+**Documentation:**
+
+- [ ] `docs/todo.md` — mark completed sub-tasks as work progresses
+- [ ] `docs/features/04-agent-orchestration.md` — add Active Work Visibility section documenting the claim/release protocol and WS events
+- [ ] `CLAUDE.md` — add Phase 24 reference under Architecture section if structural patterns emerge
+
+#### Phase 24 Edge Cases
+
+| Edge Case | Solution |
+|---|---|
+| Two agents claim same task simultaneously | Optimistic locking — `UPDATE WHERE version=$3` guarantees only one succeeds |
+| Agent crashes, task stuck in "running" | Background `ReleaseStaleWork` ticker resets tasks after 30min threshold |
+| Stale data in frontend | WS events trigger immediate refetch of active work list |
+| False-positive stale detection | Long-running tasks update `updated_at` via heartbeat, preventing false release |
+| Tenant isolation | All queries include `tenant_id` from middleware context |
+| Task already assigned in plan execution | DAG orchestrator pre-assigns steps to agents — claim endpoint is for ad-hoc tasks only |
+| Concurrent frontend refetch flood | Debounce WS-triggered refetch (500ms) to avoid redundant HTTP calls |
+
+#### Phase 24 Decision Matrix
+
+| WP | Priority | Effort | Immediate Value | Blocks |
+|----|----------|--------|-----------------|--------|
+| 24A | HIGH | 0.5d | Low (types only) | 24B, 24C |
+| 24B | HIGH | 1-2d | Medium (query + claim) | 24C, 24E |
+| 24C | HIGH | 1d | Medium (service logic) | 24E, 24G |
+| 24D | HIGH | 0.5d | Low (WS events) | 24E, 24F |
+| 24E | HIGH | 1d | High (API endpoints) | 24F, 24G |
+| 24F | MEDIUM | 1-2d | High (user-facing UI) | -- |
+| 24G | MEDIUM | 0.5d | Medium (wiring + cleanup) | -- |
