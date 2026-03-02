@@ -84,6 +84,7 @@ const en = {
   "dashboard.form.repoUrlPlaceholder": "https://github.com/user/repo",
   "dashboard.form.modeRemote": "Remote",
   "dashboard.form.modeLocal": "Local",
+  "dashboard.form.modeEmpty": "Empty Project",
   "dashboard.form.path": "Project Path",
   "dashboard.form.pathPlaceholder": "/path/to/your/project",
   "dashboard.form.descriptionPlaceholder": "A brief description...",

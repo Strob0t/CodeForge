@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -190,6 +191,40 @@ func (s *ProjectService) Adopt(ctx context.Context, id, path string) (*project.P
 
 	p.WorkspacePath = absPath
 	if err := s.store.UpdateProject(ctx, p); err != nil {
+		return nil, fmt.Errorf("update project workspace: %w", err)
+	}
+
+	return p, nil
+}
+
+// InitWorkspace creates an empty workspace directory with git init for projects
+// that have no repo_url and no adopted path. The directory is created under
+// {workspaceRoot}/{tenantID}/{projectID}.
+func (s *ProjectService) InitWorkspace(ctx context.Context, id, tenantID string) (*project.Project, error) {
+	p, err := s.store.GetProject(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+
+	if p.WorkspacePath != "" {
+		return nil, fmt.Errorf("project %s already has a workspace at %s", id, p.WorkspacePath)
+	}
+
+	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
+	if err := os.MkdirAll(destPath, 0o750); err != nil {
+		return nil, fmt.Errorf("create workspace directory: %w", err)
+	}
+
+	// Initialize a git repository so agents can work with version control.
+	if gitErr := exec.CommandContext(ctx, "git", "init", destPath).Run(); gitErr != nil { //nolint:gosec // destPath is constructed from workspaceRoot/tenantID/projectID, not user input
+		// Clean up on failure.
+		_ = os.RemoveAll(destPath)
+		return nil, fmt.Errorf("git init: %w", gitErr)
+	}
+
+	p.WorkspacePath = destPath
+	if err := s.store.UpdateProject(ctx, p); err != nil {
+		_ = os.RemoveAll(destPath)
 		return nil, fmt.Errorf("update project workspace: %w", err)
 	}
 
@@ -378,11 +413,21 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 			Status: "skipped",
 		})
 	case p.RepoURL == "":
-		result.Steps = append(result.Steps, project.SetupStep{
-			Name:   "clone",
-			Status: "skipped",
-			Error:  "no repo_url configured",
-		})
+		inited, initErr := s.InitWorkspace(ctx, id, tenantID)
+		if initErr != nil {
+			slog.Warn("setup: init workspace failed", "project_id", id, "error", initErr)
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "init-workspace",
+				Status: "failed",
+				Error:  initErr.Error(),
+			})
+		} else {
+			p = inited
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "init-workspace",
+				Status: "completed",
+			})
+		}
 	default:
 		cloned, cloneErr := s.Clone(ctx, id, tenantID, branch)
 		if cloneErr != nil {

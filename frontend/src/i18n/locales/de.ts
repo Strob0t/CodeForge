@@ -86,6 +86,7 @@ const de: Translations = {
   "dashboard.form.repoUrlPlaceholder": "https://github.com/user/repo",
   "dashboard.form.modeRemote": "Remote",
   "dashboard.form.modeLocal": "Lokal",
+  "dashboard.form.modeEmpty": "Leeres Projekt",
   "dashboard.form.path": "Projektpfad",
   "dashboard.form.pathPlaceholder": "/pfad/zu/ihrem/projekt",
   "dashboard.form.descriptionPlaceholder": "Eine kurze Beschreibung\u2026",

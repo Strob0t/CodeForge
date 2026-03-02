@@ -27,6 +27,7 @@ All providers implement the `gitprovider.Provider` interface with capability dec
 
 - Add repository by URL (auto-detect provider type).
 - Clone/checkout to local workspace.
+- Create empty project with auto-workspace (`git init`, no repo URL or path needed).
 - Display repository status (branch, last commit, dirty state).
 - Pull/fetch updates.
 - Switch branches.
@@ -49,6 +50,7 @@ All providers implement the `gitprovider.Provider` interface with capability dec
 1. As a user, I can add a GitHub repo by pasting its URL.
 2. As a user, I can see all my repos in a dashboard with their current status.
 3. As a user, I can add a local git directory as a project.
+3b. As a user, I can create an empty project without specifying a path or repo URL.
 4. As a user, I can add an SVN repository and work with it like a git repo.
 5. As a user, I can pull updates for all repos at once.
 6. As a user, I can add a Forgejo or Codeberg repo by pasting its URL.

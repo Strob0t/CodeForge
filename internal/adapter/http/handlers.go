@@ -307,6 +307,20 @@ func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+// InitWorkspace handles POST /api/v1/projects/{id}/init-workspace
+// It creates an empty workspace directory with git init for a project without a repo URL.
+func (h *Handlers) InitWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	tenantID := middleware.TenantIDFromContext(r.Context())
+
+	p, err := h.Projects.InitWorkspace(r.Context(), id, tenantID)
+	if err != nil {
+		writeDomainError(w, err, "init workspace failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 // SetupProject handles POST /api/v1/projects/{id}/setup
 // It chains clone, stack detection, and spec import in a single request.
 func (h *Handlers) SetupProject(w http.ResponseWriter, r *http.Request) {

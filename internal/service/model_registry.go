@@ -23,6 +23,7 @@ type ModelRegistry struct {
 	llm         *litellm.Client
 	hub         broadcast.Broadcaster
 	ollamaURL   string // from OLLAMA_BASE_URL env
+	routingSvc  *RoutingService
 }
 
 // NewModelRegistry creates a new registry with the given poll interval.
@@ -109,7 +110,22 @@ func (r *ModelRegistry) Refresh(ctx context.Context) error {
 	}
 
 	r.broadcastHealth(ctx, models, newBest)
+
+	// Sync model capabilities into routing stats.
+	if r.routingSvc != nil {
+		go func() {
+			if err := r.routingSvc.SyncModelCapabilities(ctx, models); err != nil {
+				slog.Warn("model registry: sync routing capabilities failed", "error", err)
+			}
+		}()
+	}
+
 	return nil
+}
+
+// SetRoutingService sets the routing service for model capabilities sync.
+func (r *ModelRegistry) SetRoutingService(routingSvc *RoutingService) {
+	r.routingSvc = routingSvc
 }
 
 // AvailableModels returns a copy of the cached discovered models.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,11 +22,17 @@ import (
 type BenchmarkService struct {
 	store       database.Store
 	datasetsDir string
+	routingSvc  *RoutingService
 }
 
 // NewBenchmarkService creates a benchmark service.
 func NewBenchmarkService(store database.Store, datasetsDir string) *BenchmarkService {
 	return &BenchmarkService{store: store, datasetsDir: datasetsDir}
+}
+
+// SetRoutingService sets the routing service for benchmark → routing integration.
+func (s *BenchmarkService) SetRoutingService(routingSvc *RoutingService) {
+	s.routingSvc = routingSvc
 }
 
 // RegisterSuite validates and persists a new benchmark suite.
@@ -100,9 +107,23 @@ func (s *BenchmarkService) ListRunsFiltered(ctx context.Context, filter benchmar
 	return s.store.ListBenchmarkRunsFiltered(ctx, filter)
 }
 
-// UpdateRun updates a benchmark run.
+// UpdateRun updates a benchmark run. When the run transitions to completed,
+// its results are asynchronously seeded into the routing system for MAB learning.
 func (s *BenchmarkService) UpdateRun(ctx context.Context, r *benchmark.Run) error {
-	return s.store.UpdateBenchmarkRun(ctx, r)
+	if err := s.store.UpdateBenchmarkRun(ctx, r); err != nil {
+		return err
+	}
+
+	// Seed routing outcomes from completed benchmark runs.
+	if r.Status == benchmark.StatusCompleted && s.routingSvc != nil {
+		go func() {
+			if _, err := s.routingSvc.SeedFromBenchmarkRun(ctx, r.ID); err != nil {
+				slog.Warn("seed routing from benchmark run failed", "run_id", r.ID, "error", err)
+			}
+		}()
+	}
+
+	return nil
 }
 
 // DeleteRun deletes a benchmark run and its results.

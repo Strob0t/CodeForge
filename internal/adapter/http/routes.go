@@ -52,6 +52,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/clone", h.CloneProject)
 		r.Post("/projects/{id}/adopt", h.AdoptProject)
 		r.Post("/projects/{id}/setup", h.SetupProject)
+		r.Post("/projects/{id}/init-workspace", h.InitWorkspace)
 		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
 
 		// File operations (nested under projects)
@@ -427,11 +428,13 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/auto-agent/stop", h.StopAutoAgent)
 		r.Get("/projects/{id}/auto-agent/status", h.GetAutoAgentStatus)
 
-		// Routing (Phase 26)
+		// Routing (Phase 29)
 		r.Route("/routing", func(r chi.Router) {
 			r.Get("/stats", h.HandleListRoutingStats)
 			r.Post("/stats/refresh", h.HandleRefreshRoutingStats)
 			r.Get("/outcomes", h.HandleListRoutingOutcomes)
+			r.Post("/outcomes", h.HandleCreateRoutingOutcome)
+			r.Post("/seed-from-benchmarks", h.HandleSeedFromBenchmarks)
 		})
 
 		// A2A Management (Phase 27L)

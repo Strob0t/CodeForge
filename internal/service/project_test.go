@@ -1257,3 +1257,73 @@ func (m *mockStore) ListA2APushConfigs(_ context.Context, _ string) ([]database.
 }
 func (m *mockStore) DeleteA2APushConfig(_ context.Context, _ string) error     { return nil }
 func (m *mockStore) DeleteAllA2APushConfigs(_ context.Context, _ string) error { return nil }
+
+// --- InitWorkspace tests ---
+
+func TestProjectServiceInitWorkspace(t *testing.T) {
+	wsRoot := t.TempDir()
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Empty Project"}},
+	}
+	svc := NewProjectService(store, wsRoot)
+
+	p, err := svc.InitWorkspace(context.Background(), "p1", "test-tenant")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedPath := filepath.Join(wsRoot, "test-tenant", "p1")
+	if p.WorkspacePath != expectedPath {
+		t.Fatalf("expected workspace path %q, got %q", expectedPath, p.WorkspacePath)
+	}
+
+	// Verify directory exists.
+	info, statErr := os.Stat(expectedPath)
+	if statErr != nil {
+		t.Fatalf("workspace directory does not exist: %v", statErr)
+	}
+	if !info.IsDir() {
+		t.Fatal("workspace path is not a directory")
+	}
+
+	// Verify git init was run.
+	gitDir := filepath.Join(expectedPath, ".git")
+	if _, gitErr := os.Stat(gitDir); gitErr != nil {
+		t.Fatalf(".git directory does not exist: %v", gitErr)
+	}
+}
+
+func TestProjectServiceInitWorkspaceAlreadyHasWorkspace(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Has WS", WorkspacePath: "/existing/path"}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	_, err := svc.InitWorkspace(context.Background(), "p1", "tenant")
+	if err == nil {
+		t.Fatal("expected error for project with existing workspace")
+	}
+}
+
+func TestProjectServiceInitWorkspaceNotFound(t *testing.T) {
+	store := &mockStore{}
+	svc := NewProjectService(store, t.TempDir())
+
+	_, err := svc.InitWorkspace(context.Background(), "nonexistent", "tenant")
+	if err == nil {
+		t.Fatal("expected error for nonexistent project")
+	}
+}
+
+func TestProjectServiceInitWorkspaceUpdateFails(t *testing.T) {
+	store := &mockStore{
+		projects:         []project.Project{{ID: "p1", Name: "Fail Update"}},
+		updateProjectErr: errors.New("db write failed"),
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	_, err := svc.InitWorkspace(context.Background(), "p1", "tenant")
+	if err == nil {
+		t.Fatal("expected error when UpdateProject fails")
+	}
+}

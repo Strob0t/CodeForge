@@ -58,7 +58,7 @@ export default function DashboardPage() {
   const [stackResult, setStackResult] = createSignal<StackDetectionResult | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [parsingUrl, setParsingUrl] = createSignal(false);
-  const [formMode, setFormMode] = createSignal<"remote" | "local">("remote");
+  const [formMode, setFormMode] = createSignal<"remote" | "local" | "empty">("remote");
   const [localPath, setLocalPath] = createSignal("");
   const [showAdvanced, setShowAdvanced] = createSignal(false);
   const [selectedAutonomy, setSelectedAutonomy] = createSignal("");
@@ -78,7 +78,44 @@ export default function DashboardPage() {
     setError("");
 
     const data = form();
+    const isEmpty = formMode() === "empty" && !isEditing();
     const isLocal = formMode() === "local" && !isEditing();
+
+    if (isEmpty) {
+      if (!data.name.trim()) {
+        setError(t("dashboard.toast.nameRequired"));
+        return;
+      }
+      try {
+        const created = await api.projects.create({
+          name: data.name.trim(),
+          description: data.description,
+          repo_url: "",
+          provider: "",
+          config: buildAdvancedConfig(),
+        });
+        toast("success", t("dashboard.toast.created"));
+        api.projects.initWorkspace(created.id).catch((initErr) => {
+          const initMsg = initErr instanceof Error ? initErr.message : "init workspace failed";
+          toast("error", initMsg);
+        });
+        toast("info", t("dashboard.toast.setupStarted"));
+        setForm({ ...emptyForm });
+        setShowForm(false);
+        setEditingId(null);
+        setStackResult(null);
+        setShowAdvanced(false);
+        setSelectedAutonomy("");
+        setBranches([]);
+        setSelectedBranch("");
+        await refetch();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
+        setError(msg);
+        toast("error", msg);
+      }
+      return;
+    }
 
     if (isLocal) {
       const path = localPath().trim();
@@ -290,6 +327,7 @@ export default function DashboardPage() {
   const formModeTabs = () => [
     { value: "remote", label: t("dashboard.form.modeRemote") },
     { value: "local", label: t("dashboard.form.modeLocal") },
+    { value: "empty", label: t("dashboard.form.modeEmpty") },
   ];
 
   return (
@@ -322,7 +360,7 @@ export default function DashboardPage() {
                   <Tabs
                     items={formModeTabs()}
                     value={formMode()}
-                    onChange={(v) => setFormMode(v as "remote" | "local")}
+                    onChange={(v) => setFormMode(v as "remote" | "local" | "empty")}
                     variant="pills"
                   />
                 </div>
@@ -351,7 +389,9 @@ export default function DashboardPage() {
                 <FormField
                   label={t("dashboard.form.name")}
                   id="name"
-                  required={formMode() === "remote" && !form().repo_url.trim()}
+                  required={
+                    formMode() === "empty" || (formMode() === "remote" && !form().repo_url.trim())
+                  }
                 >
                   <Input
                     id="name"
@@ -360,7 +400,9 @@ export default function DashboardPage() {
                     onInput={(e) => updateField("name", e.currentTarget.value)}
                     placeholder={t("dashboard.form.namePlaceholder")}
                     aria-required={
-                      formMode() === "remote" && !form().repo_url.trim() ? "true" : "false"
+                      formMode() === "empty" || (formMode() === "remote" && !form().repo_url.trim())
+                        ? "true"
+                        : "false"
                     }
                   />
                 </FormField>

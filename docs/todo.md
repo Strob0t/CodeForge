@@ -2938,6 +2938,18 @@ Git handlers (`handlers_test.go`):
 
 - [x] (2026-03-02) `litellm/config.yaml` -- replaced 38 individual model entries with 6 provider-level wildcards (ollama/*, openai/*, anthropic/*, gemini/*, groq/*, mistral/*); tag filtering preserved for backwards compatibility
 
+### Auto-Workspace: Empty Project Creation (2026-03-02)
+
+> Allow creating projects without a local path or repo URL. Auto-creates a workspace directory with `git init`.
+
+- [x] (2026-03-02) Backend: `InitWorkspace` method in `internal/service/project.go` (creates workspace dir + git init)
+- [x] (2026-03-02) Backend: `SetupProject` calls `InitWorkspace` when `repo_url` is empty
+- [x] (2026-03-02) Backend: `POST /projects/{id}/init-workspace` handler + route
+- [x] (2026-03-02) Frontend: Third "Empty Project" tab in project creation form
+- [x] (2026-03-02) Frontend: `initWorkspace` API client method
+- [x] (2026-03-02) Frontend: i18n keys (en: "Empty Project", de: "Leeres Projekt")
+- [x] (2026-03-02) Tests: 4 TDD tests (happy path, already-has-workspace, not-found, update-fails)
+
 #### 29I: Documentation
 
 - [x] (2026-03-02) Updated `docs/features/03-multi-llm-provider.md` -- Intelligent Routing section

@@ -292,6 +292,11 @@ export const api = {
         body: JSON.stringify(body),
       }),
 
+    initWorkspace: (id: string) =>
+      request<Project>(url`/projects/${id}/init-workspace`, {
+        method: "POST",
+      }),
+
     remoteBranches: (repoUrl: string) =>
       request<{ branches: string[] }>(url`/projects/remote-branches?url=${repoUrl}`).then(
         (r) => r.branches,
