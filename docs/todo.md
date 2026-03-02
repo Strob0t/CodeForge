@@ -2954,6 +2954,193 @@ Git handlers (`handlers_test.go`):
 
 - [x] (2026-03-02) Updated `docs/features/03-multi-llm-provider.md` -- Intelligent Routing section
 - [x] (2026-03-02) Updated `docs/todo.md` -- Phase 29 entry
-- [ ] Go integration: benchmark -> routing seed (Go service + HTTP handlers for stats/outcomes)
-- [ ] Go integration: model registry -> capability sync on refresh
-- [ ] Go integration: routing_enabled flag in conversation NATS payload
+- [x] (2026-03-02) Updated `docs/architecture.md` -- Hybrid Routing section, Security & Trust, Benchmark sections
+- [x] (2026-03-02) Updated `docs/project-status.md` -- Phase 29 open sub-items
+
+#### 29J: Go Integration (pending)
+
+> These tasks wire the Python routing system into the Go Core for full MAB learning loop.
+> Without these, the MAB operates in cold-start mode (Layer 3 fallback only).
+
+- [ ] Go routing service + HTTP handlers: `POST /api/v1/routing/outcomes`, `GET /api/v1/routing/stats`, `POST /api/v1/routing/stats/refresh`, `POST /api/v1/routing/seed-from-benchmarks`
+- [ ] Go integration: model registry -> capability sync (call `routingSvc.SyncModelCapabilities()` on model refresh)
+- [ ] Go integration: `routing_enabled` flag in `ConversationRunStartPayload` NATS schema
+
+---
+
+### Phase 30: Goal Discovery — Project-Aware Context for Agents (2026-03-02)
+
+> **Purpose:** Agents currently receive only code and conversation as context. Goal Discovery auto-detects
+> project vision, requirements, constraints, and state from workspace files (`.planning/`, `CLAUDE.md`,
+> `README.md`, etc.) and injects them into the agent's context window. This gives agents a "north star"
+> so they make decisions aligned with the project's actual goals, not just the immediate task prompt.
+>
+> **Architecture:** Three-tier file detection (GSD `.planning/` → agent instructions → project docs)
+> → domain model `goal.ProjectGoal` → PostgreSQL persistence → context injection as `EntryGoal` entries.
+>
+> **Audit status (2026-03-02):** Domain model, DB layer, migration, service logic, and detection are
+> implemented with tests. However, the feature is **disconnected from all production entry points**.
+> The audit below tracks exactly what remains.
+
+#### 30A: Domain Model & Database Layer ✅ (2026-03-02)
+
+- [x] (2026-03-02) Domain model: `internal/domain/goal/goal.go` — `GoalKind` enum (vision, requirement, constraint, state, context), `ProjectGoal` struct, `CreateRequest`, `UpdateRequest`, validation methods
+- [x] (2026-03-02) Domain tests: `internal/domain/goal/goal_test.go` — 4 table-driven tests (GoalKind validation, CreateRequest validation with 8 cases, UpdateRequest validation, ProjectGoal validation)
+- [x] (2026-03-02) Migration: `internal/adapter/postgres/migrations/056_project_goals.sql` — `project_goals` table with tenant isolation, kind CHECK constraint, 2 indexes (project, enabled)
+- [x] (2026-03-02) Postgres store: `internal/adapter/postgres/store_project_goal.go` — full CRUD (Create, Get, List, ListEnabled, Update, Delete, DeleteBySource) with `scanGoals` helper
+- [x] (2026-03-02) Store interface: `internal/port/database/store.go` — 7 new methods on `Store` interface (CreateProjectGoal, GetProjectGoal, ListProjectGoals, ListEnabledGoals, UpdateProjectGoal, DeleteProjectGoal, DeleteProjectGoalsBySource)
+- [x] (2026-03-02) Context kind: `internal/domain/context/pack.go` — added `EntryGoal` to `EntryKind` enum and `ValidEntryKind` switch
+
+#### 30B: Service Layer & Detection Logic ✅ (2026-03-02)
+
+- [x] (2026-03-02) Service: `internal/service/goal_discovery.go` — `GoalDiscoveryService` with DetectAndImport, Create, Get, List, ListEnabled, Update, Delete, AsContextEntries
+- [x] (2026-03-02) Detection: Three-tier workspace scanning (GSD `.planning/`, agent instructions, project docs)
+- [x] (2026-03-02) Context rendering: `asContextEntries()` (goals → ContextEntry) + `renderGoalContext()` (goals → structured markdown)
+- [x] (2026-03-02) Service tests: `internal/service/goal_discovery_test.go` — 11 unit tests covering GSD detection, README, CLAUDE.md, .cursorrules, mixed sources, large file skip, context entries, render, numbered context files
+
+#### 30C: CRITICAL — Fix Compilation Breakage (mock stores)
+
+> **Impact:** Adding 7 methods to the `Store` interface broke ALL existing mock stores.
+> The entire Go test suite does not compile. This MUST be fixed before any other work.
+
+- [ ] Add 7 goal stub methods to `runtimeMockStore` in `internal/service/runtime_test.go`
+- [ ] Add 7 goal stub methods to `deliverMockStore` in `internal/service/deliver_test.go`
+- [ ] Add 7 goal stub methods to `settingsMockStore` in `internal/service/settings_test.go`
+- [ ] Add 7 goal stub methods to `orchMockStore` in `internal/service/orchestrator_test.go`
+- [ ] Add 7 goal stub methods to `convMockStore` in `internal/service/conversation_test.go`
+- [ ] Add 7 goal stub methods to `costMockStore` in `internal/service/cost_test.go`
+- [ ] Add 7 goal stub methods to `kbMockStore` in `internal/service/knowledgebase_test.go`
+- [ ] Add 7 goal stub methods to `activeWorkMockStore` in `internal/service/active_work_test.go`
+- [ ] Add 7 goal stub methods to `benchMockStore` in `internal/service/benchmark_test.go`
+- [ ] Add 7 goal stub methods to `sessionMockStore` in `internal/service/session_test.go`
+- [ ] Add 7 goal stub methods to `routingMockStore` in `internal/service/routing_test.go`
+- [ ] Verify: `go build ./...` passes with zero errors
+- [ ] Verify: `go test ./internal/service/... -count=1` passes (all existing tests still green)
+
+#### 30D: HTTP Handlers & Route Registration
+
+> **Impact:** The `GoalDiscoveryService` is fully implemented but has zero entry points —
+> no HTTP handler, no routes, no `cmd/codeforge/main.go` wiring. The entire feature is unreachable.
+
+- [ ] Create `internal/adapter/http/handlers_goal.go` — Goal HTTP handler struct with 7 methods:
+  - `ListGoals` — `GET /api/v1/projects/{projectID}/goals` (returns all goals for project)
+  - `GetGoal` — `GET /api/v1/projects/{projectID}/goals/{id}` (single goal by ID)
+  - `CreateGoal` — `POST /api/v1/projects/{projectID}/goals` (manual goal creation from `CreateRequest`)
+  - `UpdateGoal` — `PATCH /api/v1/projects/{projectID}/goals/{id}` (partial update from `UpdateRequest`)
+  - `DeleteGoal` — `DELETE /api/v1/projects/{projectID}/goals/{id}` (remove single goal)
+  - `DetectGoals` — `POST /api/v1/projects/{projectID}/goals/detect` (trigger DetectAndImport for workspace)
+  - `ListEnabledGoals` — `GET /api/v1/projects/{projectID}/goals/enabled` (only enabled, for context preview)
+- [ ] Register routes in `internal/adapter/http/routes.go` under project routes group
+- [ ] Wire `GoalDiscoveryService` in `cmd/codeforge/main.go`:
+  - Instantiate `NewGoalDiscoveryService(store)` alongside other services
+  - Inject into HTTP handler struct
+  - Pass workspace path from project record to `DetectAndImport`
+- [ ] Tests: `internal/adapter/http/handlers_goal_test.go` — HTTP-level tests:
+  - List goals (empty, with data)
+  - Create goal (valid, missing fields → 400)
+  - Update goal (partial update, not found → 404)
+  - Delete goal (success, not found → 404)
+  - Detect goals (happy path with workspace, project not found → 404)
+
+#### 30E: Context Optimizer Integration
+
+> **Impact:** `AsContextEntries()` and `renderGoalContext()` exist but are never called.
+> Goals are stored in DB but never reach agents. The LSP diagnostics injection pattern
+> in `context_optimizer.go` should be replicated for goals.
+
+- [ ] Inject `GoalDiscoveryService` into `ContextOptimizerService` (add field + constructor param)
+- [ ] Call `goalSvc.AsContextEntries(ctx, projectID)` in `BuildContextPack()` alongside LSP diagnostics injection (after line ~207 in `internal/service/context_optimizer.go`)
+- [ ] Wire goal entries as high-priority candidates (vision: 95, requirements: 90, constraints: 85, state: 80, context: 75 — already set in detection)
+- [ ] Update `cmd/codeforge/main.go` to pass `GoalDiscoveryService` when constructing `ContextOptimizerService`
+- [ ] Test: Verify that `BuildContextPack()` includes `EntryGoal` entries when goals exist for the project
+
+#### 30F: Wire `renderGoalContext()` into System Prompt
+
+> **Impact:** `renderGoalContext()` is defined, tested, but has zero production callers.
+> It renders structured markdown (grouped by kind) intended for the agent system prompt.
+> Decide whether goals reach agents via ContextPack entries (30E) or system prompt injection — or both.
+
+- [ ] Decide integration point: ContextPack entries (30E) vs system prompt injection vs both
+- [ ] If system prompt: wire `renderGoalContext()` in conversation service or prompt builder to prepend goal markdown to agent system prompt
+- [ ] If ContextPack only: mark `renderGoalContext()` as used-by-future or remove dead code
+- [ ] Update tests to verify end-to-end goal injection path
+
+#### 30G: Auto-Detection Trigger on Project Setup
+
+> Goals should be auto-detected when a project is cloned/created, not only via manual API call.
+
+- [ ] Call `GoalDiscoveryService.DetectAndImport()` in `SetupProject()` (`internal/service/project.go`) after repo clone completes
+- [ ] Call `GoalDiscoveryService.DetectAndImport()` in `InitWorkspace()` for auto-workspace projects
+- [ ] Optional: Re-detect on `POST /projects/{id}/sync` (roadmap sync trigger)
+- [ ] Test: Project creation with workspace files auto-populates goals
+
+#### 30H: Bug Fixes from Audit
+
+> Issues found during completeness audit that need fixing.
+
+- [ ] Fix `readGoalFile()` doc/code mismatch (`internal/service/goal_discovery.go:336`):
+  - Docstring claims binary detection but no binary check exists
+  - Add null-byte scan to reject binary files: `if bytes.ContainsRune(data, 0) { return "" }`
+  - OR remove "is binary" from the docstring if binary detection is not needed
+  - Add test: binary file (e.g., PNG header) → returns empty string
+- [ ] Fix `extractFirstSection()` silent truncation (`internal/service/goal_discovery.go:366`):
+  - `out[:2000]` slices bytes, not runes — can break mid-UTF8 character
+  - Fix: use `utf8`-safe truncation or truncate at last space before 2000 bytes
+  - Add test: Unicode-heavy README → truncation doesn't produce invalid UTF-8
+- [ ] Fix `extractFirstSection()` logic when README has no `#` heading (`internal/service/goal_discovery.go:355`):
+  - If README starts with `## Setup` (no level-1 heading), `pastTitle` stays false and entire file is returned
+  - Either: treat first `## ` as the title boundary regardless of `pastTitle`
+  - Or: document that READMEs without `# Title` import the full content (if intentional)
+  - Add test: README starting with `## Section` → returns empty or first section only
+
+#### 30I: Frontend — Goal Management UI (optional, lower priority)
+
+> The backend is REST-ready once 30D is done. Frontend can follow.
+
+- [ ] Goal list page: `frontend/src/pages/GoalListPage.tsx` — list goals per project, toggle enabled/disabled
+- [ ] Goal detail/edit: inline edit for title, content, priority, kind
+- [ ] Detection trigger: "Detect Goals" button calling `POST /projects/{id}/goals/detect`
+- [ ] Goal preview in context: show what the agent will see (rendered markdown preview)
+- [ ] i18n: English + German labels for goal kinds, actions, status
+
+#### 30J: Documentation
+
+- [ ] Update `docs/features/04-agent-orchestration.md` — Goal Discovery section (detection tiers, goal kinds, context injection)
+- [ ] Update `docs/architecture.md` — Goal Discovery subsection under Context Management
+- [ ] Update `docs/dev-setup.md` — new migration 056, new files, new endpoints
+- [ ] Update `CLAUDE.md` — add Goal Discovery to architecture notes (Phase 30 reference)
+- [ ] Update `docs/project-status.md` — add Phase 30 entry
+
+#### Implementation Order & Dependencies
+
+```
+30C (Fix mock stores) — BLOCKER, must be first (test suite broken)
+  ↓
+30D (HTTP handlers) — depends on 30C (needs compilable codebase)
+  ↓
+30E (Context optimizer integration) — depends on 30D (needs wired service)
+  ↓
+30F (renderGoalContext wiring) — depends on 30E (decides integration strategy)
+  ↓
+30G (Auto-detection trigger) — depends on 30D (needs wired service)
+  |
+30H (Bug fixes) — independent, can parallel with 30D-30G
+  |
+30I (Frontend) — depends on 30D (needs API endpoints)
+  ↓
+30J (Documentation) — after all code areas complete
+```
+
+#### Estimated Scope
+
+| Area | New Files | Modified Files | Tests |
+|------|-----------|----------------|-------|
+| 30C  | 0         | 11             | 0 (fix compilation only) |
+| 30D  | 2         | 2              | ~10   |
+| 30E  | 0         | 2              | ~3    |
+| 30F  | 0         | 1-2            | ~2    |
+| 30G  | 0         | 1-2            | ~3    |
+| 30H  | 0         | 1              | ~3    |
+| 30I  | 2-3       | 1              | ~5    |
+| 30J  | 0         | 5              | 0     |
+| **Total** | **~5** | **~25** | **~26** |

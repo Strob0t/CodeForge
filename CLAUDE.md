@@ -163,6 +163,14 @@ Detailed analysis: docs/research/market-analysis.md
   - AutoCodeRover (AST-aware, GPL-3.0, $0.70/task) — niche agent
   - AI Maestro (Next.js/Node.js, Peer Mesh, AMP Protocol, CozoDB) — multi-machine agent orchestration, War Room UX, persistent agent identity. Patterns extracted: trust annotations, quarantine, agent identity, War Room (Phase 23)
   - AMP (Agent Messaging Protocol v0.1.2-draft, Apache 2.0, 23blocks) — secure inter-agent messaging with Ed25519 signatures, trust annotations, federation. Too immature for adoption; patterns extracted into Phase 23
+- **Security & Trust Infrastructure (Phase 23):** — **implemented**
+  - Trust Annotations: 4 trust levels (untrusted, partial, verified, full), auto-stamped on NATS payloads — `internal/domain/trust/`, `workers/codeforge/trust/`
+  - Message Quarantine: risk scoring, admin review hold, Evaluate/Approve/Reject — `internal/service/quarantine.go`, migration 049
+  - Persistent Agent Identity: fingerprint, stats accumulation, inbox — `internal/domain/agent/identity.go`
+  - War Room: live multi-agent collaboration view — `frontend/src/pages/WarRoom.tsx`
+- **Benchmark & Evaluation System (Phase 26 + 28):** — **implemented**
+  - Phase 26: Provider interface pattern, evaluator plugins (LLMJudge, FunctionalTest, SPARC), 3 runner types, external providers (HumanEval, MBPP, SWE-bench)
+  - Phase 28 (R2E-Gym/EntroPO): Hybrid verification pipeline, trajectory verifier, multi-rollout scaling, diversity-aware MAB (entropy-UCB1), DPO export, SWE-GEN synthetic tasks — `workers/codeforge/evaluation/`
 - **Roadmap/Feature-Map Auto-Detection & Adaptive Integration:**
   - **No custom PM tool** — sync with existing tools (Plane, OpenProject, GitHub/GitLab Issues)
   - **Auto-Detection:** Three-tier detection (repo files → platform APIs → file markers)

@@ -1164,7 +1164,7 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 27M: Handoff Integration — `a2a://` routing prefix delegates handoffs to A2A protocol (3 tests)
 - [x] (2026-03-02) 27N: Documentation updates (todo.md, project-status.md, dev-setup.md, features/04, codeforge.yaml.example, CLAUDE.md)
 
-### Phase 29: Hybrid Intelligent Model Routing (COMPLETED)
+### Phase 29: Hybrid Intelligent Model Routing (PYTHON COMPLETE, GO PENDING)
 
 > Three-layer intelligent routing cascade replacing manual tag-based LiteLLM model routing.
 > Layer 1: ComplexityAnalyzer (rule-based, <1ms). Layer 2: MABModelSelector (UCB1 learning).
@@ -1175,4 +1175,5 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 29F: HybridRouter orchestrator with cascade logic and COMPLEXITY_DEFAULTS mapping
 - [x] (2026-03-02) 29G: Integration -- `resolve_model_with_routing()` in llm.py, conversation handler, executor -- 12 integration tests
 - [x] (2026-03-02) 29H: LiteLLM config wildcard routing (6 provider entries replace 38 individual models)
-- [x] (2026-03-02) 29I: Documentation updates (todo.md, project-status.md, features/03)
+- [x] (2026-03-02) 29I: Documentation updates (todo.md, project-status.md, features/03, architecture.md)
+- [ ] 29J: Go integration — routing service HTTP handlers, model registry capability sync, routing_enabled NATS flag (required for full MAB learning loop)
