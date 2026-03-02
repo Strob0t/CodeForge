@@ -2,7 +2,6 @@ package service_test
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,18 +13,6 @@ import (
 )
 
 // --- Phase 23C wiring tests ---
-
-// statsTracker wraps a runtimeMockStore to track IncrementAgentStats calls.
-type statsTracker struct {
-	mu    sync.Mutex
-	calls []statsCall
-}
-
-type statsCall struct {
-	AgentID   string
-	CostDelta float64
-	Success   bool
-}
 
 func TestHandleRunComplete_IncrementsAgentStats(t *testing.T) {
 	svc, store, _, _ := newRuntimeTestEnv()

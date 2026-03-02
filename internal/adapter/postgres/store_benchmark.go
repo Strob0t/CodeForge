@@ -94,7 +94,6 @@ func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter benchmark.
 	if filter.Model != "" {
 		conditions = append(conditions, fmt.Sprintf("model = $%d", idx))
 		args = append(args, filter.Model)
-		idx++
 	}
 
 	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs`
