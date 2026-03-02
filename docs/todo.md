@@ -309,6 +309,7 @@
 - [x] (2026-02-18) GitHub Actions workflow: build Docker images (3 parallel jobs, ghcr.io, layer cache)
 - [x] (2026-02-19) Branch protection rules for `main` (GitHub) (`scripts/setup-branch-protection.sh`: configurable via `gh` CLI; requires PR with 1 approving review, dismiss stale reviews; required status checks: Go, Python, Frontend CI jobs; require up-to-date branches, linear history, conversation resolution; no force pushes or branch deletion)
 - [x] (2026-02-19) Branch protection rules (domain feature) — ProtectionRule model with glob pattern matching, EvaluatePush/EvaluateMerge/EvaluateDelete, CRUD REST API, migration 020, tenant-aware store methods, optimistic locking
+- [x] (2026-03-02) Fix GOROOT path in pre-commit hooks — removed hardcoded nonexistent toolchain path from 3 local Go hooks, now using system Go at /usr/local/go
 
 ---
 
