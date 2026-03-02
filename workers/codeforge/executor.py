@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from codeforge.llm import resolve_scenario
 from codeforge.mcp_workbench import McpWorkbench
 from codeforge.models import ModeConfig, TaskMessage, TaskResult, TaskStatus
 from codeforge.pricing import resolve_cost
@@ -82,15 +81,20 @@ class AgentExecutor:
         # Build system prompt from mode or fallback to generic prompt
         system_prompt = mode.prompt_prefix if mode and mode.prompt_prefix else f"You are working on task: {task.title}"
 
-        # Resolve scenario for model routing and temperature
+        # Resolve scenario for model routing and temperature.
+        from codeforge.llm import resolve_model_with_routing
+
         scenario_tag = mode.llm_scenario if mode and mode.llm_scenario else "default"
-        scenario_cfg = resolve_scenario(scenario_tag)
+        routed_model, temperature, scenario_tags = resolve_model_with_routing(
+            prompt=task.prompt,
+            scenario=scenario_tag,
+        )
         logger.info(
-            "llm_routing_decision run_id=%s mode=%s scenario=%s temperature=%.2f",
+            "llm_routing_decision run_id=%s mode=%s routed_model=%s temperature=%.2f",
             runtime.run_id,
             mode.id if mode else "",
-            scenario_cfg.tag,
-            scenario_cfg.temperature,
+            routed_model or "(tag-based)",
+            temperature,
         )
 
         workbench: McpWorkbench | None = None
@@ -122,13 +126,13 @@ class AgentExecutor:
                 )
                 return
 
-            # Execute the LLM call with scenario-based routing
-            model = task.config.get("model", "")
+            # Execute the LLM call with routing decision.
+            model = routed_model or task.config.get("model", "")
             response = await self._llm.completion(
                 prompt=task.prompt,
                 system=system_prompt,
-                temperature=scenario_cfg.temperature,
-                tags=[scenario_cfg.tag],
+                temperature=temperature,
+                tags=scenario_tags or None,
                 **({"model": model} if model else {}),
             )
 

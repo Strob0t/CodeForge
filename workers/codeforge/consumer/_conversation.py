@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import structlog
@@ -87,14 +88,25 @@ class ConversationHandlerMixin:
                 context_entries=run_msg.context,
             )
 
-            from codeforge.llm import resolve_scenario
+            from codeforge.llm import resolve_model_with_routing
 
-            scenario_tags: list[str] = []
-            if run_msg.mode and run_msg.mode.llm_scenario:
-                scenario_cfg = resolve_scenario(run_msg.mode.llm_scenario)
-                if scenario_cfg.tag:
-                    scenario_tags = [scenario_cfg.tag]
-                    log.info("scenario resolved", scenario=run_msg.mode.llm_scenario, tag=scenario_cfg.tag)
+            # Extract user prompt for routing analysis.
+            user_prompt = ""
+            for m in run_msg.messages:
+                if m.role == "user" and m.content:
+                    user_prompt = m.content
+                    break
+
+            scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
+            router = self._get_hybrid_router()
+            routed_model, temperature, scenario_tags = resolve_model_with_routing(
+                prompt=user_prompt,
+                scenario=scenario,
+                router=router,
+                max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
+            )
+            if routed_model:
+                log.info("routing selected model", model=routed_model, scenario=scenario)
 
             executor = AgentLoopExecutor(
                 llm=self._llm,
@@ -105,7 +117,8 @@ class ConversationHandlerMixin:
             loop_cfg = LoopConfig(
                 max_iterations=run_msg.termination.max_steps or 50,
                 max_cost=run_msg.termination.max_cost or 0.0,
-                model=run_msg.model,
+                model=routed_model or run_msg.model,
+                temperature=temperature,
                 tags=scenario_tags,
             )
             result = await executor.run(messages, config=loop_cfg)
@@ -222,6 +235,126 @@ class ConversationHandlerMixin:
 
         log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
         return f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
+
+    def _get_hybrid_router(self) -> object | None:  # noqa: C901
+        """Build a HybridRouter if routing is enabled. Returns None otherwise."""
+        from codeforge.llm import load_routing_config
+
+        config = load_routing_config()
+        if config is None:
+            return None
+
+        from codeforge.routing import ComplexityAnalyzer, HybridRouter, RoutingConfig
+
+        if not isinstance(config, RoutingConfig):
+            return None
+
+        complexity = ComplexityAnalyzer()
+
+        # MAB needs a stats loader -- use HTTP API if available, else skip.
+        mab = None
+        if config.mab_enabled:
+            from codeforge.routing.mab import MABModelSelector
+
+            core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+
+            def _load_stats(task_type: str, tier: str) -> list:
+                """Synchronous stats loader via Go Core HTTP API."""
+                import httpx
+
+                from codeforge.routing.models import ModelStats
+
+                try:
+                    resp = httpx.get(
+                        f"{core_url}/api/v1/routing/stats",
+                        params={"task_type": task_type, "tier": tier},
+                        timeout=5.0,
+                    )
+                    if resp.status_code != 200:
+                        return []
+                    data = resp.json()
+                    if not isinstance(data, list):
+                        return []
+                    return [
+                        ModelStats(
+                            model_name=s.get("model_name", ""),
+                            trial_count=s.get("trial_count", 0),
+                            avg_reward=s.get("avg_reward", 0.0),
+                            avg_cost_usd=s.get("avg_cost_usd", 0.0),
+                            avg_latency_ms=s.get("avg_latency_ms", 0),
+                            avg_quality=s.get("avg_quality", 0.0),
+                            input_cost_per=s.get("input_cost_per", 0.0),
+                            supports_tools=s.get("supports_tools", False),
+                            supports_vision=s.get("supports_vision", False),
+                            max_context=s.get("max_context", 0),
+                        )
+                        for s in data
+                    ]
+                except Exception:
+                    logger.warning("failed to load routing stats", exc_info=True)
+                    return []
+
+            mab = MABModelSelector(stats_loader=_load_stats, config=config)
+
+        # Meta-router needs an LLM call function.
+        meta = None
+        if config.llm_meta_enabled:
+            from codeforge.routing.meta_router import LLMMetaRouter
+
+            def _llm_call(model: str, prompt: str) -> str | None:
+                """Synchronous LLM call for meta-router classification."""
+                import httpx
+
+                litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+                try:
+                    resp = httpx.post(
+                        f"{litellm_url}/v1/chat/completions",
+                        json={
+                            "model": model,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.1,
+                            "max_tokens": 200,
+                        },
+                        timeout=10.0,
+                    )
+                    if resp.status_code != 200:
+                        return None
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    if not choices:
+                        return None
+                    return choices[0].get("message", {}).get("content", "")
+                except Exception:
+                    logger.warning("meta-router LLM call failed", exc_info=True)
+                    return None
+
+            meta = LLMMetaRouter(llm_call=_llm_call, config=config)
+
+        # Get available models from LiteLLM.
+        available_models = self._get_available_models()
+
+        return HybridRouter(
+            complexity=complexity,
+            mab=mab,
+            meta=meta,
+            available_models=available_models,
+            config=config,
+        )
+
+    @staticmethod
+    def _get_available_models() -> list[str]:
+        """Fetch available model names from LiteLLM /v1/models endpoint."""
+        import httpx
+
+        litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+        try:
+            resp = httpx.get(f"{litellm_url}/v1/models", timeout=5.0)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+        except Exception:
+            return []
 
     def _register_handoff_tool(self, registry: object, run_id: str) -> None:
         """Register the handoff tool in the tool registry if NATS is available."""
