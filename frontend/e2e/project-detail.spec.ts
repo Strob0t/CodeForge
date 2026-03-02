@@ -1,5 +1,12 @@
 import { expect, test } from "./fixtures";
 
+// Helper: navigate to project detail and wait for the chat panel to be ready.
+// The ChatPanel auto-creates a conversation via API, which can be slow under load.
+async function gotoProject(page: import("@playwright/test").Page, projectId: string) {
+  await page.goto(`/projects/${projectId}`);
+  await page.waitForLoadState("networkidle");
+}
+
 test.describe("Project Detail Page", () => {
   let projectId: string;
   let projectName: string;
@@ -12,48 +19,48 @@ test.describe("Project Detail Page", () => {
   });
 
   test("page loads with project name in heading", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     await expect(page.locator("h2")).toContainText(projectName, { timeout: 10_000 });
   });
 
   test("header shows project name prominently", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     const heading = page.locator("h2");
     await expect(heading).toContainText(projectName, { timeout: 10_000 });
   });
 
   test("chat panel is visible on project detail", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     // ChatPanel renders a "Chat" header text
     await expect(page.getByText("Chat")).toBeVisible({ timeout: 10_000 });
   });
 
   test("roadmap panel or toggle is visible", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     // The page shows either the roadmap panel or the expand button
     const roadmapText = page.getByText("Roadmap");
     await expect(roadmapText.first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("chat input textarea is visible", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     // Chat panel has a textarea with placeholder
     const textarea = page.locator("textarea");
-    await expect(textarea.first()).toBeVisible({ timeout: 10_000 });
+    await expect(textarea.first()).toBeVisible({ timeout: 15_000 });
   });
 
   test("chat send button exists", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     await expect(page.getByRole("button", { name: "Send" })).toBeVisible({
       timeout: 10_000,
     });
   });
 
   test("send message appears in chat history", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     // Wait for the chat panel to be ready
     const textarea = page.locator("textarea").first();
-    await expect(textarea).toBeVisible({ timeout: 10_000 });
+    await expect(textarea).toBeVisible({ timeout: 15_000 });
 
     // Type and send a message
     const msgText = `hello-e2e-${Date.now()}`;
@@ -65,14 +72,14 @@ test.describe("Project Detail Page", () => {
   });
 
   test("project settings gear button is visible", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     await expect(page.getByRole("button", { name: "Project Settings" })).toBeVisible({
       timeout: 10_000,
     });
   });
 
   test("project settings popover opens on gear click", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     await page.getByRole("button", { name: "Project Settings" }).click();
     // The CompactSettingsPopover should appear with an autonomy level selector
     await expect(page.getByText("Project Settings").first()).toBeVisible({
@@ -85,7 +92,7 @@ test.describe("Project Detail Page", () => {
     const repoProject = await api.createProject(`clone-test-${Date.now()}`);
     // We cannot easily set repo_url via the fixture; check that the Clone or Pull buttons
     // are conditionally rendered based on project state
-    await page.goto(`/projects/${repoProject.id}`);
+    await gotoProject(page, repoProject.id);
     // The page should load without errors
     await expect(page.locator("h2")).toContainText("clone-test", { timeout: 10_000 });
   });
@@ -99,7 +106,7 @@ test.describe("Project Detail Page", () => {
   });
 
   test("navigate back to dashboard from project detail", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     await expect(page.locator("h2")).toContainText(projectName, { timeout: 10_000 });
 
     // Click the Dashboard link in the sidebar
@@ -108,7 +115,7 @@ test.describe("Project Detail Page", () => {
   });
 
   test("conversation auto-creates on project detail load", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     // ChatPanel auto-creates a conversation and shows the input area
     // If no conversation existed, one should be created automatically
     const textarea = page.locator("textarea").first();
@@ -118,10 +125,10 @@ test.describe("Project Detail Page", () => {
   test("multiple project details can be visited sequentially", async ({ page, api }) => {
     const project2 = await api.createProject(`detail-seq-${Date.now()}`);
 
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     await expect(page.locator("h2")).toContainText(projectName, { timeout: 10_000 });
 
-    await page.goto(`/projects/${project2.id}`);
+    await gotoProject(page, project2.id);
     await expect(page.locator("h2")).toContainText(project2.name, { timeout: 10_000 });
   });
 
@@ -135,33 +142,33 @@ test.describe("Project Detail Page", () => {
   });
 
   test("chat placeholder text is correct", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     const textarea = page.locator("textarea").first();
-    await expect(textarea).toBeVisible({ timeout: 10_000 });
+    await expect(textarea).toBeVisible({ timeout: 15_000 });
     await expect(textarea).toHaveAttribute("placeholder", /Type a message/);
   });
 
   test("send button is disabled when input is empty", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     const sendButton = page.getByRole("button", { name: "Send" });
     await expect(sendButton).toBeVisible({ timeout: 10_000 });
-    await expect(sendButton).toBeDisabled();
+    await expect(sendButton).toBeDisabled({ timeout: 5_000 });
   });
 
   test("send button is enabled when input has text", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     const textarea = page.locator("textarea").first();
-    await expect(textarea).toBeVisible({ timeout: 10_000 });
+    await expect(textarea).toBeVisible({ timeout: 15_000 });
 
     await textarea.fill("test message");
     const sendButton = page.getByRole("button", { name: "Send" });
-    await expect(sendButton).toBeEnabled();
+    await expect(sendButton).toBeEnabled({ timeout: 5_000 });
   });
 
   test("Enter key sends message in chat", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     const textarea = page.locator("textarea").first();
-    await expect(textarea).toBeVisible({ timeout: 10_000 });
+    await expect(textarea).toBeVisible({ timeout: 15_000 });
 
     const msgText = `enter-send-${Date.now()}`;
     await textarea.fill(msgText);
@@ -172,14 +179,14 @@ test.describe("Project Detail Page", () => {
   });
 
   test("Shift+Enter does not send message (allows newline)", async ({ page }) => {
-    await page.goto(`/projects/${projectId}`);
+    await gotoProject(page, projectId);
     const textarea = page.locator("textarea").first();
-    await expect(textarea).toBeVisible({ timeout: 10_000 });
+    await expect(textarea).toBeVisible({ timeout: 15_000 });
 
     await textarea.fill("first line");
     await textarea.press("Shift+Enter");
     // After Shift+Enter, Send button should remain enabled (message not yet sent)
     const sendButton = page.getByRole("button", { name: "Send" });
-    await expect(sendButton).toBeEnabled();
+    await expect(sendButton).toBeEnabled({ timeout: 5_000 });
   });
 });

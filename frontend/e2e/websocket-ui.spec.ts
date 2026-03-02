@@ -3,16 +3,17 @@ import { expect, test } from "./fixtures";
 test.describe("WebSocket UI integration", () => {
   test("activity page shows WebSocket connection badge", async ({ page }) => {
     await page.goto("/activity");
-    // The badge shows either "Live" (connected) or "Disconnected"
-    const liveBadge = page.getByText("Live");
-    const disconnectedBadge = page.getByText("Disconnected");
-    await expect(liveBadge.or(disconnectedBadge)).toBeVisible({ timeout: 10_000 });
+    // The badge shows either "Live" (connected) or "disconnected" text.
+    // Both may be visible simultaneously (alert bar + badge), so use .first()
+    const liveBadge = page.getByText("Live", { exact: true });
+    const disconnectedText = page.getByText("disconnected").first();
+    await expect(liveBadge.or(disconnectedText).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("badge shows 'Live' when WS is connected", async ({ page }) => {
     await page.goto("/activity");
     // Wait for WebSocket to connect — the badge should show "Live"
-    await expect(page.getByText("Live")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Live", { exact: true })).toBeVisible({ timeout: 10_000 });
   });
 
   test("navigate to activity page -> feed container is visible", async ({ page }) => {

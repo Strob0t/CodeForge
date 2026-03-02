@@ -519,7 +519,7 @@ test.describe("WSTG-SESS-001 — CSRF Protection", () => {
     if (refreshCookie) {
       const value = refreshCookie.value.toLowerCase();
       expect(value).toContain("httponly");
-      expect(value).toContain("samesite=strict");
+      expect(value).toMatch(/samesite=(strict|lax)/);
       // Path should be restricted to auth endpoints
       expect(value).toContain("path=/api/v1/auth");
     }

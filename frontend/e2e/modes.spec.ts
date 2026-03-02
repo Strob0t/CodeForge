@@ -89,13 +89,13 @@ test.describe("Agent Modes", () => {
       .filter({ hasText: "built-in" })
       .first();
     await expect(builtinCard).toBeVisible({ timeout: 10_000 });
-    await expect(builtinCard.getByRole("button", { name: /Edit/ })).not.toBeVisible();
+    await expect(builtinCard.getByRole("button", { name: /^Edit mode/ })).not.toBeVisible();
 
-    // Custom mode should have "Edit" button
+    // Custom mode should have "Edit" button — use aria-label prefix to avoid matching Delete
     const customCard = page
       .locator("[class*='hover:shadow']")
       .filter({ hasText: "Edit Check Mode" });
-    await expect(customCard.getByRole("button", { name: /Edit/ })).toBeVisible();
+    await expect(customCard.getByRole("button", { name: /^Edit mode/ })).toBeVisible();
   });
 
   test("built-in modes show builtin badge", async ({ page }) => {

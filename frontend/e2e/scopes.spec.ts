@@ -51,7 +51,7 @@ test.describe("Retrieval Scopes", () => {
     await page.getByRole("button", { name: "Create Scope" }).click();
 
     await expect(page.locator("#scope-desc")).toBeVisible();
-    await expect(page.getByText("Description")).toBeVisible();
+    await expect(page.locator("label[for='scope-desc']")).toBeVisible();
   });
 
   test("form validation on empty name", async ({ page }) => {
@@ -70,6 +70,7 @@ test.describe("Retrieval Scopes", () => {
     await page.getByRole("button", { name: "Create Scope" }).click();
 
     await page.locator("#scope-name").fill("E2E Test Scope");
+    await page.locator("#scope-type").selectOption("global");
     await page.locator("#scope-desc").fill("Test scope description");
     await page.getByRole("button", { name: "Create Scope" }).last().click();
 
@@ -80,21 +81,22 @@ test.describe("Retrieval Scopes", () => {
     await api.createScope({
       name: "Badge Test Scope",
       description: "For badge testing",
-      type: "shared",
+      type: "global",
       project_ids: [],
     });
     await page.goto("/scopes");
 
     await expect(page.getByText("Badge Test Scope")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Shared")).toBeVisible();
-    await expect(page.getByText("0 projects")).toBeVisible();
+    const card = page.locator("[class*='hover:shadow']").filter({ hasText: "Badge Test Scope" });
+    await expect(card.getByText("Global").first()).toBeVisible();
+    await expect(card.getByText("0 projects")).toBeVisible();
   });
 
   test("card is expandable on click", async ({ page, api }) => {
     await api.createScope({
       name: "Expandable Scope",
       description: "Click to expand",
-      type: "shared",
+      type: "global",
       project_ids: [],
     });
     await page.goto("/scopes");
@@ -106,7 +108,7 @@ test.describe("Retrieval Scopes", () => {
     await card.locator("[role='button']").click();
 
     // Expanded view should show the detail panel with tabs
-    await expect(card.getByText("Projects")).toBeVisible({ timeout: 5_000 });
+    await expect(card.getByRole("tab", { name: "Projects" })).toBeVisible({ timeout: 5_000 });
   });
 
   test("expanded view has tabs for Projects, Knowledge Bases, Search", async ({ page, api }) => {
@@ -125,16 +127,16 @@ test.describe("Retrieval Scopes", () => {
     await card.locator("[role='button']").click();
 
     // Verify all three tabs are present
-    await expect(card.getByText("Projects")).toBeVisible({ timeout: 5_000 });
-    await expect(card.getByText("Knowledge Bases")).toBeVisible();
-    await expect(card.getByText("Search")).toBeVisible();
+    await expect(card.getByRole("tab", { name: "Projects" })).toBeVisible({ timeout: 5_000 });
+    await expect(card.getByRole("tab", { name: "Knowledge Bases" })).toBeVisible();
+    await expect(card.getByRole("tab", { name: "Search" })).toBeVisible();
   });
 
   test("delete scope removes card", async ({ page, api }) => {
     await api.createScope({
       name: "ToDelete Scope",
       description: "Will be deleted",
-      type: "shared",
+      type: "global",
       project_ids: [],
     });
     await page.goto("/scopes");
@@ -144,7 +146,7 @@ test.describe("Retrieval Scopes", () => {
 
     // Expand the card to access the delete button
     await card.locator("[role='button']").click();
-    await card.getByRole("button", { name: "Delete" }).click();
+    await card.getByRole("button", { name: "Delete", exact: true }).click();
 
     await expect(page.getByText("ToDelete Scope")).not.toBeVisible({ timeout: 10_000 });
   });

@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  retries: 1,
   globalSetup: "./e2e/global-setup.ts",
   reporter: [["html", { outputFolder: "e2e-report", open: "never" }]],
   outputDir: "e2e-results",

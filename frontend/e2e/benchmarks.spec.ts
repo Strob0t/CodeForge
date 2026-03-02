@@ -7,7 +7,6 @@ import { expect, test } from "./fixtures";
 /** Helper: go to benchmarks, return true if the page rendered successfully */
 async function benchmarkPageLoaded(page: import("@playwright/test").Page): Promise<boolean> {
   await page.goto("/benchmarks");
-  // Wait for either the benchmark heading or some fallback (error boundary, redirect, empty)
   try {
     await page.locator("main h1").waitFor({ state: "visible", timeout: 5_000 });
     const text = await page.locator("main h1").textContent();
@@ -20,9 +19,7 @@ async function benchmarkPageLoaded(page: import("@playwright/test").Page): Promi
 test.describe("Benchmarks page", () => {
   test("page loads or shows dev-mode fallback", async ({ page }) => {
     await page.goto("/benchmarks");
-    // Page should not crash — either benchmarks load or something else renders
     await page.waitForLoadState("networkidle");
-    // No uncaught exceptions means success
   });
 
   test("heading shows 'Benchmark Dashboard' (dev mode only)", async ({ page }) => {
@@ -39,12 +36,12 @@ test.describe("Benchmarks page", () => {
       return;
     }
 
-    await expect(page.locator("#benchmark-dataset")).not.toBeVisible();
+    await expect(page.locator("form")).not.toBeVisible();
     await page.getByRole("button", { name: "New Run" }).click();
-    await expect(page.locator("#benchmark-dataset").or(page.getByText("Dataset"))).toBeVisible();
+    await expect(page.locator("form")).toBeVisible();
 
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.locator("#benchmark-dataset")).not.toBeVisible();
+    await expect(page.locator("form")).not.toBeVisible();
   });
 
   test("form has dataset select or input (dev mode only)", async ({ page }) => {
@@ -53,7 +50,7 @@ test.describe("Benchmarks page", () => {
       return;
     }
     await page.getByRole("button", { name: "New Run" }).click();
-    await expect(page.getByText("Dataset")).toBeVisible();
+    await expect(page.locator("label[for='benchmark-dataset']")).toBeVisible();
   });
 
   test("form has model input (dev mode only)", async ({ page }) => {
@@ -62,8 +59,9 @@ test.describe("Benchmarks page", () => {
       return;
     }
     await page.getByRole("button", { name: "New Run" }).click();
-    await expect(page.getByText("Model")).toBeVisible();
-    await expect(page.getByPlaceholder("openai/gpt-4o")).toBeVisible();
+    await expect(page.locator("label[for='benchmark-model']")).toBeVisible();
+    // Model input is a textbox within the form
+    await expect(page.locator("form").getByRole("textbox").first()).toBeVisible();
   });
 
   test("form has metrics toggle buttons (dev mode only)", async ({ page }) => {
@@ -72,8 +70,8 @@ test.describe("Benchmarks page", () => {
       return;
     }
     await page.getByRole("button", { name: "New Run" }).click();
-    await expect(page.getByText("Metrics")).toBeVisible();
-    await expect(page.getByRole("button", { name: "correctness" })).toBeVisible();
+    await expect(page.locator("label[for='benchmark-metrics']")).toBeVisible();
+    await expect(page.getByRole("button", { name: "correctness", exact: true })).toBeVisible();
   });
 
   test("form validation: dataset and model required (dev mode only)", async ({ page }) => {
@@ -85,8 +83,8 @@ test.describe("Benchmarks page", () => {
     const submitBtn = page.getByRole("button", { name: "Start Run" });
     await expect(submitBtn).toBeVisible();
     await submitBtn.click();
-    const modelInput = page.getByPlaceholder("openai/gpt-4o");
-    await expect(modelInput).toBeVisible();
+    // Form stays visible after validation failure
+    await expect(page.locator("form")).toBeVisible();
   });
 
   test("cancel closes form (dev mode only)", async ({ page }) => {
@@ -95,9 +93,9 @@ test.describe("Benchmarks page", () => {
       return;
     }
     await page.getByRole("button", { name: "New Run" }).click();
-    await expect(page.getByText("Dataset")).toBeVisible();
+    await expect(page.locator("form")).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByText("Dataset")).not.toBeVisible();
+    await expect(page.locator("form")).not.toBeVisible();
   });
 
   test("run list area visible (empty state) (dev mode only)", async ({ page }) => {
@@ -106,8 +104,8 @@ test.describe("Benchmarks page", () => {
       return;
     }
     const emptyState = page.getByText("No benchmark runs yet.");
-    const runList = page.locator("[class*='space-y']");
-    await expect(emptyState.or(runList)).toBeVisible({ timeout: 10_000 });
+    const deleteBtn = page.getByRole("button", { name: "Delete" }).first();
+    await expect(emptyState.or(deleteBtn)).toBeVisible({ timeout: 10_000 });
   });
 
   test("datasets info section visible (dev mode only)", async ({ page }) => {
@@ -123,7 +121,10 @@ test.describe("Benchmarks page", () => {
       test.skip();
       return;
     }
-    await expect(page.getByText("Compare Runs")).toBeVisible({ timeout: 10_000 });
+    // Compare section only renders when 2+ runs exist; accept empty state too
+    const compareHeading = page.getByText("Compare Runs");
+    const emptyState = page.getByText("No benchmark runs yet.");
+    await expect(compareHeading.or(emptyState)).toBeVisible({ timeout: 10_000 });
   });
 
   test("delete run button (if runs exist) (dev mode only)", async ({ page }) => {

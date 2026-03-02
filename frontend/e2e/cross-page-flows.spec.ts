@@ -65,12 +65,15 @@ test.describe("Cross-Page Flows", () => {
 
   test("settings flow: navigate to settings, verify VCS section", async ({ page }) => {
     await page.goto("/settings");
+    await page.waitForLoadState("networkidle");
     await expect(page.locator("main h1")).toContainText("Settings", {
       timeout: 10_000,
     });
 
-    // VCS Accounts section should be visible
-    await expect(page.getByText("VCS Accounts")).toBeVisible({ timeout: 10_000 });
+    // VCS Accounts section should be visible — use heading role to avoid strict mode
+    await expect(page.getByRole("heading", { name: "VCS Accounts" })).toBeVisible({
+      timeout: 10_000,
+    });
 
     // Add Account button should be visible
     await expect(page.getByRole("button", { name: "Add Account" })).toBeVisible();

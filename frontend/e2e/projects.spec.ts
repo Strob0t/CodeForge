@@ -13,7 +13,7 @@ test.describe("Project management", () => {
   test("create project via form", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Add Project" }).click();
-    await page.getByLabel("Name *").fill("Test Project");
+    await page.locator("#name").fill("Test Project");
     await page.getByRole("button", { name: "Create Project" }).click();
 
     await expect(page.getByText("Test Project")).toBeVisible();
@@ -33,7 +33,7 @@ test.describe("Project management", () => {
     await page.goto("/");
 
     await expect(page.getByText("To Delete")).toBeVisible();
-    await page.getByRole("button", { name: "Delete" }).click();
+    await page.getByRole("button", { name: "Delete project To Delete" }).click();
     await expect(page.getByText("To Delete")).not.toBeVisible();
   });
 
