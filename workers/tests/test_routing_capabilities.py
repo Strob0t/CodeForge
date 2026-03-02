@@ -42,14 +42,6 @@ _MOCK_MODEL_COST = {
 }
 
 
-def _patch_model_cost():
-    """Patch litellm.model_cost with our mock data."""
-    return patch.dict(
-        "codeforge.routing.capabilities.logging.__class__.__module__",
-        {},
-    )
-
-
 # -- enrich_model_capabilities -----------------------------------------------
 
 

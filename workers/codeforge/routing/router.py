@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from codeforge.routing.models import (
     ComplexityTier,
+    PromptAnalysis,
     RoutingConfig,
     RoutingDecision,
 )
@@ -124,27 +125,36 @@ class HybridRouter:
 
     def _complexity_fallback(
         self,
-        analysis: object,
+        analysis: PromptAnalysis,
         max_cost: float | None,
     ) -> RoutingDecision | None:
-        """Select a model from the static tier-to-model defaults."""
-        from codeforge.routing.models import PromptAnalysis
+        """Select a model from the static tier-to-model defaults.
 
+        Respects ``max_cost`` by filtering out models whose
+        ``input_cost_per_token`` exceeds the budget (requires capabilities lookup).
+        """
         if not isinstance(analysis, PromptAnalysis):
             return None
 
         preferences = COMPLEXITY_DEFAULTS.get(analysis.complexity_tier, [])
 
         for model in preferences:
-            if model in self._available_models:
-                return RoutingDecision(
-                    model=model,
-                    routing_layer="complexity",
-                    complexity_tier=analysis.complexity_tier,
-                    task_type=analysis.task_type,
-                    confidence=analysis.confidence,
-                    reasoning=f"Complexity fallback: {analysis.complexity_tier}",
-                )
+            if model not in self._available_models:
+                continue
+            if max_cost is not None:
+                from codeforge.routing.capabilities import enrich_model_capabilities
+
+                caps = enrich_model_capabilities(model)
+                if caps["input_cost_per_token"] > max_cost:
+                    continue
+            return RoutingDecision(
+                model=model,
+                routing_layer="complexity",
+                complexity_tier=analysis.complexity_tier,
+                task_type=analysis.task_type,
+                confidence=analysis.confidence,
+                reasoning=f"Complexity fallback: {analysis.complexity_tier}",
+            )
 
         # No preferred model available — use first available model.
         if self._available_models:

@@ -483,6 +483,7 @@ func run() error {
 	// --- Model Registry (Phase 22) ---
 	// Periodic polling of LiteLLM model health; first refresh is synchronous.
 	modelRegistry := service.NewModelRegistry(llmClient, hub, cfg.LiteLLM.HealthPollInterval)
+	modelRegistry.SetRoutingService(routingSvc)
 	modelRegistry.Start(ctx)
 	slog.Info("model registry initialized",
 		"poll_interval", cfg.LiteLLM.HealthPollInterval,
@@ -563,6 +564,9 @@ func run() error {
 		slog.Info("email feedback provider registered")
 	}
 
+	benchmarkSvc := service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir)
+	benchmarkSvc.SetRoutingService(routingSvc)
+
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,
 		Tasks:            taskSvc,
@@ -602,7 +606,7 @@ func run() error {
 		LSP:              lspSvc,
 		MCP:              mcpSvc,
 		PromptSections:   service.NewPromptSectionService(store),
-		Benchmarks:       service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir),
+		Benchmarks:       benchmarkSvc,
 		ReviewRouter:     reviewRouterSvc,
 		ModelRegistry:    modelRegistry,
 		Copilot:          copilotClient,

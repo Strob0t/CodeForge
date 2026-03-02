@@ -177,7 +177,10 @@ class LLMMetaRouter:
     @staticmethod
     def _tier_to_model(tier: str, available_models: list[str]) -> str | None:
         """Map a tier name to the first available model from preference list."""
-        preferences = _TIER_MODELS.get(tier.lower(), [])
+        preferences = _TIER_MODELS.get(tier.lower())
+        if preferences is None:
+            logger.debug("Unrecognised tier %r — no preference list available", tier)
+            return None
         for model in preferences:
             if model in available_models:
                 return model

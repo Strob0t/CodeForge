@@ -76,11 +76,8 @@ def test_prompt_analysis_frozen() -> None:
         dimensions={},
         confidence=0.5,
     )
-    try:
+    with pytest.raises(AttributeError):
         pa.confidence = 0.9  # type: ignore[misc]
-        pytest.fail("Expected FrozenInstanceError")
-    except AttributeError:
-        pass
 
 
 # -- RoutingDecision ---------------------------------------------------------
@@ -122,11 +119,8 @@ def test_routing_decision_frozen() -> None:
         complexity_tier=ComplexityTier.SIMPLE,
         task_type=TaskType.CHAT,
     )
-    try:
+    with pytest.raises(AttributeError):
         rd.model = "y"  # type: ignore[misc]
-        pytest.fail("Expected FrozenInstanceError")
-    except AttributeError:
-        pass
 
 
 # -- ModelStats --------------------------------------------------------------

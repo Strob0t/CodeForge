@@ -14,6 +14,8 @@ from codeforge.runtime import RuntimeClient
 if TYPE_CHECKING:
     import nats.aio.msg
 
+    from codeforge.routing.router import HybridRouter
+
 logger = structlog.get_logger()
 
 
@@ -99,14 +101,14 @@ class ConversationHandlerMixin:
 
             scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
             router = self._get_hybrid_router()
-            routed_model, temperature, scenario_tags = resolve_model_with_routing(
+            routing = resolve_model_with_routing(
                 prompt=user_prompt,
                 scenario=scenario,
                 router=router,
                 max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
             )
-            if routed_model:
-                log.info("routing selected model", model=routed_model, scenario=scenario)
+            if routing.model:
+                log.info("routing selected model", model=routing.model, scenario=scenario)
 
             executor = AgentLoopExecutor(
                 llm=self._llm,
@@ -117,9 +119,12 @@ class ConversationHandlerMixin:
             loop_cfg = LoopConfig(
                 max_iterations=run_msg.termination.max_steps or 50,
                 max_cost=run_msg.termination.max_cost or 0.0,
-                model=routed_model or run_msg.model,
-                temperature=temperature,
-                tags=scenario_tags,
+                model=routing.model or run_msg.model,
+                temperature=routing.temperature,
+                tags=routing.tags,
+                routing_layer=routing.routing_layer,
+                complexity_tier=routing.complexity_tier,
+                task_type=routing.task_type,
             )
             result = await executor.run(messages, config=loop_cfg)
 
@@ -236,7 +241,7 @@ class ConversationHandlerMixin:
         log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
         return f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
 
-    def _get_hybrid_router(self) -> object | None:  # noqa: C901
+    def _get_hybrid_router(self) -> HybridRouter | None:  # noqa: C901
         """Build a HybridRouter if routing is enabled. Returns None otherwise."""
         from codeforge.llm import load_routing_config
 
@@ -350,10 +355,15 @@ class ConversationHandlerMixin:
         try:
             resp = httpx.get(f"{litellm_url}/v1/models", timeout=5.0)
             if resp.status_code != 200:
+                logger.warning("LiteLLM /v1/models returned status %d", resp.status_code)
                 return []
             data = resp.json()
-            return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            if not models:
+                logger.warning("LiteLLM /v1/models returned empty model list")
+            return models
         except Exception:
+            logger.warning("failed to fetch models from LiteLLM", exc_info=True)
             return []
 
     def _register_handoff_tool(self, registry: object, run_id: str) -> None:

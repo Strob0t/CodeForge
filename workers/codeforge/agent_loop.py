@@ -46,6 +46,9 @@ class LoopConfig:
     temperature: float = 0.2
     tags: list[str] = field(default_factory=list)
     output_schema: str = ""  # Pydantic schema name from codeforge.schemas
+    routing_layer: str = ""
+    complexity_tier: str = ""
+    task_type: str = ""
 
 
 @dataclass
@@ -214,6 +217,19 @@ class AgentLoopExecutor:
             )
         except Exception as exc:
             logger.exception("LLM call failed on iteration %d", iteration)
+            if cfg.routing_layer:
+                _record_routing_outcome(
+                    model=cfg.model,
+                    task_type=cfg.task_type,
+                    complexity_tier=cfg.complexity_tier,
+                    success=False,
+                    cost_usd=0.0,
+                    latency_ms=0,
+                    tokens_in=0,
+                    tokens_out=0,
+                    routing_layer=cfg.routing_layer,
+                    run_id=self._runtime.run_id,
+                )
             return f"LLM call failed: {exc}"
 
         full_text = "".join(streamed_text)
@@ -237,6 +253,20 @@ class AgentLoopExecutor:
             tokens_out=response.tokens_out,
             model=response.model,
         )
+
+        if cfg.routing_layer:
+            _record_routing_outcome(
+                model=response.model or cfg.model,
+                task_type=cfg.task_type,
+                complexity_tier=cfg.complexity_tier,
+                success=True,
+                cost_usd=cost,
+                latency_ms=0,
+                tokens_in=response.tokens_in,
+                tokens_out=response.tokens_out,
+                routing_layer=cfg.routing_layer,
+                run_id=self._runtime.run_id,
+            )
 
         if not response.tool_calls:
             state.final_content = response.content
@@ -323,6 +353,52 @@ class AgentLoopExecutor:
         msg = _build_tool_result_message(tc, content)
         state.tool_messages.append(msg)
         messages.append(_payload_to_dict(msg))
+
+
+def _record_routing_outcome(
+    model: str,
+    task_type: str,
+    complexity_tier: str,
+    success: bool,
+    cost_usd: float,
+    latency_ms: int,
+    tokens_in: int,
+    tokens_out: int,
+    routing_layer: str,
+    run_id: str,
+) -> None:
+    """Post a routing outcome to Go Core for MAB learning. Fire-and-forget."""
+    import os
+
+    import httpx
+
+    from codeforge.routing.models import RoutingConfig
+    from codeforge.routing.reward import compute_reward
+
+    quality = 1.0 if success else 0.0
+    reward = compute_reward(success, quality, cost_usd, latency_ms, RoutingConfig())
+    core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+    try:
+        httpx.post(
+            f"{core_url}/api/v1/routing/outcomes",
+            json={
+                "model_name": model,
+                "task_type": task_type or "chat",
+                "complexity_tier": complexity_tier or "simple",
+                "success": success,
+                "quality_score": quality,
+                "cost_usd": cost_usd,
+                "latency_ms": latency_ms,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "reward": reward,
+                "routing_layer": routing_layer,
+                "run_id": run_id,
+            },
+            timeout=3.0,
+        )
+    except Exception:
+        logger.debug("failed to record routing outcome", exc_info=True)
 
 
 def _build_correction_hint(tool_name: str, error: str) -> str:

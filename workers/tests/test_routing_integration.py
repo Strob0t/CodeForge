@@ -30,31 +30,31 @@ def _make_router(
 class TestResolveModelWithRouting:
     def test_with_router_returns_model(self) -> None:
         router = _make_router(enabled=True, available=["groq/llama-3.1-8b-instant"])
-        model, _temp, tags = resolve_model_with_routing("Hello", "default", router=router)
-        assert model == "groq/llama-3.1-8b-instant"
-        assert tags == []
+        result = resolve_model_with_routing("Hello", "default", router=router)
+        assert result.model == "groq/llama-3.1-8b-instant"
+        assert result.tags == []
 
     def test_without_router_falls_back_to_tags(self) -> None:
-        model, temp, tags = resolve_model_with_routing("Hello", "think", router=None)
-        assert model == ""
-        assert temp == 0.3
-        assert tags == ["think"]
+        result = resolve_model_with_routing("Hello", "think", router=None)
+        assert result.model == ""
+        assert result.temperature == 0.3
+        assert result.tags == ["think"]
 
     def test_router_disabled_returns_tags(self) -> None:
         router = _make_router(enabled=False)
-        model, _temp, tags = resolve_model_with_routing("Hello", "review", router=router)
-        assert model == ""
-        assert tags == ["review"]
+        result = resolve_model_with_routing("Hello", "review", router=router)
+        assert result.model == ""
+        assert result.tags == ["review"]
 
     def test_temperature_from_scenario(self) -> None:
         router = _make_router(enabled=True, available=["groq/llama-3.1-8b-instant"])
-        _, temp, _ = resolve_model_with_routing("Hello", "plan", router=router)
-        assert temp == 0.3  # plan scenario temperature
+        result = resolve_model_with_routing("Hello", "plan", router=router)
+        assert result.temperature == 0.3  # plan scenario temperature
 
     def test_unknown_scenario_defaults(self) -> None:
-        _, temp, tags = resolve_model_with_routing("Hello", "unknown_scenario", router=None)
-        assert temp == 0.2
-        assert tags == []
+        result = resolve_model_with_routing("Hello", "unknown_scenario", router=None)
+        assert result.temperature == 0.2
+        assert result.tags == []
 
     def test_complex_prompt_routes_to_premium(self) -> None:
         router = _make_router(
@@ -68,14 +68,14 @@ class TestResolveModelWithRouting:
             "Step 1: Design the event store. Step 2: Implement projections. "
             "Step 3: Migrate existing data. Step 4: Add integration tests."
         )
-        model, _, _ = resolve_model_with_routing(prompt, "default", router=router)
-        assert model in ("openai/gpt-4o", "groq/llama-3.1-8b-instant")
-        assert model != ""  # Should always return a model when router is enabled
+        result = resolve_model_with_routing(prompt, "default", router=router)
+        assert result.model in ("openai/gpt-4o", "groq/llama-3.1-8b-instant")
+        assert result.model != ""  # Should always return a model when router is enabled
 
     def test_non_router_object_ignored(self) -> None:
-        model, _, tags = resolve_model_with_routing("Hello", "think", router="not_a_router")
-        assert model == ""
-        assert tags == ["think"]
+        result = resolve_model_with_routing("Hello", "think", router="not_a_router")
+        assert result.model == ""
+        assert result.tags == ["think"]
 
 
 # -- resolve_scenario ----------------------------------------------------------

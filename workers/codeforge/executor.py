@@ -85,7 +85,7 @@ class AgentExecutor:
         from codeforge.llm import resolve_model_with_routing
 
         scenario_tag = mode.llm_scenario if mode and mode.llm_scenario else "default"
-        routed_model, temperature, scenario_tags = resolve_model_with_routing(
+        routing = resolve_model_with_routing(
             prompt=task.prompt,
             scenario=scenario_tag,
         )
@@ -93,8 +93,8 @@ class AgentExecutor:
             "llm_routing_decision run_id=%s mode=%s routed_model=%s temperature=%.2f",
             runtime.run_id,
             mode.id if mode else "",
-            routed_model or "(tag-based)",
-            temperature,
+            routing.model or "(tag-based)",
+            routing.temperature,
         )
 
         workbench: McpWorkbench | None = None
@@ -127,12 +127,12 @@ class AgentExecutor:
                 return
 
             # Execute the LLM call with routing decision.
-            model = routed_model or task.config.get("model", "")
+            model = routing.model or task.config.get("model", "")
             response = await self._llm.completion(
                 prompt=task.prompt,
                 system=system_prompt,
-                temperature=temperature,
-                tags=scenario_tags or None,
+                temperature=routing.temperature,
+                tags=routing.tags or None,
                 **({"model": model} if model else {}),
             )
 

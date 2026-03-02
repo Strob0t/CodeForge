@@ -6,7 +6,7 @@ import contextlib
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import httpx
@@ -93,19 +93,27 @@ def resolve_scenario(scenario: str) -> ScenarioConfig:
     return SCENARIO_DEFAULTS.get(scenario, _FALLBACK)
 
 
+@dataclass(frozen=True)
+class RoutingResult:
+    """Result of model routing — model, temperature, tags, and routing metadata."""
+
+    model: str = ""
+    temperature: float = 0.2
+    tags: list[str] = field(default_factory=list)
+    routing_layer: str = ""
+    complexity_tier: str = ""
+    task_type: str = ""
+
+
 def resolve_model_with_routing(
     prompt: str,
     scenario: str,
     router: object | None = None,
     max_cost: float | None = None,
-) -> tuple[str, float, list[str]]:
+) -> RoutingResult:
     """Resolve model, temperature, and tags — using HybridRouter when available.
 
-    Returns:
-        (model_name, temperature, tags)
-        - model_name: explicit model name (empty = let LiteLLM decide via tags).
-        - temperature: from scenario config.
-        - tags: routing tags (empty when router provides a model).
+    Returns a RoutingResult with model name, temperature, tags, and routing metadata.
     """
     scenario_cfg = resolve_scenario(scenario)
 
@@ -122,11 +130,17 @@ def resolve_model_with_routing(
                     decision.complexity_tier,
                     decision.task_type,
                 )
-                return decision.model, scenario_cfg.temperature, []
+                return RoutingResult(
+                    model=decision.model,
+                    temperature=scenario_cfg.temperature,
+                    routing_layer=str(decision.routing_layer),
+                    complexity_tier=str(decision.complexity_tier),
+                    task_type=str(decision.task_type),
+                )
 
     # Fallback: tag-based routing via LiteLLM.
     tags = [scenario_cfg.tag] if scenario_cfg.tag else []
-    return "", scenario_cfg.temperature, tags
+    return RoutingResult(model="", temperature=scenario_cfg.temperature, tags=tags)
 
 
 def load_routing_config() -> object | None:
