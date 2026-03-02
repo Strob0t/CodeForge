@@ -1,11 +1,13 @@
 # LiteLLM Proxy Configuration
 # Docs: https://docs.litellm.ai/docs/proxy/configs
 #
-# Scenario-based routing: each model is tagged with scenario tags in
-# litellm_params.tags. Workers send tags=["think"] (or "background", etc.)
-# in their completion requests, and LiteLLM routes to a matching model.
-# Requests without tags route to ALL models (no filtering).
-# Supported scenarios: background, think, longContext, review, plan
+# Phase 26N: Wildcard routing - provider-level wildcards replace individual
+# model entries. The Python worker selects the exact model name via the
+# HybridRouter (or scenario-based routing), and LiteLLM routes directly.
+#
+# When intelligent routing is disabled (CODEFORGE_ROUTING_ENABLED=false),
+# workers still use tag-based routing as a fallback. Tags are preserved
+# on the wildcard entries for backwards compatibility.
 
 model_list:
   # -- Local Models (Ollama) --
@@ -16,184 +18,34 @@ model_list:
       tags: ["background"]
 
   # -- OpenAI --
-  - model_name: "gpt-4o"
+  - model_name: "openai/*"
     litellm_params:
-      model: "openai/gpt-4o"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "gpt-4o-mini"
-    litellm_params:
-      model: "openai/gpt-4o-mini"
-      tags: ["background"]
+      model: "openai/*"
+      api_key: "os.environ/OPENAI_API_KEY"
 
   # -- Anthropic --
-  - model_name: "claude-opus-4.6"
+  - model_name: "anthropic/*"
     litellm_params:
-      model: "anthropic/claude-opus-4-6"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "claude-sonnet-4.6"
-    litellm_params:
-      model: "anthropic/claude-sonnet-4-6"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "claude-sonnet-4"
-    litellm_params:
-      model: "anthropic/claude-sonnet-4-20250514"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "claude-haiku-4.5"
-    litellm_params:
-      model: "anthropic/claude-haiku-4-5-20251001"
-      tags: ["background"]
-
-  - model_name: "claude-haiku-3.5"
-    litellm_params:
-      model: "anthropic/claude-3-5-haiku-20241022"
-      tags: ["background"]
+      model: "anthropic/*"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
 
   # -- Google Gemini --
-  - model_name: "gemini-2.5-pro"
+  - model_name: "gemini/*"
     litellm_params:
-      model: "gemini/gemini-2.5-pro-preview-06-05"
-      tags: ["think", "review", "plan", "longContext"]
-
-  - model_name: "gemini-2.5-flash"
-    litellm_params:
-      model: "gemini/gemini-2.5-flash-preview-05-20"
-      tags: ["background", "longContext"]
-
-  - model_name: "gemini-2.0-flash"
-    litellm_params:
-      model: "gemini/gemini-2.0-flash"
-      tags: ["background"]
+      model: "gemini/*"
+      api_key: "os.environ/GEMINI_API_KEY"
 
   # -- Groq (fast inference) --
-  - model_name: "groq/llama-3.3-70b"
+  - model_name: "groq/*"
     litellm_params:
-      model: "groq/llama-3.3-70b-versatile"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "groq/llama-3.1-8b"
-    litellm_params:
-      model: "groq/llama-3.1-8b-instant"
-      tags: ["background"]
-
-  - model_name: "groq/llama-4-maverick"
-    litellm_params:
-      model: "groq/meta-llama/llama-4-maverick-17b-128e-instruct"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "groq/llama-4-scout"
-    litellm_params:
-      model: "groq/meta-llama/llama-4-scout-17b-16e-instruct"
-      tags: ["background"]
-
-  - model_name: "groq/gpt-oss-120b"
-    litellm_params:
-      model: "groq/openai/gpt-oss-120b"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "groq/gpt-oss-20b"
-    litellm_params:
-      model: "groq/openai/gpt-oss-20b"
-      tags: ["background"]
-
-  - model_name: "groq/qwen3-32b"
-    litellm_params:
-      model: "groq/qwen/qwen3-32b"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "groq/kimi-k2"
-    litellm_params:
-      model: "groq/moonshotai/kimi-k2-instruct-0905"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "groq/compound"
-    litellm_params:
-      model: "groq/groq/compound"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "groq/compound-mini"
-    litellm_params:
-      model: "groq/groq/compound-mini"
-      tags: ["background"]
+      model: "groq/*"
+      api_key: "os.environ/GROQ_API_KEY"
 
   # -- Mistral AI --
-  - model_name: "mistral-large"
+  - model_name: "mistral/*"
     litellm_params:
-      model: "mistral/mistral-large-latest"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "mistral-medium"
-    litellm_params:
-      model: "mistral/mistral-medium-latest"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "mistral-small"
-    litellm_params:
-      model: "mistral/mistral-small-latest"
-      tags: ["background"]
-
-  - model_name: "mistral-tiny"
-    litellm_params:
-      model: "mistral/mistral-tiny-latest"
-      tags: ["background"]
-
-  - model_name: "magistral-medium"
-    litellm_params:
-      model: "mistral/magistral-medium-latest"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "magistral-small"
-    litellm_params:
-      model: "mistral/magistral-small-latest"
-      tags: ["background"]
-
-  - model_name: "codestral"
-    litellm_params:
-      model: "mistral/codestral-latest"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "devstral"
-    litellm_params:
-      model: "mistral/devstral-latest"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "devstral-medium"
-    litellm_params:
-      model: "mistral/devstral-medium-latest"
-      tags: ["background"]
-
-  - model_name: "devstral-small"
-    litellm_params:
-      model: "mistral/devstral-small-latest"
-      tags: ["background"]
-
-  - model_name: "ministral-14b"
-    litellm_params:
-      model: "mistral/ministral-14b-latest"
-      tags: ["background"]
-
-  - model_name: "ministral-8b"
-    litellm_params:
-      model: "mistral/ministral-8b-latest"
-      tags: ["background"]
-
-  - model_name: "ministral-3b"
-    litellm_params:
-      model: "mistral/ministral-3b-latest"
-      tags: ["background"]
-
-  - model_name: "pixtral-large"
-    litellm_params:
-      model: "mistral/pixtral-large-latest"
-      tags: ["think", "review", "plan"]
-
-  - model_name: "open-mistral-nemo"
-    litellm_params:
-      model: "mistral/open-mistral-nemo"
-      tags: ["background"]
+      model: "mistral/*"
+      api_key: "os.environ/MISTRAL_API_KEY"
 
 router_settings:
   enable_tag_filtering: true
