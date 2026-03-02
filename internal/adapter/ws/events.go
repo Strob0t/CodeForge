@@ -84,6 +84,11 @@ const (
 
 	// Phase 23D: handoff status events (War Room)
 	EventHandoffStatus = "handoff.status"
+
+	// Phase 26G: benchmark progress events
+	EventBenchmarkTaskStarted   = "benchmark.task.started"
+	EventBenchmarkTaskCompleted = "benchmark.task.completed"
+	EventBenchmarkRunProgress   = "benchmark.run.progress"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -351,6 +356,36 @@ type HandoffStatusEvent struct {
 	StepID        string `json:"step_id,omitempty"`
 	Status        string `json:"status"`
 	Context       string `json:"context,omitempty"`
+}
+
+// BenchmarkTaskStartedEvent is broadcast when a benchmark task begins execution.
+type BenchmarkTaskStartedEvent struct {
+	RunID    string `json:"run_id"`
+	TaskID   string `json:"task_id"`
+	TaskName string `json:"task_name"`
+	Index    int    `json:"index"`
+	Total    int    `json:"total"`
+}
+
+// BenchmarkTaskCompletedEvent is broadcast when a benchmark task finishes.
+type BenchmarkTaskCompletedEvent struct {
+	RunID    string             `json:"run_id"`
+	TaskID   string             `json:"task_id"`
+	TaskName string             `json:"task_name"`
+	Score    float64            `json:"score"`
+	CostUSD  float64            `json:"cost_usd"`
+	Scores   map[string]float64 `json:"scores,omitempty"`
+	Index    int                `json:"index"`
+	Total    int                `json:"total"`
+}
+
+// BenchmarkRunProgressEvent is broadcast periodically with aggregate progress.
+type BenchmarkRunProgressEvent struct {
+	RunID          string  `json:"run_id"`
+	CompletedTasks int     `json:"completed_tasks"`
+	TotalTasks     int     `json:"total_tasks"`
+	AvgScore       float64 `json:"avg_score"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

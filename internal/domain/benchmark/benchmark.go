@@ -200,3 +200,44 @@ type DatasetInfo struct {
 	TaskCount   int    `json:"task_count"`
 	Path        string `json:"path"`
 }
+
+// --- Phase 26G: Cost Analysis, Leaderboard, Benchmark Progress ---
+
+// CostBreakdown holds cost details for a single task in a benchmark run.
+type CostBreakdown struct {
+	TaskID    string  `json:"task_id"`
+	TaskName  string  `json:"task_name"`
+	CostUSD   float64 `json:"cost_usd"`
+	TokensIn  int     `json:"tokens_in"`
+	TokensOut int     `json:"tokens_out"`
+	Score     float64 `json:"score"`
+}
+
+// CostAnalysis aggregates cost metrics for a benchmark run or suite.
+type CostAnalysis struct {
+	RunID             string          `json:"run_id"`
+	Model             string          `json:"model"`
+	SuiteID           string          `json:"suite_id,omitempty"`
+	TotalCostUSD      float64         `json:"total_cost_usd"`
+	TotalTokensIn     int             `json:"total_tokens_in"`
+	TotalTokensOut    int             `json:"total_tokens_out"`
+	AvgScore          float64         `json:"avg_score"`
+	CostPerScorePoint float64         `json:"cost_per_score_point"`
+	TokenEfficiency   float64         `json:"token_efficiency"`
+	TaskBreakdown     []CostBreakdown `json:"task_breakdown"`
+}
+
+// LeaderboardEntry represents one model's performance on a specific suite.
+type LeaderboardEntry struct {
+	Model             string  `json:"model"`
+	RunID             string  `json:"run_id"`
+	SuiteID           string  `json:"suite_id,omitempty"`
+	AvgScore          float64 `json:"avg_score"`
+	TotalCostUSD      float64 `json:"total_cost_usd"`
+	TotalTokensIn     int     `json:"total_tokens_in"`
+	TotalTokensOut    int     `json:"total_tokens_out"`
+	TaskCount         int     `json:"task_count"`
+	CostPerScorePoint float64 `json:"cost_per_score_point"`
+	TokenEfficiency   float64 `json:"token_efficiency"`
+	DurationMs        int64   `json:"duration_ms"`
+}

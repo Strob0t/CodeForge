@@ -2512,3 +2512,15 @@ Git handlers (`handlers_test.go`):
 - [x] (2026-03-02) `CompactSettingsPopover.tsx`: autonomy levels → shared `AUTONOMY_LEVELS_NUMERIC` constant
 - [x] (2026-03-02) `ModelsPage.tsx`: litellmModel → `ModelCombobox` with discovered model suggestions
 - [x] (2026-03-02) `ScopesPage.tsx`, `KnowledgeBasesPage.tsx`, `MCPServersPage.tsx`: constants consolidated from shared module
+
+#### Phase 26: Benchmark System Redesign
+
+- [x] (2026-03-02) Phase 26A: Benchmark Provider Interface & Domain Redesign (BenchmarkType, Suite, extended Run/Result, DB migration, provider registry)
+- [x] (2026-03-02) Phase 26B: Evaluation Pipeline & Evaluator Plugins (LLMJudge, FunctionalTest, SPARC evaluators, composable pipeline)
+- [x] (2026-03-02) Phase 26C: Simple & Tool-Use Benchmark Runners (SimpleBenchmarkRunner, ToolUseBenchmarkRunner, NATS routing)
+- [x] (2026-03-02) Phase 26D: Agent Benchmark Runner (AgentBenchmarkRunner, workspace lifecycle, test command execution)
+- [x] (2026-03-02) Phase 26E: External Code-Gen Providers (HumanEval, MBPP, BigCodeBench, CRUXEval, LiveCodeBench, dataset cache)
+- [x] (2026-03-02) Phase 26F: Agent & Multi-Language Providers (SWE-bench full/lite/verified, SPARCBench, Aider Polyglot)
+- [x] (2026-03-02) Phase 26G: Go API & NATS Enhancements (multi-compare, cost analysis, leaderboard, WS benchmark progress events)
+- [ ] Phase 26H: Frontend Dashboard Redesign
+- [ ] Phase 26I: Configuration & Documentation

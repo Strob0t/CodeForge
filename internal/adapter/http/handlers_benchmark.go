@@ -126,3 +126,49 @@ func (h *Handlers) ListBenchmarkDatasets(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, datasets)
 }
+
+// --- Phase 26G: Multi-Compare, Cost Analysis, Leaderboard ---
+
+// MultiCompareBenchmarkRuns handles POST /api/v1/benchmarks/compare-multi
+func (h *Handlers) MultiCompareBenchmarkRuns(w http.ResponseWriter, r *http.Request) {
+	req, ok := readJSON[benchmark.MultiCompareRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	if len(req.RunIDs) < 2 {
+		writeError(w, http.StatusBadRequest, "at least 2 run_ids are required")
+		return
+	}
+	entries, err := h.Benchmarks.CompareMulti(r.Context(), req.RunIDs)
+	if err != nil {
+		writeDomainError(w, err, "multi-compare benchmark runs")
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// BenchmarkCostAnalysis handles GET /api/v1/benchmarks/runs/{id}/cost-analysis
+func (h *Handlers) BenchmarkCostAnalysis(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "run id is required")
+		return
+	}
+	analysis, err := h.Benchmarks.CostAnalysis(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "benchmark cost analysis")
+		return
+	}
+	writeJSON(w, http.StatusOK, analysis)
+}
+
+// BenchmarkLeaderboard handles GET /api/v1/benchmarks/leaderboard
+func (h *Handlers) BenchmarkLeaderboard(w http.ResponseWriter, r *http.Request) {
+	suiteID := r.URL.Query().Get("suite_id")
+	entries, err := h.Benchmarks.Leaderboard(r.Context(), suiteID)
+	if err != nil {
+		writeDomainError(w, err, "benchmark leaderboard")
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}

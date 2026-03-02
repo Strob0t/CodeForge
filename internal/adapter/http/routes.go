@@ -381,6 +381,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Delete("/runs/{id}", h.DeleteBenchmarkRun)
 			r.Get("/runs/{id}/results", h.ListBenchmarkResults)
 			r.Post("/compare", h.CompareBenchmarkRuns)
+			r.Post("/compare-multi", h.MultiCompareBenchmarkRuns)
+			r.Get("/runs/{id}/cost-analysis", h.BenchmarkCostAnalysis)
+			r.Get("/leaderboard", h.BenchmarkLeaderboard)
 			r.Get("/datasets", h.ListBenchmarkDatasets)
 		})
 
@@ -423,12 +426,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/auto-agent/stop", h.StopAutoAgent)
 		r.Get("/projects/{id}/auto-agent/status", h.GetAutoAgentStatus)
 
-		// Routing (Phase 26) — WIP, handlers in handlers_routing.go.wip
-		// r.Route("/routing", func(r chi.Router) {
-		// 	r.Get("/stats", h.HandleListRoutingStats)
-		// 	r.Post("/stats/refresh", h.HandleRefreshRoutingStats)
-		// 	r.Get("/outcomes", h.HandleListRoutingOutcomes)
-		// })
+		// Routing (Phase 26)
+		r.Route("/routing", func(r chi.Router) {
+			r.Get("/stats", h.HandleListRoutingStats)
+			r.Post("/stats/refresh", h.HandleRefreshRoutingStats)
+			r.Get("/outcomes", h.HandleListRoutingOutcomes)
+		})
 
 		// Quarantine (Phase 23B — admin only)
 		r.Route("/quarantine", func(r chi.Router) {

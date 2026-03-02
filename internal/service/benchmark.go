@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -193,4 +194,197 @@ func (s *BenchmarkService) ListDatasets() ([]benchmark.DatasetInfo, error) {
 		return nil, fmt.Errorf("walk datasets dir: %w", err)
 	}
 	return datasets, nil
+}
+
+// CompareMulti loads N runs and their results for multi-way comparison.
+func (s *BenchmarkService) CompareMulti(ctx context.Context, runIDs []string) ([]benchmark.MultiCompareEntry, error) {
+	if len(runIDs) < 2 {
+		return nil, fmt.Errorf("at least 2 run IDs are required for multi-comparison")
+	}
+	entries := make([]benchmark.MultiCompareEntry, 0, len(runIDs))
+	for _, id := range runIDs {
+		run, err := s.store.GetBenchmarkRun(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("run %s: %w", id, err)
+		}
+		results, err := s.store.ListBenchmarkResults(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("results for %s: %w", id, err)
+		}
+		entries = append(entries, benchmark.MultiCompareEntry{
+			Run:     run,
+			Results: results,
+		})
+	}
+	return entries, nil
+}
+
+// CostAnalysis computes cost breakdown and efficiency metrics for a benchmark run.
+func (s *BenchmarkService) CostAnalysis(ctx context.Context, runID string) (*benchmark.CostAnalysis, error) {
+	run, err := s.store.GetBenchmarkRun(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("run: %w", err)
+	}
+	results, err := s.store.ListBenchmarkResults(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("results: %w", err)
+	}
+
+	var totalCost float64
+	var totalTokensIn, totalTokensOut int
+	var totalScore float64
+	var scoreCount int
+
+	breakdown := make([]benchmark.CostBreakdown, 0, len(results))
+	for _, r := range results {
+		taskScore := avgScoreFromJSON(r.Scores)
+		breakdown = append(breakdown, benchmark.CostBreakdown{
+			TaskID:    r.TaskID,
+			TaskName:  r.TaskName,
+			CostUSD:   r.CostUSD,
+			TokensIn:  r.TokensIn,
+			TokensOut: r.TokensOut,
+			Score:     taskScore,
+		})
+		totalCost += r.CostUSD
+		totalTokensIn += r.TokensIn
+		totalTokensOut += r.TokensOut
+		if taskScore > 0 {
+			totalScore += taskScore
+			scoreCount++
+		}
+	}
+
+	avgScore := 0.0
+	if scoreCount > 0 {
+		avgScore = totalScore / float64(scoreCount)
+	}
+
+	costPerPoint := 0.0
+	if avgScore > 0 {
+		costPerPoint = totalCost / avgScore
+	}
+
+	tokenEff := 0.0
+	totalTokens := totalTokensIn + totalTokensOut
+	if totalTokens > 0 && avgScore > 0 {
+		tokenEff = avgScore / float64(totalTokens) * 1000 // score per 1K tokens
+	}
+
+	return &benchmark.CostAnalysis{
+		RunID:             runID,
+		Model:             run.Model,
+		SuiteID:           run.SuiteID,
+		TotalCostUSD:      totalCost,
+		TotalTokensIn:     totalTokensIn,
+		TotalTokensOut:    totalTokensOut,
+		AvgScore:          avgScore,
+		CostPerScorePoint: costPerPoint,
+		TokenEfficiency:   tokenEff,
+		TaskBreakdown:     breakdown,
+	}, nil
+}
+
+// Leaderboard computes ranked model performance across runs for a given suite.
+func (s *BenchmarkService) Leaderboard(ctx context.Context, suiteID string) ([]benchmark.LeaderboardEntry, error) {
+	filter := benchmark.RunFilter{SuiteID: suiteID}
+	runs, err := s.store.ListBenchmarkRunsFiltered(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("list runs: %w", err)
+	}
+	if len(runs) == 0 {
+		return []benchmark.LeaderboardEntry{}, nil
+	}
+
+	// Build one entry per run (each run = one model execution).
+	entries := make([]benchmark.LeaderboardEntry, 0, len(runs))
+	for i := range runs {
+		run := &runs[i]
+		if run.Status != benchmark.StatusCompleted {
+			continue
+		}
+
+		results, err := s.store.ListBenchmarkResults(ctx, run.ID)
+		if err != nil {
+			continue // skip runs with missing results
+		}
+
+		var totalCost float64
+		var totalTokensIn, totalTokensOut int
+		var totalScore float64
+		var scoreCount int
+
+		for _, r := range results {
+			taskScore := avgScoreFromJSON(r.Scores)
+			totalCost += r.CostUSD
+			totalTokensIn += r.TokensIn
+			totalTokensOut += r.TokensOut
+			if taskScore > 0 {
+				totalScore += taskScore
+				scoreCount++
+			}
+		}
+
+		avgScore := 0.0
+		if scoreCount > 0 {
+			avgScore = totalScore / float64(scoreCount)
+		}
+
+		costPerPoint := 0.0
+		if avgScore > 0 {
+			costPerPoint = totalCost / avgScore
+		}
+
+		tokenEff := 0.0
+		totalTokens := totalTokensIn + totalTokensOut
+		if totalTokens > 0 && avgScore > 0 {
+			tokenEff = avgScore / float64(totalTokens) * 1000
+		}
+
+		entries = append(entries, benchmark.LeaderboardEntry{
+			Model:             run.Model,
+			RunID:             run.ID,
+			SuiteID:           run.SuiteID,
+			AvgScore:          avgScore,
+			TotalCostUSD:      totalCost,
+			TotalTokensIn:     totalTokensIn,
+			TotalTokensOut:    totalTokensOut,
+			TaskCount:         len(results),
+			CostPerScorePoint: costPerPoint,
+			TokenEfficiency:   tokenEff,
+			DurationMs:        run.TotalDurationMs,
+		})
+	}
+
+	// Sort by avg_score descending (best first).
+	sortLeaderboard(entries)
+	return entries, nil
+}
+
+// sortLeaderboard sorts entries by AvgScore descending.
+func sortLeaderboard(entries []benchmark.LeaderboardEntry) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && entries[j].AvgScore > entries[j-1].AvgScore; j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
+		}
+	}
+}
+
+// avgScoreFromJSON extracts the average score from a JSON scores map.
+func avgScoreFromJSON(raw json.RawMessage) float64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var scores map[string]float64
+	if err := json.Unmarshal(raw, &scores); err != nil {
+		return 0
+	}
+	if len(scores) == 0 {
+		return 0
+	}
+	var total float64
+	for _, v := range scores {
+		total += v
+	}
+	return total / float64(len(scores))
 }
