@@ -1998,17 +1998,25 @@ Handler tests:
 - [x] (2026-03-01) `TestHandleEvaluatePolicy` — HTTP 200, decision returned for tool call
 - [x] (2026-03-01) `TestHandleListFeedbackAudit_Empty` — HTTP 200, empty feedback for run
 
-#### P2 — Conversation Handler Tests (agentic loop, 6 tests)
+#### P2 — Conversation Handler Tests (agentic loop, 14 tests)
 
 > **File:** `internal/adapter/http/handlers_conversation_test.go` (new)
 > **Why:** 8 conversation handler functions with zero tests. Agentic conversation loop is core Phase 17 feature.
 
-- [ ] `TestHandleSendMessage_Success` — HTTP 200, message persisted, NATS published to agent loop
-- [ ] `TestHandleSendMessage_EmptyContent` — HTTP 400, empty message rejected
-- [ ] `TestHandleGetConversationHistory` — HTTP 200, paginated history with tool results
-- [ ] `TestHandleListConversations` — HTTP 200, conversations listed by project
-- [ ] `TestHandleDeleteConversation` — HTTP 204, conversation and messages removed
-- [ ] `TestHandleSendMessageAgentic` — HTTP 202, multi-turn agent loop dispatched via NATS
+- [x] (2026-03-02) `TestHandleCreateConversation_Success` — HTTP 201, conversation created with title + project_id
+- [x] (2026-03-02) `TestHandleCreateConversation_DefaultTitle` — HTTP 201, empty title defaults to "New Conversation"
+- [x] (2026-03-02) `TestHandleListConversations_Empty` — HTTP 200, empty array for project
+- [x] (2026-03-02) `TestHandleListConversations_WithData` — HTTP 200, filtered by project_id
+- [x] (2026-03-02) `TestHandleGetConversation_Success` — HTTP 200, returns conversation by ID
+- [x] (2026-03-02) `TestHandleGetConversation_NotFound` — HTTP 404 for non-existent ID
+- [x] (2026-03-02) `TestHandleDeleteConversation_Success` — HTTP 204, conversation removed + verify 404
+- [x] (2026-03-02) `TestHandleDeleteConversation_NotFound` — HTTP 404 for non-existent ID
+- [x] (2026-03-02) `TestHandleListConversationMessages_Empty` — HTTP 200, empty array
+- [x] (2026-03-02) `TestHandleListConversationMessages_WithData` — HTTP 200, filtered by conversation_id
+- [x] (2026-03-02) `TestHandleSendMessage_EmptyContent` — empty content rejected
+- [x] (2026-03-02) `TestHandleStopConversation` — HTTP 200, returns cancelled status
+- [x] (2026-03-02) `TestHandleApproveToolCall_InvalidDecision` — HTTP 400, invalid decision value
+- [x] (2026-03-02) `TestHandleApproveToolCall_NoPendingApproval` — HTTP 404, no pending approval
 
 #### P2 — Cost Handler Tests (budget enforcement, 5 tests)
 

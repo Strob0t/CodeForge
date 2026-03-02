@@ -70,6 +70,9 @@ type mockStore struct {
 	microagents []microagent.Microagent
 	skills      []skill.Skill
 	autoAgents  []autoagent.AutoAgent
+	// Conversation fields
+	convs    []conversation.Conversation
+	messages []conversation.Message
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -900,31 +903,58 @@ func (m *mockStore) DeleteVCSAccount(_ context.Context, _ string) error {
 	return nil
 }
 
-// Conversation stubs
+// Conversation methods
 func (m *mockStore) CreateConversation(_ context.Context, c *conversation.Conversation) (*conversation.Conversation, error) {
 	if c.ID == "" {
-		c.ID = fmt.Sprintf("conv-%d", time.Now().UnixNano())
+		c.ID = fmt.Sprintf("conv-%d", len(m.convs)+1)
 	}
+	m.convs = append(m.convs, *c)
 	return c, nil
 }
 func (m *mockStore) GetConversation(_ context.Context, id string) (*conversation.Conversation, error) {
-	return &conversation.Conversation{ID: id, ProjectID: "test-proj"}, nil
+	for i := range m.convs {
+		if m.convs[i].ID == id {
+			return &m.convs[i], nil
+		}
+	}
+	return nil, errNotFound
 }
-func (m *mockStore) ListConversationsByProject(_ context.Context, _ string) ([]conversation.Conversation, error) {
-	return nil, nil
+func (m *mockStore) ListConversationsByProject(_ context.Context, projectID string) ([]conversation.Conversation, error) {
+	var result []conversation.Conversation
+	for _, c := range m.convs {
+		if c.ProjectID == projectID {
+			result = append(result, c)
+		}
+	}
+	return result, nil
 }
-func (m *mockStore) DeleteConversation(_ context.Context, _ string) error { return nil }
+func (m *mockStore) DeleteConversation(_ context.Context, id string) error {
+	for i := range m.convs {
+		if m.convs[i].ID == id {
+			m.convs = append(m.convs[:i], m.convs[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
 func (m *mockStore) CreateMessage(_ context.Context, msg *conversation.Message) (*conversation.Message, error) {
 	if msg.ID == "" {
-		msg.ID = fmt.Sprintf("msg-%d", time.Now().UnixNano())
+		msg.ID = fmt.Sprintf("msg-%d", len(m.messages)+1)
 	}
+	m.messages = append(m.messages, *msg)
 	return msg, nil
 }
 func (m *mockStore) CreateToolMessages(_ context.Context, _ string, _ []conversation.Message) error {
 	return nil
 }
-func (m *mockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
-	return nil, nil
+func (m *mockStore) ListMessages(_ context.Context, conversationID string) ([]conversation.Message, error) {
+	var result []conversation.Message
+	for i := range m.messages {
+		if m.messages[i].ConversationID == conversationID {
+			result = append(result, m.messages[i])
+		}
+	}
+	return result, nil
 }
 
 // MCP Servers
@@ -1225,6 +1255,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	settingsSvc := service.NewSettingsService(store)
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
 	conversationSvc := service.NewConversationService(store, litellm.NewClient("http://localhost:4000", "test-key"), bc, "", nil)
+	conversationSvc.SetQueue(queue)
 	authCfg := &config.Auth{
 		Enabled:            true,
 		JWTSecret:          "test-secret-key-32bytes-handler!",
