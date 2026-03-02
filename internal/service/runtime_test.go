@@ -25,6 +25,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -36,6 +37,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
@@ -2156,5 +2158,85 @@ func TestHandleToolCallResult_BudgetAlertNoDuplicate(t *testing.T) {
 	// Only 1 alert — the 80% threshold should not fire again
 	if alertCount != 1 {
 		t.Fatalf("expected 1 budget alert (no duplicate), got %d", alertCount)
+	}
+}
+
+// --- Phase 23A: Trust Auto-Stamping Tests ---
+
+func TestStartRun_TrustAutoStamp(t *testing.T) {
+	svc, _, queue, _ := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	req := run.StartRequest{
+		TaskID:    "task-1",
+		AgentID:   "agent-1",
+		ProjectID: "proj-1",
+	}
+	_, err := svc.StartRun(ctx, &req)
+	if err != nil {
+		t.Fatalf("StartRun failed: %v", err)
+	}
+
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunStart)
+	if !ok {
+		t.Fatal("expected run start message on NATS")
+	}
+	var payload messagequeue.RunStartPayload
+	if err := json.Unmarshal(msg.Data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	if payload.Trust == nil {
+		t.Fatal("expected Trust annotation on RunStartPayload, got nil")
+	}
+	if payload.Trust.Origin != "internal" {
+		t.Fatalf("expected origin %q, got %q", "internal", payload.Trust.Origin)
+	}
+	if payload.Trust.TrustLevel != trust.LevelFull {
+		t.Fatalf("expected trust level %q, got %q", trust.LevelFull, payload.Trust.TrustLevel)
+	}
+	if payload.Trust.SourceID != "agent-1" {
+		t.Fatalf("expected source_id %q, got %q", "agent-1", payload.Trust.SourceID)
+	}
+	if !payload.Trust.IsInternal() {
+		t.Fatal("expected IsInternal() to return true for auto-stamped annotation")
+	}
+}
+
+func TestCreateHandoff_TrustAutoStamp(t *testing.T) {
+	store := &runtimeMockStore{}
+	queue := &runtimeMockQueue{}
+	handoffSvc := service.NewHandoffService(store, queue)
+	ctx := context.Background()
+
+	msg := &orchestration.HandoffMessage{
+		SourceAgentID: "agent-a",
+		TargetAgentID: "agent-b",
+		Context:       "Continue debugging the null pointer issue",
+	}
+	if err := handoffSvc.CreateHandoff(ctx, msg); err != nil {
+		t.Fatalf("CreateHandoff failed: %v", err)
+	}
+
+	published, ok := queue.lastMessage("handoff.request")
+	if !ok {
+		t.Fatal("expected handoff request on NATS")
+	}
+	var got orchestration.HandoffMessage
+	if err := json.Unmarshal(published.Data, &got); err != nil {
+		t.Fatalf("unmarshal handoff: %v", err)
+	}
+
+	if got.Trust == nil {
+		t.Fatal("expected Trust annotation on handoff message, got nil")
+	}
+	if got.Trust.Origin != "internal" {
+		t.Fatalf("expected origin %q, got %q", "internal", got.Trust.Origin)
+	}
+	if got.Trust.TrustLevel != trust.LevelFull {
+		t.Fatalf("expected trust level %q, got %q", trust.LevelFull, got.Trust.TrustLevel)
+	}
+	if got.Trust.SourceID != "agent-a" {
+		t.Fatalf("expected source_id %q, got %q", "agent-a", got.Trust.SourceID)
 	}
 }
