@@ -45,7 +45,7 @@ test.describe("Settings page", () => {
 
   test("VCS provider dropdown has options", async ({ page }) => {
     await gotoSettings(page);
-    const providerSelect = page.getByRole("combobox", { name: "Provider" });
+    const providerSelect = page.locator("select[aria-label='Provider']");
     await expect(providerSelect).toBeVisible();
     await expect(providerSelect.locator("option[value='github']")).toBeAttached();
     await expect(providerSelect.locator("option[value='gitlab']")).toBeAttached();

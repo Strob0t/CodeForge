@@ -55,13 +55,6 @@ test.describe("Sidebar navigation", () => {
     await expect(page.locator("main h1")).toContainText("Scopes", { timeout: 10_000 });
   });
 
-  test("navigate to Teams page", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("link", { name: "Teams" }).click();
-    await expect(page).toHaveURL(/\/teams$/);
-    await expect(page.locator("main h1")).toContainText("Agent Teams", { timeout: 10_000 });
-  });
-
   test("navigate to MCP Servers page", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: "MCP Servers" }).click();

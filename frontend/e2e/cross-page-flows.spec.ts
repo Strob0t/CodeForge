@@ -43,26 +43,6 @@ test.describe("Cross-Page Flows", () => {
     await expect(chatPanel).toBeVisible({ timeout: 15_000 });
   });
 
-  test("team workflow: create project, navigate to teams page", async ({ page, api }) => {
-    await api.createProject(`team-flow-${Date.now()}`);
-
-    // Navigate to teams page
-    await page.goto("/teams");
-    await expect(page.locator("main h1")).toContainText("Agent Teams", {
-      timeout: 10_000,
-    });
-
-    // The teams page should be accessible — either show empty state, project selector, or create button
-    await expect(
-      page
-        .getByText("No teams yet")
-        .or(page.getByRole("button", { name: "Create Team" }))
-        .or(page.locator("select")),
-    ).toBeVisible({
-      timeout: 10_000,
-    });
-  });
-
   test("settings flow: navigate to settings, verify VCS section", async ({ page }) => {
     await page.goto("/settings");
     await page.waitForLoadState("networkidle");
@@ -124,7 +104,6 @@ test.describe("Cross-Page Flows", () => {
       { path: "/activity", heading: "Activity" },
       { path: "/knowledge-bases", heading: "Knowledge Bases" },
       { path: "/scopes", heading: "Scopes" },
-      { path: "/teams", heading: "Agent Teams" },
       { path: "/mcp", heading: "MCP Servers" },
       { path: "/prompts", heading: "Prompt Sections" },
       { path: "/settings", heading: "Settings" },

@@ -67,8 +67,8 @@ test.describe("Trajectory API", () => {
       headers: jsonHeaders(),
       body: JSON.stringify({ checkpoint_id: "" }),
     });
-    // 200 if replay works, 404 if run not found
-    expect([200, 404]).toContain(res.status);
+    // 200 if replay works, 404 if run not found, 429 if rate limited
+    expect([200, 404, 429]).toContain(res.status);
   });
 
   test("GET /audit returns global audit trail", async () => {

@@ -60,8 +60,8 @@ test.describe("Benchmarks page", () => {
     }
     await page.getByRole("button", { name: "New Run" }).click();
     await expect(page.locator("label[for='benchmark-model']")).toBeVisible();
-    // Model input is a textbox within the form
-    await expect(page.locator("form").getByRole("textbox").first()).toBeVisible();
+    // ModelCombobox renders <input type="text" list=...> which has role "combobox"
+    await expect(page.locator("#benchmark-model")).toBeVisible();
   });
 
   test("form has metrics toggle buttons (dev mode only)", async ({ page }) => {
