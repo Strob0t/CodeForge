@@ -677,3 +677,37 @@ Benchmark datasets are YAML files in `configs/benchmarks/` (configurable via `be
 | YAML Key | ENV Variable | Default | Description |
 |---|---|---|---|
 | `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
+
+### A2A Protocol (Phase 27)
+
+The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external AI agents. When enabled, CodeForge exposes an AgentCard at `/.well-known/agent.json` and can delegate tasks to remote A2A agents.
+
+#### Configuration
+
+| YAML Key | ENV Variable | Default | Description |
+|---|---|---|---|
+| `a2a.enabled` | `CODEFORGE_A2A_ENABLED` | `false` | Enable A2A endpoints |
+| `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | auto-detect | Public URL for AgentCard |
+| `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | (empty) | Comma-separated API keys for inbound auth |
+| `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol |
+| `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks |
+| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `true` | Allow unauthenticated AgentCard discovery |
+
+#### Quick Test
+
+```bash
+# Enable A2A and start the server
+CODEFORGE_A2A_ENABLED=true go run ./cmd/codeforge/
+
+# Fetch the AgentCard
+curl http://localhost:8080/.well-known/agent.json
+
+# Register a remote agent
+curl -X POST http://localhost:8080/api/v1/a2a/agents \
+  -H "Content-Type: application/json" \
+  -d '{"name": "remote-coder", "url": "https://remote-agent.example.com"}'
+```
+
+#### Database
+
+A2A uses 3 PostgreSQL tables (migration `054_a2a_protocol.sql`): `a2a_tasks`, `a2a_remote_agents`, `a2a_push_configs`.

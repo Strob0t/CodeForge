@@ -533,5 +533,74 @@ Tracked in [todo.md](../todo.md) under Phase 9+.
 - [ ] Implement real CLI integrations for Goose, OpenHands, OpenCode, Plandex (stubs exist).
 - [ ] Trajectory replay UI and audit trail.
 - [ ] Session events as source of truth (Resume/Fork/Rewind).
-- [ ] A2A protocol integration (agent discovery, Agent Cards).
+- [x] A2A protocol integration (Phase 27 — see below).
 - [ ] AG-UI protocol integration (agent to frontend streaming).
+
+### A2A Protocol Integration (Phase 27)
+
+CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a-go) (Linux Foundation) for secure, interoperable agent-to-agent communication. CodeForge acts as both **server** (exposing agents) and **client** (delegating to remote agents).
+
+**Server Role (inbound):**
+- Dynamic `AgentCard` at `/.well-known/agent.json` with skills from registered modes
+- SDK-based handler via `a2a-go` — JSON-RPC task lifecycle (submit/working/completed/failed)
+- `AgentExecutor` bridges A2A tasks to CodeForge's NATS-based execution pipeline
+- Trust annotations stamped on all inbound tasks (origin="a2a", level=untrusted)
+- Quarantine evaluation before task execution (Phase 23B integration)
+- Bearer token authentication middleware with configurable API keys
+
+**Client Role (outbound):**
+- `A2AService` (`internal/service/a2a.go`) manages remote agent discovery and task delegation
+- AgentCard resolution via `a2a-go` SDK at `/.well-known/agent-card.json`
+- Remote agent registry with cached cards, skills, and trust levels
+- Client connection cache with `sync.RWMutex` for concurrent safety
+- Outbound tasks tracked in `a2a_tasks` table with direction="outbound"
+
+**Handoff Integration (Phase 27M):**
+- `a2a://` prefix in handoff target routes to A2A instead of NATS
+- Example: `TargetAgentID: "a2a://remote-coder"` delegates via A2A protocol
+- Existing trust and quarantine checks still applied before delegation
+
+**API Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/a2a/agents` | Register a remote A2A agent |
+| `GET` | `/api/v1/a2a/agents` | List registered remote agents |
+| `DELETE` | `/api/v1/a2a/agents/{id}` | Remove a remote agent |
+| `POST` | `/api/v1/a2a/agents/{id}/discover` | Re-discover agent card |
+| `POST` | `/api/v1/a2a/agents/{id}/send` | Send a task to remote agent |
+| `GET` | `/api/v1/a2a/tasks` | List A2A tasks (filter by state/direction) |
+| `GET` | `/api/v1/a2a/tasks/{id}` | Get A2A task details |
+| `POST` | `/api/v1/a2a/tasks/{id}/cancel` | Cancel an A2A task |
+
+**WebSocket Events:**
+
+| Event | Payload | Trigger |
+|-------|---------|---------|
+| `a2a.task.created` | `{task_id, state, skill_id, direction}` | A2A task created |
+| `a2a.task.status` | `{task_id, state, direction, remote_agent_id}` | A2A task state change |
+| `a2a.task.complete` | `{task_id, state}` | A2A task completed/failed |
+
+**Configuration:**
+
+| YAML Key | ENV Variable | Default | Description |
+|---|---|---|---|
+| `a2a.enabled` | `CODEFORGE_A2A_ENABLED` | `false` | Enable A2A endpoints |
+| `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | auto-detect | Public URL for AgentCard |
+| `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | (empty) | Comma-separated API keys |
+| `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol |
+| `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks |
+| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `true` | Allow unauthenticated discovery |
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `internal/adapter/a2a/executor.go` | A2A AgentExecutor implementation |
+| `internal/adapter/a2a/taskstore.go` | SDK TaskStore backed by PostgreSQL |
+| `internal/adapter/a2a/agentcard.go` | Dynamic AgentCard builder |
+| `internal/service/a2a.go` | Outbound A2A client service |
+| `internal/adapter/http/handlers_a2a.go` | REST API handlers |
+| `internal/middleware/a2a_auth.go` | Bearer token auth middleware |
+| `internal/domain/a2a/` | Domain types (A2ATask, RemoteAgent) |
+| `internal/adapter/postgres/store_a2a.go` | PostgreSQL persistence |

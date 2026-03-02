@@ -202,7 +202,7 @@ Detailed analysis: docs/research/market-analysis.md
     - Go Core manages LSP server lifecycle per project language
   - **OpenTelemetry GenAI**: Standardized LLM/agent observability (traces, metrics, events)
     - LiteLLM exports OTEL traces natively, Go Core adds agent lifecycle spans
-  - **A2A** (Agent-to-Agent Protocol v0.3.0, Apache 2.0, Linux Foundation, 50+ partners) — **planned (Phase 2-3)**
+  - **A2A** (Agent-to-Agent Protocol v0.3.0, Apache 2.0, Linux Foundation, 50+ partners) — **implemented (Phase 27)**
     - Spec: Protobuf-defined (`lf.a2a.v1`), JSON-RPC 2.0 over HTTPS, SSE streaming, push notifications (webhooks)
     - 11 RPCs: SendMessage, SendStreamingMessage, GetTask, ListTasks, CancelTask, SubscribeToTask, GetExtendedAgentCard, CRUD PushNotificationConfig
     - Task lifecycle (8 states): SUBMITTED → WORKING → COMPLETED/FAILED/CANCELED/REJECTED, interrupted: INPUT_REQUIRED/AUTH_REQUIRED

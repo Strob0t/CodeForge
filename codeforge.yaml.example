@@ -98,3 +98,15 @@ auth:
 # benchmark:
 #   datasets_dir: "configs/benchmarks"   # Directory with benchmark dataset YAML files
 #   dashboard_port: 0                    # AgentNeo dashboard port (0 = disabled)
+
+# A2A Protocol (Agent-to-Agent v0.3.0, Phase 27)
+# Enables inter-agent communication via the Linux Foundation A2A standard.
+# Server: exposes CodeForge agents via AgentCard at /.well-known/agent.json
+# Client: delegates tasks to remote A2A agents via outbound federation
+# a2a:
+#   enabled: false                # Enable A2A endpoints (default: false)
+#   base_url: ""                  # Public URL for AgentCard (default: auto-detect from server.port)
+#   api_keys: []                  # Allowed API keys for inbound A2A requests (empty = open)
+#   transport: "jsonrpc"          # Transport protocol: "jsonrpc" (default) or "rest"
+#   max_tasks: 100                # Max concurrent A2A tasks (default: 100)
+#   allow_open: true              # Allow unauthenticated AgentCard discovery (default: true)

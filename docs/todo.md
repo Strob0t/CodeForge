@@ -2541,10 +2541,10 @@ Git handlers (`handlers_test.go`):
 - [x] (2026-03-02) Phase 27H: Config Expansion (6 A2A config fields, 5 env var mappings)
 - [x] (2026-03-02) Phase 27I: WS Events + NATS Subjects (3 WS events, 3 NATS subjects, 2 payload schemas)
 - [x] (2026-03-02) Phase 27J: Main.go Wiring + Legacy Stub Removal (SDK handler, CardBuilder, TaskStoreAdapter, Executor wired; legacy `internal/port/a2a/` deleted)
-- [ ] Phase 27K: A2A Client Service (outbound federation — `internal/service/a2a.go`)
-- [ ] Phase 27L: HTTP Handlers for A2A Management (`internal/adapter/http/handlers_a2a.go` — 8 endpoints)
-- [ ] Phase 27M: Handoff Integration (`a2a://` routing in handoff.go)
-- [ ] Phase 27N: Documentation Updates
+- [x] (2026-03-02) Phase 27K: A2A Client Service (outbound federation — `internal/service/a2a.go`, DiscoverAgent, RegisterRemoteAgent, SendTask, GetRemoteTask, CancelRemoteTask, client cache, 9 tests)
+- [x] (2026-03-02) Phase 27L: HTTP Handlers for A2A Management (`internal/adapter/http/handlers_a2a.go` — 8 endpoints: CRUD remote agents, send/list/get/cancel tasks, 9 tests)
+- [x] (2026-03-02) Phase 27M: Handoff Integration (`a2a://` routing in handoff.go, SetA2AService, routeToA2A, WS broadcast, 3 tests)
+- [x] (2026-03-02) Phase 27N: Documentation Updates
 - [ ] Phase 27O: Streaming + Push Notifications (deferred)
 - [ ] Phase 27P: Security Hardening (deferred)
 

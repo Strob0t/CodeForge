@@ -98,7 +98,7 @@ The AI workers handle LLM interaction and agent execution. Python was chosen for
 | Go -> OTEL Collector | OTLP (gRPC/HTTP) | Agent lifecycle traces, metrics |
 | Python -> OTEL Collector | OTLP (gRPC/HTTP) | LLM call traces, token metrics |
 | Frontend <- Go | AG-UI events (Phase 2-3) | Standardized agent output streaming |
-| External Agents <-> Go | A2A (Phase 2-3) | Agent discovery via Agent Cards, task delegation |
+| External Agents <-> Go | A2A v0.3.0 (Phase 27) | Agent discovery via AgentCards, bidirectional task delegation via `a2a-go` SDK |
 
 ### Protocol Support
 
@@ -116,7 +116,7 @@ CodeForge integrates with standardized protocols for tool integration, agent coo
 
 | Protocol | Purpose | Standard | Integration Point |
 |---|---|---|---|
-| A2A (Agent-to-Agent Protocol) | Peer-to-peer agent coordination | Agent Cards + Tasks over HTTP/SSE (Google -> Linux Foundation AAIF) | Agent backends register as A2A agents with capability cards. External agents discover and delegate to CodeForge |
+| A2A (Agent-to-Agent Protocol v0.3.0) | Peer-to-peer agent coordination | JSON-RPC 2.0 over HTTPS, `a2a-go` SDK (Linux Foundation) | **Server:** AgentExecutor + TaskStore backed by PostgreSQL, dynamic AgentCard from modes. **Client:** A2AService for remote agent discovery, registration, task delegation. Handoff integration via `a2a://` prefix. Auth middleware with Bearer tokens. 3 DB tables, 8 REST endpoints |
 | AG-UI (Agent-User Interaction Protocol) | Bi-directional agent <-> frontend streaming | JSON events over HTTP (CopilotKit) | Frontend WebSocket protocol follows AG-UI event format. Lifecycle events: TEXT_MESSAGE, TOOL_CALL, STATE_DELTA. Human-in-the-loop built in |
 
 #### Tier 3: Future / Watch

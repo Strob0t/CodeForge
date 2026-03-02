@@ -1153,3 +1153,13 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 28E: Trajectory Export for DPO/EntroPO Training — JSONL chosen/rejected pairs (12 tests)
 - [x] (2026-03-02) 28F: SWE-GEN Synthetic Task Generation — benchmark tasks from Git commit history (19 tests)
 - [x] (2026-03-02) 28G: Integration Wiring — consumer, Go handlers, routes, migration 055
+
+### Phase 27: A2A Protocol Integration (COMPLETED)
+
+> Full A2A v0.3.0 implementation using `a2a-go` SDK. CodeForge acts as both A2A server (inbound tasks) and client (outbound federation). Replaces Phase 9D stub.
+
+- [x] (2026-03-02) 27A-27J: SDK integration, domain types, DB migration (3 tables), TaskStore adapter, AgentExecutor, AgentCard builder, auth middleware, config (6 fields), WS events, NATS subjects, main.go wiring, legacy stub removal
+- [x] (2026-03-02) 27K: A2A Client Service — outbound federation with agent discovery, remote agent registry, client cache, task delegation (9 tests)
+- [x] (2026-03-02) 27L: HTTP Handlers — 8 REST endpoints for remote agent CRUD and A2A task management (9 tests)
+- [x] (2026-03-02) 27M: Handoff Integration — `a2a://` routing prefix delegates handoffs to A2A protocol (3 tests)
+- [x] (2026-03-02) 27N: Documentation updates (todo.md, project-status.md, dev-setup.md, features/04, codeforge.yaml.example, CLAUDE.md)
