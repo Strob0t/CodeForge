@@ -2216,7 +2216,7 @@ Remaining `handlers.go` coverage:
 
 - [x] (2026-03-01) `internal/domain/trust/trust_test.go` — test `IsInternal()`, level comparison, annotation creation (4 tests)
 - [x] (2026-03-01) `internal/domain/policy/policy_test.go` — add tests for trust-aware evaluation: rule with TrustMinimum=verified denies untrusted calls, allows verified calls, backwards-compatible with no annotation (3 tests)
-- [ ] `internal/service/runtime_test.go` — verify auto-stamping sets trust on published payloads (2 tests) — deferred: requires mock queue infrastructure
+- [x] (2026-03-02) `internal/service/runtime_test.go` — TestStartRun_TrustAutoStamp + TestCreateHandoff_TrustAutoStamp (mock queue already existed)
 
 #### 23B: Message Quarantine System (P2 — COMPLETE, 2026-03-02)
 
