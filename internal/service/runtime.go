@@ -48,6 +48,7 @@ type RuntimeService struct {
 	runTimeouts       sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
 	budgetAlerts      sync.Map // map["runID:threshold"]bool — dedup budget alerts
 	pendingApprovals  sync.Map // map["runID:callID"]chan string — HITL approval channels
+	quarantine        *QuarantineService
 	feedbackProviders []feedbackPort.Provider
 	metrics           *cfotel.Metrics
 	runSpans          sync.Map // map[runID]trace.Span
@@ -116,6 +117,11 @@ func (s *RuntimeService) SetMCPService(svc *MCPService) {
 // SetMicroagentService sets the microagent service for matching trigger-based prompts.
 func (s *RuntimeService) SetMicroagentService(svc *MicroagentService) {
 	s.microagentSvc = svc
+}
+
+// SetQuarantineService sets the quarantine service for pre-dispatch message filtering.
+func (s *RuntimeService) SetQuarantineService(q *QuarantineService) {
+	s.quarantine = q
 }
 
 // SetMetrics sets the OTEL metrics collector.
@@ -337,6 +343,22 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 				payload.MicroagentPrompts = append(payload.MicroagentPrompts, matched[i].Prompt)
 			}
 			slog.Info("microagents matched", "run_id", r.ID, "count", len(matched))
+		}
+	}
+
+	// Quarantine gate: check if message should be held for review.
+	if s.quarantine != nil {
+		data, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			slog.Warn("quarantine marshal failed, skipping check", "error", marshalErr)
+		} else {
+			blocked, qErr := s.quarantine.Evaluate(ctx, payload.Trust, messagequeue.SubjectRunStart, data, payload.ProjectID)
+			if qErr != nil {
+				slog.Warn("quarantine evaluation failed, allowing message", "run_id", r.ID, "error", qErr)
+			}
+			if blocked {
+				return r, nil
+			}
 		}
 	}
 

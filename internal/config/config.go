@@ -98,6 +98,16 @@ type Config struct {
 	Copilot      Copilot      `yaml:"copilot"`
 	Experience   Experience   `yaml:"experience"`
 	Limits       Limits       `yaml:"limits"`
+	Quarantine   Quarantine   `yaml:"quarantine"`
+}
+
+// Quarantine holds message quarantine system configuration (Phase 23B).
+type Quarantine struct {
+	Enabled             bool    `yaml:"enabled"`              // Enable quarantine (default: false)
+	QuarantineThreshold float64 `yaml:"quarantine_threshold"` // Risk score threshold for quarantine (default: 0.7)
+	BlockThreshold      float64 `yaml:"block_threshold"`      // Risk score threshold for immediate block (default: 0.95)
+	MinTrustBypass      string  `yaml:"min_trust_bypass"`     // Minimum trust level to bypass quarantine (default: "verified")
+	ExpiryHours         int     `yaml:"expiry_hours"`         // Hours until unreviewed messages expire (default: 72)
 }
 
 // Limits holds configurable caps and timeouts that were previously hardcoded.
@@ -520,6 +530,13 @@ func Defaults() Config {
 			Enabled:             false,
 			ConfidenceThreshold: 0.85,
 			MaxEntries:          1000,
+		},
+		Quarantine: Quarantine{
+			Enabled:             false,
+			QuarantineThreshold: 0.7,
+			BlockThreshold:      0.95,
+			MinTrustBypass:      "verified",
+			ExpiryHours:         72,
 		},
 		Limits: Limits{
 			MaxQueryLength:     2000,

@@ -14,9 +14,13 @@ import (
 
 // HandoffService manages agent-to-agent handoffs with context propagation.
 type HandoffService struct {
-	db    database.Store
-	queue messagequeue.Queue
+	db         database.Store
+	queue      messagequeue.Queue
+	quarantine *QuarantineService
 }
+
+// SetQuarantineService injects the quarantine service for message interception.
+func (s *HandoffService) SetQuarantineService(qs *QuarantineService) { s.quarantine = qs }
 
 // NewHandoffService creates a new HandoffService.
 func NewHandoffService(db database.Store, queue messagequeue.Queue) *HandoffService {
@@ -38,6 +42,18 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshal handoff: %w", err)
+	}
+
+	// Quarantine gate: check message before publishing.
+	if s.quarantine != nil {
+		blocked, qErr := s.quarantine.Evaluate(ctx, msg.Trust, "handoff.request", data, "")
+		if qErr != nil {
+			slog.Warn("quarantine evaluation failed, allowing handoff", "error", qErr)
+		}
+		if blocked {
+			slog.Info("handoff quarantined", "source", msg.SourceAgentID, "target", msg.TargetAgentID)
+			return nil
+		}
 	}
 
 	if err := s.queue.Publish(ctx, "handoff.request", data); err != nil {

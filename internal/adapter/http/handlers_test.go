@@ -36,6 +36,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
+	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
@@ -1375,6 +1376,18 @@ func (m *mockStore) UpdateAutoAgentProgress(_ context.Context, aa *autoagent.Aut
 }
 
 func (m *mockStore) DeleteAutoAgent(_ context.Context, _ string) error { return nil }
+
+// Quarantine (Phase 23B)
+func (m *mockStore) QuarantineMessage(_ context.Context, _ *quarantine.Message) error { return nil }
+func (m *mockStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarantine.Message, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+	return nil
+}
 
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}

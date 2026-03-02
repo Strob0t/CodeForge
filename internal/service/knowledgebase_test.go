@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
+	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -112,6 +113,18 @@ func (m *kbMockStore) ListKnowledgeBasesByScope(_ context.Context, scopeID strin
 		}
 	}
 	return result, nil
+}
+
+// Quarantine (Phase 23B)
+func (m *kbMockStore) QuarantineMessage(_ context.Context, _ *quarantine.Message) error { return nil }
+func (m *kbMockStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarantine.Message, error) {
+	return nil, nil
+}
+func (m *kbMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
+	return nil, nil
+}
+func (m *kbMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+	return nil
 }
 
 func TestKnowledgeBaseService_CreateGetList(t *testing.T) {

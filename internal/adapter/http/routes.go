@@ -400,5 +400,15 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/auto-agent/start", h.StartAutoAgent)
 		r.Post("/projects/{id}/auto-agent/stop", h.StopAutoAgent)
 		r.Get("/projects/{id}/auto-agent/status", h.GetAutoAgentStatus)
+
+		// Quarantine (Phase 23B — admin only)
+		r.Route("/quarantine", func(r chi.Router) {
+			r.Use(middleware.RequireRole(user.RoleAdmin))
+			r.Get("/", h.listQuarantinedMessages)
+			r.Get("/stats", h.quarantineStats)
+			r.Get("/{id}", h.getQuarantinedMessage)
+			r.Post("/{id}/approve", h.approveQuarantinedMessage)
+			r.Post("/{id}/reject", h.rejectQuarantinedMessage)
+		})
 	})
 }

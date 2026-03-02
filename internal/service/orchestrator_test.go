@@ -10,6 +10,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -145,6 +146,18 @@ func (m *orchMockStore) UpdatePlanStepRound(_ context.Context, stepID string, ro
 		}
 	}
 	return domain.ErrNotFound
+}
+
+// Quarantine (Phase 23B)
+func (m *orchMockStore) QuarantineMessage(_ context.Context, _ *quarantine.Message) error { return nil }
+func (m *orchMockStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarantine.Message, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *orchMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
+	return nil, nil
+}
+func (m *orchMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+	return nil
 }
 
 func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {

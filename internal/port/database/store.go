@@ -22,6 +22,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
+	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
@@ -312,4 +313,10 @@ type Store interface {
 	UpdateAutoAgentStatus(ctx context.Context, projectID string, status autoagent.Status, errMsg string) error
 	UpdateAutoAgentProgress(ctx context.Context, aa *autoagent.AutoAgent) error
 	DeleteAutoAgent(ctx context.Context, projectID string) error
+
+	// Quarantine (Phase 23B)
+	QuarantineMessage(ctx context.Context, msg *quarantine.Message) error
+	GetQuarantinedMessage(ctx context.Context, id string) (*quarantine.Message, error)
+	ListQuarantinedMessages(ctx context.Context, projectID string, status quarantine.Status, limit, offset int) ([]*quarantine.Message, error)
+	UpdateQuarantineStatus(ctx context.Context, id string, status quarantine.Status, reviewedBy, note string) error
 }

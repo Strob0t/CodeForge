@@ -70,6 +70,10 @@ const (
 
 	// Phase 22: model health events
 	EventModelHealth = "models.health"
+
+	// Phase 23B: quarantine events
+	EventQuarantineAlert    = "quarantine.alert"
+	EventQuarantineResolved = "quarantine.resolved"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.

@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -25,6 +27,20 @@ func (m *deliverMockStore) GetProject(_ context.Context, _ string) (*project.Pro
 		return m.proj, nil
 	}
 	return nil, errMockNotFound
+}
+
+// Quarantine (Phase 23B)
+func (m *deliverMockStore) QuarantineMessage(_ context.Context, _ *quarantine.Message) error {
+	return nil
+}
+func (m *deliverMockStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarantine.Message, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *deliverMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
+	return nil, nil
+}
+func (m *deliverMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+	return nil
 }
 
 // initDeliverTestRepo creates a temporary git repo with one commit.

@@ -202,8 +202,17 @@ Detailed analysis: docs/research/market-analysis.md
     - Go Core manages LSP server lifecycle per project language
   - **OpenTelemetry GenAI**: Standardized LLM/agent observability (traces, metrics, events)
     - LiteLLM exports OTEL traces natively, Go Core adds agent lifecycle spans
-  - **A2A** (Agent-to-Agent Protocol, Phase 2-3): Peer-to-peer agent coordination (Google → Linux Foundation) — **stub/planned**
-    - Agent backends register as A2A agents with capability cards
+  - **A2A** (Agent-to-Agent Protocol v0.3.0, Apache 2.0, Linux Foundation, 50+ partners) — **planned (Phase 2-3)**
+    - Spec: Protobuf-defined (`lf.a2a.v1`), JSON-RPC 2.0 over HTTPS, SSE streaming, push notifications (webhooks)
+    - 11 RPCs: SendMessage, SendStreamingMessage, GetTask, ListTasks, CancelTask, SubscribeToTask, GetExtendedAgentCard, CRUD PushNotificationConfig
+    - Task lifecycle (8 states): SUBMITTED → WORKING → COMPLETED/FAILED/CANCELED/REJECTED, interrupted: INPUT_REQUIRED/AUTH_REQUIRED
+    - Core types: AgentCard (self-describing manifest with skills, capabilities, security), Task, Message (USER/AGENT roles), Part (text/binary/URL/JSON + MIME), Artifact
+    - Security: OpenAPI 3.2 model — API Key, HTTP Auth (Bearer/JWT), OAuth 2.0 (AuthCode+PKCE, ClientCredentials, DeviceCode), OpenID Connect, mTLS, JWS-signed AgentCards
+    - Multi-tenant: built-in `/{tenant}/` path prefix
+    - Official SDKs: Go (`a2a-go`), Python, JS (`@a2a-js/sdk`), Java, .NET
+    - Complementary to MCP: "MCP for tools, A2A for agents"
+    - CodeForge integration: Agent backends as A2A servers (AgentCard → Provider Registry), Go Core as A2A client via `a2a-go`, NATS for internal + A2A for external federation
+    - Partners: Atlassian, Salesforce, PayPal, Cohere, and others
   - **AG-UI** (Agent-User Interaction Protocol, Phase 2-3): Bi-directional agent ↔ frontend streaming (CopilotKit) — **stub/planned**
     - Frontend WebSocket follows AG-UI event format (TEXT_MESSAGE, TOOL_CALL, STATE_DELTA)
   - **Future/Watch:** ANP (decentralized agent networking), LSAP (LSP for AI agents)

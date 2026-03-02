@@ -83,6 +83,7 @@ type Handlers struct {
 	Skills           *service.SkillService
 	Files            *service.FileService
 	AutoAgent        *service.AutoAgentService
+	Quarantine       *service.QuarantineService
 	Limits           *config.Limits
 }
 

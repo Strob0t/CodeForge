@@ -29,6 +29,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
+	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
@@ -860,6 +861,20 @@ func (m *runtimeMockStore) UpdateAutoAgentProgress(_ context.Context, _ *autoage
 	return nil
 }
 func (m *runtimeMockStore) DeleteAutoAgent(_ context.Context, _ string) error { return nil }
+
+// Quarantine (Phase 23B)
+func (m *runtimeMockStore) QuarantineMessage(_ context.Context, _ *quarantine.Message) error {
+	return nil
+}
+func (m *runtimeMockStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarantine.Message, error) {
+	return nil, errMockNotFound
+}
+func (m *runtimeMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+	return nil
+}
 
 type runtimeMockQueue struct {
 	mu       sync.Mutex

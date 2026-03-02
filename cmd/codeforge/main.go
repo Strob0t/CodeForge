@@ -201,8 +201,13 @@ func run() error {
 		"profiles", len(policySvc.ListProfiles()),
 	)
 
+	// --- Quarantine Service (Phase 23B) ---
+	quarantineSvc := service.NewQuarantineService(store, queue, hub, cfg.Quarantine)
+	slog.Info("quarantine service initialized", "enabled", cfg.Quarantine.Enabled)
+
 	// --- Runtime Service (Phase 4B + 4C) ---
 	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc, &cfg.Runtime)
+	runtimeSvc.SetQuarantineService(quarantineSvc)
 	runtimeSvc.SetMetrics(metrics)
 	deliverSvc := service.NewDeliverService(store, &cfg.Runtime, gitPool)
 	runtimeSvc.SetDeliverService(deliverSvc)
@@ -597,6 +602,7 @@ func run() error {
 		Microagents:      microagentSvc,
 		Skills:           skillSvc,
 		Files:            fileSvc,
+		Quarantine:       quarantineSvc,
 		Limits:           &cfg.Limits,
 	}
 

@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-02-26
+> Last update: 2026-03-02
 
 ### Phase 0: Project Setup (COMPLETED)
 
@@ -1108,3 +1108,20 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - **New PostgreSQL store adapters:** 5 (store_memory, store_experience, store_microagent, store_skill, store_feedback)
 - **New REST endpoints:** 19 (model registry 2, copilot 1, memories 3, experience 2, microagents 5, skills 5, feedback 2 — audit + callback)
 - **All 8 `— *planned*` markers** removed from CLAUDE.md, replaced with file paths
+
+### Phase 23A: Message Trust Annotations (COMPLETED)
+
+> Adds trust annotations to inter-agent messages for provenance tracking.
+
+- [x] (2026-03-01) Trust domain package with 4 trust levels (untrusted, partial, verified, full)
+- [x] (2026-03-01) Trust annotation auto-stamping in NATS payloads
+- [x] (2026-03-01) Python trust models and todo tracking
+
+### Phase 23B: Message Quarantine System (COMPLETED)
+
+> Intercepts low-trust messages before NATS dispatch, risk-scores them, and holds for admin review.
+
+- [x] (2026-03-02) Domain entity + risk scorer (10 scorer tests)
+- [x] (2026-03-02) PostgreSQL migration 049 + store implementation
+- [x] (2026-03-02) QuarantineService with Evaluate/Approve/Reject/List/Get (7 service tests)
+- [x] (2026-03-02) Runtime + Handoff quarantine gates, HTTP handlers, WebSocket events, main.go wiring
