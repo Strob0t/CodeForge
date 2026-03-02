@@ -2560,7 +2560,7 @@ Git handlers (`handlers_test.go`):
 > (vs 51.6% with single rollout). These insights map directly to CodeForge's existing benchmark pipeline,
 > evaluation system, and intelligent routing MAB.
 >
-> **Depends on:** Phase 26 (Benchmark System) complete, Phase 27 (Intelligent Routing) on staging
+> **Depends on:** Phase 26 (Benchmark System) complete, Phase 29 (Intelligent Routing) on staging
 
 #### 28A: Hybrid Verification Pipeline ✅ (2026-03-02)
 
@@ -2874,3 +2874,74 @@ Git handlers (`handlers_test.go`):
 | 28F  | 4         | 2              | ~7    |
 | 28G  | 0         | 5+             | —     |
 | **Total** | **~15** | **~27** | **~43** |
+
+---
+
+### Phase 29: Hybrid Intelligent Model Routing (2026-03-02)
+
+> Replaces manual tag-based model routing (`litellm/config.yaml` with 38 entries) with an
+> intelligent three-layer cascade: **Complexity Router** (rule-based, <1ms) -> **Multi-Armed Bandit**
+> (UCB1 learning from benchmark + usage data) -> **LLM-as-Router** (cold-start fallback).
+>
+> **Architecture:** Python worker selects exact model name via HybridRouter -> LiteLLM routes directly (no tags).
+> **Data flow:** Benchmark runs + conversation outcomes -> reward signals -> MAB learns -> better routing.
+> **Config:** `litellm/config.yaml` simplified to provider-level wildcards (one entry per provider).
+>
+> Key files:
+> - Routing package: `workers/codeforge/routing/` (complexity, mab, meta_router, reward, capabilities, router, models)
+> - Integration: `workers/codeforge/llm.py` (`resolve_model_with_routing`, `load_routing_config`)
+> - Conversation: `workers/codeforge/consumer/_conversation.py` (HybridRouter init + cascade)
+> - Executor: `workers/codeforge/executor.py` (routing for non-agentic path)
+> - LiteLLM config: `litellm/config.yaml` (wildcard routing)
+
+#### 29A: Python Routing Data Models
+
+- [x] (2026-03-02) `workers/codeforge/routing/__init__.py` -- package exports
+- [x] (2026-03-02) `workers/codeforge/routing/models.py` -- ComplexityTier (StrEnum), TaskType (StrEnum), PromptAnalysis, RoutingDecision, ModelStats, RoutingConfig dataclasses
+- [x] (2026-03-02) `workers/tests/test_routing_models.py` -- enum values, dataclass defaults, serialization
+
+#### 29B: Layer 1 -- ComplexityAnalyzer (Rule-Based, <1ms)
+
+- [x] (2026-03-02) `workers/codeforge/routing/complexity.py` -- 7 dimension scoring (code_presence, reasoning_markers, technical_terms, prompt_length, multi_step, context_requirements, output_complexity), weighted sum, tier thresholds, task type inference
+- [x] (2026-03-02) `workers/tests/test_routing_complexity.py` -- ~25 tests: simple/medium/complex/reasoning prompts, all dimensions, task type inference, edge cases, performance <1ms
+
+#### 29C: Layer 2 -- MABModelSelector (UCB1 Learning)
+
+- [x] (2026-03-02) `workers/codeforge/routing/mab.py` -- UCB1 with entropy-aware diversity, stats caching, cold-start detection, cost constraint filtering
+- [x] (2026-03-02) `workers/tests/test_routing_mab.py` -- ~20 tests: UCB1 scores, cold start, exploration, exploitation, cost filters, cache TTL
+
+#### 29D: Layer 3 -- LLMMetaRouter (Cold-Start Fallback)
+
+- [x] (2026-03-02) `workers/codeforge/routing/meta_router.py` -- callable `llm_call`, tier-to-model preference lists, JSON parsing with fallback
+- [x] (2026-03-02) `workers/tests/test_routing_meta_router.py` -- ~10 tests: classification, malformed JSON, LLM failure, tier mapping
+
+#### 29E: Reward Computation + Model Capabilities
+
+- [x] (2026-03-02) `workers/codeforge/routing/reward.py` -- `compute_reward()`, `compute_quality_from_benchmark()`
+- [x] (2026-03-02) `workers/codeforge/routing/capabilities.py` -- `enrich_model_capabilities()`, `filter_models_by_capability()` via litellm.model_cost
+- [x] (2026-03-02) `workers/tests/test_routing_reward.py` -- ~10 tests: perfect/failure/high-cost/boundary cases
+- [x] (2026-03-02) `workers/tests/test_routing_capabilities.py` -- ~8 tests: known/unknown models, capability filters
+
+#### 29F: HybridRouter Orchestrator
+
+- [x] (2026-03-02) `workers/codeforge/routing/router.py` -- three-layer cascade (L1 -> L2 -> L3 -> fallback), COMPLEXITY_DEFAULTS tier-to-model mapping, scenario awareness
+- [x] (2026-03-02) `workers/tests/test_routing_router.py` -- ~15 tests: full cascade, cold start, fallback, disabled layers, cost constraints
+
+#### 29G: Python Integration -- resolve_model_with_routing()
+
+- [x] (2026-03-02) `workers/codeforge/llm.py` -- `resolve_model_with_routing()` returns (model, temperature, tags); `load_routing_config()` from env vars
+- [x] (2026-03-02) `workers/codeforge/consumer/_conversation.py` -- HybridRouter init (ComplexityAnalyzer + MAB + MetaRouter + available models from LiteLLM), cascade in `_handle_conversation_run()`
+- [x] (2026-03-02) `workers/codeforge/executor.py` -- routing integration for non-agentic LLM calls
+- [x] (2026-03-02) `workers/tests/test_routing_integration.py` -- 12 tests: routing with/without router, scenario fallback, config loading
+
+#### 29H: LiteLLM Config -- Wildcard Routing
+
+- [x] (2026-03-02) `litellm/config.yaml` -- replaced 38 individual model entries with 6 provider-level wildcards (ollama/*, openai/*, anthropic/*, gemini/*, groq/*, mistral/*); tag filtering preserved for backwards compatibility
+
+#### 29I: Documentation
+
+- [x] (2026-03-02) Updated `docs/features/03-multi-llm-provider.md` -- Intelligent Routing section
+- [x] (2026-03-02) Updated `docs/todo.md` -- Phase 29 entry
+- [ ] Go integration: benchmark -> routing seed (Go service + HTTP handlers for stats/outcomes)
+- [ ] Go integration: model registry -> capability sync on refresh
+- [ ] Go integration: routing_enabled flag in conversation NATS payload

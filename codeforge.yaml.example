@@ -110,3 +110,19 @@ auth:
 #   transport: "jsonrpc"          # Transport protocol: "jsonrpc" (default) or "rest"
 #   max_tasks: 100                # Max concurrent A2A tasks (default: 100)
 #   allow_open: true              # Allow unauthenticated AgentCard discovery (default: true)
+
+# Intelligent Model Routing (Phase 29)
+# Three-layer cascade: ComplexityAnalyzer -> MAB (UCB1) -> LLM Meta-Router
+# When enabled, Python HybridRouter selects exact model name; LiteLLM uses wildcards.
+# When disabled, falls back to scenario-based tag routing.
+# routing:
+#   enabled: false                # Master switch (default: false)
+#   complexity_enabled: true      # Layer 1: rule-based prompt analysis (default: true)
+#   mab_enabled: true             # Layer 2: UCB1 multi-armed bandit (default: true)
+#   llm_meta_enabled: true        # Layer 3: LLM classification cold-start (default: true)
+#   mab_min_trials: 10            # Min observations before MAB trusts data (default: 10)
+#   mab_exploration_rate: 1.414   # UCB1 exploration parameter (default: sqrt(2))
+#   cost_weight: 0.3              # Reward weight for cost (default: 0.3)
+#   quality_weight: 0.5           # Reward weight for quality (default: 0.5)
+#   latency_weight: 0.2           # Reward weight for latency (default: 0.2)
+#   meta_router_model: "groq/llama-3.1-8b-instant"  # Model for Layer 3 (default: groq/llama-3.1-8b-instant)

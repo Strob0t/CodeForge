@@ -1163,3 +1163,16 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 27L: HTTP Handlers — 8 REST endpoints for remote agent CRUD and A2A task management (9 tests)
 - [x] (2026-03-02) 27M: Handoff Integration — `a2a://` routing prefix delegates handoffs to A2A protocol (3 tests)
 - [x] (2026-03-02) 27N: Documentation updates (todo.md, project-status.md, dev-setup.md, features/04, codeforge.yaml.example, CLAUDE.md)
+
+### Phase 29: Hybrid Intelligent Model Routing (COMPLETED)
+
+> Three-layer intelligent routing cascade replacing manual tag-based LiteLLM model routing.
+> Layer 1: ComplexityAnalyzer (rule-based, <1ms). Layer 2: MABModelSelector (UCB1 learning).
+> Layer 3: LLMMetaRouter (cold-start fallback). LiteLLM config simplified from 38 models to 6 provider wildcards.
+
+- [x] (2026-03-02) 29A: Python routing data models (ComplexityTier, TaskType, PromptAnalysis, RoutingDecision, ModelStats, RoutingConfig)
+- [x] (2026-03-02) 29B-29E: Three routing layers + reward + capabilities (complexity.py, mab.py, meta_router.py, reward.py, capabilities.py) -- 152 tests
+- [x] (2026-03-02) 29F: HybridRouter orchestrator with cascade logic and COMPLEXITY_DEFAULTS mapping
+- [x] (2026-03-02) 29G: Integration -- `resolve_model_with_routing()` in llm.py, conversation handler, executor -- 12 integration tests
+- [x] (2026-03-02) 29H: LiteLLM config wildcard routing (6 provider entries replace 38 individual models)
+- [x] (2026-03-02) 29I: Documentation updates (todo.md, project-status.md, features/03)

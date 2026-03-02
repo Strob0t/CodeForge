@@ -711,3 +711,50 @@ curl -X POST http://localhost:8080/api/v1/a2a/agents \
 #### Database
 
 A2A uses 3 PostgreSQL tables (migration `054_a2a_protocol.sql`): `a2a_tasks`, `a2a_remote_agents`, `a2a_push_configs`.
+
+### Intelligent Model Routing (Phase 29)
+
+Three-layer intelligent model routing that replaces manual tag-based LiteLLM routing. When enabled, the Python HybridRouter selects the exact model name and LiteLLM routes directly via provider wildcards.
+
+#### Configuration
+
+| ENV Variable | Default | Description |
+|---|---|---|
+| `CODEFORGE_ROUTING_ENABLED` | `false` | Master switch for intelligent routing |
+| `CODEFORGE_ROUTING_COMPLEXITY_ENABLED` | `true` | Enable Layer 1 (rule-based complexity analysis) |
+| `CODEFORGE_ROUTING_MAB_ENABLED` | `true` | Enable Layer 2 (UCB1 multi-armed bandit) |
+| `CODEFORGE_ROUTING_LLM_META_ENABLED` | `true` | Enable Layer 3 (LLM-as-router cold-start) |
+| `CODEFORGE_ROUTING_MAB_MIN_TRIALS` | `10` | Minimum observations before MAB trusts data |
+| `CODEFORGE_ROUTING_MAB_EXPLORATION_RATE` | `1.414` | UCB1 exploration parameter |
+| `CODEFORGE_ROUTING_COST_WEIGHT` | `0.3` | Weight for cost in reward function |
+| `CODEFORGE_ROUTING_QUALITY_WEIGHT` | `0.5` | Weight for quality in reward function |
+| `CODEFORGE_ROUTING_LATENCY_WEIGHT` | `0.2` | Weight for latency in reward function |
+| `CODEFORGE_ROUTING_META_ROUTER_MODEL` | `groq/llama-3.1-8b-instant` | Model for Layer 3 LLM classification |
+
+#### LiteLLM Config
+
+The `litellm/config.yaml` uses provider-level wildcards instead of individual model entries:
+
+```yaml
+model_list:
+  - model_name: "openai/*"       # All OpenAI models
+  - model_name: "anthropic/*"    # All Anthropic models
+  - model_name: "groq/*"         # All Groq models
+  - model_name: "gemini/*"       # All Google Gemini models
+  - model_name: "ollama/*"       # Local Ollama models
+  - model_name: "mistral/*"      # All Mistral AI models
+```
+
+When routing is disabled (`CODEFORGE_ROUTING_ENABLED=false`), the system falls back to scenario-based tag routing.
+
+#### Key Files
+
+| File | Purpose |
+|---|---|
+| `workers/codeforge/routing/` | Routing package (7 modules) |
+| `workers/codeforge/routing/complexity.py` | Layer 1: rule-based prompt analysis |
+| `workers/codeforge/routing/mab.py` | Layer 2: UCB1 bandit model selection |
+| `workers/codeforge/routing/meta_router.py` | Layer 3: LLM classification fallback |
+| `workers/codeforge/routing/router.py` | HybridRouter cascade orchestrator |
+| `workers/codeforge/llm.py` | `resolve_model_with_routing()` integration |
+| `litellm/config.yaml` | Provider wildcard configuration |

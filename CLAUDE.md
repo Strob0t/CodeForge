@@ -219,7 +219,9 @@ Detailed analysis: docs/research/market-analysis.md
 - **LLM Integration (LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI):**
   - **No custom LLM provider interface** — LiteLLM Proxy as Docker sidecar (port 4000)
   - Go Core + Python Workers communicate via OpenAI-compatible API against LiteLLM
-  - Scenario-based routing via LiteLLM Tags (default/background/think/longContext/review/plan)
+  - **Hybrid Intelligent Routing (Phase 29):** Three-layer cascade — ComplexityAnalyzer (rule-based, <1ms) -> MABModelSelector (UCB1 learning) -> LLMMetaRouter (cold-start fallback). Enable with `CODEFORGE_ROUTING_ENABLED=true`. Package: `workers/codeforge/routing/`
+  - LiteLLM config uses provider-level wildcards (`openai/*`, `anthropic/*`, etc.) — HybridRouter selects exact model name
+  - Scenario-based tag routing (default/background/think/longContext/review/plan) as fallback when routing disabled
   - OpenRouter as optional provider behind LiteLLM
   - GitHub Copilot Token Exchange as provider (Go Core) — `internal/adapter/copilot/client.go`, `POST /api/v1/copilot/exchange`
   - Local Model Auto-Discovery (Ollama/LM Studio `/v1/models`)

@@ -101,12 +101,47 @@ services:
 - [x] Frontend: CostDashboardPage (global totals, project breakdown), ProjectCostSection (model/daily/runs).
 - [x] Frontend: RunPanel token + model display in active run and history.
 
+### Completed (Phase 29 -- Intelligent Routing)
+
+Replaces manual tag-based routing with a three-layer intelligent cascade.
+
+**Architecture:** Python HybridRouter selects exact model name -> LiteLLM routes directly via provider wildcards. No manual tag assignment needed.
+
+**Three-Layer Cascade:**
+
+| Layer | Name | Mechanism | Latency |
+|-------|------|-----------|---------|
+| 1 | ComplexityAnalyzer | Rule-based prompt analysis (7 dimensions: code, reasoning, technical, length, multi-step, context, output) | <1ms |
+| 2 | MABModelSelector | UCB1 bandit learning from benchmark + usage data, entropy-aware diversity | <1ms (cached) |
+| 3 | LLMMetaRouter | Small LLM classifies edge cases / cold start | ~500ms |
+
+**Complexity Tiers:** SIMPLE -> MEDIUM -> COMPLEX -> REASONING (weighted sum of 7 dimension scores)
+
+**Fallback:** If all layers fail or routing disabled, tag-based routing via `resolve_scenario()` still works.
+
+**LiteLLM Config:** Simplified from 38 individual model entries to 6 provider-level wildcards:
+```yaml
+model_list:
+  - model_name: "openai/*"     # All OpenAI models
+  - model_name: "anthropic/*"  # All Anthropic models
+  - model_name: "groq/*"       # All Groq models
+  - model_name: "gemini/*"     # All Google Gemini models
+  - model_name: "ollama/*"     # Local Ollama models
+  - model_name: "mistral/*"    # All Mistral AI models
+```
+
+**Config:** Set `CODEFORGE_ROUTING_ENABLED=true` to activate intelligent routing.
+
+- [x] Python routing package: `workers/codeforge/routing/` (7 modules, 164 tests)
+- [x] Integration: `resolve_model_with_routing()` in llm.py, conversation handler, executor
+- [x] LiteLLM wildcard config: 6 provider entries replace 38 individual models
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.
 
 - [ ] User-Key Mapping (secure storage, virtual keys per CodeForge user).
-- [ ] Scenario Router (task type to LiteLLM tag mapping).
+- [x] Scenario Router (Phase 29 -- intelligent routing replaces manual tag mapping).
 - [ ] Local Model Discovery (Ollama, LM Studio auto-detection).
 - [ ] Copilot Token Exchange (GitHub OAuth to Copilot bearer token).
 - [ ] Distributed tracing (OpenTelemetry full implementation).
