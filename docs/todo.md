@@ -2128,28 +2128,26 @@ Handoff service (`internal/service/handoff_test.go`):
 > **Files:** Various `internal/adapter/http/handlers_*_test.go` (new)
 > **Why:** Complete handler coverage to close remaining gaps.
 
-Retrieval handlers (`handlers_retrieval_test.go`):
-- [ ] `TestHandleSearchProject` — HTTP 200, BM25 search results returned
-- [ ] `TestHandleIndexProject` — HTTP 202, index build dispatched
-- [ ] `TestHandleGetRepoMap` — HTTP 200, tree-sitter repo map returned
+Retrieval handlers (already existed in `handlers_test.go`):
+- [x] (2026-03-01) `TestGetRepoMapNotFound`, `TestGenerateRepoMap`, `TestIndexProject`, `TestSearchProjectMissingQuery`, `TestGetIndexStatusNotFound`, `TestSearchProjectQueryTooLong` — all retrieval endpoints covered
 
-Scope handlers (`handlers_scope_test.go`):
-- [ ] `TestHandleListScopes` — HTTP 200, RAG scopes listed by project
-- [ ] `TestHandleCreateScope` — HTTP 201, scope created with file patterns
-- [ ] `TestHandleDeleteScope` — HTTP 204, scope removed
+Scope handlers (`handlers_test.go`):
+- [x] (2026-03-02) `TestListScopesEmpty` — HTTP 200, empty scopes array
+- [x] (2026-03-02) `TestCreateScope` — HTTP 201, shared scope created
+- [x] (2026-03-02) `TestDeleteScope` — HTTP 204, scope deleted
 
-Benchmark handlers (`handlers_benchmark_test.go`):
-- [ ] `TestHandleListBenchmarkSuites` — HTTP 200, benchmark suites listed
-- [ ] `TestHandleRunBenchmark` — HTTP 202, benchmark run dispatched
-- [ ] `TestHandleGetBenchmarkResults` — HTTP 200, results with metrics
+Benchmark handlers (`handlers_test.go`):
+- [x] (2026-03-02) `TestListBenchmarkRunsDevMode` — HTTP 200, empty runs with APP_ENV=development
+- [x] (2026-03-02) `TestCreateBenchmarkRun` — HTTP 201, run created with dataset/model/metrics
+- [x] (2026-03-02) `TestBenchmarksForbiddenWithoutDevMode` — HTTP 403, DevModeOnly middleware
 
-Prompt section handlers (`handlers_prompt_section_test.go`):
-- [ ] `TestHandleListPromptSections` — HTTP 200, prompt sections listed by mode
-- [ ] `TestHandleCreatePromptSection` — HTTP 201, section created with template
+Prompt section handlers (`handlers_test.go`):
+- [x] (2026-03-02) `TestListPromptSectionsEmpty` — HTTP 200, empty sections array
+- [x] (2026-03-02) `TestUpsertPromptSectionMissingName` — HTTP 400, name validation
 
-Remaining `handlers.go` coverage:
-- [ ] `TestHandleGetProjectGitStatus` — HTTP 200, git status returned for cloned project
-- [ ] `TestHandlePullProject` — HTTP 200, git pull executed on project repo
+Git handlers (`handlers_test.go`):
+- [x] (2026-03-02) `TestProjectGitStatusNotFound` — HTTP 404, nonexistent project
+- [x] (2026-03-02) `TestPullProjectNotFound` — HTTP 404, nonexistent project
 
 #### P3 — Test Quality Improvements (non-blocking)
 

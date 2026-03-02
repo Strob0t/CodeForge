@@ -292,6 +292,73 @@ These principles guide all code in this project across Go, Python, and TypeScrip
 - If the implementation is easy to explain, it may be a good idea.
 - Namespaces are one honking great idea -- let's do more of those!
 
+## Development Methodology: TDD (Test-Driven Development)
+
+**All new features MUST follow TDD.** No exceptions.
+
+### TDD Workflow
+
+1. **Feature Analysis (RED planning)** — Before writing ANY code, thoroughly analyze:
+   - Feature goals and acceptance criteria
+   - Happy path scenarios
+   - Error paths and failure modes
+   - **Edge cases** (empty inputs, nil values, boundary conditions, concurrent access, overflow, unicode, max lengths, duplicate keys, etc.)
+   - Integration points and side effects
+
+2. **Write Tests First (RED)** — Write comprehensive tests that FAIL:
+   - Cover all scenarios identified in step 1
+   - Include table-driven tests for related cases
+   - Test error messages and error types, not just "it errors"
+   - Test boundary values (0, 1, max, max+1)
+   - Test nil/empty/missing inputs explicitly
+
+3. **Implement Code (GREEN)** — Write the MINIMUM code to make all tests pass:
+   - Don't add features not covered by tests
+   - Don't optimize prematurely
+   - Each test should go from RED to GREEN
+
+4. **Refactor (REFACTOR)** — Clean up while keeping tests green:
+   - Extract common patterns
+   - Improve naming
+   - Remove duplication
+
+### Edge Case Checklist (apply to every feature)
+
+- Nil/null pointer inputs
+- Empty strings, empty slices, empty maps
+- Duplicate entries (idempotency)
+- Concurrent access (race conditions)
+- Maximum length / overflow values
+- Invalid UTF-8 / special characters
+- Missing required fields
+- Already-exists vs not-found scenarios
+- Permission / authorization edge cases
+- Timeout and cancellation behavior
+
+## E2E Test Setup
+
+Running E2E Playwright tests requires the full stack in **development mode**:
+
+```bash
+# 1. Start Docker services
+docker compose up -d postgres nats litellm
+
+# 2. Start Go backend with APP_ENV=development (enables benchmark endpoints, dev-mode features)
+APP_ENV=development go run ./cmd/codeforge/
+
+# 3. Start frontend dev server
+cd frontend && npm run dev
+
+# 4. Run E2E tests
+cd frontend && npx playwright test
+```
+
+- **`APP_ENV=development` is required** — without it, dev-mode-only endpoints (benchmarks, agent features) return 403
+- The `/health` endpoint exposes `dev_mode: true/false` so the frontend can conditionally show features
+- Backend port: 8080, Frontend port: 3000
+- E2E tests use `admin@localhost` / `Changeme123` (seeded admin)
+- Playwright config: chromium only, workers:1, retries:1
+
 ## Git Workflow
 
 - **Commits only on `staging`** — never directly on `main`, unless the user explicitly instructs otherwise

@@ -1523,6 +1523,9 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		KnowledgeBases:   kbSvc,
 		Sessions:         sessionSvc,
 		MCP:              mcpSvc,
+		Scope:            service.NewScopeService(store),
+		PromptSections:   service.NewPromptSectionService(store),
+		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
@@ -2671,5 +2674,170 @@ func TestSearchProjectQueryTooLong(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Scope Endpoint Tests ---
+
+func TestListScopesEmpty(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/scopes", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var scopes []cfcontext.RetrievalScope
+	if err := json.NewDecoder(w.Body).Decode(&scopes); err != nil {
+		t.Fatal(err)
+	}
+	if len(scopes) != 0 {
+		t.Fatalf("expected empty slice, got %d items", len(scopes))
+	}
+}
+
+func TestCreateScope(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(cfcontext.CreateScopeRequest{
+		Name:       "cross-search",
+		Type:       cfcontext.ScopeShared,
+		ProjectIDs: []string{"proj-1"},
+	})
+	req := httptest.NewRequest("POST", "/api/v1/scopes", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteScope(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("DELETE", "/api/v1/scopes/some-scope-id", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Benchmark Endpoint Tests ---
+
+func TestListBenchmarkRunsDevMode(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/benchmarks/runs", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var runs []benchmark.Run
+	if err := json.NewDecoder(w.Body).Decode(&runs); err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected empty slice, got %d items", len(runs))
+	}
+}
+
+func TestCreateBenchmarkRun(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	r := newTestRouter()
+
+	body, _ := json.Marshal(benchmark.CreateRunRequest{
+		Dataset: "swe-bench",
+		Model:   "gpt-4",
+		Metrics: []string{"accuracy"},
+	})
+	req := httptest.NewRequest("POST", "/api/v1/benchmarks/runs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestBenchmarksForbiddenWithoutDevMode(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/benchmarks/runs", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Prompt Section Endpoint Tests ---
+
+func TestListPromptSectionsEmpty(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/prompt-sections", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var rows []prompt.SectionRow
+	if err := json.NewDecoder(w.Body).Decode(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected empty slice, got %d items", len(rows))
+	}
+}
+
+func TestUpsertPromptSectionMissingName(t *testing.T) {
+	r := newTestRouter()
+
+	body, _ := json.Marshal(prompt.SectionRow{Content: "some content"})
+	req := httptest.NewRequest("PUT", "/api/v1/prompt-sections", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Git Status / Pull Endpoint Tests ---
+
+func TestProjectGitStatusNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/projects/nonexistent/git/status", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPullProjectNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/nonexistent/git/pull", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
