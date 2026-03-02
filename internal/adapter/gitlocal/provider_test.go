@@ -11,7 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
-func TestRegistration(t *testing.T) {
+func TestGitLocal_Registration(t *testing.T) {
 	p, err := gitprovider.New("local", nil)
 	if err != nil {
 		t.Fatalf("expected local provider to be registered: %v", err)
@@ -206,7 +206,7 @@ func TestDirtyStatus(t *testing.T) {
 	}
 }
 
-func TestCloneURL(t *testing.T) {
+func TestGitLocal_CloneURL(t *testing.T) {
 	p, err := gitprovider.New("local", nil)
 	if err != nil {
 		t.Fatal(err)

@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestCreateRequest_Validate(t *testing.T) {
+func TestKnowledgeBase_CreateRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
 		req     CreateRequest

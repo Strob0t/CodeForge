@@ -13,14 +13,14 @@ import (
 // Compile-time interface check.
 var _ pmprovider.Provider = (*Provider)(nil)
 
-func TestProviderName(t *testing.T) {
+func TestGitLab_ProviderName(t *testing.T) {
 	p := NewProvider("http://localhost", "")
 	if p.Name() != "gitlab" {
 		t.Fatalf("expected 'gitlab', got %q", p.Name())
 	}
 }
 
-func TestCapabilities(t *testing.T) {
+func TestGitLab_Capabilities(t *testing.T) {
 	p := NewProvider("http://localhost", "")
 	caps := p.Capabilities()
 	if !caps.ListItems {
@@ -37,7 +37,7 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
-func TestListItems(t *testing.T) {
+func TestGitLab_ListItems(t *testing.T) {
 	issues := []gitlabIssue{
 		{IID: 1, Title: "Bug fix", Description: "Fix the thing", State: "opened", Labels: []string{"bug"}},
 		{IID: 2, Title: "Feature", Description: "Add feature", State: "opened"},
@@ -68,7 +68,7 @@ func TestListItems(t *testing.T) {
 	}
 }
 
-func TestGetItem(t *testing.T) {
+func TestGitLab_GetItem(t *testing.T) {
 	issue := gitlabIssue{
 		IID:         42,
 		Title:       "Test Issue",
@@ -99,7 +99,7 @@ func TestGetItem(t *testing.T) {
 	}
 }
 
-func TestCreateItem(t *testing.T) {
+func TestGitLab_CreateItem(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)

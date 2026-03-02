@@ -11,14 +11,14 @@ import (
 // Compile-time interface check.
 var _ gitprovider.Provider = (*Provider)(nil)
 
-func TestProviderName(t *testing.T) {
+func TestSVN_ProviderName(t *testing.T) {
 	p := NewProvider(nil)
 	if p.Name() != "svn" {
 		t.Fatalf("expected 'svn', got %q", p.Name())
 	}
 }
 
-func TestCapabilities(t *testing.T) {
+func TestSVN_Capabilities(t *testing.T) {
 	p := NewProvider(nil)
 	caps := p.Capabilities()
 	if !caps.Clone {
@@ -35,7 +35,7 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
-func TestCloneURL(t *testing.T) {
+func TestSVN_CloneURL(t *testing.T) {
 	p := NewProvider(nil)
 	url, err := p.CloneURL(context.Background(), "svn://example.com/repo")
 	if err != nil {

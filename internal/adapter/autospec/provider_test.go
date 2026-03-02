@@ -20,7 +20,7 @@ func newProvider(t *testing.T) specprovider.Provider {
 	return p
 }
 
-func TestRegistration(t *testing.T) {
+func TestAutospec_Registration(t *testing.T) {
 	p := newProvider(t)
 	if p.Name() != "autospec" {
 		t.Fatalf("expected name 'autospec', got %q", p.Name())
@@ -74,7 +74,7 @@ func TestDetect_WithSpecYML(t *testing.T) {
 	}
 }
 
-func TestDetect_Absent(t *testing.T) {
+func TestAutospec_Detect_Absent(t *testing.T) {
 	dir := t.TempDir()
 
 	p := newProvider(t)
@@ -108,7 +108,7 @@ func TestDetect_DirWithoutSpecFile(t *testing.T) {
 	}
 }
 
-func TestListSpecs(t *testing.T) {
+func TestAutospec_ListSpecs(t *testing.T) {
 	dir := t.TempDir()
 	specsDir := filepath.Join(dir, "specs")
 	if err := os.Mkdir(specsDir, 0o755); err != nil {
@@ -163,7 +163,7 @@ func TestListSpecs(t *testing.T) {
 	}
 }
 
-func TestListSpecs_EmptyDir(t *testing.T) {
+func TestAutospec_ListSpecs_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "specs"), 0o755); err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func TestListSpecs_EmptyDir(t *testing.T) {
 	}
 }
 
-func TestReadSpec_HappyPath(t *testing.T) {
+func TestAutospec_ReadSpec_HappyPath(t *testing.T) {
 	dir := t.TempDir()
 	specsDir := filepath.Join(dir, "specs")
 	if err := os.Mkdir(specsDir, 0o755); err != nil {
@@ -200,7 +200,7 @@ func TestReadSpec_HappyPath(t *testing.T) {
 	}
 }
 
-func TestReadSpec_PathTraversal(t *testing.T) {
+func TestAutospec_ReadSpec_PathTraversal(t *testing.T) {
 	dir := t.TempDir()
 
 	p := newProvider(t)
@@ -210,7 +210,7 @@ func TestReadSpec_PathTraversal(t *testing.T) {
 	}
 }
 
-func TestReadSpec_MissingFile(t *testing.T) {
+func TestAutospec_ReadSpec_MissingFile(t *testing.T) {
 	dir := t.TempDir()
 
 	p := newProvider(t)

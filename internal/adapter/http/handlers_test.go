@@ -1781,7 +1781,7 @@ func TestCreateTaskMissingTitle(t *testing.T) {
 	}
 }
 
-func TestCreateTaskInvalidBody(t *testing.T) {
+func TestHandler_CreateTaskInvalidBody(t *testing.T) {
 	r := newTestRouter()
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/some-id/tasks", bytes.NewReader([]byte("not json")))
@@ -1826,7 +1826,7 @@ func TestGetTask(t *testing.T) {
 	}
 }
 
-func TestGetTaskNotFound(t *testing.T) {
+func TestHandler_GetTaskNotFound(t *testing.T) {
 	r := newTestRouter()
 
 	req := httptest.NewRequest("GET", "/api/v1/tasks/nonexistent", http.NoBody)

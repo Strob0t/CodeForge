@@ -30,7 +30,7 @@ func (p *testProvider) ListBranches(_ context.Context, _ string) ([]project.Bran
 }
 func (p *testProvider) Checkout(_ context.Context, _, _ string) error { return nil }
 
-func TestRegisterAndNew(t *testing.T) {
+func TestGitProvider_RegisterAndNew(t *testing.T) {
 	gitprovider.Register("test-git", func(_ map[string]string) (gitprovider.Provider, error) {
 		return &testProvider{name: "test-git"}, nil
 	})
@@ -51,7 +51,7 @@ func TestNewUnknownProvider(t *testing.T) {
 	}
 }
 
-func TestAvailable(t *testing.T) {
+func TestGitProvider_Available(t *testing.T) {
 	names := gitprovider.Available()
 	found := false
 	for _, n := range names {

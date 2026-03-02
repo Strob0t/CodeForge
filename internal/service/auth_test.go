@@ -1064,6 +1064,51 @@ func TestAuthService_DeleteUser(t *testing.T) {
 	}
 }
 
+func TestAuthService_Register_DuplicateEmail(t *testing.T) {
+	store := &mockStore{}
+	svc := newTestAuthService(store)
+	ctx := context.Background()
+
+	// First registration succeeds.
+	_, err := svc.Register(ctx, &user.CreateRequest{
+		Email:    "dupe@test.com",
+		Name:     "First",
+		Password: "Password123",
+		Role:     user.RoleEditor,
+		TenantID: testTenantID,
+	})
+	if err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+
+	// Same email + same tenant should fail.
+	_, err = svc.Register(ctx, &user.CreateRequest{
+		Email:    "dupe@test.com",
+		Name:     "Second",
+		Password: "Password123",
+		Role:     user.RoleViewer,
+		TenantID: testTenantID,
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate email in same tenant")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error = %q, want to contain 'duplicate'", err.Error())
+	}
+
+	// Same email in a different tenant should succeed (multi-tenant isolation).
+	_, err = svc.Register(ctx, &user.CreateRequest{
+		Email:    "dupe@test.com",
+		Name:     "Other Tenant",
+		Password: "Password123",
+		Role:     user.RoleEditor,
+		TenantID: "different-tenant-id",
+	})
+	if err != nil {
+		t.Fatalf("register in different tenant: %v", err)
+	}
+}
+
 func TestAuthService_ChangePassword_WeakNew(t *testing.T) {
 	store := &mockStore{}
 	svc := newTestAuthService(store)

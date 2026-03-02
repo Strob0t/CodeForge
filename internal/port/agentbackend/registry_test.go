@@ -19,7 +19,7 @@ func (b *testBackend) Capabilities() agentbackend.Capabilities {
 func (b *testBackend) Execute(_ context.Context, _ *task.Task) (*task.Result, error) { return nil, nil }
 func (b *testBackend) Stop(_ context.Context, _ string) error                        { return nil }
 
-func TestRegisterAndNew(t *testing.T) {
+func TestAgentBackend_RegisterAndNew(t *testing.T) {
 	agentbackend.Register("test-agent", func(_ map[string]string) (agentbackend.Backend, error) {
 		return &testBackend{name: "test-agent"}, nil
 	})
@@ -40,7 +40,7 @@ func TestNewUnknownBackend(t *testing.T) {
 	}
 }
 
-func TestAvailable(t *testing.T) {
+func TestAgentBackend_Available(t *testing.T) {
 	names := agentbackend.Available()
 	found := false
 	for _, n := range names {

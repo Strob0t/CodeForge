@@ -24,7 +24,7 @@ func TestValidate_Valid(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingID(t *testing.T) {
+func TestPipeline_Validate_MissingID(t *testing.T) {
 	tmpl := Template{
 		Name:     "Test",
 		Protocol: plan.ProtocolSequential,
@@ -35,7 +35,7 @@ func TestValidate_MissingID(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingName(t *testing.T) {
+func TestPipeline_Validate_MissingName(t *testing.T) {
 	tmpl := Template{
 		ID:       "test",
 		Protocol: plan.ProtocolSequential,
@@ -46,7 +46,7 @@ func TestValidate_MissingName(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidProtocol(t *testing.T) {
+func TestPipeline_Validate_InvalidProtocol(t *testing.T) {
 	tmpl := Template{
 		ID:       "test",
 		Name:     "Test",
@@ -58,7 +58,7 @@ func TestValidate_InvalidProtocol(t *testing.T) {
 	}
 }
 
-func TestValidate_NoSteps(t *testing.T) {
+func TestPipeline_Validate_NoSteps(t *testing.T) {
 	tmpl := Template{
 		ID:       "test",
 		Name:     "Test",
@@ -122,7 +122,7 @@ func TestValidate_DAGSelfRef(t *testing.T) {
 	}
 }
 
-func TestValidate_DAGInvalidRef(t *testing.T) {
+func TestPipeline_Validate_DAGInvalidRef(t *testing.T) {
 	tmpl := Template{
 		ID:       "test",
 		Name:     "Test",

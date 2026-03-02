@@ -93,7 +93,7 @@ func TestLoadFromFileMissing(t *testing.T) {
 	}
 }
 
-func TestLoadFromDirectory(t *testing.T) {
+func TestPolicyLoader_LoadFromDirectory(t *testing.T) {
 	dir := t.TempDir()
 
 	for i, name := range []string{"a.yaml", "b.yml"} {
@@ -116,7 +116,7 @@ func TestLoadFromDirectory(t *testing.T) {
 	}
 }
 
-func TestLoadFromDirectoryMissing(t *testing.T) {
+func TestPolicyLoader_LoadFromDirectoryMissing(t *testing.T) {
 	profiles, err := LoadFromDirectory("/nonexistent/dir")
 	if err != nil {
 		t.Fatalf("missing directory should not error, got: %v", err)

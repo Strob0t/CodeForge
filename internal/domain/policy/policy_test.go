@@ -118,7 +118,7 @@ func TestIsValidDecision(t *testing.T) {
 
 // --- Evaluation tests ---
 
-func TestEvaluateFirstMatchWins(t *testing.T) {
+func TestPolicyDomain_EvaluateFirstMatchWins(t *testing.T) {
 	p := PolicyProfile{
 		Name: "test",
 		Mode: ModeDefault,

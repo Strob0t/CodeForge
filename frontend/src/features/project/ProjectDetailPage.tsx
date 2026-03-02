@@ -1,5 +1,5 @@
 import { useParams } from "@solidjs/router";
-import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
@@ -60,6 +60,14 @@ export default function ProjectDetailPage() {
   // Left panel tab: "roadmap" or "files"
   type LeftTab = "roadmap" | "files";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
+
+  // Auto-select "files" tab when project has a workspace (is cloned)
+  createEffect(() => {
+    const p = project();
+    if (p?.workspace_path && leftTab() === "roadmap") {
+      setLeftTab("files");
+    }
+  });
 
   // Resizable split + collapsible roadmap
   const [splitRatio, setSplitRatio] = createSignal(DEFAULT_SPLIT);
@@ -413,7 +421,7 @@ export default function ProjectDetailPage() {
             >
               <Show when={!roadmapCollapsed()}>
                 <div
-                  class={`flex flex-col ${leftTab() === "files" ? "" : "overflow-y-auto"}`}
+                  class={`flex flex-col min-h-0 ${leftTab() === "files" ? "" : "overflow-y-auto"}`}
                   style={
                     isNarrow()
                       ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }

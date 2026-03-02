@@ -12,14 +12,14 @@ import (
 // Compile-time interface check.
 var _ notifier.Notifier = (*Notifier)(nil)
 
-func TestNotifierName(t *testing.T) {
+func TestSlack_NotifierName(t *testing.T) {
 	n := NewNotifier("")
 	if n.Name() != "slack" {
 		t.Fatalf("expected 'slack', got %q", n.Name())
 	}
 }
 
-func TestCapabilities(t *testing.T) {
+func TestSlack_Capabilities(t *testing.T) {
 	n := NewNotifier("")
 	caps := n.Capabilities()
 	if !caps.RichFormatting {
@@ -27,7 +27,7 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
-func TestSendNotConfigured(t *testing.T) {
+func TestSlack_SendNotConfigured(t *testing.T) {
 	n := NewNotifier("")
 	err := n.Send(context.Background(), notifier.Notification{Title: "test"})
 	if err != notifier.ErrNotConfigured {
@@ -35,7 +35,7 @@ func TestSendNotConfigured(t *testing.T) {
 	}
 }
 
-func TestSendSuccess(t *testing.T) {
+func TestSlack_SendSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -54,7 +54,7 @@ func TestSendSuccess(t *testing.T) {
 	}
 }
 
-func TestSendAPIError(t *testing.T) {
+func TestSlack_SendAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("internal error"))

@@ -22,7 +22,7 @@ func TestNewMCPService(t *testing.T) {
 	}
 }
 
-func TestRegister(t *testing.T) {
+func TestMCP_Register(t *testing.T) {
 	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	def := mcp.ServerDef{
@@ -215,7 +215,7 @@ func TestResolveForRun(t *testing.T) {
 	}
 }
 
-func TestLoadFromDirectory(t *testing.T) {
+func TestMCP_LoadFromDirectory(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write valid YAML server defs.
@@ -263,7 +263,7 @@ env:
 	}
 }
 
-func TestLoadFromDirectoryMissing(t *testing.T) {
+func TestMCP_LoadFromDirectoryMissing(t *testing.T) {
 	svc := NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 
 	// Loading from a non-existent directory returns nil (not an error).

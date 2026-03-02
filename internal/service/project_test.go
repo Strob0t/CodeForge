@@ -429,6 +429,11 @@ func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.Sessi
 // --- User/Auth (in-memory implementation for auth tests) ---
 
 func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
+	for _, existing := range m.users {
+		if existing.Email == u.Email && existing.TenantID == u.TenantID {
+			return fmt.Errorf("create user: duplicate email %q", u.Email)
+		}
+	}
 	m.users = append(m.users, *u)
 	return nil
 }

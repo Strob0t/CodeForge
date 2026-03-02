@@ -131,9 +131,19 @@ export default function FileTree(props: FileTreeProps): JSX.Element {
         when={!rootEntries.loading}
         fallback={<p class="text-xs text-cf-text-muted p-2">Loading...</p>}
       >
+        <Show when={rootEntries.error}>
+          <p class="text-xs text-red-400 p-2">
+            Failed to load files:{" "}
+            {rootEntries.error instanceof Error ? rootEntries.error.message : "Unknown error"}
+          </p>
+        </Show>
         <Show
-          when={(rootEntries()?.length ?? 0) > 0}
-          fallback={<p class="text-xs text-cf-text-muted p-2">No files found</p>}
+          when={!rootEntries.error && (rootEntries()?.length ?? 0) > 0}
+          fallback={
+            <Show when={!rootEntries.error}>
+              <p class="text-xs text-cf-text-muted p-2">No files found</p>
+            </Show>
+          }
         >
           <For each={sortEntries(rootEntries() ?? [])}>
             {(entry) => (

@@ -69,7 +69,7 @@ func TestValidate_ValidConsensus(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingName(t *testing.T) {
+func TestPlan_Validate_MissingName(t *testing.T) {
 	req := validSequentialRequest()
 	req.Name = ""
 	if err := req.Validate(); !errors.Is(err, plan.ErrNameRequired) {
@@ -77,7 +77,7 @@ func TestValidate_MissingName(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidProtocol(t *testing.T) {
+func TestPlan_Validate_InvalidProtocol(t *testing.T) {
 	req := validSequentialRequest()
 	req.Protocol = "roundrobin"
 	if err := req.Validate(); !errors.Is(err, plan.ErrInvalidProtocol) {
@@ -85,7 +85,7 @@ func TestValidate_InvalidProtocol(t *testing.T) {
 	}
 }
 
-func TestValidate_NoSteps(t *testing.T) {
+func TestPlan_Validate_NoSteps(t *testing.T) {
 	req := plan.CreatePlanRequest{
 		Name:     "empty",
 		Protocol: plan.ProtocolSequential,
@@ -207,7 +207,7 @@ func TestValidate_DAGSelfReference(t *testing.T) {
 	}
 }
 
-func TestValidate_DAGInvalidRef(t *testing.T) {
+func TestPlan_Validate_DAGInvalidRef(t *testing.T) {
 	req := plan.CreatePlanRequest{
 		Name:     "bad ref",
 		Protocol: plan.ProtocolSequential,

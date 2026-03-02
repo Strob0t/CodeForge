@@ -12,14 +12,14 @@ import (
 // Compile-time interface check.
 var _ notifier.Notifier = (*Notifier)(nil)
 
-func TestNotifierName(t *testing.T) {
+func TestDiscord_NotifierName(t *testing.T) {
 	n := NewNotifier("")
 	if n.Name() != "discord" {
 		t.Fatalf("expected 'discord', got %q", n.Name())
 	}
 }
 
-func TestCapabilities(t *testing.T) {
+func TestDiscord_Capabilities(t *testing.T) {
 	n := NewNotifier("")
 	caps := n.Capabilities()
 	if !caps.RichFormatting {
@@ -30,7 +30,7 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
-func TestSendNotConfigured(t *testing.T) {
+func TestDiscord_SendNotConfigured(t *testing.T) {
 	n := NewNotifier("")
 	err := n.Send(context.Background(), notifier.Notification{Title: "test"})
 	if err != notifier.ErrNotConfigured {
@@ -38,7 +38,7 @@ func TestSendNotConfigured(t *testing.T) {
 	}
 }
 
-func TestSendSuccess(t *testing.T) {
+func TestDiscord_SendSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent) // Discord returns 204
 	}))
@@ -56,7 +56,7 @@ func TestSendSuccess(t *testing.T) {
 	}
 }
 
-func TestSendAPIError(t *testing.T) {
+func TestDiscord_SendAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"message":"rate limited"}`))

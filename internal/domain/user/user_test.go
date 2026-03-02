@@ -2,7 +2,7 @@ package user
 
 import "testing"
 
-func TestCreateRequest_Validate(t *testing.T) {
+func TestUser_CreateRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
 		req     CreateRequest

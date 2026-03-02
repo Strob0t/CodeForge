@@ -80,7 +80,7 @@ func TestIssueToItem_NoAssignee(t *testing.T) {
 	}
 }
 
-func TestProviderName(t *testing.T) {
+func TestGitHubPM_ProviderName(t *testing.T) {
 	p := newProvider()
 	if p.Name() != "github-issues" {
 		t.Fatalf("expected name 'github-issues', got %q", p.Name())

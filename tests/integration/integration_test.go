@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,13 +22,16 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 var (
-	testServer *httptest.Server
-	testPool   *pgxpool.Pool
+	testServer     *httptest.Server
+	testAuthServer *httptest.Server
+	testAuthSvc    *service.AuthService
+	testPool       *pgxpool.Pool
 )
 
 func TestMain(m *testing.M) {
@@ -59,7 +63,7 @@ func TestMain(m *testing.M) {
 	queue := &stubQueue{}
 	bc := &stubBroadcaster{}
 
-	projectSvc := service.NewProjectService(store)
+	projectSvc := service.NewProjectService(store, "")
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, bc)
 	llmClient := litellm.NewClient("http://localhost:4000", "")
@@ -84,6 +88,37 @@ func TestMain(m *testing.M) {
 
 	testServer = httptest.NewServer(r)
 
+	// Build a second server with auth enabled for auth-specific tests.
+	authCfg := config.Auth{
+		Enabled:            true,
+		JWTSecret:          "integration-test-secret-must-be-long",
+		AccessTokenExpiry:  15 * time.Minute,
+		RefreshTokenExpiry: 7 * 24 * time.Hour,
+		BcryptCost:         4, // low cost for fast tests
+	}
+	authSvc := service.NewAuthService(store, &authCfg)
+	testAuthSvc = authSvc
+
+	authHandlers := &cfhttp.Handlers{
+		Projects: projectSvc,
+		Tasks:    taskSvc,
+		Agents:   agentSvc,
+		LiteLLM:  llmClient,
+		Auth:     authSvc,
+		Limits:   &cfg.Limits,
+	}
+
+	authRouter := chi.NewRouter()
+	authRouter.Use(middleware.Auth(authSvc, true))
+	authRouter.Use(middleware.TenantID)
+	authRouter.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	cfhttp.MountRoutes(authRouter, authHandlers, config.Webhook{})
+	testAuthServer = httptest.NewServer(authRouter)
+
 	// Clean test data before running
 	cleanDB(pool)
 
@@ -91,6 +126,7 @@ func TestMain(m *testing.M) {
 
 	// Cleanup
 	cleanDB(pool)
+	testAuthServer.Close()
 	testServer.Close()
 	pool.Close()
 
@@ -103,6 +139,11 @@ func cleanDB(pool *pgxpool.Pool) {
 	_, _ = pool.Exec(ctx, "DELETE FROM tasks")
 	_, _ = pool.Exec(ctx, "DELETE FROM agents")
 	_, _ = pool.Exec(ctx, "DELETE FROM projects")
+	_, _ = pool.Exec(ctx, "DELETE FROM api_keys")
+	_, _ = pool.Exec(ctx, "DELETE FROM password_reset_tokens")
+	_, _ = pool.Exec(ctx, "DELETE FROM revoked_tokens")
+	_, _ = pool.Exec(ctx, "DELETE FROM refresh_tokens")
+	_, _ = pool.Exec(ctx, "DELETE FROM users")
 }
 
 // --- Stubs ---

@@ -12,14 +12,14 @@ func TestValidate_ValidMode(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingID(t *testing.T) {
+func TestMode_Validate_MissingID(t *testing.T) {
 	m := Mode{Name: "Test", Autonomy: 3}
 	if err := m.Validate(); err == nil {
 		t.Fatal("expected error for missing ID")
 	}
 }
 
-func TestValidate_MissingName(t *testing.T) {
+func TestMode_Validate_MissingName(t *testing.T) {
 	m := Mode{ID: "test", Autonomy: 3}
 	if err := m.Validate(); err == nil {
 		t.Fatal("expected error for missing name")

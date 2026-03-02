@@ -71,7 +71,7 @@ func TestCreateAndGetTask(t *testing.T) {
 	}
 }
 
-func TestGetTaskNotFound(t *testing.T) {
+func TestA2A_GetTaskNotFound(t *testing.T) {
 	r := newTestRouter()
 	req := httptest.NewRequest(http.MethodGet, "/a2a/tasks/nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
@@ -82,7 +82,7 @@ func TestGetTaskNotFound(t *testing.T) {
 	}
 }
 
-func TestCreateTaskInvalidBody(t *testing.T) {
+func TestA2A_CreateTaskInvalidBody(t *testing.T) {
 	r := newTestRouter()
 	req := httptest.NewRequest(http.MethodPost, "/a2a/tasks", bytes.NewBufferString("not json"))
 	w := httptest.NewRecorder()

@@ -20,7 +20,7 @@ func newProvider(t *testing.T) specprovider.Provider {
 	return p
 }
 
-func TestRegistration(t *testing.T) {
+func TestMarkdownSpec_Registration(t *testing.T) {
 	p := newProvider(t)
 	if p.Name() != "markdown" {
 		t.Fatalf("expected name 'markdown', got %q", p.Name())
@@ -69,7 +69,7 @@ func TestDetect_LowerCase(t *testing.T) {
 	}
 }
 
-func TestDetect_Absent(t *testing.T) {
+func TestMarkdownSpec_Detect_Absent(t *testing.T) {
 	dir := t.TempDir()
 
 	p := newProvider(t)
@@ -82,7 +82,7 @@ func TestDetect_Absent(t *testing.T) {
 	}
 }
 
-func TestListSpecs(t *testing.T) {
+func TestMarkdownSpec_ListSpecs(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ROADMAP.md"), []byte("# Plan\n"), 0o644); err != nil {
 		t.Fatal(err)

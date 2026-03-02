@@ -19,7 +19,7 @@ func TestEvaluateExactToolMatch(t *testing.T) {
 	}
 }
 
-func TestEvaluateFirstMatchWins(t *testing.T) {
+func TestPolicyService_EvaluateFirstMatchWins(t *testing.T) {
 	profile := policy.PolicyProfile{
 		Name: "test",
 		Mode: policy.ModeDefault,

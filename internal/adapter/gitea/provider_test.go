@@ -13,14 +13,14 @@ import (
 // Compile-time interface check.
 var _ pmprovider.Provider = (*Provider)(nil)
 
-func TestProviderName(t *testing.T) {
+func TestGitea_ProviderName(t *testing.T) {
 	p := NewProvider("http://localhost", "")
 	if p.Name() != "gitea" {
 		t.Fatalf("expected 'gitea', got %q", p.Name())
 	}
 }
 
-func TestCapabilities(t *testing.T) {
+func TestGitea_Capabilities(t *testing.T) {
 	p := NewProvider("http://localhost", "")
 	caps := p.Capabilities()
 	if !caps.ListItems {
@@ -37,7 +37,7 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
-func TestListItems(t *testing.T) {
+func TestGitea_ListItems(t *testing.T) {
 	issues := []giteaIssue{
 		{Number: 1, Title: "Bug fix", Body: "Fix the thing", State: "open", Labels: []giteaLabel{{Name: "bug"}}},
 		{Number: 2, Title: "Feature", Body: "Add feature", State: "open"},
@@ -65,7 +65,7 @@ func TestListItems(t *testing.T) {
 	}
 }
 
-func TestGetItem(t *testing.T) {
+func TestGitea_GetItem(t *testing.T) {
 	issue := giteaIssue{Number: 42, Title: "Test Issue", Body: "Details here", State: "closed"}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -87,7 +87,7 @@ func TestGetItem(t *testing.T) {
 	}
 }
 
-func TestCreateItem(t *testing.T) {
+func TestGitea_CreateItem(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)

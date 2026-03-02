@@ -113,7 +113,7 @@ func TestStopPublishesCancel(t *testing.T) {
 	}
 }
 
-func TestRegister(t *testing.T) {
+func TestAider_Register(t *testing.T) {
 	// Register is called once; just verify it doesn't panic.
 	// We can't test it properly here because the registry doesn't allow
 	// deregistration, and it may already be registered from another test.
