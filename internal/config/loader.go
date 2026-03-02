@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -246,6 +247,11 @@ func loadEnv(cfg *Config) {
 
 	// A2A
 	setBool(&cfg.A2A.Enabled, "CODEFORGE_A2A_ENABLED")
+	setString(&cfg.A2A.BaseURL, "CODEFORGE_A2A_BASE_URL")
+	setStringSlice(&cfg.A2A.APIKeys, "CODEFORGE_A2A_API_KEYS")
+	setString(&cfg.A2A.Transport, "CODEFORGE_A2A_TRANSPORT")
+	setInt(&cfg.A2A.MaxTasks, "CODEFORGE_A2A_MAX_TASKS")
+	setBool(&cfg.A2A.AllowOpen, "CODEFORGE_A2A_ALLOW_OPEN")
 
 	// AG-UI
 	setBool(&cfg.AGUI.Enabled, "CODEFORGE_AGUI_ENABLED")
@@ -386,5 +392,19 @@ func setDuration(dst *time.Duration, key string) {
 		if d, err := time.ParseDuration(v); err == nil {
 			*dst = d
 		}
+	}
+}
+
+func setStringSlice(dst *[]string, key string) {
+	if v := os.Getenv(key); v != "" {
+		parts := strings.Split(v, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				result = append(result, p)
+			}
+		}
+		*dst = result
 	}
 }

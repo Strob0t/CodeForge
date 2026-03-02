@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
@@ -26,6 +27,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
+	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
@@ -338,4 +340,51 @@ type Store interface {
 	ListActiveWork(ctx context.Context, projectID string) ([]task.ActiveWorkItem, error)
 	ClaimTask(ctx context.Context, taskID, agentID string, version int) (*task.ClaimResult, error)
 	ReleaseStaleWork(ctx context.Context, threshold time.Duration) ([]task.Task, error)
+
+	// Routing (Phase 26)
+	CreateRoutingOutcome(ctx context.Context, o *routing.RoutingOutcome) error
+	ListRoutingStats(ctx context.Context, taskType, complexityTier string) ([]routing.ModelPerformanceStats, error)
+	UpsertRoutingStats(ctx context.Context, s *routing.ModelPerformanceStats) error
+	AggregateRoutingOutcomes(ctx context.Context) error
+	ListRoutingOutcomes(ctx context.Context, limit int) ([]routing.RoutingOutcome, error)
+
+	// A2A Tasks (Phase 27)
+	CreateA2ATask(ctx context.Context, t *a2adomain.A2ATask) error
+	GetA2ATask(ctx context.Context, id string) (*a2adomain.A2ATask, error)
+	UpdateA2ATask(ctx context.Context, t *a2adomain.A2ATask) error
+	ListA2ATasks(ctx context.Context, filter *A2ATaskFilter) ([]a2adomain.A2ATask, int, error)
+	DeleteA2ATask(ctx context.Context, id string) error
+
+	// A2A Remote Agents (Phase 27)
+	CreateRemoteAgent(ctx context.Context, a *a2adomain.RemoteAgent) error
+	GetRemoteAgent(ctx context.Context, id string) (*a2adomain.RemoteAgent, error)
+	ListRemoteAgents(ctx context.Context, tenantID string, enabledOnly bool) ([]a2adomain.RemoteAgent, error)
+	UpdateRemoteAgent(ctx context.Context, a *a2adomain.RemoteAgent) error
+	DeleteRemoteAgent(ctx context.Context, id string) error
+
+	// A2A Push Configs (Phase 27)
+	CreateA2APushConfig(ctx context.Context, taskID, url, token string) (string, error)
+	GetA2APushConfig(ctx context.Context, id string) (taskID, url, token string, err error)
+	ListA2APushConfigs(ctx context.Context, taskID string) ([]A2APushConfig, error)
+	DeleteA2APushConfig(ctx context.Context, id string) error
+	DeleteAllA2APushConfigs(ctx context.Context, taskID string) error
+}
+
+// A2ATaskFilter defines filters for listing A2A tasks.
+type A2ATaskFilter struct {
+	State     string
+	Direction string
+	ProjectID string
+	TenantID  string
+	Limit     int
+	Cursor    string
+}
+
+// A2APushConfig represents a push notification configuration for an A2A task.
+type A2APushConfig struct {
+	ID        string    `json:"id"`
+	TaskID    string    `json:"task_id"`
+	URL       string    `json:"url"`
+	Token     string    `json:"token"`
+	CreatedAt time.Time `json:"created_at"`
 }

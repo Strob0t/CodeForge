@@ -342,7 +342,12 @@ type OTEL struct {
 
 // A2A holds Agent-to-Agent protocol configuration.
 type A2A struct {
-	Enabled bool `yaml:"enabled"` // Enable A2A endpoints (default: false)
+	Enabled   bool     `yaml:"enabled"`    // Enable A2A endpoints (default: false)
+	BaseURL   string   `yaml:"base_url"`   // Public URL for AgentCard (default: auto-detect from Server.Port)
+	APIKeys   []string `yaml:"api_keys"`   // Allowed API keys for incoming A2A requests (empty = open)
+	Transport string   `yaml:"transport"`  // "jsonrpc" (default) | "rest"
+	MaxTasks  int      `yaml:"max_tasks"`  // Max concurrent A2A tasks (default: 100)
+	AllowOpen bool     `yaml:"allow_open"` // Allow unauthenticated AgentCard discovery (default: true)
 }
 
 // AGUI holds AG-UI (Agent-User Interaction) protocol configuration.
@@ -484,7 +489,12 @@ func Defaults() Config {
 			Insecure:    true,
 			SampleRate:  1.0,
 		},
-		A2A:  A2A{Enabled: false},
+		A2A: A2A{
+			Enabled:   false,
+			Transport: "jsonrpc",
+			MaxTasks:  100,
+			AllowOpen: true,
+		},
 		AGUI: AGUI{Enabled: false},
 		MCP: MCP{
 			Enabled:    false,

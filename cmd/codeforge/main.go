@@ -14,8 +14,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	cfa2a "github.com/Strob0t/CodeForge/internal/adapter/a2a"
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
 	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
 	emailAdapter "github.com/Strob0t/CodeForge/internal/adapter/email"
@@ -41,7 +43,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
-	"github.com/Strob0t/CodeForge/internal/port/a2a"
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
@@ -204,6 +205,10 @@ func run() error {
 	// --- Active Work Service (Phase 24) ---
 	activeWorkSvc := service.NewActiveWorkService(store, hub)
 	slog.Info("active work service initialized")
+
+	// --- Routing Service (Phase 26) ---
+	routingSvc := service.NewRoutingService(store)
+	slog.Info("routing service initialized")
 
 	// --- Quarantine Service (Phase 23B) ---
 	quarantineSvc := service.NewQuarantineService(store, queue, hub, cfg.Quarantine)
@@ -608,6 +613,7 @@ func run() error {
 		Files:            fileSvc,
 		Quarantine:       quarantineSvc,
 		ActiveWork:       activeWorkSvc,
+		Routing:          routingSvc,
 		Limits:           &cfg.Limits,
 	}
 
@@ -648,11 +654,46 @@ func run() error {
 
 		cfhttp.MountRoutes(api, handlers, cfg.Webhook)
 
-		// A2A protocol routes (root level, not under /api/v1)
+		// A2A protocol routes (Phase 27 — SDK-based)
 		if cfg.A2A.Enabled {
-			a2aHandler := a2a.NewHandler("http://localhost:" + cfg.Server.Port)
-			a2aHandler.MountRoutes(api)
-			slog.Info("a2a protocol enabled")
+			// Build mode list for AgentCard skills.
+			allModes := modeSvc.List()
+			modeInfos := make([]cfa2a.ModeInfo, 0, len(allModes))
+			modeIDs := make([]string, 0, len(allModes))
+			for i := range allModes {
+				modeInfos = append(modeInfos, cfa2a.ModeInfo{
+					ID: allModes[i].ID, Name: allModes[i].Name, Description: allModes[i].Description,
+				})
+				modeIDs = append(modeIDs, allModes[i].ID)
+			}
+
+			// Base URL for AgentCard.
+			a2aBaseURL := cfg.A2A.BaseURL
+			if a2aBaseURL == "" {
+				a2aBaseURL = "http://localhost:" + cfg.Server.Port
+			}
+
+			// Build components.
+			cardBuilder := cfa2a.NewCardBuilder(a2aBaseURL, modeInfos, "0.1.0")
+			taskStoreAdapter := cfa2a.NewTaskStoreAdapter(store)
+			executor := cfa2a.NewExecutor(store, queue, hub, modeIDs)
+
+			// Wire SDK handler.
+			a2aReqHandler := a2asrv.NewHandler(executor,
+				a2asrv.WithTaskStore(taskStoreAdapter),
+				a2asrv.WithExtendedAgentCardProducer(cardBuilder),
+			)
+			a2aHTTPHandler := a2asrv.NewJSONRPCHandler(a2aReqHandler)
+
+			// Mount A2A middleware + routes.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.A2AAuth(cfg.A2A.APIKeys))
+				r.Handle("/a2a", a2aHTTPHandler)
+			})
+			// AgentCard discovery (unauthenticated if AllowOpen).
+			r.Get("/.well-known/agent-card.json", a2asrv.NewAgentCardHandler(cardBuilder).ServeHTTP)
+
+			slog.Info("a2a protocol enabled", "transport", cfg.A2A.Transport, "base_url", a2aBaseURL)
 		}
 	})
 

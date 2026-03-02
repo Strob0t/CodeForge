@@ -91,4 +91,9 @@ const (
 
 	// Agent identity subjects (Phase 23C)
 	SubjectAgentMessage = "agents.message" // Go → Go: agent-to-agent inbox message
+
+	// A2A subjects (Phase 27)
+	SubjectA2ATaskCreated  = "a2a.task.created"  // Go → Python: inbound A2A task received
+	SubjectA2ATaskComplete = "a2a.task.complete" // Python → Go: A2A task completed
+	SubjectA2ATaskCancel   = "a2a.task.cancel"   // Go → Python: cancel A2A task
 )

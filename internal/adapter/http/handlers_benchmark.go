@@ -1,7 +1,9 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
@@ -171,4 +173,34 @@ func (h *Handlers) BenchmarkLeaderboard(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, entries)
+}
+
+// --- Phase 28E: Training Data Export ---
+
+// ExportTrainingData handles GET /api/v1/benchmarks/runs/{id}/export/training
+func (h *Handlers) ExportTrainingData(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "run id is required")
+		return
+	}
+	pairs, err := h.Benchmarks.ExportTrainingPairs(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "export training data")
+		return
+	}
+
+	format := strings.ToLower(r.URL.Query().Get("format"))
+	if format == "json" {
+		writeJSON(w, http.StatusOK, pairs)
+		return
+	}
+
+	// Default: JSONL (ndjson) — one JSON object per line.
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"training_pairs.jsonl\"")
+	enc := json.NewEncoder(w)
+	for i := range pairs {
+		_ = enc.Encode(pairs[i])
+	}
 }

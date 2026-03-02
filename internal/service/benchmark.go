@@ -236,19 +236,19 @@ func (s *BenchmarkService) CostAnalysis(ctx context.Context, runID string) (*ben
 	var scoreCount int
 
 	breakdown := make([]benchmark.CostBreakdown, 0, len(results))
-	for _, r := range results {
-		taskScore := avgScoreFromJSON(r.Scores)
+	for i := range results {
+		taskScore := avgScoreFromJSON(results[i].Scores)
 		breakdown = append(breakdown, benchmark.CostBreakdown{
-			TaskID:    r.TaskID,
-			TaskName:  r.TaskName,
-			CostUSD:   r.CostUSD,
-			TokensIn:  r.TokensIn,
-			TokensOut: r.TokensOut,
+			TaskID:    results[i].TaskID,
+			TaskName:  results[i].TaskName,
+			CostUSD:   results[i].CostUSD,
+			TokensIn:  results[i].TokensIn,
+			TokensOut: results[i].TokensOut,
 			Score:     taskScore,
 		})
-		totalCost += r.CostUSD
-		totalTokensIn += r.TokensIn
-		totalTokensOut += r.TokensOut
+		totalCost += results[i].CostUSD
+		totalTokensIn += results[i].TokensIn
+		totalTokensOut += results[i].TokensOut
 		if taskScore > 0 {
 			totalScore += taskScore
 			scoreCount++
@@ -314,11 +314,11 @@ func (s *BenchmarkService) Leaderboard(ctx context.Context, suiteID string) ([]b
 		var totalScore float64
 		var scoreCount int
 
-		for _, r := range results {
-			taskScore := avgScoreFromJSON(r.Scores)
-			totalCost += r.CostUSD
-			totalTokensIn += r.TokensIn
-			totalTokensOut += r.TokensOut
+		for i := range results {
+			taskScore := avgScoreFromJSON(results[i].Scores)
+			totalCost += results[i].CostUSD
+			totalTokensIn += results[i].TokensIn
+			totalTokensOut += results[i].TokensOut
 			if taskScore > 0 {
 				totalScore += taskScore
 				scoreCount++
@@ -367,6 +367,76 @@ func sortLeaderboard(entries []benchmark.LeaderboardEntry) {
 		for j := i; j > 0 && entries[j].AvgScore > entries[j-1].AvgScore; j-- {
 			entries[j], entries[j-1] = entries[j-1], entries[j]
 		}
+	}
+}
+
+// ExportTrainingPairs generates chosen/rejected DPO pairs from multi-rollout results.
+func (s *BenchmarkService) ExportTrainingPairs(ctx context.Context, runID string) ([]benchmark.TrainingPair, error) {
+	results, err := s.store.ListBenchmarkResults(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("results: %w", err)
+	}
+
+	// Group results by TaskID.
+	grouped := make(map[string][]benchmark.Result)
+	for i := range results {
+		grouped[results[i].TaskID] = append(grouped[results[i].TaskID], results[i])
+	}
+
+	var pairs []benchmark.TrainingPair
+	for taskID, taskResults := range grouped {
+		if len(taskResults) < 2 {
+			continue
+		}
+
+		// Find the best rollout.
+		var best *benchmark.Result
+		for i := range taskResults {
+			if taskResults[i].IsBestRollout {
+				best = &taskResults[i]
+				break
+			}
+		}
+		if best == nil {
+			continue
+		}
+
+		chosenScore := avgScoreFromJSON(best.Scores)
+		chosen := resultToTrainingEntry(best, chosenScore)
+
+		for i := range taskResults {
+			r := &taskResults[i]
+			if r.IsBestRollout {
+				continue
+			}
+			rejectedScore := avgScoreFromJSON(r.Scores)
+			rejected := resultToTrainingEntry(r, rejectedScore)
+			pairs = append(pairs, benchmark.TrainingPair{
+				TaskID:   taskID,
+				Prompt:   best.TaskName,
+				Chosen:   chosen,
+				Rejected: rejected,
+				ScoreGap: chosenScore - rejectedScore,
+			})
+		}
+	}
+
+	return pairs, nil
+}
+
+func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.TrainingEntry {
+	scores := make(map[string]float64)
+	_ = json.Unmarshal(r.Scores, &scores) //nolint:errcheck // best effort
+
+	return benchmark.TrainingEntry{
+		RolloutID:   r.RolloutID,
+		TaskID:      r.TaskID,
+		TaskName:    r.TaskName,
+		Output:      r.ActualOutput,
+		Scores:      scores,
+		AvgScore:    avgScore,
+		CostUSD:     r.CostUSD,
+		TokensTotal: r.TokensIn + r.TokensOut,
 	}
 }
 

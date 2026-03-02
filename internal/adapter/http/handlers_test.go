@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
+	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
@@ -40,6 +41,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
+	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
@@ -47,6 +49,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -87,6 +90,9 @@ type mockStore struct {
 	// Knowledge Base fields
 	knowledgeBases []knowledgebase.KnowledgeBase
 	kbScopeLinks   []struct{ ScopeID, KBID string }
+	// Routing fields (Phase 26)
+	routingStats    []routing.ModelPerformanceStats
+	routingOutcomes []routing.RoutingOutcome
 	// Active Work fields (Phase 24)
 	activeWork []task.ActiveWorkItem
 }
@@ -1574,6 +1580,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		PromptSections:   service.NewPromptSectionService(store),
 		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
 		ActiveWork:       service.NewActiveWorkService(store, bc),
+		Routing:          service.NewRoutingService(store),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
@@ -3014,3 +3021,68 @@ func TestClaimTaskNotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// --- Routing store stubs (Phase 26) ---
+
+func (m *mockStore) CreateRoutingOutcome(_ context.Context, o *routing.RoutingOutcome) error {
+	m.routingOutcomes = append(m.routingOutcomes, *o)
+	return nil
+}
+func (m *mockStore) ListRoutingStats(_ context.Context, taskType, tier string) ([]routing.ModelPerformanceStats, error) {
+	if taskType == "" && tier == "" {
+		return m.routingStats, nil
+	}
+	var filtered []routing.ModelPerformanceStats
+	for i := range m.routingStats {
+		if (taskType == "" || string(m.routingStats[i].TaskType) == taskType) &&
+			(tier == "" || string(m.routingStats[i].ComplexityTier) == tier) {
+			filtered = append(filtered, m.routingStats[i])
+		}
+	}
+	return filtered, nil
+}
+func (m *mockStore) UpsertRoutingStats(_ context.Context, _ *routing.ModelPerformanceStats) error {
+	return nil
+}
+func (m *mockStore) AggregateRoutingOutcomes(_ context.Context) error { return nil }
+func (m *mockStore) ListRoutingOutcomes(_ context.Context, limit int) ([]routing.RoutingOutcome, error) {
+	if limit <= 0 || limit > len(m.routingOutcomes) {
+		return m.routingOutcomes, nil
+	}
+	return m.routingOutcomes[:limit], nil
+}
+
+// A2A stubs (Phase 27)
+func (m *mockStore) CreateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error { return nil }
+func (m *mockStore) GetA2ATask(_ context.Context, _ string) (*a2adomain.A2ATask, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) UpdateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error { return nil }
+func (m *mockStore) ListA2ATasks(_ context.Context, _ *database.A2ATaskFilter) ([]a2adomain.A2ATask, int, error) {
+	return nil, 0, nil
+}
+func (m *mockStore) DeleteA2ATask(_ context.Context, _ string) error { return nil }
+func (m *mockStore) CreateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *mockStore) GetRemoteAgent(_ context.Context, _ string) (*a2adomain.RemoteAgent, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) ListRemoteAgents(_ context.Context, _ string, _ bool) ([]a2adomain.RemoteAgent, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *mockStore) DeleteRemoteAgent(_ context.Context, _ string) error { return nil }
+func (m *mockStore) CreateA2APushConfig(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *mockStore) GetA2APushConfig(_ context.Context, _ string) (_, _, _ string, _ error) {
+	return "", "", "", nil
+}
+func (m *mockStore) ListA2APushConfigs(_ context.Context, _ string) ([]database.A2APushConfig, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteA2APushConfig(_ context.Context, _ string) error     { return nil }
+func (m *mockStore) DeleteAllA2APushConfigs(_ context.Context, _ string) error { return nil }

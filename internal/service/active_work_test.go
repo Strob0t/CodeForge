@@ -7,8 +7,11 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain"
+	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // --- ActiveWorkService mock store ---
@@ -279,3 +282,58 @@ func TestActiveWorkServiceReleaseStaleWorkError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+// --- Routing stubs (Phase 26) ---
+
+func (m *activeWorkMockStore) CreateRoutingOutcome(_ context.Context, _ *routing.RoutingOutcome) error {
+	return nil
+}
+func (m *activeWorkMockStore) ListRoutingStats(_ context.Context, _, _ string) ([]routing.ModelPerformanceStats, error) {
+	return nil, nil
+}
+func (m *activeWorkMockStore) UpsertRoutingStats(_ context.Context, _ *routing.ModelPerformanceStats) error {
+	return nil
+}
+func (m *activeWorkMockStore) AggregateRoutingOutcomes(_ context.Context) error { return nil }
+func (m *activeWorkMockStore) ListRoutingOutcomes(_ context.Context, _ int) ([]routing.RoutingOutcome, error) {
+	return nil, nil
+}
+
+// A2A stubs (Phase 27)
+func (m *activeWorkMockStore) CreateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error {
+	return nil
+}
+func (m *activeWorkMockStore) GetA2ATask(_ context.Context, _ string) (*a2adomain.A2ATask, error) {
+	return nil, nil
+}
+func (m *activeWorkMockStore) UpdateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error {
+	return nil
+}
+func (m *activeWorkMockStore) ListA2ATasks(_ context.Context, _ *database.A2ATaskFilter) ([]a2adomain.A2ATask, int, error) {
+	return nil, 0, nil
+}
+func (m *activeWorkMockStore) DeleteA2ATask(_ context.Context, _ string) error { return nil }
+func (m *activeWorkMockStore) CreateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *activeWorkMockStore) GetRemoteAgent(_ context.Context, _ string) (*a2adomain.RemoteAgent, error) {
+	return nil, nil
+}
+func (m *activeWorkMockStore) ListRemoteAgents(_ context.Context, _ string, _ bool) ([]a2adomain.RemoteAgent, error) {
+	return nil, nil
+}
+func (m *activeWorkMockStore) UpdateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *activeWorkMockStore) DeleteRemoteAgent(_ context.Context, _ string) error { return nil }
+func (m *activeWorkMockStore) CreateA2APushConfig(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *activeWorkMockStore) GetA2APushConfig(_ context.Context, _ string) (_, _, _ string, _ error) {
+	return "", "", "", nil
+}
+func (m *activeWorkMockStore) ListA2APushConfigs(_ context.Context, _ string) ([]database.A2APushConfig, error) {
+	return nil, nil
+}
+func (m *activeWorkMockStore) DeleteA2APushConfig(_ context.Context, _ string) error     { return nil }
+func (m *activeWorkMockStore) DeleteAllA2APushConfigs(_ context.Context, _ string) error { return nil }

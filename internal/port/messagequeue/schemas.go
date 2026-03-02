@@ -481,3 +481,17 @@ type GemmasEvalResultPayload struct {
 	UnnecessaryPathRatio      float64 `json:"unnecessary_path_ratio"`
 	Error                     string  `json:"error,omitempty"`
 }
+
+// A2ATaskCreatedPayload is published when an inbound A2A task is received.
+type A2ATaskCreatedPayload struct {
+	TaskID  string `json:"task_id"`
+	SkillID string `json:"skill_id"`
+	Prompt  string `json:"prompt"`
+}
+
+// A2ATaskCompletePayload is published when an A2A task completes.
+type A2ATaskCompletePayload struct {
+	TaskID string `json:"task_id"`
+	State  string `json:"state"`
+	Error  string `json:"error,omitempty"`
+}

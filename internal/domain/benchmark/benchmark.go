@@ -108,6 +108,10 @@ type Run struct {
 	BenchmarkType BenchmarkType   `json:"benchmark_type,omitempty"`
 	ExecMode      ExecMode        `json:"exec_mode,omitempty"`
 	Config        json.RawMessage `json:"config,omitempty"`
+
+	// Phase 28C: Multi-rollout fields.
+	RolloutCount    int    `json:"rollout_count,omitempty"`
+	RolloutStrategy string `json:"rollout_strategy,omitempty"`
 }
 
 // Result stores evaluation output for a single task within a benchmark run.
@@ -129,6 +133,12 @@ type Result struct {
 	EvaluatorScores      json.RawMessage `json:"evaluator_scores,omitempty"`
 	FilesChanged         []string        `json:"files_changed,omitempty"`
 	FunctionalTestOutput string          `json:"functional_test_output,omitempty"`
+
+	// Phase 28C: Multi-rollout fields.
+	RolloutID      int     `json:"rollout_id"`
+	RolloutCount   int     `json:"rollout_count"`
+	IsBestRollout  bool    `json:"is_best_rollout"`
+	DiversityScore float64 `json:"diversity_score"`
 }
 
 // CreateRunRequest is the payload for creating a new benchmark run.
@@ -199,6 +209,29 @@ type DatasetInfo struct {
 	Description string `json:"description,omitempty"`
 	TaskCount   int    `json:"task_count"`
 	Path        string `json:"path"`
+}
+
+// --- Phase 28E: Training Data Export ---
+
+// TrainingEntry represents one rollout's data for DPO export.
+type TrainingEntry struct {
+	RolloutID   int                `json:"rollout_id"`
+	TaskID      string             `json:"task_id"`
+	TaskName    string             `json:"task_name"`
+	Output      string             `json:"output"`
+	Scores      map[string]float64 `json:"scores"`
+	AvgScore    float64            `json:"avg_score"`
+	CostUSD     float64            `json:"cost_usd"`
+	TokensTotal int                `json:"tokens_total"`
+}
+
+// TrainingPair is a chosen/rejected pair for DPO/EntroPO training.
+type TrainingPair struct {
+	TaskID   string        `json:"task_id"`
+	Prompt   string        `json:"prompt"`
+	Chosen   TrainingEntry `json:"chosen"`
+	Rejected TrainingEntry `json:"rejected"`
+	ScoreGap float64       `json:"score_gap"`
 }
 
 // --- Phase 26G: Cost Analysis, Leaderboard, Benchmark Progress ---

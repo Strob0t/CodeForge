@@ -11,6 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
+	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
@@ -33,6 +34,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
+	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
@@ -41,6 +43,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -2296,3 +2299,56 @@ func TestCreateHandoff_TrustAutoStamp(t *testing.T) {
 		t.Fatalf("expected source_id %q, got %q", "agent-a", got.Trust.SourceID)
 	}
 }
+
+// --- Routing stubs (Phase 26) ---
+
+func (m *runtimeMockStore) CreateRoutingOutcome(_ context.Context, _ *routing.RoutingOutcome) error {
+	return nil
+}
+func (m *runtimeMockStore) ListRoutingStats(_ context.Context, _, _ string) ([]routing.ModelPerformanceStats, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpsertRoutingStats(_ context.Context, _ *routing.ModelPerformanceStats) error {
+	return nil
+}
+func (m *runtimeMockStore) AggregateRoutingOutcomes(_ context.Context) error { return nil }
+func (m *runtimeMockStore) ListRoutingOutcomes(_ context.Context, _ int) ([]routing.RoutingOutcome, error) {
+	return nil, nil
+}
+
+// A2A stubs (Phase 27)
+func (m *runtimeMockStore) CreateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error { return nil }
+func (m *runtimeMockStore) GetA2ATask(_ context.Context, _ string) (*a2adomain.A2ATask, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error {
+	return nil
+}
+func (m *runtimeMockStore) ListA2ATasks(_ context.Context, _ *database.A2ATaskFilter) ([]a2adomain.A2ATask, int, error) {
+	return nil, 0, nil
+}
+func (m *runtimeMockStore) DeleteA2ATask(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) CreateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *runtimeMockStore) GetRemoteAgent(_ context.Context, _ string) (*a2adomain.RemoteAgent, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListRemoteAgents(_ context.Context, _ string, _ bool) ([]a2adomain.RemoteAgent, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) UpdateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *runtimeMockStore) DeleteRemoteAgent(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) CreateA2APushConfig(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *runtimeMockStore) GetA2APushConfig(_ context.Context, _ string) (_, _, _ string, _ error) {
+	return "", "", "", nil
+}
+func (m *runtimeMockStore) ListA2APushConfigs(_ context.Context, _ string) ([]database.A2APushConfig, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteA2APushConfig(_ context.Context, _ string) error     { return nil }
+func (m *runtimeMockStore) DeleteAllA2APushConfigs(_ context.Context, _ string) error { return nil }

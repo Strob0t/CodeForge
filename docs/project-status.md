@@ -1141,3 +1141,15 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) Frontend: WarRoom.tsx, AgentLane.tsx, MessageFlow.tsx, SharedContextPanel.tsx
 - [x] (2026-03-02) War Room tab in ProjectDetailPage with HandoffStatusEvent/AgentActivityEvent types
 - [x] (2026-03-02) Tests: 2 Go handoff broadcast tests, 2 E2E War Room tests
+
+### Phase 28: R2E-Gym / EntroPO Integration (COMPLETED)
+
+> Hybrid verification, test-time scaling, diversity routing, trajectory export, and synthetic task generation based on R2E-Gym (COLM 2025) and EntroPO (arXiv 2509.12434).
+
+- [x] (2026-03-02) 28A: Hybrid Verification Pipeline — two-stage filter→rank evaluation (13 tests)
+- [x] (2026-03-02) 28B: Trajectory Verifier Evaluator — 5-dimension LLM trajectory evaluation (10 tests)
+- [x] (2026-03-02) 28C: Multi-Rollout Test-Time Scaling — N independent rollouts with best-of-N selection (13 tests)
+- [x] (2026-03-02) 28D: Diversity-Aware MAB Routing — entropy-enhanced UCB1 for model diversity (9 tests)
+- [x] (2026-03-02) 28E: Trajectory Export for DPO/EntroPO Training — JSONL chosen/rejected pairs (12 tests)
+- [x] (2026-03-02) 28F: SWE-GEN Synthetic Task Generation — benchmark tasks from Git commit history (19 tests)
+- [x] (2026-03-02) 28G: Integration Wiring — consumer, Go handlers, routes, migration 055

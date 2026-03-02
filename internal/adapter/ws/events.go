@@ -89,6 +89,11 @@ const (
 	EventBenchmarkTaskStarted   = "benchmark.task.started"
 	EventBenchmarkTaskCompleted = "benchmark.task.completed"
 	EventBenchmarkRunProgress   = "benchmark.run.progress"
+
+	// Phase 27: A2A protocol events
+	EventA2ATaskCreated  = "a2a.task.created"
+	EventA2ATaskStatus   = "a2a.task.status"
+	EventA2ATaskComplete = "a2a.task.complete"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.

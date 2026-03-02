@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
@@ -31,6 +32,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
+	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
@@ -429,8 +431,8 @@ func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.Sessi
 // --- User/Auth (in-memory implementation for auth tests) ---
 
 func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
-	for _, existing := range m.users {
-		if existing.Email == u.Email && existing.TenantID == u.TenantID {
+	for i := range m.users {
+		if m.users[i].Email == u.Email && m.users[i].TenantID == u.TenantID {
 			return fmt.Errorf("create user: duplicate email %q", u.Email)
 		}
 	}
@@ -1204,3 +1206,54 @@ func TestProjectServiceWorkspaceHealthMissing(t *testing.T) {
 		t.Fatal("expected Exists=false for project without workspace")
 	}
 }
+
+// --- Routing stubs (Phase 26) ---
+
+func (m *mockStore) CreateRoutingOutcome(_ context.Context, _ *routing.RoutingOutcome) error {
+	return nil
+}
+func (m *mockStore) ListRoutingStats(_ context.Context, _, _ string) ([]routing.ModelPerformanceStats, error) {
+	return nil, nil
+}
+func (m *mockStore) UpsertRoutingStats(_ context.Context, _ *routing.ModelPerformanceStats) error {
+	return nil
+}
+func (m *mockStore) AggregateRoutingOutcomes(_ context.Context) error { return nil }
+func (m *mockStore) ListRoutingOutcomes(_ context.Context, _ int) ([]routing.RoutingOutcome, error) {
+	return nil, nil
+}
+
+// A2A stubs (Phase 27)
+func (m *mockStore) CreateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error { return nil }
+func (m *mockStore) GetA2ATask(_ context.Context, _ string) (*a2adomain.A2ATask, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) UpdateA2ATask(_ context.Context, _ *a2adomain.A2ATask) error { return nil }
+func (m *mockStore) ListA2ATasks(_ context.Context, _ *database.A2ATaskFilter) ([]a2adomain.A2ATask, int, error) {
+	return nil, 0, nil
+}
+func (m *mockStore) DeleteA2ATask(_ context.Context, _ string) error { return nil }
+func (m *mockStore) CreateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *mockStore) GetRemoteAgent(_ context.Context, _ string) (*a2adomain.RemoteAgent, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) ListRemoteAgents(_ context.Context, _ string, _ bool) ([]a2adomain.RemoteAgent, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateRemoteAgent(_ context.Context, _ *a2adomain.RemoteAgent) error {
+	return nil
+}
+func (m *mockStore) DeleteRemoteAgent(_ context.Context, _ string) error { return nil }
+func (m *mockStore) CreateA2APushConfig(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *mockStore) GetA2APushConfig(_ context.Context, _ string) (_, _, _ string, _ error) {
+	return "", "", "", nil
+}
+func (m *mockStore) ListA2APushConfigs(_ context.Context, _ string) ([]database.A2APushConfig, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteA2APushConfig(_ context.Context, _ string) error     { return nil }
+func (m *mockStore) DeleteAllA2APushConfigs(_ context.Context, _ string) error { return nil }

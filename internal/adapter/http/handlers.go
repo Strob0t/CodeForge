@@ -85,8 +85,8 @@ type Handlers struct {
 	AutoAgent        *service.AutoAgentService
 	Quarantine       *service.QuarantineService
 	ActiveWork       *service.ActiveWorkService
-	// Routing *service.RoutingService // Phase 26 WIP
-	Limits *config.Limits
+	Routing          *service.RoutingService
+	Limits           *config.Limits
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -900,9 +900,9 @@ func (h *Handlers) ListActiveAgents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	active := make([]agent.Agent, 0)
-	for _, a := range agents {
-		if a.Status == "running" {
-			active = append(active, a)
+	for i := range agents {
+		if agents[i].Status == "running" {
+			active = append(active, agents[i])
 		}
 	}
 	writeJSON(w, http.StatusOK, active)
