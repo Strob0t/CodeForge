@@ -73,6 +73,19 @@ type mockStore struct {
 	// Conversation fields
 	convs    []conversation.Conversation
 	messages []conversation.Message
+	// Settings fields
+	settings []settings.Setting
+	// VCS Account fields
+	vcsAccounts []vcsaccount.VCSAccount
+	// Session fields
+	sessions []run.Session
+	// MCP fields
+	mcpServers      []mcp.ServerDef
+	mcpServerTools  []mcp.ServerTool
+	mcpProjectLinks []struct{ ProjectID, ServerID string }
+	// Knowledge Base fields
+	knowledgeBases []knowledgebase.KnowledgeBase
+	kbScopeLinks   []struct{ ScopeID, KBID string }
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -335,25 +348,25 @@ func (m *mockStore) DeleteRepoMap(_ context.Context, _ string) error { return ni
 
 // Cost Aggregation stubs
 func (m *mockStore) CostSummaryGlobal(_ context.Context) ([]cost.ProjectSummary, error) {
-	return nil, nil
+	return []cost.ProjectSummary{}, nil
 }
 func (m *mockStore) CostSummaryByProject(_ context.Context, _ string) (*cost.Summary, error) {
 	return &cost.Summary{}, nil
 }
 func (m *mockStore) CostByModel(_ context.Context, _ string) ([]cost.ModelSummary, error) {
-	return nil, nil
+	return []cost.ModelSummary{}, nil
 }
 func (m *mockStore) CostTimeSeries(_ context.Context, _ string, _ int) ([]cost.DailyCost, error) {
-	return nil, nil
+	return []cost.DailyCost{}, nil
 }
 func (m *mockStore) RecentRunsWithCost(_ context.Context, _ string, _ int) ([]run.Run, error) {
-	return nil, nil
+	return []run.Run{}, nil
 }
 func (m *mockStore) CostByTool(_ context.Context, _ string) ([]cost.ToolSummary, error) {
-	return nil, nil
+	return []cost.ToolSummary{}, nil
 }
 func (m *mockStore) CostByToolForRun(_ context.Context, _ string) ([]cost.ToolSummary, error) {
-	return nil, nil
+	return []cost.ToolSummary{}, nil
 }
 
 // Project repo lookup
@@ -621,16 +634,43 @@ func (m *mockStore) DeleteBranchProtectionRule(_ context.Context, _ string) erro
 	return nil
 }
 
-// Session stubs
-func (m *mockStore) CreateSession(_ context.Context, _ *run.Session) error { return nil }
-func (m *mockStore) GetSession(_ context.Context, _ string) (*run.Session, error) {
-	return nil, nil
-}
-func (m *mockStore) ListSessions(_ context.Context, _ string) ([]run.Session, error) {
-	return nil, nil
-}
-func (m *mockStore) UpdateSessionStatus(_ context.Context, _ string, _ run.SessionStatus, _ string) error {
+// Session methods
+func (m *mockStore) CreateSession(_ context.Context, s *run.Session) error {
+	if s.ID == "" {
+		s.ID = fmt.Sprintf("sess-%d", len(m.sessions)+1)
+	}
+	s.CreatedAt = time.Now().UTC()
+	s.UpdatedAt = s.CreatedAt
+	m.sessions = append(m.sessions, *s)
 	return nil
+}
+func (m *mockStore) GetSession(_ context.Context, id string) (*run.Session, error) {
+	for i := range m.sessions {
+		if m.sessions[i].ID == id {
+			return &m.sessions[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+func (m *mockStore) ListSessions(_ context.Context, projectID string) ([]run.Session, error) {
+	var result []run.Session
+	for i := range m.sessions {
+		if m.sessions[i].ProjectID == projectID {
+			result = append(result, m.sessions[i])
+		}
+	}
+	return result, nil
+}
+func (m *mockStore) UpdateSessionStatus(_ context.Context, id string, status run.SessionStatus, metadata string) error {
+	for i := range m.sessions {
+		if m.sessions[i].ID == id {
+			m.sessions[i].Status = status
+			m.sessions[i].Metadata = metadata
+			m.sessions[i].UpdatedAt = time.Now().UTC()
+			return nil
+		}
+	}
+	return errNotFound
 }
 
 // --- User methods ---
@@ -853,54 +893,149 @@ func (m *mockStore) ListScopesByProject(_ context.Context, _ string) ([]cfcontex
 func (m *mockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
 func (m *mockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
 
-// Knowledge Base stubs
-func (m *mockStore) CreateKnowledgeBase(_ context.Context, _ *knowledgebase.CreateRequest) (*knowledgebase.KnowledgeBase, error) {
-	return nil, nil
+// Knowledge Base methods
+func (m *mockStore) CreateKnowledgeBase(_ context.Context, req *knowledgebase.CreateRequest) (*knowledgebase.KnowledgeBase, error) {
+	kb := knowledgebase.KnowledgeBase{
+		ID:          fmt.Sprintf("kb-%d", len(m.knowledgeBases)+1),
+		Name:        req.Name,
+		Description: req.Description,
+		Category:    req.Category,
+		Tags:        req.Tags,
+		ContentPath: req.ContentPath,
+		Status:      knowledgebase.StatusPending,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	m.knowledgeBases = append(m.knowledgeBases, kb)
+	return &kb, nil
 }
-func (m *mockStore) GetKnowledgeBase(_ context.Context, _ string) (*knowledgebase.KnowledgeBase, error) {
-	return nil, nil
+func (m *mockStore) GetKnowledgeBase(_ context.Context, id string) (*knowledgebase.KnowledgeBase, error) {
+	for i := range m.knowledgeBases {
+		if m.knowledgeBases[i].ID == id {
+			return &m.knowledgeBases[i], nil
+		}
+	}
+	return nil, errNotFound
 }
 func (m *mockStore) ListKnowledgeBases(_ context.Context) ([]knowledgebase.KnowledgeBase, error) {
-	return nil, nil
+	return m.knowledgeBases, nil
 }
-func (m *mockStore) UpdateKnowledgeBase(_ context.Context, _ string, _ knowledgebase.UpdateRequest) (*knowledgebase.KnowledgeBase, error) {
-	return nil, nil
+func (m *mockStore) UpdateKnowledgeBase(_ context.Context, id string, req knowledgebase.UpdateRequest) (*knowledgebase.KnowledgeBase, error) {
+	for i := range m.knowledgeBases {
+		if m.knowledgeBases[i].ID != id {
+			continue
+		}
+		if req.Name != nil {
+			m.knowledgeBases[i].Name = *req.Name
+		}
+		if req.Description != nil {
+			m.knowledgeBases[i].Description = *req.Description
+		}
+		if req.Tags != nil {
+			m.knowledgeBases[i].Tags = req.Tags
+		}
+		m.knowledgeBases[i].UpdatedAt = time.Now().UTC()
+		return &m.knowledgeBases[i], nil
+	}
+	return nil, errNotFound
 }
-func (m *mockStore) DeleteKnowledgeBase(_ context.Context, _ string) error { return nil }
-func (m *mockStore) UpdateKnowledgeBaseStatus(_ context.Context, _, _ string, _ int) error {
+func (m *mockStore) DeleteKnowledgeBase(_ context.Context, id string) error {
+	for i := range m.knowledgeBases {
+		if m.knowledgeBases[i].ID == id {
+			m.knowledgeBases = append(m.knowledgeBases[:i], m.knowledgeBases[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+func (m *mockStore) UpdateKnowledgeBaseStatus(_ context.Context, id, status string, chunkCount int) error {
+	for i := range m.knowledgeBases {
+		if m.knowledgeBases[i].ID == id {
+			m.knowledgeBases[i].Status = knowledgebase.Status(status)
+			m.knowledgeBases[i].ChunkCount = chunkCount
+			return nil
+		}
+	}
+	return errNotFound
+}
+func (m *mockStore) AddKnowledgeBaseToScope(_ context.Context, scopeID, kbID string) error {
+	m.kbScopeLinks = append(m.kbScopeLinks, struct{ ScopeID, KBID string }{scopeID, kbID})
 	return nil
 }
-func (m *mockStore) AddKnowledgeBaseToScope(_ context.Context, _, _ string) error { return nil }
-func (m *mockStore) RemoveKnowledgeBaseFromScope(_ context.Context, _, _ string) error {
+func (m *mockStore) RemoveKnowledgeBaseFromScope(_ context.Context, scopeID, kbID string) error {
+	for i := range m.kbScopeLinks {
+		if m.kbScopeLinks[i].ScopeID == scopeID && m.kbScopeLinks[i].KBID == kbID {
+			m.kbScopeLinks = append(m.kbScopeLinks[:i], m.kbScopeLinks[i+1:]...)
+			return nil
+		}
+	}
 	return nil
 }
-func (m *mockStore) ListKnowledgeBasesByScope(_ context.Context, _ string) ([]knowledgebase.KnowledgeBase, error) {
-	return nil, nil
+func (m *mockStore) ListKnowledgeBasesByScope(_ context.Context, scopeID string) ([]knowledgebase.KnowledgeBase, error) {
+	var result []knowledgebase.KnowledgeBase
+	for _, link := range m.kbScopeLinks {
+		if link.ScopeID == scopeID {
+			for i := range m.knowledgeBases {
+				if m.knowledgeBases[i].ID == link.KBID {
+					result = append(result, m.knowledgeBases[i])
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
-// Settings stubs
+// Settings methods
 func (m *mockStore) ListSettings(_ context.Context) ([]settings.Setting, error) {
-	return nil, nil
+	return m.settings, nil
 }
-func (m *mockStore) GetSetting(_ context.Context, _ string) (*settings.Setting, error) {
-	return nil, nil
+func (m *mockStore) GetSetting(_ context.Context, key string) (*settings.Setting, error) {
+	for i := range m.settings {
+		if m.settings[i].Key == key {
+			return &m.settings[i], nil
+		}
+	}
+	return nil, errNotFound
 }
-func (m *mockStore) UpsertSetting(_ context.Context, _ string, _ json.RawMessage) error {
+func (m *mockStore) UpsertSetting(_ context.Context, key string, value json.RawMessage) error {
+	for i := range m.settings {
+		if m.settings[i].Key == key {
+			m.settings[i].Value = value
+			m.settings[i].UpdatedAt = time.Now().UTC()
+			return nil
+		}
+	}
+	m.settings = append(m.settings, settings.Setting{Key: key, Value: value, UpdatedAt: time.Now().UTC()})
 	return nil
 }
 
-// VCS Account stubs
+// VCS Account methods
 func (m *mockStore) ListVCSAccounts(_ context.Context) ([]vcsaccount.VCSAccount, error) {
-	return nil, nil
+	return m.vcsAccounts, nil
 }
-func (m *mockStore) GetVCSAccount(_ context.Context, _ string) (*vcsaccount.VCSAccount, error) {
-	return nil, nil
+func (m *mockStore) GetVCSAccount(_ context.Context, id string) (*vcsaccount.VCSAccount, error) {
+	for i := range m.vcsAccounts {
+		if m.vcsAccounts[i].ID == id {
+			return &m.vcsAccounts[i], nil
+		}
+	}
+	return nil, errNotFound
 }
-func (m *mockStore) CreateVCSAccount(_ context.Context, _ *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error) {
-	return nil, nil
+func (m *mockStore) CreateVCSAccount(_ context.Context, a *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error) {
+	if a.ID == "" {
+		a.ID = fmt.Sprintf("vcs-%d", len(m.vcsAccounts)+1)
+	}
+	m.vcsAccounts = append(m.vcsAccounts, *a)
+	return a, nil
 }
-func (m *mockStore) DeleteVCSAccount(_ context.Context, _ string) error {
-	return nil
+func (m *mockStore) DeleteVCSAccount(_ context.Context, id string) error {
+	for i := range m.vcsAccounts {
+		if m.vcsAccounts[i].ID == id {
+			m.vcsAccounts = append(m.vcsAccounts[:i], m.vcsAccounts[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
 }
 
 // Conversation methods
@@ -957,27 +1092,94 @@ func (m *mockStore) ListMessages(_ context.Context, conversationID string) ([]co
 	return result, nil
 }
 
-// MCP Servers
-func (m *mockStore) CreateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
-func (m *mockStore) GetMCPServer(_ context.Context, _ string) (*mcp.ServerDef, error) {
-	return nil, nil
-}
-func (m *mockStore) ListMCPServers(_ context.Context) ([]mcp.ServerDef, error) { return nil, nil }
-func (m *mockStore) UpdateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
-func (m *mockStore) DeleteMCPServer(_ context.Context, _ string) error         { return nil }
-func (m *mockStore) UpdateMCPServerStatus(_ context.Context, _ string, _ mcp.ServerStatus) error {
+// MCP Server methods
+func (m *mockStore) CreateMCPServer(_ context.Context, s *mcp.ServerDef) error {
+	m.mcpServers = append(m.mcpServers, *s)
 	return nil
 }
-func (m *mockStore) AssignMCPServerToProject(_ context.Context, _, _ string) error     { return nil }
-func (m *mockStore) UnassignMCPServerFromProject(_ context.Context, _, _ string) error { return nil }
-func (m *mockStore) ListMCPServersByProject(_ context.Context, _ string) ([]mcp.ServerDef, error) {
-	return nil, nil
+func (m *mockStore) GetMCPServer(_ context.Context, id string) (*mcp.ServerDef, error) {
+	for i := range m.mcpServers {
+		if m.mcpServers[i].ID == id {
+			return &m.mcpServers[i], nil
+		}
+	}
+	return nil, errNotFound
 }
-func (m *mockStore) UpsertMCPServerTools(_ context.Context, _ string, _ []mcp.ServerTool) error {
+func (m *mockStore) ListMCPServers(_ context.Context) ([]mcp.ServerDef, error) {
+	return m.mcpServers, nil
+}
+func (m *mockStore) UpdateMCPServer(_ context.Context, s *mcp.ServerDef) error {
+	for i := range m.mcpServers {
+		if m.mcpServers[i].ID == s.ID {
+			m.mcpServers[i] = *s
+			return nil
+		}
+	}
+	return errNotFound
+}
+func (m *mockStore) DeleteMCPServer(_ context.Context, id string) error {
+	for i := range m.mcpServers {
+		if m.mcpServers[i].ID == id {
+			m.mcpServers = append(m.mcpServers[:i], m.mcpServers[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+func (m *mockStore) UpdateMCPServerStatus(_ context.Context, id string, status mcp.ServerStatus) error {
+	for i := range m.mcpServers {
+		if m.mcpServers[i].ID == id {
+			m.mcpServers[i].Status = status
+			return nil
+		}
+	}
+	return errNotFound
+}
+func (m *mockStore) AssignMCPServerToProject(_ context.Context, projectID, serverID string) error {
+	m.mcpProjectLinks = append(m.mcpProjectLinks, struct{ ProjectID, ServerID string }{projectID, serverID})
 	return nil
 }
-func (m *mockStore) ListMCPServerTools(_ context.Context, _ string) ([]mcp.ServerTool, error) {
-	return nil, nil
+func (m *mockStore) UnassignMCPServerFromProject(_ context.Context, projectID, serverID string) error {
+	for i := range m.mcpProjectLinks {
+		if m.mcpProjectLinks[i].ProjectID == projectID && m.mcpProjectLinks[i].ServerID == serverID {
+			m.mcpProjectLinks = append(m.mcpProjectLinks[:i], m.mcpProjectLinks[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+func (m *mockStore) ListMCPServersByProject(_ context.Context, projectID string) ([]mcp.ServerDef, error) {
+	var result []mcp.ServerDef
+	for _, link := range m.mcpProjectLinks {
+		if link.ProjectID == projectID {
+			for i := range m.mcpServers {
+				if m.mcpServers[i].ID == link.ServerID {
+					result = append(result, m.mcpServers[i])
+				}
+			}
+		}
+	}
+	return result, nil
+}
+func (m *mockStore) UpsertMCPServerTools(_ context.Context, serverID string, tools []mcp.ServerTool) error {
+	n := 0
+	for i := range m.mcpServerTools {
+		if m.mcpServerTools[i].ServerID != serverID {
+			m.mcpServerTools[n] = m.mcpServerTools[i]
+			n++
+		}
+	}
+	m.mcpServerTools = append(m.mcpServerTools[:n], tools...)
+	return nil
+}
+func (m *mockStore) ListMCPServerTools(_ context.Context, serverID string) ([]mcp.ServerTool, error) {
+	var result []mcp.ServerTool
+	for i := range m.mcpServerTools {
+		if m.mcpServerTools[i].ServerID == serverID {
+			result = append(result, m.mcpServerTools[i])
+		}
+	}
+	return result, nil
 }
 
 // --- Prompt Section stub methods (satisfy database.Store interface) ---
@@ -1271,6 +1473,10 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	skillSvc := service.NewSkillService(store)
 	memorySvc := service.NewMemoryService(store, queue)
 	experiencePoolSvc := service.NewExperiencePoolService(store)
+	kbSvc := service.NewKnowledgeBaseService(store)
+	sessionSvc := service.NewSessionService(store, es)
+	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
+	mcpSvc.SetStore(store)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
@@ -1301,6 +1507,9 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		Skills:           skillSvc,
 		Memory:           memorySvc,
 		ExperiencePool:   experiencePoolSvc,
+		KnowledgeBases:   kbSvc,
+		Sessions:         sessionSvc,
+		MCP:              mcpSvc,
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
