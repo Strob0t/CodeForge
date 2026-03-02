@@ -49,8 +49,7 @@ class CodeForgeToolUseProvider:
         tasks: list[TaskSpec] = []
         for t in raw.get("tasks", []):
             expected_tools = [
-                ToolCall(name=tc["name"], args=tc.get("args", ""))
-                for tc in t.get("expected_tool_sequence", [])
+                ToolCall(name=tc["name"], args=tc.get("args", "")) for tc in t.get("expected_tool_sequence", [])
             ]
             metadata: dict[str, str] = {}
             if "tools" in t:

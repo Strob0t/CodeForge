@@ -495,10 +495,6 @@ class BenchmarkRunRequest(BaseModel):
     suite_id: str = ""
     exec_mode: str = ""
     evaluators: list[str] = Field(default_factory=list)
-    benchmark_type: str = "simple"
-    suite_id: str = ""
-    exec_mode: str = ""
-    evaluators: list[str] = Field(default_factory=list)
 
 
 class BenchmarkTaskResult(BaseModel):
@@ -517,9 +513,10 @@ class BenchmarkTaskResult(BaseModel):
     evaluator_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
     files_changed: list[str] = Field(default_factory=list)
     functional_test_output: str = ""
-    evaluator_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
-    files_changed: list[str] = Field(default_factory=list)
-    functional_test_output: str = ""
+    rollout_id: int = 0
+    rollout_count: int = 1
+    is_best_rollout: bool = True
+    diversity_score: float = 0.0
 
 
 class BenchmarkRunResult(BaseModel):

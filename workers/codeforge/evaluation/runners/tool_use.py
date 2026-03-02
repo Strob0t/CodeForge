@@ -80,13 +80,13 @@ class ToolUseBenchmarkRunner:
             # Extract tool calls from response
             tool_calls: list[ToolCall] = []
             if hasattr(response, "tool_calls") and response.tool_calls:
-                for tc in response.tool_calls:
-                    tool_calls.append(
-                        ToolCall(
-                            name=tc.function.name if hasattr(tc, "function") else str(tc.get("name", "")),
-                            args=tc.function.arguments if hasattr(tc, "function") else json.dumps(tc.get("args", {})),
-                        )
+                tool_calls.extend(
+                    ToolCall(
+                        name=tc.function.name if hasattr(tc, "function") else str(tc.get("name", "")),
+                        args=tc.function.arguments if hasattr(tc, "function") else json.dumps(tc.get("args", {})),
                     )
+                    for tc in response.tool_calls
+                )
         except Exception as exc:
             log.error("LLM call failed", error=str(exc))
             actual_output = f"ERROR: {exc}"

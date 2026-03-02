@@ -8,20 +8,17 @@ import os
 import tempfile
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from codeforge.evaluation.pipeline import EvaluationPipeline
 from codeforge.evaluation.providers.base import (
     EvalDimension,
-    EvalScore,
     ExecutionResult,
     TaskSpec,
 )
 from codeforge.evaluation.runners.simple import RunResult, SimpleBenchmarkRunner
 from codeforge.evaluation.runners.tool_use import ToolUseBenchmarkRunner, _parse_tools
-
 
 # --- Fake LLM client ---
 
@@ -205,7 +202,14 @@ class TestToolUseBenchmarkRunner:
             id="t1",
             name="MultiTool",
             input="read and write",
-            metadata={"tools": json.dumps([{"type": "function", "function": {"name": "read_file"}}, {"type": "function", "function": {"name": "write_file"}}])},
+            metadata={
+                "tools": json.dumps(
+                    [
+                        {"type": "function", "function": {"name": "read_file"}},
+                        {"type": "function", "function": {"name": "write_file"}},
+                    ]
+                )
+            },
         )
 
         result = await runner.run_task(task)
@@ -249,18 +253,16 @@ class TestParseTools:
 
 class TestProviderRegistration:
     def test_codeforge_simple_registered(self) -> None:
-        from codeforge.evaluation.providers.base import get_provider
-
         # Import triggers registration
         import codeforge.evaluation.providers.codeforge_simple  # noqa: F401
+        from codeforge.evaluation.providers.base import get_provider
 
         cls = get_provider("codeforge_simple")
         assert cls is not None
 
     def test_codeforge_tool_use_registered(self) -> None:
-        from codeforge.evaluation.providers.base import get_provider
-
         import codeforge.evaluation.providers.codeforge_tool_use  # noqa: F401
+        from codeforge.evaluation.providers.base import get_provider
 
         cls = get_provider("codeforge_tool_use")
         assert cls is not None

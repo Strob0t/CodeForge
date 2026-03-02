@@ -27,3 +27,6 @@ __all__ = [
     "list_providers",
     "register_provider",
 ]
+
+# Phase 28F: Self-register synthetic benchmark provider.
+import codeforge.evaluation.providers.codeforge_synthetic as _  # noqa: F401

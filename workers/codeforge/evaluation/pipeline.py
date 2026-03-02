@@ -57,11 +57,13 @@ class EvaluationPipeline:
                 log.debug("evaluator completed", dimensions=len(dimensions))
             except Exception:
                 log.exception("evaluator failed")
-                all_dimensions.append(EvalDimension(
-                    name=f"{evaluator.name}_error",
-                    score=0.0,
-                    details={"error": "evaluator raised an exception"},
-                ))
+                all_dimensions.append(
+                    EvalDimension(
+                        name=f"{evaluator.name}_error",
+                        score=0.0,
+                        details={"error": "evaluator raised an exception"},
+                    )
+                )
 
         # Compute derived metrics.
         avg_score = _average_score(all_dimensions)

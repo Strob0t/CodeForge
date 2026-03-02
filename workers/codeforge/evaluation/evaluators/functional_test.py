@@ -22,6 +22,8 @@ DEFAULT_TIMEOUT = 120
 class FunctionalTestEvaluator:
     """Evaluator that runs a shell test command and scores by exit code."""
 
+    stage = "filter"
+
     def __init__(
         self,
         timeout: int = DEFAULT_TIMEOUT,

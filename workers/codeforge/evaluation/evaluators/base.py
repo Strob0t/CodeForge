@@ -21,6 +21,15 @@ class Evaluator(Protocol):
         """Unique identifier for this evaluator (e.g. 'llm_judge', 'functional_test')."""
         ...
 
+    @property
+    def stage(self) -> str:
+        """Evaluation stage: 'filter' (execution-based) or 'rank' (execution-free).
+
+        Used by HybridEvaluationPipeline to split evaluators into two phases.
+        Defaults to 'rank' for backward compatibility.
+        """
+        return "rank"
+
     async def evaluate(self, task: TaskSpec, result: ExecutionResult) -> list[EvalDimension]:
         """Evaluate a single task execution and return scored dimensions.
 

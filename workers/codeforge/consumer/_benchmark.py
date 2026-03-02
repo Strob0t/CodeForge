@@ -55,7 +55,9 @@ class BenchmarkHandlerMixin:
 
             start = time.monotonic()
             evaluators = _build_evaluators(req.evaluators, req.model)
-            pipeline = EvaluationPipeline(evaluators)
+
+            # Phase 28A: Split evaluators by stage for hybrid verification.
+            pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else EvaluationPipeline(evaluators)
 
             if benchmark_type == "tool_use":
                 results = await _run_tool_use_benchmark(req, self._llm, pipeline)
@@ -236,6 +238,7 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
     from codeforge.evaluation.evaluators.functional_test import FunctionalTestEvaluator
     from codeforge.evaluation.evaluators.llm_judge import LLMJudgeEvaluator
     from codeforge.evaluation.evaluators.sparc import SPARCEvaluator
+    from codeforge.evaluation.evaluators.trajectory_verifier import TrajectoryVerifierEvaluator
 
     evaluators = []
     for name in evaluator_names:
@@ -245,6 +248,8 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
             evaluators.append(FunctionalTestEvaluator())
         elif name == "sparc":
             evaluators.append(SPARCEvaluator())
+        elif name == "trajectory_verifier":
+            evaluators.append(TrajectoryVerifierEvaluator(model=model))
         else:
             logger.warning("unknown evaluator, skipping", evaluator=name)
 
@@ -252,6 +257,19 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
         evaluators.append(LLMJudgeEvaluator(model=model))
 
     return evaluators
+
+
+def _build_hybrid_pipeline(evaluators: list) -> object:
+    """Split evaluators by stage and build a HybridEvaluationPipeline (Phase 28A)."""
+    from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline
+
+    filter_evals = [e for e in evaluators if getattr(e, "stage", "rank") == "filter"]
+    rank_evals = [e for e in evaluators if getattr(e, "stage", "rank") == "rank"]
+
+    return HybridEvaluationPipeline(
+        filter_evaluators=filter_evals,
+        rank_evaluators=rank_evals,
+    )
 
 
 def _compute_summary(results: list, elapsed_ms: int) -> dict[str, object]:

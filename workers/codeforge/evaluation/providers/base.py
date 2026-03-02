@@ -47,6 +47,15 @@ class TaskSpec(BaseModel):
     metadata: dict[str, str] = {}
 
 
+class TrajectoryMessage(BaseModel):
+    """Single message in an agent trajectory."""
+
+    role: str
+    content: str = ""
+    tool_name: str = ""
+    tool_args: str = ""
+
+
 class ExecutionResult(BaseModel):
     """Captures the output of running a benchmark task."""
 
@@ -61,6 +70,7 @@ class ExecutionResult(BaseModel):
     duration_ms: int = 0
     step_count: int = 0
     metadata: dict[str, str] = {}
+    trajectory: list[TrajectoryMessage] = []
 
 
 class EvalDimension(BaseModel):
