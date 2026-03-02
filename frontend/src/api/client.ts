@@ -322,6 +322,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ task_id: taskId }),
       }),
+
+    active: (projectId: string) => request<Agent[]>(url`/projects/${projectId}/agents/active`),
   },
 
   tasks: {

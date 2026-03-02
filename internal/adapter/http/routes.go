@@ -90,6 +90,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/tasks", h.CreateTask)
 		r.Get("/projects/{id}/tasks", h.ListTasks)
 
+		// Active agents (Phase 23D War Room)
+		r.Get("/projects/{id}/agents/active", h.ListActiveAgents)
+
 		// Active Work (Phase 24)
 		r.Get("/projects/{id}/active-work", h.ListActiveWork)
 
@@ -366,6 +369,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Benchmark Mode (Phase 20D — dev-mode only, requires APP_ENV=development)
 		r.Route("/benchmarks", func(r chi.Router) {
 			r.Use(middleware.DevModeOnly)
+			// Suite CRUD (Phase 26)
+			r.Get("/suites", h.ListBenchmarkSuites)
+			r.Post("/suites", h.CreateBenchmarkSuite)
+			r.Get("/suites/{id}", h.GetBenchmarkSuite)
+			r.Delete("/suites/{id}", h.DeleteBenchmarkSuite)
+			// Run CRUD
 			r.Get("/runs", h.ListBenchmarkRuns)
 			r.Post("/runs", h.CreateBenchmarkRun)
 			r.Get("/runs/{id}", h.GetBenchmarkRun)
@@ -413,6 +422,13 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/projects/{id}/auto-agent/start", h.StartAutoAgent)
 		r.Post("/projects/{id}/auto-agent/stop", h.StopAutoAgent)
 		r.Get("/projects/{id}/auto-agent/status", h.GetAutoAgentStatus)
+
+		// Routing (Phase 26) — WIP, handlers in handlers_routing.go.wip
+		// r.Route("/routing", func(r chi.Router) {
+		// 	r.Get("/stats", h.HandleListRoutingStats)
+		// 	r.Post("/stats/refresh", h.HandleRefreshRoutingStats)
+		// 	r.Get("/outcomes", h.HandleListRoutingOutcomes)
+		// })
 
 		// Quarantine (Phase 23B — admin only)
 		r.Route("/quarantine", func(r chi.Router) {

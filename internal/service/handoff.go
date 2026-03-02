@@ -6,36 +6,43 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
-// HandoffService manages agent-to-agent handoffs with context propagation.
+// HandoffService handles agent-to-agent handoff messaging (Phase 23B).
 type HandoffService struct {
 	db         database.Store
 	queue      messagequeue.Queue
+	hub        broadcast.Broadcaster
 	quarantine *QuarantineService
 }
 
-// SetQuarantineService injects the quarantine service for message interception.
+// SetQuarantineService injects the quarantine evaluator (circular-dep breaker).
 func (s *HandoffService) SetQuarantineService(qs *QuarantineService) { s.quarantine = qs }
 
-// NewHandoffService creates a new HandoffService.
-func NewHandoffService(db database.Store, queue messagequeue.Queue) *HandoffService {
-	return &HandoffService{db: db, queue: queue}
+// NewHandoffService creates a HandoffService. The optional hub parameter enables
+// WS broadcasting for the War Room (Phase 23D).
+func NewHandoffService(db database.Store, queue messagequeue.Queue, hub ...broadcast.Broadcaster) *HandoffService {
+	svc := &HandoffService{db: db, queue: queue}
+	if len(hub) > 0 {
+		svc.hub = hub[0]
+	}
+	return svc
 }
 
-// CreateHandoff initiates a handoff from one agent to another,
-// publishing a handoff request to the Python worker.
+// CreateHandoff dispatches a handoff message from one agent to another.
 func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.HandoffMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
 
-	// Stamp internal trust if not already annotated.
+	// Auto-stamp trust annotation if not provided.
 	if msg.Trust == nil {
 		msg.Trust = trust.Internal(msg.SourceAgentID)
 	}
@@ -45,7 +52,7 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 		return fmt.Errorf("marshal handoff: %w", err)
 	}
 
-	// Quarantine gate: check message before publishing.
+	// Quarantine evaluation (Phase 23B).
 	if s.quarantine != nil {
 		blocked, qErr := s.quarantine.Evaluate(ctx, msg.Trust, "handoff.request", data, "")
 		if qErr != nil {
@@ -61,7 +68,7 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 		return fmt.Errorf("publish handoff: %w", err)
 	}
 
-	// Deliver inbox message to target agent (Phase 23C).
+	// Deliver inbox message to target agent.
 	inboxMsg := &agent.InboxMessage{
 		AgentID:   msg.TargetAgentID,
 		FromAgent: msg.SourceAgentID,
@@ -70,6 +77,18 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 	}
 	if err := s.db.SendAgentMessage(ctx, inboxMsg); err != nil {
 		slog.Warn("failed to deliver handoff inbox message", "target", msg.TargetAgentID, "error", err)
+	}
+
+	// Broadcast to WS for War Room (Phase 23D).
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, ws.EventHandoffStatus, ws.HandoffStatusEvent{
+			SourceAgentID: msg.SourceAgentID,
+			TargetAgentID: msg.TargetAgentID,
+			PlanID:        msg.PlanID,
+			StepID:        msg.StepID,
+			Status:        "initiated",
+			Context:       msg.Context,
+		})
 	}
 
 	slog.Info("handoff dispatched",

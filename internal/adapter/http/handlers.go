@@ -85,7 +85,8 @@ type Handlers struct {
 	AutoAgent        *service.AutoAgentService
 	Quarantine       *service.QuarantineService
 	ActiveWork       *service.ActiveWorkService
-	Limits           *config.Limits
+	// Routing *service.RoutingService // Phase 26 WIP
+	Limits *config.Limits
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -888,6 +889,25 @@ func (h *Handlers) ListActiveWork(w http.ResponseWriter, r *http.Request) {
 }
 
 // ClaimTask handles POST /api/v1/tasks/{id}/claim
+
+// ListActiveAgents handles GET /api/v1/projects/{id}/agents/active (Phase 23D War Room).
+func (h *Handlers) ListActiveAgents(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	agents, err := h.Agents.List(r.Context(), projectID)
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+
+	active := make([]agent.Agent, 0)
+	for _, a := range agents {
+		if a.Status == "running" {
+			active = append(active, a)
+		}
+	}
+	writeJSON(w, http.StatusOK, active)
+}
+
 func (h *Handlers) ClaimTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 

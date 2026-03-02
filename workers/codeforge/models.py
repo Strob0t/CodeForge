@@ -491,6 +491,14 @@ class BenchmarkRunRequest(BaseModel):
     dataset_path: str
     model: str
     metrics: list[str] = Field(default_factory=lambda: ["correctness"])
+    benchmark_type: str = "simple"
+    suite_id: str = ""
+    exec_mode: str = ""
+    evaluators: list[str] = Field(default_factory=list)
+    benchmark_type: str = "simple"
+    suite_id: str = ""
+    exec_mode: str = ""
+    evaluators: list[str] = Field(default_factory=list)
 
 
 class BenchmarkTaskResult(BaseModel):
@@ -506,6 +514,12 @@ class BenchmarkTaskResult(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     duration_ms: int = 0
+    evaluator_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
+    files_changed: list[str] = Field(default_factory=list)
+    functional_test_output: str = ""
+    evaluator_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
+    files_changed: list[str] = Field(default_factory=list)
+    functional_test_output: str = ""
 
 
 class BenchmarkRunResult(BaseModel):
@@ -513,8 +527,8 @@ class BenchmarkRunResult(BaseModel):
 
     run_id: str
     status: str = "completed"
-    tasks: list[BenchmarkTaskResult] = Field(default_factory=list)
-    summary_scores: dict[str, float] = Field(default_factory=dict)
+    results: list[BenchmarkTaskResult] = Field(default_factory=list)
+    summary: dict[str, object] = Field(default_factory=dict)
     total_cost: float = 0.0
     total_tokens: int = 0
     total_duration_ms: int = 0

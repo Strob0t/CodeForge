@@ -81,6 +81,9 @@ const (
 	// Phase 24: active work visibility events
 	EventActiveWorkClaimed  = "activework.claimed"
 	EventActiveWorkReleased = "activework.released"
+
+	// Phase 23D: handoff status events (War Room)
+	EventHandoffStatus = "handoff.status"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -338,6 +341,16 @@ type ActiveWorkReleasedEvent struct {
 	TaskID    string `json:"task_id"`
 	ProjectID string `json:"project_id"`
 	Reason    string `json:"reason"`
+}
+
+// HandoffStatusEvent is broadcast when a handoff between agents is initiated (Phase 23D War Room).
+type HandoffStatusEvent struct {
+	SourceAgentID string `json:"source_agent_id"`
+	TargetAgentID string `json:"target_agent_id"`
+	PlanID        string `json:"plan_id,omitempty"`
+	StepID        string `json:"step_id,omitempty"`
+	Status        string `json:"status"`
+	Context       string `json:"context,omitempty"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

@@ -1,0 +1,88 @@
+# CodeForge Tool-Use Benchmark — Basic Tasks
+# Tests LLM ability to select and invoke the correct tools
+
+name: tool-use-basic
+description: Basic tool-use benchmark with 3 tasks testing file operations and web search
+benchmark_type: tool_use
+
+tasks:
+  - id: tu-001
+    name: Read File Content
+    input: "Read the contents of the file at path 'src/main.py' and summarize what it does."
+    expected_output: "The file contains the main entry point of the application."
+    difficulty: easy
+    tools:
+      - type: function
+        function:
+          name: read_file
+          description: "Read the contents of a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+                description: "The file path to read"
+            required:
+              - path
+    expected_tool_sequence:
+      - name: read_file
+        args: '{"path": "src/main.py"}'
+
+  - id: tu-002
+    name: Web Search
+    input: "Search the web for the latest Python 3.12 release notes and summarize the key features."
+    expected_output: "Python 3.12 includes improved error messages, performance improvements, and new typing features."
+    difficulty: medium
+    tools:
+      - type: function
+        function:
+          name: web_search
+          description: "Search the web for information"
+          parameters:
+            type: object
+            properties:
+              query:
+                type: string
+                description: "The search query"
+            required:
+              - query
+    expected_tool_sequence:
+      - name: web_search
+        args: '{"query": "Python 3.12 release notes"}'
+
+  - id: tu-003
+    name: Multi-Tool File Operations
+    input: "Read the file 'config.yaml', then write a summary to 'config-summary.txt'."
+    expected_output: "Successfully read config.yaml and wrote summary to config-summary.txt."
+    difficulty: hard
+    tools:
+      - type: function
+        function:
+          name: read_file
+          description: "Read the contents of a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+            required:
+              - path
+      - type: function
+        function:
+          name: write_file
+          description: "Write content to a file"
+          parameters:
+            type: object
+            properties:
+              path:
+                type: string
+              content:
+                type: string
+            required:
+              - path
+              - content
+    expected_tool_sequence:
+      - name: read_file
+        args: '{"path": "config.yaml"}'
+      - name: write_file
+        args: '{"path": "config-summary.txt", "content": "..."}'

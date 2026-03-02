@@ -1717,3 +1717,21 @@ export interface ActiveWorkReleasedEvent {
   project_id: string;
   reason: string;
 }
+
+/** WS event: handoff status between agents (Phase 23D War Room) */
+export interface HandoffStatusEvent {
+  source_agent_id: string;
+  target_agent_id: string;
+  plan_id?: string;
+  step_id?: string;
+  status: "initiated" | "accepted" | "completed" | "failed";
+  context?: string;
+}
+
+/** WS event: agent activity for War Room */
+export interface AgentActivityEvent {
+  agent_id: string;
+  project_id: string;
+  type: "tool_call" | "output" | "status_change";
+  data: Record<string, unknown>;
+}

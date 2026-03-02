@@ -6,8 +6,62 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
+// --- Suite CRUD (Phase 26) ---
+
+// ListBenchmarkSuites handles GET /api/v1/benchmarks/suites
+func (h *Handlers) ListBenchmarkSuites(w http.ResponseWriter, r *http.Request) {
+	handleList(h.Benchmarks.ListSuites)(w, r)
+}
+
+// CreateBenchmarkSuite handles POST /api/v1/benchmarks/suites
+func (h *Handlers) CreateBenchmarkSuite(w http.ResponseWriter, r *http.Request) {
+	req, ok := readJSON[benchmark.CreateSuiteRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	suite, err := h.Benchmarks.RegisterSuite(r.Context(), &req)
+	if err != nil {
+		writeDomainError(w, err, "create benchmark suite")
+		return
+	}
+	writeJSON(w, http.StatusCreated, suite)
+}
+
+// GetBenchmarkSuite handles GET /api/v1/benchmarks/suites/{id}
+func (h *Handlers) GetBenchmarkSuite(w http.ResponseWriter, r *http.Request) {
+	handleGet(h.Benchmarks.GetSuite, "benchmark suite not found")(w, r)
+}
+
+// DeleteBenchmarkSuite handles DELETE /api/v1/benchmarks/suites/{id}
+func (h *Handlers) DeleteBenchmarkSuite(w http.ResponseWriter, r *http.Request) {
+	handleDelete(h.Benchmarks.DeleteSuite, "benchmark suite not found")(w, r)
+}
+
+// --- Run CRUD ---
+
 // ListBenchmarkRuns handles GET /api/v1/benchmarks/runs
 func (h *Handlers) ListBenchmarkRuns(w http.ResponseWriter, r *http.Request) {
+	suiteID := r.URL.Query().Get("suite_id")
+	benchType := r.URL.Query().Get("benchmark_type")
+	model := r.URL.Query().Get("model")
+
+	if suiteID != "" || benchType != "" || model != "" {
+		filter := benchmark.RunFilter{
+			SuiteID:       suiteID,
+			BenchmarkType: benchmark.BenchmarkType(benchType),
+			Model:         model,
+		}
+		runs, err := h.Benchmarks.ListRunsFiltered(r.Context(), filter)
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		if runs == nil {
+			runs = []benchmark.Run{}
+		}
+		writeJSON(w, http.StatusOK, runs)
+		return
+	}
 	handleList(h.Benchmarks.ListRuns)(w, r)
 }
 
@@ -34,6 +88,8 @@ func (h *Handlers) CreateBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	handleDelete(h.Benchmarks.DeleteRun, "benchmark run not found")(w, r)
 }
+
+// --- Results & Comparison ---
 
 // ListBenchmarkResults handles GET /api/v1/benchmarks/runs/{id}/results
 func (h *Handlers) ListBenchmarkResults(w http.ResponseWriter, r *http.Request) {
