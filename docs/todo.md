@@ -2570,14 +2570,14 @@ Git handlers (`handlers_test.go`):
 > Current CodeForge `EvaluationPipeline` runs all evaluators sequentially and averages scores.
 
 **Create:**
-- [ ] `workers/codeforge/evaluation/hybrid_pipeline.py` — `HybridEvaluationPipeline` class
+- [x] (2026-03-02) `workers/codeforge/evaluation/hybrid_pipeline.py` — `HybridEvaluationPipeline` class
   - Constructor: `filter_evaluators` (Stage 1, execution-based), `rank_evaluators` (Stage 2, LLM-based), `filter_threshold: float = 0.5`
   - Composes two internal `EvaluationPipeline` instances (one per stage)
   - `verify(task, result) -> VerificationResult` — single result, two-stage evaluation
   - `verify_batch(task, results: list) -> list[VerificationResult]` — filter all, rank survivors only
   - Graceful fallback: if all results filtered out, rank all anyway (don't discard everything)
   - `VerificationResult` dataclass: `passed_filter`, `filter_scores`, `rank_scores`, `combined_score`
-- [ ] `workers/tests/test_hybrid_pipeline.py` — Tests:
+- [x] (2026-03-02) `workers/tests/test_hybrid_pipeline.py` — Tests:
   - All results pass filter → rank runs on all
   - All results fail filter → fallback ranks all (graceful degradation)
   - Mixed pass/fail → only survivors get ranked (cost savings)
@@ -2587,10 +2587,10 @@ Git handlers (`handlers_test.go`):
   - Cost accumulation across both stages
 
 **Modify:**
-- [ ] `workers/codeforge/evaluation/evaluators/base.py` — Add optional `stage` property to `Evaluator` protocol (default: `"rank"`)
-- [ ] `workers/codeforge/evaluation/evaluators/functional_test.py` — Set `stage = "filter"` (execution-based = Stage 1)
-- [ ] `workers/codeforge/models.py` — Add `hybrid_verification: bool = False` to `BenchmarkRunRequest`
-- [ ] `workers/codeforge/consumer/_benchmark.py` — When `request.hybrid_verification == True`:
+- [x] (2026-03-02) `workers/codeforge/evaluation/evaluators/base.py` — Add optional `stage` property to `Evaluator` protocol (default: `"rank"`)
+- [x] (2026-03-02) `workers/codeforge/evaluation/evaluators/functional_test.py` — Set `stage = "filter"` (execution-based = Stage 1)
+- [x] (2026-03-02) `workers/codeforge/models.py` — Add `hybrid_verification: bool = False` to `BenchmarkRunRequest`
+- [x] (2026-03-02) `workers/codeforge/consumer/_benchmark.py` — When `request.hybrid_verification == True`:
   - Split evaluators by `stage` into filter vs rank groups
   - Create `HybridEvaluationPipeline(filter_evaluators, rank_evaluators)` instead of plain `EvaluationPipeline`
   - Backward compatible: `hybrid_verification=False` uses existing single-stage pipeline
@@ -2607,7 +2607,7 @@ Git handlers (`handlers_test.go`):
 > evaluation misses. EntroPO's verifier model is critical for selecting the best rollout from multiple attempts.
 
 **Create:**
-- [ ] `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` — `TrajectoryVerifierEvaluator` class
+- [x] (2026-03-02) `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` — `TrajectoryVerifierEvaluator` class
   - Implements `Evaluator` protocol, `stage = "rank"` (Stage 2 evaluator)
   - Constructor: `model: str = "openai/gpt-4o"`, `max_trajectory_tokens: int = 8000`
   - `evaluate(task, result) -> list[EvalDimension]` — Sends full trajectory to verifier LLM
@@ -2620,7 +2620,7 @@ Git handlers (`handlers_test.go`):
     4. `trajectory_error_recovery` — Did the agent handle errors well? (adapt, not repeat same mistakes)
     5. `trajectory_completeness` — Are all aspects of the task addressed?
   - Error handling: LLM parse failure → single `trajectory_quality` dimension with score 0.0
-- [ ] `workers/tests/test_trajectory_verifier.py` — Tests:
+- [x] (2026-03-02) `workers/tests/test_trajectory_verifier.py` — Tests:
   - Well-formed trajectory → 5 EvalDimension scores
   - Empty trajectory → graceful handling (zero scores)
   - Trajectory exceeding token budget → truncation applied
@@ -2628,12 +2628,12 @@ Git handlers (`handlers_test.go`):
   - Integration as Stage 2 evaluator in HybridEvaluationPipeline
 
 **Modify:**
-- [ ] `workers/codeforge/evaluation/providers/base.py` — Add `trajectory: list[dict[str, str]] = []` field to `ExecutionResult`
+- [x] (2026-03-02) `workers/codeforge/evaluation/providers/base.py` — Add `trajectory: list[dict[str, str]] = []` field to `ExecutionResult`
   - Each entry: `{"role": "...", "content": "...", "tool_name": "...", "tool_args": ""}`
   - Backward compatible: default empty list, existing evaluators ignore it
-- [ ] `workers/codeforge/evaluation/runners/tool_use.py` — Populate `trajectory` from `agent_result.tool_messages` after agent loop
-- [ ] `workers/codeforge/evaluation/evaluators/__init__.py` — Export `TrajectoryVerifierEvaluator`
-- [ ] `workers/codeforge/consumer/_benchmark.py` — Wire verifier when `evaluators` list includes `"trajectory_verifier"`
+- [x] (2026-03-02) `workers/codeforge/evaluation/runners/tool_use.py` — Populate `trajectory` from `agent_result.tool_messages` after agent loop
+- [x] (2026-03-02) `workers/codeforge/evaluation/evaluators/__init__.py` — Export `TrajectoryVerifierEvaluator`
+- [x] (2026-03-02) `workers/codeforge/consumer/_benchmark.py` — Wire verifier when `evaluators` list includes `"trajectory_verifier"`
 
 **Reuses:** `Evaluator` protocol, `EvalDimension` type, LiteLLM client (same as `LLMJudgeEvaluator`), `AgentLoopExecutor.tool_messages` for trajectory data
 
@@ -2647,7 +2647,7 @@ Git handlers (`handlers_test.go`):
 > with diversity tracking and hybrid best-of-N selection.
 
 **Create:**
-- [ ] `workers/codeforge/evaluation/runners/multi_rollout.py` — `MultiRolloutRunner` class
+- [x] (2026-03-02) `workers/codeforge/evaluation/runners/multi_rollout.py` — `MultiRolloutRunner` class
   - Wraps any inner runner (`SimpleBenchmarkRunner` | `ToolUseBenchmarkRunner` | `AgentBenchmarkRunner`)
   - Constructor: `inner_runner`, `hybrid_pipeline: HybridEvaluationPipeline | None`, `rollout_count: int`, `strategy: str`
   - `run_task(task) -> list[RolloutOutcome]`:
@@ -2657,14 +2657,14 @@ Git handlers (`handlers_test.go`):
     4. If `strategy == "majority"`: count pass/fail via exit_code, majority vote
     5. Return all outcomes, mark `is_best=True` on selected one
   - `RolloutOutcome` dataclass: `rollout_id`, `result: RunResult`, `verification: VerificationResult | None`, `diversity_score: float`, `is_best: bool`
-- [ ] `workers/tests/test_multi_rollout_runner.py` — Tests:
+- [x] (2026-03-02) `workers/tests/test_multi_rollout_runner.py` — Tests:
   - `rollout_count=1` → no-op wrapper, single result returned
   - `rollout_count=3` with distinct outputs → diversity scores > 0
   - `rollout_count=3` with identical outputs → diversity scores = 0
   - Best-of-N selection with known winner (mock hybrid pipeline)
   - Majority voting strategy
   - Integration with HybridEvaluationPipeline from 28A
-- [ ] `internal/adapter/postgres/migrations/055_multi_rollout.sql`:
+- [x] (2026-03-02) `internal/adapter/postgres/migrations/055_multi_rollout.sql`:
   ```sql
   -- +goose Up
   ALTER TABLE benchmark_results
@@ -2681,18 +2681,18 @@ Git handlers (`handlers_test.go`):
   ```
 
 **Modify:**
-- [ ] `workers/codeforge/models.py`:
+- [x] (2026-03-02) `workers/codeforge/models.py`:
   - `BenchmarkRunRequest` += `rollout_count: int = 1`, `rollout_strategy: str = "best"`
   - `BenchmarkTaskResult` += `rollout_id: int = 0`, `rollout_count: int = 1`, `is_best_rollout: bool = True`, `diversity_score: float = 0.0`
-- [ ] `workers/codeforge/consumer/_benchmark.py` — When `request.rollout_count > 1`:
+- [x] (2026-03-02) `workers/codeforge/consumer/_benchmark.py` — When `request.rollout_count > 1`:
   - Wrap selected runner in `MultiRolloutRunner`
   - If `request.hybrid_verification`: pass `HybridEvaluationPipeline` to runner
   - Serialize all rollout results (not just best) → NATS `benchmark.run.result`
-- [ ] `internal/domain/benchmark/benchmark.go`:
+- [x] (2026-03-02) `internal/domain/benchmark/benchmark.go`:
   - `Result` struct += `RolloutID int`, `RolloutCount int`, `IsBestRollout bool`, `DiversityScore float64`
   - `Run` struct += `RolloutCount int`, `RolloutStrategy string`
-- [ ] `internal/service/benchmark.go` — `Leaderboard()` and `CostAnalysis()`: filter on `is_best_rollout = true` when rollout data present
-- [ ] `internal/adapter/postgres/store.go` — `CreateBenchmarkResult()` / `ListBenchmarkResults()`: include rollout columns
+- [x] (2026-03-02) `internal/service/benchmark.go` — `Leaderboard()` and `CostAnalysis()`: filter on `is_best_rollout = true` when rollout data present
+- [x] (2026-03-02) `internal/adapter/postgres/store.go` — `CreateBenchmarkResult()` / `ListBenchmarkResults()`: include rollout columns
 
 **Reuses:** All 3 existing benchmark runners (wrapped), `HybridEvaluationPipeline` from 28A, `BenchmarkTaskResult` (extended), NATS benchmark flow
 
@@ -2709,10 +2709,10 @@ Git handlers (`handlers_test.go`):
 > where `p_i = selection_count(model) / total_selections` (entropy bonus for underexplored models).
 
 **Modify:**
-- [ ] `workers/codeforge/routing/models.py`:
+- [x] (2026-03-02) `workers/codeforge/routing/models.py`:
   - `RoutingConfig` += `entropy_weight: float = 0.1`, `diversity_mode: bool = False`
   - Both default to off → backward compatible with existing UCB1 behavior
-- [ ] `workers/codeforge/routing/mab.py` — Add two methods to `MABModelSelector`:
+- [x] (2026-03-02) `workers/codeforge/routing/mab.py` — Add two methods to `MABModelSelector`:
   - `_entropy_ucb1_score(stats, total_trials, selection_counts) -> float`:
     - If `diversity_mode=False`: return standard `_ucb1_score()` (existing method, unchanged)
     - Compute entropy bonus: never-selected → `log(total_selections+1)`, otherwise → `-log(p_i)`
@@ -2721,11 +2721,11 @@ Git handlers (`handlers_test.go`):
     - Iteratively select N models using `_entropy_ucb1_score`
     - After each selection, increment local selection count for chosen model → entropy bonus penalizes re-selection
     - Result: N different models when possible, graceful reuse when fewer available
-- [ ] `workers/codeforge/routing/router.py` — Expose `select_diverse(n)` through `HybridRouter` for multi-rollout callers
-- [ ] `internal/domain/routing/routing.go` — Mirror `entropy_weight` and `diversity_mode` fields (for config API)
+- [x] (2026-03-02) `workers/codeforge/routing/router.py` — Expose `select_diverse(n)` through `HybridRouter` for multi-rollout callers
+- [x] (2026-03-02) `internal/domain/routing/routing.go` — Mirror `entropy_weight` and `diversity_mode` fields (for config API)
 
 **Create:**
-- [ ] `workers/tests/test_routing_entropy.py` — Tests:
+- [x] (2026-03-02) `workers/tests/test_routing_entropy.py` — Tests:
   - `diversity_mode=False` → identical behavior to standard UCB1
   - `diversity_mode=True` → scores more uniform across models (entropy bonus lifts underexplored)
   - `select_diverse(n=3)` with 5 available models → 3 different models returned
@@ -2747,8 +2747,8 @@ Git handlers (`handlers_test.go`):
 > This closes the loop: CodeForge evaluates → exports training data → external training → improved model → re-evaluate.
 
 **Create:**
-- [ ] `workers/codeforge/evaluation/export/__init__.py`
-- [ ] `workers/codeforge/evaluation/export/trajectory_exporter.py` — `TrajectoryExporter` class + Pydantic models:
+- [x] (2026-03-02) `workers/codeforge/evaluation/export/__init__.py`
+- [x] (2026-03-02) `workers/codeforge/evaluation/export/trajectory_exporter.py` — `TrajectoryExporter` class + Pydantic models:
   - `TrajectoryMessage(role, content, tool_calls, tool_call_id, name)` — single message in trajectory
   - `TrajectoryEntry(task_id, task_name, prompt, trajectory: list[TrajectoryMessage], outcome, score, cost_usd, tokens_total, model, metadata)` — one complete trajectory
   - `TrainingPair(task_id, prompt, chosen: TrajectoryEntry, rejected: TrajectoryEntry, score_gap: float, metadata)` — DPO pair
@@ -2759,7 +2759,7 @@ Git handlers (`handlers_test.go`):
     - Skip single-rollout tasks (need at least 2 for a pair)
     - Reconstruct trajectory from `tool_calls` + `actual_output` + `functional_test_output`
   - `TrajectoryExporter.to_jsonl(pairs) -> str` — one JSON object per line
-- [ ] `workers/tests/test_trajectory_exporter.py` — Tests:
+- [x] (2026-03-02) `workers/tests/test_trajectory_exporter.py` — Tests:
   - 2 rollouts → 1 pair (best vs worst)
   - 4 rollouts → 3 pairs (best vs each other)
   - Single rollout → no pairs (skip)
@@ -2768,13 +2768,13 @@ Git handlers (`handlers_test.go`):
   - Empty results → empty export
 
 **Modify:**
-- [ ] `internal/adapter/http/handlers_benchmark.go` — Add `ExportTrainingData` handler:
+- [x] (2026-03-02) `internal/adapter/http/handlers_benchmark.go` — Add `ExportTrainingData` handler:
   - `GET /api/v1/benchmarks/runs/{id}/export/training`
   - Query params: `format=jsonl` (default) or `format=json`
   - Response: `Content-Type: application/x-ndjson`, `Content-Disposition: attachment; filename="training-{id}.jsonl"`
   - Groups results by task_id, filters multi-rollout tasks, constructs pairs, streams JSONL
-- [ ] `internal/adapter/http/routes.go` — Add route `r.Get("/runs/{id}/export/training", h.ExportTrainingData)`
-- [ ] `internal/service/benchmark.go` — Add `ExportTrainingPairs(ctx, runID) -> ([]TrainingPairData, error)` method:
+- [x] (2026-03-02) `internal/adapter/http/routes.go` — Add route `r.Get("/runs/{id}/export/training", h.ExportTrainingData)`
+- [x] (2026-03-02) `internal/service/benchmark.go` — Add `ExportTrainingPairs(ctx, runID) -> ([]TrainingPairData, error)` method:
   - Loads all results for run, groups by task_id, returns pairs with score_gap
 
 **Reuses:** `BenchmarkTaskResult` model, `ListResults()` service method, existing NATS benchmark result flow
@@ -2791,8 +2791,8 @@ Git handlers (`handlers_test.go`):
 > Pipeline: `git log → filter commits → for each: (generate test + back-translate issue) → TaskSpec`
 
 **Create:**
-- [ ] `workers/codeforge/evaluation/generators/__init__.py` — Package init
-- [ ] `workers/codeforge/evaluation/generators/swegen.py` — `SWEGenPipeline` class:
+- [x] (2026-03-02) `workers/codeforge/evaluation/generators/__init__.py` — Package init
+- [x] (2026-03-02) `workers/codeforge/evaluation/generators/swegen.py` — `SWEGenPipeline` class:
   - `CommitInfo(sha, parent_sha, message, diff, files_changed, additions, deletions)` — parsed commit
   - `SyntheticTask(commit_sha, parent_sha, issue_description, test_code, test_command, difficulty, language, repo_url, metadata)` — generated task
   - Constructor: `llm` (LiteLLM client), `model: str = "openai/gpt-4o"`, `max_diff_lines: int = 500`, `min_diff_lines: int = 5`
@@ -2803,7 +2803,7 @@ Git handlers (`handlers_test.go`):
   - `_generate_issue(commit) -> str` — LLM prompt: "Given this diff, write a bug report/feature request. Don't reveal solution."
   - Helpers: `_estimate_difficulty(commit)` (small diff=easy, large=hard), `_detect_language(files)` (extension-based), `_infer_test_command(files)` (pytest/go test/npm test)
   - Commit filtering: skip merges, docs-only, diffs < `min_diff_lines` or > `max_diff_lines`
-- [ ] `workers/codeforge/evaluation/providers/codeforge_synthetic.py` — Benchmark provider:
+- [x] (2026-03-02) `workers/codeforge/evaluation/providers/codeforge_synthetic.py` — Benchmark provider:
   - Self-registers via `register_provider("codeforge_synthetic", CodeForgeSyntheticProvider)`
   - `name = "codeforge_synthetic"`, `benchmark_type = BenchmarkType.AGENT`
   - `capabilities = Capabilities(functional_tests=True, llm_judge=True)`
@@ -2814,7 +2814,7 @@ Git handlers (`handlers_test.go`):
     - `test_command = inferred`, `repo_commit = parent_sha` (evaluate at pre-fix state)
     - `initial_files = {"test_generated.py": test_code}`
     - `metadata = {commit_sha, parent_sha, language, eval_method: "synthetic"}`
-- [ ] `workers/tests/test_synthetic_provider.py` — Tests:
+- [x] (2026-03-02) `workers/tests/test_synthetic_provider.py` — Tests:
   - Commit filtering: too small, too large, merge commits, docs-only → skipped
   - Difficulty estimation from diff size
   - Language detection from file extensions (`.py`→Python, `.go`→Go, `.ts`→TypeScript)
@@ -2824,8 +2824,8 @@ Git handlers (`handlers_test.go`):
   - Empty commit history → empty task list
 
 **Modify:**
-- [ ] `workers/codeforge/evaluation/providers/__init__.py` — Import `codeforge_synthetic` to trigger registration
-- [ ] `workers/codeforge/consumer/_benchmark.py` — Handle `codeforge_synthetic` provider:
+- [x] (2026-03-02) `workers/codeforge/evaluation/providers/__init__.py` — Import `codeforge_synthetic` to trigger registration
+- [x] (2026-03-02) `workers/codeforge/consumer/_benchmark.py` — Handle `codeforge_synthetic` provider:
   - Requires `workspace_path` (from project's checked-out repo) in request config
   - Creates `CodeForgeSyntheticProvider(workspace_path=..., llm=...)` with LiteLLM client
 
@@ -2835,16 +2835,16 @@ Git handlers (`handlers_test.go`):
 
 #### 28G: Integration Wiring & Documentation ✅ (2026-03-02)
 
-- [ ] Wire all 28A-28F components in NATS consumer (`workers/codeforge/consumer/_benchmark.py`):
+- [x] (2026-03-02) Wire all 28A-28F components in NATS consumer (`workers/codeforge/consumer/_benchmark.py`):
   - Decision tree: `hybrid_verification` → HybridPipeline, `rollout_count > 1` → MultiRolloutRunner, evaluator list → wire verifier
   - Add `codeforge_synthetic` to available providers
-- [ ] Update `internal/adapter/http/routes.go` — new route for training data export
-- [ ] Update `internal/adapter/ws/events.go` — WebSocket events for rollout progress
-- [ ] Update `docs/features/04-agent-orchestration.md` — Document hybrid verification, test-time scaling, diversity routing
-- [ ] Update `docs/architecture.md` — Add R2E-Gym integration section
-- [ ] Update `CLAUDE.md` — Add R2E-Gym/EntroPO reference in Benchmark Evaluation section
-- [ ] Run full test suite: `cd workers && poetry run pytest -v` + `go test ./... -v`
-- [ ] Run pre-commit: `pre-commit run --all-files`
+- [x] (2026-03-02) Update `internal/adapter/http/routes.go` — new route for training data export
+- [x] (2026-03-02) Update `internal/adapter/ws/events.go` — WebSocket events for rollout progress
+- [x] (2026-03-02) Update `docs/features/04-agent-orchestration.md` — Document hybrid verification, test-time scaling, diversity routing
+- [x] (2026-03-02) Update `docs/architecture.md` — Add R2E-Gym integration section
+- [x] (2026-03-02) Update `CLAUDE.md` — Add R2E-Gym/EntroPO reference in Benchmark Evaluation section
+- [x] (2026-03-02) Run full test suite: `cd workers && poetry run pytest -v` + `go test ./... -v`
+- [x] (2026-03-02) Run pre-commit: `pre-commit run --all-files`
 
 #### Implementation Order & Dependencies
 
