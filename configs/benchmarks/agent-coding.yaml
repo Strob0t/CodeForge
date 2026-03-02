@@ -1,0 +1,123 @@
+# CodeForge Agent Benchmark — Coding Tasks
+# Tests full agent loop: multi-turn tool use with workspace file operations
+
+name: agent-coding
+description: Agent coding tasks requiring file creation, editing, and test execution
+benchmark_type: agent
+
+tasks:
+  - id: ag-001
+    name: FizzBuzz Implementation
+    input: >
+      Create a Python file fizzbuzz.py that implements a fizzbuzz function.
+      The function takes an integer n and returns a list of strings from 1 to n
+      where multiples of 3 are "Fizz", multiples of 5 are "Buzz", multiples of
+      both are "FizzBuzz", and other numbers are their string representation.
+    expected_output: "fizzbuzz.py created with correct implementation"
+    difficulty: easy
+    initial_files: {}
+    test_command: "python -c \"from fizzbuzz import fizzbuzz; r = fizzbuzz(15); assert r[2] == 'Fizz'; assert r[4] == 'Buzz'; assert r[14] == 'FizzBuzz'; assert r[0] == '1'; print('PASS')\""
+    max_iterations: 10
+    timeout_seconds: 120
+
+  - id: ag-002
+    name: Bug Fix in Calculator
+    input: >
+      The calculator.py file has a bug in the divide function — it doesn't handle
+      division by zero. Fix the bug so that dividing by zero returns None instead
+      of raising an exception. Do not change any other functions.
+    expected_output: "calculator.py fixed with division by zero handling"
+    difficulty: easy
+    initial_files:
+      calculator.py: |
+        def add(a, b):
+            return a + b
+
+        def subtract(a, b):
+            return a - b
+
+        def multiply(a, b):
+            return a * b
+
+        def divide(a, b):
+            return a / b
+    test_command: "python -c \"from calculator import divide; assert divide(10, 2) == 5.0; assert divide(10, 0) is None; print('PASS')\""
+    max_iterations: 10
+    timeout_seconds: 60
+
+  - id: ag-003
+    name: Add Tests to Existing Module
+    input: >
+      Write a test file test_utils.py for the existing utils.py module.
+      Cover all three functions: is_palindrome, reverse_string, and count_vowels.
+      Each function should have at least 2 test cases. Use pytest style.
+    expected_output: "test_utils.py created with comprehensive tests"
+    difficulty: medium
+    initial_files:
+      utils.py: |
+        def is_palindrome(s: str) -> bool:
+            cleaned = s.lower().replace(" ", "")
+            return cleaned == cleaned[::-1]
+
+        def reverse_string(s: str) -> str:
+            return s[::-1]
+
+        def count_vowels(s: str) -> int:
+            return sum(1 for c in s.lower() if c in "aeiou")
+    test_command: "python -m pytest test_utils.py -v"
+    max_iterations: 15
+    timeout_seconds: 120
+
+  - id: ag-004
+    name: Refactor Single File to Module
+    input: >
+      Refactor the monolithic app.py into a proper module structure:
+      1. Move the User class to models.py
+      2. Move the validate_email function to validators.py
+      3. Keep only the main() function in app.py, importing from the new files
+      All existing functionality must be preserved.
+    expected_output: "app.py refactored into models.py, validators.py, and app.py"
+    difficulty: medium
+    initial_files:
+      app.py: |
+        import re
+
+        class User:
+            def __init__(self, name: str, email: str):
+                self.name = name
+                self.email = email
+
+            def __repr__(self) -> str:
+                return f"User({self.name}, {self.email})"
+
+        def validate_email(email: str) -> bool:
+            pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            return bool(re.match(pattern, email))
+
+        def main():
+            email = "test@example.com"
+            if validate_email(email):
+                user = User("Test", email)
+                print(user)
+            else:
+                print("Invalid email")
+    test_command: "python -c \"from models import User; from validators import validate_email; from app import main; u = User('A', 'a@b.com'); assert validate_email('x@y.com'); print('PASS')\""
+    max_iterations: 20
+    timeout_seconds: 180
+
+  - id: ag-005
+    name: Implement REST API Handler
+    input: >
+      Create a simple HTTP request handler in handler.py that processes JSON
+      requests. Implement a function handle_request(method, path, body) that:
+      - GET /items returns {"items": []} (empty list initially)
+      - POST /items with {"name": "x"} adds an item and returns {"id": 1, "name": "x"}
+      - GET /items/{id} returns the item or {"error": "not found"}
+      Use an in-memory dict for storage. No external dependencies.
+    expected_output: "handler.py created with working REST handler"
+    difficulty: hard
+    initial_files: {}
+    test_command: "python -c \"from handler import handle_request; r = handle_request('GET', '/items', ''); assert '[]' in str(r) or 'items' in str(r); r2 = handle_request('POST', '/items', '{\\\"name\\\": \\\"test\\\"}'); assert 'test' in str(r2); print('PASS')\""
+    max_iterations: 25
+    timeout_seconds: 300
+    max_cost: 0.50
