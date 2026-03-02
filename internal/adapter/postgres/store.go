@@ -124,7 +124,8 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 
 func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at
+		`SELECT id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at,
+		        total_runs, total_cost, success_rate, state, capabilities, last_active_at
 		 FROM agents WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -144,7 +145,8 @@ func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent
 
 func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at
+		`SELECT id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at,
+		        total_runs, total_cost, success_rate, state, capabilities, last_active_at
 		 FROM agents WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	a, err := scanAgent(row)
@@ -171,7 +173,8 @@ func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO agents (tenant_id, project_id, name, backend, mode_id, config, resource_limits)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at`,
+		 RETURNING id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at,
+		          total_runs, total_cost, success_rate, state, capabilities, last_active_at`,
 		tenantFromCtx(ctx), projectID, name, backend, "", configJSON, limitsJSON)
 
 	a, err := scanAgent(row)
@@ -628,8 +631,13 @@ func (s *Store) UpdatePlanStepRound(ctx context.Context, stepID string, round in
 
 func scanAgent(row scannable) (agent.Agent, error) {
 	var a agent.Agent
-	var configJSON, limitsJSON []byte
-	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.ModeID, &a.Status, &configJSON, &limitsJSON, &a.Version, &a.CreatedAt, &a.UpdatedAt)
+	var configJSON, limitsJSON, stateJSON []byte
+	var caps []string
+	err := row.Scan(
+		&a.ID, &a.ProjectID, &a.Name, &a.Backend, &a.ModeID, &a.Status,
+		&configJSON, &limitsJSON, &a.Version, &a.CreatedAt, &a.UpdatedAt,
+		&a.TotalRuns, &a.TotalCost, &a.SuccessRate, &stateJSON, &caps, &a.LastActiveAt,
+	)
 	if err != nil {
 		return a, err
 	}
@@ -645,6 +653,12 @@ func scanAgent(row scannable) (agent.Agent, error) {
 		}
 		a.ResourceLimits = &limits
 	}
+	if stateJSON != nil {
+		if err := json.Unmarshal(stateJSON, &a.State); err != nil {
+			return a, fmt.Errorf("unmarshal agent state: %w", err)
+		}
+	}
+	a.Capabilities = caps
 	return a, nil
 }
 

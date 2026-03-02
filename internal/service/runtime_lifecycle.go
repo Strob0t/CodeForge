@@ -141,6 +141,11 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	// Set agent back to idle
 	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
 
+	// Accumulate agent identity stats (Phase 23C).
+	if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
+		slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
+	}
+
 	// Clean up budget alerts for this run
 	s.budgetAlerts.Delete(fmt.Sprintf("%s:80", r.ID))
 	s.budgetAlerts.Delete(fmt.Sprintf("%s:90", r.ID))

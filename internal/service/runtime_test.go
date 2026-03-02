@@ -777,6 +777,21 @@ func (m *runtimeMockStore) UpsertPromptSection(_ context.Context, _ *prompt.Sect
 }
 func (m *runtimeMockStore) DeletePromptSection(_ context.Context, _ string) error { return nil }
 
+// Benchmark suite stubs (Phase 26)
+func (m *runtimeMockStore) CreateBenchmarkSuite(_ context.Context, _ *benchmark.Suite) error {
+	return nil
+}
+func (m *runtimeMockStore) GetBenchmarkSuite(_ context.Context, _ string) (*benchmark.Suite, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListBenchmarkSuites(_ context.Context) ([]benchmark.Suite, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteBenchmarkSuite(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) ListBenchmarkRunsFiltered(_ context.Context, _ benchmark.RunFilter) ([]benchmark.Run, error) {
+	return nil, nil
+}
+
 // Benchmark stubs
 func (m *runtimeMockStore) CreateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
 func (m *runtimeMockStore) GetBenchmarkRun(_ context.Context, _ string) (*benchmark.Run, error) {

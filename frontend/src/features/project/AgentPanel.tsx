@@ -179,6 +179,13 @@ export default function AgentPanel(props: AgentPanelProps) {
                         {agent.status}
                       </Badge>
                     </div>
+                    <Show when={agent.total_runs > 0}>
+                      <div class="flex gap-3 text-xs text-cf-text-muted">
+                        <span>{agent.total_runs} runs</span>
+                        <span>{(agent.success_rate * 100).toFixed(0)}%</span>
+                        <span>${agent.total_cost.toFixed(4)}</span>
+                      </div>
+                    </Show>
                     <div class="flex gap-2">
                       <Show when={agent.status === "idle" && pendingTasks().length > 0}>
                         <Select

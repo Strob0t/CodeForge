@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -58,6 +59,17 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 
 	if err := s.queue.Publish(ctx, "handoff.request", data); err != nil {
 		return fmt.Errorf("publish handoff: %w", err)
+	}
+
+	// Deliver inbox message to target agent (Phase 23C).
+	inboxMsg := &agent.InboxMessage{
+		AgentID:   msg.TargetAgentID,
+		FromAgent: msg.SourceAgentID,
+		Content:   fmt.Sprintf("Handoff: %s", msg.Context),
+		Priority:  1,
+	}
+	if err := s.db.SendAgentMessage(ctx, inboxMsg); err != nil {
+		slog.Warn("failed to deliver handoff inbox message", "target", msg.TargetAgentID, "error", err)
 	}
 
 	slog.Info("handoff dispatched",

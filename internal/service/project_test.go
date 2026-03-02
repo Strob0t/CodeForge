@@ -729,6 +729,19 @@ func (m *mockStore) ListPromptSections(_ context.Context, _ string) ([]prompt.Se
 func (m *mockStore) UpsertPromptSection(_ context.Context, _ *prompt.SectionRow) error { return nil }
 func (m *mockStore) DeletePromptSection(_ context.Context, _ string) error             { return nil }
 
+// Benchmark suite stubs (Phase 26)
+func (m *mockStore) CreateBenchmarkSuite(_ context.Context, _ *benchmark.Suite) error { return nil }
+func (m *mockStore) GetBenchmarkSuite(_ context.Context, _ string) (*benchmark.Suite, error) {
+	return nil, nil
+}
+func (m *mockStore) ListBenchmarkSuites(_ context.Context) ([]benchmark.Suite, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteBenchmarkSuite(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListBenchmarkRunsFiltered(_ context.Context, _ benchmark.RunFilter) ([]benchmark.Run, error) {
+	return nil, nil
+}
+
 // Benchmark stubs
 func (m *mockStore) CreateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
 func (m *mockStore) GetBenchmarkRun(_ context.Context, _ string) (*benchmark.Run, error) {

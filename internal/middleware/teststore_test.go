@@ -534,6 +534,19 @@ func (s *testStore) ListPromptSections(_ context.Context, _ string) ([]prompt.Se
 func (s *testStore) UpsertPromptSection(_ context.Context, _ *prompt.SectionRow) error { return nil }
 func (s *testStore) DeletePromptSection(_ context.Context, _ string) error             { return nil }
 
+// Benchmark suite stubs (Phase 26)
+func (s *testStore) CreateBenchmarkSuite(_ context.Context, _ *benchmark.Suite) error { return nil }
+func (s *testStore) GetBenchmarkSuite(_ context.Context, _ string) (*benchmark.Suite, error) {
+	return nil, nil
+}
+func (s *testStore) ListBenchmarkSuites(_ context.Context) ([]benchmark.Suite, error) {
+	return nil, nil
+}
+func (s *testStore) DeleteBenchmarkSuite(_ context.Context, _ string) error { return nil }
+func (s *testStore) ListBenchmarkRunsFiltered(_ context.Context, _ benchmark.RunFilter) ([]benchmark.Run, error) {
+	return nil, nil
+}
+
 // Benchmark stubs
 func (s *testStore) CreateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
 func (s *testStore) GetBenchmarkRun(_ context.Context, _ string) (*benchmark.Run, error) {
