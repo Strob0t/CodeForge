@@ -117,8 +117,8 @@ func TestValidate_RequiredArtifactPresent(t *testing.T) {
 
 func TestBuiltinModes_Count(t *testing.T) {
 	modes := BuiltinModes()
-	if len(modes) != 10 {
-		t.Fatalf("expected 10 built-in modes, got %d", len(modes))
+	if len(modes) != 21 {
+		t.Fatalf("expected 21 built-in modes, got %d", len(modes))
 	}
 }
 
@@ -192,16 +192,27 @@ func TestBuiltinModes_ExpectedPresets(t *testing.T) {
 		hasRequiredArtifact bool
 		hasDeniedTools      bool
 	}{
-		"architect":  {true, true},
-		"coder":      {true, false},
-		"reviewer":   {true, true},
-		"debugger":   {false, false},
-		"tester":     {true, false},
-		"documenter": {false, true},
-		"refactorer": {true, false},
-		"security":   {true, true},
-		"moderator":  {true, true},
-		"proponent":  {true, true},
+		"architect":          {true, true},
+		"coder":              {true, false},
+		"reviewer":           {true, true},
+		"debugger":           {false, false},
+		"tester":             {true, false},
+		"documenter":         {false, true},
+		"refactorer":         {true, false},
+		"security":           {true, true},
+		"moderator":          {true, true},
+		"proponent":          {true, true},
+		"devops":             {true, false},
+		"api-tester":         {true, false},
+		"benchmarker":        {true, false},
+		"frontend":           {true, false},
+		"backend-architect":  {true, true},
+		"lsp-engineer":       {true, true},
+		"orchestrator":       {true, true},
+		"evaluator":          {true, true},
+		"workflow-optimizer": {true, true},
+		"infra-maintainer":   {true, false},
+		"prototyper":         {true, false},
 	}
 
 	for _, m := range BuiltinModes() {

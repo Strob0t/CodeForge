@@ -181,6 +181,7 @@
 - [x] (2026-02-17) Auto-populate SharedContext from run outputs (Orchestrator)
 - [x] (2026-02-17) WS events: team.status, shared.updated (events.go + broadcasts)
 - [x] (2026-02-17) Modes System: domain model, 8 presets, ModeService, 3 REST endpoints
+- [x] (2026-03-01) Modes System: 10 → 21 built-in modes (11 new specialist modes: devops, api-tester, benchmarker, frontend, backend-architect, lsp-engineer, orchestrator, evaluator, workflow-optimizer, infra-maintainer, prototyper); enhanced commonRules with 4 cross-cutting patterns (Default Posture, Prior Work, Handoff Note, Automatic Escalation); optimized all 10 existing mode PromptPrefixes with methodology improvements adapted from agency-agents (MIT). Tests updated (domain + service).
 - [x] (2026-02-17) Frontend: Mode/CreateModeRequest types, modes API namespace
 - [x] (2026-02-17) Mock stores + test fixes (CompleteRun signature, nil-safe hub)
 
@@ -2018,67 +2019,80 @@ Handler tests:
 - [x] (2026-03-02) `TestHandleApproveToolCall_InvalidDecision` — HTTP 400, invalid decision value
 - [x] (2026-03-02) `TestHandleApproveToolCall_NoPendingApproval` — HTTP 404, no pending approval
 
-#### P2 — Cost Handler Tests (budget enforcement, 5 tests)
+#### P2 — Cost Handler Tests (budget enforcement, 7 tests) ✅ 2026-03-02
 
 > **File:** `internal/adapter/http/handlers_cost_test.go` (new)
-> **Why:** 7 cost handler functions with zero tests. Budget enforcement is a safety mechanism.
 
-- [ ] `TestHandleGetCostSummary` — HTTP 200, correct aggregation by project/time range
-- [ ] `TestHandleGetRunCosts` — HTTP 200, per-run cost breakdown (tokens, API calls, total)
-- [ ] `TestHandleSetBudgetLimit` — HTTP 200, budget limit persisted for project
-- [ ] `TestHandleGetBudgetStatus` — HTTP 200, remaining budget calculated correctly
-- [ ] `TestHandleListCostEntries` — HTTP 200, paginated cost entries with filtering
+- [x] (2026-03-02) `TestGlobalCostSummary` — HTTP 200, returns project cost summaries
+- [x] (2026-03-02) `TestProjectCostSummary` — HTTP 200, per-project cost summary
+- [x] (2026-03-02) `TestProjectCostByModel` — HTTP 200, cost breakdown by model
+- [x] (2026-03-02) `TestProjectCostTimeSeries` — HTTP 200, daily cost time series with ?days param
+- [x] (2026-03-02) `TestProjectRecentRuns` — HTTP 200, recent runs with cost and ?limit param
+- [x] (2026-03-02) `TestProjectCostByTool` — HTTP 200, cost breakdown by tool
+- [x] (2026-03-02) `TestRunCostByTool` — HTTP 200, per-run tool cost breakdown
 
-#### P2 — Settings Handler Tests (system config, 5 tests)
+#### P2 — Settings Handler Tests (system config, 7 tests) ✅ 2026-03-02
 
 > **File:** `internal/adapter/http/handlers_settings_test.go` (new)
-> **Why:** 24 settings handler functions with zero tests. Settings affect global system behavior.
 
-- [ ] `TestHandleGetSettings` — HTTP 200, returns current system settings
-- [ ] `TestHandleUpdateSettings` — HTTP 200, settings persisted and applied
-- [ ] `TestHandleGetVCSAccounts` — HTTP 200, lists registered VCS accounts
-- [ ] `TestHandleCreateVCSAccount` — HTTP 201, VCS account created with encrypted token
-- [ ] `TestHandleDeleteVCSAccount` — HTTP 204, account removed, token wiped
+- [x] (2026-03-02) `TestGetSettings_Empty` — HTTP 200, returns empty map
+- [x] (2026-03-02) `TestGetSettings_WithData` — HTTP 200, returns seeded key-value pairs
+- [x] (2026-03-02) `TestUpdateSettings_EmptyBody` — HTTP 400, rejects empty settings map
+- [x] (2026-03-02) `TestUpdateSettings_Success` — HTTP 200, settings persisted
+- [x] (2026-03-02) `TestListVCSAccounts_Empty` — HTTP 200, returns empty list
+- [x] (2026-03-02) `TestDeleteVCSAccount_NotFound` — HTTP 404, unknown account
+- [x] (2026-03-02) `TestDeleteVCSAccount_Success` — HTTP 204, account removed
 
-#### P2 — Session Handler Tests (user sessions, 4 tests)
+#### P2 — Session Handler Tests (user sessions, 6 tests) ✅ 2026-03-02
 
 > **File:** `internal/adapter/http/handlers_session_test.go` (new)
-> **Why:** 14 session handler functions with zero tests. Session management is part of agent state.
 
-- [ ] `TestHandleListSessions` — HTTP 200, sessions listed by project
-- [ ] `TestHandleGetSession` — HTTP 200, returns session with events
-- [ ] `TestHandleResumeSession` — HTTP 200, session resumed from checkpoint
-- [ ] `TestHandleForkSession` — HTTP 201, new session forked from existing
+- [x] (2026-03-02) `TestListProjectSessions_Empty` — HTTP 200, empty session list
+- [x] (2026-03-02) `TestGetSession_NotFound` — HTTP 404, unknown session
+- [x] (2026-03-02) `TestResumeRun_Success` — HTTP 201, session created from completed run
+- [x] (2026-03-02) `TestResumeRun_NotFound` — HTTP 404, unknown run
+- [x] (2026-03-02) `TestForkRun_Success` — HTTP 201, session forked from run
+- [x] (2026-03-02) `TestRewindRun_Success` — HTTP 201, session rewound from run
 
-#### P2 — MCP Handler Tests (protocol integration, 4 tests)
+#### P2 — MCP Handler Tests (protocol integration, 10 tests) ✅ 2026-03-02
 
 > **File:** `internal/adapter/http/handlers_mcp_test.go` (new)
-> **Why:** 11 MCP handler functions with zero tests. MCP is the primary tool protocol (Phase 15).
 
-- [ ] `TestHandleListMCPServers` — HTTP 200, returns registered MCP servers
-- [ ] `TestHandleCreateMCPServer` — HTTP 201, MCP server registered with config
-- [ ] `TestHandleTestMCPConnection` — HTTP 200, connection test result (success/failure)
-- [ ] `TestHandleDeleteMCPServer` — HTTP 204, server removed
+- [x] (2026-03-02) `TestListMCPServers_Empty` — HTTP 200, returns empty list
+- [x] (2026-03-02) `TestGetMCPServer_NotFound` — HTTP 404, unknown server
+- [x] (2026-03-02) `TestCreateMCPServer_Success` — HTTP 201, server registered with UUID
+- [x] (2026-03-02) `TestCreateMCPServer_MissingName` — HTTP 400, validation error
+- [x] (2026-03-02) `TestCreateMCPServer_InvalidTransport` — HTTP 400, validation error
+- [x] (2026-03-02) `TestDeleteMCPServer_NotFound` — HTTP 404, unknown server
+- [x] (2026-03-02) `TestDeleteMCPServer_Success` — HTTP 204, server removed
+- [x] (2026-03-02) `TestListMCPServerTools_Empty` — HTTP 200, empty tools list
+- [x] (2026-03-02) `TestListProjectMCPServers_Empty` — HTTP 200, empty project servers
+- [x] (2026-03-02) `TestAssignMCPServerToProject_MissingServerID` — HTTP 400, validation error
 
-#### P2 — Knowledgebase Handler Tests (4 tests)
+#### P2 — Knowledgebase Handler Tests (8 tests) ✅ 2026-03-02
 
 > **File:** `internal/adapter/http/handlers_knowledgebase_test.go` (new)
-> **Why:** 9 knowledgebase handler functions with zero tests.
 
-- [ ] `TestHandleCreateKnowledgebase` — HTTP 201, KB created with required fields
-- [ ] `TestHandleListKnowledgebases` — HTTP 200, KBs listed by project
-- [ ] `TestHandleIndexKnowledgebase` — HTTP 202, index build dispatched
-- [ ] `TestHandleQueryKnowledgebase` — HTTP 200, search results returned
+- [x] (2026-03-02) `TestListKnowledgeBases_Empty` — HTTP 200, empty list
+- [x] (2026-03-02) `TestGetKnowledgeBase_NotFound` — HTTP 404, unknown KB
+- [x] (2026-03-02) `TestCreateKnowledgeBase_Success` — HTTP 201, KB created with fields
+- [x] (2026-03-02) `TestCreateKnowledgeBase_MissingName` — HTTP 400, validation error
+- [x] (2026-03-02) `TestCreateKnowledgeBase_InvalidCategory` — HTTP 400, validation error
+- [x] (2026-03-02) `TestDeleteKnowledgeBase_NotFound` — HTTP 404, unknown KB
+- [x] (2026-03-02) `TestDeleteKnowledgeBase_Success` — HTTP 204, KB removed
+- [x] (2026-03-02) `TestListScopeKnowledgeBases_Empty` — HTTP 200, empty scope list
 
-#### P2 — LLM Handler Tests (4 tests)
+#### P2 — LLM Handler Tests (6 tests) ✅ 2026-03-02
 
-> **File:** `internal/adapter/http/handlers_llm_test.go` (new)
-> **Why:** 8 LLM handler functions with zero tests. LLM management is Pillar 3.
+> **File:** `internal/adapter/http/handlers_llm_extra_test.go` (new)
+> Note: 5 tests already existed in handlers_test.go (LLMHealth, AddLLMModelMissingName, AddLLMModelInvalidBody, DeleteLLMModelMissingID, DeleteLLMModelInvalidBody)
 
-- [ ] `TestHandleListModels` — HTTP 200, returns models from LiteLLM registry
-- [ ] `TestHandleGetModelHealth` — HTTP 200, model health status checked
-- [ ] `TestHandleListProviders` — HTTP 200, returns configured LLM providers
-- [ ] `TestHandleSetUserAPIKey` — HTTP 200, user API key stored for provider
+- [x] (2026-03-02) `TestAvailableLLMModels_NoRegistry` — HTTP 503, model registry not initialized
+- [x] (2026-03-02) `TestRefreshLLMModels_NoRegistry` — HTTP 503, model registry not initialized
+- [x] (2026-03-02) `TestCopilotExchange_NotEnabled` — HTTP 404, copilot not enabled
+- [x] (2026-03-02) `TestListLLMModels` — HTTP 502, LiteLLM not available
+- [x] (2026-03-02) `TestDiscoverLLMModels` — HTTP 502, LiteLLM not available
+- [x] (2026-03-02) `TestAddLLMModel_BadGateway` — HTTP 502, LiteLLM not available
 
 #### P3 — Service-Layer Gap Tests (12 tests)
 
