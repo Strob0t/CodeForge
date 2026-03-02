@@ -18,6 +18,77 @@ const (
 	StatusFailed    RunStatus = "failed"
 )
 
+// BenchmarkType distinguishes the three benchmark evaluation modes.
+type BenchmarkType string
+
+const (
+	TypeSimple  BenchmarkType = "simple"
+	TypeToolUse BenchmarkType = "tool_use"
+	TypeAgent   BenchmarkType = "agent"
+)
+
+// IsValid returns true if the benchmark type is one of the known values.
+func (t BenchmarkType) IsValid() bool {
+	switch t {
+	case TypeSimple, TypeToolUse, TypeAgent:
+		return true
+	}
+	return false
+}
+
+// ExecMode defines how an agent benchmark task is executed.
+type ExecMode string
+
+const (
+	ExecModeMount   ExecMode = "mount"
+	ExecModeSandbox ExecMode = "sandbox"
+	ExecModeHybrid  ExecMode = "hybrid"
+)
+
+// IsValid returns true if the exec mode is one of the known values.
+func (m ExecMode) IsValid() bool {
+	switch m {
+	case ExecModeMount, ExecModeSandbox, ExecModeHybrid:
+		return true
+	}
+	return false
+}
+
+// Suite represents a registered benchmark suite (e.g. HumanEval, SWE-bench).
+type Suite struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	Type         BenchmarkType   `json:"type"`
+	ProviderName string          `json:"provider_name"`
+	TaskCount    int             `json:"task_count"`
+	Config       json.RawMessage `json:"config,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
+// CreateSuiteRequest is the payload for registering a new benchmark suite.
+type CreateSuiteRequest struct {
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	Type         BenchmarkType   `json:"type"`
+	ProviderName string          `json:"provider_name"`
+	Config       json.RawMessage `json:"config,omitempty"`
+}
+
+// Validate checks required fields on a CreateSuiteRequest.
+func (r *CreateSuiteRequest) Validate() error {
+	if r.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if !r.Type.IsValid() {
+		return fmt.Errorf("invalid benchmark type: %q", r.Type)
+	}
+	if r.ProviderName == "" {
+		return fmt.Errorf("provider_name is required")
+	}
+	return nil
+}
+
 // Run is a single benchmark execution against a dataset with a specific model.
 type Run struct {
 	ID              string          `json:"id"`
@@ -31,6 +102,12 @@ type Run struct {
 	TotalDurationMs int64           `json:"total_duration_ms"`
 	CreatedAt       time.Time       `json:"created_at"`
 	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
+
+	// Phase 26 fields (nullable for backward compatibility).
+	SuiteID       string          `json:"suite_id,omitempty"`
+	BenchmarkType BenchmarkType   `json:"benchmark_type,omitempty"`
+	ExecMode      ExecMode        `json:"exec_mode,omitempty"`
+	Config        json.RawMessage `json:"config,omitempty"`
 }
 
 // Result stores evaluation output for a single task within a benchmark run.
@@ -47,25 +124,39 @@ type Result struct {
 	TokensIn       int             `json:"tokens_in"`
 	TokensOut      int             `json:"tokens_out"`
 	DurationMs     int64           `json:"duration_ms"`
+
+	// Phase 26 fields.
+	EvaluatorScores      json.RawMessage `json:"evaluator_scores,omitempty"`
+	FilesChanged         []string        `json:"files_changed,omitempty"`
+	FunctionalTestOutput string          `json:"functional_test_output,omitempty"`
 }
 
 // CreateRunRequest is the payload for creating a new benchmark run.
 type CreateRunRequest struct {
-	Dataset string   `json:"dataset"`
-	Model   string   `json:"model"`
-	Metrics []string `json:"metrics"`
+	Dataset       string        `json:"dataset"`
+	SuiteID       string        `json:"suite_id,omitempty"`
+	Model         string        `json:"model"`
+	Metrics       []string      `json:"metrics"`
+	BenchmarkType BenchmarkType `json:"benchmark_type,omitempty"`
+	ExecMode      ExecMode      `json:"exec_mode,omitempty"`
 }
 
 // Validate checks required fields on a CreateRunRequest.
 func (r *CreateRunRequest) Validate() error {
-	if r.Dataset == "" {
-		return fmt.Errorf("dataset is required")
+	if r.Dataset == "" && r.SuiteID == "" {
+		return fmt.Errorf("dataset or suite_id is required")
 	}
 	if r.Model == "" {
 		return fmt.Errorf("model is required")
 	}
 	if len(r.Metrics) == 0 {
 		return fmt.Errorf("at least one metric is required")
+	}
+	if r.BenchmarkType != "" && !r.BenchmarkType.IsValid() {
+		return fmt.Errorf("invalid benchmark type: %q", r.BenchmarkType)
+	}
+	if r.ExecMode != "" && !r.ExecMode.IsValid() {
+		return fmt.Errorf("invalid exec mode: %q", r.ExecMode)
 	}
 	return nil
 }
@@ -82,6 +173,24 @@ type CompareResult struct {
 	RunB    *Run     `json:"run_b"`
 	ResultA []Result `json:"results_a"`
 	ResultB []Result `json:"results_b"`
+}
+
+// MultiCompareRequest specifies N runs for multi-way comparison.
+type MultiCompareRequest struct {
+	RunIDs []string `json:"run_ids"`
+}
+
+// MultiCompareEntry holds one run and its results for multi-comparison.
+type MultiCompareEntry struct {
+	Run     *Run     `json:"run"`
+	Results []Result `json:"results"`
+}
+
+// RunFilter constrains which benchmark runs to return.
+type RunFilter struct {
+	SuiteID       string        `json:"suite_id,omitempty"`
+	BenchmarkType BenchmarkType `json:"benchmark_type,omitempty"`
+	Model         string        `json:"model,omitempty"`
 }
 
 // DatasetInfo describes an available benchmark dataset.

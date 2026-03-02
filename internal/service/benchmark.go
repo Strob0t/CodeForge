@@ -27,18 +27,56 @@ func NewBenchmarkService(store database.Store, datasetsDir string) *BenchmarkSer
 	return &BenchmarkService{store: store, datasetsDir: datasetsDir}
 }
 
+// RegisterSuite validates and persists a new benchmark suite.
+func (s *BenchmarkService) RegisterSuite(ctx context.Context, req *benchmark.CreateSuiteRequest) (*benchmark.Suite, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	suite := &benchmark.Suite{
+		ID:           uuid.New().String(),
+		Name:         req.Name,
+		Description:  req.Description,
+		Type:         req.Type,
+		ProviderName: req.ProviderName,
+		Config:       req.Config,
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := s.store.CreateBenchmarkSuite(ctx, suite); err != nil {
+		return nil, err
+	}
+	return suite, nil
+}
+
+// GetSuite retrieves a benchmark suite by ID.
+func (s *BenchmarkService) GetSuite(ctx context.Context, id string) (*benchmark.Suite, error) {
+	return s.store.GetBenchmarkSuite(ctx, id)
+}
+
+// ListSuites returns all registered benchmark suites.
+func (s *BenchmarkService) ListSuites(ctx context.Context) ([]benchmark.Suite, error) {
+	return s.store.ListBenchmarkSuites(ctx)
+}
+
+// DeleteSuite removes a benchmark suite by ID.
+func (s *BenchmarkService) DeleteSuite(ctx context.Context, id string) error {
+	return s.store.DeleteBenchmarkSuite(ctx, id)
+}
+
 // CreateRun validates and persists a new benchmark run.
 func (s *BenchmarkService) CreateRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 	r := &benchmark.Run{
-		ID:        uuid.New().String(),
-		Dataset:   req.Dataset,
-		Model:     req.Model,
-		Metrics:   req.Metrics,
-		Status:    benchmark.StatusRunning,
-		CreatedAt: time.Now().UTC(),
+		ID:            uuid.New().String(),
+		Dataset:       req.Dataset,
+		Model:         req.Model,
+		Metrics:       req.Metrics,
+		Status:        benchmark.StatusRunning,
+		SuiteID:       req.SuiteID,
+		BenchmarkType: req.BenchmarkType,
+		ExecMode:      req.ExecMode,
+		CreatedAt:     time.Now().UTC(),
 	}
 	if err := s.store.CreateBenchmarkRun(ctx, r); err != nil {
 		return nil, err
@@ -54,6 +92,11 @@ func (s *BenchmarkService) GetRun(ctx context.Context, id string) (*benchmark.Ru
 // ListRuns returns all benchmark runs.
 func (s *BenchmarkService) ListRuns(ctx context.Context) ([]benchmark.Run, error) {
 	return s.store.ListBenchmarkRuns(ctx)
+}
+
+// ListRunsFiltered returns benchmark runs matching the given filter.
+func (s *BenchmarkService) ListRunsFiltered(ctx context.Context, filter benchmark.RunFilter) ([]benchmark.Run, error) {
+	return s.store.ListBenchmarkRunsFiltered(ctx, filter)
 }
 
 // UpdateRun updates a benchmark run.
