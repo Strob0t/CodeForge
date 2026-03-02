@@ -15,7 +15,13 @@ export default function ActiveWorkPanel(props: Props) {
 
   const [items, { refetch }] = createResource(
     () => props.projectId,
-    (id) => api.activeWork.list(id),
+    async (id) => {
+      try {
+        return await api.activeWork.list(id);
+      } catch {
+        return [];
+      }
+    },
   );
 
   // Refetch on relevant WS events

@@ -13,7 +13,13 @@ interface Props {
 export default function AutoAgentButton(props: Props) {
   const [polledStatus, { refetch }] = createResource(
     () => props.projectId,
-    (id) => api.autoAgent.status(id),
+    async (id) => {
+      try {
+        return await api.autoAgent.status(id);
+      } catch {
+        return undefined;
+      }
+    },
   );
 
   const [loading, setLoading] = createSignal(false);

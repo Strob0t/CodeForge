@@ -871,6 +871,10 @@ func (h *Handlers) ListRunEvents(w http.ResponseWriter, r *http.Request) {
 
 // ListActiveWork handles GET /api/v1/projects/{id}/active-work
 func (h *Handlers) ListActiveWork(w http.ResponseWriter, r *http.Request) {
+	if h.ActiveWork == nil {
+		writeJSON(w, http.StatusOK, []task.ActiveWorkItem{})
+		return
+	}
 	projectID := chi.URLParam(r, "id")
 	items, err := h.ActiveWork.ListActiveWork(r.Context(), projectID)
 	if err != nil {

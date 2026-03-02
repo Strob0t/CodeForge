@@ -8,6 +8,10 @@ import (
 
 // StartAutoAgent handles POST /api/v1/projects/{id}/auto-agent/start
 func (h *Handlers) StartAutoAgent(w http.ResponseWriter, r *http.Request) {
+	if h.AutoAgent == nil {
+		writeError(w, http.StatusServiceUnavailable, "auto-agent service not available")
+		return
+	}
 	projectID := chi.URLParam(r, "id")
 	if !requireField(w, projectID, "project id") {
 		return
@@ -23,6 +27,10 @@ func (h *Handlers) StartAutoAgent(w http.ResponseWriter, r *http.Request) {
 
 // StopAutoAgent handles POST /api/v1/projects/{id}/auto-agent/stop
 func (h *Handlers) StopAutoAgent(w http.ResponseWriter, r *http.Request) {
+	if h.AutoAgent == nil {
+		writeError(w, http.StatusServiceUnavailable, "auto-agent service not available")
+		return
+	}
 	projectID := chi.URLParam(r, "id")
 	if !requireField(w, projectID, "project id") {
 		return
@@ -37,6 +45,10 @@ func (h *Handlers) StopAutoAgent(w http.ResponseWriter, r *http.Request) {
 
 // GetAutoAgentStatus handles GET /api/v1/projects/{id}/auto-agent/status
 func (h *Handlers) GetAutoAgentStatus(w http.ResponseWriter, r *http.Request) {
+	if h.AutoAgent == nil {
+		writeError(w, http.StatusServiceUnavailable, "auto-agent service not available")
+		return
+	}
 	projectID := chi.URLParam(r, "id")
 	if !requireField(w, projectID, "project id") {
 		return
