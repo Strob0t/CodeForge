@@ -86,6 +86,7 @@ type Handlers struct {
 	Quarantine       *service.QuarantineService
 	ActiveWork       *service.ActiveWorkService
 	Routing          *service.RoutingService
+	A2A              *service.A2AService
 	Limits           *config.Limits
 }
 

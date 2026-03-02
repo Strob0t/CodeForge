@@ -393,6 +393,16 @@ type BenchmarkRunProgressEvent struct {
 	TotalCostUSD   float64 `json:"total_cost_usd"`
 }
 
+// A2ATaskStatusEvent is broadcast when an A2A task changes state (Phase 27).
+type A2ATaskStatusEvent struct {
+	TaskID        string `json:"task_id"`
+	State         string `json:"state"`
+	SkillID       string `json:"skill_id,omitempty"`
+	Direction     string `json:"direction"`
+	ProjectID     string `json:"project_id,omitempty"`
+	RemoteAgentID string `json:"remote_agent_id,omitempty"`
+}
+
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.
 func (h *Hub) BroadcastEvent(ctx context.Context, eventType string, payload any) {
 	data, err := json.Marshal(payload)

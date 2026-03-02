@@ -33,7 +33,7 @@ func readJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64) (T
 }
 
 // urlParam is a short alias for chi.URLParam.
-func urlParam(r *http.Request, name string) string {
+func urlParam(r *http.Request, name string) string { //nolint:unparam // name varies by endpoint
 	return chi.URLParam(r, name)
 }
 

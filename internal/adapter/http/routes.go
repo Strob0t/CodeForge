@@ -434,6 +434,20 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Get("/outcomes", h.HandleListRoutingOutcomes)
 		})
 
+		// A2A Management (Phase 27L)
+		if h.A2A != nil {
+			r.Route("/a2a", func(r chi.Router) {
+				r.Post("/agents", h.RegisterRemoteAgent)
+				r.Get("/agents", h.ListRemoteAgents)
+				r.Delete("/agents/{id}", h.DeleteRemoteAgent)
+				r.Post("/agents/{id}/discover", h.DiscoverRemoteAgent)
+				r.Post("/agents/{id}/send", h.SendA2ATask)
+				r.Get("/tasks", h.ListA2ATasks)
+				r.Get("/tasks/{id}", h.GetA2ATask)
+				r.Post("/tasks/{id}/cancel", h.CancelA2ATask)
+			})
+		}
+
 		// Quarantine (Phase 23B — admin only)
 		r.Route("/quarantine", func(r chi.Router) {
 			r.Use(middleware.RequireRole(user.RoleAdmin))

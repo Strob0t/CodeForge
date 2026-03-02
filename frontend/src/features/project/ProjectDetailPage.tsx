@@ -20,8 +20,8 @@ import AutoAgentButton from "./AutoAgentButton";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
 import FilePanel from "./FilePanel";
-import WarRoom from "./WarRoom";
 import RoadmapPanel from "./RoadmapPanel";
+import WarRoom from "./WarRoom";
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();

@@ -617,6 +617,13 @@ func run() error {
 		Limits:           &cfg.Limits,
 	}
 
+	// A2A Client Service (Phase 27K) — outbound federation.
+	if cfg.A2A.Enabled {
+		a2aSvc := service.NewA2AService(store, queue, hub)
+		handlers.A2A = a2aSvc
+		slog.Info("a2a client service enabled")
+	}
+
 	r := chi.NewRouter()
 
 	// Rate limiter

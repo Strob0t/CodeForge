@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
@@ -21,10 +22,14 @@ type HandoffService struct {
 	queue      messagequeue.Queue
 	hub        broadcast.Broadcaster
 	quarantine *QuarantineService
+	a2a        *A2AService
 }
 
 // SetQuarantineService injects the quarantine evaluator (circular-dep breaker).
 func (s *HandoffService) SetQuarantineService(qs *QuarantineService) { s.quarantine = qs }
+
+// SetA2AService injects the A2A service for outbound federation (Phase 27M).
+func (s *HandoffService) SetA2AService(svc *A2AService) { s.a2a = svc }
 
 // NewHandoffService creates a HandoffService. The optional hub parameter enables
 // WS broadcasting for the War Room (Phase 23D).
@@ -64,6 +69,11 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 		}
 	}
 
+	// A2A routing (Phase 27M): if target is "a2a://<remoteAgentID>", delegate to A2A.
+	if strings.HasPrefix(msg.TargetAgentID, "a2a://") {
+		return s.routeToA2A(ctx, msg)
+	}
+
 	if err := s.queue.Publish(ctx, "handoff.request", data); err != nil {
 		return fmt.Errorf("publish handoff: %w", err)
 	}
@@ -95,6 +105,43 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 		"source", msg.SourceAgentID,
 		"target", msg.TargetAgentID,
 		"plan_id", msg.PlanID,
+	)
+	return nil
+}
+
+// routeToA2A delegates a handoff to a remote A2A agent (Phase 27M).
+func (s *HandoffService) routeToA2A(ctx context.Context, msg *orchestration.HandoffMessage) error {
+	if s.a2a == nil {
+		return fmt.Errorf("a2a service not configured for target %s", msg.TargetAgentID)
+	}
+
+	remoteAgentID := strings.TrimPrefix(msg.TargetAgentID, "a2a://")
+	if remoteAgentID == "" {
+		return fmt.Errorf("empty remote agent ID in a2a:// target")
+	}
+
+	dt, err := s.a2a.SendTask(ctx, remoteAgentID, msg.StepID, msg.Context)
+	if err != nil {
+		return fmt.Errorf("a2a handoff to %s: %w", remoteAgentID, err)
+	}
+
+	// Broadcast to WS for War Room.
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, ws.EventHandoffStatus, ws.HandoffStatusEvent{
+			SourceAgentID: msg.SourceAgentID,
+			TargetAgentID: msg.TargetAgentID,
+			PlanID:        msg.PlanID,
+			StepID:        msg.StepID,
+			Status:        "a2a_delegated",
+			Context:       fmt.Sprintf("A2A task %s created", dt.ID),
+		})
+	}
+
+	slog.Info("handoff delegated to a2a",
+		"source", msg.SourceAgentID,
+		"target", msg.TargetAgentID,
+		"remote_agent", remoteAgentID,
+		"a2a_task", dt.ID,
 	)
 	return nil
 }
