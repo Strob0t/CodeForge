@@ -2,18 +2,11 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { useToast } from "~/components/Toast";
+import { AUTONOMY_LEVELS_NUMERIC } from "~/config/domain-constants";
 import { useI18n } from "~/i18n";
 import { Button, FormField, Select } from "~/ui";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
-
-const AUTONOMY_LEVELS = [
-  { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
-  { value: "2", labelKey: "dashboard.form.autonomy.2" as const },
-  { value: "3", labelKey: "dashboard.form.autonomy.3" as const },
-  { value: "4", labelKey: "dashboard.form.autonomy.4" as const },
-  { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
-];
 
 interface CompactSettingsPopoverProps {
   projectId: string;
@@ -103,7 +96,7 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
             onChange={(e) => setAutonomy(e.currentTarget.value)}
           >
             <option value="">{t("detail.settings.autonomyPlaceholder")}</option>
-            <For each={AUTONOMY_LEVELS}>
+            <For each={AUTONOMY_LEVELS_NUMERIC}>
               {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
             </For>
           </Select>

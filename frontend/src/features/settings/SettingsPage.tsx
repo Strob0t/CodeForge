@@ -12,6 +12,7 @@ import type {
 } from "~/api/types";
 import { useAuth } from "~/components/AuthProvider";
 import { useToast } from "~/components/Toast";
+import { AUTONOMY_LEVELS } from "~/config/domain-constants";
 import { useI18n } from "~/i18n";
 import {
   Alert,
@@ -30,14 +31,6 @@ import {
   Textarea,
 } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
-
-const AUTONOMY_LEVELS = [
-  { value: "supervised", label: "1 - Supervised" },
-  { value: "semi-auto", label: "2 - Semi-Auto" },
-  { value: "auto-edit", label: "3 - Auto-Edit" },
-  { value: "full-auto", label: "4 - Full-Auto" },
-  { value: "headless", label: "5 - Headless" },
-];
 
 export default function SettingsPage() {
   const { t } = useI18n();
@@ -374,10 +367,7 @@ export default function SettingsPage() {
               aria-label={t("settings.vcs.provider")}
               class="w-auto"
             >
-              <option value="github">GitHub</option>
-              <option value="gitlab">GitLab</option>
-              <option value="gitea">Gitea</option>
-              <option value="bitbucket">Bitbucket</option>
+              <For each={gitProviders() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
             </Select>
             <Input
               type="text"

@@ -153,6 +153,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Modes
 		r.Get("/modes", h.ListModes)
 		r.Get("/modes/scenarios", h.ListScenarios)
+		r.Get("/modes/tools", h.ListModeTools)
+		r.Get("/modes/artifact-types", h.ListArtifactTypes)
 		r.Get("/modes/{id}", h.GetMode)
 		r.Post("/modes", h.CreateMode)
 		r.Put("/modes/{id}", h.UpdateMode)

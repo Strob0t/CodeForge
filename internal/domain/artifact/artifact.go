@@ -4,6 +4,7 @@ package artifact
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -34,6 +35,16 @@ type ValidationResult struct {
 	Valid        bool         `json:"valid"`
 	ArtifactType ArtifactType `json:"artifact_type"`
 	Errors       []string     `json:"errors,omitempty"`
+}
+
+// KnownTypeNames returns a sorted list of all recognized artifact type names.
+func KnownTypeNames() []string {
+	names := make([]string, 0, len(knownTypes))
+	for t := range knownTypes {
+		names = append(names, string(t))
+	}
+	slices.Sort(names)
+	return names
 }
 
 // IsKnownType reports whether t is a recognized artifact type.

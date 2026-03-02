@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain/artifact"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -300,6 +301,16 @@ func (h *Handlers) GetMode(w http.ResponseWriter, r *http.Request) {
 // ListScenarios handles GET /api/v1/modes/scenarios
 func (h *Handlers) ListScenarios(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, mode.ValidScenarios)
+}
+
+// ListModeTools handles GET /api/v1/modes/tools
+func (h *Handlers) ListModeTools(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, mode.BuiltinToolNames)
+}
+
+// ListArtifactTypes handles GET /api/v1/modes/artifact-types
+func (h *Handlers) ListArtifactTypes(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, artifact.KnownTypeNames())
 }
 
 // CreateMode handles POST /api/v1/modes

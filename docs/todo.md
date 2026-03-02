@@ -2153,9 +2153,9 @@ Git handlers (`handlers_test.go`):
 
 > **Why:** Improve maintainability and test output clarity. Not blocking — can be done incrementally.
 
-- [ ] Rename 31 duplicate test function names with domain prefixes (e.g., `TestCreateItem` → `TestRoadmap_CreateItem`, `TestRegister` → `TestGitProvider_Register`)
-- [ ] Add `TestAuthService_Register_DuplicateEmail` to `internal/service/auth_test.go` — verify unique constraint behavior at service layer
-- [ ] Expand integration tests (`tests/integration/`) with auth flow: login → JWT → protected endpoint → logout
+- [x] (2026-03-02) Rename 33 duplicate test function names with domain prefixes across 25 files (~85 renames)
+- [x] (2026-03-02) Add `TestAuthService_Register_DuplicateEmail` to `internal/service/auth_test.go` — verify unique constraint behavior at service layer, multi-tenant isolation
+- [x] (2026-03-02) Expand integration tests (`tests/integration/`) with 4 auth flow tests: login/logout, token refresh, password reset, API key CRUD
 
 ---
 
@@ -2483,3 +2483,29 @@ Git handlers (`handlers_test.go`):
 | 24E | HIGH | 1d | High (API endpoints) | 24F, 24G |
 | 24F | MEDIUM | 1-2d | High (user-facing UI) | -- |
 | 24G | MEDIUM | 0.5d | Medium (wiring + cleanup) | -- |
+
+---
+
+### Phase 25: Frontend Form Dropdowns (2026-03-02)
+
+> Replace hardcoded text inputs with dynamic dropdowns/selects for fields that depend on predefined backend values.
+
+#### 25A: Backend Enum Endpoints
+
+- [x] (2026-03-02) `GET /api/v1/modes/tools` — returns `BuiltinToolNames` from `internal/domain/mode/mode.go`
+- [x] (2026-03-02) `GET /api/v1/modes/artifact-types` — returns `KnownTypeNames()` from `internal/domain/artifact/artifact.go`
+- [x] (2026-03-02) Tests: `TestHandleListModeTools`, `TestHandleListArtifactTypes` in `handlers_orchestration_test.go`
+
+#### 25B: Frontend Constants & Components
+
+- [x] (2026-03-02) Centralized `frontend/src/config/domain-constants.ts` — `SCOPE_TYPES`, `MCP_TRANSPORTS`, `KB_CATEGORIES`, `AUTONOMY_LEVELS`, `AUTONOMY_LEVELS_NUMERIC`, `COMMON_DENIED_ACTIONS`
+- [x] (2026-03-02) `TagInput` component (`frontend/src/ui/composites/TagInput.tsx`) — multi-value input with datalist suggestions, removable tags
+- [x] (2026-03-02) API client: `api.modes.tools()`, `api.modes.artifactTypes()` methods
+
+#### 25C: Page-by-Page Form Updates
+
+- [x] (2026-03-02) `ModesPage.tsx`: tools/deniedTools/deniedActions → `TagInput`, requiredArtifact → `Select` from artifact types
+- [x] (2026-03-02) `SettingsPage.tsx`: VCS provider → dynamic from `gitProviders()`, autonomy → shared constant
+- [x] (2026-03-02) `CompactSettingsPopover.tsx`: autonomy levels → shared `AUTONOMY_LEVELS_NUMERIC` constant
+- [x] (2026-03-02) `ModelsPage.tsx`: litellmModel → `ModelCombobox` with discovered model suggestions
+- [x] (2026-03-02) `ScopesPage.tsx`, `KnowledgeBasesPage.tsx`, `MCPServersPage.tsx`: constants consolidated from shared module

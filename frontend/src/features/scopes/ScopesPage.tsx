@@ -9,6 +9,7 @@ import type {
   ScopeType,
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { SCOPE_TYPES } from "~/config/domain-constants";
 import { scopeTypeVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import {
@@ -23,8 +24,6 @@ import {
   Select,
   Tabs,
 } from "~/ui";
-
-const SCOPE_TYPES: ScopeType[] = ["shared", "global"];
 
 export default function ScopesPage() {
   const { t } = useI18n();

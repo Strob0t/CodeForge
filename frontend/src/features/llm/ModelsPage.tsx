@@ -15,6 +15,7 @@ import {
   FormField,
   Input,
   LoadingState,
+  ModelCombobox,
   PageLayout,
 } from "~/ui";
 
@@ -141,13 +142,12 @@ export default function ModelsPage() {
                   />
                 </FormField>
                 <FormField label={t("models.form.litellmModel")} id="model-litellm-id" required>
-                  <Input
+                  <ModelCombobox
                     id="model-litellm-id"
-                    type="text"
                     value={form.state.litellmModel}
-                    onInput={(e) => form.setState("litellmModel", e.currentTarget.value)}
+                    onInput={(v) => form.setState("litellmModel", v)}
                     placeholder={t("models.form.modelPlaceholder")}
-                    aria-required="true"
+                    required
                   />
                 </FormField>
                 <FormField label={t("models.form.apiBase")} id="model-api-base">

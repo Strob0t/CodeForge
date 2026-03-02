@@ -9,6 +9,9 @@ import (
 // ValidScenarios lists the allowed LLM scenario values for mode configuration.
 var ValidScenarios = []string{"default", "background", "think", "longContext", "review", "plan"}
 
+// BuiltinToolNames lists the canonical tool names available to agent modes.
+var BuiltinToolNames = []string{"Read", "Write", "Edit", "Bash", "Search", "Glob", "ListDir"}
+
 // Mode represents an agent specialization with its own tools, LLM scenario, and autonomy level.
 type Mode struct {
 	ID               string   `json:"id" yaml:"id"`

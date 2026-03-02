@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateModeRequest, Mode } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { COMMON_DENIED_ACTIONS } from "~/config/domain-constants";
 import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
@@ -17,6 +18,7 @@ import {
   LoadingState,
   PageLayout,
   Select,
+  TagInput,
   Textarea,
 } from "~/ui";
 
@@ -24,9 +26,9 @@ interface ModeFormState {
   id: string;
   name: string;
   desc: string;
-  tools: string;
-  deniedTools: string;
-  deniedActions: string;
+  tools: string[];
+  deniedTools: string[];
+  deniedActions: string[];
   requiredArtifact: string;
   scenario: string;
   autonomy: number;
@@ -37,9 +39,9 @@ const FORM_DEFAULTS: ModeFormState = {
   id: "",
   name: "",
   desc: "",
-  tools: "",
-  deniedTools: "",
-  deniedActions: "",
+  tools: [],
+  deniedTools: [],
+  deniedActions: [],
   requiredArtifact: "",
   scenario: "default",
   autonomy: 3,
@@ -51,6 +53,8 @@ export default function ModesPage() {
   const { show: toast } = useToast();
   const [modes, { refetch }] = createResource(() => api.modes.list());
   const [scenarios] = createResource(() => api.modes.scenarios());
+  const [toolSuggestions] = createResource(() => api.modes.tools());
+  const [artifactTypes] = createResource(() => api.modes.artifactTypes());
   const [showForm, setShowForm] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
 
@@ -72,9 +76,9 @@ export default function ModesPage() {
       id: mode.id,
       name: mode.name,
       desc: mode.description,
-      tools: mode.tools.join(", "),
-      deniedTools: (mode.denied_tools ?? []).join(", "),
-      deniedActions: (mode.denied_actions ?? []).join(", "),
+      tools: [...mode.tools],
+      deniedTools: [...(mode.denied_tools ?? [])],
+      deniedActions: [...(mode.denied_actions ?? [])],
       requiredArtifact: mode.required_artifact ?? "",
       scenario: mode.llm_scenario || "default",
       autonomy: mode.autonomy,
@@ -104,18 +108,9 @@ export default function ModesPage() {
         id,
         name,
         description: form.state.desc.trim() || undefined,
-        tools: form.state.tools
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        denied_tools: form.state.deniedTools
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        denied_actions: form.state.deniedActions
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        tools: form.state.tools.filter(Boolean),
+        denied_tools: form.state.deniedTools.filter(Boolean),
+        denied_actions: form.state.deniedActions.filter(Boolean),
         required_artifact: form.state.requiredArtifact.trim() || undefined,
         llm_scenario: form.state.scenario.trim() || undefined,
         autonomy: form.state.autonomy,
@@ -231,40 +226,43 @@ export default function ModesPage() {
                   />
                 </FormField>
                 <FormField label={t("modes.form.tools")} id="mode-tools">
-                  <Input
+                  <TagInput
                     id="mode-tools"
-                    type="text"
-                    value={form.state.tools}
-                    onInput={(e) => form.setState("tools", e.currentTarget.value)}
+                    values={form.state.tools}
+                    onChange={(v) => form.setState("tools", v)}
+                    suggestions={toolSuggestions() ?? []}
                     placeholder={t("modes.form.toolsPlaceholder")}
                   />
                 </FormField>
                 <FormField label={t("modes.form.deniedTools")} id="mode-denied-tools">
-                  <Input
+                  <TagInput
                     id="mode-denied-tools"
-                    type="text"
-                    value={form.state.deniedTools}
-                    onInput={(e) => form.setState("deniedTools", e.currentTarget.value)}
+                    values={form.state.deniedTools}
+                    onChange={(v) => form.setState("deniedTools", v)}
+                    suggestions={toolSuggestions() ?? []}
                     placeholder={t("modes.form.deniedToolsPlaceholder")}
                   />
                 </FormField>
                 <FormField label={t("modes.form.deniedActions")} id="mode-denied-actions">
-                  <Input
+                  <TagInput
                     id="mode-denied-actions"
-                    type="text"
-                    value={form.state.deniedActions}
-                    onInput={(e) => form.setState("deniedActions", e.currentTarget.value)}
+                    values={form.state.deniedActions}
+                    onChange={(v) => form.setState("deniedActions", v)}
+                    suggestions={[...COMMON_DENIED_ACTIONS]}
                     placeholder={t("modes.form.deniedActionsPlaceholder")}
                   />
                 </FormField>
                 <FormField label={t("modes.form.requiredArtifact")} id="mode-required-artifact">
-                  <Input
+                  <Select
                     id="mode-required-artifact"
-                    type="text"
                     value={form.state.requiredArtifact}
-                    onInput={(e) => form.setState("requiredArtifact", e.currentTarget.value)}
-                    placeholder={t("modes.form.requiredArtifactPlaceholder")}
-                  />
+                    onChange={(e) => form.setState("requiredArtifact", e.currentTarget.value)}
+                  >
+                    <option value="">{t("modes.form.requiredArtifactPlaceholder")}</option>
+                    <For each={artifactTypes() ?? []}>
+                      {(at) => <option value={at}>{at}</option>}
+                    </For>
+                  </Select>
                 </FormField>
                 <FormField label={t("modes.form.scenario")} id="mode-scenario">
                   <Select

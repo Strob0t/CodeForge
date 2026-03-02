@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateKnowledgeBaseRequest, KnowledgeBase } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { KB_CATEGORIES } from "~/config/domain-constants";
 import { kbCategoryVariant, kbStatusVariant } from "~/config/statusVariants";
 import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
@@ -17,8 +18,6 @@ import {
   PageLayout,
   Select,
 } from "~/ui";
-
-const CATEGORIES = ["framework", "paradigm", "language", "security", "custom"] as const;
 
 const KB_FORM_DEFAULTS = {
   name: "",
@@ -137,7 +136,7 @@ export default function KnowledgeBasesPage() {
                     value={form.state.category}
                     onChange={(e) => form.setState("category", e.currentTarget.value)}
                   >
-                    <For each={[...CATEGORIES]}>
+                    <For each={[...KB_CATEGORIES]}>
                       {(cat) => (
                         <option value={cat}>
                           {t(`kb.category.${cat}` as keyof typeof import("~/i18n/en").default)}

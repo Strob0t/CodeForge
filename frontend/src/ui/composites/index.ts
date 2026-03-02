@@ -10,3 +10,4 @@ export { ResourceGuard } from "./ResourceGuard";
 export { SectionHeader } from "./SectionHeader";
 export { Table } from "./Table";
 export { Tabs } from "./Tabs";
+export { TagInput } from "./TagInput";

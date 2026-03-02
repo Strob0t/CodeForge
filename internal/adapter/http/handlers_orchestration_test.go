@@ -303,6 +303,68 @@ func TestHandleListScenarios(t *testing.T) {
 	}
 }
 
+func TestHandleListModeTools(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/modes/tools", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var tools []string
+	if err := json.NewDecoder(w.Body).Decode(&tools); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) == 0 {
+		t.Fatal("expected non-empty tools list")
+	}
+	// Verify a known built-in tool is present.
+	found := false
+	for _, tool := range tools {
+		if tool == "Read" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'Read' in tools list")
+	}
+}
+
+func TestHandleListArtifactTypes(t *testing.T) {
+	r := newTestRouter()
+
+	req := httptest.NewRequest("GET", "/api/v1/modes/artifact-types", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var types []string
+	if err := json.NewDecoder(w.Body).Decode(&types); err != nil {
+		t.Fatal(err)
+	}
+	if len(types) == 0 {
+		t.Fatal("expected non-empty artifact types list")
+	}
+	// Verify a known type is present.
+	found := false
+	for _, at := range types {
+		if at == "DIFF" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'DIFF' in artifact types list")
+	}
+}
+
 // --- Pipelines ---
 
 func TestHandleListPipelines_Empty(t *testing.T) {

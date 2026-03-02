@@ -447,6 +447,10 @@ export const api = {
     delete: (id: string) => request<undefined>(url`/modes/${id}`, { method: "DELETE" }),
 
     scenarios: () => request<string[]>("/modes/scenarios"),
+
+    tools: () => request<string[]>("/modes/tools"),
+
+    artifactTypes: () => request<string[]>("/modes/artifact-types"),
   },
 
   repomap: {

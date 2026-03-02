@@ -33,6 +33,7 @@ export { ResourceGuard } from "./composites";
 export { SectionHeader } from "./composites";
 export { Table } from "./composites";
 export { Tabs } from "./composites";
+export { TagInput } from "./composites";
 
 // Layout (Phase 4)
 export { NavLink } from "./layout";

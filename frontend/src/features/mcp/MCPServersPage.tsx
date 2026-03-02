@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { CreateMCPServerRequest, MCPServer, MCPServerTool, MCPTestResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { MCP_TRANSPORTS } from "~/config/domain-constants";
 import { useAsyncAction, useConfirmAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
@@ -328,9 +329,9 @@ export default function MCPServersPage() {
                       )
                     }
                   >
-                    <option value="stdio">{t("mcp.transport.stdio")}</option>
-                    <option value="sse">{t("mcp.transport.sse")}</option>
-                    <option value="streamable_http">{t("mcp.transport.streamable_http")}</option>
+                    <For each={[...MCP_TRANSPORTS]}>
+                      {(tp) => <option value={tp}>{t(`mcp.transport.${tp}`)}</option>}
+                    </For>
                   </Select>
                 </FormField>
 
