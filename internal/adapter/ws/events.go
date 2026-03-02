@@ -74,6 +74,13 @@ const (
 	// Phase 23B: quarantine events
 	EventQuarantineAlert    = "quarantine.alert"
 	EventQuarantineResolved = "quarantine.resolved"
+
+	// Phase 23C: agent identity events
+	EventAgentMessage = "agent.message"
+
+	// Phase 24: active work visibility events
+	EventActiveWorkClaimed  = "activework.claimed"
+	EventActiveWorkReleased = "activework.released"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -96,6 +103,13 @@ type AgentStatusEvent struct {
 	AgentID   string `json:"agent_id"`
 	ProjectID string `json:"project_id"`
 	Status    string `json:"status"`
+}
+
+// AgentMessageEvent is broadcast when an agent receives an inbox message.
+type AgentMessageEvent struct {
+	AgentID   string `json:"agent_id"`
+	FromAgent string `json:"from_agent"`
+	Content   string `json:"content"`
 }
 
 // RunStatusEvent is broadcast when a run's status or metrics change.
@@ -308,6 +322,22 @@ type ModelHealthEvent struct {
 	HealthyCount   int                `json:"healthy_count"`
 	UnhealthyCount int                `json:"unhealthy_count"`
 	Timestamp      string             `json:"timestamp"`
+}
+
+// ActiveWorkClaimedEvent is broadcast when an agent claims a task.
+type ActiveWorkClaimedEvent struct {
+	TaskID    string `json:"task_id"`
+	TaskTitle string `json:"task_title"`
+	ProjectID string `json:"project_id"`
+	AgentID   string `json:"agent_id"`
+	AgentName string `json:"agent_name"`
+}
+
+// ActiveWorkReleasedEvent is broadcast when a stale task is released back to pending.
+type ActiveWorkReleasedEvent struct {
+	TaskID    string `json:"task_id"`
+	ProjectID string `json:"project_id"`
+	Reason    string `json:"reason"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

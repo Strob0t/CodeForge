@@ -876,6 +876,32 @@ func (m *runtimeMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _
 	return nil
 }
 
+// Agent Identity (Phase 23C)
+func (m *runtimeMockStore) IncrementAgentStats(_ context.Context, _ string, _ float64, _ bool) error {
+	return nil
+}
+func (m *runtimeMockStore) UpdateAgentState(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+func (m *runtimeMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error {
+	return nil
+}
+func (m *runtimeMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
+
+// Active Work Visibility (Phase 24)
+func (m *runtimeMockStore) ListActiveWork(_ context.Context, _ string) ([]task.ActiveWorkItem, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.ClaimResult, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+	return nil, nil
+}
+
 type runtimeMockQueue struct {
 	mu       sync.Mutex
 	messages []publishedMsg

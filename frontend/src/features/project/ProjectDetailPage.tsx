@@ -15,6 +15,7 @@ import {
 import { useI18n } from "~/i18n";
 import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 
+import ActiveWorkPanel from "./ActiveWorkPanel";
 import AutoAgentButton from "./AutoAgentButton";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
@@ -223,6 +224,10 @@ export default function ProjectDetailPage() {
         }
         break;
       }
+      case "activework.claimed":
+      case "activework.released":
+        // ActiveWorkPanel handles its own refetch via WS
+        break;
     }
   });
   onCleanup(cleanup);
@@ -520,6 +525,7 @@ export default function ProjectDetailPage() {
                     <span class="text-xs text-cf-text-muted ml-1">{t("detail.tab.roadmap")}</span>
                   </div>
                 </Show>
+                <ActiveWorkPanel projectId={params.id} />
                 <ChatPanel projectId={params.id} />
               </div>
             </div>

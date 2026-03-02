@@ -2372,93 +2372,93 @@ Git handlers (`handlers_test.go`):
 
 **Domain types:**
 
-- [ ] Create `internal/domain/task/active_work.go` — `ActiveWorkItem` struct (TaskID, TaskTitle, TaskStatus, ProjectID, AgentID, AgentName, AgentMode, RunID, StepCount, CostUSD, StartedAt) as read-only projection; `ClaimResult` struct (Task, Claimed bool, Reason string) for atomic claim responses
+- [x] Create `internal/domain/task/active_work.go` — `ActiveWorkItem` struct (TaskID, TaskTitle, TaskStatus, ProjectID, AgentID, AgentName, AgentMode, RunID, StepCount, CostUSD, StartedAt) as read-only projection; `ClaimResult` struct (Task, Claimed bool, Reason string) for atomic claim responses
 
 **Tests (RED phase):**
 
-- [ ] Create `internal/domain/task/active_work_test.go` — TestActiveWorkItemJSONSerialization (all fields present in JSON output), TestClaimResultJSONSerialization (claimed=true and claimed=false cases), TestActiveWorkItemZeroValues (empty struct produces valid JSON with zero defaults)
+- [x] Create `internal/domain/task/active_work_test.go` — TestActiveWorkItemJSONSerialization (all fields present in JSON output), TestClaimResultJSONSerialization (claimed=true and claimed=false cases), TestActiveWorkItemZeroValues (empty struct produces valid JSON with zero defaults)
 
 #### 24B: Store Interface & Postgres Adapter
 
 **Store interface:**
 
-- [ ] `internal/port/database/store.go` — add 3 new methods to `Store` interface: `ListActiveWork(ctx, projectID) ([]task.ActiveWorkItem, error)`, `ClaimTask(ctx, taskID, agentID string, version int) (*task.ClaimResult, error)`, `ReleaseStaleWork(ctx, threshold time.Duration) ([]task.Task, error)`
+- [x] `internal/port/database/store.go` — add 3 new methods to `Store` interface: `ListActiveWork(ctx, projectID) ([]task.ActiveWorkItem, error)`, `ClaimTask(ctx, taskID, agentID string, version int) (*task.ClaimResult, error)`, `ReleaseStaleWork(ctx, threshold time.Duration) ([]task.Task, error)`
 
 **Database migration:**
 
-- [ ] Create `internal/adapter/postgres/migrations/051_active_work_index.sql` — partial composite index `idx_tasks_project_active ON tasks(project_id, status) WHERE status IN ('queued', 'running')`; partial index `idx_tasks_stale ON tasks(status, updated_at) WHERE status IN ('queued', 'running')`
+- [x] Create `internal/adapter/postgres/migrations/051_active_work_index.sql` — partial composite index `idx_tasks_project_active ON tasks(project_id, status) WHERE status IN ('queued', 'running')`; partial index `idx_tasks_stale ON tasks(status, updated_at) WHERE status IN ('queued', 'running')`
 
 **Postgres adapter:**
 
-- [ ] Create `internal/adapter/postgres/store_active_work.go` — `ListActiveWork` implementation (JOIN query: tasks LEFT JOIN agents ON agent_id LEFT JOIN LATERAL latest run, WHERE status IN queued/running, ordered by updated_at ASC); `ClaimTask` implementation (atomic UPDATE with `WHERE id=$1 AND status='pending' AND version=$3`, returns ClaimResult{Claimed: false} on zero rows affected); `ReleaseStaleWork` implementation (find tasks with running/queued status older than threshold, reset to pending with agent_id=NULL)
+- [x] Create `internal/adapter/postgres/store_active_work.go` — `ListActiveWork` implementation (JOIN query: tasks LEFT JOIN agents ON agent_id LEFT JOIN LATERAL latest run, WHERE status IN queued/running, ordered by updated_at ASC); `ClaimTask` implementation (atomic UPDATE with `WHERE id=$1 AND status='pending' AND version=$3`, returns ClaimResult{Claimed: false} on zero rows affected); `ReleaseStaleWork` implementation (find tasks with running/queued status older than threshold, reset to pending with agent_id=NULL)
 
 **Tests (RED phase):**
 
-- [ ] Create `internal/adapter/postgres/store_active_work_test.go` — TestListActiveWork_Empty (no active tasks returns empty slice), TestListActiveWork_WithRunningTasks (returns running/queued with agent name from JOIN), TestListActiveWork_ExcludesCompletedTasks (completed/failed/cancelled not returned), TestClaimTask_Success (pending task claimed, version incremented, status set to queued), TestClaimTask_AlreadyClaimed (returns Claimed=false when task not pending), TestClaimTask_VersionMismatch (concurrent claim returns Claimed=false), TestClaimTask_NonexistentTask (returns error), TestReleaseStaleWork_FindsStale (tasks beyond threshold found and reset), TestReleaseStaleWork_RecentNotStale (recently updated tasks excluded)
+- [x] Create `internal/adapter/postgres/store_active_work_test.go` — TestListActiveWork_Empty (no active tasks returns empty slice), TestListActiveWork_WithRunningTasks (returns running/queued with agent name from JOIN), TestListActiveWork_ExcludesCompletedTasks (completed/failed/cancelled not returned), TestClaimTask_Success (pending task claimed, version incremented, status set to queued), TestClaimTask_AlreadyClaimed (returns Claimed=false when task not pending), TestClaimTask_VersionMismatch (concurrent claim returns Claimed=false), TestClaimTask_NonexistentTask (returns error), TestReleaseStaleWork_FindsStale (tasks beyond threshold found and reset), TestReleaseStaleWork_RecentNotStale (recently updated tasks excluded)
 
 #### 24C: Service Layer — `ActiveWorkService`
 
 **Service:**
 
-- [ ] Create `internal/service/active_work.go` — `ActiveWorkService` struct (store database.Store, hub broadcast.Broadcaster); `NewActiveWorkService(store, hub)` constructor; `ListActiveWork(ctx, projectID)` delegates to store; `ClaimTask(ctx, taskID, agentID)` reads task version via store.GetTask, validates status=pending, calls store.ClaimTask atomically, broadcasts `EventActiveWorkClaimed` on success; `ReleaseStaleWork(ctx, threshold)` calls store.ReleaseStaleWork, broadcasts `EventActiveWorkReleased` per released task with reason
+- [x] Create `internal/service/active_work.go` — `ActiveWorkService` struct (store database.Store, hub broadcast.Broadcaster); `NewActiveWorkService(store, hub)` constructor; `ListActiveWork(ctx, projectID)` delegates to store; `ClaimTask(ctx, taskID, agentID)` reads task version via store.GetTask, validates status=pending, calls store.ClaimTask atomically, broadcasts `EventActiveWorkClaimed` on success; `ReleaseStaleWork(ctx, threshold)` calls store.ReleaseStaleWork, broadcasts `EventActiveWorkReleased` per released task with reason
 
 **Tests (RED phase):**
 
-- [ ] Create `internal/service/active_work_test.go` — TestListActiveWork_DelegatesToStore (mock store, verify call), TestClaimTask_Success_BroadcastsEvent (verify WS EventActiveWorkClaimed broadcast on successful claim), TestClaimTask_AlreadyClaimed_NoBroadcast (no broadcast when claim fails), TestClaimTask_TaskNotFound_ReturnsError (store.GetTask returns ErrNotFound), TestClaimTask_NotPending_RejectsWithReason (task with status=running returns Claimed=false), TestReleaseStaleWork_BroadcastsPerTask (verify EventActiveWorkReleased broadcast per released task), TestReleaseStaleWork_NoStale_NoBroadcast (no broadcast when nothing released)
+- [x] Create `internal/service/active_work_test.go` — TestListActiveWork_DelegatesToStore (mock store, verify call), TestClaimTask_Success_BroadcastsEvent (verify WS EventActiveWorkClaimed broadcast on successful claim), TestClaimTask_AlreadyClaimed_NoBroadcast (no broadcast when claim fails), TestClaimTask_TaskNotFound_ReturnsError (store.GetTask returns ErrNotFound), TestClaimTask_NotPending_RejectsWithReason (task with status=running returns Claimed=false), TestReleaseStaleWork_BroadcastsPerTask (verify EventActiveWorkReleased broadcast per released task), TestReleaseStaleWork_NoStale_NoBroadcast (no broadcast when nothing released)
 
 #### 24D: WebSocket Events
 
 **Event types:**
 
-- [ ] `internal/adapter/ws/events.go` — add `EventActiveWorkClaimed = "activework.claimed"` + `ActiveWorkClaimedEvent` struct (TaskID, TaskTitle, ProjectID, AgentID, AgentName); add `EventActiveWorkReleased = "activework.released"` + `ActiveWorkReleasedEvent` struct (TaskID, ProjectID, Reason)
+- [x] `internal/adapter/ws/events.go` — add `EventActiveWorkClaimed = "activework.claimed"` + `ActiveWorkClaimedEvent` struct (TaskID, TaskTitle, ProjectID, AgentID, AgentName); add `EventActiveWorkReleased = "activework.released"` + `ActiveWorkReleasedEvent` struct (TaskID, ProjectID, Reason)
 
 #### 24E: HTTP Handlers & Routes
 
 **Handlers:**
 
-- [ ] `internal/adapter/http/handlers.go` — add `ActiveWork *service.ActiveWorkService` field to `Handlers` struct; implement `ListActiveWork` handler (GET, reads project ID from URL, returns []ActiveWorkItem or empty array); implement `ClaimTask` handler (POST, reads task ID from URL + agent_id from body, returns 200 on success, 409 on conflict, 400 on missing agent_id, 404 on task not found)
+- [x] `internal/adapter/http/handlers.go` — add `ActiveWork *service.ActiveWorkService` field to `Handlers` struct; implement `ListActiveWork` handler (GET, reads project ID from URL, returns []ActiveWorkItem or empty array); implement `ClaimTask` handler (POST, reads task ID from URL + agent_id from body, returns 200 on success, 409 on conflict, 400 on missing agent_id, 404 on task not found)
 
 **Routes:**
 
-- [ ] `internal/adapter/http/routes.go` — add `r.Get("/projects/{id}/active-work", h.ListActiveWork)` under existing project routes; add `r.Post("/tasks/{id}/claim", h.ClaimTask)` under existing task routes
+- [x] `internal/adapter/http/routes.go` — add `r.Get("/projects/{id}/active-work", h.ListActiveWork)` under existing project routes; add `r.Post("/tasks/{id}/claim", h.ClaimTask)` under existing task routes
 
 **Tests (RED phase):**
 
-- [ ] `internal/adapter/http/handlers_test.go` — TestListActiveWork_Empty (200 with []), TestListActiveWork_ReturnsTasks (200 with active work items), TestClaimTask_Success (200 with claimed=true), TestClaimTask_AlreadyClaimed (409 with claimed=false), TestClaimTask_MissingAgentID (400 Bad Request), TestClaimTask_TaskNotFound (404)
+- [x] `internal/adapter/http/handlers_test.go` — TestListActiveWork_Empty (200 with []), TestListActiveWork_ReturnsTasks (200 with active work items), TestClaimTask_Success (200 with claimed=true), TestClaimTask_AlreadyClaimed (409 with claimed=false), TestClaimTask_MissingAgentID (400 Bad Request), TestClaimTask_TaskNotFound (404)
 
 #### 24F: Frontend — Types, API Client, ActiveWorkPanel
 
 **TypeScript types:**
 
-- [ ] `frontend/src/api/types.ts` — add `ActiveWorkItem` interface (task_id, task_title, task_status, project_id, agent_id, agent_name, agent_mode?, run_id?, step_count, cost_usd, started_at); add `ActiveWorkClaimedEvent` and `ActiveWorkReleasedEvent` interfaces
+- [x] `frontend/src/api/types.ts` — add `ActiveWorkItem` interface (task_id, task_title, task_status, project_id, agent_id, agent_name, agent_mode?, run_id?, step_count, cost_usd, started_at); add `ActiveWorkClaimedEvent` and `ActiveWorkReleasedEvent` interfaces
 
 **API client:**
 
-- [ ] `frontend/src/api/client.ts` — add `activeWork(projectId)` method returning `request<ActiveWorkItem[]>(url`/projects/${projectId}/active-work`)`
+- [x] `frontend/src/api/client.ts` — add `activeWork(projectId)` method returning `request<ActiveWorkItem[]>(url`/projects/${projectId}/active-work`)`
 
 **ActiveWorkPanel component:**
 
-- [ ] Create `frontend/src/features/project/ActiveWorkPanel.tsx` — SolidJS component with props `{projectId: string}`; uses `createResource` to fetch active work from `api.activeWork(projectId)`; listens to WS events (`activework.claimed`, `activework.released`, `task.status`, `run.status`) to trigger refetch; renders header "Active Work" with count badge; each item: agent name + mode badge, task title (truncated), step count, cost, pulsing StatusDot for running; empty state "No active tasks" message
+- [x] Create `frontend/src/features/project/ActiveWorkPanel.tsx` — SolidJS component with props `{projectId: string}`; uses `createResource` to fetch active work from `api.activeWork(projectId)`; listens to WS events (`activework.claimed`, `activework.released`, `task.status`, `run.status`) to trigger refetch; renders header "Active Work" with count badge; each item: agent name + mode badge, task title (truncated), step count, cost, pulsing StatusDot for running; empty state "No active tasks" message
 
 **ProjectDetailPage integration:**
 
-- [ ] `frontend/src/features/project/ProjectDetailPage.tsx` — import and render `<ActiveWorkPanel projectId={params.id} />` above chat panel; add WS event handlers for `activework.claimed` and `activework.released` to event switch
+- [x] `frontend/src/features/project/ProjectDetailPage.tsx` — import and render `<ActiveWorkPanel projectId={params.id} />` above chat panel; add WS event handlers for `activework.claimed` and `activework.released` to event switch
 
 **Activity page integration:**
 
-- [ ] `frontend/src/features/activity/ActivityPage.tsx` — add `activework.claimed` and `activework.released` cases to `classifyMessage` switch for global activity stream
+- [x] `frontend/src/features/activity/ActivityPage.tsx` — add `activework.claimed` and `activework.released` cases to `classifyMessage` switch for global activity stream
 
 #### 24G: Wiring & Background Stale Recovery
 
 **Main wiring:**
 
-- [ ] `cmd/codeforge/main.go` — create `ActiveWorkService` with store + hub; add to `Handlers` struct; start background goroutine with 60s ticker calling `ActiveWorkService.ReleaseStaleWork(ctx, 30*time.Minute)`; integrate into graceful shutdown
+- [x] `cmd/codeforge/main.go` — create `ActiveWorkService` with store + hub; add to `Handlers` struct; start background goroutine with 60s ticker calling `ActiveWorkService.ReleaseStaleWork(ctx, 30*time.Minute)`; integrate into graceful shutdown
 
 **Documentation:**
 
-- [ ] `docs/todo.md` — mark completed sub-tasks as work progresses
-- [ ] `docs/features/04-agent-orchestration.md` — add Active Work Visibility section documenting the claim/release protocol and WS events
-- [ ] `CLAUDE.md` — add Phase 24 reference under Architecture section if structural patterns emerge
+- [x] `docs/todo.md` — mark completed sub-tasks as work progresses
+- [x] `docs/features/04-agent-orchestration.md` — add Active Work Visibility section documenting the claim/release protocol and WS events
+- [x] `CLAUDE.md` — add Phase 24 reference under Architecture section if structural patterns emerge
 
 #### Phase 24 Edge Cases
 

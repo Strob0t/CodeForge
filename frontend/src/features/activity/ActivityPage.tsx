@@ -32,6 +32,8 @@ const TYPE_ICONS: Record<string, string> = {
   "repomap.status": "\uD83D\uDDFA",
   "retrieval.status": "\uD83D\uDD0D",
   "roadmap.status": "\uD83D\uDEE3",
+  "activework.claimed": "\uD83D\uDD12",
+  "activework.released": "\uD83D\uDD13",
 };
 
 function classifyMessage(msg: WSMessage): ActivityEntry | null {
@@ -161,6 +163,30 @@ function classifyMessage(msg: WSMessage): ActivityEntry | null {
         projectId,
         summary: `${label.charAt(0).toUpperCase() + label.slice(1)} ${status}`,
         severity: status === "error" ? "error" : "info",
+      };
+    }
+    case "activework.claimed": {
+      const agentName = (p.agent_name as string) ?? "";
+      const taskTitle = (p.task_title as string) ?? "";
+      return {
+        id: nextId++,
+        time: new Date(),
+        type: msg.type,
+        projectId,
+        summary: `${agentName} claimed "${taskTitle}"`,
+        severity: "info" as const,
+      };
+    }
+    case "activework.released": {
+      const reason = (p.reason as string) ?? "";
+      const taskId = ((p.task_id as string) ?? "").slice(0, 8);
+      return {
+        id: nextId++,
+        time: new Date(),
+        type: msg.type,
+        projectId,
+        summary: `Task ${taskId} released: ${reason}`,
+        severity: "warning" as const,
       };
     }
     default:

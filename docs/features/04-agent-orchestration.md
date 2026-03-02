@@ -492,6 +492,40 @@ When the review router triggers, a ping_pong sub-plan is created with proponent 
 - [x] Consumer extracts backend name from NATS subject, routes to correct executor.
 - [x] 40 new Python tests (router, aider, stubs, consumer).
 
+### Active Work Visibility (Phase 24)
+
+When multiple agents execute tasks in parallel, both the frontend and API consumers need to see which tasks are currently being worked on. This prevents redundant work and provides operational transparency.
+
+**API Endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/projects/{id}/active-work` | List running/queued tasks with agent and run metadata |
+| `POST` | `/tasks/{id}/claim` | Atomically claim a pending task for an agent |
+
+**Claim Protocol:**
+
+1. Agent calls `POST /tasks/{id}/claim` with `{"agent_id": "..."}`.
+2. Backend reads current task `version`, validates `status=pending`.
+3. Atomic `UPDATE WHERE version=$expected` — only one agent succeeds (optimistic locking).
+4. Success: 200 `{claimed: true}`, broadcasts `activework.claimed` via WebSocket.
+5. Conflict: 409 `{claimed: false, reason: "already claimed by agent X"}`.
+
+**WebSocket Events:**
+
+| Event | Payload | Trigger |
+|-------|---------|---------|
+| `activework.claimed` | `{task_id, task_title, project_id, agent_id, agent_name}` | Task claimed by agent |
+| `activework.released` | `{task_id, project_id, reason}` | Stale task auto-released |
+
+**Stale Recovery:**
+
+Background ticker runs every 60s, releasing tasks stuck in `running`/`queued` status for longer than 30 minutes (configurable). Released tasks are reset to `pending` with `agent_id=NULL`.
+
+**Frontend:**
+
+`ActiveWorkPanel` component renders above the chat panel on the project page. Shows each active task with: pulsing status dot (green=running, yellow=queued), task title, agent name + mode badge, step count, and cost. Auto-refreshes on WS events with 500ms debounce.
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.

@@ -118,6 +118,23 @@ export interface Agent {
   config: Record<string, string>;
   created_at: string;
   updated_at: string;
+  total_runs: number;
+  total_cost: number;
+  success_rate: number;
+  state?: Record<string, string>;
+  capabilities?: string[];
+  last_active_at?: string;
+}
+
+/** Matches Go domain/agent.InboxMessage */
+export interface InboxMessage {
+  id: string;
+  agent_id: string;
+  from_agent: string;
+  content: string;
+  priority: number;
+  read: boolean;
+  created_at: string;
 }
 
 /** Create agent request */
@@ -1666,4 +1683,37 @@ export interface AutoAgentStatus {
   error?: string;
   started_at: string;
   updated_at: string;
+}
+
+// --- Active Work Visibility (Phase 24) ---
+
+/** Matches Go domain/task.ActiveWorkItem */
+export interface ActiveWorkItem {
+  task_id: string;
+  task_title: string;
+  task_status: TaskStatus;
+  project_id: string;
+  agent_id: string;
+  agent_name: string;
+  agent_mode?: string;
+  run_id?: string;
+  step_count?: number;
+  cost_usd?: number;
+  started_at: string;
+}
+
+/** WS event: agent claimed a task */
+export interface ActiveWorkClaimedEvent {
+  task_id: string;
+  task_title: string;
+  project_id: string;
+  agent_id: string;
+  agent_name: string;
+}
+
+/** WS event: stale task released */
+export interface ActiveWorkReleasedEvent {
+  task_id: string;
+  project_id: string;
+  reason: string;
 }

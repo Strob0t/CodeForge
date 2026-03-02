@@ -235,6 +235,42 @@ func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func()
 	})
 }
 
+// SendMessage validates and stores an inbox message, then broadcasts a WS event.
+func (s *AgentService) SendMessage(ctx context.Context, msg *agent.InboxMessage) error {
+	if err := msg.Validate(); err != nil {
+		return fmt.Errorf("validate inbox message: %w", err)
+	}
+	if err := s.store.SendAgentMessage(ctx, msg); err != nil {
+		return fmt.Errorf("store inbox message: %w", err)
+	}
+	s.hub.BroadcastEvent(ctx, ws.EventAgentMessage, ws.AgentMessageEvent{
+		AgentID:   msg.AgentID,
+		FromAgent: msg.FromAgent,
+		Content:   msg.Content,
+	})
+	return nil
+}
+
+// GetInbox returns inbox messages for an agent.
+func (s *AgentService) GetInbox(ctx context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
+	return s.store.ListAgentInbox(ctx, agentID, unreadOnly)
+}
+
+// MarkRead marks a single inbox message as read.
+func (s *AgentService) MarkRead(ctx context.Context, messageID string) error {
+	return s.store.MarkInboxRead(ctx, messageID)
+}
+
+// IncrementStats updates run count, cost, and success rate for an agent.
+func (s *AgentService) IncrementStats(ctx context.Context, agentID string, costDelta float64, success bool) error {
+	return s.store.IncrementAgentStats(ctx, agentID, costDelta, success)
+}
+
+// UpdateState replaces the agent's key-value state map.
+func (s *AgentService) UpdateState(ctx context.Context, agentID string, state map[string]string) error {
+	return s.store.UpdateAgentState(ctx, agentID, state)
+}
+
 // LoadTaskEvents returns all events for a task from the event store.
 func (s *AgentService) LoadTaskEvents(ctx context.Context, taskID string) ([]event.AgentEvent, error) {
 	if s.events == nil {

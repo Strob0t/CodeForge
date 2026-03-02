@@ -88,4 +88,7 @@ const (
 	// Evaluation subjects (Phase 20G — GEMMAS)
 	SubjectEvalGemmasRequest = "evaluation.gemmas.request" // Go → Python: compute GEMMAS metrics
 	SubjectEvalGemmasResult  = "evaluation.gemmas.result"  // Python → Go: GEMMAS metric results
+
+	// Agent identity subjects (Phase 23C)
+	SubjectAgentMessage = "agents.message" // Go → Go: agent-to-agent inbox message
 )

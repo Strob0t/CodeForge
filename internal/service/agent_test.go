@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -284,5 +285,203 @@ func TestTruncate(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 		}
+	}
+}
+
+// --- Phase 23C: Agent Identity Tests ---
+
+func TestAgentService_SendMessage(t *testing.T) {
+	store := &mockStore{
+		agents: []agent.Agent{{ID: "agent-1", ProjectID: "p1"}},
+	}
+	bc := &mockBroadcaster{}
+	svc := NewAgentService(store, &mockQueue{}, bc)
+
+	msg := &agent.InboxMessage{
+		AgentID:   "agent-1",
+		FromAgent: "agent-2",
+		Content:   "Please review my changes",
+		Priority:  1,
+	}
+	err := svc.SendMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify message was stored
+	if len(store.inboxMessages) != 1 {
+		t.Fatalf("expected 1 stored message, got %d", len(store.inboxMessages))
+	}
+	if store.inboxMessages[0].Content != "Please review my changes" {
+		t.Errorf("expected stored content to match, got %q", store.inboxMessages[0].Content)
+	}
+
+	// Verify WS broadcast was sent
+	found := false
+	for _, ev := range bc.events {
+		if ev.eventType == ws.EventAgentMessage {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected agent.message broadcast event")
+	}
+}
+
+func TestAgentService_SendMessage_EmptyContent(t *testing.T) {
+	store := &mockStore{}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	msg := &agent.InboxMessage{
+		AgentID: "agent-1",
+		Content: "",
+	}
+	err := svc.SendMessage(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected validation error for empty content")
+	}
+
+	// Store should not be called
+	if len(store.inboxMessages) != 0 {
+		t.Error("expected no messages stored on validation failure")
+	}
+}
+
+func TestAgentService_SendMessage_EmptyAgentID(t *testing.T) {
+	store := &mockStore{}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	msg := &agent.InboxMessage{
+		AgentID: "",
+		Content: "hello",
+	}
+	err := svc.SendMessage(context.Background(), msg)
+	if err == nil {
+		t.Fatal("expected validation error for empty agent_id")
+	}
+	if len(store.inboxMessages) != 0 {
+		t.Error("expected no messages stored on validation failure")
+	}
+}
+
+func TestAgentService_GetInbox(t *testing.T) {
+	store := &mockStore{
+		inboxMessages: []agent.InboxMessage{
+			{ID: "m1", AgentID: "agent-1", Content: "msg1"},
+			{ID: "m2", AgentID: "agent-1", Content: "msg2"},
+			{ID: "m3", AgentID: "agent-2", Content: "msg3"},
+		},
+	}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	msgs, err := svc.GetInbox(context.Background(), "agent-1", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages for agent-1, got %d", len(msgs))
+	}
+}
+
+func TestAgentService_GetInbox_UnreadOnly(t *testing.T) {
+	store := &mockStore{
+		inboxMessages: []agent.InboxMessage{
+			{ID: "m1", AgentID: "agent-1", Content: "read msg", Read: true},
+			{ID: "m2", AgentID: "agent-1", Content: "unread msg", Read: false},
+		},
+	}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	msgs, err := svc.GetInbox(context.Background(), "agent-1", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 unread message, got %d", len(msgs))
+	}
+	if msgs[0].Content != "unread msg" {
+		t.Errorf("expected unread msg, got %q", msgs[0].Content)
+	}
+}
+
+func TestAgentService_GetInbox_Empty(t *testing.T) {
+	store := &mockStore{}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	msgs, err := svc.GetInbox(context.Background(), "agent-1", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msgs != nil {
+		t.Fatalf("expected nil for empty inbox, got %v", msgs)
+	}
+}
+
+func TestAgentService_MarkRead(t *testing.T) {
+	store := &mockStore{
+		inboxMessages: []agent.InboxMessage{
+			{ID: "m1", AgentID: "agent-1", Content: "unread", Read: false},
+			{ID: "m2", AgentID: "agent-1", Content: "also unread", Read: false},
+		},
+	}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	err := svc.MarkRead(context.Background(), "m1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify m1 is now read
+	if !store.inboxMessages[0].Read {
+		t.Error("expected m1 to be marked as read")
+	}
+	// m2 should still be unread
+	if store.inboxMessages[1].Read {
+		t.Error("expected m2 to remain unread")
+	}
+}
+
+func TestAgentService_StatsIncrement_Success(t *testing.T) {
+	store := &mockStore{
+		agents: []agent.Agent{{ID: "a1", ProjectID: "p1"}},
+	}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	err := svc.IncrementStats(context.Background(), "a1", 0.05, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	a := store.agents[0]
+	if a.TotalRuns != 1 {
+		t.Errorf("expected TotalRuns=1, got %d", a.TotalRuns)
+	}
+	if a.TotalCost < 0.049 || a.TotalCost > 0.051 {
+		t.Errorf("expected TotalCost~0.05, got %f", a.TotalCost)
+	}
+	if a.SuccessRate < 0.99 {
+		t.Errorf("expected SuccessRate~1.0 after 1 success, got %f", a.SuccessRate)
+	}
+}
+
+func TestAgentService_StatsIncrement_Failure(t *testing.T) {
+	store := &mockStore{
+		agents: []agent.Agent{{ID: "a1", ProjectID: "p1", TotalRuns: 3, SuccessRate: 1.0}},
+	}
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	err := svc.IncrementStats(context.Background(), "a1", 0.01, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	a := store.agents[0]
+	if a.TotalRuns != 4 {
+		t.Errorf("expected TotalRuns=4, got %d", a.TotalRuns)
+	}
+	// 3 successes out of 4 runs = 0.75
+	if a.SuccessRate < 0.74 || a.SuccessRate > 0.76 {
+		t.Errorf("expected SuccessRate~0.75 after 1 failure in 4 runs, got %f", a.SuccessRate)
 	}
 }

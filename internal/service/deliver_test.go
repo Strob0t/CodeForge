@@ -9,6 +9,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -42,6 +43,21 @@ func (m *deliverMockStore) ListQuarantinedMessages(_ context.Context, _ string, 
 func (m *deliverMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
 	return nil
 }
+
+// Agent Identity (Phase 23C)
+func (m *deliverMockStore) IncrementAgentStats(_ context.Context, _ string, _ float64, _ bool) error {
+	return nil
+}
+func (m *deliverMockStore) UpdateAgentState(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+func (m *deliverMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error {
+	return nil
+}
+func (m *deliverMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
+	return nil, nil
+}
+func (m *deliverMockStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
 
 // initDeliverTestRepo creates a temporary git repo with one commit.
 func initDeliverTestRepo(t *testing.T) string {

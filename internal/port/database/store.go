@@ -319,4 +319,16 @@ type Store interface {
 	GetQuarantinedMessage(ctx context.Context, id string) (*quarantine.Message, error)
 	ListQuarantinedMessages(ctx context.Context, projectID string, status quarantine.Status, limit, offset int) ([]*quarantine.Message, error)
 	UpdateQuarantineStatus(ctx context.Context, id string, status quarantine.Status, reviewedBy, note string) error
+
+	// Agent Identity (Phase 23C)
+	IncrementAgentStats(ctx context.Context, id string, costDelta float64, success bool) error
+	UpdateAgentState(ctx context.Context, id string, state map[string]string) error
+	SendAgentMessage(ctx context.Context, msg *agent.InboxMessage) error
+	ListAgentInbox(ctx context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error)
+	MarkInboxRead(ctx context.Context, messageID string) error
+
+	// Active Work Visibility (Phase 24)
+	ListActiveWork(ctx context.Context, projectID string) ([]task.ActiveWorkItem, error)
+	ClaimTask(ctx context.Context, taskID, agentID string, version int) (*task.ClaimResult, error)
+	ReleaseStaleWork(ctx context.Context, threshold time.Duration) ([]task.Task, error)
 }

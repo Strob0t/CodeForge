@@ -79,9 +79,19 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/agents/{id}/dispatch", h.DispatchTask)
 		r.Post("/agents/{id}/stop", h.StopAgentTask)
 
+		// Agent Identity (Phase 23C)
+		r.Get("/agents/{id}/inbox", h.ListAgentInbox)
+		r.Post("/agents/{id}/inbox", h.SendAgentMessage)
+		r.Post("/agents/{id}/inbox/{msgId}/read", h.MarkInboxRead)
+		r.Get("/agents/{id}/state", h.GetAgentState)
+		r.Put("/agents/{id}/state", h.UpdateAgentState)
+
 		// Tasks (nested under projects)
 		r.Post("/projects/{id}/tasks", h.CreateTask)
 		r.Get("/projects/{id}/tasks", h.ListTasks)
+
+		// Active Work (Phase 24)
+		r.Get("/projects/{id}/active-work", h.ListActiveWork)
 
 		// Tasks (direct access)
 		r.Get("/tasks/{id}", h.GetTask)
@@ -89,6 +99,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/tasks/{id}/runs", h.ListTaskRuns)
 		r.Get("/tasks/{id}/context", h.GetContextPack)
 		r.Post("/tasks/{id}/context", h.BuildContextPack)
+		r.Post("/tasks/{id}/claim", h.ClaimTask)
 
 		// Runs
 		r.Post("/runs", h.StartRun)

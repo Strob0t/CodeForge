@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -126,6 +127,19 @@ func (m *kbMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ qua
 func (m *kbMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
 	return nil
 }
+
+// Agent Identity (Phase 23C)
+func (m *kbMockStore) IncrementAgentStats(_ context.Context, _ string, _ float64, _ bool) error {
+	return nil
+}
+func (m *kbMockStore) UpdateAgentState(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+func (m *kbMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error { return nil }
+func (m *kbMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
+	return nil, nil
+}
+func (m *kbMockStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
 
 func TestKnowledgeBaseService_CreateGetList(t *testing.T) {
 	store := newKBMockStore()

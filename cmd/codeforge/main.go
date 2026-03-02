@@ -201,6 +201,10 @@ func run() error {
 		"profiles", len(policySvc.ListProfiles()),
 	)
 
+	// --- Active Work Service (Phase 24) ---
+	activeWorkSvc := service.NewActiveWorkService(store, hub)
+	slog.Info("active work service initialized")
+
 	// --- Quarantine Service (Phase 23B) ---
 	quarantineSvc := service.NewQuarantineService(store, queue, hub, cfg.Quarantine)
 	slog.Info("quarantine service initialized", "enabled", cfg.Quarantine.Enabled)
@@ -603,6 +607,7 @@ func run() error {
 		Skills:           skillSvc,
 		Files:            fileSvc,
 		Quarantine:       quarantineSvc,
+		ActiveWork:       activeWorkSvc,
 		Limits:           &cfg.Limits,
 	}
 
@@ -713,6 +718,26 @@ func run() error {
 		}
 	}()
 
+	// --- Active Work Stale Recovery (Phase 24) ---
+	staleCtx, staleCancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-staleCtx.Done():
+				return
+			case <-ticker.C:
+				released, err := activeWorkSvc.ReleaseStaleWork(staleCtx, 30*time.Minute)
+				if err != nil {
+					slog.Error("stale work release error", "error", err)
+				} else if len(released) > 0 {
+					slog.Info("released stale tasks", "count", len(released))
+				}
+			}
+		}
+	}()
+
 	<-done
 
 	// --- Ordered Graceful Shutdown ---
@@ -729,8 +754,9 @@ func run() error {
 		}
 	}
 
-	// Phase 2: Cancel NATS subscribers (stop processing new messages)
+	// Phase 2: Cancel NATS subscribers and background tasks
 	slog.Info("shutdown phase 2: cancelling NATS subscribers")
+	staleCancel()
 	for _, cancel := range runtimeCancels {
 		cancel()
 	}

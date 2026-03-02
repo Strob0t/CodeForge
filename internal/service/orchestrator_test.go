@@ -160,6 +160,21 @@ func (m *orchMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ qu
 	return nil
 }
 
+// Agent Identity (Phase 23C)
+func (m *orchMockStore) IncrementAgentStats(_ context.Context, _ string, _ float64, _ bool) error {
+	return nil
+}
+func (m *orchMockStore) UpdateAgentState(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+func (m *orchMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error {
+	return nil
+}
+func (m *orchMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
+	return nil, nil
+}
+func (m *orchMockStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
+
 func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {
 	store := &orchMockStore{}
 	store.agents = newIdleAgents("a1", "a2", "a3")

@@ -616,3 +616,27 @@ func (s *testStore) ListQuarantinedMessages(_ context.Context, _ string, _ quara
 func (s *testStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
 	return nil
 }
+
+// Agent Identity (Phase 23C)
+func (s *testStore) IncrementAgentStats(_ context.Context, _ string, _ float64, _ bool) error {
+	return nil
+}
+func (s *testStore) UpdateAgentState(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+func (s *testStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error { return nil }
+func (s *testStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
+	return nil, nil
+}
+func (s *testStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
+
+// Active Work Visibility (Phase 24)
+func (s *testStore) ListActiveWork(_ context.Context, _ string) ([]task.ActiveWorkItem, error) {
+	return nil, nil
+}
+func (s *testStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.ClaimResult, error) {
+	return nil, nil
+}
+func (s *testStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+	return nil, nil
+}

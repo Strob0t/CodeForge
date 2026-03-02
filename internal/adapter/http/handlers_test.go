@@ -87,6 +87,8 @@ type mockStore struct {
 	// Knowledge Base fields
 	knowledgeBases []knowledgebase.KnowledgeBase
 	kbScopeLinks   []struct{ ScopeID, KBID string }
+	// Active Work fields (Phase 24)
+	activeWork []task.ActiveWorkItem
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -1389,6 +1391,38 @@ func (m *mockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quaran
 	return nil
 }
 
+// Agent Identity (Phase 23C)
+func (m *mockStore) IncrementAgentStats(_ context.Context, _ string, _ float64, _ bool) error {
+	return nil
+}
+func (m *mockStore) UpdateAgentState(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+func (m *mockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error { return nil }
+func (m *mockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
+	return nil, nil
+}
+func (m *mockStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
+
+// Active Work Visibility (Phase 24)
+func (m *mockStore) ListActiveWork(_ context.Context, _ string) ([]task.ActiveWorkItem, error) {
+	return m.activeWork, nil
+}
+func (m *mockStore) ClaimTask(_ context.Context, taskID, agentID string, version int) (*task.ClaimResult, error) {
+	for i := range m.tasks {
+		if m.tasks[i].ID == taskID && m.tasks[i].Status == task.StatusPending && m.tasks[i].Version == version {
+			m.tasks[i].AgentID = agentID
+			m.tasks[i].Status = task.StatusQueued
+			m.tasks[i].Version++
+			return &task.ClaimResult{Task: &m.tasks[i], Claimed: true}, nil
+		}
+	}
+	return &task.ClaimResult{Claimed: false, Reason: "task already claimed or version mismatch"}, nil
+}
+func (m *mockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+	return nil, nil
+}
+
 // mockQueue implements messagequeue.Queue for testing.
 type mockQueue struct{}
 
@@ -1526,6 +1560,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		Scope:            service.NewScopeService(store),
 		PromptSections:   service.NewPromptSectionService(store),
 		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
+		ActiveWork:       service.NewActiveWorkService(store, bc),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
@@ -2834,6 +2869,131 @@ func TestPullProjectNotFound(t *testing.T) {
 	r := newTestRouter()
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/nonexistent/git/pull", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- Phase 24: Active Work Visibility handler tests ---
+
+func TestListActiveWorkEmpty(t *testing.T) {
+	r := newTestRouterWithStore(&mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Test"}},
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/projects/p1/active-work", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var items []task.ActiveWorkItem
+	if err := json.NewDecoder(w.Body).Decode(&items); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(items))
+	}
+}
+
+func TestListActiveWorkReturnsTasks(t *testing.T) {
+	r := newTestRouterWithStore(&mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Test"}},
+		activeWork: []task.ActiveWorkItem{
+			{TaskID: "t1", TaskTitle: "Fix auth", TaskStatus: task.StatusRunning, ProjectID: "p1", AgentID: "a1", AgentName: "Coder"},
+			{TaskID: "t2", TaskTitle: "Add tests", TaskStatus: task.StatusQueued, ProjectID: "p1", AgentID: "a2", AgentName: "Tester"},
+		},
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/projects/p1/active-work", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var items []task.ActiveWorkItem
+	if err := json.NewDecoder(w.Body).Decode(&items); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].AgentName != "Coder" {
+		t.Errorf("items[0].agent_name = %q, want Coder", items[0].AgentName)
+	}
+}
+
+func TestClaimTaskSuccess(t *testing.T) {
+	r := newTestRouterWithStore(&mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Test"}},
+		agents:   []agent.Agent{{ID: "a1", Name: "Coder", ProjectID: "p1"}},
+		tasks:    []task.Task{{ID: "t1", ProjectID: "p1", Title: "Fix auth", Status: task.StatusPending, Version: 1}},
+	})
+
+	body := `{"agent_id":"a1"}`
+	req := httptest.NewRequest("POST", "/api/v1/tasks/t1/claim", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result task.ClaimResult
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !result.Claimed {
+		t.Fatalf("expected claimed=true, got false: %s", result.Reason)
+	}
+}
+
+func TestClaimTaskAlreadyClaimed(t *testing.T) {
+	r := newTestRouterWithStore(&mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Test"}},
+		agents:   []agent.Agent{{ID: "a1", Name: "Coder", ProjectID: "p1"}},
+		tasks:    []task.Task{{ID: "t1", ProjectID: "p1", Title: "Fix auth", Status: task.StatusRunning, Version: 2}},
+	})
+
+	body := `{"agent_id":"a1"}`
+	req := httptest.NewRequest("POST", "/api/v1/tasks/t1/claim", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestClaimTaskMissingAgentID(t *testing.T) {
+	r := newTestRouter()
+
+	body := `{}`
+	req := httptest.NewRequest("POST", "/api/v1/tasks/t1/claim", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestClaimTaskNotFound(t *testing.T) {
+	r := newTestRouter()
+
+	body := `{"agent_id":"a1"}`
+	req := httptest.NewRequest("POST", "/api/v1/tasks/nonexistent/claim", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

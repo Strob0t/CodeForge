@@ -1,5 +1,6 @@
 import { getCached, processQueue, queueAction, setCached } from "./cache";
 import type {
+  ActiveWorkItem,
   AddModelRequest,
   Agent,
   AgentEvent,
@@ -342,6 +343,12 @@ export const api = {
       request<ContextPack>(url`/tasks/${taskId}/context`, {
         method: "POST",
         body: JSON.stringify({ project_id: projectId, team_id: teamId ?? "" }),
+      }),
+
+    claim: (taskId: string, agentId: string) =>
+      request<{ claimed: boolean; reason?: string }>(url`/tasks/${taskId}/claim`, {
+        method: "POST",
+        body: JSON.stringify({ agent_id: agentId }),
       }),
   },
 
@@ -1051,6 +1058,10 @@ export const api = {
 
     status: (projectId: string) =>
       request<import("./types").AutoAgentStatus>(url`/projects/${projectId}/auto-agent/status`),
+  },
+
+  activeWork: {
+    list: (projectId: string) => request<ActiveWorkItem[]>(url`/projects/${projectId}/active-work`),
   },
 } as const;
 

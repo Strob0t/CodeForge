@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,6 +57,10 @@ type mockStore struct {
 	revokedTokens       map[string]time.Time // jti -> expiresAt
 	passwordResetTokens []user.PasswordResetToken
 	isTokenRevokedErr   error // injectable error for fail-closed test
+
+	// Agent inbox (Phase 23C).
+	inboxMessages []agent.InboxMessage
+	inboxNextID   int
 
 	// Error hooks — set these to inject failures.
 	listProjectsErr  error
@@ -802,6 +807,72 @@ func (m *mockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quara
 }
 func (m *mockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
 	return nil
+}
+
+// Agent Identity (Phase 23C)
+func (m *mockStore) IncrementAgentStats(_ context.Context, id string, costDelta float64, success bool) error {
+	for i := range m.agents {
+		if m.agents[i].ID != id {
+			continue
+		}
+		m.agents[i].TotalRuns++
+		m.agents[i].TotalCost += costDelta
+		runs := float64(m.agents[i].TotalRuns)
+		s := 0.0
+		if success {
+			s = 1.0
+		}
+		m.agents[i].SuccessRate = (m.agents[i].SuccessRate*(runs-1) + s) / runs
+		return nil
+	}
+	return domain.ErrNotFound
+}
+func (m *mockStore) UpdateAgentState(_ context.Context, id string, state map[string]string) error {
+	for i := range m.agents {
+		if m.agents[i].ID == id {
+			m.agents[i].State = state
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+func (m *mockStore) SendAgentMessage(_ context.Context, msg *agent.InboxMessage) error {
+	m.inboxNextID++
+	msg.ID = fmt.Sprintf("msg-%d", m.inboxNextID)
+	m.inboxMessages = append(m.inboxMessages, *msg)
+	return nil
+}
+func (m *mockStore) ListAgentInbox(_ context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
+	var result []agent.InboxMessage
+	for _, msg := range m.inboxMessages {
+		if msg.AgentID == agentID && (!unreadOnly || !msg.Read) {
+			result = append(result, msg)
+		}
+	}
+	return result, nil
+}
+func (m *mockStore) MarkInboxRead(_ context.Context, messageID string) error {
+	for i := range m.inboxMessages {
+		if m.inboxMessages[i].ID == messageID {
+			m.inboxMessages[i].Read = true
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+// Phase 24: Active Work Visibility mock methods.
+
+func (m *mockStore) ListActiveWork(_ context.Context, _ string) ([]task.ActiveWorkItem, error) {
+	return nil, nil
+}
+
+func (m *mockStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.ClaimResult, error) {
+	return &task.ClaimResult{Claimed: false, Reason: "not implemented in mock"}, nil
+}
+
+func (m *mockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+	return nil, nil
 }
 
 // --- ProjectService Tests ---

@@ -84,6 +84,7 @@ type Handlers struct {
 	Files            *service.FileService
 	AutoAgent        *service.AutoAgentService
 	Quarantine       *service.QuarantineService
+	ActiveWork       *service.ActiveWorkService
 	Limits           *config.Limits
 }
 
@@ -588,6 +589,81 @@ func (h *Handlers) StopAgentTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
 
+// ListAgentInbox handles GET /api/v1/agents/{id}/inbox
+func (h *Handlers) ListAgentInbox(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "id")
+	unreadOnly := r.URL.Query().Get("unread") == "true"
+
+	msgs, err := h.Agents.GetInbox(r.Context(), agentID, unreadOnly)
+	if err != nil {
+		writeDomainError(w, err, "list inbox failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, msgs)
+}
+
+// SendAgentMessage handles POST /api/v1/agents/{id}/inbox
+func (h *Handlers) SendAgentMessage(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "id")
+
+	req, ok := readJSON[struct {
+		FromAgent string `json:"from_agent"`
+		Content   string `json:"content"`
+		Priority  int    `json:"priority"`
+	}](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+
+	msg := &agent.InboxMessage{
+		AgentID:   agentID,
+		FromAgent: req.FromAgent,
+		Content:   req.Content,
+		Priority:  req.Priority,
+	}
+	if err := h.Agents.SendMessage(r.Context(), msg); err != nil {
+		writeDomainError(w, err, "send message failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, msg)
+}
+
+// MarkInboxRead handles POST /api/v1/agents/{id}/inbox/{msgId}/read
+func (h *Handlers) MarkInboxRead(w http.ResponseWriter, r *http.Request) {
+	msgID := chi.URLParam(r, "msgId")
+	if err := h.Agents.MarkRead(r.Context(), msgID); err != nil {
+		writeDomainError(w, err, "message not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "read"})
+}
+
+// GetAgentState handles GET /api/v1/agents/{id}/state
+func (h *Handlers) GetAgentState(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	a, err := h.Agents.Get(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "agent not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, a.State)
+}
+
+// UpdateAgentState handles PUT /api/v1/agents/{id}/state
+func (h *Handlers) UpdateAgentState(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	state, ok := readJSON[map[string]string](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	if err := h.Agents.UpdateState(r.Context(), id, state); err != nil {
+		writeDomainError(w, err, "agent not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
 // ListTaskEvents handles GET /api/v1/tasks/{id}/events
 func (h *Handlers) ListTaskEvents(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -791,4 +867,45 @@ func (h *Handlers) ListRunEvents(w http.ResponseWriter, r *http.Request) {
 		events = []event.AgentEvent{}
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+// ListActiveWork handles GET /api/v1/projects/{id}/active-work
+func (h *Handlers) ListActiveWork(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	items, err := h.ActiveWork.ListActiveWork(r.Context(), projectID)
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+	if items == nil {
+		items = []task.ActiveWorkItem{}
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+// ClaimTask handles POST /api/v1/tasks/{id}/claim
+func (h *Handlers) ClaimTask(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "id")
+
+	b, ok := readJSON[struct {
+		AgentID string `json:"agent_id"`
+	}](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+
+	if !requireField(w, b.AgentID, "agent_id") {
+		return
+	}
+
+	result, err := h.ActiveWork.ClaimTask(r.Context(), taskID, b.AgentID)
+	if err != nil {
+		writeDomainError(w, err, "task not found")
+		return
+	}
+	if !result.Claimed {
+		writeJSON(w, http.StatusConflict, result)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }

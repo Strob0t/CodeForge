@@ -31,4 +31,12 @@ type Agent struct {
 	Version        int               `json:"version"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
+
+	// Persistent identity fields (Phase 23C).
+	TotalRuns    int               `json:"total_runs"`
+	TotalCost    float64           `json:"total_cost"`
+	SuccessRate  float64           `json:"success_rate"`
+	State        map[string]string `json:"state,omitempty"`
+	Capabilities []string          `json:"capabilities,omitempty"`
+	LastActiveAt *time.Time        `json:"last_active_at,omitempty"`
 }
