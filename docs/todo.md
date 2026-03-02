@@ -2317,26 +2317,26 @@ Git handlers (`handlers_test.go`):
 
 **Frontend components (new):**
 
-- [ ] Create `frontend/src/features/project/WarRoom.tsx` — main component with CSS Grid layout (`grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))`), fetches active agents on mount via `GET /projects/{id}/agents/active`, subscribes to WS events
-- [ ] Create `frontend/src/features/project/AgentLane.tsx` — single agent swim lane: name/mode/status badge header, streaming output lines (from `EventRunOutput`), tool call cards (from AG-UI events), cost accumulator
-- [ ] Create `frontend/src/features/project/MessageFlow.tsx` — SVG overlay rendering handoff arrows between lanes using absolute positioning, subscribes to `EventHandoffStatus`
-- [ ] Create `frontend/src/features/project/SharedContextPanel.tsx` — shows team shared context items, subscribes to `EventSharedContextUpdate`
+- [x] (2026-03-02) Create `frontend/src/features/project/WarRoom.tsx` — main component with CSS Grid layout (`grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))`), fetches active agents on mount via `GET /projects/{id}/agents/active`, subscribes to WS events
+- [x] (2026-03-02) Create `frontend/src/features/project/AgentLane.tsx` — single agent swim lane: name/mode/status badge header, streaming output lines (from `EventRunOutput`), tool call cards (from AG-UI events), cost accumulator
+- [x] (2026-03-02) Create `frontend/src/features/project/MessageFlow.tsx` — SVG overlay rendering handoff arrows between lanes using absolute positioning, subscribes to `EventHandoffStatus`
+- [x] (2026-03-02) Create `frontend/src/features/project/SharedContextPanel.tsx` — shows team shared context items, subscribes to `EventSharedContextUpdate`
 
 **Frontend integration:**
 
-- [ ] `frontend/src/features/project/ProjectDetailPage.tsx` — add "War Room" tab alongside Roadmap/Files tabs
-- [ ] `frontend/src/api/types.ts` — add `HandoffStatusEvent` (source_agent_id, target_agent_id, plan_id, step_id, status, context) and `AgentActivityEvent` types
+- [x] (2026-03-02) `frontend/src/features/project/ProjectDetailPage.tsx` — add "War Room" tab alongside Roadmap/Files tabs
+- [x] (2026-03-02) `frontend/src/api/types.ts` — add `HandoffStatusEvent` (source_agent_id, target_agent_id, plan_id, step_id, status, context) and `AgentActivityEvent` types
 
 **Backend support (minimal):**
 
-- [ ] `internal/adapter/ws/events.go` — add `EventHandoffStatus = "handoff.status"` + `HandoffStatusEvent` struct (SourceAgentID, TargetAgentID, PlanID, StepID, Status, Context)
-- [ ] `internal/service/handoff.go` — after publishing handoff to NATS, broadcast `HandoffStatusEvent` to WS hub
-- [ ] `internal/adapter/http/routes.go` — add `GET /api/v1/projects/{id}/agents/active` returning all agents with `status == running` for a project, including current run IDs
+- [x] (2026-03-02) `internal/adapter/ws/events.go` — add `EventHandoffStatus = "handoff.status"` + `HandoffStatusEvent` struct (SourceAgentID, TargetAgentID, PlanID, StepID, Status, Context)
+- [x] (2026-03-02) `internal/service/handoff.go` — after publishing handoff to NATS, broadcast `HandoffStatusEvent` to WS hub
+- [x] (2026-03-02) `internal/adapter/http/routes.go` — add `GET /api/v1/projects/{id}/agents/active` returning all agents with `status == running` for a project, including current run IDs
 
 **Tests:**
 
-- [ ] `frontend/e2e/war-room.spec.ts` — E2E test: navigate to War Room tab, verify empty state, verify lane appears when agent starts (2 tests)
-- [ ] `internal/service/handoff_test.go` — verify HandoffStatusEvent is broadcast to WS hub on handoff (1 test)
+- [x] (2026-03-02) `frontend/e2e/war-room.spec.ts` — E2E test: navigate to War Room tab, verify empty state, verify lane appears when agent starts (2 tests)
+- [x] (2026-03-02) `internal/service/phase23d_test.go` — verify HandoffStatusEvent is broadcast to WS hub on handoff + backward-compat without hub (2 tests)
 
 #### Phase 23 Dependencies
 

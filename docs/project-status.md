@@ -1125,3 +1125,19 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) PostgreSQL migration 049 + store implementation
 - [x] (2026-03-02) QuarantineService with Evaluate/Approve/Reject/List/Get (7 service tests)
 - [x] (2026-03-02) Runtime + Handoff quarantine gates, HTTP handlers, WebSocket events, main.go wiring
+
+### Phase 23C: Persistent Agent Identity (COMPLETED)
+
+> Persistent agent identity with fingerprint, stats, and inbox for continuity across sessions.
+
+- [x] (2026-03-02) Agent scan, identity persistence, stats accumulation, inbox messages
+- [x] (2026-03-02) Active work visibility (claim/release/list endpoints + WS events)
+
+### Phase 23D: War Room / Live Collaboration View (COMPLETED)
+
+> Live multi-agent collaboration view with swim lanes, handoff arrows, and shared context.
+
+- [x] (2026-03-02) Backend: HandoffStatusEvent WS event, WS broadcast on handoff, active agents endpoint
+- [x] (2026-03-02) Frontend: WarRoom.tsx, AgentLane.tsx, MessageFlow.tsx, SharedContextPanel.tsx
+- [x] (2026-03-02) War Room tab in ProjectDetailPage with HandoffStatusEvent/AgentActivityEvent types
+- [x] (2026-03-02) Tests: 2 Go handoff broadcast tests, 2 E2E War Room tests
