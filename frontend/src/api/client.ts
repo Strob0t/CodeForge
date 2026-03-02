@@ -1009,7 +1009,7 @@ export const api = {
       }),
   },
 
-  // --- Benchmark Mode (Phase 20) ---
+  // --- Benchmark Mode (Phase 20 + 26G/26H) ---
   benchmarks: {
     listRuns: () => request<import("./types").BenchmarkRun[]>("/benchmarks/runs"),
 
@@ -1036,6 +1036,47 @@ export const api = {
       }),
 
     listDatasets: () => request<import("./types").BenchmarkDatasetInfo[]>("/benchmarks/datasets"),
+
+    // Suite CRUD (Phase 26G)
+    listSuites: () => request<import("./types").BenchmarkSuite[]>("/benchmarks/suites"),
+
+    createSuite: (data: {
+      name: string;
+      description?: string;
+      type: string;
+      provider_name: string;
+    }) =>
+      request<import("./types").BenchmarkSuite>("/benchmarks/suites", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    getSuite: (id: string) =>
+      request<import("./types").BenchmarkSuite>(url`/benchmarks/suites/${id}`),
+
+    deleteSuite: (id: string) =>
+      request<undefined>(url`/benchmarks/suites/${id}`, { method: "DELETE" }),
+
+    // Multi-compare (Phase 26G)
+    compareMulti: (runIds: string[]) =>
+      request<import("./types").MultiCompareEntry[]>("/benchmarks/compare-multi", {
+        method: "POST",
+        body: JSON.stringify({ run_ids: runIds }),
+      }),
+
+    // Cost analysis (Phase 26G)
+    costAnalysis: (runId: string) =>
+      request<import("./types").CostAnalysis>(url`/benchmarks/runs/${runId}/cost-analysis`),
+
+    // Leaderboard (Phase 26G)
+    leaderboard: (suiteId?: string) =>
+      request<import("./types").LeaderboardEntry[]>(
+        `/benchmarks/leaderboard${suiteId ? `?suite_id=${encodeURIComponent(suiteId)}` : ""}`,
+      ),
+
+    // Training data export (Phase 26G)
+    exportTrainingUrl: (runId: string, format: "json" | "jsonl" = "json") =>
+      `${BASE}/benchmarks/runs/${encodeURIComponent(runId)}/export/training?format=${format}`,
   },
 
   files: {
@@ -1073,6 +1114,32 @@ export const api = {
 
   activeWork: {
     list: (projectId: string) => request<ActiveWorkItem[]>(url`/projects/${projectId}/active-work`),
+  },
+
+  goals: {
+    list: (projectId: string) =>
+      request<import("./types").ProjectGoal[]>(url`/projects/${projectId}/goals`),
+
+    create: (projectId: string, data: import("./types").CreateGoalRequest) =>
+      request<import("./types").ProjectGoal>(url`/projects/${projectId}/goals`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    detect: (projectId: string) =>
+      request<import("./types").GoalDiscoveryResult>(url`/projects/${projectId}/goals/detect`, {
+        method: "POST",
+      }),
+
+    get: (id: string) => request<import("./types").ProjectGoal>(url`/goals/${id}`),
+
+    update: (id: string, data: import("./types").UpdateGoalRequest) =>
+      request<import("./types").ProjectGoal>(url`/goals/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) => request<undefined>(url`/goals/${id}`, { method: "DELETE" }),
   },
 } as const;
 

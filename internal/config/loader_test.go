@@ -246,6 +246,41 @@ func TestParseFlagsShorthand(t *testing.T) {
 	}
 }
 
+func TestRoutingDefaults(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Routing.Enabled {
+		t.Error("routing should be disabled by default")
+	}
+}
+
+func TestRoutingEnvOverride(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_ROUTING_ENABLED", "true")
+	loadEnv(&cfg)
+	if !cfg.Routing.Enabled {
+		t.Error("expected routing.enabled=true from env override")
+	}
+}
+
+func TestRoutingYAMLOverride(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "test.yaml")
+	content := `
+routing:
+  enabled: true
+`
+	if err := os.WriteFile(yamlPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	if err := loadYAML(&cfg, yamlPath); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Routing.Enabled {
+		t.Error("expected routing.enabled=true from YAML override")
+	}
+}
+
 func TestParseFlagsInvalid(t *testing.T) {
 	_, err := ParseFlags([]string{"--unknown-flag"})
 	if err == nil {

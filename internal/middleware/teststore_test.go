@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
+	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
@@ -706,3 +707,20 @@ func (s *testStore) ListA2APushConfigs(_ context.Context, _ string) ([]database.
 }
 func (s *testStore) DeleteA2APushConfig(_ context.Context, _ string) error     { return nil }
 func (s *testStore) DeleteAllA2APushConfigs(_ context.Context, _ string) error { return nil }
+
+// Project Goal stubs
+func (s *testStore) CreateProjectGoal(_ context.Context, _ *goal.ProjectGoal) error { return nil }
+func (s *testStore) GetProjectGoal(_ context.Context, _ string) (*goal.ProjectGoal, error) {
+	return nil, nil
+}
+func (s *testStore) ListProjectGoals(_ context.Context, _ string) ([]goal.ProjectGoal, error) {
+	return nil, nil
+}
+func (s *testStore) ListEnabledGoals(_ context.Context, _ string) ([]goal.ProjectGoal, error) {
+	return nil, nil
+}
+func (s *testStore) UpdateProjectGoal(_ context.Context, _ *goal.ProjectGoal) error { return nil }
+func (s *testStore) DeleteProjectGoal(_ context.Context, _ string) error            { return nil }
+func (s *testStore) DeleteProjectGoalsBySource(_ context.Context, _, _ string) error {
+	return nil
+}

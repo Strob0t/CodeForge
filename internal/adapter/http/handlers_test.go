@@ -29,6 +29,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
+	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
@@ -95,6 +96,8 @@ type mockStore struct {
 	routingOutcomes []routing.RoutingOutcome
 	// Active Work fields (Phase 24)
 	activeWork []task.ActiveWorkItem
+	// Goal Discovery fields (Phase 28)
+	goals []goal.ProjectGoal
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -1581,6 +1584,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
 		ActiveWork:       service.NewActiveWorkService(store, bc),
 		Routing:          service.NewRoutingService(store),
+		GoalDiscovery:    service.NewGoalDiscoveryService(store),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
@@ -3086,3 +3090,65 @@ func (m *mockStore) ListA2APushConfigs(_ context.Context, _ string) ([]database.
 }
 func (m *mockStore) DeleteA2APushConfig(_ context.Context, _ string) error     { return nil }
 func (m *mockStore) DeleteAllA2APushConfigs(_ context.Context, _ string) error { return nil }
+
+// Project Goals (Phase 28)
+func (m *mockStore) CreateProjectGoal(_ context.Context, g *goal.ProjectGoal) error {
+	g.ID = fmt.Sprintf("goal-%d", len(m.goals)+1)
+	g.Enabled = true
+	m.goals = append(m.goals, *g)
+	return nil
+}
+func (m *mockStore) GetProjectGoal(_ context.Context, id string) (*goal.ProjectGoal, error) {
+	for i := range m.goals {
+		if m.goals[i].ID == id {
+			return &m.goals[i], nil
+		}
+	}
+	return nil, errNotFound
+}
+func (m *mockStore) ListProjectGoals(_ context.Context, projectID string) ([]goal.ProjectGoal, error) {
+	var result []goal.ProjectGoal
+	for i := range m.goals {
+		if m.goals[i].ProjectID == projectID {
+			result = append(result, m.goals[i])
+		}
+	}
+	return result, nil
+}
+func (m *mockStore) ListEnabledGoals(_ context.Context, projectID string) ([]goal.ProjectGoal, error) {
+	var result []goal.ProjectGoal
+	for i := range m.goals {
+		if m.goals[i].ProjectID == projectID && m.goals[i].Enabled {
+			result = append(result, m.goals[i])
+		}
+	}
+	return result, nil
+}
+func (m *mockStore) UpdateProjectGoal(_ context.Context, g *goal.ProjectGoal) error {
+	for i := range m.goals {
+		if m.goals[i].ID == g.ID {
+			m.goals[i] = *g
+			return nil
+		}
+	}
+	return errNotFound
+}
+func (m *mockStore) DeleteProjectGoal(_ context.Context, id string) error {
+	for i := range m.goals {
+		if m.goals[i].ID == id {
+			m.goals = append(m.goals[:i], m.goals[i+1:]...)
+			return nil
+		}
+	}
+	return errNotFound
+}
+func (m *mockStore) DeleteProjectGoalsBySource(_ context.Context, projectID, source string) error {
+	filtered := m.goals[:0]
+	for i := range m.goals {
+		if m.goals[i].ProjectID != projectID || m.goals[i].Source != source {
+			filtered = append(filtered, m.goals[i])
+		}
+	}
+	m.goals = filtered
+	return nil
+}

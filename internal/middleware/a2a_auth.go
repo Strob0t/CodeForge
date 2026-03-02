@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 	"strings"
 )
@@ -20,16 +21,15 @@ type ctxKeyA2ATrust struct{}
 
 // A2AAuth returns middleware that validates Bearer tokens for A2A endpoints.
 // If validKeys is empty, all requests pass through with "untrusted" trust level.
+// Token comparison uses constant-time comparison to prevent timing attacks.
 func A2AAuth(validKeys []string) func(http.Handler) http.Handler {
-	keySet := make(map[string]bool, len(validKeys))
-	for _, k := range validKeys {
-		keySet[k] = true
-	}
+	keys := make([]string, len(validKeys))
+	copy(keys, validKeys)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Open mode: no keys configured — allow all with untrusted trust.
-			if len(keySet) == 0 {
+			if len(keys) == 0 {
 				ctx := context.WithValue(r.Context(), ctxKeyA2ATrust{}, A2ATrustUntrusted)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
@@ -43,7 +43,7 @@ func A2AAuth(validKeys []string) func(http.Handler) http.Handler {
 			}
 
 			token := strings.TrimPrefix(auth, "Bearer ")
-			if !keySet[token] {
+			if !constantTimeContains(keys, token) {
 				w.Header().Set("WWW-Authenticate", "Bearer")
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 				return
@@ -53,6 +53,16 @@ func A2AAuth(validKeys []string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// constantTimeContains checks if token matches any key using constant-time comparison.
+func constantTimeContains(keys []string, token string) bool {
+	for _, k := range keys {
+		if subtle.ConstantTimeCompare([]byte(k), []byte(token)) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // A2ATrustFromContext returns the A2A trust level from the request context.

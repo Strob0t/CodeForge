@@ -99,6 +99,12 @@ type Config struct {
 	Experience   Experience   `yaml:"experience"`
 	Limits       Limits       `yaml:"limits"`
 	Quarantine   Quarantine   `yaml:"quarantine"`
+	Routing      Routing      `yaml:"routing"`
+}
+
+// Routing holds intelligent model routing configuration (Phase 29).
+type Routing struct {
+	Enabled bool `yaml:"enabled"` // Enable intelligent three-layer routing cascade (default: false)
 }
 
 // Quarantine holds message quarantine system configuration (Phase 23B).

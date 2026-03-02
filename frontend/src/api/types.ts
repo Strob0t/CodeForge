@@ -1647,6 +1647,68 @@ export interface BenchmarkDatasetInfo {
   path: string;
 }
 
+/** Matches Go domain/benchmark.Suite */
+export interface BenchmarkSuite {
+  id: string;
+  name: string;
+  description?: string;
+  type: string;
+  provider_name: string;
+  task_count: number;
+  config?: unknown;
+  created_at: string;
+}
+
+/** Matches Go domain/benchmark.MultiCompareRequest */
+export interface MultiCompareRequest {
+  run_ids: string[];
+}
+
+/** Matches Go domain/benchmark.MultiCompareEntry */
+export interface MultiCompareEntry {
+  run: BenchmarkRun;
+  results: BenchmarkResult[];
+}
+
+/** Matches Go domain/benchmark.CostBreakdown */
+export interface CostBreakdown {
+  task_id: string;
+  task_name: string;
+  cost_usd: number;
+  tokens_in: number;
+  tokens_out: number;
+  score: number;
+}
+
+/** Matches Go domain/benchmark.CostAnalysis */
+export interface CostAnalysis {
+  run_id: string;
+  model: string;
+  suite_id?: string;
+  total_cost_usd: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  avg_score: number;
+  cost_per_score_point: number;
+  token_efficiency: number;
+  task_breakdown: CostBreakdown[];
+}
+
+/** Matches Go domain/benchmark.LeaderboardEntry */
+export interface LeaderboardEntry {
+  model: string;
+  run_id: string;
+  suite_id?: string;
+  avg_score: number;
+  total_cost_usd: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  task_count: number;
+  cost_per_score_point: number;
+  token_efficiency: number;
+  duration_ms: number;
+}
+
 // --- File operations (File Editor) ---
 
 /** Matches Go service.FileEntry */
@@ -1734,4 +1796,46 @@ export interface AgentActivityEvent {
   project_id: string;
   type: "tool_call" | "output" | "status_change";
   data: Record<string, unknown>;
+}
+
+// --- Project Goals (Phase 28) ---
+
+export type GoalKind = "vision" | "requirement" | "constraint" | "state" | "context";
+
+export interface ProjectGoal {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  kind: GoalKind;
+  title: string;
+  content: string;
+  source: string;
+  source_path: string;
+  priority: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGoalRequest {
+  kind: GoalKind;
+  title: string;
+  content: string;
+  source?: string;
+  priority?: number;
+}
+
+export interface UpdateGoalRequest {
+  kind?: GoalKind;
+  title?: string;
+  content?: string;
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface GoalDiscoveryResult {
+  detected: number;
+  imported: number;
+  skipped: number;
+  sources: string[];
 }

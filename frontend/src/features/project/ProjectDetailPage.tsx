@@ -20,6 +20,7 @@ import AutoAgentButton from "./AutoAgentButton";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
 import FilePanel from "./FilePanel";
+import GoalsPanel from "./GoalsPanel";
 import RoadmapPanel from "./RoadmapPanel";
 import WarRoom from "./WarRoom";
 
@@ -58,8 +59,8 @@ export default function ProjectDetailPage() {
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
 
-  // Left panel tab: "roadmap" or "files"
-  type LeftTab = "roadmap" | "files" | "warroom";
+  // Left panel tab
+  type LeftTab = "roadmap" | "files" | "warroom" | "goals";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
 
   // Auto-select "files" tab when project has a workspace (is cloned)
@@ -422,7 +423,7 @@ export default function ProjectDetailPage() {
             >
               <Show when={!roadmapCollapsed()}>
                 <div
-                  class={`flex flex-col min-h-0 ${leftTab() === "files" || leftTab() === "warroom" ? "" : "overflow-y-auto"}`}
+                  class={`flex flex-col min-h-0 ${leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" ? "" : "overflow-y-auto"}`}
                   style={
                     isNarrow()
                       ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }
@@ -469,6 +470,17 @@ export default function ProjectDetailPage() {
                       >
                         War Room
                       </button>
+                      <button
+                        type="button"
+                        class={`px-2 py-1 text-sm font-medium rounded transition-colors ${
+                          leftTab() === "goals"
+                            ? "bg-cf-accent/15 text-cf-accent"
+                            : "text-cf-text-tertiary hover:text-cf-text-secondary"
+                        }`}
+                        onClick={() => setLeftTab("goals")}
+                      >
+                        {t("goals.tab")}
+                      </button>
                     </div>
                     <Button
                       variant="ghost"
@@ -504,6 +516,11 @@ export default function ProjectDetailPage() {
                   <Show when={leftTab() === "warroom"}>
                     <div class="flex-1 min-h-0">
                       <WarRoom projectId={params.id} />
+                    </div>
+                  </Show>
+                  <Show when={leftTab() === "goals"}>
+                    <div class="flex-1 min-h-0">
+                      <GoalsPanel projectId={params.id} />
                     </div>
                   </Show>
                 </div>

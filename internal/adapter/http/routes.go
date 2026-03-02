@@ -437,7 +437,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Post("/seed-from-benchmarks", h.HandleSeedFromBenchmarks)
 		})
 
-		// A2A Management (Phase 27L)
+		// A2A Management (Phase 27L + 27O)
 		if h.A2A != nil {
 			r.Route("/a2a", func(r chi.Router) {
 				r.Post("/agents", h.RegisterRemoteAgent)
@@ -448,7 +448,24 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 				r.Get("/tasks", h.ListA2ATasks)
 				r.Get("/tasks/{id}", h.GetA2ATask)
 				r.Post("/tasks/{id}/cancel", h.CancelA2ATask)
+				// Push notification configs (Phase 27O)
+				r.Post("/tasks/{id}/push-config", h.CreateA2APushConfig)
+				r.Get("/tasks/{id}/push-config", h.ListA2APushConfigs)
+				// SSE streaming (Phase 27O)
+				r.Get("/tasks/{id}/subscribe", h.SubscribeA2ATask)
+				// Push config delete (by config ID)
+				r.Delete("/push-config/{id}", h.DeleteA2APushConfig)
 			})
+		}
+
+		// Project Goals (Phase 28 — Goal Discovery)
+		if h.GoalDiscovery != nil {
+			r.Get("/projects/{id}/goals", h.ListProjectGoals)
+			r.Post("/projects/{id}/goals", h.CreateProjectGoal)
+			r.Post("/projects/{id}/goals/detect", h.DetectProjectGoals)
+			r.Get("/goals/{id}", h.GetProjectGoal)
+			r.Put("/goals/{id}", h.UpdateProjectGoal)
+			r.Delete("/goals/{id}", h.DeleteProjectGoal)
 		}
 
 		// Quarantine (Phase 23B — admin only)

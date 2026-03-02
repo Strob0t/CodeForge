@@ -102,6 +102,38 @@ func TestA2AAuth_MultipleValidKeys(t *testing.T) {
 	}
 }
 
+func TestA2AAuth_EmptyToken(t *testing.T) {
+	handler := A2AAuth([]string{"secret-key"})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("POST", "/a2a", http.NoBody)
+	req.Header.Set("Authorization", "Bearer ")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for empty bearer token, got %d", rr.Code)
+	}
+}
+
+func TestConstantTimeContains(t *testing.T) {
+	keys := []string{"key-alpha", "key-beta", "key-gamma"}
+
+	if !constantTimeContains(keys, "key-beta") {
+		t.Error("expected key-beta to match")
+	}
+	if constantTimeContains(keys, "key-delta") {
+		t.Error("expected key-delta to NOT match")
+	}
+	if constantTimeContains(nil, "any") {
+		t.Error("expected nil keys to NOT match")
+	}
+	if constantTimeContains(keys, "") {
+		t.Error("expected empty token to NOT match")
+	}
+}
+
 func TestA2AAuth_ContextRoundtrip(t *testing.T) {
 	handler := A2AAuth([]string{"key-1"})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		trust := A2ATrustFromContext(r.Context())

@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
+	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
@@ -361,6 +362,15 @@ type Store interface {
 	ListRemoteAgents(ctx context.Context, tenantID string, enabledOnly bool) ([]a2adomain.RemoteAgent, error)
 	UpdateRemoteAgent(ctx context.Context, a *a2adomain.RemoteAgent) error
 	DeleteRemoteAgent(ctx context.Context, id string) error
+
+	// Project Goals (Phase 28 — Goal Discovery)
+	CreateProjectGoal(ctx context.Context, g *goal.ProjectGoal) error
+	GetProjectGoal(ctx context.Context, id string) (*goal.ProjectGoal, error)
+	ListProjectGoals(ctx context.Context, projectID string) ([]goal.ProjectGoal, error)
+	ListEnabledGoals(ctx context.Context, projectID string) ([]goal.ProjectGoal, error)
+	UpdateProjectGoal(ctx context.Context, g *goal.ProjectGoal) error
+	DeleteProjectGoal(ctx context.Context, id string) error
+	DeleteProjectGoalsBySource(ctx context.Context, projectID, source string) error
 
 	// A2A Push Configs (Phase 27)
 	CreateA2APushConfig(ctx context.Context, taskID, url, token string) (string, error)

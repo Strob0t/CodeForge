@@ -26,6 +26,7 @@ type ContextOptimizerService struct {
 	retrieval *RetrievalService
 	graph     *GraphService
 	lsp       *LSPService
+	goalSvc   *GoalDiscoveryService
 
 	// Guard against redundant builds for the same task (#16).
 	buildMu    sync.Mutex
@@ -55,6 +56,11 @@ func (s *ContextOptimizerService) SetGraph(g *GraphService) {
 // SetLSP wires the LSP service for diagnostic injection.
 func (s *ContextOptimizerService) SetLSP(l *LSPService) {
 	s.lsp = l
+}
+
+// SetGoalService wires the goal discovery service for context pack injection.
+func (s *ContextOptimizerService) SetGoalService(svc *GoalDiscoveryService) {
+	s.goalSvc = svc
 }
 
 // GetPackByTask returns the existing context pack for a task, if any.
@@ -204,6 +210,14 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 	if s.lsp != nil {
 		diagEntries := s.lsp.DiagnosticsAsContextEntries(projectID)
 		candidates = append(candidates, diagEntries...)
+	}
+
+	// Goal entries injection (vision, requirements, constraints, state).
+	if s.goalSvc != nil {
+		goalEntries, gErr := s.goalSvc.AsContextEntries(ctx, projectID)
+		if gErr == nil {
+			candidates = append(candidates, goalEntries...)
+		}
 	}
 
 	if len(candidates) == 0 {

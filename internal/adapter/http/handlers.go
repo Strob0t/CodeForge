@@ -87,6 +87,7 @@ type Handlers struct {
 	ActiveWork       *service.ActiveWorkService
 	Routing          *service.RoutingService
 	A2A              *service.A2AService
+	GoalDiscovery    *service.GoalDiscoveryService
 	Limits           *config.Limits
 }
 

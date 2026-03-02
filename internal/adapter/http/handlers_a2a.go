@@ -1,7 +1,10 @@
 package http
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -118,4 +121,136 @@ func (h *Handlers) CancelA2ATask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "canceled"})
+}
+
+// --- Push Notification Config Handlers (Phase 27O) ---
+
+type createPushConfigRequest struct {
+	URL   string `json:"url"`
+	Token string `json:"token"`
+}
+
+// CreateA2APushConfig handles POST /api/v1/a2a/tasks/{id}/push-config
+func (h *Handlers) CreateA2APushConfig(w http.ResponseWriter, r *http.Request) {
+	taskID := urlParam(r, "id")
+	body, ok := readJSON[createPushConfigRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	if !requireField(w, body.URL, "url") {
+		return
+	}
+
+	id, err := h.A2A.CreatePushConfig(r.Context(), taskID, body.URL, body.Token)
+	if err != nil {
+		writeDomainError(w, err, "failed to create push config")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
+}
+
+// ListA2APushConfigs handles GET /api/v1/a2a/tasks/{id}/push-config
+func (h *Handlers) ListA2APushConfigs(w http.ResponseWriter, r *http.Request) {
+	taskID := urlParam(r, "id")
+	configs, err := h.A2A.ListPushConfigs(r.Context(), taskID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if configs == nil {
+		configs = []database.A2APushConfig{}
+	}
+	writeJSON(w, http.StatusOK, configs)
+}
+
+// DeleteA2APushConfig handles DELETE /api/v1/a2a/push-config/{id}
+func (h *Handlers) DeleteA2APushConfig(w http.ResponseWriter, r *http.Request) {
+	id := urlParam(r, "id")
+	if err := h.A2A.DeletePushConfig(r.Context(), id); err != nil {
+		writeDomainError(w, err, "push config not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SubscribeA2ATask handles GET /api/v1/a2a/tasks/{id}/subscribe (SSE streaming)
+func (h *Handlers) SubscribeA2ATask(w http.ResponseWriter, r *http.Request) {
+	taskID := urlParam(r, "id")
+
+	// Verify task exists.
+	task, err := h.A2A.GetTask(r.Context(), taskID)
+	if err != nil {
+		writeDomainError(w, err, "task not found")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Send initial state.
+	writeSSEEvent(w, flusher, "status", map[string]string{
+		"task_id": task.ID,
+		"state":   string(task.State),
+	})
+
+	// If already in terminal state, close immediately.
+	if isTerminalA2AState(string(task.State)) {
+		writeSSEEvent(w, flusher, "done", map[string]string{"task_id": task.ID})
+		return
+	}
+
+	// Poll for state changes until terminal or client disconnect.
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	lastState := task.State
+	ctx := r.Context()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			current, err := h.A2A.GetTask(ctx, taskID)
+			if err != nil {
+				writeSSEEvent(w, flusher, "error", map[string]string{"error": "task lookup failed"})
+				return
+			}
+			if current.State != lastState {
+				lastState = current.State
+				writeSSEEvent(w, flusher, "status", map[string]string{
+					"task_id": current.ID,
+					"state":   string(current.State),
+				})
+			}
+			if isTerminalA2AState(string(current.State)) {
+				writeSSEEvent(w, flusher, "done", map[string]string{"task_id": current.ID})
+				return
+			}
+		}
+	}
+}
+
+// writeSSEEvent writes a single SSE event to the response.
+func writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, event string, data any) {
+	payload, _ := json.Marshal(data)
+	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
+	flusher.Flush()
+}
+
+// isTerminalA2AState returns true for A2A states that will not change further.
+func isTerminalA2AState(s string) bool {
+	switch s {
+	case "completed", "failed", "canceled", "rejected":
+		return true
+	}
+	return false
 }

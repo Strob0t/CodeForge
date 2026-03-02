@@ -168,6 +168,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		Termination:       termination,
 		MCPServers:        mcpDefs,
 		MicroagentPrompts: microagentPrompts,
+		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
 	}
 
 	data, err := json.Marshal(payload)
@@ -443,6 +444,14 @@ func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID s
 			}
 		}
 		data.RoadmapSummary = sb.String()
+	}
+
+	// Fetch project goals for system prompt (Goal Discovery).
+	if s.goalSvc != nil {
+		goals, gErr := s.goalSvc.ListEnabled(ctx, projectID)
+		if gErr == nil && len(goals) > 0 {
+			data.GoalContext = renderGoalContext(goals)
+		}
 	}
 
 	// Detect tech stack summary if workspace path is available.

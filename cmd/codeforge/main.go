@@ -500,6 +500,7 @@ func run() error {
 	conversationSvc.SetMCPService(mcpSvc)
 	conversationSvc.SetPolicyService(policySvc)
 	conversationSvc.SetModelRegistry(modelRegistry)
+	conversationSvc.SetRoutingConfig(&cfg.Routing)
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)
@@ -536,6 +537,13 @@ func run() error {
 	runtimeSvc.SetMicroagentService(microagentSvc)
 	conversationSvc.SetMicroagentService(microagentSvc)
 	slog.Info("microagent service initialized")
+
+	// --- Goal Discovery Service (Phase 28) ---
+	goalSvc := service.NewGoalDiscoveryService(store)
+	projectSvc.SetGoalDiscovery(goalSvc)
+	conversationSvc.SetGoalService(goalSvc)
+	contextOptSvc.SetGoalService(goalSvc)
+	slog.Info("goal discovery service initialized")
 
 	// --- Skill Service (Phase 22D) ---
 	skillSvc := service.NewSkillService(store)
@@ -618,14 +626,22 @@ func run() error {
 		Quarantine:       quarantineSvc,
 		ActiveWork:       activeWorkSvc,
 		Routing:          routingSvc,
+		GoalDiscovery:    goalSvc,
 		Limits:           &cfg.Limits,
 	}
 
-	// A2A Client Service (Phase 27K) — outbound federation.
+	// A2A Client Service (Phase 27K + 27O) — outbound federation + push notifications.
 	if cfg.A2A.Enabled {
 		a2aSvc := service.NewA2AService(store, queue, hub)
 		handlers.A2A = a2aSvc
-		slog.Info("a2a client service enabled")
+
+		a2aCompletionCancel, a2aSubErr := a2aSvc.StartCompletionSubscriber(ctx)
+		if a2aSubErr != nil {
+			return fmt.Errorf("a2a completion subscriber: %w", a2aSubErr)
+		}
+		defer a2aCompletionCancel()
+
+		slog.Info("a2a client service enabled", "completion_subscriber", true)
 	}
 
 	r := chi.NewRouter()

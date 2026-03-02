@@ -1206,6 +1206,81 @@ const de: Translations = {
   "benchmark.toast.deleteError": "Benchmark-Lauf konnte nicht geloescht werden",
   "benchmark.toast.compareReady": "Vergleich bereit (siehe Konsole)",
   "benchmark.toast.compareError": "Vergleich der Benchmark-Laeufe fehlgeschlagen",
+
+  // Benchmark Dashboard Tabs (Phase 26H)
+  "benchmark.tab.runs": "Laeufe",
+  "benchmark.tab.leaderboard": "Bestenliste",
+  "benchmark.tab.costAnalysis": "Kostenanalyse",
+  "benchmark.tab.multiCompare": "Multi-Vergleich",
+  "benchmark.tab.suites": "Suiten",
+
+  // Bestenliste
+  "benchmark.leaderboard.title": "Modell-Bestenliste",
+  "benchmark.leaderboard.empty":
+    "Noch keine Bestenlisten-Daten. Fuehre zuerst Benchmark-Laeufe durch.",
+  "benchmark.leaderboard.avgScore": "Durchschnitt",
+  "benchmark.leaderboard.totalCost": "Gesamtkosten",
+  "benchmark.leaderboard.taskCount": "Aufgaben",
+  "benchmark.leaderboard.costPerPoint": "Kosten/Punkt",
+  "benchmark.leaderboard.tokenEfficiency": "Token-Eff.",
+  "benchmark.leaderboard.filterBySuite": "Nach Suite filtern",
+  "benchmark.leaderboard.allSuites": "Alle Suiten",
+
+  // Kostenanalyse
+  "benchmark.costAnalysis.title": "Kostenanalyse",
+  "benchmark.costAnalysis.empty": "Waehle einen Lauf fuer die Kostenanalyse aus.",
+  "benchmark.costAnalysis.selectRun": "Lauf auswaehlen",
+  "benchmark.costAnalysis.totalCost": "Gesamtkosten",
+  "benchmark.costAnalysis.avgScore": "Durchschnitt",
+  "benchmark.costAnalysis.costPerPoint": "Kosten pro Punkt",
+  "benchmark.costAnalysis.tokenEfficiency": "Token-Effizienz",
+  "benchmark.costAnalysis.tokensIn": "Tokens Eingang",
+  "benchmark.costAnalysis.tokensOut": "Tokens Ausgang",
+  "benchmark.costAnalysis.taskBreakdown": "Aufgaben-Aufschluesselung",
+
+  // Multi-Vergleich
+  "benchmark.multiCompare.title": "Multi-Lauf-Vergleich",
+  "benchmark.multiCompare.selectRuns": "Laeufe zum Vergleichen auswaehlen (2+)",
+  "benchmark.multiCompare.compareBtn": "Ausgewaehlte vergleichen",
+  "benchmark.multiCompare.noResults": "Waehle zwei oder mehr Laeufe und klicke Vergleichen.",
+
+  // Suiten
+  "benchmark.suites.title": "Benchmark-Suiten",
+  "benchmark.suites.empty": "Noch keine Suiten konfiguriert.",
+  "benchmark.suites.name": "Suite-Name",
+  "benchmark.suites.type": "Typ",
+  "benchmark.suites.provider": "Anbieter",
+  "benchmark.suites.taskCount": "Aufgaben",
+  "benchmark.suites.createBtn": "Suite erstellen",
+  "benchmark.suites.toast.created": "Suite erstellt",
+  "benchmark.suites.toast.createError": "Suite konnte nicht erstellt werden",
+  "benchmark.suites.toast.deleted": "Suite geloescht",
+  "benchmark.suites.toast.deleteError": "Suite konnte nicht geloescht werden",
+
+  // Export
+  "benchmark.export.training": "Trainingsdaten exportieren",
+
+  // -- Projektziele (Phase 28) ------------------------------------------------
+  "goals.tab": "Ziele",
+  "goals.title": "Projektziele",
+  "goals.empty":
+    'Noch keine Ziele erkannt. Klicken Sie auf "Ziele erkennen", um den Workspace zu scannen.',
+  "goals.detect": "Ziele erkennen",
+  "goals.detecting": "Erkennen...",
+  "goals.add": "Ziel hinzufuegen",
+  "goals.enable": "Ziel aktivieren",
+  "goals.disable": "Ziel deaktivieren",
+  "goals.form.titlePlaceholder": "Zieltitel",
+  "goals.form.contentPlaceholder": "Zielinhalt (Markdown)",
+  "goals.toast.detected": "{{count}} Ziele erkannt und importiert",
+  "goals.toast.detectFailed": "Zielerkennung fehlgeschlagen",
+  "goals.toast.created": "Ziel erstellt",
+  "goals.toast.createFailed": "Ziel konnte nicht erstellt werden",
+  "goals.toast.updated": "Ziel aktualisiert",
+  "goals.toast.updateFailed": "Ziel konnte nicht aktualisiert werden",
+  "goals.toast.deleted": "Ziel geloescht",
+  "goals.toast.deleteFailed": "Ziel konnte nicht geloescht werden",
+  "goals.toast.titleRequired": "Zieltitel ist erforderlich",
 };
 
 export default de;

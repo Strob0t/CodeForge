@@ -31,6 +31,7 @@ type ProjectService struct {
 	store         database.Store
 	workspaceRoot string
 	specDetector  SpecDetector
+	goalDiscovery *GoalDiscoveryService
 }
 
 // NewProjectService creates a new ProjectService.
@@ -41,6 +42,11 @@ func NewProjectService(store database.Store, workspaceRoot string) *ProjectServi
 // SetSpecDetector sets the optional spec detector for automated setup.
 func (s *ProjectService) SetSpecDetector(sd SpecDetector) {
 	s.specDetector = sd
+}
+
+// SetGoalDiscovery sets the optional goal discovery service for automated setup.
+func (s *ProjectService) SetGoalDiscovery(svc *GoalDiscoveryService) {
+	s.goalDiscovery = svc
 }
 
 // resolveGitProvider creates a git provider for the given project.
@@ -507,6 +513,44 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 	default:
 		result.Steps = append(result.Steps, project.SetupStep{
 			Name:   "import_specs",
+			Status: "skipped",
+			Error:  "no workspace available",
+		})
+	}
+
+	// Step 4: Discover project goals (requires workspace + goal discovery service).
+	switch {
+	case p.WorkspacePath != "" && s.goalDiscovery != nil:
+		goalResult, goalErr := s.goalDiscovery.DetectAndImport(ctx, id, p.WorkspacePath)
+		switch {
+		case goalErr != nil:
+			slog.Warn("setup: goal discovery failed", "project_id", id, "error", goalErr)
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "discover_goals",
+				Status: "failed",
+				Error:  goalErr.Error(),
+			})
+		case goalResult.GoalsCreated > 0:
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "discover_goals",
+				Status: "completed",
+			})
+		default:
+			result.Steps = append(result.Steps, project.SetupStep{
+				Name:   "discover_goals",
+				Status: "skipped",
+				Error:  "no goal files found",
+			})
+		}
+	case s.goalDiscovery == nil:
+		result.Steps = append(result.Steps, project.SetupStep{
+			Name:   "discover_goals",
+			Status: "skipped",
+			Error:  "goal discovery not configured",
+		})
+	default:
+		result.Steps = append(result.Steps, project.SetupStep{
+			Name:   "discover_goals",
 			Status: "skipped",
 			Error:  "no workspace available",
 		})

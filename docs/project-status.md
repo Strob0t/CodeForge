@@ -1164,7 +1164,19 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 27M: Handoff Integration — `a2a://` routing prefix delegates handoffs to A2A protocol (3 tests)
 - [x] (2026-03-02) 27N: Documentation updates (todo.md, project-status.md, dev-setup.md, features/04, codeforge.yaml.example, CLAUDE.md)
 
-### Phase 29: Hybrid Intelligent Model Routing (PYTHON COMPLETE, GO PENDING)
+### Phase 26: Benchmark System Redesign (COMPLETED)
+
+> Complete benchmark system with provider registry, evaluator plugins, three benchmark types
+> (simple/tool-use/agent), external code-gen providers, multi-compare, cost analysis, leaderboard,
+> and a tab-based frontend dashboard.
+
+- [x] (2026-03-02) 26A-26D: Provider interface, evaluation pipeline, simple/tool-use/agent runners
+- [x] (2026-03-02) 26E-26F: External providers (HumanEval, MBPP, BigCodeBench, CRUXEval, LiveCodeBench, SWE-bench, SPARCBench, Aider Polyglot)
+- [x] (2026-03-02) 26G: Go API enhancements (multi-compare, cost analysis, leaderboard, suites CRUD, training data export)
+- [x] (2026-03-02) 26H: Frontend dashboard redesign (5-tab layout: Runs, Leaderboard, Cost Analysis, Multi-Compare, Suites)
+- [x] (2026-03-02) 26I: Configuration & documentation (expanded API docs, dev-setup guide, config comments)
+
+### Phase 29: Hybrid Intelligent Model Routing (COMPLETED)
 
 > Three-layer intelligent routing cascade replacing manual tag-based LiteLLM model routing.
 > Layer 1: ComplexityAnalyzer (rule-based, <1ms). Layer 2: MABModelSelector (UCB1 learning).
@@ -1176,4 +1188,19 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 29G: Integration -- `resolve_model_with_routing()` in llm.py, conversation handler, executor -- 12 integration tests
 - [x] (2026-03-02) 29H: LiteLLM config wildcard routing (6 provider entries replace 38 individual models)
 - [x] (2026-03-02) 29I: Documentation updates (todo.md, project-status.md, features/03, architecture.md)
-- [ ] 29J: Go integration — routing service HTTP handlers, model registry capability sync, routing_enabled NATS flag (required for full MAB learning loop)
+- [x] (2026-03-02) 29J: Go integration — `Routing` config struct, `CODEFORGE_ROUTING_ENABLED` env var, `RoutingEnabled` flag in NATS payload, wired in main.go
+
+### Phase 30: Goal Discovery — Project-Aware Context for Agents (COMPLETED)
+
+> Auto-detection of project goals from workspace files, priority-based injection into agent system prompts, and full CRUD REST API with frontend GoalsPanel.
+
+- [x] (2026-03-02) 30A: Domain model (`goal.ProjectGoal`, 5 goal kinds, validation) + DB migration 056 + Postgres store (7 CRUD methods)
+- [x] (2026-03-02) 30B: `GoalDiscoveryService` — three-tier workspace detection (GSD `.planning/`, agent instructions, project docs), context rendering, 11 tests
+- [x] (2026-03-02) 30C: Mock store stubs updated across all test files for compilation
+- [x] (2026-03-02) 30D: HTTP handlers (6 endpoints) + route registration + main.go wiring
+- [x] (2026-03-02) 30E: Context optimizer integration — goal entries as high-priority candidates in context packs
+- [x] (2026-03-02) 30F: System prompt injection — `renderGoalContext()` wired in conversation agent builder
+- [x] (2026-03-02) 30G: Auto-detection on project setup — `DetectAndImport()` in `SetupProject()` Step 4
+- [x] (2026-03-02) 30I: Frontend `GoalsPanel.tsx` — grouped by kind, detect/create/toggle/delete, i18n (en + de)
+- [x] (2026-03-02) 30H: Bug fixes — binary file detection (`bytes.ContainsRune`), UTF-8-safe truncation (`truncateUTF8`), README heading logic rewrite, 4 new tests (18 total)
+- [x] (2026-03-02) 30J: Documentation — architecture.md, dev-setup.md, features/04, project-status.md, todo.md

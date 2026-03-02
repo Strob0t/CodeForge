@@ -526,6 +526,74 @@ Background ticker runs every 60s, releasing tasks stuck in `running`/`queued` st
 
 `ActiveWorkPanel` component renders above the chat panel on the project page. Shows each active task with: pulsing status dot (green=running, yellow=queued), task title, agent name + mode badge, step count, and cost. Auto-refreshes on WS events with 500ms debounce.
 
+### Goal Discovery — Project-Aware Context for Agents (Phase 30)
+
+Agents previously received only code and conversation as context. Goal Discovery auto-detects project vision, requirements, constraints, and state from workspace files and injects them into the agent's context window. This gives agents a "north star" so they make decisions aligned with the project's actual goals, not just the immediate task prompt.
+
+#### Detection Tiers
+
+Three-tier file scanning with priority-based ordering:
+
+| Tier | Source Files | Goal Kind | Priority |
+|------|-------------|-----------|----------|
+| 1. GSD (Goal-Structured Development) | `.planning/goals.md`, `.planning/requirements.md`, `.planning/constraints.md` | vision, requirement, constraint | 95-85 |
+| 2. Agent Instructions | `CLAUDE.md`, `.cursorrules`, `.clinerules` | context | 80 |
+| 3. Project Documentation | `README.md`, `docs/architecture.md`, `docs/requirements.md`, `CONTRIBUTING.md` | state, context | 75-70 |
+
+Detection is workspace-path-based: files are read from disk, parsed for relevant sections, and imported as `ProjectGoal` records in PostgreSQL.
+
+#### Goal Kinds
+
+| Kind | Purpose | Example Source |
+|------|---------|---------------|
+| `vision` | High-level project purpose and direction | `.planning/goals.md`, README intro |
+| `requirement` | Functional/non-functional requirements | `.planning/requirements.md`, docs/requirements.md |
+| `constraint` | Architecture decisions, tech choices, coding standards | `.planning/constraints.md`, CLAUDE.md |
+| `state` | Current project status, what is built, what is missing | README "Status" section, CONTRIBUTING.md |
+| `context` | General context that helps agents understand the codebase | `.cursorrules`, docs/architecture.md |
+
+#### Context Injection
+
+Goals reach agents through two complementary paths:
+
+1. **System prompt injection** -- `renderGoalContext()` in `conversation_agent.go` fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, renders them as structured markdown grouped by kind, and injects them into the `GoalContext` template field of the agent system prompt.
+
+2. **Context pack entries** -- `ContextOptimizerService` includes goal entries (kind `EntryGoal`) as high-priority candidates during context packing, ensuring goals survive token budget trimming.
+
+#### Auto-Discovery
+
+Goal detection runs automatically during `SetupProject()` (Step 4) after repo clone completes. The service gracefully handles missing workspaces, missing goal files, and detection failures without blocking project setup.
+
+#### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/projects/{id}/goals` | List all goals for a project |
+| `POST` | `/api/v1/projects/{id}/goals` | Create a goal manually |
+| `POST` | `/api/v1/projects/{id}/goals/detect` | Trigger auto-detection from workspace |
+| `GET` | `/api/v1/goals/{id}` | Get a single goal by ID |
+| `PUT` | `/api/v1/goals/{id}` | Update a goal (title, content, kind, priority, enabled) |
+| `DELETE` | `/api/v1/goals/{id}` | Delete a goal |
+
+#### Frontend
+
+`GoalsPanel` component renders on the project detail page. Goals are grouped by kind with color-coded badges. Users can detect goals from workspace, create goals manually, toggle enabled/disabled, and delete. i18n support for English and German.
+
+#### Key Files
+
+| File | Purpose |
+|------|---------|
+| `internal/domain/goal/goal.go` | GoalKind enum, ProjectGoal, CreateRequest, UpdateRequest, validation |
+| `internal/service/goal_discovery.go` | GoalDiscoveryService (detect, CRUD, context rendering) |
+| `internal/service/goal_discovery_test.go` | 11 unit tests |
+| `internal/adapter/postgres/store_project_goal.go` | PostgreSQL CRUD (7 methods) |
+| `internal/adapter/postgres/migrations/056_project_goals.sql` | DB migration |
+| `internal/adapter/http/handlers_goals.go` | HTTP handlers (6 endpoints) |
+| `internal/service/conversation_agent.go` | System prompt injection (`renderGoalContext()`) |
+| `internal/service/context_optimizer.go` | Context pack injection (`SetGoalService()`) |
+| `internal/service/project.go` | Auto-detection in `SetupProject()` Step 4 |
+| `frontend/src/features/project/GoalsPanel.tsx` | Goal management UI |
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.
@@ -572,6 +640,10 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 | `GET` | `/api/v1/a2a/tasks` | List A2A tasks (filter by state/direction) |
 | `GET` | `/api/v1/a2a/tasks/{id}` | Get A2A task details |
 | `POST` | `/api/v1/a2a/tasks/{id}/cancel` | Cancel an A2A task |
+| `POST` | `/api/v1/a2a/tasks/{id}/push-config` | Create push notification config |
+| `GET` | `/api/v1/a2a/tasks/{id}/push-config` | List push configs for a task |
+| `DELETE` | `/api/v1/a2a/push-config/{id}` | Delete a push notification config |
+| `GET` | `/api/v1/a2a/tasks/{id}/subscribe` | SSE stream for task state changes |
 
 **WebSocket Events:**
 
@@ -604,3 +676,67 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 | `internal/middleware/a2a_auth.go` | Bearer token auth middleware |
 | `internal/domain/a2a/` | Domain types (A2ATask, RemoteAgent) |
 | `internal/adapter/postgres/store_a2a.go` | PostgreSQL persistence |
+
+**Security Hardening (Phase 27P):**
+
+| Feature | Implementation | Protection |
+|---------|---------------|------------|
+| Constant-time auth | `crypto/subtle.ConstantTimeCompare` in `a2a_auth.go` | Timing attack prevention |
+| Webhook URL validation | `validateWebhookURL()` — require https, block private IPs | SSRF prevention |
+| Prompt length limit | `MaxA2APromptLength = 100,000` in `SendTask()` | Abuse prevention |
+| HMAC-SHA256 signature | `X-CodeForge-Signature: sha256=...` on push webhooks | Payload integrity |
+
+### Goal Discovery (Phase 30)
+
+> Status: Completed (2026-03-02)
+> Auto-detection of project goals from workspace files, priority-based injection into agent system prompts, full CRUD REST API.
+
+#### Goal Kinds
+
+| Kind | Description | Typical Source |
+|---|---|---|
+| `vision` | What the project aims to achieve | `PROJECT.md`, `README.md` |
+| `requirement` | Functional requirements | `REQUIREMENTS.md`, `docs/requirements.md` |
+| `constraint` | Rules and architectural decisions | `CLAUDE.md`, `.cursorrules`, `docs/architecture.md` |
+| `state` | Current progress / phase info | `STATE.md` |
+| `context` | Background context for agents | `NN-CONTEXT.md` files |
+
+#### Detection Tiers
+
+Three-tier priority-ordered detection from workspace files:
+
+1. **GSD `.planning/`** — `PROJECT.md` (vision, p95), `REQUIREMENTS.md` (requirement, p90), `STATE.md` (state, p80), `NN-CONTEXT.md` (context, p75)
+2. **Agent Instructions** — `CLAUDE.md` (constraint, p88), `.cursorrules` (constraint, p85), `.clinerules` (constraint, p85)
+3. **Project Docs** — `README.md` first section only (vision, p70), `CONTRIBUTING.md` (constraint, p60), `docs/architecture.md` (constraint, p75), `docs/requirements.md` (requirement, p85)
+
+Safety guards: files >50KB skipped, binary files (null bytes) skipped, README truncated to first section with UTF-8-safe 2000-byte limit.
+
+#### Context Injection (Dual-Path)
+
+Goals are injected into agent interactions through two complementary paths:
+
+1. **ContextPack entries** — `AsContextEntries()` converts enabled goals into `EntryGoal` entries for the context optimizer's token-budget-aware assembly
+2. **System prompt markdown** — `renderGoalContext()` renders goals grouped by kind into structured markdown injected via `{{.GoalContext}}` template variable
+
+#### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/projects/{id}/goals` | List goals for a project |
+| `POST` | `/api/v1/projects/{id}/goals` | Create a goal (manual) |
+| `POST` | `/api/v1/projects/{id}/goals/detect` | Trigger auto-detection |
+| `GET` | `/api/v1/goals/{id}` | Get a single goal |
+| `PUT` | `/api/v1/goals/{id}` | Update a goal |
+| `DELETE` | `/api/v1/goals/{id}` | Delete a goal |
+
+#### Key Files
+
+| File | Purpose |
+|---|---|
+| `internal/domain/goal/goal.go` | Domain model, kinds, validation |
+| `internal/service/goal_discovery.go` | Detection logic, context rendering, CRUD service |
+| `internal/adapter/postgres/store_project_goal.go` | PostgreSQL persistence (7 methods) |
+| `internal/adapter/postgres/migrations/056_project_goals.sql` | DB migration |
+| `internal/adapter/http/handlers_goals.go` | REST API handlers |
+| `internal/service/context_optimizer.go` | Goal → ContextPack integration |
+| `internal/service/conversation_agent.go` | Goal → system prompt injection |

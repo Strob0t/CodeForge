@@ -287,6 +287,9 @@ func loadEnv(cfg *Config) {
 	setBool(&cfg.Copilot.Enabled, "CODEFORGE_COPILOT_ENABLED")
 	setString(&cfg.Copilot.HostsFilePath, "CODEFORGE_COPILOT_HOSTS_FILE")
 
+	// Routing
+	setBool(&cfg.Routing.Enabled, "CODEFORGE_ROUTING_ENABLED")
+
 	// Experience Pool
 	setBool(&cfg.Experience.Enabled, "CODEFORGE_EXPERIENCE_ENABLED")
 	setFloat64(&cfg.Experience.ConfidenceThreshold, "CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD")

@@ -40,6 +40,7 @@ type conversationPromptData struct {
 	Modes              []string
 	RecentTasks        []conversationTaskSummary
 	RoadmapSummary     string
+	GoalContext        string
 	BuiltinTools       []builtinToolSummary
 }
 
@@ -68,7 +69,9 @@ type ConversationService struct {
 	mcpSvc        *MCPService
 	policySvc     *PolicyService
 	microagentSvc *MicroagentService
+	goalSvc       *GoalDiscoveryService
 	agentCfg      *config.Agent
+	routingCfg    *config.Routing
 	metrics       *cfotel.Metrics
 }
 
@@ -103,6 +106,12 @@ func (s *ConversationService) SetMicroagentService(svc *MicroagentService) { s.m
 
 // SetMetrics sets the OTEL metrics collector.
 func (s *ConversationService) SetMetrics(m *cfotel.Metrics) { s.metrics = m }
+
+// SetGoalService wires the goal discovery service for system prompt injection.
+func (s *ConversationService) SetGoalService(svc *GoalDiscoveryService) { s.goalSvc = svc }
+
+// SetRoutingConfig configures intelligent model routing for conversation runs.
+func (s *ConversationService) SetRoutingConfig(cfg *config.Routing) { s.routingCfg = cfg }
 
 // resolveModel picks the best available model using priority:
 // AgentConfig.DefaultModel > ModelRegistry.BestModel > static ConversationService.model.

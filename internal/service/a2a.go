@@ -1,10 +1,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -18,6 +25,9 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
+
+// MaxA2APromptLength limits the size of prompts submitted via A2A to prevent abuse.
+const MaxA2APromptLength = 100_000
 
 // A2AService manages outbound A2A federation (Phase 27K).
 type A2AService struct {
@@ -127,6 +137,10 @@ func (s *A2AService) RefreshAgent(ctx context.Context, agentID string) (*a2adoma
 
 // SendTask sends a task to a remote A2A agent.
 func (s *A2AService) SendTask(ctx context.Context, remoteAgentID, skillID, prompt string) (*a2adomain.A2ATask, error) {
+	if len(prompt) > MaxA2APromptLength {
+		return nil, fmt.Errorf("send task: prompt exceeds maximum length of %d bytes", MaxA2APromptLength)
+	}
+
 	client, ra, err := s.getOrCreateClient(ctx, remoteAgentID)
 	if err != nil {
 		return nil, err
@@ -282,6 +296,194 @@ func (s *A2AService) CancelTask(ctx context.Context, id string) error {
 	dt.State = a2adomain.TaskStateCanceled
 	dt.UpdatedAt = time.Now().UTC()
 	return s.store.UpdateA2ATask(ctx, dt)
+}
+
+// --- Push Notification Config CRUD (Phase 27O) ---
+
+// CreatePushConfig creates a push notification config for a task.
+func (s *A2AService) CreatePushConfig(ctx context.Context, taskID, webhookURL, token string) (string, error) {
+	if taskID == "" {
+		return "", fmt.Errorf("push config: task_id is required")
+	}
+	if webhookURL == "" {
+		return "", fmt.Errorf("push config: url is required")
+	}
+	if err := validateWebhookURL(webhookURL); err != nil {
+		return "", fmt.Errorf("push config: %w", err)
+	}
+	// Verify task exists.
+	if _, err := s.store.GetA2ATask(ctx, taskID); err != nil {
+		return "", fmt.Errorf("push config: %w", err)
+	}
+	return s.store.CreateA2APushConfig(ctx, taskID, webhookURL, token)
+}
+
+// validateWebhookURL validates that a webhook URL is safe for server-side requests.
+// It requires https (or http://localhost for dev), and blocks private/reserved IP ranges.
+func validateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+
+	hostname := u.Hostname()
+	isLoopback := hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1"
+
+	// Require https, except localhost/loopback for development.
+	if u.Scheme != "https" {
+		if u.Scheme == "http" && isLoopback {
+			return nil // Allow http for localhost development; skip SSRF check.
+		}
+		return fmt.Errorf("webhook url must use https (got %q)", u.Scheme)
+	}
+
+	// For https URLs: resolve hostname to check for private IPs (SSRF prevention).
+	if ip := net.ParseIP(hostname); ip != nil {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("webhook url must not target private/reserved IP addresses")
+		}
+	} else {
+		resolver := &net.Resolver{}
+		addrs, resolveErr := resolver.LookupHost(context.Background(), hostname)
+		if resolveErr == nil {
+			for _, addr := range addrs {
+				if ip := net.ParseIP(addr); ip != nil && isPrivateIP(ip) {
+					return fmt.Errorf("webhook url hostname %q resolves to private IP", hostname)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// isPrivateIP returns true if the IP is in a private, loopback, or reserved range.
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// ListPushConfigs returns all push configs for a task.
+func (s *A2AService) ListPushConfigs(ctx context.Context, taskID string) ([]database.A2APushConfig, error) {
+	return s.store.ListA2APushConfigs(ctx, taskID)
+}
+
+// DeletePushConfig removes a push notification config.
+func (s *A2AService) DeletePushConfig(ctx context.Context, id string) error {
+	return s.store.DeleteA2APushConfig(ctx, id)
+}
+
+// DispatchPushNotifications sends webhook POST to all push configs for a task.
+func (s *A2AService) DispatchPushNotifications(ctx context.Context, taskID string) {
+	configs, err := s.store.ListA2APushConfigs(ctx, taskID)
+	if err != nil || len(configs) == 0 {
+		return
+	}
+
+	task, err := s.store.GetA2ATask(ctx, taskID)
+	if err != nil {
+		slog.Warn("push dispatch: task not found", "task_id", taskID, "error", err)
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"task_id":   task.ID,
+		"state":     string(task.State),
+		"artifacts": json.RawMessage(task.Artifacts),
+	})
+
+	for _, cfg := range configs {
+		go s.sendWebhook(cfg.URL, cfg.Token, payload)
+	}
+}
+
+// sendWebhook POSTs a payload to a webhook URL with optional Bearer token, HMAC signature, and retry.
+func (s *A2AService) sendWebhook(webhookURL, token string, payload []byte) {
+	const maxRetries = 3
+	client := &http.Client{Timeout: 10 * time.Second}
+	ctx := context.Background()
+
+	for attempt := range maxRetries {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
+		if err != nil {
+			slog.Warn("push webhook: bad request", "url", webhookURL, "error", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+			// HMAC-SHA256 signature for payload integrity verification.
+			req.Header.Set("X-CodeForge-Signature", computeHMAC(payload, token))
+		}
+
+		resp, err := client.Do(req) //nolint:gosec // URL is validated at push config creation time
+		if err != nil {
+			slog.Warn("push webhook: request failed", "url", webhookURL, "attempt", attempt+1, "error", err)
+			time.Sleep(time.Duration(attempt+1) * time.Second)
+			continue
+		}
+		_ = resp.Body.Close()
+
+		if resp.StatusCode < 300 {
+			slog.Debug("push webhook: delivered", "url", webhookURL, "status", resp.StatusCode)
+			return
+		}
+		slog.Warn("push webhook: non-2xx response", "url", webhookURL, "status", resp.StatusCode, "attempt", attempt+1)
+		time.Sleep(time.Duration(attempt+1) * time.Second)
+	}
+	slog.Error("push webhook: all retries exhausted", "url", webhookURL)
+}
+
+// computeHMAC returns the hex-encoded HMAC-SHA256 of payload using key as the secret.
+func computeHMAC(payload []byte, key string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// HandleTaskComplete processes a completed A2A task: updates state, broadcasts WS, dispatches push.
+func (s *A2AService) HandleTaskComplete(ctx context.Context, taskID, state, errMsg string) error {
+	dt, err := s.store.GetA2ATask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("handle task complete: %w", err)
+	}
+
+	dt.State = a2adomain.TaskState(state)
+	dt.ErrorMessage = errMsg
+	dt.UpdatedAt = time.Now().UTC()
+	if err := s.store.UpdateA2ATask(ctx, dt); err != nil {
+		return fmt.Errorf("handle task complete: %w", err)
+	}
+
+	// Broadcast WS event.
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, ws.EventA2ATaskComplete, ws.A2ATaskStatusEvent{
+			TaskID:        dt.ID,
+			State:         string(dt.State),
+			Direction:     string(dt.Direction),
+			RemoteAgentID: dt.RemoteAgentID,
+		})
+	}
+
+	// Dispatch push notifications asynchronously.
+	s.DispatchPushNotifications(ctx, taskID)
+	return nil
+}
+
+// StartCompletionSubscriber subscribes to A2A task completion events from NATS.
+// It updates task state, broadcasts WS events, and dispatches push notifications.
+func (s *A2AService) StartCompletionSubscriber(ctx context.Context) (cancel func(), err error) {
+	return s.queue.Subscribe(ctx, messagequeue.SubjectA2ATaskComplete, func(ctx context.Context, _ string, data []byte) error {
+		var payload messagequeue.A2ATaskCompletePayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			slog.Warn("a2a: invalid completion payload", "error", err)
+			return nil // don't retry malformed messages
+		}
+		if err := s.HandleTaskComplete(ctx, payload.TaskID, payload.State, payload.Error); err != nil {
+			slog.Warn("a2a: handle task complete", "task_id", payload.TaskID, "error", err)
+		}
+		return nil
+	})
 }
 
 // getOrCreateClient lazily creates or retrieves an a2aclient.Client for a remote agent.

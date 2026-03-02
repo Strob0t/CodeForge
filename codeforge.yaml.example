@@ -93,8 +93,10 @@ auth:
   default_admin_email: "admin@localhost"  # Seed admin email on first start
   default_admin_pass: "changeme123"       # Seed admin password (change immediately)
 
-# Benchmark evaluation (dev-only, Phase 20)
-# Used by the evaluation framework to run LLM benchmarks and collect scores.
+# Benchmark evaluation system (dev-only, Phase 20 + 26)
+# Three benchmark types: simple (prompt/response), tool-use (with tools), agent (full workspace).
+# Seven external providers: HumanEval, MBPP, BigCodeBench, CRUXEval, LiveCodeBench, SWE-bench, SPARCBench.
+# Metrics: correctness, tool_correctness, faithfulness, answer_relevancy, contextual_precision.
 # benchmark:
 #   datasets_dir: "configs/benchmarks"   # Directory with benchmark dataset YAML files
 #   dashboard_port: 0                    # AgentNeo dashboard port (0 = disabled)

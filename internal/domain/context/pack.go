@@ -19,12 +19,13 @@ const (
 	EntryHybrid     EntryKind = "hybrid"     // Hybrid retrieval result (BM25 + semantic)
 	EntryGraph      EntryKind = "graph"      // GraphRAG traversal result
 	EntryDiagnostic EntryKind = "diagnostic" // LSP diagnostic (errors, warnings)
+	EntryGoal       EntryKind = "goal"       // Project goal (vision, requirement, constraint, state)
 )
 
 // ValidEntryKind reports whether k is a known entry kind.
 func ValidEntryKind(k EntryKind) bool {
 	switch k {
-	case EntryFile, EntrySnippet, EntrySummary, EntryShared, EntryRepoMap, EntryHybrid, EntryGraph, EntryDiagnostic:
+	case EntryFile, EntrySnippet, EntrySummary, EntryShared, EntryRepoMap, EntryHybrid, EntryGraph, EntryDiagnostic, EntryGoal:
 		return true
 	}
 	return false

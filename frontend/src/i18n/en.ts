@@ -1189,8 +1189,81 @@ const en = {
   "benchmark.toast.createError": "Failed to create benchmark run",
   "benchmark.toast.deleted": "Benchmark run deleted",
   "benchmark.toast.deleteError": "Failed to delete benchmark run",
-  "benchmark.toast.compareReady": "Comparison ready (see console)",
+  "benchmark.toast.compareReady": "Comparison ready",
   "benchmark.toast.compareError": "Failed to compare benchmark runs",
+
+  // Benchmark Dashboard tabs (Phase 26H)
+  "benchmark.tab.runs": "Runs",
+  "benchmark.tab.leaderboard": "Leaderboard",
+  "benchmark.tab.costAnalysis": "Cost Analysis",
+  "benchmark.tab.multiCompare": "Multi-Compare",
+  "benchmark.tab.suites": "Suites",
+
+  // Leaderboard
+  "benchmark.leaderboard.title": "Model Leaderboard",
+  "benchmark.leaderboard.empty": "No leaderboard data yet. Complete benchmark runs first.",
+  "benchmark.leaderboard.avgScore": "Avg Score",
+  "benchmark.leaderboard.totalCost": "Total Cost",
+  "benchmark.leaderboard.taskCount": "Tasks",
+  "benchmark.leaderboard.costPerPoint": "Cost/Point",
+  "benchmark.leaderboard.tokenEfficiency": "Token Eff.",
+  "benchmark.leaderboard.filterBySuite": "Filter by Suite",
+  "benchmark.leaderboard.allSuites": "All Suites",
+
+  // Cost Analysis
+  "benchmark.costAnalysis.title": "Cost Analysis",
+  "benchmark.costAnalysis.empty": "Select a run to view cost analysis.",
+  "benchmark.costAnalysis.selectRun": "Select Run",
+  "benchmark.costAnalysis.totalCost": "Total Cost",
+  "benchmark.costAnalysis.avgScore": "Avg Score",
+  "benchmark.costAnalysis.costPerPoint": "Cost per Score Point",
+  "benchmark.costAnalysis.tokenEfficiency": "Token Efficiency",
+  "benchmark.costAnalysis.tokensIn": "Tokens In",
+  "benchmark.costAnalysis.tokensOut": "Tokens Out",
+  "benchmark.costAnalysis.taskBreakdown": "Task Breakdown",
+
+  // Multi-Compare
+  "benchmark.multiCompare.title": "Multi-Run Comparison",
+  "benchmark.multiCompare.selectRuns": "Select runs to compare (2+)",
+  "benchmark.multiCompare.compareBtn": "Compare Selected",
+  "benchmark.multiCompare.noResults": "Select two or more runs and click Compare.",
+
+  // Suites
+  "benchmark.suites.title": "Benchmark Suites",
+  "benchmark.suites.empty": "No suites configured yet.",
+  "benchmark.suites.name": "Suite Name",
+  "benchmark.suites.type": "Type",
+  "benchmark.suites.provider": "Provider",
+  "benchmark.suites.taskCount": "Tasks",
+  "benchmark.suites.createBtn": "Create Suite",
+  "benchmark.suites.toast.created": "Suite created",
+  "benchmark.suites.toast.createError": "Failed to create suite",
+  "benchmark.suites.toast.deleted": "Suite deleted",
+  "benchmark.suites.toast.deleteError": "Failed to delete suite",
+
+  // Export
+  "benchmark.export.training": "Export Training Data",
+
+  // -- Project Goals (Phase 28) -----------------------------------------------
+  "goals.tab": "Goals",
+  "goals.title": "Project Goals",
+  "goals.empty": 'No goals detected yet. Click "Detect Goals" to scan the workspace.',
+  "goals.detect": "Detect Goals",
+  "goals.detecting": "Detecting...",
+  "goals.add": "Add Goal",
+  "goals.enable": "Enable goal",
+  "goals.disable": "Disable goal",
+  "goals.form.titlePlaceholder": "Goal title",
+  "goals.form.contentPlaceholder": "Goal content (markdown)",
+  "goals.toast.detected": "Detected and imported {{count}} goals",
+  "goals.toast.detectFailed": "Goal detection failed",
+  "goals.toast.created": "Goal created",
+  "goals.toast.createFailed": "Failed to create goal",
+  "goals.toast.updated": "Goal updated",
+  "goals.toast.updateFailed": "Failed to update goal",
+  "goals.toast.deleted": "Goal deleted",
+  "goals.toast.deleteFailed": "Failed to delete goal",
+  "goals.toast.titleRequired": "Goal title is required",
 } as const;
 
 export type TranslationKey = keyof typeof en;

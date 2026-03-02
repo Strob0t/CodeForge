@@ -1868,6 +1868,29 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
 ```
 
+### Goal Discovery: Project-Aware Context for Agents
+
+Auto-detection of project goals from workspace files, injected into agent system prompts for project-aware context.
+
+#### Detection Architecture
+
+```text
+Workspace Directory
+  |
+  |-- Tier 1: GSD .planning/ (PROJECT.md, REQUIREMENTS.md, STATE.md, NN-CONTEXT.md)
+  |-- Tier 2: Agent Instructions (CLAUDE.md, .cursorrules, .clinerules)
+  |-- Tier 3: Project Docs (README.md, CONTRIBUTING.md, docs/architecture.md, docs/requirements.md)
+  |
+  v
+detectGoalFiles() -> []ProjectGoal (kind, title, content, source, priority)
+  |
+  |-- DetectAndImport() -> DB (idempotent: delete-by-source + recreate)
+  |-- AsContextEntries() -> ContextPack (EntryGoal, priority-weighted)
+  |-- renderGoalContext() -> System Prompt ({{.GoalContext}} template variable)
+```
+
+Five goal kinds: `vision`, `requirement`, `constraint`, `state`, `context`. Safety: files >50KB skipped, binary detection (null bytes), UTF-8-safe truncation at 2000 bytes for README first-section extraction.
+
 #### Frontend Directory Structure (SolidJS)
 
 ```text

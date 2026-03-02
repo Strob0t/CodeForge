@@ -643,34 +643,83 @@ The Docker Compose postgres service is configured with `wal_level=replica` and `
 | `BACKUP_DIR` | `./backups/postgres` | Directory for backup files |
 | `BACKUP_RETAIN_DAYS` | `7` | Days to retain backups before cleanup |
 
-### Benchmark Mode (Dev-Only)
+### Benchmark System (Phase 20 + 26)
 
-The benchmark evaluation framework (Phase 20) allows running LLM benchmarks to measure agent quality.
+The benchmark evaluation framework measures agent quality with configurable metrics, providers, and evaluator plugins. Requires `APP_ENV=development`.
 
-#### Activation
+#### Architecture
 
-Benchmark mode is available through the REST API and the frontend dashboard. No special activation is needed — the benchmark endpoints are always registered.
+```
+Dataset YAML  -->  BenchmarkRunner (Go/Python)  -->  Evaluator Pipeline  -->  Results DB
+                                                         |
+                                                   LLMJudge / FunctionalTest / SPARC
+```
+
+Three benchmark types:
+- **Simple**: Direct LLM prompt/response scoring (correctness, faithfulness)
+- **Tool-Use**: LLM calls with tool invocation validation
+- **Agent**: Full workspace lifecycle (clone, edit, test, evaluate)
+
+Seven external providers: HumanEval, MBPP, BigCodeBench, CRUXEval, LiveCodeBench, SWE-bench (full/lite/verified), SPARCBench, Aider Polyglot.
+
+#### API Endpoints
+
+All endpoints under `/api/v1/benchmarks` (dev-mode only).
 
 ```bash
-# Create a benchmark run via API
+# --- Run CRUD ---
 curl -X POST http://localhost:8080/api/v1/benchmarks/runs \
   -H "Content-Type: application/json" \
   -d '{"dataset": "basic-coding", "model": "openai/gpt-4o", "metrics": ["correctness"]}'
 
-# List runs
 curl http://localhost:8080/api/v1/benchmarks/runs
-
-# View results
+curl http://localhost:8080/api/v1/benchmarks/runs/{run_id}
 curl http://localhost:8080/api/v1/benchmarks/runs/{run_id}/results
+curl -X DELETE http://localhost:8080/api/v1/benchmarks/runs/{run_id}
+
+# --- Suite CRUD ---
+curl -X POST http://localhost:8080/api/v1/benchmarks/suites \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Code Quality", "type": "deepeval", "provider_name": "deepeval"}'
+
+curl http://localhost:8080/api/v1/benchmarks/suites
+curl http://localhost:8080/api/v1/benchmarks/suites/{suite_id}
+curl -X DELETE http://localhost:8080/api/v1/benchmarks/suites/{suite_id}
+
+# --- Comparison ---
+# Two-run comparison
+curl -X POST http://localhost:8080/api/v1/benchmarks/compare \
+  -H "Content-Type: application/json" \
+  -d '{"run_id_a": "...", "run_id_b": "..."}'
+
+# Multi-run comparison (N runs)
+curl -X POST http://localhost:8080/api/v1/benchmarks/compare-multi \
+  -H "Content-Type: application/json" \
+  -d '{"run_ids": ["id1", "id2", "id3"]}'
+
+# --- Analysis ---
+curl http://localhost:8080/api/v1/benchmarks/runs/{run_id}/cost-analysis
+curl "http://localhost:8080/api/v1/benchmarks/leaderboard?suite_id=optional"
+curl "http://localhost:8080/api/v1/benchmarks/runs/{run_id}/export/training?format=json"
+
+# --- Datasets ---
+curl http://localhost:8080/api/v1/benchmarks/datasets
 ```
 
 #### Dashboard
 
-The frontend Benchmarks page (`/benchmarks`) provides a UI for creating runs, viewing results, and comparing runs side-by-side. Accessible from the sidebar in dev mode.
+The frontend Benchmarks page (`/benchmarks`) has 5 tabs:
+- **Runs** — Create/delete runs, view results, two-run comparison
+- **Leaderboard** — Model ranking by avg score, cost efficiency, token efficiency
+- **Cost Analysis** — Per-run cost breakdown with task-level detail, training data export
+- **Multi-Compare** — Side-by-side comparison of N runs with metric highlighting
+- **Suites** — Benchmark suite management (CRUD)
 
 #### Dataset Directory
 
-Benchmark datasets are YAML files in `configs/benchmarks/` (configurable via `benchmark.datasets_dir` in `codeforge.yaml`). See `configs/benchmarks/README.md` for the YAML schema and how to add custom datasets.
+Benchmark datasets are YAML files in `configs/benchmarks/` (configurable via `benchmark.datasets_dir` in `codeforge.yaml`). See `configs/benchmarks/README.md` for the YAML schema.
+
+Available metrics: `correctness`, `tool_correctness`, `faithfulness`, `answer_relevancy`, `contextual_precision`.
 
 #### Configuration
 
@@ -746,6 +795,34 @@ model_list:
 ```
 
 When routing is disabled (`CODEFORGE_ROUTING_ENABLED=false`), the system falls back to scenario-based tag routing.
+
+### Goal Discovery (Phase 30)
+
+Auto-detection of project vision, requirements, constraints, and state from workspace files. Goals are injected into agent system prompts and available as ContextPack entries.
+
+#### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/projects/{id}/goals` | List goals for a project |
+| `POST` | `/api/v1/projects/{id}/goals` | Create a goal |
+| `POST` | `/api/v1/projects/{id}/goals/detect` | Trigger auto-detection from workspace |
+| `GET` | `/api/v1/goals/{id}` | Get a single goal |
+| `PUT` | `/api/v1/goals/{id}` | Update a goal |
+| `DELETE` | `/api/v1/goals/{id}` | Delete a goal |
+
+#### Database
+
+Goal Discovery uses 1 PostgreSQL table (migration `056_project_goals.sql`): `project_goals`.
+
+#### Key Files
+
+| File | Purpose |
+|---|---|
+| `internal/domain/goal/goal.go` | Domain model (5 kinds, validation) |
+| `internal/service/goal_discovery.go` | Three-tier detection, context rendering, CRUD |
+| `internal/adapter/postgres/store_project_goal.go` | PostgreSQL persistence |
+| `internal/adapter/http/handlers_goals.go` | REST API handlers |
 
 #### Key Files
 
