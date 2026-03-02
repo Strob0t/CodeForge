@@ -16,10 +16,10 @@ import (
 func (s *Store) ListActiveWork(ctx context.Context, projectID string) ([]task.ActiveWorkItem, error) {
 	const q = `
 		SELECT t.id, t.title, t.status, t.project_id,
-			   COALESCE(t.agent_id, '') AS agent_id,
+			   COALESCE(t.agent_id::text, '') AS agent_id,
 			   COALESCE(a.name, '') AS agent_name,
 			   COALESCE(a.mode_id, '') AS agent_mode,
-			   COALESCE(r.id, '') AS run_id,
+			   COALESCE(r.id::text, '') AS run_id,
 			   COALESCE(r.step_count, 0) AS step_count,
 			   COALESCE(r.cost_usd, 0) AS cost_usd,
 			   COALESCE(r.started_at, t.updated_at) AS started_at
