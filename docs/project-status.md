@@ -1216,3 +1216,12 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-03) 29K-2: Model auto-discovery — `model_resolver.py` (cached 60s TTL), no hardcoded model defaults in llm.py, agent_loop.py, config
 - [x] (2026-03-03) 29K-3: NATS runtime fix — `DeliverPolicy.NEW` prevents 30s timeout, `resolveModel()` priority chain in Go
 - [x] (2026-03-03) 29K-4: Documentation updates (features/03, todo.md, project-status.md)
+
+### Bug Fixes: Non-Agentic Chat Path & Agent Loop Resilience (COMPLETED)
+
+> Fixes two issues discovered during model auto-discovery testing: Mistral rejects
+> `role: "tool"` messages from previous agentic runs in the simple chat path, and
+> 429 rate limit errors immediately kill the agent loop with no retry.
+
+- [x] (2026-03-03) Filter tool messages from non-agentic chat history — skip `role: "tool"` and empty `role: "assistant"` with `tool_calls` in `conversation.go` `SendMessage()`
+- [x] (2026-03-03) Rate limit retry with exponential backoff in agent loop — max 2 retries (2s, 4s) for 429/RateLimitError in `agent_loop.py`
