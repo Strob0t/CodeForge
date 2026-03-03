@@ -17,6 +17,7 @@ import { StepProgress } from "~/components/StepProgress";
 import { getVariant, planStatusVariant, stepStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, FormField, Input, Select, Textarea } from "~/ui";
+import { ModelCombobox } from "~/ui/composites/ModelCombobox";
 
 import AgentFlowGraph from "./AgentFlowGraph";
 import StepDetailPanel from "./StepDetailPanel";
@@ -322,11 +323,10 @@ export default function PlanPanel(props: PlanPanelProps) {
               <div class="mt-3 flex items-center gap-4">
                 <div class="flex-1">
                   <FormField id="decompose-model" label={t("plan.form.modelOverride")}>
-                    <Input
+                    <ModelCombobox
                       id="decompose-model"
-                      type="text"
                       value={decomposeModel()}
-                      onInput={(e) => setDecomposeModel(e.currentTarget.value)}
+                      onInput={setDecomposeModel}
                       placeholder="e.g. openai/gpt-4o"
                     />
                   </FormField>

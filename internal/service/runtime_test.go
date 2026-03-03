@@ -792,7 +792,10 @@ func (m *runtimeMockStore) ListBenchmarkSuites(_ context.Context) ([]benchmark.S
 	return nil, nil
 }
 func (m *runtimeMockStore) DeleteBenchmarkSuite(_ context.Context, _ string) error { return nil }
-func (m *runtimeMockStore) ListBenchmarkRunsFiltered(_ context.Context, _ benchmark.RunFilter) ([]benchmark.Run, error) {
+func (m *runtimeMockStore) UpdateBenchmarkSuite(_ context.Context, _ *benchmark.Suite) error {
+	return nil
+}
+func (m *runtimeMockStore) ListBenchmarkRunsFiltered(_ context.Context, _ *benchmark.RunFilter) ([]benchmark.Run, error) {
 	return nil, nil
 }
 

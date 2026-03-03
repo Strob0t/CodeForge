@@ -76,7 +76,7 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context) ([]benchmark.Run, error) 
 }
 
 // ListBenchmarkRunsFiltered returns runs matching the given filter.
-func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter benchmark.RunFilter) ([]benchmark.Run, error) {
+func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter *benchmark.RunFilter) ([]benchmark.Run, error) {
 	var conditions []string
 	var args []interface{}
 	idx := 1
@@ -94,13 +94,27 @@ func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter benchmark.
 	if filter.Model != "" {
 		conditions = append(conditions, fmt.Sprintf("model = $%d", idx))
 		args = append(args, filter.Model)
+		idx++
+	}
+	if filter.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", idx))
+		args = append(args, string(filter.Status))
 	}
 
 	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs`
 	if len(conditions) > 0 {
 		q += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	q += " ORDER BY created_at DESC"
+
+	// Sort support
+	switch filter.Sort {
+	case "total_cost":
+		q += " ORDER BY total_cost DESC"
+	case "total_duration_ms":
+		q += " ORDER BY total_duration_ms DESC"
+	default:
+		q += " ORDER BY created_at DESC"
+	}
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {

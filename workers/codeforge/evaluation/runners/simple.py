@@ -55,14 +55,14 @@ class SimpleBenchmarkRunner:
 
         start = time.monotonic()
         try:
-            response = await self._llm.chat(
+            response = await self._llm.chat_completion(
                 model=self._model,
                 messages=[{"role": "user", "content": task.input}],
             )
             actual_output = response.content
-            tokens_in = response.usage.prompt_tokens if response.usage else 0
-            tokens_out = response.usage.completion_tokens if response.usage else 0
-            cost_usd = response.cost if hasattr(response, "cost") else 0.0
+            tokens_in = response.tokens_in
+            tokens_out = response.tokens_out
+            cost_usd = response.cost_usd
         except Exception as exc:
             log.error("LLM call failed", error=str(exc))
             actual_output = f"ERROR: {exc}"

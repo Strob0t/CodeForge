@@ -1168,13 +1168,21 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 
 > Complete benchmark system with provider registry, evaluator plugins, three benchmark types
 > (simple/tool-use/agent), external code-gen providers, multi-compare, cost analysis, leaderboard,
-> and a tab-based frontend dashboard.
+> and a tab-based frontend dashboard. Full-stack integration with NATS bridge, WebSocket live
+> updates, filtering/sorting, CRUD operations, visual enhancements, and 132 E2E tests.
 
 - [x] (2026-03-02) 26A-26D: Provider interface, evaluation pipeline, simple/tool-use/agent runners
 - [x] (2026-03-02) 26E-26F: External providers (HumanEval, MBPP, BigCodeBench, CRUXEval, LiveCodeBench, SWE-bench, SPARCBench, Aider Polyglot)
 - [x] (2026-03-02) 26G: Go API enhancements (multi-compare, cost analysis, leaderboard, suites CRUD, training data export)
 - [x] (2026-03-02) 26H: Frontend dashboard redesign (5-tab layout: Runs, Leaderboard, Cost Analysis, Multi-Compare, Suites)
 - [x] (2026-03-02) 26I: Configuration & documentation (expanded API docs, dev-setup guide, config comments)
+- [x] (2026-03-03) 26J: NATS Bridge — Go Core ↔ Python worker benchmark execution wiring (subject constants, StartRun, HandleBenchmarkRunResult, StartResultSubscriber, main.go + HTTP handler integration)
+- [x] (2026-03-03) 26K: Frontend Type Sync — BenchmarkType/BenchmarkExecMode types, form dropdowns, type/mode badges, i18n
+- [x] (2026-03-03) 26L: WebSocket Live Updates — benchmark.run.progress + benchmark.task.completed subscriptions, URL-based tab persistence, progress bar with pulse animation
+- [x] (2026-03-03) 26M: Filtering & Sorting — Status/Sort on RunFilter, store queries, handler query params, UpdateBenchmarkSuite on Store + 5 mocks
+- [x] (2026-03-03) 26N: CRUD Fixes — PATCH cancel, GET export (CSV/JSON), PUT suite update, expandable tool_calls/actual_output, cancel button + CSV export link, API client methods
+- [x] (2026-03-03) 26O: Visual Enhancements — SVG radar/spider chart (MultiCompareView), metric sort (LeaderboardView), parallel goroutine fetching (CompareMulti)
+- [x] (2026-03-03) 26P: Benchmark E2E Tests — 12 spec files, 132 tests (page tabs, run types, list, suites, compare, leaderboard, cost analysis, orchestrator, design flaws, cleanup)
 
 ### Phase 29: Hybrid Intelligent Model Routing (COMPLETED)
 
@@ -1257,3 +1265,24 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-03) 09-benchmarks (7 tests) — benchmark lifecycle
 - [x] (2026-03-03) 99-cleanup (3 tests) — cleanup test data
 - [x] (2026-03-03) Run: `cd frontend && npx playwright test --config=playwright.llm.config.ts`
+
+### Benchmark E2E Test Suite — Playwright (COMPLETED)
+
+> Browser-based E2E test suite for the benchmark dashboard. 132 tests across 12 spec files
+> covering all benchmark features: run creation (simple/tool-use/agent), run list, suites CRUD,
+> multi-compare, leaderboard, cost analysis, orchestrator, and design flaw validation.
+
+- [x] (2026-03-03) Extended fixture: `benchmark-fixtures.ts`
+- [x] (2026-03-03) benchmark-page-tabs (10 tests) — tab navigation, URL persistence
+- [x] (2026-03-03) benchmark-run-simple (15 tests) — simple benchmark run creation and results
+- [x] (2026-03-03) benchmark-run-tool-use (9 tests) — tool-use benchmark runs
+- [x] (2026-03-03) benchmark-run-agent (12 tests) — agent benchmark runs
+- [x] (2026-03-03) benchmark-run-list (12 tests) — run listing, filtering, sorting, cancel, export
+- [x] (2026-03-03) benchmark-suites (11 tests) — suite CRUD, edit functionality
+- [x] (2026-03-03) benchmark-compare (12 tests) — multi-compare with radar/spider chart
+- [x] (2026-03-03) benchmark-leaderboard (10 tests) — leaderboard with metric sort
+- [x] (2026-03-03) benchmark-cost-analysis (10 tests) — cost analysis views
+- [x] (2026-03-03) benchmark-orchestrator (11 tests) — orchestrator integration
+- [x] (2026-03-03) benchmark-design-flaws (17 tests) — validation and edge case coverage
+- [x] (2026-03-03) benchmark-cleanup (3 tests) — test data cleanup
+- [x] (2026-03-03) Run: `cd frontend && npx playwright test`

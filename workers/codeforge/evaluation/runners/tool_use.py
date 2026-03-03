@@ -71,22 +71,16 @@ class ToolUseBenchmarkRunner:
             if tools:
                 kwargs["tools"] = tools
 
-            response = await self._llm.chat(**kwargs)
+            response = await self._llm.chat_completion(**kwargs)
             actual_output = response.content or ""
-            tokens_in = response.usage.prompt_tokens if response.usage else 0
-            tokens_out = response.usage.completion_tokens if response.usage else 0
-            cost_usd = response.cost if hasattr(response, "cost") else 0.0
+            tokens_in = response.tokens_in
+            tokens_out = response.tokens_out
+            cost_usd = response.cost_usd
 
             # Extract tool calls from response
             tool_calls: list[ToolCall] = []
-            if hasattr(response, "tool_calls") and response.tool_calls:
-                tool_calls.extend(
-                    ToolCall(
-                        name=tc.function.name if hasattr(tc, "function") else str(tc.get("name", "")),
-                        args=tc.function.arguments if hasattr(tc, "function") else json.dumps(tc.get("args", {})),
-                    )
-                    for tc in response.tool_calls
-                )
+            if response.tool_calls:
+                tool_calls.extend(ToolCall(name=tc.name, args=tc.args) for tc in response.tool_calls)
         except Exception as exc:
             log.error("LLM call failed", error=str(exc))
             actual_output = f"ERROR: {exc}"

@@ -2539,6 +2539,32 @@ Git handlers (`handlers_test.go`):
 - [x] (2026-03-02) Phase 26H: Frontend Dashboard Redesign (tab-based: Runs, Leaderboard, Cost Analysis, Multi-Compare, Suites)
 - [x] (2026-03-02) Phase 26I: Configuration & Documentation (API docs, expanded config, dev-setup guide)
 
+#### Phase 26J-P: Benchmark Full-Stack Integration (2026-03-03)
+
+> NATS bridge, frontend type sync, WebSocket live updates, filtering/sorting, CRUD fixes,
+> visual enhancements (radar chart, leaderboard sort), and comprehensive E2E test suite.
+
+- [x] (2026-03-03) Phase 26J: NATS Bridge — Wired NATS bridge between Go Core and Python workers for benchmark execution (subject constants, message schemas, `StartRun`/`HandleBenchmarkRunResult`/`StartResultSubscriber` in BenchmarkService, main.go wiring, HTTP handler calls `StartRun`)
+- [x] (2026-03-03) Phase 26K: Frontend Type Sync — `BenchmarkType`/`BenchmarkExecMode` types, missing fields on `BenchmarkRun`/`BenchmarkResult`/`CreateBenchmarkRunRequest` in `types.ts`, benchmark_type/exec_mode dropdowns in form, type/mode badges on run cards, i18n keys
+- [x] (2026-03-03) Phase 26L: WebSocket Live Updates — Subscriptions for `benchmark.run.progress` and `benchmark.task.completed` events for auto-refresh, URL-based tab persistence, progress bar with pulse animation for running runs
+- [x] (2026-03-03) Phase 26M: Filtering & Sorting — `Status`/`Sort` fields on `RunFilter`, store queries for status filtering and sort options, `ListBenchmarkRuns` handler parses query params, `UpdateBenchmarkSuite` added to Store interface and all 5 mock stores
+- [x] (2026-03-03) Phase 26N: CRUD Fixes — `PATCH runs/{id}` (cancel), `GET runs/{id}/export/results` (CSV/JSON), `PUT suites/{id}` routes; cancel run, export results, update suite handlers; SuiteManagement edit UI; BenchmarkRunDetail with expandable tool_calls/actual_output; cancel button + CSV export link on run cards; `updateSuite`/`cancelRun`/`exportResultsUrl` in API client
+- [x] (2026-03-03) Phase 26O: Visual Enhancements — SVG radar/spider chart in MultiCompareView, metric sort selector in LeaderboardView, `CompareMulti` parallel goroutine fetching with `sync.WaitGroup`
+- [x] (2026-03-03) Phase 26P: Benchmark E2E Tests — 12 new spec files with 132 tests total in `frontend/e2e/`:
+  - `benchmark-fixtures.ts` (extended fixture)
+  - `benchmark-page-tabs.spec.ts` (10 tests)
+  - `benchmark-run-simple.spec.ts` (15 tests)
+  - `benchmark-run-tool-use.spec.ts` (9 tests)
+  - `benchmark-run-agent.spec.ts` (12 tests)
+  - `benchmark-run-list.spec.ts` (12 tests)
+  - `benchmark-suites.spec.ts` (11 tests)
+  - `benchmark-compare.spec.ts` (12 tests)
+  - `benchmark-leaderboard.spec.ts` (10 tests)
+  - `benchmark-cost-analysis.spec.ts` (10 tests)
+  - `benchmark-orchestrator.spec.ts` (11 tests)
+  - `benchmark-design-flaws.spec.ts` (17 tests)
+  - `benchmark-cleanup.spec.ts` (3 tests)
+
 ---
 
 ### Phase 27: A2A Protocol Integration (Agent-to-Agent v0.3.0) (2026-03-02)

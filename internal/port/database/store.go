@@ -274,6 +274,7 @@ type Store interface {
 	CreateBenchmarkSuite(ctx context.Context, suite *benchmark.Suite) error
 	GetBenchmarkSuite(ctx context.Context, id string) (*benchmark.Suite, error)
 	ListBenchmarkSuites(ctx context.Context) ([]benchmark.Suite, error)
+	UpdateBenchmarkSuite(ctx context.Context, suite *benchmark.Suite) error
 	DeleteBenchmarkSuite(ctx context.Context, id string) error
 
 	// Benchmark Runs (Phase 20D — dev-mode only)
@@ -282,7 +283,7 @@ type Store interface {
 	ListBenchmarkRuns(ctx context.Context) ([]benchmark.Run, error)
 	UpdateBenchmarkRun(ctx context.Context, r *benchmark.Run) error
 	DeleteBenchmarkRun(ctx context.Context, id string) error
-	ListBenchmarkRunsFiltered(ctx context.Context, filter benchmark.RunFilter) ([]benchmark.Run, error)
+	ListBenchmarkRunsFiltered(ctx context.Context, filter *benchmark.RunFilter) ([]benchmark.Run, error)
 
 	// Benchmark Results
 	CreateBenchmarkResult(ctx context.Context, res *benchmark.Result) error

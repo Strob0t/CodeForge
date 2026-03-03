@@ -579,6 +579,13 @@ func run() error {
 
 	benchmarkSvc := service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir)
 	benchmarkSvc.SetRoutingService(routingSvc)
+	benchmarkSvc.SetQueue(queue)
+	benchmarkSvc.SetHub(hub)
+	benchmarkRunCancel, err := benchmarkSvc.StartResultSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("benchmark run subscriber: %w", err)
+	}
+	slog.Info("benchmark service initialized with NATS bridge")
 
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,
@@ -837,6 +844,7 @@ func run() error {
 	cancelOutput()
 	repoMapCancel()
 	convRunCancel()
+	benchmarkRunCancel()
 	for _, cancel := range retrievalCancels {
 		cancel()
 	}

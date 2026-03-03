@@ -1587,6 +1587,12 @@ export interface PromptPreviewResponse {
 
 // --- Benchmark Mode (Phase 20) ---
 
+/** Benchmark type distinguishes the three evaluation modes. */
+export type BenchmarkType = "simple" | "tool_use" | "agent";
+
+/** Execution mode for agent benchmarks. */
+export type BenchmarkExecMode = "mount" | "sandbox" | "hybrid";
+
 /** Matches Go domain/benchmark.Run */
 export interface BenchmarkRun {
   id: string;
@@ -1600,6 +1606,12 @@ export interface BenchmarkRun {
   total_duration_ms: number;
   created_at: string;
   completed_at?: string;
+  suite_id?: string;
+  benchmark_type?: BenchmarkType;
+  exec_mode?: BenchmarkExecMode;
+  config?: Record<string, unknown>;
+  rollout_count?: number;
+  rollout_strategy?: string;
 }
 
 /** Typed tool call entry for benchmark results. */
@@ -1622,6 +1634,13 @@ export interface BenchmarkResult {
   tokens_in: number;
   tokens_out: number;
   duration_ms: number;
+  evaluator_scores?: Record<string, Record<string, number>>;
+  files_changed?: string[];
+  functional_test_output?: string;
+  rollout_id?: number;
+  rollout_count?: number;
+  is_best_rollout?: boolean;
+  diversity_score?: number;
 }
 
 /** Matches Go domain/benchmark.CreateRunRequest */
@@ -1629,6 +1648,9 @@ export interface CreateBenchmarkRunRequest {
   dataset: string;
   model: string;
   metrics: string[];
+  suite_id?: string;
+  benchmark_type?: BenchmarkType;
+  exec_mode?: BenchmarkExecMode;
 }
 
 /** Matches Go domain/benchmark.CompareResult */

@@ -10,6 +10,157 @@ interface MultiCompareViewProps {
   runs: BenchmarkRun[];
 }
 
+const CHART_COLORS = [
+  "#3B82F6", // blue
+  "#EF4444", // red
+  "#10B981", // green
+  "#F59E0B", // amber
+  "#8B5CF6", // violet
+  "#EC4899", // pink
+  "#06B6D4", // cyan
+  "#F97316", // orange
+];
+
+/** Render an SVG radar/spider chart for multi-model metric comparison. */
+function RadarChart(props: {
+  entries: MultiCompareEntry[];
+  metrics: string[];
+  avgScore: (entry: MultiCompareEntry, metric: string) => string;
+}) {
+  const cx = 150;
+  const cy = 150;
+  const radius = 120;
+  const levels = 5;
+
+  const angleStep = () => (2 * Math.PI) / Math.max(props.metrics.length, 1);
+
+  const pointOnAxis = (axisIdx: number, value: number) => {
+    const angle = axisIdx * angleStep() - Math.PI / 2;
+    const r = radius * Math.min(Math.max(value, 0), 1);
+    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+  };
+
+  const polygonPoints = (entry: MultiCompareEntry): string =>
+    props.metrics
+      .map((metric, i) => {
+        const val = parseFloat(props.avgScore(entry, metric));
+        const p = pointOnAxis(i, isNaN(val) ? 0 : val);
+        return `${p.x},${p.y}`;
+      })
+      .join(" ");
+
+  return (
+    <div class="flex items-center gap-4">
+      <svg viewBox="0 0 300 300" class="h-64 w-64 flex-shrink-0">
+        {/* Grid levels */}
+        <For each={Array.from({ length: levels }, (_, i) => (i + 1) / levels)}>
+          {(level) => (
+            <polygon
+              points={props.metrics
+                .map((_, i) => {
+                  const p = pointOnAxis(i, level);
+                  return `${p.x},${p.y}`;
+                })
+                .join(" ")}
+              fill="none"
+              stroke="currentColor"
+              stroke-opacity="0.15"
+              class="text-gray-500"
+            />
+          )}
+        </For>
+
+        {/* Axis lines */}
+        <For each={props.metrics}>
+          {(_, i) => {
+            const p = pointOnAxis(i(), 1);
+            return (
+              <line
+                x1={cx}
+                y1={cy}
+                x2={p.x}
+                y2={p.y}
+                stroke="currentColor"
+                stroke-opacity="0.2"
+                class="text-gray-500"
+              />
+            );
+          }}
+        </For>
+
+        {/* Axis labels */}
+        <For each={props.metrics}>
+          {(metric, i) => {
+            const p = pointOnAxis(i(), 1.15);
+            return (
+              <text
+                x={p.x}
+                y={p.y}
+                text-anchor="middle"
+                dominant-baseline="central"
+                font-size="9"
+                fill="currentColor"
+                class="text-gray-600 dark:text-gray-400"
+              >
+                {metric.length > 12 ? metric.slice(0, 10) + ".." : metric}
+              </text>
+            );
+          }}
+        </For>
+
+        {/* Data polygons */}
+        <For each={props.entries}>
+          {(entry, idx) => (
+            <polygon
+              points={polygonPoints(entry)}
+              fill={CHART_COLORS[idx() % CHART_COLORS.length]}
+              fill-opacity="0.15"
+              stroke={CHART_COLORS[idx() % CHART_COLORS.length]}
+              stroke-width="2"
+            />
+          )}
+        </For>
+
+        {/* Data points */}
+        <For each={props.entries}>
+          {(entry, idx) => (
+            <For each={props.metrics}>
+              {(metric, mi) => {
+                const val = parseFloat(props.avgScore(entry, metric));
+                const p = pointOnAxis(mi(), isNaN(val) ? 0 : val);
+                return (
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r="3"
+                    fill={CHART_COLORS[idx() % CHART_COLORS.length]}
+                  />
+                );
+              }}
+            </For>
+          )}
+        </For>
+      </svg>
+
+      {/* Legend */}
+      <div class="space-y-1.5">
+        <For each={props.entries}>
+          {(entry, idx) => (
+            <div class="flex items-center gap-2 text-xs">
+              <span
+                class="inline-block h-3 w-3 rounded-full"
+                style={{ background: CHART_COLORS[idx() % CHART_COLORS.length] }}
+              />
+              <span class="font-medium">{entry.run.model}</span>
+              <span class="text-gray-500">{entry.run.dataset}</span>
+            </div>
+          )}
+        </For>
+      </div>
+    </div>
+  );
+}
+
 export function MultiCompareView(props: MultiCompareViewProps) {
   const { t } = useI18n();
   const { show: toast } = useToast();
@@ -104,76 +255,86 @@ export function MultiCompareView(props: MultiCompareViewProps) {
         </div>
       </Card>
 
-      {/* Results table */}
+      {/* Results: Radar chart + table */}
       <Show when={result()}>
         {(entries) => (
-          <Card class="overflow-x-auto p-0">
-            <table class="w-full text-left text-sm">
-              <thead>
-                <tr class="border-b text-xs text-gray-500 dark:border-gray-700">
-                  <th class="px-4 py-3">{t("benchmark.metric")}</th>
-                  <For each={entries()}>
-                    {(entry) => (
-                      <th class="px-4 py-3 text-right">
-                        <div>{entry.run.model}</div>
-                        <div class="font-normal text-gray-400">{entry.run.dataset}</div>
-                      </th>
-                    )}
+          <>
+            {/* SVG Radar chart */}
+            <Show when={metricNames().length >= 3}>
+              <Card class="p-4">
+                <RadarChart entries={entries()} metrics={metricNames()} avgScore={avgScore} />
+              </Card>
+            </Show>
+
+            {/* Table */}
+            <Card class="overflow-x-auto p-0">
+              <table class="w-full text-left text-sm">
+                <thead>
+                  <tr class="border-b text-xs text-gray-500 dark:border-gray-700">
+                    <th class="px-4 py-3">{t("benchmark.metric")}</th>
+                    <For each={entries()}>
+                      {(entry) => (
+                        <th class="px-4 py-3 text-right">
+                          <div>{entry.run.model}</div>
+                          <div class="font-normal text-gray-400">{entry.run.dataset}</div>
+                        </th>
+                      )}
+                    </For>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Cost row */}
+                  <tr class="border-b dark:border-gray-700">
+                    <td class="px-4 py-2 font-medium">{t("benchmark.cost")}</td>
+                    <For each={entries()}>
+                      {(entry) => (
+                        <td class="px-4 py-2 text-right font-mono text-xs">
+                          <CostDisplay usd={entry.run.total_cost} />
+                        </td>
+                      )}
+                    </For>
+                  </tr>
+                  {/* Duration row */}
+                  <tr class="border-b dark:border-gray-700">
+                    <td class="px-4 py-2 font-medium">{t("benchmark.duration")}</td>
+                    <For each={entries()}>
+                      {(entry) => (
+                        <td class="px-4 py-2 text-right text-xs">
+                          {entry.run.total_duration_ms < 1000
+                            ? `${entry.run.total_duration_ms}ms`
+                            : `${(entry.run.total_duration_ms / 1000).toFixed(1)}s`}
+                        </td>
+                      )}
+                    </For>
+                  </tr>
+                  {/* Metric rows */}
+                  <For each={metricNames()}>
+                    {(metric) => {
+                      const best = bestForMetric(metric);
+                      return (
+                        <tr class="border-b last:border-0 dark:border-gray-700">
+                          <td class="px-4 py-2 font-medium">{metric}</td>
+                          <For each={entries()}>
+                            {(entry) => (
+                              <td
+                                class={`px-4 py-2 text-right font-mono ${
+                                  entry.run.id === best
+                                    ? "font-bold text-green-600 dark:text-green-400"
+                                    : ""
+                                }`}
+                              >
+                                {avgScore(entry, metric)}
+                              </td>
+                            )}
+                          </For>
+                        </tr>
+                      );
+                    }}
                   </For>
-                </tr>
-              </thead>
-              <tbody>
-                {/* Cost row */}
-                <tr class="border-b dark:border-gray-700">
-                  <td class="px-4 py-2 font-medium">{t("benchmark.cost")}</td>
-                  <For each={entries()}>
-                    {(entry) => (
-                      <td class="px-4 py-2 text-right font-mono text-xs">
-                        <CostDisplay usd={entry.run.total_cost} />
-                      </td>
-                    )}
-                  </For>
-                </tr>
-                {/* Duration row */}
-                <tr class="border-b dark:border-gray-700">
-                  <td class="px-4 py-2 font-medium">{t("benchmark.duration")}</td>
-                  <For each={entries()}>
-                    {(entry) => (
-                      <td class="px-4 py-2 text-right text-xs">
-                        {entry.run.total_duration_ms < 1000
-                          ? `${entry.run.total_duration_ms}ms`
-                          : `${(entry.run.total_duration_ms / 1000).toFixed(1)}s`}
-                      </td>
-                    )}
-                  </For>
-                </tr>
-                {/* Metric rows */}
-                <For each={metricNames()}>
-                  {(metric) => {
-                    const best = bestForMetric(metric);
-                    return (
-                      <tr class="border-b last:border-0 dark:border-gray-700">
-                        <td class="px-4 py-2 font-medium">{metric}</td>
-                        <For each={entries()}>
-                          {(entry) => (
-                            <td
-                              class={`px-4 py-2 text-right font-mono ${
-                                entry.run.id === best
-                                  ? "font-bold text-green-600 dark:text-green-400"
-                                  : ""
-                              }`}
-                            >
-                              {avgScore(entry, metric)}
-                            </td>
-                          )}
-                        </For>
-                      </tr>
-                    );
-                  }}
-                </For>
-              </tbody>
-            </table>
-          </Card>
+                </tbody>
+              </table>
+            </Card>
+          </>
         )}
       </Show>
 

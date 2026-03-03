@@ -11,10 +11,28 @@ export function SuiteManagement() {
   const { show: toast } = useToast();
   const [suites, { refetch }] = createResource(() => api.benchmarks.listSuites());
   const [showForm, setShowForm] = createSignal(false);
+  const [editingSuite, setEditingSuite] = createSignal<BenchmarkSuite | null>(null);
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
   const [type, setType] = createSignal("deepeval");
   const [provider, setProvider] = createSignal("deepeval");
+
+  const resetForm = () => {
+    setName("");
+    setDescription("");
+    setType("deepeval");
+    setProvider("deepeval");
+    setEditingSuite(null);
+  };
+
+  const startEdit = (suite: BenchmarkSuite) => {
+    setEditingSuite(suite);
+    setName(suite.name);
+    setDescription(suite.description || "");
+    setType(String(suite.type));
+    setProvider(suite.provider_name);
+    setShowForm(true);
+  };
 
   const handleCreate = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -27,11 +45,30 @@ export function SuiteManagement() {
       });
       toast("success", t("benchmark.suites.toast.created"));
       setShowForm(false);
-      setName("");
-      setDescription("");
+      resetForm();
       refetch();
     } catch {
       toast("error", t("benchmark.suites.toast.createError"));
+    }
+  };
+
+  const handleUpdate = async (e: SubmitEvent) => {
+    e.preventDefault();
+    const suite = editingSuite();
+    if (!suite) return;
+    try {
+      await api.benchmarks.updateSuite(suite.id, {
+        name: name(),
+        description: description() || undefined,
+        type: type(),
+        provider_name: provider(),
+      });
+      toast("success", t("benchmark.suites.toast.updated"));
+      setShowForm(false);
+      resetForm();
+      refetch();
+    } catch {
+      toast("error", t("benchmark.suites.toast.updateError"));
     }
   };
 
@@ -48,14 +85,30 @@ export function SuiteManagement() {
   return (
     <div class="space-y-4">
       <div class="flex gap-2">
-        <Button size="sm" onClick={() => setShowForm(!showForm())}>
+        <Button
+          size="sm"
+          onClick={() => {
+            if (showForm()) {
+              setShowForm(false);
+              resetForm();
+            } else {
+              resetForm();
+              setShowForm(true);
+            }
+          }}
+        >
           {showForm() ? t("common.cancel") : t("benchmark.suites.createBtn")}
         </Button>
       </div>
 
       <Show when={showForm()}>
         <Card class="p-4">
-          <form onSubmit={handleCreate} class="space-y-3">
+          <form onSubmit={editingSuite() ? handleUpdate : handleCreate} class="space-y-3">
+            <Show when={editingSuite()}>
+              <div class="mb-2 text-sm font-medium text-blue-600 dark:text-blue-400">
+                Editing: {editingSuite()?.name}
+              </div>
+            </Show>
             <FormField label={t("benchmark.suites.name")} id="suite-name">
               <Input
                 value={name()}
@@ -88,7 +141,7 @@ export function SuiteManagement() {
               />
             </FormField>
             <Button type="submit" variant="primary" size="sm">
-              {t("benchmark.suites.createBtn")}
+              {editingSuite() ? t("common.save") : t("benchmark.suites.createBtn")}
             </Button>
           </form>
         </Card>
@@ -112,6 +165,9 @@ export function SuiteManagement() {
                     <Badge variant="default">
                       {suite.task_count} {t("benchmark.tasks")}
                     </Badge>
+                    <Button size="sm" variant="secondary" onClick={() => startEdit(suite)}>
+                      {t("common.edit")}
+                    </Button>
                     <Button size="sm" variant="danger" onClick={() => handleDelete(suite.id)}>
                       {t("common.delete")}
                     </Button>

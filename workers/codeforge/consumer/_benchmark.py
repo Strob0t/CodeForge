@@ -57,7 +57,11 @@ class BenchmarkHandlerMixin:
             evaluators = _build_evaluators(req.evaluators, req.model)
 
             # Phase 28A: Split evaluators by stage for hybrid verification.
-            pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else EvaluationPipeline(evaluators)
+            pipeline = (
+                _build_hybrid_pipeline(evaluators)
+                if getattr(req, "hybrid_verification", False)
+                else EvaluationPipeline(evaluators)
+            )
 
             if benchmark_type == "tool_use":
                 results = await _run_tool_use_benchmark(req, self._llm, pipeline)
@@ -164,24 +168,42 @@ class BenchmarkHandlerMixin:
 # --- Module-level helpers used by the mixin ---
 
 
+def _dataset_to_task_specs(dataset_path: str) -> list:
+    """Load dataset YAML and convert BenchmarkTasks to TaskSpec objects."""
+    from codeforge.evaluation.datasets import load_dataset
+    from codeforge.evaluation.providers.base import TaskSpec
+
+    dataset = load_dataset(dataset_path)
+    return [
+        TaskSpec(
+            id=t.id,
+            name=t.name,
+            input=t.input,
+            expected_output=t.expected_output,
+            expected_tools=[],
+            context=t.context,
+            difficulty=t.difficulty,
+        )
+        for t in dataset.tasks
+    ]
+
+
 async def _run_simple_benchmark(req, llm, pipeline) -> list:
     """Run a simple prompt -> LLM -> compare benchmark."""
-    from codeforge.evaluation.datasets import load_dataset
     from codeforge.evaluation.runners.simple import SimpleBenchmarkRunner
 
     runner = SimpleBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
-    tasks = load_dataset(req.dataset_path)
+    tasks = _dataset_to_task_specs(req.dataset_path)
     run_results = await runner.run_tasks(tasks)
     return [_convert_result(r) for r in run_results]
 
 
 async def _run_tool_use_benchmark(req, llm, pipeline) -> list:
     """Run a tool-use benchmark with tools in task metadata."""
-    from codeforge.evaluation.datasets import load_dataset
     from codeforge.evaluation.runners.tool_use import ToolUseBenchmarkRunner
 
     runner = ToolUseBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
-    tasks = load_dataset(req.dataset_path)
+    tasks = _dataset_to_task_specs(req.dataset_path)
     run_results = await runner.run_tasks(tasks)
     return [_convert_result(r) for r in run_results]
 
@@ -234,27 +256,49 @@ def _convert_result(r) -> object:
 
 
 def _build_evaluators(evaluator_names: list[str], model: str) -> list:
-    """Create evaluator instances from a list of evaluator names."""
+    """Create evaluator instances from a list of evaluator/metric names.
+
+    Accepts both evaluator names (llm_judge, functional_test, sparc, trajectory_verifier)
+    and metric names (correctness, faithfulness, etc.) — metric names map to LLMJudgeEvaluator.
+    """
     from codeforge.evaluation.evaluators.functional_test import FunctionalTestEvaluator
     from codeforge.evaluation.evaluators.llm_judge import LLMJudgeEvaluator
     from codeforge.evaluation.evaluators.sparc import SPARCEvaluator
     from codeforge.evaluation.evaluators.trajectory_verifier import TrajectoryVerifierEvaluator
 
+    # Metric names that map to LLMJudgeEvaluator
+    llm_judge_metrics = {"correctness", "faithfulness", "relevance", "coherence", "fluency"}
+
     evaluators = []
+    collected_llm_metrics: list[str] = []
+
     for name in evaluator_names:
         if name == "llm_judge":
-            evaluators.append(LLMJudgeEvaluator(model=model))
+            collected_llm_metrics.append("correctness")
         elif name == "functional_test":
             evaluators.append(FunctionalTestEvaluator())
         elif name == "sparc":
             evaluators.append(SPARCEvaluator())
         elif name == "trajectory_verifier":
             evaluators.append(TrajectoryVerifierEvaluator(model=model))
+        elif name in llm_judge_metrics:
+            collected_llm_metrics.append(name)
         else:
             logger.warning("unknown evaluator, skipping", evaluator=name)
 
+    # Create a single LLMJudgeEvaluator with all collected metrics,
+    # using the same model as the benchmark run for the judge.
+    if collected_llm_metrics:
+        from codeforge.evaluation.litellm_judge import LiteLLMJudge
+
+        judge = LiteLLMJudge(model=model)
+        evaluators.append(LLMJudgeEvaluator(judge=judge, metrics=collected_llm_metrics))
+
     if not evaluators:
-        evaluators.append(LLMJudgeEvaluator(model=model))
+        from codeforge.evaluation.litellm_judge import LiteLLMJudge
+
+        judge = LiteLLMJudge(model=model)
+        evaluators.append(LLMJudgeEvaluator(judge=judge))
 
     return evaluators
 

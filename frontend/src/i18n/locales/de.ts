@@ -1226,6 +1226,8 @@ const de: Translations = {
   "benchmark.dataset": "Datensatz",
   "benchmark.model": "Modell",
   "benchmark.metrics": "Metriken",
+  "benchmark.benchmarkType": "Benchmark-Typ",
+  "benchmark.execMode": "Ausführungsmodus",
   "benchmark.startRun": "Lauf starten",
   "benchmark.taskName": "Aufgabe",
   "benchmark.scores": "Bewertungen",
@@ -1246,6 +1248,8 @@ const de: Translations = {
   "benchmark.toast.deleteError": "Benchmark-Lauf konnte nicht geloescht werden",
   "benchmark.toast.compareReady": "Vergleich bereit (siehe Konsole)",
   "benchmark.toast.compareError": "Vergleich der Benchmark-Laeufe fehlgeschlagen",
+  "benchmark.toast.cancelled": "Benchmark-Lauf abgebrochen",
+  "benchmark.toast.cancelError": "Benchmark-Lauf konnte nicht abgebrochen werden",
 
   // Benchmark Dashboard Tabs (Phase 26H)
   "benchmark.tab.runs": "Laeufe",
@@ -1265,6 +1269,7 @@ const de: Translations = {
   "benchmark.leaderboard.tokenEfficiency": "Token-Eff.",
   "benchmark.leaderboard.filterBySuite": "Nach Suite filtern",
   "benchmark.leaderboard.allSuites": "Alle Suiten",
+  "benchmark.leaderboard.sortBy": "Sortieren nach",
 
   // Kostenanalyse
   "benchmark.costAnalysis.title": "Kostenanalyse",
@@ -1296,6 +1301,8 @@ const de: Translations = {
   "benchmark.suites.toast.createError": "Suite konnte nicht erstellt werden",
   "benchmark.suites.toast.deleted": "Suite geloescht",
   "benchmark.suites.toast.deleteError": "Suite konnte nicht geloescht werden",
+  "benchmark.suites.toast.updated": "Suite aktualisiert",
+  "benchmark.suites.toast.updateError": "Suite konnte nicht aktualisiert werden",
 
   // Export
   "benchmark.export.training": "Trainingsdaten exportieren",

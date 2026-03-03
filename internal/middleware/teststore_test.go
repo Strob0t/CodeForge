@@ -545,8 +545,9 @@ func (s *testStore) GetBenchmarkSuite(_ context.Context, _ string) (*benchmark.S
 func (s *testStore) ListBenchmarkSuites(_ context.Context) ([]benchmark.Suite, error) {
 	return nil, nil
 }
-func (s *testStore) DeleteBenchmarkSuite(_ context.Context, _ string) error { return nil }
-func (s *testStore) ListBenchmarkRunsFiltered(_ context.Context, _ benchmark.RunFilter) ([]benchmark.Run, error) {
+func (s *testStore) DeleteBenchmarkSuite(_ context.Context, _ string) error           { return nil }
+func (s *testStore) UpdateBenchmarkSuite(_ context.Context, _ *benchmark.Suite) error { return nil }
+func (s *testStore) ListBenchmarkRunsFiltered(_ context.Context, _ *benchmark.RunFilter) ([]benchmark.Run, error) {
 	return nil, nil
 }
 

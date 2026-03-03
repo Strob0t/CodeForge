@@ -66,6 +66,22 @@ func (s *Store) ListBenchmarkSuites(ctx context.Context) ([]benchmark.Suite, err
 	return result, rows.Err()
 }
 
+// UpdateBenchmarkSuite updates an existing benchmark suite.
+func (s *Store) UpdateBenchmarkSuite(ctx context.Context, suite *benchmark.Suite) error {
+	cfg := suite.Config
+	if cfg == nil {
+		cfg = json.RawMessage(`{}`)
+	}
+	const q = `UPDATE benchmark_suites
+		SET name=$2, description=$3, type=$4, provider_name=$5, config=$6
+		WHERE id=$1`
+	tag, err := s.pool.Exec(ctx, q,
+		suite.ID, suite.Name, suite.Description, string(suite.Type),
+		suite.ProviderName, cfg,
+	)
+	return execExpectOne(tag, err, "update benchmark suite %s", suite.ID)
+}
+
 // DeleteBenchmarkSuite deletes a benchmark suite by ID.
 func (s *Store) DeleteBenchmarkSuite(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM benchmark_suites WHERE id=$1`, id)

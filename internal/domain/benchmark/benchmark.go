@@ -201,6 +201,8 @@ type RunFilter struct {
 	SuiteID       string        `json:"suite_id,omitempty"`
 	BenchmarkType BenchmarkType `json:"benchmark_type,omitempty"`
 	Model         string        `json:"model,omitempty"`
+	Status        RunStatus     `json:"status,omitempty"`
+	Sort          string        `json:"sort,omitempty"` // "created_at", "total_cost", "total_duration_ms"
 }
 
 // DatasetInfo describes an available benchmark dataset.

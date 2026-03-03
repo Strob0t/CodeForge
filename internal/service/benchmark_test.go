@@ -49,6 +49,9 @@ func (m *benchMockStore) DeleteBenchmarkSuite(_ context.Context, id string) erro
 	delete(m.suites, id)
 	return nil
 }
+func (m *benchMockStore) UpdateBenchmarkSuite(_ context.Context, _ *benchmark.Suite) error {
+	return nil
+}
 func (m *benchMockStore) CreateBenchmarkRun(_ context.Context, r *benchmark.Run) error {
 	m.benchRuns[r.ID] = r
 	return nil
@@ -76,7 +79,7 @@ func (m *benchMockStore) DeleteBenchmarkRun(_ context.Context, id string) error 
 	delete(m.benchResult, id)
 	return nil
 }
-func (m *benchMockStore) ListBenchmarkRunsFiltered(_ context.Context, f benchmark.RunFilter) ([]benchmark.Run, error) {
+func (m *benchMockStore) ListBenchmarkRunsFiltered(_ context.Context, f *benchmark.RunFilter) ([]benchmark.Run, error) {
 	var out []benchmark.Run
 	for _, r := range m.benchRuns {
 		if f.SuiteID != "" && r.SuiteID != f.SuiteID {

@@ -96,4 +96,8 @@ const (
 	SubjectA2ATaskCreated  = "a2a.task.created"  // Go → Python: inbound A2A task received
 	SubjectA2ATaskComplete = "a2a.task.complete" // Python → Go: A2A task completed
 	SubjectA2ATaskCancel   = "a2a.task.cancel"   // Go → Python: cancel A2A task
+
+	// Benchmark subjects (Phase 26/28)
+	SubjectBenchmarkRunRequest = "benchmark.run.request" // Go → Python: start benchmark execution
+	SubjectBenchmarkRunResult  = "benchmark.run.result"  // Python → Go: benchmark execution results
 )

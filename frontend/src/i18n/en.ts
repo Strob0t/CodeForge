@@ -1211,6 +1211,8 @@ const en = {
   "benchmark.dataset": "Dataset",
   "benchmark.model": "Model",
   "benchmark.metrics": "Metrics",
+  "benchmark.benchmarkType": "Benchmark Type",
+  "benchmark.execMode": "Execution Mode",
   "benchmark.startRun": "Start Run",
   "benchmark.taskName": "Task",
   "benchmark.scores": "Scores",
@@ -1231,6 +1233,8 @@ const en = {
   "benchmark.toast.deleteError": "Failed to delete benchmark run",
   "benchmark.toast.compareReady": "Comparison ready",
   "benchmark.toast.compareError": "Failed to compare benchmark runs",
+  "benchmark.toast.cancelled": "Benchmark run cancelled",
+  "benchmark.toast.cancelError": "Failed to cancel benchmark run",
 
   // Benchmark Dashboard tabs (Phase 26H)
   "benchmark.tab.runs": "Runs",
@@ -1249,6 +1253,7 @@ const en = {
   "benchmark.leaderboard.tokenEfficiency": "Token Eff.",
   "benchmark.leaderboard.filterBySuite": "Filter by Suite",
   "benchmark.leaderboard.allSuites": "All Suites",
+  "benchmark.leaderboard.sortBy": "Sort by",
 
   // Cost Analysis
   "benchmark.costAnalysis.title": "Cost Analysis",
@@ -1280,6 +1285,8 @@ const en = {
   "benchmark.suites.toast.createError": "Failed to create suite",
   "benchmark.suites.toast.deleted": "Suite deleted",
   "benchmark.suites.toast.deleteError": "Failed to delete suite",
+  "benchmark.suites.toast.updated": "Suite updated",
+  "benchmark.suites.toast.updateError": "Failed to update suite",
 
   // Export
   "benchmark.export.training": "Export Training Data",

@@ -483,6 +483,53 @@ type GemmasEvalResultPayload struct {
 	Error                     string  `json:"error,omitempty"`
 }
 
+// --- Benchmark run payloads (Phase 26/28) ---
+
+// BenchmarkRunRequestPayload is published to trigger benchmark execution in Python.
+type BenchmarkRunRequestPayload struct {
+	RunID         string   `json:"run_id"`
+	DatasetPath   string   `json:"dataset_path"`
+	Model         string   `json:"model"`
+	Metrics       []string `json:"metrics,omitempty"`
+	BenchmarkType string   `json:"benchmark_type,omitempty"`
+	SuiteID       string   `json:"suite_id,omitempty"`
+	ExecMode      string   `json:"exec_mode,omitempty"`
+	Evaluators    []string `json:"evaluators,omitempty"`
+}
+
+// BenchmarkRunResultPayload is published by Python when benchmark execution completes.
+type BenchmarkRunResultPayload struct {
+	RunID           string                `json:"run_id"`
+	Status          string                `json:"status"`
+	Results         []BenchmarkTaskResult `json:"results"`
+	Summary         map[string]any        `json:"summary"`
+	TotalCost       float64               `json:"total_cost"`
+	TotalTokens     int                   `json:"total_tokens"`
+	TotalDurationMs int64                 `json:"total_duration_ms"`
+	Error           string                `json:"error,omitempty"`
+}
+
+// BenchmarkTaskResult represents a single task's evaluation outcome.
+type BenchmarkTaskResult struct {
+	TaskID               string                        `json:"task_id"`
+	TaskName             string                        `json:"task_name"`
+	Scores               map[string]float64            `json:"scores"`
+	ActualOutput         string                        `json:"actual_output"`
+	ExpectedOutput       string                        `json:"expected_output"`
+	ToolCalls            []map[string]string           `json:"tool_calls"`
+	CostUSD              float64                       `json:"cost_usd"`
+	TokensIn             int                           `json:"tokens_in"`
+	TokensOut            int                           `json:"tokens_out"`
+	DurationMs           int64                         `json:"duration_ms"`
+	EvaluatorScores      map[string]map[string]float64 `json:"evaluator_scores,omitempty"`
+	FilesChanged         []string                      `json:"files_changed,omitempty"`
+	FunctionalTestOutput string                        `json:"functional_test_output,omitempty"`
+	RolloutID            int                           `json:"rollout_id"`
+	RolloutCount         int                           `json:"rollout_count"`
+	IsBestRollout        bool                          `json:"is_best_rollout"`
+	DiversityScore       float64                       `json:"diversity_score"`
+}
+
 // A2ATaskCreatedPayload is published when an inbound A2A task is received.
 type A2ATaskCreatedPayload struct {
 	TaskID  string `json:"task_id"`

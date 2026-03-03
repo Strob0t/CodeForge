@@ -1057,6 +1057,23 @@ export const api = {
     deleteSuite: (id: string) =>
       request<undefined>(url`/benchmarks/suites/${id}`, { method: "DELETE" }),
 
+    updateSuite: (
+      id: string,
+      data: { name?: string; description?: string; type?: string; provider_name?: string },
+    ) =>
+      request<import("./types").BenchmarkSuite>(url`/benchmarks/suites/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    cancelRun: (id: string) =>
+      request<import("./types").BenchmarkRun>(url`/benchmarks/runs/${id}`, {
+        method: "PATCH",
+      }),
+
+    exportResultsUrl: (runId: string, format: "json" | "csv" = "json") =>
+      `${BASE}/benchmarks/runs/${encodeURIComponent(runId)}/export/results?format=${format}`,
+
     // Multi-compare (Phase 26G)
     compareMulti: (runIds: string[]) =>
       request<import("./types").MultiCompareEntry[]>("/benchmarks/compare-multi", {

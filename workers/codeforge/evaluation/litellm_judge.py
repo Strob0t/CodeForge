@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import httpx
@@ -9,6 +10,9 @@ from deepeval.models import DeepEvalBaseLLM
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
+
+# Default judge model — override via CODEFORGE_JUDGE_MODEL env var.
+_DEFAULT_JUDGE_MODEL = os.environ.get("CODEFORGE_JUDGE_MODEL", "openai/gpt-4o")
 
 
 class LiteLLMJudge(DeepEvalBaseLLM):
@@ -20,11 +24,13 @@ class LiteLLMJudge(DeepEvalBaseLLM):
 
     def __init__(
         self,
-        model: str = "openai/gpt-4o",
+        model: str = "",
         base_url: str = "http://codeforge-litellm:4000/v1",
-        api_key: str = "sk-codeforge",
+        api_key: str = "",
         timeout: float = 120.0,
     ) -> None:
+        model = model or _DEFAULT_JUDGE_MODEL
+        api_key = api_key or os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
         self.model_name = model
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key

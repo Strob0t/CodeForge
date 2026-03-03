@@ -1,7 +1,14 @@
-import { createResource, createSignal, For, Match, Show, Switch } from "solid-js";
+import { createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
 
 import { api } from "~/api/client";
-import type { BenchmarkDatasetInfo, BenchmarkRun, CreateBenchmarkRunRequest } from "~/api/types";
+import type {
+  BenchmarkDatasetInfo,
+  BenchmarkExecMode,
+  BenchmarkRun,
+  BenchmarkType,
+  CreateBenchmarkRunRequest,
+} from "~/api/types";
+import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
 import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
@@ -46,15 +53,35 @@ const TABS = [
 export default function BenchmarkPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { onMessage } = createCodeForgeWS();
   const [runs, { refetch }] = createResource(() => api.benchmarks.listRuns());
   const [datasets] = createResource(() => api.benchmarks.listDatasets());
-  const [activeTab, setActiveTab] = createSignal("runs");
+
+  // Tab persistence via URL search params
+  const initialTab = new URLSearchParams(window.location.search).get("tab") || "runs";
+  const [activeTab, setActiveTabRaw] = createSignal(initialTab);
+  const setActiveTab = (tab: string) => {
+    setActiveTabRaw(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState({}, "", url.toString());
+  };
+
+  // WebSocket: auto-refresh runs when benchmark progress events arrive
+  const cleanupWS = onMessage((msg) => {
+    if (msg.type === "benchmark.run.progress" || msg.type === "benchmark.task.completed") {
+      refetch();
+    }
+  });
+  onCleanup(cleanupWS);
 
   // New run form
   const [showForm, setShowForm] = createSignal(false);
   const [dataset, setDataset] = createSignal("");
   const [model, setModel] = createSignal("");
   const [metrics, setMetrics] = createSignal<string[]>(["correctness"]);
+  const [benchmarkType, setBenchmarkType] = createSignal<BenchmarkType>("simple");
+  const [execMode, setExecMode] = createSignal<BenchmarkExecMode>("mount");
 
   // Run detail
   const [selectedRun, setSelectedRun] = createSignal<string | null>(null);
@@ -72,6 +99,8 @@ export default function BenchmarkPage() {
     setDataset("");
     setModel("");
     setMetrics(["correctness"]);
+    setBenchmarkType("simple");
+    setExecMode("mount");
   };
 
   const handleCreate = async (e: SubmitEvent) => {
@@ -80,6 +109,8 @@ export default function BenchmarkPage() {
       dataset: dataset(),
       model: model(),
       metrics: metrics(),
+      benchmark_type: benchmarkType(),
+      exec_mode: benchmarkType() === "agent" ? execMode() : undefined,
     };
     try {
       await api.benchmarks.createRun(req);
@@ -100,6 +131,16 @@ export default function BenchmarkPage() {
       refetch();
     } catch {
       toast("error", t("benchmark.toast.deleteError"));
+    }
+  };
+
+  const handleCancel = async (id: string) => {
+    try {
+      await api.benchmarks.cancelRun(id);
+      toast("success", t("benchmark.toast.cancelled"));
+      refetch();
+    } catch {
+      toast("error", t("benchmark.toast.cancelError"));
     }
   };
 
@@ -159,6 +200,30 @@ export default function BenchmarkPage() {
                   <ModelCombobox id="benchmark-model" value={model()} onInput={setModel} required />
                 </FormField>
 
+                <FormField label={t("benchmark.benchmarkType")} id="benchmark-type">
+                  <Select
+                    value={benchmarkType()}
+                    onChange={(e) => setBenchmarkType(e.currentTarget.value as BenchmarkType)}
+                  >
+                    <option value="simple">Simple (prompt → output)</option>
+                    <option value="tool_use">Tool Use (with tool calling)</option>
+                    <option value="agent">Agent (multi-turn, exec modes)</option>
+                  </Select>
+                </FormField>
+
+                <Show when={benchmarkType() === "agent"}>
+                  <FormField label={t("benchmark.execMode")} id="benchmark-exec-mode">
+                    <Select
+                      value={execMode()}
+                      onChange={(e) => setExecMode(e.currentTarget.value as BenchmarkExecMode)}
+                    >
+                      <option value="mount">Mount (direct file access)</option>
+                      <option value="sandbox">Sandbox (isolated container)</option>
+                      <option value="hybrid">Hybrid</option>
+                    </Select>
+                  </FormField>
+                </Show>
+
                 <FormField label={t("benchmark.metrics")} id="benchmark-metrics">
                   <div class="flex flex-wrap gap-2">
                     <For each={METRIC_OPTIONS}>
@@ -200,9 +265,25 @@ export default function BenchmarkPage() {
                     >
                       <Card class="p-4">
                         <div class="flex items-center justify-between">
-                          <div>
+                          <div class="flex items-center gap-2">
                             <span class="font-medium">{run.dataset}</span>
-                            <span class="ml-2 text-sm text-gray-500">{run.model}</span>
+                            <span class="text-sm text-gray-500">{run.model}</span>
+                            <Show when={run.benchmark_type}>
+                              <Badge
+                                variant={
+                                  run.benchmark_type === "agent"
+                                    ? "info"
+                                    : run.benchmark_type === "tool_use"
+                                      ? "warning"
+                                      : "default"
+                                }
+                              >
+                                {run.benchmark_type}
+                              </Badge>
+                            </Show>
+                            <Show when={run.exec_mode}>
+                              <Badge variant="default">{run.exec_mode}</Badge>
+                            </Show>
                           </div>
                           <div class="flex items-center gap-2">
                             <Badge
@@ -214,6 +295,29 @@ export default function BenchmarkPage() {
                               {formatDuration(run.total_duration_ms)}
                             </span>
                             <CostDisplay usd={run.total_cost} class="text-xs text-gray-400" />
+                            <Show when={run.status === "running"}>
+                              <Button
+                                size="sm"
+                                variant="warning"
+                                onClick={(e: MouseEvent) => {
+                                  e.stopPropagation();
+                                  handleCancel(run.id);
+                                }}
+                              >
+                                {t("common.cancel")}
+                              </Button>
+                            </Show>
+                            <Show when={run.status === "completed"}>
+                              <a
+                                href={api.benchmarks.exportResultsUrl(run.id, "csv")}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="rounded bg-gray-200 px-2 py-1 text-xs hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600"
+                                onClick={(e: MouseEvent) => e.stopPropagation()}
+                              >
+                                CSV
+                              </a>
+                            </Show>
                             <Button
                               size="sm"
                               variant="danger"
@@ -232,6 +336,19 @@ export default function BenchmarkPage() {
                             <For each={run.metrics}>
                               {(m) => <Badge variant="default">{m}</Badge>}
                             </For>
+                          </div>
+                        </Show>
+
+                        {/* Progress bar for running runs */}
+                        <Show when={run.status === "running"}>
+                          <div class="mt-2">
+                            <div class="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                              <div
+                                class="h-2 animate-pulse rounded-full bg-blue-500"
+                                style={{ width: "100%" }}
+                              />
+                            </div>
+                            <span class="mt-1 text-xs text-gray-500">Running...</span>
                           </div>
                         </Show>
 

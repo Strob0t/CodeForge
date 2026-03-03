@@ -5,14 +5,35 @@ import type { BenchmarkSuite, LeaderboardEntry } from "~/api/types";
 import { useI18n } from "~/i18n";
 import { Badge, Card, CostDisplay, EmptyState, LoadingState, Select } from "~/ui";
 
+type SortMetric =
+  | "avg_score"
+  | "total_cost_usd"
+  | "cost_per_score_point"
+  | "token_efficiency"
+  | "duration_ms";
+
 export function LeaderboardView() {
   const { t } = useI18n();
   const [suiteId, setSuiteId] = createSignal<string>("");
+  const [sortMetric, setSortMetric] = createSignal<SortMetric>("avg_score");
   const [suites] = createResource(() => api.benchmarks.listSuites());
   const [entries, { refetch }] = createResource(
     () => suiteId() || "__all__",
     () => api.benchmarks.leaderboard(suiteId() || undefined),
   );
+
+  const sortedEntries = (): LeaderboardEntry[] => {
+    const raw = entries() ?? [];
+    const metric = sortMetric();
+    return [...raw].sort((a, b) => {
+      if (metric === "avg_score") return b.avg_score - a.avg_score;
+      if (metric === "total_cost_usd") return a.total_cost_usd - b.total_cost_usd;
+      if (metric === "cost_per_score_point") return a.cost_per_score_point - b.cost_per_score_point;
+      if (metric === "token_efficiency") return b.token_efficiency - a.token_efficiency;
+      if (metric === "duration_ms") return a.duration_ms - b.duration_ms;
+      return 0;
+    });
+  };
 
   const medal = (idx: number): string => {
     if (idx === 0) return "#FFD700"; // gold
@@ -23,8 +44,8 @@ export function LeaderboardView() {
 
   return (
     <div class="space-y-4">
-      {/* Suite filter */}
-      <div class="flex items-center gap-3">
+      {/* Filters */}
+      <div class="flex flex-wrap items-center gap-3">
         <label class="text-sm font-medium">{t("benchmark.leaderboard.filterBySuite")}</label>
         <Select
           value={suiteId()}
@@ -39,11 +60,24 @@ export function LeaderboardView() {
             {(s: BenchmarkSuite) => <option value={s.id}>{s.name}</option>}
           </For>
         </Select>
+
+        <label class="ml-4 text-sm font-medium">{t("benchmark.leaderboard.sortBy")}</label>
+        <Select
+          value={sortMetric()}
+          onChange={(e) => setSortMetric(e.currentTarget.value as SortMetric)}
+          class="w-48"
+        >
+          <option value="avg_score">{t("benchmark.leaderboard.avgScore")}</option>
+          <option value="total_cost_usd">{t("benchmark.leaderboard.totalCost")}</option>
+          <option value="cost_per_score_point">{t("benchmark.leaderboard.costPerPoint")}</option>
+          <option value="token_efficiency">{t("benchmark.leaderboard.tokenEfficiency")}</option>
+          <option value="duration_ms">{t("benchmark.duration")}</option>
+        </Select>
       </div>
 
       <Show when={!entries.loading} fallback={<LoadingState />}>
         <Show
-          when={entries()?.length}
+          when={sortedEntries().length}
           fallback={<EmptyState title={t("benchmark.leaderboard.empty")} />}
         >
           <Card class="overflow-x-auto p-0">
@@ -61,7 +95,7 @@ export function LeaderboardView() {
                 </tr>
               </thead>
               <tbody>
-                <For each={entries()}>
+                <For each={sortedEntries()}>
                   {(entry: LeaderboardEntry, idx) => (
                     <tr class="border-b last:border-0 dark:border-gray-700">
                       <td class="px-4 py-2.5">

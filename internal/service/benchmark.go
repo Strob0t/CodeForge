@@ -9,13 +9,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // BenchmarkService manages benchmark runs and results.
@@ -23,6 +26,8 @@ type BenchmarkService struct {
 	store       database.Store
 	datasetsDir string
 	routingSvc  *RoutingService
+	queue       messagequeue.Queue
+	hub         broadcast.Broadcaster
 }
 
 // NewBenchmarkService creates a benchmark service.
@@ -34,6 +39,12 @@ func NewBenchmarkService(store database.Store, datasetsDir string) *BenchmarkSer
 func (s *BenchmarkService) SetRoutingService(routingSvc *RoutingService) {
 	s.routingSvc = routingSvc
 }
+
+// SetQueue sets the NATS queue for publishing benchmark requests.
+func (s *BenchmarkService) SetQueue(q messagequeue.Queue) { s.queue = q }
+
+// SetHub sets the WebSocket hub for broadcasting benchmark progress events.
+func (s *BenchmarkService) SetHub(hub broadcast.Broadcaster) { s.hub = hub }
 
 // RegisterSuite validates and persists a new benchmark suite.
 func (s *BenchmarkService) RegisterSuite(ctx context.Context, req *benchmark.CreateSuiteRequest) (*benchmark.Suite, error) {
@@ -65,6 +76,11 @@ func (s *BenchmarkService) ListSuites(ctx context.Context) ([]benchmark.Suite, e
 	return s.store.ListBenchmarkSuites(ctx)
 }
 
+// UpdateSuite updates an existing benchmark suite.
+func (s *BenchmarkService) UpdateSuite(ctx context.Context, suite *benchmark.Suite) error {
+	return s.store.UpdateBenchmarkSuite(ctx, suite)
+}
+
 // DeleteSuite removes a benchmark suite by ID.
 func (s *BenchmarkService) DeleteSuite(ctx context.Context, id string) error {
 	return s.store.DeleteBenchmarkSuite(ctx, id)
@@ -92,6 +108,64 @@ func (s *BenchmarkService) CreateRun(ctx context.Context, req *benchmark.CreateR
 	return r, nil
 }
 
+// StartRun creates a benchmark run in the database and publishes it to NATS
+// for Python worker execution. Falls back to CreateRun (DB-only) if queue is nil.
+func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
+	run, err := s.CreateRun(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.queue == nil {
+		slog.Warn("benchmark NATS queue not configured, run will stay in running state", "run_id", run.ID)
+		return run, nil
+	}
+
+	// Resolve dataset name to absolute file path (e.g. "basic-coding" → "/workspaces/.../configs/benchmarks/basic-coding.yaml").
+	datasetPath := run.Dataset
+	if s.datasetsDir != "" && !filepath.IsAbs(datasetPath) {
+		base := datasetPath
+		if !strings.HasSuffix(base, ".yaml") {
+			base += ".yaml"
+		}
+		candidate := filepath.Join(s.datasetsDir, base)
+		absCandidate, _ := filepath.Abs(candidate)
+		if _, statErr := os.Stat(absCandidate); statErr == nil {
+			datasetPath = absCandidate
+			slog.Info("resolved dataset path", "original", run.Dataset, "resolved", datasetPath)
+		} else {
+			slog.Warn("dataset path resolution failed", "original", run.Dataset, "candidate", absCandidate, "error", statErr)
+		}
+	}
+
+	payload := messagequeue.BenchmarkRunRequestPayload{
+		RunID:         run.ID,
+		DatasetPath:   datasetPath,
+		Model:         run.Model,
+		Metrics:       run.Metrics,
+		BenchmarkType: string(run.BenchmarkType),
+		SuiteID:       run.SuiteID,
+		ExecMode:      string(run.ExecMode),
+		Evaluators:    run.Metrics, // metrics double as evaluator names
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal benchmark run request: %w", err)
+	}
+
+	if err := s.queue.Publish(ctx, messagequeue.SubjectBenchmarkRunRequest, data); err != nil {
+		// Run is already saved — mark as failed if we can't dispatch.
+		slog.Error("failed to publish benchmark run request", "run_id", run.ID, "error", err)
+		run.Status = benchmark.StatusFailed
+		_ = s.store.UpdateBenchmarkRun(ctx, run) //nolint:errcheck // best effort
+		return nil, fmt.Errorf("publish benchmark run request: %w", err)
+	}
+
+	slog.Info("benchmark run dispatched to worker", "run_id", run.ID, "model", run.Model, "dataset", run.Dataset)
+	return run, nil
+}
+
 // GetRun retrieves a benchmark run by ID.
 func (s *BenchmarkService) GetRun(ctx context.Context, id string) (*benchmark.Run, error) {
 	return s.store.GetBenchmarkRun(ctx, id)
@@ -103,7 +177,7 @@ func (s *BenchmarkService) ListRuns(ctx context.Context) ([]benchmark.Run, error
 }
 
 // ListRunsFiltered returns benchmark runs matching the given filter.
-func (s *BenchmarkService) ListRunsFiltered(ctx context.Context, filter benchmark.RunFilter) ([]benchmark.Run, error) {
+func (s *BenchmarkService) ListRunsFiltered(ctx context.Context, filter *benchmark.RunFilter) ([]benchmark.Run, error) {
 	return s.store.ListBenchmarkRunsFiltered(ctx, filter)
 }
 
@@ -222,20 +296,34 @@ func (s *BenchmarkService) CompareMulti(ctx context.Context, runIDs []string) ([
 	if len(runIDs) < 2 {
 		return nil, fmt.Errorf("at least 2 run IDs are required for multi-comparison")
 	}
-	entries := make([]benchmark.MultiCompareEntry, 0, len(runIDs))
-	for _, id := range runIDs {
-		run, err := s.store.GetBenchmarkRun(ctx, id)
+
+	entries := make([]benchmark.MultiCompareEntry, len(runIDs))
+	errs := make([]error, len(runIDs))
+	var wg sync.WaitGroup
+
+	for i, id := range runIDs {
+		wg.Add(1)
+		go func(idx int, runID string) {
+			defer wg.Done()
+			run, err := s.store.GetBenchmarkRun(ctx, runID)
+			if err != nil {
+				errs[idx] = fmt.Errorf("run %s: %w", runID, err)
+				return
+			}
+			results, err := s.store.ListBenchmarkResults(ctx, runID)
+			if err != nil {
+				errs[idx] = fmt.Errorf("results for %s: %w", runID, err)
+				return
+			}
+			entries[idx] = benchmark.MultiCompareEntry{Run: run, Results: results}
+		}(i, id)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
 		if err != nil {
-			return nil, fmt.Errorf("run %s: %w", id, err)
+			return nil, err
 		}
-		results, err := s.store.ListBenchmarkResults(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("results for %s: %w", id, err)
-		}
-		entries = append(entries, benchmark.MultiCompareEntry{
-			Run:     run,
-			Results: results,
-		})
 	}
 	return entries, nil
 }
@@ -308,7 +396,7 @@ func (s *BenchmarkService) CostAnalysis(ctx context.Context, runID string) (*ben
 
 // Leaderboard computes ranked model performance across runs for a given suite.
 func (s *BenchmarkService) Leaderboard(ctx context.Context, suiteID string) ([]benchmark.LeaderboardEntry, error) {
-	filter := benchmark.RunFilter{SuiteID: suiteID}
+	filter := &benchmark.RunFilter{SuiteID: suiteID}
 	runs, err := s.store.ListBenchmarkRunsFiltered(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("list runs: %w", err)
@@ -459,6 +547,174 @@ func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.Trai
 		CostUSD:     r.CostUSD,
 		TokensTotal: r.TokensIn + r.TokensOut,
 	}
+}
+
+// HandleBenchmarkRunResult processes a benchmark.run.result message from Python.
+// It stores individual task results, updates the run status, and broadcasts WS events.
+func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ string, data []byte) error {
+	var payload messagequeue.BenchmarkRunResultPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("unmarshal benchmark run result: %w", err)
+	}
+
+	slog.Info("benchmark run result received",
+		"run_id", payload.RunID,
+		"status", payload.Status,
+		"results", len(payload.Results),
+		"total_cost", payload.TotalCost,
+	)
+
+	// Idempotency: skip if run is already completed/failed (NATS redelivery).
+	existing, err := s.store.GetBenchmarkRun(ctx, payload.RunID)
+	if err == nil && (existing.Status == benchmark.StatusCompleted || existing.Status == benchmark.StatusFailed) {
+		slog.Info("benchmark run result already processed, skipping", "run_id", payload.RunID)
+		return nil
+	}
+
+	// Store each task result.
+	for i := range payload.Results {
+		tr := &payload.Results[i]
+
+		scoresJSON, _ := json.Marshal(tr.Scores)              //nolint:errcheck // best effort
+		toolCallsJSON, _ := json.Marshal(tr.ToolCalls)        //nolint:errcheck // best effort
+		evalScoresJSON, _ := json.Marshal(tr.EvaluatorScores) //nolint:errcheck // best effort
+
+		result := &benchmark.Result{
+			ID:                   uuid.New().String(),
+			RunID:                payload.RunID,
+			TaskID:               tr.TaskID,
+			TaskName:             tr.TaskName,
+			Scores:               scoresJSON,
+			ActualOutput:         tr.ActualOutput,
+			ExpectedOutput:       tr.ExpectedOutput,
+			ToolCalls:            toolCallsJSON,
+			CostUSD:              tr.CostUSD,
+			TokensIn:             tr.TokensIn,
+			TokensOut:            tr.TokensOut,
+			DurationMs:           tr.DurationMs,
+			EvaluatorScores:      evalScoresJSON,
+			FilesChanged:         tr.FilesChanged,
+			FunctionalTestOutput: tr.FunctionalTestOutput,
+			RolloutID:            tr.RolloutID,
+			RolloutCount:         tr.RolloutCount,
+			IsBestRollout:        tr.IsBestRollout,
+			DiversityScore:       tr.DiversityScore,
+		}
+
+		if err := s.store.CreateBenchmarkResult(ctx, result); err != nil {
+			slog.Error("failed to store benchmark result", "run_id", payload.RunID, "task_id", tr.TaskID, "error", err)
+		}
+
+		// Broadcast per-task completion event.
+		if s.hub != nil {
+			s.hub.BroadcastEvent(ctx, "benchmark.task.completed", BenchmarkTaskCompletedPayload{
+				RunID:    payload.RunID,
+				TaskID:   tr.TaskID,
+				TaskName: tr.TaskName,
+				Score:    avgFromMap(tr.Scores),
+				CostUSD:  tr.CostUSD,
+				Index:    i + 1,
+				Total:    len(payload.Results),
+			})
+		}
+	}
+
+	// Update the run status.
+	run, err := s.store.GetBenchmarkRun(ctx, payload.RunID)
+	if err != nil {
+		return fmt.Errorf("get run for update: %w", err)
+	}
+
+	now := time.Now().UTC()
+	run.CompletedAt = &now
+	run.TotalCost = payload.TotalCost
+	run.TotalTokens = payload.TotalTokens
+	run.TotalDurationMs = payload.TotalDurationMs
+
+	if payload.Status == "completed" {
+		run.Status = benchmark.StatusCompleted
+	} else {
+		run.Status = benchmark.StatusFailed
+	}
+
+	// Store summary scores if provided.
+	if len(payload.Summary) > 0 {
+		summaryJSON, _ := json.Marshal(payload.Summary) //nolint:errcheck // best effort
+		run.SummaryScores = summaryJSON
+	}
+
+	if err := s.UpdateRun(ctx, run); err != nil {
+		return fmt.Errorf("update run status: %w", err)
+	}
+
+	// Broadcast run progress / completion event.
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, "benchmark.run.progress", BenchmarkRunProgressPayload{
+			RunID:          payload.RunID,
+			Status:         string(run.Status),
+			CompletedTasks: len(payload.Results),
+			TotalTasks:     len(payload.Results),
+			AvgScore:       avgFromSummary(payload.Summary),
+			TotalCostUSD:   payload.TotalCost,
+		})
+	}
+
+	return nil
+}
+
+// BenchmarkTaskCompletedPayload is broadcast when a single benchmark task finishes.
+type BenchmarkTaskCompletedPayload struct {
+	RunID    string  `json:"run_id"`
+	TaskID   string  `json:"task_id"`
+	TaskName string  `json:"task_name"`
+	Score    float64 `json:"score"`
+	CostUSD  float64 `json:"cost_usd"`
+	Index    int     `json:"index"`
+	Total    int     `json:"total"`
+}
+
+// BenchmarkRunProgressPayload is broadcast when a benchmark run progresses or completes.
+type BenchmarkRunProgressPayload struct {
+	RunID          string  `json:"run_id"`
+	Status         string  `json:"status"`
+	CompletedTasks int     `json:"completed_tasks"`
+	TotalTasks     int     `json:"total_tasks"`
+	AvgScore       float64 `json:"avg_score"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+}
+
+// StartResultSubscriber subscribes to benchmark.run.result on NATS.
+// Returns a cancel function to stop the subscription.
+func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), error) {
+	if s.queue == nil {
+		return func() {}, nil
+	}
+	return s.queue.Subscribe(ctx, messagequeue.SubjectBenchmarkRunResult, s.HandleBenchmarkRunResult)
+}
+
+// avgFromMap computes the average of a float64 map's values.
+func avgFromMap(m map[string]float64) float64 {
+	if len(m) == 0 {
+		return 0
+	}
+	var total float64
+	for _, v := range m {
+		total += v
+	}
+	return total / float64(len(m))
+}
+
+// avgFromSummary extracts avg_score from a summary map.
+func avgFromSummary(summary map[string]any) float64 {
+	if v, ok := summary["avg_score"]; ok {
+		switch val := v.(type) {
+		case float64:
+			return val
+		case int:
+			return float64(val)
+		}
+	}
+	return 0
 }
 
 // avgScoreFromJSON extracts the average score from a JSON scores map.
