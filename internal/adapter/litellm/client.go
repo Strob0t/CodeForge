@@ -130,9 +130,9 @@ func (c *Client) Health(ctx context.Context) (bool, error) {
 
 // AddModelRequest is the request body for adding a model to LiteLLM.
 type AddModelRequest struct {
-	ModelName     string            `json:"model_name"`
-	LiteLLMParams map[string]string `json:"litellm_params"`
-	ModelInfo     map[string]any    `json:"model_info,omitempty"`
+	ModelName     string         `json:"model_name"`
+	LiteLLMParams map[string]any `json:"litellm_params"`
+	ModelInfo     map[string]any `json:"model_info,omitempty"`
 }
 
 // DiscoveredModel represents a model found via auto-discovery with health status.

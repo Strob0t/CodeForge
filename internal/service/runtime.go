@@ -592,6 +592,14 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			Line:   output.Line,
 			Stream: output.Stream,
 		})
+		// Also emit AG-UI text_message for agentic conversation streaming.
+		if output.Line != "" && output.Stream != "stderr" {
+			s.hub.BroadcastEvent(msgCtx, ws.AGUITextMessage, ws.AGUITextMessageEvent{
+				RunID:   output.TaskID,
+				Role:    "assistant",
+				Content: output.Line,
+			})
+		}
 		return nil
 	})
 	if err != nil {

@@ -4,25 +4,22 @@ import { apiLogin, API_BASE } from "../helpers/api-helpers";
 /**
  * Benchmark evaluation endpoints (dev mode only).
  * These tests verify the full benchmark lifecycle: datasets, run creation, results, deletion.
- * The entire suite is skipped when the backend is not running in development mode.
+ * Requires APP_ENV=development on the backend.
  */
 test.describe("LLM E2E — Benchmarks", () => {
   let token: string;
-  let devMode = false;
-  let createdRunId: string | null = null;
 
   test.beforeAll(async () => {
     const auth = await apiLogin("admin@localhost", "Changeme123");
     token = auth.accessToken;
 
-    // Check if backend is in development mode
+    // Verify backend is in development mode
     const res = await fetch(`${API_BASE.replace("/api/v1", "")}/health`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (res.ok) {
-      const body = (await res.json()) as { dev_mode?: boolean };
-      devMode = body.dev_mode === true;
-    }
+    expect(res.ok).toBe(true);
+    const body = (await res.json()) as { dev_mode?: boolean };
+    expect(body.dev_mode).toBe(true);
   });
 
   const headers = (): Record<string, string> => ({
@@ -35,8 +32,6 @@ test.describe("LLM E2E — Benchmarks", () => {
   });
 
   test("GET /benchmarks/datasets returns datasets array", async () => {
-    test.skip(!devMode, "Benchmark endpoints require APP_ENV=development");
-
     const res = await fetch(`${API_BASE}/benchmarks/datasets`, {
       headers: headers(),
     });
@@ -45,10 +40,9 @@ test.describe("LLM E2E — Benchmarks", () => {
     expect(Array.isArray(body)).toBe(true);
   });
 
-  test("POST /benchmarks/runs creates benchmark run", async () => {
-    test.skip(!devMode, "Benchmark endpoints require APP_ENV=development");
-
-    const res = await fetch(`${API_BASE}/benchmarks/runs`, {
+  test("benchmark run full lifecycle: create, list, get, results, delete", async () => {
+    // Create benchmark run
+    const createRes = await fetch(`${API_BASE}/benchmarks/runs`, {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
@@ -58,17 +52,55 @@ test.describe("LLM E2E — Benchmarks", () => {
       }),
     });
     // 201 on success, 400 if dataset not found, 502 if model not available
-    expect([201, 400, 502]).toContain(res.status);
-    if (res.status === 201) {
-      const body = await res.json();
-      expect(body.id).toBeTruthy();
-      createdRunId = body.id;
+    expect([201, 400, 502]).toContain(createRes.status);
+
+    if (createRes.status === 201) {
+      const createBody = await createRes.json();
+      expect(createBody.id).toBeTruthy();
+      const runId = createBody.id;
+
+      // List benchmark runs
+      const listRes = await fetch(`${API_BASE}/benchmarks/runs`, {
+        headers: headers(),
+      });
+      expect(listRes.status).toBe(200);
+      const runs = await listRes.json();
+      expect(Array.isArray(runs)).toBe(true);
+
+      // Get run details
+      const getRes = await fetch(`${API_BASE}/benchmarks/runs/${runId}`, {
+        headers: headers(),
+      });
+      expect(getRes.status).toBe(200);
+      const run = await getRes.json();
+      expect(run.id).toBe(runId);
+
+      // Get run results
+      const resultsRes = await fetch(`${API_BASE}/benchmarks/runs/${runId}/results`, {
+        headers: headers(),
+      });
+      expect([200, 404]).toContain(resultsRes.status);
+      if (resultsRes.status === 200) {
+        const results = await resultsRes.json();
+        expect(Array.isArray(results)).toBe(true);
+      }
+
+      // Delete run
+      const delRes = await fetch(`${API_BASE}/benchmarks/runs/${runId}`, {
+        method: "DELETE",
+        headers: headers(),
+      });
+      expect([200, 204]).toContain(delRes.status);
+    } else {
+      // Even if creation failed, verify list endpoint works
+      const listRes = await fetch(`${API_BASE}/benchmarks/runs`, {
+        headers: headers(),
+      });
+      expect(listRes.status).toBe(200);
     }
   });
 
   test("GET /benchmarks/runs lists benchmark runs", async () => {
-    test.skip(!devMode, "Benchmark endpoints require APP_ENV=development");
-
     const res = await fetch(`${API_BASE}/benchmarks/runs`, {
       headers: headers(),
     });
@@ -77,48 +109,7 @@ test.describe("LLM E2E — Benchmarks", () => {
     expect(Array.isArray(body)).toBe(true);
   });
 
-  test("GET /benchmarks/runs/{id} returns run details", async () => {
-    test.skip(!devMode, "Benchmark endpoints require APP_ENV=development");
-    test.skip(!createdRunId, "No benchmark run was created in previous test");
-
-    const res = await fetch(`${API_BASE}/benchmarks/runs/${createdRunId}`, {
-      headers: headers(),
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.id).toBe(createdRunId);
-  });
-
-  test("GET /benchmarks/runs/{id}/results returns results", async () => {
-    test.skip(!devMode, "Benchmark endpoints require APP_ENV=development");
-    test.skip(!createdRunId, "No benchmark run was created in previous test");
-
-    const res = await fetch(`${API_BASE}/benchmarks/runs/${createdRunId}/results`, {
-      headers: headers(),
-    });
-    // 200 with results (may be empty if run not completed), 404 if run vanished
-    expect([200, 404]).toContain(res.status);
-    if (res.status === 200) {
-      const body = await res.json();
-      expect(Array.isArray(body)).toBe(true);
-    }
-  });
-
-  test("DELETE /benchmarks/runs/{id} deletes run", async () => {
-    test.skip(!devMode, "Benchmark endpoints require APP_ENV=development");
-    test.skip(!createdRunId, "No benchmark run was created in previous test");
-
-    const res = await fetch(`${API_BASE}/benchmarks/runs/${createdRunId}`, {
-      method: "DELETE",
-      headers: headers(),
-    });
-    expect([200, 204]).toContain(res.status);
-    createdRunId = null;
-  });
-
   test("POST /benchmarks/runs without dataset returns 400", async () => {
-    test.skip(!devMode, "Benchmark endpoints require APP_ENV=development");
-
     const res = await fetch(`${API_BASE}/benchmarks/runs`, {
       method: "POST",
       headers: jsonHeaders(),

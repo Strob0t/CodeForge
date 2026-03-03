@@ -68,7 +68,7 @@ func TestAddModel(t *testing.T) {
 	client := litellm.NewClient(srv.URL, "test-key")
 	err := client.AddModel(context.Background(), litellm.AddModelRequest{
 		ModelName:     "test-model",
-		LiteLLMParams: map[string]string{"model": "openai/gpt-4o"},
+		LiteLLMParams: map[string]any{"model": "openai/gpt-4o"},
 	})
 	if err != nil {
 		t.Fatalf("AddModel failed: %v", err)

@@ -45,49 +45,46 @@ test.describe("LLM E2E — Model Management", () => {
     }
   });
 
-  let modelAdded = false;
-
-  test("POST /llm/models adds model with real provider params", async ({ request }) => {
+  test("POST /llm/models add model endpoint responds correctly", async ({ request }) => {
+    // LiteLLM requires STORE_MODEL_IN_DB=True for dynamic model registration.
+    // When not configured, it returns 500 (proxied as 502). Both cases are valid behaviors.
     const res = await request.post(`${API_BASE}/llm/models`, {
       headers: headers(),
       data: {
         model_name: testModelName,
-        litellm_params: { model: "openai/gpt-4o-mini", api_key: "test-key" },
+        litellm_params: { model: "ollama/e2e-test-model", api_base: "http://localhost:11434" },
       },
     });
-    // 201 if LiteLLM accepted, 502 if proxy down or rejected
+    // 201 = model added successfully (STORE_MODEL_IN_DB=True)
+    // 502 = LiteLLM rejected (STORE_MODEL_IN_DB not set) — still a valid endpoint response
     expect([201, 502]).toContain(res.status());
-    modelAdded = res.status() === 201;
-  });
 
-  test("added model appears in model list", async ({ request }) => {
-    test.skip(!modelAdded, "model add was not accepted by LiteLLM");
-    const res = await request.get(`${API_BASE}/llm/models`, { headers: headers() });
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(Array.isArray(body)).toBe(true);
-    const found = body.some((m: { model_name?: string }) => m.model_name === testModelName);
-    expect(found).toBe(true);
-  });
+    if (res.status() === 201) {
+      // Full lifecycle: verify in list, delete, verify gone
+      const listRes = await request.get(`${API_BASE}/llm/models`, { headers: headers() });
+      expect(listRes.status()).toBe(200);
+      const models = await listRes.json();
+      expect(Array.isArray(models)).toBe(true);
+      const found = models.some((m: { model_name?: string }) => m.model_name === testModelName);
+      expect(found).toBe(true);
 
-  test("POST /llm/models/delete removes test model", async ({ request }) => {
-    test.skip(!modelAdded, "model was not added");
-    const res = await request.post(`${API_BASE}/llm/models/delete`, {
-      headers: headers(),
-      data: { id: testModelName },
-    });
-    expect([200, 502]).toContain(res.status());
-  });
+      const delRes = await request.post(`${API_BASE}/llm/models/delete`, {
+        headers: headers(),
+        data: { id: testModelName },
+      });
+      expect([200, 502]).toContain(delRes.status());
 
-  test("deleted model no longer in list", async ({ request }) => {
-    test.skip(!modelAdded, "model was not added");
-    const res = await request.get(`${API_BASE}/llm/models`, { headers: headers() });
-    expect([200, 502]).toContain(res.status());
-    if (res.status() === 200) {
-      const body = await res.json();
-      expect(Array.isArray(body)).toBe(true);
-      const found = body.some((m: { model_name?: string }) => m.model_name === testModelName);
-      expect(found).toBe(false);
+      const listRes2 = await request.get(`${API_BASE}/llm/models`, { headers: headers() });
+      expect(listRes2.status()).toBe(200);
+      const models2 = await listRes2.json();
+      const found2 = models2.some((m: { model_name?: string }) => m.model_name === testModelName);
+      expect(found2).toBe(false);
+    } else {
+      // LiteLLM doesn't support dynamic model add — verify list still works
+      const listRes = await request.get(`${API_BASE}/llm/models`, { headers: headers() });
+      expect(listRes.status()).toBe(200);
+      const models = await listRes.json();
+      expect(Array.isArray(models)).toBe(true);
     }
   });
 

@@ -14,7 +14,7 @@ import (
 func RegisterWithLiteLLM(ctx context.Context, llm *litellm.Client, bearerToken string) error {
 	req := litellm.AddModelRequest{
 		ModelName: "copilot/gpt-4",
-		LiteLLMParams: map[string]string{
+		LiteLLMParams: map[string]any{
 			"model":               "openai/gpt-4",
 			"api_key":             bearerToken,
 			"api_base":            "https://api.githubcopilot.com",

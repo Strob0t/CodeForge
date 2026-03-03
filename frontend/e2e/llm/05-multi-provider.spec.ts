@@ -27,6 +27,7 @@ test.describe("LLM E2E — Multi-Provider Comparison", () => {
     const discovery = await discoverAvailableModels();
     models = discovery.models;
     providers = extractProviders(models);
+    expect(providers.length).toBeGreaterThan(0);
   });
 
   test.afterAll(async () => {
@@ -47,8 +48,6 @@ test.describe("LLM E2E — Multi-Provider Comparison", () => {
     "Write a Python function called 'add' that takes two numbers and returns their sum. Only output the code.";
 
   test("all available providers respond to simple prompt", async () => {
-    test.skip(providers.length === 0, "No LLM providers available");
-
     const results: Array<{
       provider: string;
       model: string;
@@ -107,22 +106,17 @@ test.describe("LLM E2E — Multi-Provider Comparison", () => {
       );
     }
 
-    // At least one provider should respond successfully (or skip if none have keys)
+    // At least one provider should respond successfully
     const successful = results.filter((r) => r.status === 201);
-    if (successful.length === 0) {
-      test.skip(true, "No providers responded successfully — API keys likely not configured");
-    }
+    expect(successful.length).toBeGreaterThanOrEqual(1);
   });
 
   test("all providers return valid token counts", async () => {
-    test.skip(providers.length === 0, "No providers");
     // At minimum, verify the discover endpoint shows all providers
     expect(providers.length).toBeGreaterThanOrEqual(1);
   });
 
   test("all providers handle code generation", async () => {
-    test.skip(providers.length === 0, "No providers");
-
     const results: Array<{
       provider: string;
       model: string;
@@ -167,14 +161,12 @@ test.describe("LLM E2E — Multi-Provider Comparison", () => {
       console.log(`  ${r.provider}: hasCode=${r.hasCode} | ${r.content.substring(0, 80)}...`);
     }
 
-    if (results.length > 0) {
-      const withCode = results.filter((r) => r.hasCode);
-      expect(withCode.length).toBeGreaterThanOrEqual(1);
-    }
+    expect(results.length).toBeGreaterThan(0);
+    const withCode = results.filter((r) => r.hasCode);
+    expect(withCode.length).toBeGreaterThanOrEqual(1);
   });
 
   test("each provider response includes model field", async () => {
-    test.skip(providers.length === 0, "No providers");
     // The model field on ConversationMessage should match the provider prefix
     // This is verified through the simple prompt test results
     expect(providers.length).toBeGreaterThanOrEqual(1);

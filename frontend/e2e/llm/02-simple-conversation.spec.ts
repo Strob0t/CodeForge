@@ -1,290 +1,220 @@
 import { test, expect } from "@playwright/test";
 import { apiLogin, createCleanupTracker, API_BASE } from "../helpers/api-helpers";
-import { discoverAvailableModels, type DiscoveredModel } from "./llm-helpers";
+import { discoverAvailableModels } from "./llm-helpers";
 
 test.describe("LLM E2E — Simple Conversation", () => {
+  test.setTimeout(60_000);
+
   let token: string;
-  let models: DiscoveredModel[] = [];
+  let projectId: string;
   const cleanup = createCleanupTracker();
 
-  // Shared state across sequential tests
-  let projectId: string;
-  let conversationId: string;
-  let assistantMessage: {
+  const headers = () => ({ Authorization: `Bearer ${token}` });
+
+  /** Create a fresh conversation inside the shared project. */
+  async function newConversation(
+    request: { post: Function },
+    title = "E2E test conversation",
+  ): Promise<string> {
+    const res = await request.post(`${API_BASE}/projects/${projectId}/conversations`, {
+      headers: headers(),
+      data: { title },
+    });
+    expect(res.status()).toBe(201);
+    const body = await res.json();
+    cleanup.add("conversation", body.id);
+    return body.id;
+  }
+
+  /** Send a user message and return the assistant response. */
+  async function sendMessage(
+    request: { post: Function },
+    convId: string,
+    content: string,
+  ): Promise<{
     role: string;
     content: string;
-    tokens_in?: number;
-    tokens_out?: number;
-    model?: string;
-  } | null = null;
-
-  const headers = () => ({ Authorization: `Bearer ${token}` });
+    tokens_in: number;
+    tokens_out: number;
+    model: string;
+  }> {
+    const res = await request.post(`${API_BASE}/conversations/${convId}/messages`, {
+      headers: headers(),
+      data: { content },
+    });
+    expect(res.status()).toBe(201);
+    return res.json();
+  }
 
   test.beforeAll(async () => {
     const auth = await apiLogin("admin@localhost", "Changeme123");
     token = auth.accessToken;
 
-    try {
-      const discovery = await discoverAvailableModels();
-      models = discovery.models.filter((m) => m.status === "reachable");
-    } catch {
-      // LiteLLM may not be available
-      models = [];
-    }
+    // Verify at least one model is reachable (prerequisite for all tests)
+    const discovery = await discoverAvailableModels();
+    const reachable = discovery.models.filter((m) => m.status === "reachable");
+    expect(reachable.length).toBeGreaterThan(0);
+
+    // Create shared project
+    const projRes = await fetch(`${API_BASE}/projects`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: `e2e-llm-conv-${Date.now()}` }),
+    });
+    expect(projRes.status).toBe(201);
+    const proj = (await projRes.json()) as { id: string };
+    projectId = proj.id;
+    cleanup.add("project", projectId);
   });
 
   test.afterAll(async () => {
     await cleanup.cleanup();
   });
 
-  test("create project for LLM testing", async ({ request }) => {
-    const projName = `e2e-llm-conv-${Date.now()}`;
-    const res = await request.post(`${API_BASE}/projects`, {
-      headers: headers(),
-      data: {
-        name: projName,
-        description: "E2E LLM conversation test project",
-        repo_url: "",
-        provider: "",
-        config: {},
-      },
-    });
-    expect(res.status()).toBe(201);
-    const body = await res.json();
-    expect(body.id).toBeTruthy();
-    projectId = body.id;
-    cleanup.add("project", projectId);
-  });
-
-  test("create conversation", async ({ request }) => {
-    test.skip(!projectId, "No project created");
-
-    const res = await request.post(`${API_BASE}/projects/${projectId}/conversations`, {
-      headers: headers(),
-      data: { title: "E2E simple conversation test" },
-    });
-    expect(res.status()).toBe(201);
-    const body = await res.json();
-    expect(body.id).toBeTruthy();
-    conversationId = body.id;
-    cleanup.add("conversation", conversationId);
+  test("create conversation returns 201 with id", async ({ request }) => {
+    const convId = await newConversation(request, "creation test");
+    expect(convId).toBeTruthy();
   });
 
   test("send simple greeting gets LLM response", async ({ request }) => {
-    test.setTimeout(60_000);
-    test.skip(!conversationId, "No conversation created");
-    test.skip(models.length === 0, "No LLM models available");
+    const convId = await newConversation(request);
+    const reply = await sendMessage(request, convId, "Hello, respond with exactly one word.");
 
-    const res = await request.post(`${API_BASE}/conversations/${conversationId}/messages`, {
-      headers: headers(),
-      data: { content: "Hello, respond with exactly one word." },
-    });
-    expect([200, 201, 202, 500, 502]).toContain(res.status());
-
-    if (res.status() === 201) {
-      const body = await res.json();
-      expect(body.role).toBe("assistant");
-      expect(typeof body.content).toBe("string");
-      expect(body.content.trim().length).toBeGreaterThan(0);
-      assistantMessage = body;
-    } else {
-      test.skip(true, "LLM/worker not available");
-    }
+    expect(reply.role).toBe("assistant");
+    expect(typeof reply.content).toBe("string");
+    expect(reply.content.trim().length).toBeGreaterThan(0);
   });
 
-  test("assistant response has correct role", async ({ request }) => {
-    test.skip(!conversationId, "No conversation created");
-    test.skip(!assistantMessage, "No assistant response from previous test");
+  test("response has non-zero token counts", async ({ request }) => {
+    const convId = await newConversation(request);
+    const reply = await sendMessage(request, convId, "Say hi.");
 
-    // Also verify via the messages list endpoint
-    const res = await request.get(`${API_BASE}/conversations/${conversationId}/messages`, {
-      headers: headers(),
-    });
-    expect(res.status()).toBe(200);
-    const messages = await res.json();
-    expect(Array.isArray(messages)).toBe(true);
-
-    const assistant = messages.find((m: { role: string }) => m.role === "assistant");
-    if (assistant) {
-      expect(assistant.role).toBe("assistant");
-    }
+    expect(reply.tokens_in).toBeGreaterThan(0);
+    expect(reply.tokens_out).toBeGreaterThan(0);
   });
 
-  test("response has non-zero token counts", async () => {
-    test.skip(!assistantMessage, "No assistant response available");
+  test("response has model field", async ({ request }) => {
+    const convId = await newConversation(request);
+    const reply = await sendMessage(request, convId, "Say hi.");
 
-    if (assistantMessage!.tokens_in !== undefined) {
-      expect(assistantMessage!.tokens_in).toBeGreaterThan(0);
-    }
-    if (assistantMessage!.tokens_out !== undefined) {
-      expect(assistantMessage!.tokens_out).toBeGreaterThan(0);
-    }
-  });
-
-  test("response has model field", async () => {
-    test.skip(!assistantMessage, "No assistant response available");
-
-    expect(typeof assistantMessage!.model).toBe("string");
-    expect(assistantMessage!.model!.length).toBeGreaterThan(0);
+    expect(typeof reply.model).toBe("string");
+    expect(reply.model.length).toBeGreaterThan(0);
   });
 
   test("send follow-up tests conversation context", async ({ request }) => {
-    test.setTimeout(60_000);
-    test.skip(!conversationId, "No conversation created");
-    test.skip(!assistantMessage, "No previous assistant response");
+    const convId = await newConversation(request, "context test");
 
-    const res = await request.post(`${API_BASE}/conversations/${conversationId}/messages`, {
-      headers: headers(),
-      data: { content: "What was the first word I asked you to say?" },
-    });
-    expect([200, 201, 202, 500, 502]).toContain(res.status());
+    // First message: establish context
+    await sendMessage(request, convId, "Remember this word: PINEAPPLE");
 
-    if (res.status() === 201) {
-      const body = await res.json();
-      expect(body.role).toBe("assistant");
-      expect(typeof body.content).toBe("string");
-      // The response should reference the previous exchange in some way
-      expect(body.content.trim().length).toBeGreaterThan(0);
-    } else {
-      test.skip(true, "LLM/worker not available");
-    }
+    // Follow-up: ask about context
+    const reply = await sendMessage(
+      request,
+      convId,
+      "What word did I ask you to remember? Reply with just the word.",
+    );
+
+    expect(reply.role).toBe("assistant");
+    expect(reply.content.toUpperCase()).toContain("PINEAPPLE");
   });
 
   test("send code question gets code response", async ({ request }) => {
-    test.setTimeout(60_000);
-    test.skip(!conversationId, "No conversation created");
-    test.skip(models.length === 0, "No LLM models available");
+    const convId = await newConversation(request, "code gen test");
+    const reply = await sendMessage(
+      request,
+      convId,
+      "Write a Python function that adds two numbers. Only output the code.",
+    );
 
-    const res = await request.post(`${API_BASE}/conversations/${conversationId}/messages`, {
-      headers: headers(),
-      data: {
-        content: "Write a Python function that adds two numbers. Only output the code.",
-      },
-    });
-    expect([200, 201, 202, 500, 502]).toContain(res.status());
-
-    if (res.status() === 201) {
-      const body = await res.json();
-      expect(body.role).toBe("assistant");
-      const content = body.content.toLowerCase();
-      // The response should contain Python code markers
-      const hasCode = content.includes("def") || content.includes("return");
-      expect(hasCode).toBe(true);
-    } else {
-      test.skip(true, "LLM/worker not available");
-    }
+    expect(reply.role).toBe("assistant");
+    const content = reply.content.toLowerCase();
+    const hasCode = content.includes("def") || content.includes("return");
+    expect(hasCode).toBe(true);
   });
 
   test("send long prompt gets coherent response", async ({ request }) => {
-    test.setTimeout(60_000);
-    test.skip(!conversationId, "No conversation created");
-    test.skip(models.length === 0, "No LLM models available");
+    const convId = await newConversation(request, "long prompt test");
 
-    // Generate a 200+ word prompt
     const words = Array.from(
       { length: 40 },
       (_, i) =>
         `This is sentence number ${i + 1} in a longer prompt designed to test that the LLM can handle substantial input.`,
     ).join(" ");
 
-    const res = await request.post(`${API_BASE}/conversations/${conversationId}/messages`, {
-      headers: headers(),
-      data: { content: `${words} Please summarize what I just said in one sentence.` },
-    });
-    expect([200, 201, 202, 500, 502]).toContain(res.status());
+    const reply = await sendMessage(
+      request,
+      convId,
+      `${words} Please summarize what I just said in one sentence.`,
+    );
 
-    if (res.status() === 201) {
-      const body = await res.json();
-      expect(body.role).toBe("assistant");
-      expect(body.content.trim().length).toBeGreaterThan(0);
-    } else {
-      test.skip(true, "LLM/worker not available");
-    }
+    expect(reply.role).toBe("assistant");
+    expect(reply.content.trim().length).toBeGreaterThan(0);
   });
 
   test("messages list grows with each exchange", async ({ request }) => {
-    test.skip(!conversationId, "No conversation created");
+    const convId = await newConversation(request);
+    await sendMessage(request, convId, "Say hello.");
 
-    const res = await request.get(`${API_BASE}/conversations/${conversationId}/messages`, {
+    const res = await request.get(`${API_BASE}/conversations/${convId}/messages`, {
       headers: headers(),
     });
     expect(res.status()).toBe(200);
     const messages = await res.json();
     expect(Array.isArray(messages)).toBe(true);
-    // We sent at least one message; if LLM responded we have at least 2
-    expect(messages.length).toBeGreaterThanOrEqual(1);
+    // user message + assistant response = at least 2
+    expect(messages.length).toBeGreaterThanOrEqual(2);
   });
 
   test("multiple conversations are independent", async ({ request }) => {
-    test.setTimeout(60_000);
-    test.skip(!projectId, "No project created");
-    test.skip(models.length === 0, "No LLM models available");
+    const conv1Id = await newConversation(request, "independent 1");
+    const conv2Id = await newConversation(request, "independent 2");
 
-    // Create two separate conversations
-    const conv1Res = await request.post(`${API_BASE}/projects/${projectId}/conversations`, {
-      headers: headers(),
-      data: { title: "Independent conversation 1" },
-    });
-    expect(conv1Res.status()).toBe(201);
-    const conv1 = await conv1Res.json();
-    cleanup.add("conversation", conv1.id);
+    await sendMessage(request, conv1Id, "The secret code is ALPHA.");
+    await sendMessage(request, conv2Id, "The secret code is BRAVO.");
 
-    const conv2Res = await request.post(`${API_BASE}/projects/${projectId}/conversations`, {
-      headers: headers(),
-      data: { title: "Independent conversation 2" },
-    });
-    expect(conv2Res.status()).toBe(201);
-    const conv2 = await conv2Res.json();
-    cleanup.add("conversation", conv2.id);
-
-    // Send different content to each
-    const msg1Res = await request.post(`${API_BASE}/conversations/${conv1.id}/messages`, {
-      headers: headers(),
-      data: { content: "The secret code is ALPHA." },
-    });
-    const msg2Res = await request.post(`${API_BASE}/conversations/${conv2.id}/messages`, {
-      headers: headers(),
-      data: { content: "The secret code is BRAVO." },
-    });
-
-    // Both should accept the message
-    expect([200, 201, 202, 500, 502]).toContain(msg1Res.status());
-    expect([200, 201, 202, 500, 502]).toContain(msg2Res.status());
-
-    // Verify each conversation has only its own messages
-    const list1Res = await request.get(`${API_BASE}/conversations/${conv1.id}/messages`, {
+    const list1 = await request.get(`${API_BASE}/conversations/${conv1Id}/messages`, {
       headers: headers(),
     });
-    const list2Res = await request.get(`${API_BASE}/conversations/${conv2.id}/messages`, {
+    const list2 = await request.get(`${API_BASE}/conversations/${conv2Id}/messages`, {
       headers: headers(),
     });
-    expect(list1Res.status()).toBe(200);
-    expect(list2Res.status()).toBe(200);
+    expect(list1.status()).toBe(200);
+    expect(list2.status()).toBe(200);
 
-    const messages1 = await list1Res.json();
-    const messages2 = await list2Res.json();
+    const msgs1 = await list1.json();
+    const msgs2 = await list2.json();
 
-    // Each conversation should have at least its own user message
-    const userMsgs1 = messages1.filter((m: { role: string }) => m.role === "user");
-    const userMsgs2 = messages2.filter((m: { role: string }) => m.role === "user");
+    const userMsgs1 = msgs1.filter((m: { role: string }) => m.role === "user");
+    const userMsgs2 = msgs2.filter((m: { role: string }) => m.role === "user");
 
-    if (userMsgs1.length > 0) {
-      expect(userMsgs1.some((m: { content: string }) => m.content.includes("ALPHA"))).toBe(true);
-      expect(userMsgs1.some((m: { content: string }) => m.content.includes("BRAVO"))).toBe(false);
-    }
-    if (userMsgs2.length > 0) {
-      expect(userMsgs2.some((m: { content: string }) => m.content.includes("BRAVO"))).toBe(true);
-      expect(userMsgs2.some((m: { content: string }) => m.content.includes("ALPHA"))).toBe(false);
-    }
+    expect(userMsgs1.some((m: { content: string }) => m.content.includes("ALPHA"))).toBe(true);
+    expect(userMsgs1.some((m: { content: string }) => m.content.includes("BRAVO"))).toBe(false);
+    expect(userMsgs2.some((m: { content: string }) => m.content.includes("BRAVO"))).toBe(true);
+    expect(userMsgs2.some((m: { content: string }) => m.content.includes("ALPHA"))).toBe(false);
   });
 
   test("send empty content returns error", async ({ request }) => {
-    test.skip(!conversationId, "No conversation created");
-
-    const res = await request.post(`${API_BASE}/conversations/${conversationId}/messages`, {
+    const convId = await newConversation(request);
+    const res = await request.post(`${API_BASE}/conversations/${convId}/messages`, {
       headers: headers(),
       data: { content: "" },
     });
     expect([400, 422, 500]).toContain(res.status());
+  });
+
+  test("assistant response is listed via messages endpoint", async ({ request }) => {
+    const convId = await newConversation(request);
+    await sendMessage(request, convId, "Hi there.");
+
+    const res = await request.get(`${API_BASE}/conversations/${convId}/messages`, {
+      headers: headers(),
+    });
+    expect(res.status()).toBe(200);
+    const messages = await res.json();
+
+    const assistant = messages.find((m: { role: string }) => m.role === "assistant");
+    expect(assistant).toBeTruthy();
+    expect(assistant.role).toBe("assistant");
+    expect(assistant.content.length).toBeGreaterThan(0);
   });
 });
