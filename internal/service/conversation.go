@@ -207,7 +207,19 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		Content: systemPrompt,
 	})
 	for i := range messages {
+		// Skip system messages (we inject our own above).
 		if messages[i].Role == "system" {
+			continue
+		}
+		// Skip tool result messages and assistant messages that were pure
+		// tool-call placeholders (no human-readable content). These are
+		// agentic loop internals stored in the DB but not valid for the
+		// simple chat path — many providers (e.g. Mistral) reject
+		// role="tool" without matching tool_calls in the request.
+		if messages[i].Role == "tool" {
+			continue
+		}
+		if messages[i].Role == "assistant" && messages[i].Content == "" && len(messages[i].ToolCalls) > 0 {
 			continue
 		}
 		chatMessages = append(chatMessages, litellm.ChatMessage{
