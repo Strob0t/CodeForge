@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from codeforge.routing.complexity import ComplexityAnalyzer
     from codeforge.routing.mab import MABModelSelector
     from codeforge.routing.meta_router import LLMMetaRouter
+    from codeforge.routing.rate_tracker import RateLimitTracker
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +67,14 @@ class HybridRouter:
         meta: LLMMetaRouter | None,
         available_models: list[str],
         config: RoutingConfig,
+        rate_tracker: RateLimitTracker | None = None,
     ) -> None:
         self._complexity = complexity
         self._mab = mab
         self._meta = meta
         self._available_models = available_models
         self._config = config
+        self._rate_tracker = rate_tracker
 
     def route(
         self,
@@ -141,6 +144,11 @@ class HybridRouter:
         for model in preferences:
             if model not in self._available_models:
                 continue
+            if self._rate_tracker is not None:
+                provider = model.split("/")[0] if "/" in model else ""
+                if provider and self._rate_tracker.is_exhausted(provider):
+                    logger.debug("skipping rate-limited provider %s for model %s", provider, model)
+                    continue
             if max_cost is not None:
                 from codeforge.routing.capabilities import enrich_model_capabilities
 

@@ -339,12 +339,15 @@ class ConversationHandlerMixin:
         # Get available models from LiteLLM.
         available_models = self._get_available_models()
 
+        from codeforge.routing.rate_tracker import get_tracker
+
         return HybridRouter(
             complexity=complexity,
             mab=mab,
             meta=meta,
             available_models=available_models,
             config=config,
+            rate_tracker=get_tracker(),
         )
 
     @staticmethod

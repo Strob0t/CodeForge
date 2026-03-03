@@ -11,6 +11,7 @@ from codeforge.routing.models import (
     RoutingConfig,
     TaskType,
 )
+from codeforge.routing.rate_tracker import RateLimitTracker
 from codeforge.routing.router import COMPLEXITY_DEFAULTS, HybridRouter
 
 AVAILABLE = [
@@ -281,3 +282,78 @@ def test_complexity_defaults_have_all_tiers() -> None:
     for tier in ComplexityTier:
         assert tier in COMPLEXITY_DEFAULTS, f"Missing defaults for {tier}"
         assert len(COMPLEXITY_DEFAULTS[tier]) >= 2, f"Too few defaults for {tier}"
+
+
+# -- Rate-aware fallback tests -----------------------------------------------
+
+
+def _make_tracker_with_exhausted(
+    providers: set[str],
+) -> RateLimitTracker:
+    """Build a tracker where the given providers are marked as exhausted."""
+    from codeforge.routing.rate_tracker import RateLimitInfo
+
+    tracker = RateLimitTracker()
+    tracker._now = lambda: 100.0  # type: ignore[assignment]
+    for p in providers:
+        tracker.update(
+            p,
+            RateLimitInfo(
+                remaining_requests=0,
+                limit_requests=60,
+                reset_after_seconds=30.0,
+                provider=p,
+                timestamp=100.0,
+            ),
+        )
+    return tracker
+
+
+def test_fallback_skips_exhausted_provider() -> None:
+    """Exhausted provider should be skipped in favour of the next preferred model."""
+    tracker = _make_tracker_with_exhausted({"groq"})
+    router = HybridRouter(
+        complexity=ComplexityAnalyzer(),
+        mab=None,
+        meta=None,
+        available_models=AVAILABLE,
+        config=_config(mab=False, meta=False),
+        rate_tracker=tracker,
+    )
+    # A simple prompt → SIMPLE tier → preference list starts with groq.
+    decision = router.route("Hello")
+    assert decision is not None
+    assert not decision.model.startswith("groq/")
+
+
+def test_fallback_all_preferred_exhausted() -> None:
+    """When all preferred providers are exhausted, fall back to first available."""
+    tracker = _make_tracker_with_exhausted({"groq", "openai", "anthropic"})
+    router = HybridRouter(
+        complexity=ComplexityAnalyzer(),
+        mab=None,
+        meta=None,
+        available_models=["groq/llama-3.1-8b-instant", "custom/my-model"],
+        config=_config(mab=False, meta=False),
+        rate_tracker=tracker,
+    )
+    decision = router.route("Hello")
+    assert decision is not None
+    # groq is exhausted in the preference list, but first available is groq — the
+    # overall fallback doesn't rate-filter, so it picks first available.
+    assert decision.model in ("groq/llama-3.1-8b-instant", "custom/my-model")
+
+
+def test_rate_tracker_none_no_filtering() -> None:
+    """Without a rate tracker, no providers should be filtered."""
+    router = HybridRouter(
+        complexity=ComplexityAnalyzer(),
+        mab=None,
+        meta=None,
+        available_models=AVAILABLE,
+        config=_config(mab=False, meta=False),
+        rate_tracker=None,
+    )
+    decision = router.route("Hello")
+    assert decision is not None
+    assert decision.model in AVAILABLE

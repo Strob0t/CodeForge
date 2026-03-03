@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
 import os
+import re
+import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import httpx
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +108,56 @@ class RoutingResult:
     task_type: str = ""
 
 
+# ---------------------------------------------------------------------------
+# LLM Client Configuration (retry, backoff, timeout)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LLMClientConfig:
+    """Environment-driven configuration for LiteLLMClient retry behaviour."""
+
+    max_retries: int = 2
+    backoff_base: float = 2.0
+    backoff_max: float = 60.0
+    timeout: float = 120.0
+    retryable_codes: tuple[int, ...] = (429, 502, 503, 504)
+
+
+def load_llm_client_config() -> LLMClientConfig:
+    """Load LLM client config from environment variables."""
+
+    def _float(key: str, default: float) -> float:
+        val = os.environ.get(key, "")
+        try:
+            return float(val) if val else default
+        except ValueError:
+            return default
+
+    def _int(key: str, default: int) -> int:
+        val = os.environ.get(key, "")
+        try:
+            return int(val) if val else default
+        except ValueError:
+            return default
+
+    return LLMClientConfig(
+        max_retries=_int("CODEFORGE_LLM_MAX_RETRIES", 2),
+        backoff_base=_float("CODEFORGE_LLM_BACKOFF_BASE", 2.0),
+        backoff_max=_float("CODEFORGE_LLM_BACKOFF_MAX", 60.0),
+        timeout=_float("CODEFORGE_LLM_TIMEOUT", 120.0),
+    )
+
+
+def _extract_provider(model: str) -> str:
+    """Extract the provider prefix from a model name.
+
+    ``"groq/llama-3.1-8b"`` -> ``"groq"``
+    ``"gpt-4o"``             -> ``"gpt-4o"``
+    """
+    return model.split("/", 1)[0] if "/" in model else model
+
+
 def resolve_model_with_routing(
     prompt: str,
     scenario: str,
@@ -186,15 +239,150 @@ def load_routing_config() -> object | None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Rate-limit header parsing
+# ---------------------------------------------------------------------------
+
+_DURATION_RE = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?(?:(\d+)ms)?")
+
+
+def _parse_duration(value: str) -> float | None:
+    """Parse a duration string like ``'1m30s'``, ``'500ms'``, or plain seconds."""
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    m = _DURATION_RE.fullmatch(value.strip())
+    if m is None:
+        return None
+    h, mi, s, ms = m.groups()
+    total = 0.0
+    if h:
+        total += int(h) * 3600
+    if mi:
+        total += int(mi) * 60
+    if s:
+        total += float(s)
+    if ms:
+        total += int(ms) / 1000
+    return total if total > 0 else None
+
+
 class LiteLLMClient:
     """HTTP client for the LiteLLM Proxy (OpenAI-compatible API)."""
 
-    def __init__(self, base_url: str = "http://localhost:4000", api_key: str = "") -> None:
+    def __init__(
+        self,
+        base_url: str = "http://localhost:4000",
+        api_key: str = "",
+        config: LLMClientConfig | None = None,
+    ) -> None:
+        self._config = config or load_llm_client_config()
         self._base_url = base_url.rstrip("/")
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        self._client = httpx.AsyncClient(base_url=self._base_url, headers=headers, timeout=120.0)
+        self._client = httpx.AsyncClient(
+            base_url=self._base_url,
+            headers=headers,
+            timeout=self._config.timeout,
+        )
+
+    # -- retry / resilience helpers -----------------------------------------
+
+    def _is_retryable(self, exc: LLMError) -> bool:
+        return exc.status_code in self._config.retryable_codes
+
+    @staticmethod
+    def _parse_retry_after(exc: LLMError) -> float | None:
+        """Extract a Retry-After hint from the error body or well-known JSON fields."""
+        try:
+            data = json.loads(exc.body)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        for key in ("retry_after", "Retry-After", "retry-after"):
+            val = data.get(key)
+            if val is not None:
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    pass
+        return None
+
+    def _compute_backoff(self, exc: LLMError, attempt: int) -> float:
+        hint = self._parse_retry_after(exc)
+        if hint is not None:
+            return min(hint, self._config.backoff_max)
+        return min(self._config.backoff_base ** (attempt + 1), self._config.backoff_max)
+
+    async def _with_retry(self, fn: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
+        last_exc: LLMError | None = None
+        for attempt in range(self._config.max_retries + 1):
+            try:
+                return await fn(*args, **kwargs)
+            except LLMError as exc:
+                last_exc = exc
+                if not self._is_retryable(exc) or attempt == self._config.max_retries:
+                    raise
+                wait = self._compute_backoff(exc, attempt)
+                logger.warning(
+                    "LLM %d, retry %d/%d in %.1fs (model=%s)",
+                    exc.status_code,
+                    attempt + 1,
+                    self._config.max_retries,
+                    wait,
+                    exc.model,
+                )
+                await asyncio.sleep(wait)
+        raise last_exc  # type: ignore[misc]  # unreachable
+
+    # -- rate-limit header extraction ---------------------------------------
+
+    @staticmethod
+    def _extract_rate_info(headers: httpx.Headers, model: str) -> dict[str, object] | None:
+        """Parse ``x-ratelimit-*`` headers into a dict suitable for RateLimitTracker."""
+        remaining_raw = headers.get("x-ratelimit-remaining-requests")
+        if remaining_raw is None:
+            return None
+        try:
+            remaining = int(remaining_raw)
+        except (ValueError, TypeError):
+            return None
+        limit_raw = headers.get("x-ratelimit-limit-requests")
+        limit: int | None = None
+        if limit_raw is not None:
+            with contextlib.suppress(ValueError, TypeError):
+                limit = int(limit_raw)
+        reset_raw = headers.get("x-ratelimit-reset-requests") or headers.get("retry-after")
+        reset_seconds: float | None = None
+        if reset_raw is not None:
+            reset_seconds = _parse_duration(reset_raw)
+        return {
+            "remaining_requests": remaining,
+            "limit_requests": limit,
+            "reset_after_seconds": reset_seconds,
+            "provider": _extract_provider(model),
+            "timestamp": time.monotonic(),
+        }
+
+    @staticmethod
+    def _report_rate_info(info: dict[str, object] | None) -> None:
+        if info is None:
+            return
+        from codeforge.routing.rate_tracker import RateLimitInfo, get_tracker
+
+        get_tracker().update(
+            str(info["provider"]),
+            RateLimitInfo(
+                remaining_requests=info["remaining_requests"],  # type: ignore[arg-type]
+                limit_requests=info["limit_requests"],  # type: ignore[arg-type]
+                reset_after_seconds=info["reset_after_seconds"],  # type: ignore[arg-type]
+                provider=str(info["provider"]),
+                timestamp=float(info["timestamp"]),  # type: ignore[arg-type]
+            ),
+        )
+
+    # -- public API ---------------------------------------------------------
 
     async def completion(
         self,
@@ -204,74 +392,74 @@ class LiteLLMClient:
         temperature: float = 0.2,
         tags: list[str] | None = None,
     ) -> CompletionResponse:
-        """Send a chat completion request to LiteLLM.
-
-        When *tags* is provided, LiteLLM routes to a model whose
-        ``litellm_params.tags`` include at least one matching tag.
-        """
+        """Send a chat completion request to LiteLLM with automatic retry."""
         if not model:
             from codeforge.model_resolver import resolve_model
 
             model = resolve_model()
 
-        messages: list[dict[str, str]] = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        async def _inner() -> CompletionResponse:
+            messages: list[dict[str, str]] = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
 
-        payload: dict[str, object] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-        }
+            payload: dict[str, object] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if tags:
+                payload["tags"] = tags
 
-        if tags:
-            payload["tags"] = tags
-
-        logger.debug(
-            "llm_completion_request model=%s temperature=%.2f tags=%s prompt_len=%d",
-            model,
-            temperature,
-            tags,
-            len(prompt),
-        )
-
-        resp = await self._client.post("/v1/chat/completions", json=payload)
-        if resp.status_code >= 400:
-            body = resp.text
-            logger.error(
-                "LiteLLM error status=%d model=%s body=%s",
-                resp.status_code,
+            logger.debug(
+                "llm_completion_request model=%s temperature=%.2f tags=%s prompt_len=%d",
                 model,
-                body[:1000],
+                temperature,
+                tags,
+                len(prompt),
             )
-            raise LLMError(resp.status_code, model, body)
-        data: dict[str, object] = resp.json()
 
-        # Extract cost from LiteLLM response header (if available).
-        try:
-            litellm_cost = float(resp.headers.get("x-litellm-response-cost", "0"))
-        except (ValueError, TypeError):
-            litellm_cost = 0.0
+            resp = await self._client.post("/v1/chat/completions", json=payload)
 
-        choices = data.get("choices", [])
-        if not isinstance(choices, list) or len(choices) == 0:
-            return CompletionResponse(content="", tokens_in=0, tokens_out=0, model=model, cost_usd=litellm_cost)
+            self._report_rate_info(self._extract_rate_info(resp.headers, model))
 
-        message = choices[0].get("message", {})
-        content = message.get("content", "") if isinstance(message, dict) else ""
+            if resp.status_code >= 400:
+                body = resp.text
+                logger.error(
+                    "LiteLLM error status=%d model=%s body=%s",
+                    resp.status_code,
+                    model,
+                    body[:1000],
+                )
+                raise LLMError(resp.status_code, model, body)
+            data: dict[str, object] = resp.json()
 
-        usage = data.get("usage", {})
-        tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
-        tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
+            try:
+                litellm_cost = float(resp.headers.get("x-litellm-response-cost", "0"))
+            except (ValueError, TypeError):
+                litellm_cost = 0.0
 
-        return CompletionResponse(
-            content=str(content),
-            tokens_in=int(tokens_in),
-            tokens_out=int(tokens_out),
-            model=model,
-            cost_usd=litellm_cost,
-        )
+            choices = data.get("choices", [])
+            if not isinstance(choices, list) or len(choices) == 0:
+                return CompletionResponse(content="", tokens_in=0, tokens_out=0, model=model, cost_usd=litellm_cost)
+
+            message = choices[0].get("message", {})
+            content = message.get("content", "") if isinstance(message, dict) else ""
+
+            usage = data.get("usage", {})
+            tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
+            tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
+
+            return CompletionResponse(
+                content=str(content),
+                tokens_in=int(tokens_in),
+                tokens_out=int(tokens_out),
+                model=model,
+                cost_usd=litellm_cost,
+            )
+
+        return cast("CompletionResponse", await self._with_retry(_inner))
 
     async def chat_completion(
         self,
@@ -284,91 +472,90 @@ class LiteLLMClient:
         max_tokens: int | None = None,
         response_format: dict[str, object] | None = None,
     ) -> ChatCompletionResponse:
-        """Send a chat completion with tool-calling support.
-
-        Returns a ChatCompletionResponse that includes parsed tool_calls
-        and finish_reason alongside the standard content and usage fields.
-
-        When *response_format* is provided, it is forwarded to the LLM API
-        to request structured JSON output (e.g. ``{"type": "json_schema", ...}``).
-        """
+        """Send a chat completion with tool-calling support and automatic retry."""
         if not model:
             from codeforge.model_resolver import resolve_model
 
             model = resolve_model()
 
-        payload: dict[str, object] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-        }
-        if tools:
-            payload["tools"] = tools
-        if tool_choice is not None:
-            payload["tool_choice"] = tool_choice
-        if tags:
-            payload["tags"] = tags
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
-        if response_format is not None:
-            payload["response_format"] = response_format
+        async def _inner() -> ChatCompletionResponse:
+            payload: dict[str, object] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if tools:
+                payload["tools"] = tools
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
+            if tags:
+                payload["tags"] = tags
+            if max_tokens is not None:
+                payload["max_tokens"] = max_tokens
+            if response_format is not None:
+                payload["response_format"] = response_format
 
-        logger.debug(
-            "chat_completion model=%s tools=%d temperature=%.2f",
-            model,
-            len(tools) if tools else 0,
-            temperature,
-        )
-
-        resp = await self._client.post("/v1/chat/completions", json=payload)
-        if resp.status_code >= 400:
-            body = resp.text
-            logger.error(
-                "LiteLLM error status=%d model=%s body=%s",
-                resp.status_code,
+            logger.debug(
+                "chat_completion model=%s tools=%d temperature=%.2f",
                 model,
-                body[:1000],
+                len(tools) if tools else 0,
+                temperature,
             )
-            raise LLMError(resp.status_code, model, body)
-        data: dict[str, object] = resp.json()
 
-        try:
-            cost = float(resp.headers.get("x-litellm-response-cost", "0"))
-        except (ValueError, TypeError):
-            cost = 0.0
+            resp = await self._client.post("/v1/chat/completions", json=payload)
 
-        choices = data.get("choices", [])
-        if not isinstance(choices, list) or len(choices) == 0:
+            self._report_rate_info(self._extract_rate_info(resp.headers, model))
+
+            if resp.status_code >= 400:
+                body = resp.text
+                logger.error(
+                    "LiteLLM error status=%d model=%s body=%s",
+                    resp.status_code,
+                    model,
+                    body[:1000],
+                )
+                raise LLMError(resp.status_code, model, body)
+            data: dict[str, object] = resp.json()
+
+            try:
+                cost = float(resp.headers.get("x-litellm-response-cost", "0"))
+            except (ValueError, TypeError):
+                cost = 0.0
+
+            choices = data.get("choices", [])
+            if not isinstance(choices, list) or len(choices) == 0:
+                return ChatCompletionResponse(
+                    content="",
+                    tool_calls=[],
+                    finish_reason="stop",
+                    tokens_in=0,
+                    tokens_out=0,
+                    model=model,
+                    cost_usd=cost,
+                )
+
+            choice = choices[0]
+            finish_reason = choice.get("finish_reason", "stop") if isinstance(choice, dict) else "stop"
+            msg = choice.get("message", {}) if isinstance(choice, dict) else {}
+            content = msg.get("content", "") or "" if isinstance(msg, dict) else ""
+
+            tool_calls = _parse_tool_calls(msg.get("tool_calls")) if isinstance(msg, dict) else []
+
+            usage = data.get("usage", {})
+            tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
+            tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
+
             return ChatCompletionResponse(
-                content="",
-                tool_calls=[],
-                finish_reason="stop",
-                tokens_in=0,
-                tokens_out=0,
+                content=str(content),
+                tool_calls=tool_calls,
+                finish_reason=str(finish_reason),
+                tokens_in=int(tokens_in),
+                tokens_out=int(tokens_out),
                 model=model,
                 cost_usd=cost,
             )
 
-        choice = choices[0]
-        finish_reason = choice.get("finish_reason", "stop") if isinstance(choice, dict) else "stop"
-        message = choice.get("message", {}) if isinstance(choice, dict) else {}
-        content = message.get("content", "") or "" if isinstance(message, dict) else ""
-
-        tool_calls = _parse_tool_calls(message.get("tool_calls")) if isinstance(message, dict) else []
-
-        usage = data.get("usage", {})
-        tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
-        tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
-
-        return ChatCompletionResponse(
-            content=str(content),
-            tool_calls=tool_calls,
-            finish_reason=str(finish_reason),
-            tokens_in=int(tokens_in),
-            tokens_out=int(tokens_out),
-            model=model,
-            cost_usd=cost,
-        )
+        return cast("ChatCompletionResponse", await self._with_retry(_inner))
 
     async def chat_completion_stream(
         self,
@@ -382,73 +569,73 @@ class LiteLLMClient:
         on_chunk: Callable[[str], None] | None = None,
         on_tool_call: Callable[[ToolCallPart], None] | None = None,
     ) -> ChatCompletionResponse:
-        """Stream a chat completion, accumulating tool_call deltas.
-
-        *on_chunk* is called for each text delta.
-        *on_tool_call* is called for each fully accumulated tool call.
-        Returns the final assembled ChatCompletionResponse.
-        """
+        """Stream a chat completion with automatic retry on transient errors."""
         if not model:
             from codeforge.model_resolver import resolve_model
 
             model = resolve_model()
 
-        payload: dict[str, object] = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "stream": True,
-        }
-        if tools:
-            payload["tools"] = tools
-        if tool_choice is not None:
-            payload["tool_choice"] = tool_choice
-        if tags:
-            payload["tags"] = tags
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
+        async def _inner() -> ChatCompletionResponse:
+            payload: dict[str, object] = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": True,
+            }
+            if tools:
+                payload["tools"] = tools
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
+            if tags:
+                payload["tags"] = tags
+            if max_tokens is not None:
+                payload["max_tokens"] = max_tokens
 
-        logger.debug(
-            "chat_completion_stream model=%s tools=%d temperature=%.2f",
-            model,
-            len(tools) if tools else 0,
-            temperature,
-        )
+            logger.debug(
+                "chat_completion_stream model=%s tools=%d temperature=%.2f",
+                model,
+                len(tools) if tools else 0,
+                temperature,
+            )
 
-        acc = _StreamAccumulator()
+            acc = _StreamAccumulator()
 
-        async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
-            if resp.status_code >= 400:
-                body = (await resp.aread()).decode(errors="replace")
-                logger.error(
-                    "LiteLLM error status=%d model=%s body=%s",
-                    resp.status_code,
-                    model,
-                    body[:1000],
-                )
-                raise LLMError(resp.status_code, model, body)
-            with contextlib.suppress(ValueError, TypeError):
-                acc.cost = float(resp.headers.get("x-litellm-response-cost", "0"))
+            async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
+                self._report_rate_info(self._extract_rate_info(resp.headers, model))
 
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                raw = line[6:]
-                if raw.strip() == "[DONE]":
-                    break
-                acc.process_chunk(raw, on_chunk)
+                if resp.status_code >= 400:
+                    body = (await resp.aread()).decode(errors="replace")
+                    logger.error(
+                        "LiteLLM error status=%d model=%s body=%s",
+                        resp.status_code,
+                        model,
+                        body[:1000],
+                    )
+                    raise LLMError(resp.status_code, model, body)
+                with contextlib.suppress(ValueError, TypeError):
+                    acc.cost = float(resp.headers.get("x-litellm-response-cost", "0"))
 
-        tool_calls = acc.build_tool_calls(on_tool_call)
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    raw = line[6:]
+                    if raw.strip() == "[DONE]":
+                        break
+                    acc.process_chunk(raw, on_chunk)
 
-        return ChatCompletionResponse(
-            content="".join(acc.content_parts),
-            tool_calls=tool_calls,
-            finish_reason=acc.finish_reason,
-            tokens_in=int(acc.tokens_in),
-            tokens_out=int(acc.tokens_out),
-            model=model,
-            cost_usd=acc.cost,
-        )
+            tool_calls = acc.build_tool_calls(on_tool_call)
+
+            return ChatCompletionResponse(
+                content="".join(acc.content_parts),
+                tool_calls=tool_calls,
+                finish_reason=acc.finish_reason,
+                tokens_in=int(acc.tokens_in),
+                tokens_out=int(acc.tokens_out),
+                model=model,
+                cost_usd=acc.cost,
+            )
+
+        return cast("ChatCompletionResponse", await self._with_retry(_inner))
 
     async def health(self) -> bool:
         """Check if the LiteLLM Proxy is healthy."""

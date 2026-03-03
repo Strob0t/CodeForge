@@ -49,13 +49,15 @@ model_list:
 
 router_settings:
   enable_tag_filtering: true
-  num_retries: 2
+  # Reduced from 2: app-level retry in llm.py handles remaining retries
+  num_retries: 1
 
 litellm_settings:
   drop_params: true
   set_verbose: false
   request_timeout: 120
-  num_retries: 2
+  # Reduced from 2: app-level retry in llm.py handles remaining retries
+  num_retries: 1
 
 general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"

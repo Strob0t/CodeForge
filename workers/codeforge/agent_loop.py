@@ -9,7 +9,6 @@ This is the heart of the interactive agent. The loop:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -208,50 +207,31 @@ class AgentLoopExecutor:
             return f"LLM call denied: {llm_decision.reason}"
 
         streamed_text: list[str] = []
-        max_retries = 2
-        last_exc: Exception | None = None
-        for attempt in range(max_retries + 1):
-            streamed_text.clear()
-            try:
-                response = await self._llm.chat_completion_stream(
-                    messages=messages,
-                    model=cfg.model or resolve_model(),
-                    tools=tools_array or None,
-                    temperature=cfg.temperature,
-                    tags=cfg.tags or None,
-                    on_chunk=streamed_text.append,
+        try:
+            response = await self._llm.chat_completion_stream(
+                messages=messages,
+                model=cfg.model or resolve_model(),
+                tools=tools_array or None,
+                temperature=cfg.temperature,
+                tags=cfg.tags or None,
+                on_chunk=streamed_text.append,
+            )
+        except Exception as exc:
+            logger.exception("LLM call failed on iteration %d", iteration)
+            if cfg.routing_layer:
+                _record_routing_outcome(
+                    model=cfg.model,
+                    task_type=cfg.task_type,
+                    complexity_tier=cfg.complexity_tier,
+                    success=False,
+                    cost_usd=0.0,
+                    latency_ms=0,
+                    tokens_in=0,
+                    tokens_out=0,
+                    routing_layer=cfg.routing_layer,
+                    run_id=self._runtime.run_id,
                 )
-                break  # success
-            except Exception as exc:
-                last_exc = exc
-                is_rate_limit = "429" in str(exc) or "RateLimitError" in type(exc).__name__
-                if is_rate_limit and attempt < max_retries:
-                    wait = 2 ** (attempt + 1)  # 2s, 4s
-                    logger.warning(
-                        "rate limit hit, retrying in %ds (attempt %d/%d)",
-                        wait,
-                        attempt + 1,
-                        max_retries,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-                logger.exception("LLM call failed on iteration %d", iteration)
-                if cfg.routing_layer:
-                    _record_routing_outcome(
-                        model=cfg.model,
-                        task_type=cfg.task_type,
-                        complexity_tier=cfg.complexity_tier,
-                        success=False,
-                        cost_usd=0.0,
-                        latency_ms=0,
-                        tokens_in=0,
-                        tokens_out=0,
-                        routing_layer=cfg.routing_layer,
-                        run_id=self._runtime.run_id,
-                    )
-                return f"LLM call failed: {exc}"
-        else:
-            return f"LLM call failed after {max_retries} retries: {last_exc}"
+            return f"LLM call failed: {exc}"
 
         full_text = "".join(streamed_text)
         if full_text:
