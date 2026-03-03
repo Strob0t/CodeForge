@@ -302,6 +302,47 @@ These principles guide all code in this project across Go, Python, and TypeScrip
 - If the implementation is easy to explain, it may be a good idea.
 - Namespaces are one honking great idea -- let's do more of those!
 
+## Cross-Language Integration Checklist (Go / NATS / Python)
+
+When modifying code that crosses the Go/Python boundary via NATS, verify ALL of the following:
+
+### NATS Subjects & Streams
+- Subject strings must match EXACTLY between Go constants (`internal/port/messagequeue/subjects.go`) and Python constants (`workers/codeforge/consumer/_subjects.py`)
+- The NATS JetStream stream config (`internal/port/messagequeue/jetstream.go`) must include wildcard patterns for any new subject prefixes (e.g. `benchmark.>`)
+- New subjects need both a publisher (one side) and a subscriber (other side)
+
+### JSON Payload Contracts
+- Go struct JSON tags (`json:"field_name"`) must match Python Pydantic field names exactly
+- When adding/renaming a field in Go (`internal/port/messagequeue/schemas.go` or domain models), update the corresponding Pydantic model in `workers/codeforge/models.py`
+- When adding/renaming a field in Python, update the corresponding Go struct
+- Test round-trip: Go marshal -> Python unmarshal AND Python dump -> Go unmarshal
+- Watch for type mismatches: Go `int64` vs Python `int`, Go `float64` vs Python `float`, Go `time.Time` vs Python `datetime`
+
+### API Keys & Secrets
+- NEVER hardcode API keys, tokens, or secrets -- always read from environment variables
+- LiteLLM proxy auth: use `LITELLM_MASTER_KEY` env var (default fallback: `sk-codeforge-dev`)
+- When a component calls LiteLLM, verify the model name has a valid API key configured in `litellm-config.yaml`
+
+### Method Signatures & Interfaces
+- Python `LiteLLMClient` method is `chat_completion()` (NOT `chat()`) -- check all callers and test fakes
+- When changing a Go interface method signature (e.g. value->pointer for large structs), grep ALL implementations including test mocks
+- `golangci-lint hugeParam`: structs >80 bytes should be passed by pointer
+
+### Path Resolution
+- Frontend sends dataset names (e.g. `"basic-coding"`), Go resolves to absolute file paths before publishing to NATS
+- Python worker receives absolute paths -- it does NOT resolve relative names
+- Verify path resolution in `internal/service/benchmark.go` `resolveDatasetPath()`
+
+### Idempotency
+- NATS JetStream redelivers unacked messages -- handlers must be idempotent
+- Check for duplicate-processing guards (e.g. skip if run already `"completed"`)
+- Always `msg.ack()` even on error to prevent infinite redelivery loops
+
+### Error Handling
+- Always capture exceptions: `except Exception as exc:` (NOT bare `except Exception:`)
+- Log the actual exception: `error=str(exc)` (NOT `error=str(log)` or other objects)
+- Publish error results back to NATS so the Go side knows about failures
+
 ## Development Methodology: TDD (Test-Driven Development)
 
 **All new features MUST follow TDD.** No exceptions.

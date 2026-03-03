@@ -94,13 +94,13 @@ class BenchmarkHandlerMixin:
                 avg_score=summary.get("avg_score", 0),
             )
 
-        except Exception:
+        except Exception as exc:
             log.exception("benchmark run failed")
             if self._js is not None:
                 error_result = BenchmarkRunResult(
                     run_id=req.run_id if "req" in dir() else "",
                     status="failed",
-                    error=str(log),
+                    error=str(exc),
                 )
                 await self._js.publish(
                     SUBJECT_BENCHMARK_RUN_RESULT,
