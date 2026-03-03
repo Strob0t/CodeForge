@@ -59,7 +59,7 @@ services:
       POSTGRES_USER: codeforge
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeforge_dev}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ${HOST_PROJECT_PATH:-.}/data/pgdata:/var/lib/postgresql/data
     shm_size: 256mb
     command: >
       postgres
