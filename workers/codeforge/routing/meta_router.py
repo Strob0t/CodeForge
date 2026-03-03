@@ -83,8 +83,14 @@ class LLMMetaRouter:
 
         classification_prompt = self._build_prompt(prompt, analysis, available_models)
 
+        router_model = self._config.meta_router_model
+        if not router_model:
+            from codeforge.model_resolver import resolve_model
+
+            router_model = resolve_model()
+
         try:
-            response = self._llm_call(self._config.meta_router_model, classification_prompt)
+            response = self._llm_call(router_model, classification_prompt)
         except Exception:
             logger.warning("Meta-router LLM call failed", exc_info=True)
             return None

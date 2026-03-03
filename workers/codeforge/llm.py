@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Default model used when no model is specified in the request.
-# Set via CODEFORGE_DEFAULT_MODEL env var or falls back to groq/llama-3.3-70b-versatile.
-DEFAULT_MODEL: str = os.environ.get("CODEFORGE_DEFAULT_MODEL", "groq/llama-3.3-70b-versatile")
+# Default model — empty means auto-discover from LiteLLM.
+# Override via CODEFORGE_DEFAULT_MODEL env var if needed.
+DEFAULT_MODEL: str = os.environ.get("CODEFORGE_DEFAULT_MODEL", "")
 
 
 class LLMError(Exception):
@@ -181,7 +181,7 @@ def load_routing_config() -> object | None:
         cost_weight=_float("CODEFORGE_ROUTING_COST_WEIGHT", 0.3),
         quality_weight=_float("CODEFORGE_ROUTING_QUALITY_WEIGHT", 0.5),
         latency_weight=_float("CODEFORGE_ROUTING_LATENCY_WEIGHT", 0.2),
-        meta_router_model=os.environ.get("CODEFORGE_ROUTING_META_MODEL", "groq/llama-3.1-8b-instant"),
+        meta_router_model=os.environ.get("CODEFORGE_ROUTING_META_MODEL", ""),
         stats_refresh_interval=os.environ.get("CODEFORGE_ROUTING_STATS_INTERVAL", "5m"),
     )
 
@@ -199,7 +199,7 @@ class LiteLLMClient:
     async def completion(
         self,
         prompt: str,
-        model: str = DEFAULT_MODEL,
+        model: str = "",
         system: str = "",
         temperature: float = 0.2,
         tags: list[str] | None = None,
@@ -209,6 +209,11 @@ class LiteLLMClient:
         When *tags* is provided, LiteLLM routes to a model whose
         ``litellm_params.tags`` include at least one matching tag.
         """
+        if not model:
+            from codeforge.model_resolver import resolve_model
+
+            model = resolve_model()
+
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -271,7 +276,7 @@ class LiteLLMClient:
     async def chat_completion(
         self,
         messages: list[dict[str, object]],
-        model: str = DEFAULT_MODEL,
+        model: str = "",
         tools: list[dict[str, object]] | None = None,
         tool_choice: str | dict[str, object] | None = None,
         temperature: float = 0.2,
@@ -287,6 +292,11 @@ class LiteLLMClient:
         When *response_format* is provided, it is forwarded to the LLM API
         to request structured JSON output (e.g. ``{"type": "json_schema", ...}``).
         """
+        if not model:
+            from codeforge.model_resolver import resolve_model
+
+            model = resolve_model()
+
         payload: dict[str, object] = {
             "model": model,
             "messages": messages,
@@ -363,7 +373,7 @@ class LiteLLMClient:
     async def chat_completion_stream(
         self,
         messages: list[dict[str, object]],
-        model: str = DEFAULT_MODEL,
+        model: str = "",
         tools: list[dict[str, object]] | None = None,
         tool_choice: str | dict[str, object] | None = None,
         temperature: float = 0.2,
@@ -378,6 +388,11 @@ class LiteLLMClient:
         *on_tool_call* is called for each fully accumulated tool call.
         Returns the final assembled ChatCompletionResponse.
         """
+        if not model:
+            from codeforge.model_resolver import resolve_model
+
+            model = resolve_model()
+
         payload: dict[str, object] = {
             "model": model,
             "messages": messages,

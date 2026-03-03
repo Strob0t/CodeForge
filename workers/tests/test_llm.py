@@ -80,7 +80,7 @@ async def test_completion_empty_choices(client: LiteLLMClient) -> None:
     mock_response = httpx.Response(200, json={"choices": [], "usage": {}}, request=_FAKE_REQUEST)
 
     with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
-        result = await client.completion(prompt="test")
+        result = await client.completion(prompt="test", model="test-model")
 
     assert result.content == ""
     assert result.tokens_in == 0
@@ -124,7 +124,7 @@ async def test_completion_passes_tags(client: LiteLLMClient) -> None:
     )
 
     with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-        await client.completion(prompt="test", tags=["think"])
+        await client.completion(prompt="test", model="test-model", tags=["think"])
 
     call_payload = mock_post.call_args.kwargs["json"]
     assert call_payload["tags"] == ["think"]
@@ -142,7 +142,7 @@ async def test_completion_without_tags(client: LiteLLMClient) -> None:
     )
 
     with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-        await client.completion(prompt="test")
+        await client.completion(prompt="test", model="test-model")
 
     call_payload = mock_post.call_args.kwargs["json"]
     assert "tags" not in call_payload

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -12,6 +12,16 @@ from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
 from codeforge.llm import ChatCompletionResponse, ToolCallPart
 from codeforge.models import ToolCallDecision
 from codeforge.tools import ToolRegistry, ToolResult
+
+# Mock resolve_model globally for all tests in this module so the agent loop
+# doesn't try to contact LiteLLM when cfg.model is empty.
+pytestmark = pytest.mark.usefixtures("_mock_resolve_model")
+
+
+@pytest.fixture(autouse=True)
+def _mock_resolve_model():
+    with patch("codeforge.agent_loop.resolve_model", return_value="fake-model"):
+        yield
 
 
 @dataclass

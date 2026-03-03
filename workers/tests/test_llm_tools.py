@@ -137,6 +137,7 @@ async def test_chat_completion_text_only(client: LiteLLMClient) -> None:
     with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
         result = await client.chat_completion(
             messages=[{"role": "user", "content": "Hi"}],
+            model="test-model",
         )
 
     assert result.content == "Hello there!"
@@ -155,6 +156,7 @@ async def test_chat_completion_empty_choices(client: LiteLLMClient) -> None:
     with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
         result = await client.chat_completion(
             messages=[{"role": "user", "content": "test"}],
+            model="test-model",
         )
 
     assert result.content == ""
@@ -178,6 +180,7 @@ async def test_chat_completion_sends_tools_in_payload(client: LiteLLMClient) -> 
     with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
         await client.chat_completion(
             messages=[{"role": "user", "content": "test"}],
+            model="test-model",
             tools=tools,
             tool_choice="auto",
             tags=["default"],
@@ -206,6 +209,7 @@ async def test_chat_completion_cost_from_header(client: LiteLLMClient) -> None:
     with patch.object(client._client, "post", new_callable=AsyncMock, return_value=mock_response):
         result = await client.chat_completion(
             messages=[{"role": "user", "content": "test"}],
+            model="test-model",
         )
 
     assert result.cost_usd == pytest.approx(0.005)
@@ -250,6 +254,7 @@ async def test_stream_text_only(client: LiteLLMClient) -> None:
     with patch.object(client._client, "stream", return_value=FakeStreamResponse(lines)):
         result = await client.chat_completion_stream(
             messages=[{"role": "user", "content": "Hi"}],
+            model="test-model",
             on_chunk=lambda c: chunks.append(c),
         )
 
@@ -278,6 +283,7 @@ async def test_stream_tool_call_assembly(client: LiteLLMClient) -> None:
     with patch.object(client._client, "stream", return_value=FakeStreamResponse(lines)):
         result = await client.chat_completion_stream(
             messages=[{"role": "user", "content": "Read a.py"}],
+            model="test-model",
             tools=[{"type": "function", "function": {"name": "read_file"}}],
             on_tool_call=lambda tc: tool_calls_received.append(tc),
         )
@@ -303,6 +309,7 @@ async def test_stream_multiple_tool_calls(client: LiteLLMClient) -> None:
     with patch.object(client._client, "stream", return_value=FakeStreamResponse(lines)):
         result = await client.chat_completion_stream(
             messages=[{"role": "user", "content": "test"}],
+            model="test-model",
         )
 
     assert len(result.tool_calls) == 2
@@ -324,6 +331,7 @@ async def test_stream_ignores_non_data_lines(client: LiteLLMClient) -> None:
     with patch.object(client._client, "stream", return_value=FakeStreamResponse(lines)):
         result = await client.chat_completion_stream(
             messages=[{"role": "user", "content": "test"}],
+            model="test-model",
         )
 
     assert result.content == "ok"
@@ -345,6 +353,7 @@ async def test_stream_usage_from_final_chunk(client: LiteLLMClient) -> None:
     ):
         result = await client.chat_completion_stream(
             messages=[{"role": "user", "content": "test"}],
+            model="test-model",
         )
 
     assert result.tokens_in == 42

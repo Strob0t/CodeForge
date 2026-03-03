@@ -35,11 +35,17 @@ type decomposeData struct {
 
 // MetaAgentService uses an LLM to decompose features into subtasks and build execution plans.
 type MetaAgentService struct {
-	store   database.Store
-	llm     *litellm.Client
-	orchSvc *OrchestratorService
-	orchCfg *config.Orchestrator
-	limits  *config.Limits
+	store         database.Store
+	llm           *litellm.Client
+	orchSvc       *OrchestratorService
+	orchCfg       *config.Orchestrator
+	limits        *config.Limits
+	modelRegistry *ModelRegistry
+}
+
+// SetModelRegistry injects the model registry for dynamic model resolution.
+func (s *MetaAgentService) SetModelRegistry(r *ModelRegistry) {
+	s.modelRegistry = r
 }
 
 // NewMetaAgentService creates a MetaAgentService with all dependencies.
@@ -86,10 +92,16 @@ func (s *MetaAgentService) DecomposeFeature(ctx context.Context, req *plan.Decom
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
 
-	// Build and send LLM request
+	// Build and send LLM request — resolve model dynamically.
 	model := req.Model
 	if model == "" {
 		model = s.orchCfg.DecomposeModel
+	}
+	if model == "" && s.modelRegistry != nil {
+		model = s.modelRegistry.BestModel()
+	}
+	if model == "" {
+		return nil, fmt.Errorf("no model available: configure DecomposeModel or ensure LiteLLM has reachable models")
 	}
 	maxTokens := s.orchCfg.DecomposeMaxTokens
 	if maxTokens == 0 {

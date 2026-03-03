@@ -65,7 +65,8 @@ type RetrievalService struct {
 	lastSearchFailure   time.Time
 	lastSubAgentFailure time.Time
 
-	kbUpdater KBStatusUpdater
+	kbUpdater     KBStatusUpdater
+	modelRegistry *ModelRegistry
 }
 
 // NewRetrievalService creates a RetrievalService.
@@ -90,6 +91,11 @@ func (s *RetrievalService) SetEventStore(es eventstore.Store) {
 // SetKBUpdater injects the knowledge base status updater.
 func (s *RetrievalService) SetKBUpdater(u KBStatusUpdater) {
 	s.kbUpdater = u
+}
+
+// SetModelRegistry injects the model registry for dynamic model resolution.
+func (s *RetrievalService) SetModelRegistry(r *ModelRegistry) {
+	s.modelRegistry = r
 }
 
 // RequestIndex publishes a request for index building to the Python worker.
@@ -345,8 +351,13 @@ func (s *RetrievalService) HandleSubAgentSearchResult(ctx context.Context, paylo
 }
 
 // SubAgentDefaults returns the orchestrator's sub-agent configuration defaults.
+// When SubAgentModel is empty, it falls back to the best available model from the registry.
 func (s *RetrievalService) SubAgentDefaults() (model string, maxQueries int, rerank bool) {
-	return s.orchCfg.SubAgentModel, s.orchCfg.SubAgentMaxQueries, s.orchCfg.SubAgentRerank
+	model = s.orchCfg.SubAgentModel
+	if model == "" && s.modelRegistry != nil {
+		model = s.modelRegistry.BestModel()
+	}
+	return model, s.orchCfg.SubAgentMaxQueries, s.orchCfg.SubAgentRerank
 }
 
 // GetIndexStatus returns the in-memory index info for a project, or nil if unknown.

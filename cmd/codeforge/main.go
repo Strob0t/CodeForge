@@ -490,6 +490,11 @@ func run() error {
 		"best_model", modelRegistry.BestModel(),
 		"model_count", len(modelRegistry.AvailableModels()))
 
+	// Wire model registry into services that need dynamic model resolution.
+	metaAgentSvc.SetModelRegistry(modelRegistry)
+	retrievalSvc.SetModelRegistry(modelRegistry)
+	contextOptSvc.SetModelRegistry(modelRegistry)
+
 	// --- Conversation Service ---
 	// Use the static config model as fallback; the registry provides live best model.
 	conversationModel := cfg.LiteLLM.ConversationModel

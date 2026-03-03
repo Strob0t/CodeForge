@@ -20,13 +20,14 @@ import (
 // ContextOptimizerService builds context packs for tasks by scoring file relevance,
 // trimming to token budgets, and injecting shared context from team collaboration.
 type ContextOptimizerService struct {
-	store     database.Store
-	orchCfg   *config.Orchestrator
-	limits    *config.Limits
-	retrieval *RetrievalService
-	graph     *GraphService
-	lsp       *LSPService
-	goalSvc   *GoalDiscoveryService
+	store         database.Store
+	orchCfg       *config.Orchestrator
+	limits        *config.Limits
+	retrieval     *RetrievalService
+	graph         *GraphService
+	lsp           *LSPService
+	goalSvc       *GoalDiscoveryService
+	modelRegistry *ModelRegistry
 
 	// Guard against redundant builds for the same task (#16).
 	buildMu    sync.Mutex
@@ -46,6 +47,11 @@ func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrat
 // SetRetrieval wires the retrieval service for hybrid search injection.
 func (s *ContextOptimizerService) SetRetrieval(r *RetrievalService) {
 	s.retrieval = r
+}
+
+// SetModelRegistry injects the model registry for dynamic model resolution.
+func (s *ContextOptimizerService) SetModelRegistry(r *ModelRegistry) {
+	s.modelRegistry = r
 }
 
 // SetGraph wires the graph service for GraphRAG injection.
@@ -276,11 +282,15 @@ func (s *ContextOptimizerService) fetchRetrievalEntriesWithHits(ctx context.Cont
 		if proj, projErr := s.store.GetProject(ctx, projectID); projErr == nil && proj.Config != nil {
 			expansionPrompt = proj.Config["expansion_prompt"]
 		}
+		subAgentModel := s.orchCfg.SubAgentModel
+		if subAgentModel == "" && s.modelRegistry != nil {
+			subAgentModel = s.modelRegistry.BestModel()
+		}
 		subResult, err := s.retrieval.SubAgentSearchSync(
 			ctx, projectID, prompt,
 			s.orchCfg.RetrievalTopK,
 			s.orchCfg.SubAgentMaxQueries,
-			s.orchCfg.SubAgentModel,
+			subAgentModel,
 			s.orchCfg.SubAgentRerank,
 			expansionPrompt,
 		)

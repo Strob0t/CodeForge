@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from codeforge.json_utils import safe_json_loads
+from codeforge.model_resolver import resolve_model
 from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
@@ -209,7 +210,7 @@ class AgentLoopExecutor:
         try:
             response = await self._llm.chat_completion_stream(
                 messages=messages,
-                model=cfg.model or "ollama/llama3.2",
+                model=cfg.model or resolve_model(),
                 tools=tools_array or None,
                 temperature=cfg.temperature,
                 tags=cfg.tags or None,

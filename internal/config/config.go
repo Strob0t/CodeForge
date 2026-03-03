@@ -203,7 +203,7 @@ type Orchestrator struct {
 	PingPongMaxRounds         int           `yaml:"ping_pong_max_rounds"`        // Max rounds per step in ping_pong (default: 3)
 	ConsensusQuorum           int           `yaml:"consensus_quorum"`            // Required successes; 0 = majority (default: 0)
 	Mode                      string        `yaml:"mode"`                        // "manual" | "semi_auto" | "full_auto" (default: "semi_auto")
-	DecomposeModel            string        `yaml:"decompose_model"`             // LLM model for decomposition (default: "openai/gpt-4o-mini")
+	DecomposeModel            string        `yaml:"decompose_model"`             // LLM model for decomposition (empty = auto-discover from LiteLLM)
 	DecomposeMaxTokens        int           `yaml:"decompose_max_tokens"`        // Max tokens for decomposition response (default: 4096)
 	ReviewRouterEnabled       bool          `yaml:"review_router_enabled"`       // Enable confidence-based review routing (default: false)
 	ReviewConfidenceThreshold float64       `yaml:"review_confidence_threshold"` // Steps below this confidence get routed to review (default: 0.7)
@@ -218,7 +218,7 @@ type Orchestrator struct {
 	RetrievalBM25Weight       float64       `yaml:"retrieval_bm25_weight"`       // BM25 weight for hybrid search (default: 0.5)
 	RetrievalSemanticWeight   float64       `yaml:"retrieval_semantic_weight"`   // Semantic weight for hybrid search (default: 0.5)
 	SubAgentEnabled           bool          `yaml:"subagent_enabled"`            // Enable sub-agent retrieval (default: true)
-	SubAgentModel             string        `yaml:"subagent_model"`              // LLM for sub-agent query expansion/rerank (default: "openai/gpt-4o-mini")
+	SubAgentModel             string        `yaml:"subagent_model"`              // LLM for sub-agent query expansion/rerank (empty = auto-discover from LiteLLM)
 	SubAgentMaxQueries        int           `yaml:"subagent_max_queries"`        // Max expanded queries (default: 5)
 	SubAgentRerank            bool          `yaml:"subagent_rerank"`             // Enable LLM reranking (default: true)
 	SubAgentTimeout           time.Duration `yaml:"subagent_timeout"`            // Timeout for sub-agent search (default: 60s)
@@ -462,7 +462,7 @@ func Defaults() Config {
 			PingPongMaxRounds:         3,
 			ConsensusQuorum:           0,
 			Mode:                      "semi_auto",
-			DecomposeModel:            "openai/gpt-4o-mini",
+			DecomposeModel:            "",
 			DecomposeMaxTokens:        4096,
 			ReviewRouterEnabled:       false,
 			ReviewConfidenceThreshold: 0.7,
@@ -477,7 +477,7 @@ func Defaults() Config {
 			RetrievalBM25Weight:       0.5,
 			RetrievalSemanticWeight:   0.5,
 			SubAgentEnabled:           true,
-			SubAgentModel:             "openai/gpt-4o-mini",
+			SubAgentModel:             "",
 			SubAgentMaxQueries:        5,
 			SubAgentRerank:            true,
 			SubAgentTimeout:           60 * time.Second,
