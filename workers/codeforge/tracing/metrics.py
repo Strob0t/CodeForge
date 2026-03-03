@@ -17,16 +17,40 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from codeforge.tracing.setup import TracerProtocol
+    from agentneo import AgentNeo
 
 logger = structlog.get_logger()
 
 
-async def evaluate_tool_selection_accuracy(session: TracerProtocol) -> float:
-    """Evaluate how well the agent selects appropriate tools for the task.
+def _run_metric(session: AgentNeo, metric_name: str) -> float:
+    """Run a single AgentNeo evaluation metric and return its score.
 
-    Uses AgentNeo's built-in metric evaluation with an LLM judge to
-    assess whether the tools chosen were optimal for the task at hand.
+    Args:
+        session: AgentNeo session object containing the execution trace.
+        metric_name: Name of the metric to evaluate.
+
+    Returns:
+        Score in [0, 1] where 1.0 is best.
+    """
+    try:
+        from agentneo import Evaluation
+
+        evaluation = Evaluation(session=session, metrics=[metric_name])
+        evaluation.run()
+        results = evaluation.result()
+        if isinstance(results, dict):
+            return float(results.get(metric_name, {}).get("score", 0.0))
+        return 0.0
+    except ImportError:
+        logger.warning("%s unavailable — agentneo not installed", metric_name)
+        return 0.0
+    except Exception:
+        logger.exception("%s evaluation failed at runtime", metric_name)
+        return 0.0
+
+
+async def evaluate_tool_selection_accuracy(session: AgentNeo) -> float:
+    """Evaluate how well the agent selects appropriate tools for the task.
 
     Args:
         session: AgentNeo session object containing the execution trace.
@@ -34,20 +58,10 @@ async def evaluate_tool_selection_accuracy(session: TracerProtocol) -> float:
     Returns:
         Score in [0, 1] where 1.0 means perfect tool selection.
     """
-    try:
-        from agentneo import evaluate
-
-        result = evaluate(session, metric="tool_selection_accuracy")
-        return float(result.get("score", 0.0))
-    except ImportError:
-        logger.warning("tool_selection_accuracy unavailable — agentneo not installed")
-        return 0.0
-    except Exception:
-        logger.exception("tool_selection_accuracy evaluation failed at runtime")
-        return 0.0
+    return _run_metric(session, "tool_selection_accuracy")
 
 
-async def evaluate_goal_decomposition(session: TracerProtocol) -> float:
+async def evaluate_goal_decomposition(session: AgentNeo) -> float:
     """Evaluate how well the agent breaks down complex tasks into sub-goals.
 
     Args:
@@ -56,20 +70,10 @@ async def evaluate_goal_decomposition(session: TracerProtocol) -> float:
     Returns:
         Score in [0, 1] where 1.0 means excellent decomposition.
     """
-    try:
-        from agentneo import evaluate
-
-        result = evaluate(session, metric="goal_decomposition_efficiency")
-        return float(result.get("score", 0.0))
-    except ImportError:
-        logger.warning("goal_decomposition unavailable — agentneo not installed")
-        return 0.0
-    except Exception:
-        logger.exception("goal_decomposition evaluation failed at runtime")
-        return 0.0
+    return _run_metric(session, "goal_decomposition_efficiency")
 
 
-async def evaluate_plan_adaptability(session: TracerProtocol) -> float:
+async def evaluate_plan_adaptability(session: AgentNeo) -> float:
     """Evaluate how well the agent adapts when tools fail or return unexpected results.
 
     Args:
@@ -78,14 +82,4 @@ async def evaluate_plan_adaptability(session: TracerProtocol) -> float:
     Returns:
         Score in [0, 1] where 1.0 means excellent adaptability.
     """
-    try:
-        from agentneo import evaluate
-
-        result = evaluate(session, metric="plan_adaptability")
-        return float(result.get("score", 0.0))
-    except ImportError:
-        logger.warning("plan_adaptability unavailable — agentneo not installed")
-        return 0.0
-    except Exception:
-        logger.exception("plan_adaptability evaluation failed at runtime")
-        return 0.0
+    return _run_metric(session, "plan_adaptability")

@@ -76,10 +76,14 @@ class TracingManager:
             return
 
         try:
-            from agentneo import Tracer
+            from agentneo import AgentNeo, Tracer
 
-            self._tracer = Tracer(project_name=self._project_name)
-            self._tracer.instrument_litellm()
+            neo = AgentNeo(session_name=self._project_name)
+            try:
+                neo.create_project(project_name=self._project_name)
+            except Exception:
+                neo.connect_project(project_name=self._project_name)
+            self._tracer = Tracer(session=neo)
             self._initialized = True
             logger.info("agentneo tracing initialized", project=self._project_name)
         except ImportError:
