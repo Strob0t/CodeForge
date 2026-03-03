@@ -111,11 +111,17 @@ Replaces manual tag-based routing with a three-layer intelligent cascade.
 
 | Layer | Name | Mechanism | Latency |
 |-------|------|-----------|---------|
-| 1 | ComplexityAnalyzer | Rule-based prompt analysis (7 dimensions: code, reasoning, technical, length, multi-step, context, output) | <1ms |
+| 1 | ComplexityAnalyzer | Rule-based prompt analysis (7 dimensions + task-type boost) | <1ms |
 | 2 | MABModelSelector | UCB1 bandit learning from benchmark + usage data, entropy-aware diversity | <1ms (cached) |
 | 3 | LLMMetaRouter | Small LLM classifies edge cases / cold start | ~500ms |
 
-**Complexity Tiers:** SIMPLE -> MEDIUM -> COMPLEX -> REASONING (weighted sum of 7 dimension scores)
+**Complexity Tiers:** SIMPLE -> MEDIUM -> COMPLEX -> REASONING (weighted sum of 7 dimension scores + task-type boost)
+
+**Task-Type Boost (29K):** Task types inferred from keyword patterns (REVIEW, DEBUG, REFACTOR, PLAN, QA, CODE, CHAT) receive an inherent complexity boost that shifts tier classification upward. For example, "Review this code" (REVIEW, +0.25) routes to a more capable model than "Hello" (CHAT, +0.0) even when both prompts have similar surface-level dimension scores. Boosts: PLAN/REVIEW +0.25, DEBUG/REFACTOR +0.20, QA +0.15, CODE +0.10, CHAT +0.0.
+
+**Dimension Weights:** code_presence 0.20, reasoning_markers 0.20, technical_terms 0.15, prompt_length 0.10, multi_step 0.15, context_requirements 0.10, output_complexity 0.10.
+
+**Model Auto-Discovery:** When no explicit model is configured, the system auto-discovers available models from LiteLLM's `/v1/models` endpoint. Python workers use `model_resolver.py` (cached, 60s TTL). Go Core uses `ModelRegistry.BestModel()`. Priority: explicit config > env var > auto-discovery.
 
 **Fallback:** If all layers fail or routing disabled, tag-based routing via `resolve_scenario()` still works.
 
@@ -135,6 +141,9 @@ model_list:
 - [x] Python routing package: `workers/codeforge/routing/` (7 modules, 164 tests)
 - [x] Integration: `resolve_model_with_routing()` in llm.py, conversation handler, executor
 - [x] LiteLLM wildcard config: 6 provider entries replace 38 individual models
+- [x] Task-type complexity boost: inherent task difficulty (PLAN/REVIEW/REFACTOR etc.) shifts tier classification (29K)
+- [x] Model auto-discovery: `model_resolver.py` (Python, cached 60s TTL) + `ModelRegistry.BestModel()` (Go) — no hardcoded model defaults
+- [x] NATS runtime fix: `DeliverPolicy.NEW` prevents 30s timeout from replaying old JetStream messages
 
 ### TODOs (Phase 9+)
 

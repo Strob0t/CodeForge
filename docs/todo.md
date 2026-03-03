@@ -3083,3 +3083,38 @@ Git handlers (`handlers_test.go`):
 #### Phase 30 — COMPLETE ✅
 
 All sub-phases (30A-30J) are fully implemented, tested, wired, and documented.
+
+---
+
+### Phase 29K: Complexity Analyzer Improvements + Model Auto-Discovery (2026-03-03)
+
+> Improves ComplexityAnalyzer tier classification accuracy and eliminates all hardcoded model defaults
+> in favor of dynamic auto-discovery from LiteLLM. Fixes NATS JetStream timeout caused by replaying
+> old messages in the runtime client.
+
+#### 29K-1: ComplexityAnalyzer Task-Type Boost
+
+- [x] (2026-03-03) `workers/codeforge/routing/complexity.py` — Added `_TASK_TYPE_BOOST` dict: task types (PLAN/REVIEW +0.25, DEBUG/REFACTOR +0.20, QA +0.15, CODE +0.10, CHAT +0.0) boost the weighted score before tier classification
+- [x] (2026-03-03) `workers/codeforge/routing/complexity.py` — Updated dimension weights: `technical_terms` 0.10→0.15, `prompt_length` 0.15→0.10
+- [x] (2026-03-03) `workers/codeforge/routing/complexity.py` — Lowered `_score_prompt_length` thresholds: minimum 50→15 tokens, all brackets adjusted for better short-prompt classification
+- [x] (2026-03-03) `workers/tests/test_routing_complexity.py` — Updated prompt_length test thresholds to match new scoring function
+- [x] (2026-03-03) Classification accuracy: 10/11 test prompts correctly classified (was 3/11 before boost)
+
+#### 29K-2: Model Auto-Discovery (No Hardcoded Defaults)
+
+- [x] (2026-03-03) `workers/codeforge/model_resolver.py` — Centralized resolver with 60s TTL cache, priority: explicit > env var > LiteLLM auto-discovery
+- [x] (2026-03-03) `workers/tests/test_model_resolver.py` — 12 tests: explicit, env, LiteLLM, no-models-raises, cache TTL
+- [x] (2026-03-03) `workers/codeforge/llm.py` — `DEFAULT_MODEL = ""` (was hardcoded), methods call `resolve_model()` when empty
+- [x] (2026-03-03) `workers/codeforge/agent_loop.py` — `model=cfg.model or resolve_model()` (was hardcoded `"ollama/llama3.2"`)
+- [x] (2026-03-03) `codeforge.example.yaml` — Removed hardcoded `decompose_model: "openai/gpt-4o-mini"`
+
+#### 29K-3: NATS Runtime Fix
+
+- [x] (2026-03-03) `workers/codeforge/runtime.py` — All JetStream subscriptions use `DeliverPolicy.NEW` to skip old messages, preventing 30s policy timeout on startup
+- [x] (2026-03-03) `internal/service/conversation.go` — `resolveModel()` priority: AgentConfig.DefaultModel > explicit config > ModelRegistry.BestModel()
+
+#### 29K-4: Documentation
+
+- [x] (2026-03-03) Updated `docs/features/03-multi-llm-provider.md` — task-type boost, dimension weights, model auto-discovery, NATS fix
+- [x] (2026-03-03) Updated `docs/todo.md` — Phase 29K entry
+- [x] (2026-03-03) Updated `docs/project-status.md` — Phase 29K entry

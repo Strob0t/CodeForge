@@ -1204,3 +1204,15 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 30I: Frontend `GoalsPanel.tsx` — grouped by kind, detect/create/toggle/delete, i18n (en + de)
 - [x] (2026-03-02) 30H: Bug fixes — binary file detection (`bytes.ContainsRune`), UTF-8-safe truncation (`truncateUTF8`), README heading logic rewrite, 4 new tests (18 total)
 - [x] (2026-03-02) 30J: Documentation — architecture.md, dev-setup.md, features/04, project-status.md, todo.md
+
+### Phase 29K: Complexity Analyzer Improvements + Model Auto-Discovery (COMPLETED)
+
+> Improves ComplexityAnalyzer tier classification accuracy (3/11 → 10/11 correct) via task-type
+> complexity boost. Eliminates all hardcoded model defaults with dynamic auto-discovery from LiteLLM.
+> Fixes NATS JetStream 30s timeout caused by replaying old messages in the runtime client.
+
+- [x] (2026-03-03) 29K-1: Task-type complexity boost — inherent task difficulty shifts tier classification (PLAN/REVIEW +0.25, DEBUG/REFACTOR +0.20, QA +0.15, CODE +0.10)
+- [x] (2026-03-03) 29K-1: Updated dimension weights (technical_terms 0.10→0.15, prompt_length 0.15→0.10) and prompt_length thresholds
+- [x] (2026-03-03) 29K-2: Model auto-discovery — `model_resolver.py` (cached 60s TTL), no hardcoded model defaults in llm.py, agent_loop.py, config
+- [x] (2026-03-03) 29K-3: NATS runtime fix — `DeliverPolicy.NEW` prevents 30s timeout, `resolveModel()` priority chain in Go
+- [x] (2026-03-03) 29K-4: Documentation updates (features/03, todo.md, project-status.md)
