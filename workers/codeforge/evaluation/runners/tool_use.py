@@ -80,7 +80,7 @@ class ToolUseBenchmarkRunner:
             # Extract tool calls from response
             tool_calls: list[ToolCall] = []
             if response.tool_calls:
-                tool_calls.extend(ToolCall(name=tc.name, args=tc.args) for tc in response.tool_calls)
+                tool_calls.extend(ToolCall(name=tc.name, args=tc.arguments) for tc in response.tool_calls)
         except Exception as exc:
             log.error("LLM call failed", error=str(exc))
             actual_output = f"ERROR: {exc}"

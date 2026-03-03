@@ -36,17 +36,17 @@ COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ComplexityTier.MEDIUM: [
         "groq/llama-3.3-70b",
         "openai/gpt-4o-mini",
-        "google/gemini-2.0-flash",
+        "gemini/gemini-2.0-flash",
     ],
     ComplexityTier.COMPLEX: [
         "openai/gpt-4o",
         "anthropic/claude-sonnet-4",
-        "google/gemini-2.5-pro",
+        "gemini/gemini-2.5-pro",
     ],
     ComplexityTier.REASONING: [
         "anthropic/claude-opus-4.6",
         "openai/gpt-4o",
-        "google/gemini-2.5-pro",
+        "gemini/gemini-2.5-pro",
     ],
 }
 

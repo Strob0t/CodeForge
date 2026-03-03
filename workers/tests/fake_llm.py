@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from codeforge.llm import CompletionResponse
+from codeforge.llm import ChatCompletionResponse, CompletionResponse
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -75,6 +75,35 @@ class FakeLLM:
         resp = self._responses[self._index]
         self._index += 1
         return resp
+
+    async def chat_completion(
+        self,
+        messages: list[dict[str, object]],
+        model: str = "fake-model",
+        tools: list[dict[str, object]] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
+        temperature: float = 0.2,
+        tags: list[str] | None = None,
+        max_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
+    ) -> ChatCompletionResponse:
+        """Return the next canned response as a ChatCompletionResponse."""
+        prompt = messages[-1].get("content", "") if messages else ""
+        self.calls.append(LLMCall(prompt=str(prompt), model=model, system="", temperature=temperature, tags=tags))
+        if self._index >= len(self._responses):
+            msg = f"FakeLLM exhausted: {len(self._responses)} responses consumed, but call #{self._index + 1} requested"
+            raise RuntimeError(msg)
+        resp = self._responses[self._index]
+        self._index += 1
+        return ChatCompletionResponse(
+            content=resp.content,
+            tool_calls=[],
+            finish_reason="stop",
+            tokens_in=resp.tokens_in,
+            tokens_out=resp.tokens_out,
+            model=resp.model,
+            cost_usd=resp.cost_usd,
+        )
 
     async def health(self) -> bool:
         """Always healthy."""

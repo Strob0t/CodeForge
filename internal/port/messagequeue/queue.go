@@ -100,4 +100,11 @@ const (
 	// Benchmark subjects (Phase 26/28)
 	SubjectBenchmarkRunRequest = "benchmark.run.request" // Go → Python: start benchmark execution
 	SubjectBenchmarkRunResult  = "benchmark.run.result"  // Python → Go: benchmark execution results
+
+	// Memory subjects (Phase 23)
+	SubjectMemoryStore  = "memory.store"  // Go → Python: store agent memory
+	SubjectMemoryRecall = "memory.recall" // Go → Python: recall agent memories
+
+	// Handoff subjects (Phase 23B)
+	SubjectHandoffRequest = "handoff.request" // Go → Python: agent-to-agent handoff
 )

@@ -23,7 +23,9 @@ class TaskStatus(StrEnum):
 class TaskMessage(BaseModel):
     """Message received from NATS when a task is assigned to a worker."""
 
-    id: str
+    model_config = {"populate_by_name": True}
+
+    id: str = Field(alias="task_id")
     project_id: str
     title: str
     prompt: str
@@ -34,6 +36,7 @@ class TaskResult(BaseModel):
     """Result sent back to NATS after task execution."""
 
     task_id: str
+    project_id: str = ""
     status: TaskStatus
     output: str = ""
     files: list[str] = Field(default_factory=list)
@@ -134,9 +137,12 @@ class RunStartMessage(BaseModel):
 class ToolCallDecision(BaseModel):
     """Response from Go control plane for a tool call permission request."""
 
+    run_id: str = ""
     call_id: str
     decision: str  # allow, deny, ask
     reason: str = ""
+    exec_mode: str = ""
+    container_id: str = ""
 
 
 class RunCompleteMessage(BaseModel):

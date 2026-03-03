@@ -29,9 +29,9 @@ _MAX_PROMPT_CHARS = 500
 # Tier-to-model preference lists (used as fallback when LLM returns a tier).
 _TIER_MODELS: dict[str, list[str]] = {
     "economy": ["groq/llama-3.1-8b-instant", "openai/gpt-4o-mini", "anthropic/claude-haiku-3.5"],
-    "standard": ["openai/gpt-4o-mini", "google/gemini-2.0-flash", "anthropic/claude-sonnet-4"],
-    "premium": ["openai/gpt-4o", "anthropic/claude-sonnet-4", "google/gemini-2.5-pro"],
-    "reasoning": ["anthropic/claude-opus-4.6", "openai/gpt-4o", "google/gemini-2.5-pro"],
+    "standard": ["openai/gpt-4o-mini", "gemini/gemini-2.0-flash", "anthropic/claude-sonnet-4"],
+    "premium": ["openai/gpt-4o", "anthropic/claude-sonnet-4", "gemini/gemini-2.5-pro"],
+    "reasoning": ["anthropic/claude-opus-4.6", "openai/gpt-4o", "gemini/gemini-2.5-pro"],
 }
 
 _META_PROMPT = """\

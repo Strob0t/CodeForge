@@ -11,11 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
-// NATS subjects for memory operations.
-const (
-	SubjectMemoryStore  = "memory.store"
-	SubjectMemoryRecall = "memory.recall"
-)
+// Use centralized NATS subject constants from messagequeue package.
 
 // MemoryService manages persistent agent memories. Storage and recall of
 // embedding-scored memories is delegated to the Python worker via NATS;
@@ -42,7 +38,7 @@ func (s *MemoryService) Store(ctx context.Context, req *memory.CreateRequest) er
 		return fmt.Errorf("marshal memory store: %w", err)
 	}
 
-	if err := s.queue.Publish(ctx, SubjectMemoryStore, data); err != nil {
+	if err := s.queue.Publish(ctx, messagequeue.SubjectMemoryStore, data); err != nil {
 		return fmt.Errorf("publish memory store: %w", err)
 	}
 
@@ -68,7 +64,7 @@ func (s *MemoryService) Recall(ctx context.Context, req memory.RecallRequest) er
 		return fmt.Errorf("marshal memory recall: %w", err)
 	}
 
-	if err := s.queue.Publish(ctx, SubjectMemoryRecall, data); err != nil {
+	if err := s.queue.Publish(ctx, messagequeue.SubjectMemoryRecall, data); err != nil {
 		return fmt.Errorf("publish memory recall: %w", err)
 	}
 

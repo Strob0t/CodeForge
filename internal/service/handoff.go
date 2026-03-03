@@ -59,7 +59,7 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 
 	// Quarantine evaluation (Phase 23B).
 	if s.quarantine != nil {
-		blocked, qErr := s.quarantine.Evaluate(ctx, msg.Trust, "handoff.request", data, "")
+		blocked, qErr := s.quarantine.Evaluate(ctx, msg.Trust, messagequeue.SubjectHandoffRequest, data, "")
 		if qErr != nil {
 			slog.Warn("quarantine evaluation failed, allowing handoff", "error", qErr)
 		}
@@ -74,7 +74,7 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 		return s.routeToA2A(ctx, msg)
 	}
 
-	if err := s.queue.Publish(ctx, "handoff.request", data); err != nil {
+	if err := s.queue.Publish(ctx, messagequeue.SubjectHandoffRequest, data); err != nil {
 		return fmt.Errorf("publish handoff: %w", err)
 	}
 

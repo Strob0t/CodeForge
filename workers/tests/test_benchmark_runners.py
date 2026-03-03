@@ -24,47 +24,36 @@ from codeforge.evaluation.runners.tool_use import ToolUseBenchmarkRunner, _parse
 
 
 @dataclass
-class FakeUsage:
-    prompt_tokens: int = 50
-    completion_tokens: int = 25
+class FakeToolCallPart:
+    """Matches codeforge.llm.ToolCallPart interface."""
 
-
-@dataclass
-class FakeFunction:
+    id: str = "call-1"
     name: str = "read_file"
     arguments: str = '{"path": "test.py"}'
 
 
 @dataclass
-class FakeToolCall:
-    function: Any = None
-
-    def __post_init__(self) -> None:
-        if self.function is None:
-            self.function = FakeFunction()
-
-
-@dataclass
 class FakeChatResponse:
-    content: str = "fake response"
-    usage: FakeUsage | None = None
-    cost: float = 0.01
-    tool_calls: list[FakeToolCall] | None = None
+    """Matches codeforge.llm.ChatCompletionResponse interface."""
 
-    def __post_init__(self) -> None:
-        if self.usage is None:
-            self.usage = FakeUsage()
+    content: str = "fake response"
+    tokens_in: int = 50
+    tokens_out: int = 25
+    model: str = "fake-model"
+    cost_usd: float = 0.01
+    tool_calls: list[FakeToolCallPart] | None = None
+    finish_reason: str = "stop"
 
 
 class FakeLLMClient:
-    """Fake LLM client that returns predictable responses."""
+    """Fake LLM client that duck-types LiteLLMClient for benchmark runners."""
 
     def __init__(self, response: FakeChatResponse | None = None, fail: bool = False) -> None:
         self._response = response or FakeChatResponse()
         self._fail = fail
         self.call_count = 0
 
-    async def chat(self, **kwargs: Any) -> FakeChatResponse:
+    async def chat_completion(self, **kwargs: Any) -> FakeChatResponse:
         self.call_count += 1
         if self._fail:
             msg = "LLM unavailable"
@@ -141,7 +130,7 @@ class TestSimpleBenchmarkRunner:
 
     @pytest.mark.asyncio
     async def test_cost_tracking(self) -> None:
-        resp = FakeChatResponse(cost=0.05, usage=FakeUsage(prompt_tokens=100, completion_tokens=50))
+        resp = FakeChatResponse(cost_usd=0.05, tokens_in=100, tokens_out=50)
         llm = FakeLLMClient(response=resp)
         pipeline = EvaluationPipeline([StubEvaluator(0.7)])
         runner = SimpleBenchmarkRunner(llm=llm, pipeline=pipeline, model="test")
@@ -160,7 +149,7 @@ class TestSimpleBenchmarkRunner:
 class TestToolUseBenchmarkRunner:
     @pytest.mark.asyncio
     async def test_run_with_tool_calls(self) -> None:
-        tc = FakeToolCall()
+        tc = FakeToolCallPart()
         resp = FakeChatResponse(content="done", tool_calls=[tc])
         llm = FakeLLMClient(response=resp)
         pipeline = EvaluationPipeline([StubEvaluator(0.8)])
@@ -191,9 +180,8 @@ class TestToolUseBenchmarkRunner:
 
     @pytest.mark.asyncio
     async def test_multiple_tool_calls(self) -> None:
-        tc1 = FakeToolCall()
-        tc2 = FakeToolCall()
-        tc2.function = FakeFunction(name="write_file", arguments='{"path": "out.py", "content": "pass"}')
+        tc1 = FakeToolCallPart()
+        tc2 = FakeToolCallPart(name="write_file", arguments='{"path": "out.py", "content": "pass"}')
         resp = FakeChatResponse(content="done", tool_calls=[tc1, tc2])
         llm = FakeLLMClient(response=resp)
         pipeline = EvaluationPipeline([StubEvaluator(0.9)])
