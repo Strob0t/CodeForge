@@ -79,6 +79,22 @@ else
     echo "  No docker-compose.yml found, skipping"
 fi
 
+# -- Shell: auto-activate .venv -------------------
+echo ""
+echo "> Configuring automatic .venv activation..."
+if ! grep -q 'CodeForge .venv' ~/.bashrc 2>/dev/null; then
+    cat >> ~/.bashrc << 'BASHRC_EOF'
+
+# Activate CodeForge virtual environment
+if [ -f /workspaces/CodeForge/.venv/bin/activate ]; then
+    source /workspaces/CodeForge/.venv/bin/activate
+fi
+BASHRC_EOF
+    echo "  Added .venv activation to ~/.bashrc"
+else
+    echo "  .venv activation already in ~/.bashrc"
+fi
+
 # -- Verify ---------------------------------------
 echo ""
 echo "=============================================="
