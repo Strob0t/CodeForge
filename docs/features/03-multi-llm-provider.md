@@ -145,6 +145,33 @@ model_list:
 - [x] Model auto-discovery: `model_resolver.py` (Python, cached 60s TTL) + `ModelRegistry.BestModel()` (Go) — no hardcoded model defaults
 - [x] NATS runtime fix: `DeliverPolicy.NEW` prevents 30s timeout from replaying old JetStream messages
 
+### Completed (Phase 30 -- LLM Retry & Rate-Limit Awareness)
+
+Automatic retry with exponential backoff for transient LLM provider failures, plus per-provider rate-limit tracking to skip exhausted providers during routing fallback.
+
+**Retry Behaviour:** `LiteLLMClient._with_retry()` wraps all three HTTP methods (`completion`, `chat_completion`, `chat_completion_stream`) with configurable retries on 429/502/503/504. Backoff respects `Retry-After` hints from provider error bodies when available, otherwise uses exponential backoff (`base^(attempt+1)`, capped at `backoff_max`).
+
+**Rate-Limit Tracking:** After every LLM response, `x-ratelimit-remaining-requests`, `x-ratelimit-limit-requests`, and `x-ratelimit-reset-requests` headers are parsed and fed into a `RateLimitTracker` singleton. The tracker maintains per-provider state with automatic recovery after the reset window elapses.
+
+**Rate-Aware Routing:** `HybridRouter._complexity_fallback()` queries the tracker before selecting a model. If a provider's quota is exhausted, all its models are skipped in the preference list. The last-resort fallback (first available model) is not filtered to prevent total routing failure.
+
+**Config (all optional, defaults are production-ready):**
+
+| Variable | Default | Description |
+|---|---|---|
+| `CODEFORGE_LLM_MAX_RETRIES` | `2` | Max retry attempts per LLM call |
+| `CODEFORGE_LLM_BACKOFF_BASE` | `2.0` | Exponential backoff base (seconds) |
+| `CODEFORGE_LLM_BACKOFF_MAX` | `60.0` | Maximum backoff cap (seconds) |
+| `CODEFORGE_LLM_TIMEOUT` | `120.0` | HTTP request timeout (seconds) |
+
+- [x] `LLMClientConfig` dataclass + `load_llm_client_config()` env-var loader
+- [x] `_with_retry()` async retry wrapper in LiteLLMClient (all 3 methods)
+- [x] `RateLimitTracker` (`workers/codeforge/routing/rate_tracker.py`) — per-provider state
+- [x] Rate-aware `HybridRouter._complexity_fallback()` skips exhausted providers
+- [x] Agent loop cleanup: removed 40-line inline retry, consolidated to LLM client
+- [x] LiteLLM proxy retry reduced 2 -> 1 (app-level retry handles escalation)
+- [x] 64 tests across 4 test files
+
 ### TODOs (Phase 9+)
 
 Tracked in [todo.md](../todo.md) under Phase 9+.

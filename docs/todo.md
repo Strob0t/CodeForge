@@ -3118,3 +3118,24 @@ All sub-phases (30A-30J) are fully implemented, tested, wired, and documented.
 - [x] (2026-03-03) Updated `docs/features/03-multi-llm-provider.md` — task-type boost, dimension weights, model auto-discovery, NATS fix
 - [x] (2026-03-03) Updated `docs/todo.md` — Phase 29K entry
 - [x] (2026-03-03) Updated `docs/project-status.md` — Phase 29K entry
+
+### Phase 30: Adaptive LLM Retry & Rate-Limit-Aware Routing (2026-03-03)
+
+Automatic retry with exponential backoff for transient LLM failures + per-provider rate-limit tracking + rate-aware routing fallback.
+
+- [x] (2026-03-03) `RateLimitTracker` + `RateLimitInfo` — per-provider rate-limit state from x-ratelimit-* headers
+- [x] (2026-03-03) `RateLimitTracker` tests (12 tests) — `workers/tests/test_rate_tracker.py`
+- [x] (2026-03-03) `LLMClientConfig` + `load_llm_client_config()` — env-var-driven retry config
+- [x] (2026-03-03) `_extract_provider()`, `_extract_rate_info()`, `_report_rate_info()` — header parsing + tracker wiring
+- [x] (2026-03-03) `_with_retry()`, `_compute_backoff()`, `_is_retryable()` — exponential backoff with Retry-After hints
+- [x] (2026-03-03) Wrapped `completion()`, `chat_completion()`, `chat_completion_stream()` with retry
+- [x] (2026-03-03) LLM retry tests (14 new tests) — `workers/tests/test_llm.py`
+- [x] (2026-03-03) Agent loop cleanup — removed 40-line inline retry, consolidated to LLM client
+- [x] (2026-03-03) `HybridRouter._complexity_fallback()` — skips exhausted providers via RateLimitTracker
+- [x] (2026-03-03) Rate-aware routing tests (3 new tests) — `workers/tests/test_routing_router.py`
+- [x] (2026-03-03) Wired `get_tracker()` into `_get_hybrid_router()` in `_conversation.py`
+- [x] (2026-03-03) LiteLLM proxy retry reduced 2 -> 1 in `litellm/config.yaml`
+- [x] (2026-03-03) Updated `docs/features/03-multi-llm-provider.md` — Phase 30 section
+- [x] (2026-03-03) Updated `docs/dev-setup.md` — 4 new env vars
+- [x] (2026-03-03) Updated `docs/project-status.md` — Phase 30 entry
+- [x] (2026-03-03) Updated `docs/todo.md` — Phase 30 entry

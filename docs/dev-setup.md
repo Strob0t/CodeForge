@@ -595,6 +595,10 @@ See `.env.example` for all configurable values.
 | CODEFORGE_AUTH_BCRYPT_COST | 12                                      | Bcrypt work factor              |
 | CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL | admin@localhost                  | Seed admin email                |
 | CODEFORGE_AUTH_DEFAULT_ADMIN_PASS | changeme123                      | Seed admin password             |
+| CODEFORGE_LLM_MAX_RETRIES  | 2                                        | Max retry attempts per LLM call |
+| CODEFORGE_LLM_BACKOFF_BASE | 2.0                                      | Exponential backoff base (sec)  |
+| CODEFORGE_LLM_BACKOFF_MAX  | 60.0                                     | Maximum backoff cap (sec)       |
+| CODEFORGE_LLM_TIMEOUT      | 120.0                                    | HTTP request timeout (sec)      |
 
 ### Backup and Restore
 

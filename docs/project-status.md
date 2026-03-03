@@ -1225,3 +1225,16 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 
 - [x] (2026-03-03) Filter tool messages from non-agentic chat history — skip `role: "tool"` and empty `role: "assistant"` with `tool_calls` in `conversation.go` `SendMessage()`
 - [x] (2026-03-03) Rate limit retry with exponential backoff in agent loop — max 2 retries (2s, 4s) for 429/RateLimitError in `agent_loop.py`
+
+### Phase 30: Adaptive LLM Retry & Rate-Limit-Aware Routing (COMPLETED)
+
+> Replaces inline retry in agent_loop.py with elegant retry in the LLM client.
+> Per-provider rate-limit tracking from response headers. HybridRouter skips exhausted providers.
+
+- [x] (2026-03-03) `LLMClientConfig` + `load_llm_client_config()` — 4 env-var-driven retry/timeout params
+- [x] (2026-03-03) `_with_retry()` in LiteLLMClient — exponential backoff for 429/502/503/504
+- [x] (2026-03-03) `RateLimitTracker` (`workers/codeforge/routing/rate_tracker.py`) — per-provider state from x-ratelimit-* headers
+- [x] (2026-03-03) Rate-aware `HybridRouter._complexity_fallback()` — skips exhausted providers
+- [x] (2026-03-03) Agent loop cleanup — removed 40-line inline retry, consolidated to LLM client
+- [x] (2026-03-03) LiteLLM proxy retry reduced 2 -> 1 (app-level retry handles escalation)
+- [x] (2026-03-03) 64 tests across 4 test files (rate_tracker, llm, routing_router, agent_loop)
