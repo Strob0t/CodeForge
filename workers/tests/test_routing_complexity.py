@@ -169,30 +169,30 @@ def test_score_prompt_length_empty() -> None:
 
 
 def test_score_prompt_length_short() -> None:
-    # <50 tokens = <200 chars
+    # <15 tokens = <60 chars
     assert _score_prompt_length("Hello") == 0.0
 
 
+def test_score_prompt_length_brief() -> None:
+    # 15-100 tokens (60-400 chars) — short but non-trivial
+    prompt = "x" * 100  # ~25 tokens
+    assert _score_prompt_length(prompt) == 0.2
+
+
 def test_score_prompt_length_medium() -> None:
-    # 200-800 chars = 50-200 tokens
-    prompt = "x" * 400
-    assert _score_prompt_length(prompt) == 0.3
+    # 100-300 tokens (400-1200 chars)
+    prompt = "x" * 600  # ~150 tokens
+    assert _score_prompt_length(prompt) == 0.5
 
 
 def test_score_prompt_length_long() -> None:
-    # 800-2000 chars = 200-500 tokens
-    prompt = "x" * 1200
-    assert _score_prompt_length(prompt) == 0.6
-
-
-def test_score_prompt_length_very_long() -> None:
-    # 2000-4000 chars = 500-1000 tokens
-    prompt = "x" * 3000
+    # 300-750 tokens (1200-3000 chars)
+    prompt = "x" * 2000  # ~500 tokens
     assert _score_prompt_length(prompt) == 0.8
 
 
 def test_score_prompt_length_huge() -> None:
-    # >4000 chars = >1000 tokens
+    # >750 tokens = >3000 chars
     prompt = "x" * 5000
     assert _score_prompt_length(prompt) == 1.0
 

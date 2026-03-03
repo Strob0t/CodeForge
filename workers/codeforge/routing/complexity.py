@@ -14,20 +14,32 @@ from codeforge.routing.models import ComplexityTier, PromptAnalysis, TaskType
 _WEIGHTS: dict[str, float] = {
     "code_presence": 0.20,
     "reasoning_markers": 0.20,
-    "technical_terms": 0.10,
-    "prompt_length": 0.15,
+    "technical_terms": 0.15,
+    "prompt_length": 0.10,
     "multi_step": 0.15,
     "context_requirements": 0.10,
     "output_complexity": 0.10,
 }
 
-# Tier thresholds on weighted score.
+# Tier thresholds on weighted score (after task-type boost).
 _TIER_THRESHOLDS: list[tuple[float, ComplexityTier]] = [
     (0.75, ComplexityTier.REASONING),
     (0.50, ComplexityTier.COMPLEX),
     (0.25, ComplexityTier.MEDIUM),
     (0.0, ComplexityTier.SIMPLE),
 ]
+
+# Task-type complexity boost — certain task types are inherently more complex
+# than a simple chat, regardless of the prompt's surface features.
+_TASK_TYPE_BOOST: dict[TaskType, float] = {
+    TaskType.CHAT: 0.0,
+    TaskType.CODE: 0.10,
+    TaskType.DEBUG: 0.20,
+    TaskType.QA: 0.15,
+    TaskType.REFACTOR: 0.20,
+    TaskType.REVIEW: 0.25,
+    TaskType.PLAN: 0.25,
+}
 
 # Compiled regex patterns for each dimension.
 _RE_CODE_BLOCKS = re.compile(r"```[\s\S]*?```|`[^`]+`")
@@ -190,20 +202,23 @@ class ComplexityAnalyzer:
         }
 
         weighted_score = sum(dimensions[dim] * weight for dim, weight in _WEIGHTS.items())
+        task_type = _infer_task_type(prompt)
+
+        # Apply task-type boost: certain tasks (review, plan, refactor) are
+        # inherently more complex than simple chat, regardless of surface features.
+        boosted_score = min(1.0, weighted_score + _TASK_TYPE_BOOST.get(task_type, 0.0))
 
         tier = ComplexityTier.SIMPLE
         for threshold, candidate_tier in _TIER_THRESHOLDS:
-            if weighted_score >= threshold:
+            if boosted_score >= threshold:
                 tier = candidate_tier
                 break
-
-        task_type = _infer_task_type(prompt)
 
         return PromptAnalysis(
             complexity_tier=tier,
             task_type=task_type,
             dimensions=dimensions,
-            confidence=min(1.0, weighted_score + 0.3),
+            confidence=min(1.0, boosted_score + 0.3),
         )
 
 
@@ -251,13 +266,13 @@ def _score_technical_terms(prompt: str) -> float:
 def _score_prompt_length(prompt: str) -> float:
     """Score 0.0-1.0 based on estimated token count (chars/4)."""
     tokens = len(prompt) / 4
-    if tokens < 50:
+    if tokens < 15:
         return 0.0
-    if tokens < 200:
-        return 0.3
-    if tokens < 500:
-        return 0.6
-    if tokens < 1000:
+    if tokens < 100:
+        return 0.2
+    if tokens < 300:
+        return 0.5
+    if tokens < 750:
         return 0.8
     return 1.0
 
