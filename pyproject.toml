@@ -28,6 +28,7 @@ mcp = "^1.0"
 deepeval = "^3.0"
 agentneo = { version = "^1.0", optional = true }
 scikit-learn = "^1.6"
+setuptools = "<82"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.0"

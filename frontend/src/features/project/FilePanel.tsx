@@ -144,7 +144,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
                     }}
                     title="Close"
                   >
-                    \u00D7
+                    {"\u00D7"}
                   </button>
                 </div>
               )}
