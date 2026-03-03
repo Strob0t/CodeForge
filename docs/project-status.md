@@ -1238,3 +1238,22 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-03) Agent loop cleanup — removed 40-line inline retry, consolidated to LLM client
 - [x] (2026-03-03) LiteLLM proxy retry reduced 2 -> 1 (app-level retry handles escalation)
 - [x] (2026-03-03) 64 tests across 4 test files (rate_tracker, llm, routing_router, agent_loop)
+
+### LLM E2E Test Suite — Playwright (COMPLETED)
+
+> API-level E2E test suite covering the full LLM integration stack. 95 tests across 12 spec files,
+> no browser required. Dedicated config: `frontend/playwright.llm.config.ts`.
+
+- [x] (2026-03-03) Helper module: `llm-helpers.ts` — provider discovery, conversation utilities, cost helpers
+- [x] (2026-03-03) 00-prerequisites (6 tests) — stack health, provider discovery, model availability
+- [x] (2026-03-03) 01-model-management (10 tests) — model CRUD, discover, refresh
+- [x] (2026-03-03) 02-simple-conversation (12 tests) — real LLM responses, context, code generation
+- [x] (2026-03-03) 03-agentic-conversation (10 tests) — tool-use loop via Python worker
+- [x] (2026-03-03) 04-streaming-agui (10 tests) — WebSocket AG-UI event streaming
+- [x] (2026-03-03) 05-multi-provider (5 tests) — cross-provider comparison
+- [x] (2026-03-03) 06-routing (10 tests) — intelligent routing stats/outcomes
+- [x] (2026-03-03) 07-cost-tracking (12 tests) — cost endpoints verification
+- [x] (2026-03-03) 08-mcp-tools (10 tests) — MCP server CRUD + project assignment
+- [x] (2026-03-03) 09-benchmarks (7 tests) — benchmark lifecycle
+- [x] (2026-03-03) 99-cleanup (3 tests) — cleanup test data
+- [x] (2026-03-03) Run: `cd frontend && npx playwright test --config=playwright.llm.config.ts`

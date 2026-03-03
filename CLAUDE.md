@@ -369,6 +369,18 @@ cd frontend && npx playwright test
 - E2E tests use `admin@localhost` / `Changeme123` (seeded admin)
 - Playwright config: chromium only, workers:1, retries:1
 
+### LLM E2E Tests (API-Level, no browser)
+
+```bash
+# Only backend + infrastructure needed (no frontend dev server)
+cd frontend && npx playwright test --config=playwright.llm.config.ts
+```
+
+- 95 tests across 12 spec files in `frontend/e2e/llm/`
+- Covers: prerequisites, model management, conversations (simple + agentic), streaming AG-UI, multi-provider, routing, cost tracking, MCP tools, benchmarks
+- Helper module: `frontend/e2e/llm/llm-helpers.ts`
+- Dedicated config: `frontend/playwright.llm.config.ts` (no browser, sequential execution)
+
 ## Git Workflow
 
 - **Commits only on `staging`** — never directly on `main`, unless the user explicitly instructs otherwise

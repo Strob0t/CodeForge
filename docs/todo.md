@@ -3139,3 +3139,28 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [x] (2026-03-03) Updated `docs/dev-setup.md` — 4 new env vars
 - [x] (2026-03-03) Updated `docs/project-status.md` — Phase 30 entry
 - [x] (2026-03-03) Updated `docs/todo.md` — Phase 30 entry
+
+---
+
+### LLM E2E Test Suite — Playwright (COMPLETED)
+
+> Comprehensive API-level E2E test suite for the full LLM integration stack. Tests run against the live
+> backend (no browser needed) and cover provider discovery, model management, conversations (simple +
+> agentic), streaming AG-UI events, multi-provider comparison, intelligent routing, cost tracking,
+> MCP tools, and benchmarks. Dedicated Playwright config: `playwright.llm.config.ts`.
+
+- [x] (2026-03-03) `frontend/e2e/llm/llm-helpers.ts` — shared helpers: provider discovery (`discoverProviders`), conversation utilities (`createConversation`, `sendMessage`, `sendMessageStreaming`), cost helpers, polling/retry logic
+- [x] (2026-03-03) `frontend/e2e/llm/00-prerequisites.spec.ts` (6 tests) — stack health checks (Go backend, LiteLLM proxy, PostgreSQL, NATS), provider discovery, model availability
+- [x] (2026-03-03) `frontend/e2e/llm/01-model-management.spec.ts` (10 tests) — model CRUD (create, read, update, delete), discover models from LiteLLM, refresh model list
+- [x] (2026-03-03) `frontend/e2e/llm/02-simple-conversation.spec.ts` (12 tests) — real LLM responses, conversation context retention, code generation, multi-turn dialogue
+- [x] (2026-03-03) `frontend/e2e/llm/03-agentic-conversation.spec.ts` (10 tests) — tool-use loop via Python worker (NATS dispatch, tool calls, result accumulation)
+- [x] (2026-03-03) `frontend/e2e/llm/04-streaming-agui.spec.ts` (10 tests) — WebSocket AG-UI event streaming (text_message, tool_call, state_delta events)
+- [x] (2026-03-03) `frontend/e2e/llm/05-multi-provider.spec.ts` (5 tests) — cross-provider comparison (response quality, latency, cost across providers)
+- [x] (2026-03-03) `frontend/e2e/llm/06-routing.spec.ts` (10 tests) — intelligent routing stats and outcomes (HybridRouter cascade, MAB selection, complexity analysis)
+- [x] (2026-03-03) `frontend/e2e/llm/07-cost-tracking.spec.ts` (12 tests) — cost endpoints verification (per-model, per-project, global costs, budget limits)
+- [x] (2026-03-03) `frontend/e2e/llm/08-mcp-tools.spec.ts` (10 tests) — MCP server CRUD, project assignment, tool discovery, tool call execution
+- [x] (2026-03-03) `frontend/e2e/llm/09-benchmarks.spec.ts` (7 tests) — benchmark lifecycle (create, run, results, compare)
+- [x] (2026-03-03) `frontend/e2e/llm/99-cleanup.spec.ts` (3 tests) — cleanup test data (conversations, models, MCP servers)
+- [x] (2026-03-03) `frontend/playwright.llm.config.ts` — dedicated Playwright config for LLM tests (no browser, API-only, sequential execution)
+- [x] (2026-03-03) **Total: 95 tests across 12 spec files + 1 helper module**
+- [x] (2026-03-03) Run command: `cd frontend && npx playwright test --config=playwright.llm.config.ts`

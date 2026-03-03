@@ -137,9 +137,11 @@ CodeForge/
 │           ├── metrics.py    # AgentNeo metric wrappers
 │           └── dashboard.py  # Optional AgentNeo dashboard
 ├── frontend/                 # SolidJS Web GUI
-│   ├── e2e/                  # Playwright E2E tests (5 spec files)
+│   ├── e2e/                  # Playwright E2E tests (5 browser specs + 12 LLM API specs)
+│   │   └── llm/              # LLM E2E test suite (95 tests, no browser needed)
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
-│   ├── playwright.config.ts  # Playwright configuration
+│   ├── playwright.config.ts  # Playwright configuration (browser E2E)
+│   ├── playwright.llm.config.ts  # Playwright configuration (LLM API E2E)
 │   └── src/
 │       ├── ui/               # Design system (Phase 16)
 │       │   ├── tokens/       # ThemeDefinition, built-in themes (Nord, Solarized)
@@ -275,6 +277,21 @@ cd frontend && npm run test:e2e:report           # View HTML report
 ```
 
 Tests cover health checks (3), sidebar navigation (4), project CRUD (5), cost dashboard (2), and models page (3), totaling 17 tests.
+
+#### LLM E2E Tests (API-Level)
+
+LLM E2E tests validate the full LLM integration stack via API calls (no browser needed). They require the backend + infrastructure but not the frontend dev server.
+
+```bash
+# Prerequisites: backend + infrastructure running
+docker compose up -d
+APP_ENV=development go run ./cmd/codeforge/ &
+
+# Run LLM E2E tests
+cd frontend && npx playwright test --config=playwright.llm.config.ts
+```
+
+95 tests across 12 spec files covering: prerequisites (6), model management (10), simple conversation (12), agentic conversation (10), streaming AG-UI (10), multi-provider (5), routing (10), cost tracking (12), MCP tools (10), benchmarks (7), cleanup (3). Helper module: `frontend/e2e/llm/llm-helpers.ts`.
 
 #### Integration Tests
 
