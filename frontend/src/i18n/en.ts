@@ -971,6 +971,7 @@ const en = {
   "scope.form.description": "Description",
   "scope.form.type": "Type",
   "scope.form.projects": "Projects",
+  "scope.validation.sharedNeedsProject": "Shared scope requires at least one project",
   "scope.toast.created": "Scope created",
   "scope.toast.deleted": "Scope deleted",
   "scope.toast.updated": "Scope updated",

@@ -985,6 +985,7 @@ const de: Translations = {
   "scope.form.description": "Beschreibung",
   "scope.form.type": "Typ",
   "scope.form.projects": "Projekte",
+  "scope.validation.sharedNeedsProject": "Geteilter Bereich ben\u00f6tigt mindestens ein Projekt",
   "scope.toast.created": "Bereich erstellt",
   "scope.toast.deleted": "Bereich gel\u00f6scht",
   "scope.toast.updated": "Bereich aktualisiert",

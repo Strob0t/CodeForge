@@ -50,6 +50,10 @@ export default function ScopesPage() {
     e.preventDefault();
     const name = formName().trim();
     if (!name) return;
+    if (formType() === "shared" && formProjects().length === 0) {
+      toast("error", t("scope.validation.sharedNeedsProject"));
+      return;
+    }
     try {
       const req: CreateScopeRequest = {
         name,

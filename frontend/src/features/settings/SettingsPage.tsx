@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api, FetchError } from "~/api/client";
 import type {
@@ -148,6 +148,14 @@ export default function SettingsPage() {
   const [vcsLabel, setVcsLabel] = createSignal("");
   const [vcsToken, setVcsToken] = createSignal("");
   const [vcsServerUrl, setVcsServerUrl] = createSignal("");
+
+  // Sync default provider with first loaded git provider
+  createEffect(() => {
+    const providers = gitProviders();
+    if (providers?.length && !vcsLabel().trim()) {
+      setVcsProvider(providers[0] as VCSProvider);
+    }
+  });
   const [testingId, setTestingId] = createSignal<string | null>(null);
   const [vcsDeleteId, setVcsDeleteId] = createSignal<string | null>(null);
 
