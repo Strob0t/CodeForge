@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
+from nats.js.api import ConsumerConfig, DeliverPolicy
 
 from codeforge.constants import NATS_RESPONSE_TIMEOUT_SECONDS
 from codeforge.metrics import ExecutionMetrics
@@ -74,7 +75,8 @@ class RuntimeClient:
         (e.g. conversation.run.cancel for conversation runs).
         """
         subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
-        subs = [await self._js.subscribe(s) for s in subjects]
+        _new_only = ConsumerConfig(deliver_policy=DeliverPolicy.NEW)
+        subs = [await self._js.subscribe(s, config=_new_only) for s in subjects]
         self._cancel_sub = subs  # type: ignore[assignment]
 
         async def _listen_sub(sub: object) -> None:
@@ -168,7 +170,12 @@ class RuntimeClient:
 
         # Subscribe BEFORE publishing to avoid a race condition where Go
         # responds before the subscription is established.
-        sub = await self._js.subscribe(SUBJECT_TOOLCALL_RESPONSE)
+        # Use DeliverNew to skip old messages in the stream — we only care
+        # about the response to the request we are about to publish.
+        sub = await self._js.subscribe(
+            SUBJECT_TOOLCALL_RESPONSE,
+            config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW),
+        )
         try:
             try:
                 await self._js.publish(

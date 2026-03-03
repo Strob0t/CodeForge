@@ -114,17 +114,20 @@ func (s *ConversationService) SetGoalService(svc *GoalDiscoveryService) { s.goal
 func (s *ConversationService) SetRoutingConfig(cfg *config.Routing) { s.routingCfg = cfg }
 
 // resolveModel picks the best available model using priority:
-// AgentConfig.DefaultModel > ModelRegistry.BestModel > static ConversationService.model.
+// AgentConfig.DefaultModel > ConversationModel (explicit config) > ModelRegistry.BestModel (auto-discovery).
 func (s *ConversationService) resolveModel() string {
 	if s.agentCfg != nil && s.agentCfg.DefaultModel != "" {
 		return s.agentCfg.DefaultModel
+	}
+	if s.model != "" {
+		return s.model
 	}
 	if s.modelRegistry != nil {
 		if best := s.modelRegistry.BestModel(); best != "" {
 			return best
 		}
 	}
-	return s.model
+	return ""
 }
 
 // Create creates a new conversation for a project.
