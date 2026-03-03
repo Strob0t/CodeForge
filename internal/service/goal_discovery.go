@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -69,7 +70,7 @@ func (s *GoalDiscoveryService) DetectAndImport(ctx context.Context, projectID, w
 // Create creates a new project goal from a request.
 func (s *GoalDiscoveryService) Create(ctx context.Context, projectID string, req *goal.CreateRequest) (*goal.ProjectGoal, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", domain.ErrValidation, err.Error())
 	}
 	g := &goal.ProjectGoal{
 		ProjectID: projectID,
@@ -110,7 +111,7 @@ func (s *GoalDiscoveryService) ListEnabled(ctx context.Context, projectID string
 // Update updates a project goal.
 func (s *GoalDiscoveryService) Update(ctx context.Context, id string, req goal.UpdateRequest) (*goal.ProjectGoal, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", domain.ErrValidation, err.Error())
 	}
 	g, err := s.db.GetProjectGoal(ctx, id)
 	if err != nil {

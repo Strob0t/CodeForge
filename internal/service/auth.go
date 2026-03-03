@@ -551,14 +551,14 @@ func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPas
 	tokenHash := hashSHA256(rawToken)
 	prt, err := s.store.GetPasswordResetTokenByHash(ctx, tokenHash)
 	if err != nil {
-		return errors.New("invalid or expired reset token")
+		return fmt.Errorf("%w: invalid or expired reset token", domain.ErrValidation)
 	}
 
 	if prt.Used {
-		return errors.New("reset token has already been used")
+		return fmt.Errorf("%w: reset token has already been used", domain.ErrValidation)
 	}
 	if time.Now().After(prt.ExpiresAt) {
-		return errors.New("reset token has expired")
+		return fmt.Errorf("%w: reset token has expired", domain.ErrValidation)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.cfg.BcryptCost)

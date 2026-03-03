@@ -147,7 +147,7 @@ func (h *Handlers) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Auth.ChangePassword(r.Context(), u.ID, req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "change password failed")
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *Handlers) CreateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.Auth.CreateAPIKey(r.Context(), u.ID, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create api key failed")
 		return
 	}
 
@@ -216,7 +216,7 @@ func (h *Handlers) DeleteAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	if err := h.Auth.DeleteAPIKey(r.Context(), id, u.ID); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeDomainError(w, err, "api key not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -249,7 +249,7 @@ func (h *Handlers) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.Auth.Register(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create user failed")
 		return
 	}
 
@@ -266,7 +266,7 @@ func (h *Handlers) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.Auth.UpdateUser(r.Context(), id, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "update user failed")
 		return
 	}
 
@@ -277,7 +277,7 @@ func (h *Handlers) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Auth.DeleteUser(r.Context(), id); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeDomainError(w, err, "user not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -337,7 +337,7 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "setup failed")
 		return
 	}
 
@@ -414,7 +414,7 @@ func (h *Handlers) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.Auth.ConfirmPasswordReset(r.Context(), req.Token, req.NewPassword); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "password reset failed")
 		return
 	}
 
@@ -461,7 +461,7 @@ func (h *Handlers) AdminForcePasswordChange(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := h.Auth.AdminResetPassword(r.Context(), targetEmail, tenantID, req.NewPassword); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "admin reset password failed")
 		return
 	}
 

@@ -31,7 +31,7 @@ func (h *Handlers) CreateProjectGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	g, err := h.GoalDiscovery.Create(r.Context(), projectID, &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create goal failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, g)
@@ -79,7 +79,7 @@ func (h *Handlers) UpdateProjectGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	g, err := h.GoalDiscovery.Update(r.Context(), id, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "update goal failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, g)

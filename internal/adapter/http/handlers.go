@@ -191,7 +191,7 @@ func (h *Handlers) FetchRepoInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := h.Projects.FetchRepoInfo(r.Context(), repoURL)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "repository unreachable")
 		return
 	}
 	writeJSON(w, http.StatusOK, info)
@@ -535,7 +535,7 @@ func (h *Handlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	a, err := h.Agents.Create(r.Context(), projectID, req.Name, req.Backend, req.Config, req.ResourceLimits)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create agent failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, a)
@@ -746,7 +746,7 @@ func (h *Handlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Policies.EvaluateWithReason(r.Context(), name, call)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeDomainError(w, err, "policy not found")
 		return
 	}
 
@@ -765,7 +765,7 @@ func (h *Handlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Policies.SaveProfile(&profile); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "save policy profile failed")
 		return
 	}
 

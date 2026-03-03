@@ -26,7 +26,7 @@ func (h *Handlers) CreatePlan(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.Orchestrator.CreatePlan(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create plan failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
@@ -62,7 +62,7 @@ func (h *Handlers) StartPlan(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	p, err := h.Orchestrator.StartPlan(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "start plan failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -72,7 +72,7 @@ func (h *Handlers) StartPlan(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CancelPlan(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Orchestrator.CancelPlan(r.Context(), id); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "cancel plan failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
@@ -213,7 +213,7 @@ func (h *Handlers) DecomposeFeature(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.MetaAgent.DecomposeFeature(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "decompose feature failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
@@ -233,7 +233,7 @@ func (h *Handlers) PlanFeature(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.TaskPlanner.PlanFeature(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "plan feature failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
@@ -320,7 +320,7 @@ func (h *Handlers) CreateMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Modes.Register(&m); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "register mode failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
@@ -334,7 +334,7 @@ func (h *Handlers) UpdateMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Modes.Update(id, &m); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "update mode failed")
 		return
 	}
 	updated, _ := h.Modes.Get(id)
@@ -345,7 +345,7 @@ func (h *Handlers) UpdateMode(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteMode(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.Modes.Delete(id); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "delete mode failed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -380,7 +380,7 @@ func (h *Handlers) RegisterPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Pipelines.Register(&t); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "register pipeline failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
@@ -396,7 +396,7 @@ func (h *Handlers) InstantiatePipeline(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Pipelines.Instantiate(r.Context(), id, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "instantiate pipeline failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

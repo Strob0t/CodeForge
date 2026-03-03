@@ -67,7 +67,7 @@ func (h *Handlers) BenchmarkPrompt(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		slog.Error("benchmark prompt failed", "error", err)
-		writeError(w, http.StatusBadGateway, "LLM call failed: "+err.Error())
+		writeError(w, http.StatusBadGateway, "LLM call failed")
 		return
 	}
 
@@ -106,7 +106,7 @@ func (h *Handlers) StartLSP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	if err := h.LSP.StartServers(r.Context(), projectID, proj.WorkspacePath, body.Languages); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
@@ -120,7 +120,7 @@ func (h *Handlers) StopLSP(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := chi.URLParam(r, "id")
 	if err := h.LSP.StopServers(r.Context(), projectID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
@@ -301,7 +301,7 @@ func (h *Handlers) StoreMemory(w http.ResponseWriter, r *http.Request) {
 	}
 	req.ProjectID = projectID
 	if err := h.Memory.Store(r.Context(), &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "store memory failed")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "dispatched"})
@@ -316,7 +316,7 @@ func (h *Handlers) RecallMemories(w http.ResponseWriter, r *http.Request) {
 	}
 	req.ProjectID = projectID
 	if err := h.Memory.Recall(r.Context(), req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "recall memories failed")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "dispatched"})
@@ -374,7 +374,7 @@ func (h *Handlers) CreateMicroagent(w http.ResponseWriter, r *http.Request) {
 	req.ProjectID = projectID
 	m, err := h.Microagents.Create(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create microagent failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
@@ -400,7 +400,7 @@ func (h *Handlers) UpdateMicroagent(w http.ResponseWriter, r *http.Request) {
 	}
 	m, err := h.Microagents.Update(r.Context(), id, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "update microagent failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, m)
@@ -442,7 +442,7 @@ func (h *Handlers) CreateSkill(w http.ResponseWriter, r *http.Request) {
 	req.ProjectID = projectID
 	s, err := h.Skills.Create(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create skill failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, s)
@@ -468,7 +468,7 @@ func (h *Handlers) UpdateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	s, err := h.Skills.Update(r.Context(), id, &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "update skill failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, s)

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 )
 
@@ -54,7 +55,7 @@ func (s *PolicyService) Evaluate(ctx context.Context, profileName string, call p
 func (s *PolicyService) EvaluateWithReason(_ context.Context, profileName string, call policy.ToolCall) (*policy.EvaluationResult, error) {
 	p, ok := s.profiles[profileName]
 	if !ok {
-		return nil, fmt.Errorf("unknown policy profile %q", profileName)
+		return nil, fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, profileName)
 	}
 	return evaluateWithReason(&p, profileName, call), nil
 }

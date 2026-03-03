@@ -602,6 +602,20 @@ For full completion history, see [project-status.md](project-status.md).
 - [x] (2026-02-24) Round 3: 44/44 regression tests PASS (26 domain-error + 18 sanity tests) — all resource-scoped handlers now return proper HTTP status codes
 - [x] (2026-02-26) 4 search/graph endpoint tests validated with running Python retrieval workers: index build (202), search project (200), agent search (200), graph search (200), SQLi injection safe (200). Pipeline: Go Core → NATS → Python BM25S/tree-sitter → PostgreSQL → response.
 
+#### Phase 3: Bug Diagnosis & Fix — Round 4 (Error Handling Standardization)
+- [x] (2026-03-03) QA backend test v2: 125/127 endpoints pass (98%), 0 failures, 2 infrastructure skips
+- [x] (2026-03-03) Fix `store_active_work.go`: COALESCE UUID type mismatch — added `::text` casts for `agent_id` and `run_id`
+- [x] (2026-03-03) Standardize error handling: replaced 47 `writeError(w, http.StatusBadRequest, err.Error())` with `writeDomainError()` across 8 handler files — prevents raw PostgreSQL error leakage to API clients
+- [x] (2026-03-03) Fix `CreateTenant` duplicate slug: now returns 409 Conflict instead of 400 with raw DB error
+- [x] (2026-03-03) Fix `ConfirmPasswordReset`, `AdminResetPassword`: wrap validation errors with `domain.ErrValidation` → proper 400
+- [x] (2026-03-03) Fix `EvaluatePolicy` unknown profile: wrap with `domain.ErrNotFound` → proper 404
+- [x] (2026-03-03) Fix `GoalDiscovery.Create/Update`: wrap validation errors with `domain.ErrValidation` → proper 400
+- [x] (2026-03-03) Fix `StartPlan`/`CancelPlan` not-found: now returns 404 instead of 400
+- [x] (2026-03-03) Fix LSP `StartServers`/`StopServers`: use `writeInternalError()` instead of leaking raw error
+- [x] (2026-03-03) Fix `FetchRepoInfo`, `HandleCopilotExchange`, `DiscoverLLMModels`, `BenchmarkPrompt`: safe error messages for external service failures
+- [x] (2026-03-03) Updated test assertions: `handlers_orchestration_test.go` (StartPlan/CancelPlan 400→404)
+- [x] (2026-03-03) Files modified: `handlers.go`, `handlers_settings.go`, `handlers_auth.go`, `handlers_orchestration.go`, `handlers_agent_features.go`, `handlers_goals.go`, `handlers_session.go`, `handlers_llm.go`, `auth.go`, `goal_discovery.go`, `policy.go`
+
 ---
 
 ### Phase 12+ — Architecture Evolution

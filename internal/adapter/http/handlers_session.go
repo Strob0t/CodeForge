@@ -40,7 +40,7 @@ func (h *Handlers) CreateBranchProtectionRule(w http.ResponseWriter, r *http.Req
 
 	rule, err := h.BranchProtection.CreateRule(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create branch rule failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, rule)

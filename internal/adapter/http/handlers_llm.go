@@ -81,7 +81,7 @@ func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
 	models, err := h.LiteLLM.DiscoverModels(ctx)
 	if err != nil {
 		slog.Error("litellm discovery failed", "error", err)
-		writeError(w, http.StatusBadGateway, "LLM discovery failed: "+err.Error())
+		writeError(w, http.StatusBadGateway, "LLM discovery failed")
 		return
 	}
 
@@ -149,7 +149,7 @@ func (h *Handlers) HandleCopilotExchange(w http.ResponseWriter, r *http.Request)
 	}
 	token, expiry, err := h.Copilot.ExchangeToken(r.Context())
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "copilot token exchange failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{

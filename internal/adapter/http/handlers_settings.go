@@ -39,7 +39,7 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 
 	t, err := h.Tenants.Create(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create tenant failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
@@ -88,14 +88,14 @@ func (h *Handlers) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	case "push":
 		ev, err := h.VCSWebhook.HandleGitHubPush(r.Context(), body)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeDomainError(w, err, "webhook processing failed")
 			return
 		}
 		writeJSON(w, http.StatusOK, ev)
 	case "pull_request":
 		ev, err := h.VCSWebhook.HandleGitHubPullRequest(r.Context(), body)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeDomainError(w, err, "webhook processing failed")
 			return
 		}
 		writeJSON(w, http.StatusOK, ev)
@@ -117,7 +117,7 @@ func (h *Handlers) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 	case "Push Hook":
 		ev, err := h.VCSWebhook.HandleGitLabPush(r.Context(), body)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeDomainError(w, err, "webhook processing failed")
 			return
 		}
 		writeJSON(w, http.StatusOK, ev)
@@ -176,7 +176,7 @@ func (h *Handlers) HandleGitHubIssueWebhook(w http.ResponseWriter, r *http.Reque
 
 	ev, err := h.PMWebhook.HandleGitHubIssueWebhook(r.Context(), body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "webhook processing failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, ev)
@@ -198,7 +198,7 @@ func (h *Handlers) HandleGitLabIssueWebhook(w http.ResponseWriter, r *http.Reque
 
 	ev, err := h.PMWebhook.HandleGitLabIssueWebhook(r.Context(), body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "webhook processing failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, ev)
@@ -214,7 +214,7 @@ func (h *Handlers) HandlePlaneWebhook(w http.ResponseWriter, r *http.Request) {
 
 	ev, err := h.PMWebhook.HandlePlaneWebhook(r.Context(), body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "webhook processing failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, ev)
@@ -244,7 +244,7 @@ func (h *Handlers) CreateReviewPolicy(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.Review.CreatePolicy(r.Context(), projectID, tenantID, &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create review policy failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
@@ -271,7 +271,7 @@ func (h *Handlers) UpdateReviewPolicy(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.Review.UpdatePolicy(r.Context(), id, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "update review policy failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -378,7 +378,7 @@ func (h *Handlers) CreateVCSAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	account, err := h.VCSAccounts.Create(r.Context(), &req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "create vcs account failed")
 		return
 	}
 	// Clear encrypted token from the response.
