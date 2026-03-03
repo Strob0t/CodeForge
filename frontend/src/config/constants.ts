@@ -1,6 +1,10 @@
 // Layout constants (ProjectDetailPage split pane)
 export const SPLIT_RATIO_KEY = "codeforge-split-ratio";
 export const ROADMAP_COLLAPSED_KEY = "codeforge-roadmap-collapsed";
+export const SIDEBAR_COLLAPSED_KEY = "codeforge-sidebar-collapsed";
+
+// Shortcuts
+export const SHORTCUTS_STORAGE_KEY = "codeforge-shortcuts";
 export const DEFAULT_SPLIT = 50;
 export const MIN_SPLIT = 20;
 export const MAX_SPLIT = 80;

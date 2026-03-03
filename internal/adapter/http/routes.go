@@ -463,6 +463,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Get("/projects/{id}/goals", h.ListProjectGoals)
 			r.Post("/projects/{id}/goals", h.CreateProjectGoal)
 			r.Post("/projects/{id}/goals/detect", h.DetectProjectGoals)
+			r.Post("/projects/{id}/goals/ai-discover", h.AIDiscoverProjectGoals)
 			r.Get("/goals/{id}", h.GetProjectGoal)
 			r.Put("/goals/{id}", h.UpdateProjectGoal)
 			r.Delete("/goals/{id}", h.DeleteProjectGoal)

@@ -32,6 +32,8 @@ import {
 } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
 
+import { ShortcutsSection } from "./ShortcutsSection";
+
 export default function SettingsPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
@@ -362,6 +364,11 @@ export default function SettingsPage() {
             </Button>
           </div>
         </div>
+      </Section>
+
+      {/* Keyboard Shortcuts Section */}
+      <Section title={t("settings.shortcuts.title")} class="mb-8">
+        <ShortcutsSection />
       </Section>
 
       {/* VCS Accounts Section */}

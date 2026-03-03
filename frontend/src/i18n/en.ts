@@ -1165,6 +1165,45 @@ const en = {
 
   // -- Benchmark Mode (Phase 20E) -------------------------------------------
   "app.nav.benchmarks": "Benchmarks",
+
+  // -- Sidebar ---------------------------------------------------------------
+  "sidebar.collapse": "Collapse sidebar",
+  "sidebar.expand": "Expand sidebar",
+  "sidebar.toggle": "Toggle sidebar",
+
+  // -- Keyboard shortcuts ----------------------------------------------------
+  "settings.shortcuts.title": "Keyboard Shortcuts",
+  "settings.shortcuts.description": "Customize keyboard shortcuts for common actions",
+  "settings.shortcuts.action": "Action",
+  "settings.shortcuts.shortcut": "Shortcut",
+  "settings.shortcuts.scope": "Scope",
+  "settings.shortcuts.edit": "Edit",
+  "settings.shortcuts.recording": "Press keys...",
+  "settings.shortcuts.resetOne": "Reset to default",
+  "settings.shortcuts.resetAll": "Reset All Defaults",
+  "settings.shortcuts.conflict": 'Already used by "{{action}}". Override?',
+  "settings.shortcuts.override": "Override",
+  "settings.shortcuts.cancel": "Cancel",
+  "settings.shortcuts.scope.global": "Global",
+  "settings.shortcuts.scope.palette": "Palette",
+  "settings.shortcuts.scope.chat": "Chat",
+  "settings.shortcuts.scope.editor": "Editor",
+  "shortcuts.palette.open": "Open Command Palette",
+  "shortcuts.palette.help": "Show Keyboard Shortcuts",
+  "shortcuts.nav.dashboard": "Go to Dashboard",
+  "shortcuts.nav.costs": "Go to Costs",
+  "shortcuts.nav.models": "Go to Models",
+  "shortcuts.sidebar.toggle": "Toggle Sidebar",
+  "shortcuts.theme.toggle": "Toggle Theme",
+  "shortcuts.chat.send": "Send Message",
+  "shortcuts.editor.save": "Save File",
+
+  // -- Goals AI ---------------------------------------------------------------
+  "goals.aiDiscover": "AI Discover",
+  "goals.aiDiscovering": "Discovering...",
+  "goals.aiDiscoverStarted": "Goal discovery started. Check the Chat tab.",
+  "goals.toast.aiDiscoverFailed": "Failed to start AI goal discovery.",
+
   "benchmark.title": "Benchmark Dashboard",
   "benchmark.subtitle": "Evaluate agent quality with configurable metrics (dev-mode only)",
   "benchmark.empty": "No benchmark runs yet. Create one to get started.",

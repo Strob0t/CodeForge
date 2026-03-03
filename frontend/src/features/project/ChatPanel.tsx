@@ -405,7 +405,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         </div>
 
         {/* Input area */}
-        <div class="border-t border-cf-border p-3 flex-shrink-0">
+        <div class="border-t border-cf-border p-3 flex-shrink-0" data-shortcut-scope="chat">
           <div class="flex gap-2">
             <textarea
               class="flex-1 rounded-cf-md border border-cf-border bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder-cf-text-muted focus:border-cf-accent focus:ring-1 focus:ring-cf-accent resize-none"

@@ -8,6 +8,7 @@ import { Badge, Button } from "~/ui";
 
 interface Props {
   projectId: string;
+  onAIDiscoverStarted?: (conversationId: string) => void;
 }
 
 const KIND_ORDER: GoalKind[] = ["vision", "requirement", "constraint", "state", "context"];
@@ -44,6 +45,7 @@ export default function GoalsPanel(props: Props) {
   );
 
   const [detecting, setDetecting] = createSignal(false);
+  const [aiDiscovering, setAiDiscovering] = createSignal(false);
   const [showForm, setShowForm] = createSignal(false);
   const [formKind, setFormKind] = createSignal<GoalKind>("vision");
   const [formTitle, setFormTitle] = createSignal("");
@@ -68,6 +70,19 @@ export default function GoalsPanel(props: Props) {
       toast("error", t("goals.toast.detectFailed"));
     } finally {
       setDetecting(false);
+    }
+  };
+
+  const handleAIDiscover = async () => {
+    setAiDiscovering(true);
+    try {
+      const result = await api.goals.aiDiscover(props.projectId);
+      toast("success", t("goals.aiDiscoverStarted"));
+      props.onAIDiscoverStarted?.(result.conversation_id);
+    } catch {
+      toast("error", t("goals.toast.aiDiscoverFailed"));
+    } finally {
+      setAiDiscovering(false);
     }
   };
 
@@ -117,6 +132,15 @@ export default function GoalsPanel(props: Props) {
       <div class="flex items-center justify-between px-4 py-3 flex-shrink-0">
         <h3 class="text-sm font-semibold text-cf-text-primary">{t("goals.title")}</h3>
         <div class="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleAIDiscover}
+            disabled={aiDiscovering()}
+            loading={aiDiscovering()}
+          >
+            {aiDiscovering() ? t("goals.aiDiscovering") : t("goals.aiDiscover")}
+          </Button>
           <Button
             variant="secondary"
             size="sm"

@@ -1,8 +1,10 @@
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 
+import { useSidebar } from "~/components/SidebarProvider";
 import { useTheme } from "~/components/ThemeProvider";
 import { useI18n } from "~/i18n";
+import { useShortcuts } from "~/shortcuts";
 import { Input } from "~/ui";
 
 // ---------------------------------------------------------------------------
@@ -18,22 +20,14 @@ interface Command {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const MOD = navigator.userAgent.includes("Mac") ? "\u2318" : "Ctrl";
-
-function formatShortcut(shortcut: string): string {
-  return shortcut.replace("Mod", MOD);
-}
-
-// ---------------------------------------------------------------------------
 // CommandPalette
 // ---------------------------------------------------------------------------
 
 export function CommandPalette(): JSX.Element {
   const navigate = useNavigate();
-  const { toggle } = useTheme();
+  const { toggle: toggleTheme } = useTheme();
+  const { toggle: toggleSidebar } = useSidebar();
+  const { registerAction, formatCombo, shortcuts: allShortcuts } = useShortcuts();
   const { t } = useI18n();
 
   const [open, setOpen] = createSignal(false);
@@ -43,69 +37,12 @@ export function CommandPalette(): JSX.Element {
   let inputRef: HTMLInputElement | undefined;
   let listRef: HTMLDivElement | undefined;
 
-  // ---- Commands -----------------------------------------------------------
-
-  const commands = (): Command[] => [
-    {
-      id: "nav-dashboard",
-      label: t("palette.cmd.dashboard"),
-      shortcut: "Mod+1",
-      section: "navigation",
-      action: () => navigate("/"),
-    },
-    {
-      id: "nav-costs",
-      label: t("palette.cmd.costs"),
-      shortcut: "Mod+2",
-      section: "navigation",
-      action: () => navigate("/costs"),
-    },
-    {
-      id: "nav-models",
-      label: t("palette.cmd.models"),
-      shortcut: "Mod+3",
-      section: "navigation",
-      action: () => navigate("/models"),
-    },
-    {
-      id: "theme-toggle",
-      label: t("palette.cmd.toggleTheme"),
-      section: "theme",
-      action: () => toggle(),
-    },
-    {
-      id: "shortcut-help",
-      label: t("palette.cmd.shortcuts"),
-      shortcut: "Mod+/",
-      section: "actions",
-      action: () => {
-        /* opening the palette IS the action */
-      },
-    },
-  ];
-
-  // ---- Filtered list ------------------------------------------------------
-
-  const filtered = (): Command[] => {
-    const q = query().toLowerCase().trim();
-    if (!q) return commands();
-    return commands().filter((c) => c.label.toLowerCase().includes(q));
-  };
-
-  // Reset selection when filter changes
-  createEffect(() => {
-    const _items = filtered();
-    void _items;
-    setSelectedIndex(0);
-  });
-
-  // ---- Open / Close -------------------------------------------------------
+  // ---- Open / Close ---------------------------------------------------------
 
   function openPalette() {
     setOpen(true);
     setQuery("");
     setSelectedIndex(0);
-    // Focus input on next tick after render
     requestAnimationFrame(() => inputRef?.focus());
   }
 
@@ -122,7 +59,114 @@ export function CommandPalette(): JSX.Element {
     }
   }
 
-  // ---- Scroll selected into view ------------------------------------------
+  // ---- Register shortcut actions via the registry ---------------------------
+
+  // Helper to get the display string for a shortcut id
+  function comboLabel(id: string): string | undefined {
+    const def = allShortcuts().find((s) => s.id === id);
+    return def ? formatCombo(def.combo) : undefined;
+  }
+
+  // Register all shortcut actions
+  const cleanups: (() => void)[] = [];
+
+  cleanups.push(
+    // eslint-disable-next-line solid/reactivity -- callback reads signal at invocation time
+    registerAction("palette.open", () => {
+      if (open()) closePalette();
+      else openPalette();
+    }),
+  );
+  cleanups.push(registerAction("palette.help", () => openPalette()));
+  cleanups.push(
+    // eslint-disable-next-line solid/reactivity -- callback reads signal at invocation time
+    registerAction("nav.dashboard", () => {
+      if (!open()) navigate("/");
+    }),
+  );
+  cleanups.push(
+    // eslint-disable-next-line solid/reactivity -- callback reads signal at invocation time
+    registerAction("nav.costs", () => {
+      if (!open()) navigate("/costs");
+    }),
+  );
+  cleanups.push(
+    // eslint-disable-next-line solid/reactivity -- callback reads signal at invocation time
+    registerAction("nav.models", () => {
+      if (!open()) navigate("/models");
+    }),
+  );
+  cleanups.push(registerAction("sidebar.toggle", () => toggleSidebar()));
+  cleanups.push(registerAction("theme.toggle", () => toggleTheme()));
+
+  onCleanup(() => {
+    for (const fn of cleanups) fn();
+  });
+
+  // ---- Commands (for display in the palette) --------------------------------
+
+  const commands = (): Command[] => [
+    {
+      id: "nav-dashboard",
+      label: t("palette.cmd.dashboard"),
+      shortcut: comboLabel("nav.dashboard"),
+      section: "navigation",
+      action: () => navigate("/"),
+    },
+    {
+      id: "nav-costs",
+      label: t("palette.cmd.costs"),
+      shortcut: comboLabel("nav.costs"),
+      section: "navigation",
+      action: () => navigate("/costs"),
+    },
+    {
+      id: "nav-models",
+      label: t("palette.cmd.models"),
+      shortcut: comboLabel("nav.models"),
+      section: "navigation",
+      action: () => navigate("/models"),
+    },
+    {
+      id: "theme-toggle",
+      label: t("palette.cmd.toggleTheme"),
+      shortcut: comboLabel("theme.toggle"),
+      section: "theme",
+      action: () => toggleTheme(),
+    },
+    {
+      id: "sidebar-toggle",
+      label: t("sidebar.toggle"),
+      shortcut: comboLabel("sidebar.toggle"),
+      section: "actions",
+      action: () => toggleSidebar(),
+    },
+    {
+      id: "shortcut-help",
+      label: t("palette.cmd.shortcuts"),
+      shortcut: comboLabel("palette.help"),
+      section: "actions",
+      action: () => {
+        /* opening the palette IS the action */
+      },
+    },
+  ];
+
+  // ---- Filtered list --------------------------------------------------------
+
+  const filtered = (): Command[] => {
+    const q = query().toLowerCase().trim();
+    if (!q) return commands();
+    return commands().filter((c) => c.label.toLowerCase().includes(q));
+  };
+
+  createEffect(() => {
+    const _items = filtered();
+    void _items;
+    setSelectedIndex(0);
+  });
+
+  // ---- Scroll selected into view --------------------------------------------
 
   createEffect(() => {
     const idx = selectedIndex();
@@ -131,77 +175,7 @@ export function CommandPalette(): JSX.Element {
     el?.scrollIntoView({ block: "nearest" });
   });
 
-  // ---- Global keyboard handler --------------------------------------------
-
-  function handleGlobalKeydown(e: KeyboardEvent) {
-    const mod = e.metaKey || e.ctrlKey;
-
-    // Mod+K — toggle palette
-    if (mod && e.key === "k") {
-      e.preventDefault();
-      if (open()) {
-        closePalette();
-      } else {
-        openPalette();
-      }
-      return;
-    }
-
-    // Mod+/ — open palette (shortcut help)
-    if (mod && e.key === "/") {
-      e.preventDefault();
-      openPalette();
-      return;
-    }
-
-    // Mod+1/2/3 — direct navigation (only when palette is closed)
-    if (mod && !open() && e.key >= "1" && e.key <= "3") {
-      const idx = parseInt(e.key) - 1;
-      const navCommands = commands().filter((c) => c.section === "navigation");
-      if (navCommands[idx]) {
-        e.preventDefault();
-        navCommands[idx].action();
-        return;
-      }
-    }
-
-    // Enter — execute selected command (when palette is open)
-    if (e.key === "Enter" && open()) {
-      e.preventDefault();
-      executeSelected();
-      return;
-    }
-
-    // ArrowDown / ArrowUp — navigate commands (when palette is open)
-    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && open()) {
-      e.preventDefault();
-      const items = filtered();
-      const len = items.length;
-      if (len === 0) return;
-      if (e.key === "ArrowDown") {
-        setSelectedIndex((i) => (i + 1) % len);
-      } else {
-        setSelectedIndex((i) => (i - 1 + len) % len);
-      }
-      return;
-    }
-
-    // Escape — close palette
-    if (e.key === "Escape" && open()) {
-      e.preventDefault();
-      closePalette();
-    }
-  }
-
-  onMount(() => {
-    document.addEventListener("keydown", handleGlobalKeydown);
-  });
-
-  onCleanup(() => {
-    document.removeEventListener("keydown", handleGlobalKeydown);
-  });
-
-  // ---- Palette-internal keyboard handler ----------------------------------
+  // ---- Palette-internal keyboard handler ------------------------------------
 
   function handlePaletteKeydown(e: KeyboardEvent) {
     const items = filtered();
@@ -216,14 +190,16 @@ export function CommandPalette(): JSX.Element {
     } else if (e.key === "Enter") {
       e.preventDefault();
       executeSelected();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closePalette();
     } else if (e.key === "Tab") {
-      // Trap focus inside the palette — prevent Tab from escaping
       e.preventDefault();
       inputRef?.focus();
     }
   }
 
-  // ---- Section labels -----------------------------------------------------
+  // ---- Section labels -------------------------------------------------------
 
   const SECTION_LABELS: Record<string, () => string> = {
     navigation: () => t("palette.section.navigation"),
@@ -231,17 +207,13 @@ export function CommandPalette(): JSX.Element {
     theme: () => t("palette.section.theme"),
   };
 
-  // Group filtered commands by section for display
   const grouped = (): { section: string; items: Command[] }[] => {
     const items = filtered();
     const map = new Map<string, Command[]>();
     for (const cmd of items) {
       const arr = map.get(cmd.section);
-      if (arr) {
-        arr.push(cmd);
-      } else {
-        map.set(cmd.section, [cmd]);
-      }
+      if (arr) arr.push(cmd);
+      else map.set(cmd.section, [cmd]);
     }
     const result: { section: string; items: Command[] }[] = [];
     for (const [section, cmds] of map) {
@@ -250,12 +222,11 @@ export function CommandPalette(): JSX.Element {
     return result;
   };
 
-  // Flat index for a command (needed for selection tracking)
   const flatIndex = (cmd: Command): number => {
     return filtered().indexOf(cmd);
   };
 
-  // ---- Render -------------------------------------------------------------
+  // ---- Render ---------------------------------------------------------------
 
   return (
     <Show when={open()}>
@@ -341,7 +312,7 @@ export function CommandPalette(): JSX.Element {
                             <span>{cmd.label}</span>
                             <Show when={cmd.shortcut}>
                               <kbd class="rounded-cf-sm border border-cf-border px-1.5 py-0.5 text-xs text-cf-text-muted">
-                                {formatShortcut(cmd.shortcut ?? "")}
+                                {cmd.shortcut}
                               </kbd>
                             </Show>
                           </div>

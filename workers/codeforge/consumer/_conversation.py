@@ -78,6 +78,7 @@ class ConversationHandlerMixin:
             system_prompt = self._inject_tool_guide(system_prompt, registry, run_msg.model, log)
 
             self._register_handoff_tool(registry, run_msg.run_id)
+            self._register_goals_tool(registry, run_msg.project_id)
 
             history_mgr = ConversationHistoryManager(
                 HistoryConfig(
@@ -394,3 +395,9 @@ class ConversationHandlerMixin:
             ),
             _HandoffProxy(self._js, run_id),
         )
+
+    def _register_goals_tool(self, registry: object, project_id: str) -> None:
+        """Register the manage_goals tool for agent-driven goal creation."""
+        from codeforge.tools.manage_goals import MANAGE_GOALS_DEFINITION, ManageGoalsExecutor
+
+        registry.register(MANAGE_GOALS_DEFINITION, ManageGoalsExecutor(project_id))

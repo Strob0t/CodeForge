@@ -1140,6 +1140,12 @@ export const api = {
       }),
 
     delete: (id: string) => request<undefined>(url`/goals/${id}`, { method: "DELETE" }),
+
+    aiDiscover: (projectId: string) =>
+      request<{ conversation_id: string; status: string }>(
+        url`/projects/${projectId}/goals/ai-discover`,
+        { method: "POST" },
+      ),
   },
 } as const;
 

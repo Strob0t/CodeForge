@@ -1,10 +1,12 @@
 package http
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 )
 
@@ -93,4 +95,57 @@ func (h *Handlers) DeleteProjectGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// AIDiscoverProjectGoals handles POST /api/v1/projects/{id}/goals/ai-discover.
+// It creates a conversation with the goal-researcher mode and dispatches an agentic run
+// to analyze the repository and ask the user targeted questions for goal creation.
+func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	proj, err := h.Projects.Get(r.Context(), projectID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	if proj.WorkspacePath == "" {
+		writeError(w, http.StatusBadRequest, "project has no workspace — clone it first")
+		return
+	}
+
+	if h.Conversations == nil {
+		writeError(w, http.StatusServiceUnavailable, "conversation service unavailable")
+		return
+	}
+
+	// Create a dedicated conversation for goal discovery.
+	conv, err := h.Conversations.Create(r.Context(), conversation.CreateRequest{
+		ProjectID: projectID,
+		Title:     "Goal Discovery",
+	})
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+
+	// Dispatch an agentic run with the goal-researcher mode.
+	initialPrompt := "Analyze this repository and help me define project goals. " +
+		"Start by exploring the codebase structure, then ask me targeted questions."
+
+	if err := h.Conversations.SendMessageAgenticWithMode(
+		r.Context(), conv.ID, initialPrompt, "goal-researcher",
+	); err != nil {
+		slog.Warn("failed to dispatch goal discovery run",
+			"conversation_id", conv.ID,
+			"project_id", projectID,
+			"error", err,
+		)
+		writeInternalError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"conversation_id": conv.ID,
+		"status":          "started",
+	})
 }

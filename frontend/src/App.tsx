@@ -9,11 +9,26 @@ import { AuthProvider, useAuth } from "~/components/AuthProvider";
 import { CommandPalette } from "~/components/CommandPalette";
 import { OfflineBanner } from "~/components/OfflineBanner";
 import { RouteGuard } from "~/components/RouteGuard";
+import { SidebarProvider, useSidebar } from "~/components/SidebarProvider";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
 import { ToastProvider } from "~/components/Toast";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
+import { ShortcutProvider } from "~/shortcuts";
 import { Button, NavLink, Sidebar, StatusDot } from "~/ui";
+import {
+  ActivityIcon,
+  BenchmarksIcon,
+  CostsIcon,
+  DashboardIcon,
+  KnowledgeBaseIcon,
+  McpIcon,
+  ModelsIcon,
+  ModesIcon,
+  PromptsIcon,
+  ScopesIcon,
+  SettingsIcon,
+} from "~/ui/layout/NavIcons";
 
 // ---------------------------------------------------------------------------
 // Error fallback (rendered when an uncaught error bubbles up)
@@ -45,25 +60,28 @@ function ErrorFallback(props: { error: unknown; reset: () => void }): JSX.Elemen
 function UserInfo(): JSX.Element {
   const { t } = useI18n();
   const { user, isAuthenticated, logout } = useAuth();
+  const { collapsed } = useSidebar();
 
   return (
     <Show when={isAuthenticated()}>
-      <div class="flex items-center justify-between border-b border-cf-border px-4 py-2 text-xs">
-        <div class="truncate text-cf-text-secondary" title={user()?.email ?? ""}>
-          {user()?.name ?? ""}{" "}
-          <span class="rounded bg-cf-bg-surface-alt px-1 py-0.5 text-[10px] font-medium uppercase">
-            {user()?.role ?? ""}
-          </span>
+      <Show when={!collapsed()}>
+        <div class="flex items-center justify-between border-b border-cf-border px-4 py-2 text-xs">
+          <div class="truncate text-cf-text-secondary" title={user()?.email ?? ""}>
+            {user()?.name ?? ""}{" "}
+            <span class="rounded bg-cf-bg-surface-alt px-1 py-0.5 text-[10px] font-medium uppercase">
+              {user()?.role ?? ""}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void logout()}
+            class="ml-2 text-cf-text-muted hover:text-red-500 dark:hover:text-red-400"
+            title={t("auth.logout")}
+          >
+            {t("auth.logout")}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void logout()}
-          class="ml-2 text-cf-text-muted hover:text-red-500 dark:hover:text-red-400"
-          title={t("auth.logout")}
-        >
-          {t("auth.logout")}
-        </button>
-      </div>
+      </Show>
     </Show>
   );
 }
@@ -74,6 +92,7 @@ function AppShell(props: {
   children: JSX.Element;
 }) {
   const { t } = useI18n();
+  const { collapsed } = useSidebar();
 
   return (
     <>
@@ -93,49 +112,81 @@ function AppShell(props: {
             <UserInfo />
 
             <Sidebar.Nav>
-              <NavLink href="/" end>
+              <NavLink href="/" end icon={<DashboardIcon />}>
                 {t("app.nav.dashboard")}
               </NavLink>
-              <NavLink href="/costs">{t("app.nav.costs")}</NavLink>
-              <NavLink href="/models">{t("app.nav.models")}</NavLink>
-              <NavLink href="/modes">{t("app.nav.modes")}</NavLink>
-              <NavLink href="/activity">{t("app.nav.activity")}</NavLink>
-              <NavLink href="/knowledge-bases">{t("kb.title")}</NavLink>
-              <NavLink href="/scopes">{t("app.nav.scopes")}</NavLink>
-              <NavLink href="/mcp">{t("app.nav.mcp")}</NavLink>
-              <NavLink href="/prompts">{t("app.nav.prompts")}</NavLink>
-              <NavLink href="/settings">{t("app.nav.settings")}</NavLink>
+              <NavLink href="/costs" icon={<CostsIcon />}>
+                {t("app.nav.costs")}
+              </NavLink>
+              <NavLink href="/models" icon={<ModelsIcon />}>
+                {t("app.nav.models")}
+              </NavLink>
+              <NavLink href="/modes" icon={<ModesIcon />}>
+                {t("app.nav.modes")}
+              </NavLink>
+              <NavLink href="/activity" icon={<ActivityIcon />}>
+                {t("app.nav.activity")}
+              </NavLink>
+              <NavLink href="/knowledge-bases" icon={<KnowledgeBaseIcon />}>
+                {t("kb.title")}
+              </NavLink>
+              <NavLink href="/scopes" icon={<ScopesIcon />}>
+                {t("app.nav.scopes")}
+              </NavLink>
+              <NavLink href="/mcp" icon={<McpIcon />}>
+                {t("app.nav.mcp")}
+              </NavLink>
+              <NavLink href="/prompts" icon={<PromptsIcon />}>
+                {t("app.nav.prompts")}
+              </NavLink>
+              <NavLink href="/settings" icon={<SettingsIcon />}>
+                {t("app.nav.settings")}
+              </NavLink>
               <Show when={props.health()?.dev_mode}>
-                <NavLink href="/benchmarks">{t("app.nav.benchmarks")}</NavLink>
+                <NavLink href="/benchmarks" icon={<BenchmarksIcon />}>
+                  {t("app.nav.benchmarks")}
+                </NavLink>
               </Show>
             </Sidebar.Nav>
 
             <Sidebar.Footer>
-              <div class="flex items-center gap-2">
-                <ThemeToggle />
-                <LocaleSwitcher />
-              </div>
-              <div
-                class="mt-2 flex items-center gap-2 text-xs text-cf-text-muted"
-                aria-live="polite"
+              <Show
+                when={!collapsed()}
+                fallback={
+                  <div class="flex flex-col items-center gap-2">
+                    <ThemeToggle />
+                    <StatusDot
+                      color={props.connected() ? "var(--cf-status-idle)" : "var(--cf-status-error)"}
+                    />
+                  </div>
+                }
               >
-                <StatusDot
-                  color={props.connected() ? "var(--cf-status-idle)" : "var(--cf-status-error)"}
-                />
-                <span>
-                  {t("app.ws.label", {
-                    status: props.connected() ? t("app.ws.connected") : t("app.ws.disconnected"),
-                  })}
-                </span>
-              </div>
-              <Show when={props.health()}>
+                <div class="flex items-center gap-2">
+                  <ThemeToggle />
+                  <LocaleSwitcher />
+                </div>
                 <div
-                  class="mt-1 flex items-center gap-2 text-xs text-cf-text-muted"
+                  class="mt-2 flex items-center gap-2 text-xs text-cf-text-muted"
                   aria-live="polite"
                 >
-                  <StatusDot color="var(--cf-status-idle)" />
-                  <span>{t("app.api.label", { status: props.health()?.status ?? "" })}</span>
+                  <StatusDot
+                    color={props.connected() ? "var(--cf-status-idle)" : "var(--cf-status-error)"}
+                  />
+                  <span>
+                    {t("app.ws.label", {
+                      status: props.connected() ? t("app.ws.connected") : t("app.ws.disconnected"),
+                    })}
+                  </span>
                 </div>
+                <Show when={props.health()}>
+                  <div
+                    class="mt-1 flex items-center gap-2 text-xs text-cf-text-muted"
+                    aria-live="polite"
+                  >
+                    <StatusDot color="var(--cf-status-idle)" />
+                    <span>{t("app.api.label", { status: props.health()?.status ?? "" })}</span>
+                  </div>
+                </Show>
               </Show>
             </Sidebar.Footer>
           </Sidebar>
@@ -168,13 +219,17 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
 
   return (
     <ToastProvider>
-      <Show when={!isLoginPage()} fallback={props.children}>
-        <RouteGuard>
-          <AppShell health={health} connected={connected}>
-            {props.children}
-          </AppShell>
-        </RouteGuard>
-      </Show>
+      <SidebarProvider>
+        <ShortcutProvider>
+          <Show when={!isLoginPage()} fallback={props.children}>
+            <RouteGuard>
+              <AppShell health={health} connected={connected}>
+                {props.children}
+              </AppShell>
+            </RouteGuard>
+          </Show>
+        </ShortcutProvider>
+      </SidebarProvider>
     </ToastProvider>
   );
 }

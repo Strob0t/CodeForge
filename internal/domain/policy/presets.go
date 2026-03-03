@@ -35,6 +35,7 @@ func PresetHeadlessSafeSandbox() PolicyProfile {
 			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
+			{Specifier: ToolSpecifier{Tool: "manage_goals"}, Decision: DecisionAllow},
 			{
 				Specifier: ToolSpecifier{Tool: "Edit"},
 				Decision:  DecisionAllow,
@@ -74,6 +75,7 @@ func PresetHeadlessPermissiveSandbox() PolicyProfile {
 			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
+			{Specifier: ToolSpecifier{Tool: "manage_goals"}, Decision: DecisionAllow},
 			{
 				Specifier: ToolSpecifier{Tool: "Edit"},
 				Decision:  DecisionAllow,
@@ -122,6 +124,7 @@ func PresetTrustedMountAutonomous() PolicyProfile {
 			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
+			{Specifier: ToolSpecifier{Tool: "manage_goals"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Edit"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Write"}, Decision: DecisionAllow},
 			{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionAllow},

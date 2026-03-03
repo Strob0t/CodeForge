@@ -63,10 +63,12 @@ export default function ProjectDetailPage() {
   type LeftTab = "roadmap" | "files" | "warroom" | "goals";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
 
-  // Auto-select "files" tab when project has a workspace (is cloned)
+  // Auto-select "files" tab once on initial load when project has a workspace
+  let initialTabSet = false;
   createEffect(() => {
     const p = project();
-    if (p?.workspace_path && leftTab() === "roadmap") {
+    if (!initialTabSet && p?.workspace_path) {
+      initialTabSet = true;
       setLeftTab("files");
     }
   });

@@ -210,6 +210,116 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	return nil
 }
 
+// SendMessageAgenticWithMode is like SendMessageAgentic but accepts a mode ID override
+// instead of defaulting to "coder". Used for specialized agent flows like goal discovery.
+func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, conversationID, content, modeID string) error {
+	if content == "" {
+		return errors.New("content is required")
+	}
+	if s.queue == nil {
+		return errors.New("agentic mode requires NATS queue")
+	}
+
+	conv, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("get conversation: %w", err)
+	}
+
+	// Store user message.
+	userMsg := &conversation.Message{
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        content,
+	}
+	if _, err = s.db.CreateMessage(ctx, userMsg); err != nil {
+		return fmt.Errorf("store user message: %w", err)
+	}
+
+	// Load history.
+	history, err := s.db.ListMessages(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("list messages: %w", err)
+	}
+
+	proj, err := s.db.GetProject(ctx, conv.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+
+	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
+	protoMessages := s.historyToPayload(history)
+	model := s.resolveModel()
+	if model == "" {
+		return fmt.Errorf("no LLM model configured")
+	}
+
+	policyProfile := ""
+	if s.policySvc != nil {
+		policyProfile = s.policySvc.ResolveProfile("", proj.PolicyProfile)
+	}
+
+	// Resolve the requested mode.
+	var resolvedMode *messagequeue.ModePayload
+	if s.modeSvc != nil {
+		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
+			resolvedMode = &messagequeue.ModePayload{
+				ID:          m.ID,
+				LLMScenario: m.LLMScenario,
+				Tools:       m.Tools,
+				DeniedTools: m.DeniedTools,
+			}
+		}
+	}
+
+	termination := messagequeue.TerminationPayload{
+		MaxSteps:       50,
+		TimeoutSeconds: 600,
+	}
+	if s.agentCfg != nil && s.agentCfg.MaxLoopIterations > 0 {
+		termination.MaxSteps = s.agentCfg.MaxLoopIterations
+	}
+
+	runID := conversationID
+	payload := messagequeue.ConversationRunStartPayload{
+		RunID:          runID,
+		ConversationID: conversationID,
+		ProjectID:      proj.ID,
+		Messages:       protoMessages,
+		SystemPrompt:   systemPrompt,
+		Model:          model,
+		PolicyProfile:  policyProfile,
+		WorkspacePath:  proj.WorkspacePath,
+		Mode:           resolvedMode,
+		Termination:    termination,
+		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal conversation run start: %w", err)
+	}
+
+	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
+		RunID:     runID,
+		ThreadID:  conversationID,
+		AgentName: modeID,
+	})
+
+	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunStart, data); err != nil {
+		return fmt.Errorf("publish conversation run start: %w", err)
+	}
+
+	slog.Info("conversation agentic run dispatched (mode override)",
+		"run_id", runID,
+		"conversation_id", conversationID,
+		"project_id", proj.ID,
+		"mode", modeID,
+		"model", model,
+	)
+
+	return nil
+}
+
 // HandleConversationRunComplete processes the completion message from the Python worker.
 // It stores the assistant message and intermediate tool messages, then broadcasts the
 // run finished event.

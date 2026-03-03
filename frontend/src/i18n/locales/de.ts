@@ -1179,6 +1179,45 @@ const de: Translations = {
 
   // -- Benchmark Mode (Phase 20E) -------------------------------------------
   "app.nav.benchmarks": "Benchmarks",
+
+  // -- Sidebar ---------------------------------------------------------------
+  "sidebar.collapse": "Seitenleiste einklappen",
+  "sidebar.expand": "Seitenleiste ausklappen",
+  "sidebar.toggle": "Seitenleiste umschalten",
+
+  // -- Keyboard shortcuts ----------------------------------------------------
+  "settings.shortcuts.title": "Tastenkombinationen",
+  "settings.shortcuts.description": "Tastenkombinationen fuer haeufige Aktionen anpassen",
+  "settings.shortcuts.action": "Aktion",
+  "settings.shortcuts.shortcut": "Shortcut",
+  "settings.shortcuts.scope": "Bereich",
+  "settings.shortcuts.edit": "Bearbeiten",
+  "settings.shortcuts.recording": "Tasten druecken...",
+  "settings.shortcuts.resetOne": "Auf Standard zuruecksetzen",
+  "settings.shortcuts.resetAll": "Alle zuruecksetzen",
+  "settings.shortcuts.conflict": 'Bereits verwendet von "{{action}}". Ueberschreiben?',
+  "settings.shortcuts.override": "Ueberschreiben",
+  "settings.shortcuts.cancel": "Abbrechen",
+  "settings.shortcuts.scope.global": "Global",
+  "settings.shortcuts.scope.palette": "Palette",
+  "settings.shortcuts.scope.chat": "Chat",
+  "settings.shortcuts.scope.editor": "Editor",
+  "shortcuts.palette.open": "Befehlspalette oeffnen",
+  "shortcuts.palette.help": "Tastenkombinationen anzeigen",
+  "shortcuts.nav.dashboard": "Zum Dashboard",
+  "shortcuts.nav.costs": "Zu Kosten",
+  "shortcuts.nav.models": "Zu Modellen",
+  "shortcuts.sidebar.toggle": "Seitenleiste umschalten",
+  "shortcuts.theme.toggle": "Theme umschalten",
+  "shortcuts.chat.send": "Nachricht senden",
+  "shortcuts.editor.save": "Datei speichern",
+
+  // -- Goals AI ---------------------------------------------------------------
+  "goals.aiDiscover": "KI-Erkennung",
+  "goals.aiDiscovering": "Erkenne...",
+  "goals.aiDiscoverStarted": "Zielerkennung gestartet. Siehe Chat-Tab.",
+  "goals.toast.aiDiscoverFailed": "KI-Zielerkennung konnte nicht gestartet werden.",
+
   "benchmark.title": "Benchmark-Dashboard",
   "benchmark.subtitle":
     "Agentenqualitaet mit konfigurierbaren Metriken bewerten (nur im Dev-Modus)",
