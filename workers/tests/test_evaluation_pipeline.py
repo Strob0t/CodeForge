@@ -68,6 +68,10 @@ class StubEvaluator:
     def name(self) -> str:
         return self._name
 
+    @property
+    def stage(self) -> str:
+        return "rank"
+
     async def evaluate(self, task: TaskSpec, result: ExecutionResult) -> list[EvalDimension]:
         return self._scores
 

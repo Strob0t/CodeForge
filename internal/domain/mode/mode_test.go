@@ -117,8 +117,8 @@ func TestValidate_RequiredArtifactPresent(t *testing.T) {
 
 func TestBuiltinModes_Count(t *testing.T) {
 	modes := BuiltinModes()
-	if len(modes) != 21 {
-		t.Fatalf("expected 21 built-in modes, got %d", len(modes))
+	if len(modes) != 22 {
+		t.Fatalf("expected 22 built-in modes, got %d", len(modes))
 	}
 }
 
@@ -213,6 +213,7 @@ func TestBuiltinModes_ExpectedPresets(t *testing.T) {
 		"workflow-optimizer": {true, true},
 		"infra-maintainer":   {true, false},
 		"prototyper":         {true, false},
+		"goal-researcher":    {false, true},
 	}
 
 	for _, m := range BuiltinModes() {

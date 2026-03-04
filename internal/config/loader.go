@@ -158,7 +158,7 @@ func loadEnv(cfg *Config) {
 	setDuration(&cfg.Postgres.MaxConnIdleTime, "CODEFORGE_PG_MAX_CONN_IDLE_TIME")
 	setDuration(&cfg.Postgres.HealthCheck, "CODEFORGE_PG_HEALTH_CHECK")
 	setString(&cfg.NATS.URL, "NATS_URL")
-	setString(&cfg.LiteLLM.URL, "LITELLM_URL")
+	setString(&cfg.LiteLLM.URL, "LITELLM_BASE_URL")
 	setString(&cfg.LiteLLM.MasterKey, "LITELLM_MASTER_KEY")
 	setString(&cfg.LiteLLM.ConversationModel, "CODEFORGE_CONVERSATION_MODEL")
 	setString(&cfg.Logging.Level, "CODEFORGE_LOG_LEVEL")

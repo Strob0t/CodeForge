@@ -16,7 +16,7 @@ class WorkerSettings:
     """Configuration for the Python worker, loaded from environment variables.
 
     Prefix: CODEFORGE_WORKER_ for worker-specific settings.
-    Falls back to shared env vars (NATS_URL, LITELLM_URL) for infrastructure.
+    Falls back to shared env vars (NATS_URL, LITELLM_BASE_URL) for infrastructure.
     """
 
     nats_url: str
@@ -28,7 +28,7 @@ class WorkerSettings:
 
     def __init__(self) -> None:
         self.nats_url = os.environ.get("NATS_URL", "nats://localhost:4222")
-        self.litellm_url = os.environ.get("LITELLM_URL", "http://localhost:4000")
+        self.litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
         self.litellm_api_key = os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
         self.log_level = os.environ.get("CODEFORGE_WORKER_LOG_LEVEL", "info")
         self.log_service = os.environ.get("CODEFORGE_WORKER_LOG_SERVICE", "codeforge-worker")

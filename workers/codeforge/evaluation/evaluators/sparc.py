@@ -64,6 +64,10 @@ class SPARCEvaluator:
     def name(self) -> str:
         return "sparc"
 
+    @property
+    def stage(self) -> str:
+        return "rank"
+
     async def evaluate(self, task: TaskSpec, result: ExecutionResult) -> list[EvalDimension]:
         """Compute all SPARC dimensions for a task execution."""
         dimensions: list[EvalDimension] = []

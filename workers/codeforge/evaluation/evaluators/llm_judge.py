@@ -42,6 +42,10 @@ class LLMJudgeEvaluator:
     def name(self) -> str:
         return "llm_judge"
 
+    @property
+    def stage(self) -> str:
+        return "rank"
+
     async def evaluate(self, task: TaskSpec, result: ExecutionResult) -> list[EvalDimension]:
         """Run configured LLM-judge metrics on the task result."""
         dimensions: list[EvalDimension] = []
