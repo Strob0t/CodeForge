@@ -69,8 +69,8 @@ class RetrievalHandlerMixin:
                 chunks=result.chunk_count,
             )
 
-        except Exception:
-            logger.exception("failed to process retrieval index request")
+        except Exception as exc:
+            logger.exception("failed to process retrieval index request", error=str(exc))
             await msg.nak()
 
     async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:
@@ -104,8 +104,8 @@ class RetrievalHandlerMixin:
             await msg.ack()
             log.info("retrieval search completed", hits=len(hits))
 
-        except Exception:
-            logger.exception("failed to process retrieval search request")
+        except Exception as exc:
+            logger.exception("failed to process retrieval search request", error=str(exc))
             await self._publish_error_result(
                 msg,
                 RetrievalSearchRequest,
@@ -158,8 +158,8 @@ class RetrievalHandlerMixin:
                 candidates=total_candidates,
             )
 
-        except Exception:
-            logger.exception("failed to process subagent search request")
+        except Exception as exc:
+            logger.exception("failed to process subagent search request", error=str(exc))
             await self._publish_error_result(
                 msg,
                 SubAgentSearchRequest,

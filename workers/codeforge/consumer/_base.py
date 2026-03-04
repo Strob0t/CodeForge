@@ -43,8 +43,8 @@ class ConsumerBaseMixin:
         try:
             await self._js.publish(dlq_subject, msg.data, headers=headers or None)
             logger.warning("message moved to DLQ", dlq_subject=dlq_subject)
-        except Exception:
-            logger.exception("failed to publish to DLQ", dlq_subject=dlq_subject)
+        except Exception as exc:
+            logger.exception("failed to publish to DLQ", dlq_subject=dlq_subject, error=str(exc))
         await msg.ack()
 
     async def _publish_output(self, task_id: str, line: str, stream: str = "stdout", request_id: str = "") -> None:
@@ -75,6 +75,6 @@ class ConsumerBaseMixin:
             )
             if self._js is not None:
                 await self._js.publish(subject, error_result.model_dump_json().encode())
-        except Exception:
-            logger.exception("failed to publish error result", subject=subject)
+        except Exception as exc:
+            logger.exception("failed to publish error result", subject=subject, error=str(exc))
         await msg.nak()

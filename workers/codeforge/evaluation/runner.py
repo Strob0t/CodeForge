@@ -55,8 +55,8 @@ class BenchmarkRunner:
                 response = await self._execute_task(task.input)
                 output = response.content
                 actual_tools = [{"name": tc.name, "args": tc.arguments} for tc in response.tool_calls]
-            except Exception:
-                log.exception("task execution failed")
+            except Exception as exc:
+                log.exception("task execution failed", error=str(exc))
                 output = ""
 
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -95,8 +95,8 @@ class BenchmarkRunner:
             try:
                 score = await self._run_metric(metric_name, task, actual_output, actual_tools)
                 scores[metric_name] = score
-            except Exception:
-                logger.exception("metric evaluation failed", metric=metric_name, task_id=task.id)
+            except Exception as exc:
+                logger.exception("metric evaluation failed", metric=metric_name, task_id=task.id, error=str(exc))
                 scores[metric_name] = 0.0
 
         return scores

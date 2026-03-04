@@ -398,8 +398,8 @@ def _record_routing_outcome(
             },
             timeout=3.0,
         )
-    except Exception:
-        logger.debug("failed to record routing outcome", exc_info=True)
+    except Exception as exc:
+        logger.debug("failed to record routing outcome: %s", exc, exc_info=True)
 
 
 def _build_correction_hint(tool_name: str, error: str) -> str:

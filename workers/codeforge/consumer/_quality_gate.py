@@ -36,6 +36,6 @@ class QualityGateHandlerMixin:
             await msg.ack()
             log.info("quality gate completed", tests_passed=result.tests_passed, lint_passed=result.lint_passed)
 
-        except Exception:
-            logger.exception("failed to process quality gate request")
+        except Exception as exc:
+            logger.exception("failed to process quality gate request", error=str(exc))
             await msg.nak()

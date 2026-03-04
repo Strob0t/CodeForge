@@ -73,7 +73,8 @@ class _SafeTracer:
 
         try:
             real_decorator = self._inner.trace_agent(name)
-        except Exception:
+        except Exception as exc:
+            logger.debug("trace_agent decorator creation failed", agent=name, error=str(exc))
             return lambda fn: fn
 
         def safe_decorator(fn: object) -> object:
@@ -113,7 +114,8 @@ class _SafeTracer:
 
         try:
             real_decorator = self._inner.trace_tool(name)
-        except Exception:
+        except Exception as exc:
+            logger.debug("trace_tool decorator creation failed", tool=name, error=str(exc))
             return lambda fn: fn
 
         def safe_decorator(fn: object) -> object:
@@ -150,20 +152,20 @@ class _SafeTracer:
     def instrument_litellm(self) -> None:
         try:
             self._inner.instrument_litellm()
-        except Exception:
-            logger.warning("instrument_litellm failed, skipping")
+        except Exception as exc:
+            logger.warning("instrument_litellm failed, skipping", error=str(exc))
 
     def start_session(self, run_id: str) -> None:
         try:
             self._inner.start_session(run_id)
-        except Exception:
-            logger.warning("start_session failed", run_id=run_id)
+        except Exception as exc:
+            logger.warning("start_session failed", run_id=run_id, error=str(exc))
 
     def end_session(self, run_id: str) -> None:
         try:
             self._inner.end_session(run_id)
-        except Exception:
-            logger.warning("end_session failed", run_id=run_id)
+        except Exception as exc:
+            logger.warning("end_session failed", run_id=run_id, error=str(exc))
 
 
 class TracingManager:
@@ -194,7 +196,8 @@ class TracingManager:
             neo = AgentNeo(session_name=self._project_name)
             try:
                 neo.create_project(project_name=self._project_name)
-            except Exception:
+            except Exception as exc:
+                logger.debug("project already exists, connecting", error=str(exc))
                 neo.connect_project(project_name=self._project_name)
             self._tracer = _SafeTracer(Tracer(session=neo))
             self._initialized = True

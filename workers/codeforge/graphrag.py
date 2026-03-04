@@ -338,8 +338,8 @@ class CodeGraphBuilder:
         try:
             parser = self._get_parser(language)
             tree = parser.parse(source)
-        except Exception:
-            logger.warning("parse failed", path=abs_path, language=language)
+        except Exception as exc:
+            logger.warning("parse failed", path=abs_path, language=language, error=str(exc))
             return
 
         def_types = _DEF_NODE_TYPES.get(language, frozenset())
@@ -606,8 +606,8 @@ class GraphSearcher:
                 top_k,
             )
 
-        except Exception:
-            log.exception("graph search failed")
+        except Exception as exc:
+            log.exception("graph search failed", error=str(exc))
             return []
 
     @staticmethod

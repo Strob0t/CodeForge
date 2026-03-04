@@ -92,7 +92,8 @@ class InformationDiversityScore:
             norms = np.where(norms == 0, 1.0, norms)
             matrix = matrix / norms
             return matrix @ matrix.T
-        except Exception:
+        except Exception as exc:
+            _ = exc
             return None
 
     def _compute_tfidf_similarity(self, corpus: list[str]) -> np.ndarray | None:

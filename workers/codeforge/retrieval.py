@@ -175,8 +175,8 @@ class CodeChunker:
         try:
             parser = self._get_parser(language)
             tree = parser.parse(source)
-        except Exception:
-            logger.warning("parse failed", path=abs_path, language=language)
+        except Exception as exc:
+            logger.warning("parse failed", path=abs_path, language=language, error=str(exc))
             return []
 
         lines = source.decode(errors="replace").splitlines(keepends=True)
@@ -877,8 +877,10 @@ class RetrievalSubAgent:
                 cost.add(resp)
             lines = [line.strip() for line in resp.content.splitlines() if line.strip()]
             return lines[:max_queries]
-        except Exception:
-            logger.warning("query expansion failed, using original query", query=query[:80], exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "query expansion failed, using original query", query=query[:80], exc_info=True, error=str(exc)
+            )
             return [query]
 
     async def _parallel_search(
@@ -903,8 +905,10 @@ class RetrievalSubAgent:
             try:
                 all_vecs = await self._retriever._embed_texts(queries, index.embedding_model)
                 embeddings = list(all_vecs)
-            except Exception:
-                logger.warning("batch embedding failed, falling back to per-query embedding", exc_info=True)
+            except Exception as exc:
+                logger.warning(
+                    "batch embedding failed, falling back to per-query embedding", exc_info=True, error=str(exc)
+                )
 
         tasks = [
             self._retriever.search(project_id, q, per_query_k, query_embedding=emb)
@@ -978,8 +982,8 @@ class RetrievalSubAgent:
                 # Append unranked candidates so we always return up to top_k.
                 ranked_indices.extend(i for i in range(len(candidates)) if i not in seen)
                 return [candidates[i] for i in ranked_indices[:top_k]]
-        except Exception:
-            logger.warning("LLM reranking failed, falling back to score-based ranking", exc_info=True)
+        except Exception as exc:
+            logger.warning("LLM reranking failed, falling back to score-based ranking", exc_info=True, error=str(exc))
 
         # Fallback: score-based sorting
         return sorted(candidates, key=lambda r: r.score, reverse=True)[:top_k]

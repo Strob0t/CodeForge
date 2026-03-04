@@ -66,6 +66,6 @@ class RunHandlerMixin:
             await msg.ack()
             log.info("run processing complete", mode_id=run_msg.mode.id)
 
-        except Exception:
-            logger.exception("failed to process run start message")
+        except Exception as exc:
+            logger.exception("failed to process run start message", error=str(exc))
             await msg.nak()

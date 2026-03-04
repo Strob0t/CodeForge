@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 from codeforge.llm import ChatCompletionResponse, CompletionResponse
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
+
+    from codeforge.llm import ToolCallPart
 
 
 @dataclass
@@ -104,6 +107,39 @@ class FakeLLM:
             model=resp.model,
             cost_usd=resp.cost_usd,
         )
+
+    async def chat_completion_stream(
+        self,
+        messages: list[dict[str, object]],
+        model: str = "fake-model",
+        tools: list[dict[str, object]] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
+        temperature: float = 0.2,
+        tags: list[str] | None = None,
+        max_tokens: int | None = None,
+        on_chunk: Callable[[str], None] | None = None,
+        on_tool_call: Callable[[ToolCallPart], None] | None = None,
+    ) -> ChatCompletionResponse:
+        """Return the next canned response as a streamed ChatCompletionResponse."""
+        prompt = messages[-1].get("content", "") if messages else ""
+        self.calls.append(LLMCall(prompt=str(prompt), model=model, system="", temperature=temperature, tags=tags))
+        if self._index >= len(self._responses):
+            msg = f"FakeLLM exhausted: {len(self._responses)} responses consumed, but call #{self._index + 1} requested"
+            raise RuntimeError(msg)
+        resp = self._responses[self._index]
+        self._index += 1
+        result = ChatCompletionResponse(
+            content=resp.content,
+            tool_calls=[],
+            finish_reason="stop",
+            tokens_in=resp.tokens_in,
+            tokens_out=resp.tokens_out,
+            model=resp.model,
+            cost_usd=resp.cost_usd,
+        )
+        if on_chunk is not None:
+            on_chunk(result.content)
+        return result
 
     async def health(self) -> bool:
         """Always healthy."""

@@ -162,9 +162,9 @@ class TaskConsumer(
                 msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
             except TimeoutError:
                 continue
-            except Exception:
+            except Exception as exc:
                 if self._running:
-                    logger.exception("error receiving message", subject=label)
+                    logger.exception("error receiving message", subject=label, error=str(exc))
                 break
 
             await handler(msg)

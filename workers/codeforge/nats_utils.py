@@ -38,8 +38,8 @@ def nats_handler(
         async def wrapper(self: object, msg: nats.aio.msg.Msg) -> None:
             try:
                 await fn(self, msg)
-            except Exception:
-                logger.exception("handler %s failed", fn.__name__)
+            except Exception as exc:
+                logger.exception("handler %s failed", fn.__name__, error=str(exc))
                 if ack_on_error:
                     await msg.ack()
                 else:

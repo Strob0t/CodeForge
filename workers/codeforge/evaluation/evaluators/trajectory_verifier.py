@@ -98,8 +98,8 @@ class TrajectoryVerifierEvaluator:
             response = await self._call_verifier(prompt)
             content = response.choices[0].message.content
             scores = _parse_scores(content)
-        except Exception:
-            logger.exception("trajectory verifier failed", task_id=task.id)
+        except Exception as exc:
+            logger.exception("trajectory verifier failed", task_id=task.id, error=str(exc))
             return [
                 EvalDimension(
                     name="trajectory_quality",

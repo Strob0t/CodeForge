@@ -46,6 +46,6 @@ class RepoMapHandlerMixin:
                 tokens=result.token_count,
             )
 
-        except Exception:
-            logger.exception("failed to process repomap request")
+        except Exception as exc:
+            logger.exception("failed to process repomap request", error=str(exc))
             await msg.nak()

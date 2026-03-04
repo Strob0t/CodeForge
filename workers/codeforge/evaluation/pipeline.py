@@ -55,8 +55,8 @@ class EvaluationPipeline:
                     total_eval_cost += dim.cost_usd
                 all_dimensions.extend(dimensions)
                 log.debug("evaluator completed", dimensions=len(dimensions))
-            except Exception:
-                log.exception("evaluator failed")
+            except Exception as exc:
+                log.exception("evaluator failed", error=str(exc))
                 all_dimensions.append(
                     EvalDimension(
                         name=f"{evaluator.name}_error",

@@ -89,7 +89,8 @@ class RuntimeClient:
                         self._log.info("run cancelled by control plane")
                 except TimeoutError:
                     continue
-                except Exception:
+                except Exception as exc:
+                    logger.debug("cancel listener error", error=str(exc))
                     break
 
         for sub in subs:
@@ -109,8 +110,8 @@ class RuntimeClient:
                         SUBJECT_RUN_HEARTBEAT,
                         json.dumps(payload).encode(),
                     )
-                except Exception:
-                    self._log.warning("heartbeat publish failed")
+                except Exception as exc:
+                    self._log.warning("heartbeat publish failed", error=str(exc))
                 await asyncio.sleep(interval)
 
         self._heartbeat_task = asyncio.create_task(_beat())

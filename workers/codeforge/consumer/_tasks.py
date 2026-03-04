@@ -59,9 +59,9 @@ class TaskHandlerMixin:
             await msg.ack()
             log.info("task completed", status=result.status, backend=backend_name)
 
-        except Exception:
+        except Exception as exc:
             retries = self._retry_count(msg)
-            log.exception("failed to process message", retry=retries)
+            log.exception("failed to process message", retry=retries, error=str(exc))
 
             if retries >= MAX_RETRIES:
                 log.warning("max retries reached, moving to DLQ", retry=retries)

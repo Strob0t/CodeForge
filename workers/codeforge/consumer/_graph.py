@@ -50,8 +50,8 @@ class GraphHandlerMixin:
                 edges=result.edge_count,
             )
 
-        except Exception:
-            logger.exception("failed to process graph build request")
+        except Exception as exc:
+            logger.exception("failed to process graph build request", error=str(exc))
             await msg.nak()
 
     async def _handle_graph_search(self, msg: nats.aio.msg.Msg) -> None:
@@ -84,8 +84,8 @@ class GraphHandlerMixin:
             await msg.ack()
             log.info("graph search completed", hits=len(hits))
 
-        except Exception:
-            logger.exception("failed to process graph search request")
+        except Exception as exc:
+            logger.exception("failed to process graph search request", error=str(exc))
             await self._publish_graph_search_error(msg)
 
     async def _publish_graph_search_error(self, msg: nats.aio.msg.Msg) -> None:
@@ -102,6 +102,6 @@ class GraphHandlerMixin:
                     SUBJECT_GRAPH_SEARCH_RESULT,
                     error_result.model_dump_json().encode(),
                 )
-        except Exception:
-            logger.exception("failed to publish graph search error result")
+        except Exception as exc:
+            logger.exception("failed to publish graph search error result", error=str(exc))
         await msg.nak()

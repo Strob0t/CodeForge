@@ -91,8 +91,8 @@ class LLMMetaRouter:
 
         try:
             response = self._llm_call(router_model, classification_prompt)
-        except Exception:
-            logger.warning("Meta-router LLM call failed", exc_info=True)
+        except Exception as exc:
+            logger.warning("Meta-router LLM call failed: %s", exc, exc_info=True)
             return None
 
         if response is None:

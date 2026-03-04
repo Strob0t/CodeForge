@@ -32,8 +32,8 @@ class MemoryHandlerMixin:
                     import numpy as np
 
                     embedding = np.array(emb_resp, dtype=np.float32).tobytes()
-            except Exception:
-                log.warning("embedding computation failed for memory", exc_info=True)
+            except Exception as exc:
+                log.warning("embedding computation failed for memory", exc_info=True, error=str(exc))
 
             import psycopg
 
@@ -59,8 +59,8 @@ class MemoryHandlerMixin:
             await msg.ack()
             log.info("memory stored successfully")
 
-        except Exception:
-            logger.exception("failed to process memory store request")
+        except Exception as exc:
+            logger.exception("failed to process memory store request", error=str(exc))
             await msg.ack()
 
     async def _handle_memory_recall(self, msg: nats.aio.msg.Msg) -> None:
@@ -80,8 +80,8 @@ class MemoryHandlerMixin:
                 emb_resp = await self._llm.embedding(req.query)
                 if emb_resp:
                     query_emb = np.array(emb_resp, dtype=np.float32)
-            except Exception:
-                log.warning("embedding computation failed for recall query", exc_info=True)
+            except Exception as exc:
+                log.warning("embedding computation failed for recall query", exc_info=True, error=str(exc))
 
             if query_emb is None:
                 await msg.ack()
@@ -138,6 +138,6 @@ class MemoryHandlerMixin:
             await msg.ack()
             log.info("memory recall completed", result_count=len(top))
 
-        except Exception:
-            logger.exception("failed to process memory recall request")
+        except Exception as exc:
+            logger.exception("failed to process memory recall request", error=str(exc))
             await msg.ack()

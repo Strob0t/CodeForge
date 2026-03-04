@@ -30,5 +30,6 @@ class OpenHandsExecutor(StubBackendExecutor):
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{self._url}/api/health")
                 return resp.status_code == 200
-        except Exception:
+        except Exception as exc:
+            _ = exc
             return False

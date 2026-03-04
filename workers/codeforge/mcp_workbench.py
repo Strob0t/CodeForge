@@ -150,8 +150,8 @@ class McpWorkbench:
             try:
                 await conn.connect()
                 self._connections[server_def.id] = conn
-            except Exception:
-                logger.exception("failed to connect to MCP server %s", server_def.id)
+            except Exception as exc:
+                logger.exception("failed to connect to MCP server %s: %s", server_def.id, exc)
 
     async def discover_tools(self) -> list[MCPTool]:
         """Discover tools from all connected servers."""
@@ -177,8 +177,8 @@ class McpWorkbench:
         for conn in self._connections.values():
             try:
                 await conn.disconnect()
-            except Exception:
-                logger.exception("error disconnecting MCP server %s", conn.server_id)
+            except Exception as exc:
+                logger.exception("error disconnecting MCP server %s: %s", conn.server_id, exc)
         self._connections.clear()
         self._tools = []
 

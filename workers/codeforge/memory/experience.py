@@ -155,8 +155,8 @@ class ExperiencePool:
             resp = await self._llm.embedding(text)
             if resp and len(resp) > 0:
                 return np.array(resp, dtype=np.float32)
-        except Exception:
-            logger.warning("embedding computation failed", exc_info=True)
+        except Exception as exc:
+            logger.warning("embedding computation failed", exc_info=True, error=str(exc))
         return None
 
 

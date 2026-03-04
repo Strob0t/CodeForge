@@ -155,8 +155,8 @@ class ConversationHandlerMixin:
                 error=result.error or None,
             )
 
-        except Exception:
-            logger.exception("failed to process conversation run")
+        except Exception as exc:
+            logger.exception("failed to process conversation run", error=str(exc))
             try:
                 run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
                 if self._js is not None:
@@ -170,8 +170,8 @@ class ConversationHandlerMixin:
                         SUBJECT_CONVERSATION_RUN_COMPLETE,
                         error_complete.model_dump_json().encode(),
                     )
-            except Exception:
-                logger.exception("failed to publish conversation error result")
+            except Exception as exc:
+                logger.exception("failed to publish conversation error result", error=str(exc))
             await msg.ack()
         finally:
             if workbench is not None:
@@ -216,8 +216,8 @@ class ConversationHandlerMixin:
                     snippets = [f"### {r.skill.name}\n```{r.skill.language}\n{r.skill.code}\n```" for r in recs]
                     system_prompt = f"{system_prompt}\n\n--- Recommended Skills ---\n" + "\n\n".join(snippets)
                     log.info("skill recommendations injected", count=len(recs))
-        except Exception:
-            log.warning("skill recommendation failed, continuing without", exc_info=True)
+        except Exception as exc:
+            log.warning("skill recommendation failed, continuing without", exc_info=True, error=str(exc))
         return system_prompt
 
     @staticmethod
@@ -296,8 +296,8 @@ class ConversationHandlerMixin:
                         )
                         for s in data
                     ]
-                except Exception:
-                    logger.warning("failed to load routing stats", exc_info=True)
+                except Exception as exc:
+                    logger.warning("failed to load routing stats", exc_info=True, error=str(exc))
                     return []
 
             mab = MABModelSelector(stats_loader=_load_stats, config=config)
@@ -330,8 +330,8 @@ class ConversationHandlerMixin:
                     if not choices:
                         return None
                     return choices[0].get("message", {}).get("content", "")
-                except Exception:
-                    logger.warning("meta-router LLM call failed", exc_info=True)
+                except Exception as exc:
+                    logger.warning("meta-router LLM call failed", exc_info=True, error=str(exc))
                     return None
 
             meta = LLMMetaRouter(llm_call=_llm_call, config=config)
@@ -366,8 +366,8 @@ class ConversationHandlerMixin:
             if not models:
                 logger.warning("LiteLLM /v1/models returned empty model list")
             return models
-        except Exception:
-            logger.warning("failed to fetch models from LiteLLM", exc_info=True)
+        except Exception as exc:
+            logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
             return []
 
     def _register_handoff_tool(self, registry: object, run_id: str) -> None:

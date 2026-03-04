@@ -52,8 +52,8 @@ class LLMJudgeEvaluator:
             try:
                 score = await self._run_metric(metric_name, task, result)
                 dimensions.append(EvalDimension(name=metric_name, score=score))
-            except Exception:
-                logger.exception("llm_judge metric failed", metric=metric_name, task_id=task.id)
+            except Exception as exc:
+                logger.exception("llm_judge metric failed", metric=metric_name, task_id=task.id, error=str(exc))
                 dimensions.append(EvalDimension(name=metric_name, score=0.0, details={"error": "evaluation failed"}))
         return dimensions
 

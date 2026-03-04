@@ -30,5 +30,5 @@ def launch(port: int = 3100) -> None:
         launch_dashboard(port=port)
     except ImportError:
         logger.warning("agentneo not installed, dashboard unavailable")
-    except Exception:
-        logger.exception("failed to launch agentneo dashboard")
+    except Exception as exc:
+        logger.exception("failed to launch agentneo dashboard", error=str(exc))

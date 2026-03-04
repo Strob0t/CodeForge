@@ -70,8 +70,8 @@ class FunctionalTestEvaluator:
                     details={"error": f"timeout after {self._timeout}s", "command": command},
                 )
             ]
-        except Exception:
-            logger.exception("functional test failed", task_id=task.id)
+        except Exception as exc:
+            logger.exception("functional test failed", task_id=task.id, error=str(exc))
             return [
                 EvalDimension(
                     name="functional_test",

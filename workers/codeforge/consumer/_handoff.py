@@ -55,6 +55,6 @@ class HandoffHandlerMixin:
             await msg.ack()
             log.info("handoff dispatched to execution")
 
-        except Exception:
-            logger.exception("failed to process handoff request")
+        except Exception as exc:
+            logger.exception("failed to process handoff request", error=str(exc))
             await msg.ack()

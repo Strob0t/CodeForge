@@ -49,8 +49,8 @@ class _ModelCache:
                 return
             data = resp.json()
             models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
-        except Exception:
-            logger.warning("model_resolver: failed to fetch from LiteLLM", exc_info=True)
+        except Exception as exc:
+            logger.warning("model_resolver: failed to fetch from LiteLLM: %s", exc, exc_info=True)
             return
 
         with self._lock:

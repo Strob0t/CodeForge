@@ -138,8 +138,8 @@ class BenchmarkHandlerMixin:
                 upr=result.unnecessary_path_ratio,
             )
 
-        except Exception:
-            logger.exception("failed to process GEMMAS evaluation request")
+        except Exception as exc:
+            logger.exception("failed to process GEMMAS evaluation request", error=str(exc))
             await msg.ack()
 
     def _build_embed_fn(self) -> Callable[[list[str]], list[list[float]]] | None:

@@ -44,8 +44,8 @@ def _run_metric(session: AgentNeo, metric_name: str) -> float:
     except ImportError:
         logger.warning("%s unavailable — agentneo not installed", metric_name)
         return 0.0
-    except Exception:
-        logger.exception("%s evaluation failed at runtime", metric_name)
+    except Exception as exc:
+        logger.exception("%s evaluation failed at runtime", metric_name, error=str(exc))
         return 0.0
 
 
