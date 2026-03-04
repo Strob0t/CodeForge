@@ -17,7 +17,7 @@ export function NavLink(props: NavLinkProps): JSX.Element {
   const [local, rest] = splitProps(props, ["href", "end", "icon", "label", "class", "children"]);
   const { collapsed } = useSidebar();
 
-  const link = (
+  const LinkContent = (): JSX.Element => (
     <A
       {...rest}
       href={local.href}
@@ -41,8 +41,10 @@ export function NavLink(props: NavLinkProps): JSX.Element {
   );
 
   return (
-    <Show when={collapsed() && local.label} fallback={link}>
-      <Tooltip text={local.label ?? ""}>{link}</Tooltip>
+    <Show when={collapsed() && local.label} fallback={<LinkContent />}>
+      <Tooltip text={local.label ?? ""}>
+        <LinkContent />
+      </Tooltip>
     </Show>
   );
 }
