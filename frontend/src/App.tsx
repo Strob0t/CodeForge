@@ -227,24 +227,45 @@ function AppShell(props: {
 // App shell
 // ---------------------------------------------------------------------------
 
+// Known application routes (used to detect 404 pages for unauthenticated users)
+const KNOWN_ROUTES = new Set([
+  "/",
+  "/projects",
+  "/costs",
+  "/models",
+  "/modes",
+  "/activity",
+  "/knowledge-bases",
+  "/scopes",
+  "/mcp",
+  "/prompts",
+  "/settings",
+  "/benchmarks",
+]);
+
 /** Inner component rendered inside AuthProvider so the WS has access to the auth token. */
 function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const [health] = createResource(() => api.health.check());
   const { connected } = createCodeForgeWS();
   const location = useLocation();
 
-  const isLoginPage = (): boolean =>
+  const isPublicPage = (): boolean =>
     location.pathname === "/login" ||
     location.pathname === "/change-password" ||
     location.pathname === "/setup" ||
     location.pathname === "/forgot-password" ||
     location.pathname === "/reset-password";
 
+  const isKnownRoute = (): boolean =>
+    isPublicPage() ||
+    KNOWN_ROUTES.has(location.pathname) ||
+    location.pathname.startsWith("/projects/");
+
   return (
     <ToastProvider>
       <SidebarProvider>
         <ShortcutProvider>
-          <Show when={!isLoginPage()} fallback={props.children}>
+          <Show when={!isPublicPage() && isKnownRoute()} fallback={props.children}>
             <RouteGuard>
               <AppShell health={health} connected={connected}>
                 {props.children}

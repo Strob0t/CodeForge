@@ -24,29 +24,29 @@ services:
   #     - codeforge
 
   playwright-mcp:
-    image: mcr.microsoft.com/playwright:v1.57.0-jammy
+    image: mcp/playwright:latest
     container_name: codeforge-playwright
     logging: *default-logging
     ipc: host
     shm_size: "1gb"
-    volumes:
-      - ${HOST_PROJECT_PATH:-.}/data/playwright:/config
-    command:
-      - sh
-      - -c
-      - |
-        npx playwright install --with-deps chromium &&
-        exec npx @playwright/mcp@latest \
-          --config /config/playwright-mcp.json \
-          --headless \
-          --no-sandbox \
-          --isolated \
-          --allowed-hosts '*' \
-          --port 8001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8001:8001"
     networks:
       - codeforge
+    command:
+      - "--browser"
+      - "chromium"
+      - "--isolated"
+      - "--headless"
+      - "--no-sandbox"
+      - "--port"
+      - "8001"
+      - "--host"
+      - "0.0.0.0"
+      - "--allowed-hosts"
+      - "*"
 
   postgres:
     image: postgres:18-alpine
@@ -71,7 +71,7 @@ services:
         -c archive_mode=on
         -c archive_command='test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codeforge"]
+      test: [ "CMD-SHELL", "pg_isready -U codeforge" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -85,11 +85,11 @@ services:
     ports:
       - "4222:4222"
       - "8222:8222"
-    command: ["--jetstream", "--store_dir", "/data", "-m", "8222"]
+    command: [ "--jetstream", "--store_dir", "/data", "-m", "8222" ]
     volumes:
       - ${HOST_PROJECT_PATH:-.}/data/nats:/data
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -113,12 +113,12 @@ services:
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
     volumes:
       - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
-    command: ["--config", "/app/data/config.yaml", "--port", "4000"]
+    command: [ "--config", "/app/data/config.yaml", "--port", "4000" ]
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')" ]
       interval: 10s
       timeout: 5s
       retries: 5

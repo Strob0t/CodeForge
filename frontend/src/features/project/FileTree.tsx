@@ -75,10 +75,10 @@ function TreeNode(props: TreeNodeProps): JSX.Element {
         variant="ghost"
         size="xs"
         fullWidth
-        class={`flex items-center gap-1 text-left px-1 py-0.5 ${
+        class={`flex items-center !justify-start gap-1 text-left pr-1 py-0.5 ${
           isSelected() ? "bg-cf-accent/15 text-cf-accent" : ""
         }`}
-        style={{ "padding-left": `${props.depth * 16 + 4}px` }}
+        style={{ "padding-left": `${props.depth * 12}px` }}
         onClick={toggle}
         title={props.entry.path}
       >

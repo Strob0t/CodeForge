@@ -8,11 +8,15 @@ at the bottom starts the consumer.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 from typing import TYPE_CHECKING
 
 import nats
+import nats.errors
+import nats.js.client
+import nats.js.errors
 import structlog
 
 from codeforge.config import WorkerSettings
@@ -146,21 +150,42 @@ class TaskConsumer(
         loops = []
         for subject, handler in subscriptions:
             name = consumer_name(subject)
-            sub = await self._js.subscribe(
-                subject,
-                stream=STREAM_NAME,
-                durable=name,
-                queue="codeforge-py",
-                manual_ack=True,
-            )
+            sub = await self._ensure_pull_consumer(name, subject)
             logger.info("subscribed", subject=subject, durable=name)
             loops.append(self._message_loop(sub, handler, subject))
 
         await asyncio.gather(*loops)
 
+    async def _ensure_pull_consumer(self, name: str, subject: str) -> nats.js.client.JetStreamContext.PullSubscription:
+        """Create (or recreate) a durable pull consumer and bind to it.
+
+        If a consumer with *name* already exists but has incompatible config
+        (e.g. push vs pull, different deliver-group), it is deleted first so
+        the subscription can be recreated cleanly.
+        """
+        try:
+            return await self._js.pull_subscribe(
+                subject,
+                durable=name,
+                stream=STREAM_NAME,
+            )
+        except nats.js.errors.Error:
+            logger.warning(
+                "recreating incompatible consumer",
+                consumer=name,
+                stream=STREAM_NAME,
+            )
+            with contextlib.suppress(nats.js.errors.NotFoundError):
+                await self._js.delete_consumer(STREAM_NAME, name)
+            return await self._js.pull_subscribe(
+                subject,
+                durable=name,
+                stream=STREAM_NAME,
+            )
+
     async def _message_loop(
         self,
-        sub: object,
+        sub: nats.js.client.JetStreamContext.PullSubscription,
         handler: Callable[[nats.aio.msg.Msg], Awaitable[None]],
         label: str,
     ) -> None:
@@ -169,9 +194,11 @@ class TaskConsumer(
         max_consecutive_errors = 10
         while self._running:
             try:
-                msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
+                msgs = await sub.fetch(batch=1, timeout=1)
                 consecutive_errors = 0
             except TimeoutError:
+                continue
+            except nats.errors.TimeoutError:
                 continue
             except Exception as exc:
                 if not self._running:
@@ -189,7 +216,8 @@ class TaskConsumer(
                 await asyncio.sleep(min(consecutive_errors * 0.5, 5.0))
                 continue
 
-            await handler(msg)
+            for msg in msgs:
+                await handler(msg)
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""
