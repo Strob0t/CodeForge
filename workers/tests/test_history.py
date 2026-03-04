@@ -243,3 +243,107 @@ def test_sanitize_removes_all_tool_calls_when_no_results() -> None:
     msgs = mgr.build_messages("sys", history)
     # The first assistant message should have tool_calls removed.
     assert "tool_calls" not in msgs[1]
+
+
+def test_sanitize_deduplicates_tool_results() -> None:
+    """Duplicate tool results for the same tool_call_id are deduplicated."""
+    mgr = ConversationHistoryManager()
+    history = [
+        ConversationMessagePayload(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="bash", arguments="{}"),
+                ),
+            ],
+        ),
+        ConversationMessagePayload(role="tool", content="first result", tool_call_id="c1", name="bash"),
+        ConversationMessagePayload(role="tool", content="duplicate result", tool_call_id="c1", name="bash"),
+        ConversationMessagePayload(role="tool", content="triple result", tool_call_id="c1", name="bash"),
+        ConversationMessagePayload(role="assistant", content="Done"),
+    ]
+    msgs = mgr.build_messages("sys", history)
+    tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+    # Only one tool result should survive.
+    assert len(tool_msgs) == 1
+    assert tool_msgs[0]["content"] == "first result"
+
+
+def test_sanitize_reorders_tool_results_after_assistant() -> None:
+    """Tool results appearing before their assistant message are reordered."""
+    mgr = ConversationHistoryManager()
+    history = [
+        ConversationMessagePayload(role="user", content="hi"),
+        # Tool results come BEFORE the assistant message (DB ordering bug).
+        ConversationMessagePayload(role="tool", content="result1", tool_call_id="c1", name="bash"),
+        ConversationMessagePayload(role="tool", content="result2", tool_call_id="c2", name="read"),
+        ConversationMessagePayload(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="bash", arguments="{}"),
+                ),
+                ConversationToolCallPayload(
+                    id="c2",
+                    type="function",
+                    function=ConversationToolCallFunction(name="read", arguments="{}"),
+                ),
+            ],
+        ),
+        ConversationMessagePayload(role="assistant", content="Done"),
+    ]
+    msgs = mgr.build_messages("sys", history)
+    # Expected: sys, user, assistant(tool_calls), tool(c1), tool(c2), assistant(Done)
+    assert len(msgs) == 6
+    assert msgs[2]["role"] == "assistant"
+    assert "tool_calls" in msgs[2]
+    assert msgs[3]["role"] == "tool"
+    assert msgs[3]["tool_call_id"] == "c1"
+    assert msgs[4]["role"] == "tool"
+    assert msgs[4]["tool_call_id"] == "c2"
+    assert msgs[5]["content"] == "Done"
+
+
+def test_sanitize_dedup_assistant_messages_with_same_tool_calls() -> None:
+    """Duplicate assistant messages with same tool_calls are deduplicated."""
+    mgr = ConversationHistoryManager()
+    history = [
+        ConversationMessagePayload(
+            role="assistant",
+            content="let me help",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="bash", arguments="{}"),
+                ),
+            ],
+        ),
+        ConversationMessagePayload(role="tool", content="ok", tool_call_id="c1", name="bash"),
+        # Duplicate assistant message from NATS redelivery.
+        ConversationMessagePayload(
+            role="assistant",
+            content="let me help",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="bash", arguments="{}"),
+                ),
+            ],
+        ),
+        ConversationMessagePayload(role="tool", content="ok dup", tool_call_id="c1", name="bash"),
+        ConversationMessagePayload(role="assistant", content="Done"),
+    ]
+    msgs = mgr.build_messages("sys", history)
+    # First assistant + tool pair kept, second pair deduplicated.
+    tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+    assert len(tool_msgs) == 1
+    assistant_with_tc = [m for m in msgs if m.get("role") == "assistant" and m.get("tool_calls")]
+    assert len(assistant_with_tc) == 1

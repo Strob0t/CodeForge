@@ -123,9 +123,16 @@ func (s *Store) CreateToolMessages(ctx context.Context, conversationID string, m
 		if len(msgs[i].ToolCalls) > 0 {
 			toolCallsJSON = []byte(msgs[i].ToolCalls)
 		}
+		// Use ON CONFLICT DO NOTHING for messages with a tool_call_id to
+		// prevent duplicates from NATS redeliveries.  Assistant messages
+		// (which have tool_calls JSON but no tool_call_id) always insert.
+		query := `INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+		if msgs[i].ToolCallID != "" {
+			query += ` ON CONFLICT (conversation_id, tool_call_id) WHERE tool_call_id IS NOT NULL AND tool_call_id != '' DO NOTHING`
+		}
 		batch.Queue(
-			`INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			query,
 			conversationID, msgs[i].Role, msgs[i].Content, toolCallsJSON,
 			msgs[i].ToolCallID, msgs[i].ToolName, msgs[i].TokensIn, msgs[i].TokensOut, msgs[i].Model,
 		)

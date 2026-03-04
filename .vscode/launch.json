@@ -24,7 +24,7 @@
       "env": {
         "APP_ENV": "development",
         "NATS_URL": "nats://codeforge-nats:4222",
-        "LITELLM_URL": "http://codeforge-litellm:4000",
+        "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
         "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
         "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!"
       },
@@ -44,7 +44,7 @@
       "env": {
         "APP_ENV": "development",
         "NATS_URL": "nats://codeforge-nats:4222",
-        "LITELLM_URL": "http://codeforge-litellm:4000",
+        "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
         "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge"
       },
       "console": "integratedTerminal",
@@ -64,7 +64,7 @@
       "env": {
         "APP_ENV": "development",
         "NATS_URL": "nats://codeforge-nats:4222",
-        "LITELLM_URL": "http://codeforge-litellm:4000",
+        "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
         "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
         "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!"
       },

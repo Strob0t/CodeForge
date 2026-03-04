@@ -163,45 +163,75 @@ class ConversationHistoryManager:
         return d
 
     def _sanitize_tool_pairing(self, messages: list[dict[str, object]]) -> list[dict[str, object]]:
-        """Ensure every tool_call has a matching tool result and vice versa.
+        """Ensure strict tool-call/result pairing, dedup, and ordering.
 
-        Strict providers like Mistral reject messages where the count of
-        tool_calls does not match the count of tool result messages.  This
-        can happen when head-and-tail truncation splits a tool-call group
-        or when the DB contains incomplete sequences.
+        Strict providers like Mistral reject messages where:
+        - tool_calls count != tool result count
+        - tool results appear before their assistant message
+        - duplicate tool results exist for the same tool_call_id
+
+        This sanitizer fixes all three cases by rebuilding the message list
+        with correct structure: each assistant(tool_calls) is immediately
+        followed by exactly one tool result per tool_call_id.
         """
-        # 1. Collect tool_call_ids present in tool result messages.
-        result_ids: set[str] = set()
+        original_len = len(messages)
+
+        # Index: tool_call_id → first tool result message seen.
+        first_result: dict[str, dict[str, object]] = {}
         for m in messages:
             if m.get("role") == "tool":
                 tcid = m.get("tool_call_id")
-                if isinstance(tcid, str) and tcid:
-                    result_ids.add(tcid)
+                if isinstance(tcid, str) and tcid and tcid not in first_result:
+                    first_result[tcid] = m
 
-        # 2. Filter assistant tool_calls to only those with matching results.
-        call_ids: set[str] = set()
+        # Track which tool_call_ids have been emitted (dedup across
+        # duplicate assistant messages that share the same tool_call IDs).
+        emitted_call_ids: set[str] = set()
+
+        result: list[dict[str, object]] = []
         for m in messages:
-            if m.get("role") != "assistant" or not m.get("tool_calls"):
+            if m.get("role") == "tool":
+                # Skip all inline tool results — they'll be re-inserted
+                # in correct position after their assistant message.
                 continue
-            tcs = m["tool_calls"]
-            if not isinstance(tcs, list):
-                continue
-            kept = [tc for tc in tcs if isinstance(tc, dict) and tc.get("id") in result_ids]
-            if kept:
+
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                tcs = m["tool_calls"]
+                if not isinstance(tcs, list):
+                    result.append(m)
+                    continue
+
+                # Keep only tool_calls that (a) have a matching result and
+                # (b) haven't been emitted by a previous duplicate assistant msg.
+                kept = [
+                    tc
+                    for tc in tcs
+                    if isinstance(tc, dict) and tc.get("id") in first_result and tc.get("id") not in emitted_call_ids
+                ]
+                if not kept:
+                    # All tool_calls already emitted or no results — drop
+                    # the tool_calls key but keep the message if it has content.
+                    stripped = {k: v for k, v in m.items() if k != "tool_calls"}
+                    if stripped.get("content"):
+                        result.append(stripped)
+                    continue
+
                 m["tool_calls"] = kept
-                call_ids.update(tc["id"] for tc in kept)
+                result.append(m)
+
+                # Insert the matching tool results immediately after.
+                for tc in kept:
+                    tc_id = tc["id"]
+                    emitted_call_ids.add(tc_id)
+                    result.append(first_result[tc_id])
             else:
-                del m["tool_calls"]
+                result.append(m)
 
-        # 3. Remove orphaned tool result messages.
-        original_len = len(messages)
-        messages = [m for m in messages if not (m.get("role") == "tool" and m.get("tool_call_id") not in call_ids)]
-
-        removed = original_len - len(messages)
+        removed = original_len - len(result)
         if removed:
-            logger.warning("sanitize_tool_pairing removed %d orphaned messages", removed)
+            logger.warning("sanitize_tool_pairing fixed %d messages (dedup/reorder)", removed)
 
-        return messages
+        return result
 
     def _msg_tokens(self, msg: dict[str, object]) -> int:
         """Estimate token count for a single message dict."""
