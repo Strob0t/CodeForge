@@ -75,7 +75,7 @@ test.describe("Benchmark Leaderboard", () => {
     await clickTab(page, "Leaderboard");
     // The suite should appear in the filter dropdown
     const select = page.locator("select").first();
-    await expect(select.locator("option")).toHaveCount({ minimum: 2 }); // "All Suites" + at least one
+    expect(await select.locator("option").count()).toBeGreaterThanOrEqual(2); // "All Suites" + at least one
   });
 
   test("changing sort metric re-orders entries", async ({ page }) => {

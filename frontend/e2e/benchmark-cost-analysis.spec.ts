@@ -34,7 +34,7 @@ test.describe("Benchmark Cost Analysis", () => {
     // Verify the run appears in the dropdown
     const select = page.locator("select").first();
     const options = select.locator("option");
-    await expect(options).toHaveCount({ minimum: 2 }); // "Select" + at least one run
+    expect(await options.count()).toBeGreaterThanOrEqual(2); // "Select" + at least one run
   });
 
   test("cost analysis API returns data for a run", async ({ benchApi }) => {

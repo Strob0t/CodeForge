@@ -5,6 +5,7 @@ vendor/
 
 # -- Build artifacts ------------------------------
 /codeforge
+/nats
 dist/
 build/
 bin/
@@ -56,6 +57,9 @@ backups/
 
 # -- Claude Code ----------------------------------
 .claude/
+
+# -- DeepEval (runtime telemetry) ------------------
+.deepeval/
 
 # -- Debug logs -----------------------------------
 debug.log

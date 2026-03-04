@@ -153,11 +153,37 @@ function AppShell(props: {
               <Show
                 when={!collapsed()}
                 fallback={
-                  <div class="flex flex-col items-center gap-2">
-                    <ThemeToggle />
-                    <StatusDot
-                      color={props.connected() ? "var(--cf-status-idle)" : "var(--cf-status-error)"}
-                    />
+                  <div class="flex flex-col items-center gap-1.5">
+                    <ThemeToggle iconOnly />
+                    <LocaleSwitcher />
+                    <div class="group relative flex items-center justify-center p-1.5">
+                      <StatusDot
+                        color={
+                          props.connected() ? "var(--cf-status-idle)" : "var(--cf-status-error)"
+                        }
+                      />
+                      <span
+                        role="tooltip"
+                        class="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-cf-md bg-cf-bg-surface-alt px-2 py-1 text-xs text-cf-text-primary shadow-md opacity-0 transition-opacity group-hover:opacity-100 z-50"
+                      >
+                        {t("app.ws.label", {
+                          status: props.connected()
+                            ? t("app.ws.connected")
+                            : t("app.ws.disconnected"),
+                        })}
+                      </span>
+                    </div>
+                    <Show when={props.health()}>
+                      <div class="group relative flex items-center justify-center p-1.5">
+                        <StatusDot color="var(--cf-status-idle)" />
+                        <span
+                          role="tooltip"
+                          class="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-cf-md bg-cf-bg-surface-alt px-2 py-1 text-xs text-cf-text-primary shadow-md opacity-0 transition-opacity group-hover:opacity-100 z-50"
+                        >
+                          {t("app.api.label", { status: props.health()?.status ?? "" })}
+                        </span>
+                      </div>
+                    </Show>
                   </div>
                 }
               >

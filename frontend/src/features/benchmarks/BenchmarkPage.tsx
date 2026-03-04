@@ -298,7 +298,7 @@ export default function BenchmarkPage() {
                             <Show when={run.status === "running"}>
                               <Button
                                 size="sm"
-                                variant="warning"
+                                variant="danger"
                                 onClick={(e: MouseEvent) => {
                                   e.stopPropagation();
                                   handleCancel(run.id);

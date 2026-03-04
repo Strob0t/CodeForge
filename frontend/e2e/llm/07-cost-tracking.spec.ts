@@ -188,11 +188,7 @@ test.describe("LLM E2E — Cost Tracking", () => {
       headers: headers(),
     });
     expect(beforeRes.status).toBe(200);
-    const beforeCost = (await beforeRes.json()) as {
-      total_cost_usd: number;
-      total_tokens_in: number;
-      total_tokens_out: number;
-    };
+    void (await beforeRes.json());
 
     // Send another message
     const msgRes = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {

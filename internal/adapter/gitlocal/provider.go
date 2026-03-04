@@ -143,24 +143,34 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 	err := p.pool.Run(ctx, func() error {
 		status = &project.GitStatus{}
 
-		// Current branch
+		// Current branch — may fail on an empty repo (no commits yet).
+		hasCommits := true
 		branch, err := runGit(ctx, repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 		if err != nil {
-			return fmt.Errorf("gitlocal: get branch: %w", err)
+			// Empty repo: HEAD is unborn. Fall back to symbolic-ref.
+			symRef, symErr := runGit(ctx, repoPath, "symbolic-ref", "--short", "HEAD")
+			if symErr != nil {
+				return fmt.Errorf("gitlocal: get branch: %w", err)
+			}
+			status.Branch = strings.TrimSpace(symRef)
+			hasCommits = false
+		} else {
+			status.Branch = strings.TrimSpace(branch)
 		}
-		status.Branch = strings.TrimSpace(branch)
 
-		// Latest commit hash and message
-		logOut, err := runGit(ctx, repoPath, "log", "-1", "--format=%H%n%s")
-		if err != nil {
-			return fmt.Errorf("gitlocal: get log: %w", err)
-		}
-		logLines := strings.SplitN(strings.TrimSpace(logOut), "\n", 2)
-		if len(logLines) >= 1 {
-			status.CommitHash = logLines[0]
-		}
-		if len(logLines) >= 2 {
-			status.CommitMessage = logLines[1]
+		// Latest commit hash and message (only if repo has commits).
+		if hasCommits {
+			logOut, err := runGit(ctx, repoPath, "log", "-1", "--format=%H%n%s")
+			if err != nil {
+				return fmt.Errorf("gitlocal: get log: %w", err)
+			}
+			logLines := strings.SplitN(strings.TrimSpace(logOut), "\n", 2)
+			if len(logLines) >= 1 {
+				status.CommitHash = logLines[0]
+			}
+			if len(logLines) >= 2 {
+				status.CommitMessage = logLines[1]
+			}
 		}
 
 		// Porcelain status for modified/untracked

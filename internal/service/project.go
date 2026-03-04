@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -286,7 +287,7 @@ func (s *ProjectService) Status(ctx context.Context, id string) (*project.GitSta
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 	if p.WorkspacePath == "" {
-		return nil, fmt.Errorf("project %s has no workspace (not cloned)", id)
+		return nil, fmt.Errorf("%w: project %s has no workspace (not cloned)", domain.ErrValidation, id)
 	}
 
 	gp, err := resolveGitProvider(p)
@@ -304,7 +305,7 @@ func (s *ProjectService) Pull(ctx context.Context, id string) error {
 		return fmt.Errorf("get project: %w", err)
 	}
 	if p.WorkspacePath == "" {
-		return fmt.Errorf("project %s has no workspace (not cloned)", id)
+		return fmt.Errorf("%w: project %s has no workspace (not cloned)", domain.ErrValidation, id)
 	}
 
 	gp, err := resolveGitProvider(p)
@@ -322,7 +323,7 @@ func (s *ProjectService) ListBranches(ctx context.Context, id string) ([]project
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 	if p.WorkspacePath == "" {
-		return nil, fmt.Errorf("project %s has no workspace (not cloned)", id)
+		return nil, fmt.Errorf("%w: project %s has no workspace (not cloned)", domain.ErrValidation, id)
 	}
 
 	gp, err := resolveGitProvider(p)
@@ -340,7 +341,7 @@ func (s *ProjectService) Checkout(ctx context.Context, id, branch string) error 
 		return fmt.Errorf("get project: %w", err)
 	}
 	if p.WorkspacePath == "" {
-		return fmt.Errorf("project %s has no workspace (not cloned)", id)
+		return fmt.Errorf("%w: project %s has no workspace (not cloned)", domain.ErrValidation, id)
 	}
 
 	gp, err := resolveGitProvider(p)

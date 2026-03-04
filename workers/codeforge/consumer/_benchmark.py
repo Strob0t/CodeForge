@@ -8,6 +8,7 @@ Routes benchmark requests to the appropriate runner based on benchmark_type:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING
 
@@ -46,6 +47,22 @@ class BenchmarkHandlerMixin:
 
         request_id = (msg.headers or {}).get(HEADER_REQUEST_ID, "")
         log = logger.bind(request_id=request_id)
+
+        # Wait for LiteLLM to be ready before running benchmarks.
+        if not await _wait_for_litellm(self._llm, log):
+            log.error("LiteLLM not available, aborting benchmark run")
+            error_result = BenchmarkRunResult(
+                run_id="",
+                status="failed",
+                error="LiteLLM proxy not available after health check retries",
+            )
+            if self._js is not None:
+                await self._js.publish(
+                    SUBJECT_BENCHMARK_RUN_RESULT,
+                    error_result.model_dump_json().encode(),
+                )
+            await msg.ack()
+            return
 
         try:
             req = BenchmarkRunRequest.model_validate_json(msg.data)
@@ -163,6 +180,43 @@ class BenchmarkHandlerMixin:
                 return [item["embedding"] for item in data["data"]]
 
         return embed
+
+
+# --- Health check ---
+
+# Max attempts and initial backoff for LiteLLM readiness probe.
+_HEALTH_MAX_ATTEMPTS = 5
+_HEALTH_BACKOFF_BASE = 2.0
+
+
+async def _wait_for_litellm(
+    llm: object,
+    log: structlog.stdlib.BoundLogger,
+) -> bool:
+    """Poll LiteLLM health endpoint with exponential backoff.
+
+    Returns True once healthy, False if all attempts are exhausted.
+    """
+    from codeforge.llm import LiteLLMClient
+
+    if not isinstance(llm, LiteLLMClient):
+        return True
+
+    for attempt in range(_HEALTH_MAX_ATTEMPTS):
+        if await llm.health():
+            if attempt > 0:
+                log.info("LiteLLM became healthy", attempt=attempt + 1)
+            return True
+        wait = _HEALTH_BACKOFF_BASE**attempt  # 1, 2, 4, 8, 16s
+        log.warning(
+            "LiteLLM not ready, retrying",
+            attempt=attempt + 1,
+            max_attempts=_HEALTH_MAX_ATTEMPTS,
+            retry_in_seconds=wait,
+        )
+        await asyncio.sleep(wait)
+
+    return False
 
 
 # --- Module-level helpers used by the mixin ---

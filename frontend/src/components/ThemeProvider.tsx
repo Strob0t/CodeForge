@@ -6,6 +6,7 @@ import {
   onCleanup,
   onMount,
   type ParentProps,
+  Show,
   useContext,
 } from "solid-js";
 
@@ -220,7 +221,7 @@ const ICONS: Record<Theme, string> = {
   system: "\u2699", // gear
 };
 
-export function ThemeToggle(): JSX.Element {
+export function ThemeToggle(props: { iconOnly?: boolean }): JSX.Element {
   const { theme, toggle } = useTheme();
   const { t } = useI18n();
 
@@ -233,13 +234,18 @@ export function ThemeToggle(): JSX.Element {
   return (
     <button
       type="button"
-      class="flex items-center gap-1.5 rounded-cf-md px-2 py-1 text-xs text-cf-text-muted hover:bg-cf-bg-surface-alt hover:text-cf-text-secondary"
+      class={
+        "flex items-center rounded-cf-md text-xs text-cf-text-muted hover:bg-cf-bg-surface-alt hover:text-cf-text-secondary" +
+        (props.iconOnly ? " justify-center p-1.5" : " gap-1.5 px-2 py-1")
+      }
       onClick={toggle}
       aria-label={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}
       title={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}
     >
       <span aria-hidden="true">{ICONS[theme()]}</span>
-      <span>{t(THEME_KEYS[theme()])}</span>
+      <Show when={!props.iconOnly}>
+        <span>{t(THEME_KEYS[theme()])}</span>
+      </Show>
     </button>
   );
 }

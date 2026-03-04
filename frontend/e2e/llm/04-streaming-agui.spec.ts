@@ -281,8 +281,8 @@ test.describe("LLM E2E — Streaming AG-UI Events", () => {
     // Verify run_finished arrives (with any status, since we stopped it)
     // Collect remaining events with a shorter timeout
     await ws.collectMessages(15_000);
-    const runFinished = ws.getMessagesByType("agui.run_finished");
     // run_finished may or may not arrive depending on timing — assert events were collected
+    void ws.getMessagesByType("agui.run_finished");
     expect(ws.getMessages().length).toBeGreaterThan(0);
 
     ws.close();
