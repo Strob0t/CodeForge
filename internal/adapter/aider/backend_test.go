@@ -24,6 +24,10 @@ func (m *mockQueue) Publish(_ context.Context, subject string, data []byte) erro
 	return nil
 }
 
+func (m *mockQueue) PublishWithDedup(ctx context.Context, subject string, data []byte, _ string) error {
+	return m.Publish(ctx, subject, data)
+}
+
 func (m *mockQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
 	return func() {}, nil
 }

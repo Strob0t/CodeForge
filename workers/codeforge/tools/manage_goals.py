@@ -79,6 +79,13 @@ class ManageGoalsExecutor:
     def __init__(self, project_id: str) -> None:
         self._project_id = project_id
         self._core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+        self._api_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
+
+    def _auth_headers(self) -> dict[str, str]:
+        """Return auth headers for internal service-to-service calls."""
+        if self._api_key:
+            return {"X-API-Key": self._api_key}
+        return {}
 
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         command = arguments.get("command", "")
@@ -117,7 +124,7 @@ class ManageGoalsExecutor:
             "source": "agent",
             "priority": args.get("priority", 90),
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers=self._auth_headers()) as client:
             resp = await client.post(
                 f"{self._core_url}/api/v1/projects/{self._project_id}/goals",
                 json=payload,
@@ -132,7 +139,7 @@ class ManageGoalsExecutor:
         )
 
     async def _list(self) -> ToolResult:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers=self._auth_headers()) as client:
             resp = await client.get(
                 f"{self._core_url}/api/v1/projects/{self._project_id}/goals",
             )
@@ -159,7 +166,7 @@ class ManageGoalsExecutor:
                 payload[field] = args[field]
         if not payload:
             return ToolResult(output="", error="update requires at least one field to change.", success=False)
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers=self._auth_headers()) as client:
             resp = await client.put(
                 f"{self._core_url}/api/v1/goals/{goal_id}",
                 json=payload,
@@ -171,7 +178,7 @@ class ManageGoalsExecutor:
         goal_id = args.get("goal_id")
         if not goal_id:
             return ToolResult(output="", error="delete requires goal_id.", success=False)
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers=self._auth_headers()) as client:
             resp = await client.delete(
                 f"{self._core_url}/api/v1/goals/{goal_id}",
             )

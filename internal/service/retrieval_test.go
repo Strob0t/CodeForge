@@ -30,6 +30,10 @@ func (q *captureQueue) Publish(_ context.Context, subject string, data []byte) e
 	return nil
 }
 
+func (q *captureQueue) PublishWithDedup(ctx context.Context, subject string, data []byte, _ string) error {
+	return q.Publish(ctx, subject, data)
+}
+
 func (q *captureQueue) snapshot() (subject string, data []byte) {
 	q.mu.Lock()
 	defer q.mu.Unlock()

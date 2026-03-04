@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain/user"
@@ -106,6 +107,22 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 
 			// Try X-API-Key header first.
 			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
+				// Internal service key — Python workers use this for API calls back to Go Core.
+				if internalKey := os.Getenv("CODEFORGE_INTERNAL_KEY"); internalKey != "" && apiKey == internalKey {
+					svcUser := &user.User{
+						ID:       "00000000-0000-0000-0000-000000000001",
+						Email:    "service@internal",
+						Name:     "Internal Service",
+						Role:     user.RoleAdmin,
+						TenantID: DefaultTenantID,
+						Enabled:  true,
+					}
+					ctx := context.WithValue(r.Context(), authUserCtxKey{}, svcUser)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+
+				// User-created API key.
 				u, key, err := authSvc.ValidateAPIKey(r.Context(), apiKey)
 				if err != nil {
 					writeJSONError(w, http.StatusUnauthorized, "invalid api key")

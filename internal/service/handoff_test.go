@@ -23,6 +23,10 @@ func (m *handoffMockQueue) Publish(_ context.Context, subject string, data []byt
 	return nil
 }
 
+func (m *handoffMockQueue) PublishWithDedup(ctx context.Context, subject string, data []byte, _ string) error {
+	return m.Publish(ctx, subject, data)
+}
+
 func (m *handoffMockQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
 	return func() {}, nil
 }

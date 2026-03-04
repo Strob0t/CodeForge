@@ -940,6 +940,9 @@ func (m *runtimeMockQueue) Publish(_ context.Context, subject string, data []byt
 	m.messages = append(m.messages, publishedMsg{Subject: subject, Data: data})
 	return nil
 }
+func (m *runtimeMockQueue) PublishWithDedup(ctx context.Context, subject string, data []byte, _ string) error {
+	return m.Publish(ctx, subject, data)
+}
 func (m *runtimeMockQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
 	return func() {}, nil
 }

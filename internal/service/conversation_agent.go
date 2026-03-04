@@ -183,8 +183,8 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		AgentName: "agent",
 	})
 
-	// Publish to NATS for the Python worker.
-	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunStart, data); err != nil {
+	// Publish to NATS for the Python worker (with dedup to prevent duplicate runs).
+	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, "conv-start-"+runID); err != nil {
 		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 			RunID:  runID,
 			Status: "failed",
@@ -305,7 +305,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		AgentName: modeID,
 	})
 
-	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunStart, data); err != nil {
+	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, "conv-start-"+runID); err != nil {
 		return fmt.Errorf("publish conversation run start: %w", err)
 	}
 

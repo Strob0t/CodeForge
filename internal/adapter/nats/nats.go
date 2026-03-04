@@ -45,9 +45,11 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 	}
 
 	// Ensure the stream exists with subjects matching our topic patterns.
+	// Duplicates enables JetStream message deduplication via Nats-Msg-Id header.
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:     streamName,
-		Subjects: []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>"},
+		Name:       streamName,
+		Subjects:   []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>"},
+		Duplicates: 2 * time.Minute,
 	})
 	if err != nil {
 		nc.Close()
@@ -75,6 +77,33 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 	// Propagate request ID via NATS message header
 	if reqID := logger.RequestID(ctx); reqID != "" {
 		msg.Header = nats.Header{}
+		msg.Header.Set(headerRequestID, reqID)
+	}
+
+	publish := func() error {
+		_, err := q.js.PublishMsg(ctx, msg)
+		if err != nil {
+			return fmt.Errorf("nats publish %s: %w", subject, err)
+		}
+		return nil
+	}
+
+	if q.breaker != nil {
+		return q.breaker.Execute(publish)
+	}
+	return publish()
+}
+
+// PublishWithDedup sends a message with a Nats-Msg-Id header for JetStream deduplication.
+func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byte, msgID string) error {
+	msg := &nats.Msg{
+		Subject: subject,
+		Data:    data,
+		Header:  nats.Header{},
+	}
+	msg.Header.Set("Nats-Msg-Id", msgID)
+
+	if reqID := logger.RequestID(ctx); reqID != "" {
 		msg.Header.Set(headerRequestID, reqID)
 	}
 

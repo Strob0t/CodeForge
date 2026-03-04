@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import structlog
 
@@ -22,6 +22,9 @@ logger = structlog.get_logger()
 class ConversationHandlerMixin:
     """Handles conversation.run.start messages — agentic loop with tool calling."""
 
+    # Track in-progress run IDs to skip NATS redeliveries of the same message.
+    _active_runs: ClassVar[set[str]] = set()
+
     async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
         """Process a conversation run: agentic loop with tool calling."""
         from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
@@ -33,6 +36,14 @@ class ConversationHandlerMixin:
         try:
             run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
             log = logger.bind(run_id=run_msg.run_id, conversation_id=run_msg.conversation_id)
+
+            # Skip duplicate deliveries — the LLM loop is expensive.
+            if run_msg.run_id in self._active_runs:
+                log.warning("duplicate conversation run start, skipping")
+                await msg.ack()
+                return
+            self._active_runs.add(run_msg.run_id)
+
             log.info("received conversation run start")
 
             if self._js is None:
@@ -61,21 +72,7 @@ class ConversationHandlerMixin:
                 registry.merge_mcp_tools(workbench)
                 log.info("mcp tools merged", count=len(workbench.get_tools_for_llm()))
 
-            system_prompt = run_msg.system_prompt
-            if run_msg.microagent_prompts:
-                ma_block = "\n\n".join(run_msg.microagent_prompts)
-                system_prompt = f"{system_prompt}\n\n--- Microagent Instructions ---\n{ma_block}"
-                log.info("microagent prompts injected", count=len(run_msg.microagent_prompts))
-
-            system_prompt = await self._inject_skill_recommendations(
-                system_prompt,
-                run_msg.project_id,
-                run_msg.messages,
-                log,
-            )
-
-            # Inject adaptive tool-usage guide for weaker models.
-            system_prompt = self._inject_tool_guide(system_prompt, registry, run_msg.model, log)
+            system_prompt = await self._build_system_prompt(run_msg, registry, log)
 
             self._register_handoff_tool(registry, run_msg.run_id)
             self._register_goals_tool(registry, run_msg.project_id)
@@ -145,6 +142,7 @@ class ConversationHandlerMixin:
             await self._js.publish(
                 SUBJECT_CONVERSATION_RUN_COMPLETE,
                 complete_msg.model_dump_json().encode(),
+                headers={"Nats-Msg-Id": f"conv-complete-{run_msg.run_id}"},
             )
 
             await msg.ack()
@@ -169,6 +167,7 @@ class ConversationHandlerMixin:
                     await self._js.publish(
                         SUBJECT_CONVERSATION_RUN_COMPLETE,
                         error_complete.model_dump_json().encode(),
+                        headers={"Nats-Msg-Id": f"conv-error-{run_msg.run_id}"},
                     )
             except Exception as exc:
                 logger.exception("failed to publish conversation error result", error=str(exc))
@@ -176,6 +175,35 @@ class ConversationHandlerMixin:
         finally:
             if workbench is not None:
                 await workbench.disconnect_all()
+            # Clean up active run tracking.
+            try:
+                run_data = ConversationRunStartMessage.model_validate_json(msg.data)
+                self._active_runs.discard(run_data.run_id)
+            except Exception:
+                logger.debug("failed to clean up active run tracking")
+
+    async def _build_system_prompt(
+        self,
+        run_msg: ConversationRunStartMessage,
+        registry: object,
+        log: structlog.stdlib.BoundLogger,
+    ) -> str:
+        """Assemble the full system prompt with microagents, skills, and tool guide."""
+        system_prompt = run_msg.system_prompt
+        if run_msg.microagent_prompts:
+            ma_block = "\n\n".join(run_msg.microagent_prompts)
+            system_prompt = f"{system_prompt}\n\n--- Microagent Instructions ---\n{ma_block}"
+            log.info("microagent prompts injected", count=len(run_msg.microagent_prompts))
+
+        system_prompt = await self._inject_skill_recommendations(
+            system_prompt,
+            run_msg.project_id,
+            run_msg.messages,
+            log,
+        )
+
+        # Inject adaptive tool-usage guide for weaker models.
+        return self._inject_tool_guide(system_prompt, registry, run_msg.model, log)
 
     async def _inject_skill_recommendations(
         self,

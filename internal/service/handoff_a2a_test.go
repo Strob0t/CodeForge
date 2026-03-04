@@ -18,6 +18,11 @@ func (m *mockQueueForHandoff) Publish(_ context.Context, _ string, _ []byte) err
 	return m.publishErr
 }
 
+func (m *mockQueueForHandoff) PublishWithDedup(_ context.Context, _ string, _ []byte, _ string) error {
+	m.publishCount++
+	return m.publishErr
+}
+
 func (m *mockQueueForHandoff) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
 	return func() {}, nil
 }

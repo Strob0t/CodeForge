@@ -12,6 +12,11 @@ type Queue interface {
 	// Publish sends a message to the given subject.
 	Publish(ctx context.Context, subject string, data []byte) error
 
+	// PublishWithDedup sends a message with a deduplication ID.
+	// JetStream rejects messages with a Nats-Msg-Id it has seen within the
+	// stream's Duplicates window, preventing duplicate processing.
+	PublishWithDedup(ctx context.Context, subject string, data []byte, msgID string) error
+
 	// Subscribe registers a handler for messages on the given subject.
 	// The returned function cancels the subscription.
 	Subscribe(ctx context.Context, subject string, handler Handler) (cancel func(), err error)
