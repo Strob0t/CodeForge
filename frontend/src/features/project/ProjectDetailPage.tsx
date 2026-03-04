@@ -437,52 +437,40 @@ export default function ProjectDetailPage() {
                 >
                   <div class="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
                     <div class="flex items-center gap-1">
-                      <button
-                        type="button"
-                        class={`px-2 py-1 text-sm font-medium rounded transition-colors ${
-                          leftTab() === "roadmap"
-                            ? "bg-cf-accent/15 text-cf-accent"
-                            : "text-cf-text-tertiary hover:text-cf-text-secondary"
-                        }`}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class={leftTab() === "roadmap" ? "bg-cf-accent/15 text-cf-accent" : ""}
                         onClick={() => setLeftTab("roadmap")}
                       >
                         {t("detail.tab.roadmap")}
-                      </button>
+                      </Button>
                       <Show when={p().workspace_path}>
-                        <button
-                          type="button"
-                          class={`px-2 py-1 text-sm font-medium rounded transition-colors ${
-                            leftTab() === "files"
-                              ? "bg-cf-accent/15 text-cf-accent"
-                              : "text-cf-text-tertiary hover:text-cf-text-secondary"
-                          }`}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "files" ? "bg-cf-accent/15 text-cf-accent" : ""}
                           onClick={() => setLeftTab("files")}
                         >
                           Files
-                        </button>
+                        </Button>
                       </Show>
-                      <button
-                        type="button"
-                        class={`px-2 py-1 text-sm font-medium rounded transition-colors ${
-                          leftTab() === "warroom"
-                            ? "bg-cf-accent/15 text-cf-accent"
-                            : "text-cf-text-tertiary hover:text-cf-text-secondary"
-                        }`}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class={leftTab() === "warroom" ? "bg-cf-accent/15 text-cf-accent" : ""}
                         onClick={() => setLeftTab("warroom")}
                       >
                         War Room
-                      </button>
-                      <button
-                        type="button"
-                        class={`px-2 py-1 text-sm font-medium rounded transition-colors ${
-                          leftTab() === "goals"
-                            ? "bg-cf-accent/15 text-cf-accent"
-                            : "text-cf-text-tertiary hover:text-cf-text-secondary"
-                        }`}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class={leftTab() === "goals" ? "bg-cf-accent/15 text-cf-accent" : ""}
                         onClick={() => setLeftTab("goals")}
                       >
                         {t("goals.tab")}
-                      </button>
+                      </Button>
                     </div>
                     <Button
                       variant="ghost"

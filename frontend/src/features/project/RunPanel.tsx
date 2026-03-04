@@ -342,9 +342,9 @@ export default function RunPanel(props: RunPanelProps) {
                           {t("common.error")}
                         </span>
                       </Show>
-                      <button
-                        type="button"
-                        class="text-cf-accent hover:underline"
+                      <Button
+                        variant="link"
+                        size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
                           setTrajectoryRunId((prev) => (prev === r.id ? null : r.id));
@@ -359,7 +359,7 @@ export default function RunPanel(props: RunPanelProps) {
                         {trajectoryRunId() === r.id
                           ? t("run.hideTrajectory")
                           : t("run.showTrajectory")}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}

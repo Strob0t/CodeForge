@@ -1,6 +1,7 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 
 import { createCodeForgeWS } from "~/api/websocket";
+import { Button } from "~/ui";
 
 interface ContextItem {
   key: string;
@@ -34,9 +35,11 @@ export default function SharedContextPanel() {
 
   return (
     <div class="border-t border-cf-border bg-cf-bg-secondary">
-      <button
-        type="button"
-        class="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-cf-text-secondary hover:bg-cf-bg-tertiary transition-colors"
+      <Button
+        variant="ghost"
+        size="sm"
+        fullWidth
+        class="flex items-center justify-between px-4 py-2 text-sm font-medium"
         onClick={() => setCollapsed(!collapsed())}
       >
         <span>Shared Context ({items().length})</span>
@@ -49,7 +52,7 @@ export default function SharedContextPanel() {
         >
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
-      </button>
+      </Button>
       <Show when={!collapsed()}>
         <div class="px-4 pb-3">
           <Show

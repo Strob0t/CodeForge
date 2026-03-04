@@ -87,13 +87,9 @@ export default function ChangePasswordPage(): JSX.Element {
             </Button>
           </form>
 
-          <button
-            type="button"
-            onClick={() => void logout()}
-            class="mt-4 w-full text-center text-sm text-cf-text-muted hover:text-cf-text-secondary"
-          >
+          <Button variant="link" size="sm" fullWidth class="mt-4" onClick={() => void logout()}>
             {t("auth.logout")}
-          </button>
+          </Button>
         </Card.Body>
       </Card>
     </div>

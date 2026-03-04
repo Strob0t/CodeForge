@@ -3,7 +3,7 @@ import { Show } from "solid-js";
 import type { DebateStatusEvent, PlanGraphNode, ReviewDecisionSnapshot } from "~/api/types";
 import { getVariant, nodeStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
-import { Badge, Card } from "~/ui";
+import { Badge, Button, Card } from "~/ui";
 
 interface StepDetailPanelProps {
   step: PlanGraphNode;
@@ -27,13 +27,14 @@ export default function StepDetailPanel(props: StepDetailPanelProps) {
               {props.step.status}
             </Badge>
           </div>
-          <button
-            class="text-cf-text-muted hover:text-cf-text-primary text-xs"
+          <Button
+            variant="link"
+            size="xs"
             onClick={() => props.onClose()}
             aria-label={t("common.close")}
           >
             {t("common.close")}
-          </button>
+          </Button>
         </div>
       </Card.Header>
       <Card.Body>

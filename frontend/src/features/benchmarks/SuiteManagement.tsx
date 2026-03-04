@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { batch, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { BenchmarkSuite } from "~/api/types";
@@ -18,20 +18,24 @@ export function SuiteManagement() {
   const [provider, setProvider] = createSignal("deepeval");
 
   const resetForm = () => {
-    setName("");
-    setDescription("");
-    setType("deepeval");
-    setProvider("deepeval");
-    setEditingSuite(null);
+    batch(() => {
+      setName("");
+      setDescription("");
+      setType("deepeval");
+      setProvider("deepeval");
+      setEditingSuite(null);
+    });
   };
 
   const startEdit = (suite: BenchmarkSuite) => {
-    setEditingSuite(suite);
-    setName(suite.name);
-    setDescription(suite.description || "");
-    setType(String(suite.type));
-    setProvider(suite.provider_name);
-    setShowForm(true);
+    batch(() => {
+      setEditingSuite(suite);
+      setName(suite.name);
+      setDescription(suite.description || "");
+      setType(String(suite.type));
+      setProvider(suite.provider_name);
+      setShowForm(true);
+    });
   };
 
   const handleCreate = async (e: SubmitEvent) => {

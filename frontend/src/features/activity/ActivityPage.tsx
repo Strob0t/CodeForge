@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { createCodeForgeWS, type WSMessage } from "~/api/websocket";
 import { severityVariant } from "~/config/statusVariants";
@@ -211,16 +211,16 @@ export default function ActivityPage() {
   });
   onCleanup(cleanup);
 
-  const filtered = () => {
+  const filtered = createMemo(() => {
     const f = filterType();
     if (!f) return entries();
     return entries().filter((e) => e.type === f);
-  };
+  });
 
-  const eventTypes = () => {
+  const eventTypes = createMemo(() => {
     const types = new Set(entries().map((e) => e.type));
     return [...types].sort();
-  };
+  });
 
   return (
     <PageLayout

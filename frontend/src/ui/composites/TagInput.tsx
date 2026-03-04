@@ -1,5 +1,7 @@
 import { createSignal, createUniqueId, For, type JSX } from "solid-js";
 
+import { Button } from "../primitives/Button";
+
 export interface TagInputProps {
   /** Currently selected values. */
   values: string[];
@@ -71,14 +73,15 @@ export function TagInput(props: TagInputProps): JSX.Element {
         {(tag) => (
           <span class="inline-flex items-center gap-1 rounded bg-cf-accent/15 px-2 py-0.5 text-xs text-cf-accent">
             {tag}
-            <button
-              type="button"
-              class="ml-0.5 text-cf-text-muted hover:text-cf-text-primary"
+            <Button
+              variant="icon"
+              size="xs"
+              class="ml-0.5"
               onClick={() => removeTag(tag)}
               aria-label={`Remove ${tag}`}
             >
               x
-            </button>
+            </Button>
           </span>
         )}
       </For>

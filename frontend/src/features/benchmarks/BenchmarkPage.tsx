@@ -1,4 +1,13 @@
-import { createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
+import {
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 
 import { api } from "~/api/client";
 import type {
@@ -89,11 +98,12 @@ export default function BenchmarkPage() {
     id ? api.benchmarks.listResults(id) : undefined,
   );
 
-  const tabItems = () =>
+  const tabItems = createMemo(() =>
     TABS.map((tab) => ({
       value: tab.value,
       label: t(`benchmark.tab.${tab.value}` as keyof typeof t),
-    }));
+    })),
+  );
 
   const resetForm = () => {
     setDataset("");
@@ -228,17 +238,18 @@ export default function BenchmarkPage() {
                   <div class="flex flex-wrap gap-2">
                     <For each={METRIC_OPTIONS}>
                       {(m) => (
-                        <button
-                          type="button"
-                          class={`rounded px-2 py-1 text-xs font-medium transition ${
+                        <Button
+                          variant="pill"
+                          size="xs"
+                          class={
                             metrics().includes(m)
-                              ? "bg-blue-600 text-white"
-                              : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
-                          }`}
+                              ? "border-cf-accent bg-cf-accent/10 text-cf-accent"
+                              : ""
+                          }
                           onClick={() => toggleMetric(m)}
                         >
                           {m}
-                        </button>
+                        </Button>
                       )}
                     </For>
                   </div>

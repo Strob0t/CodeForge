@@ -1,6 +1,8 @@
 import { createEffect, type JSX, onCleanup, Show, splitProps } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { Button } from "../primitives/Button";
+
 export interface ModalProps {
   open: boolean;
   onClose: () => void;
@@ -96,14 +98,9 @@ export function Modal(props: ModalProps): JSX.Element {
             <Show when={local.title}>
               <div class="flex items-center justify-between border-b border-cf-border px-4 py-3">
                 <h2 class="text-lg font-semibold text-cf-text-primary">{local.title}</h2>
-                <button
-                  type="button"
-                  onClick={() => local.onClose()}
-                  class="text-cf-text-muted hover:text-cf-text-primary transition-colors"
-                  aria-label="Close"
-                >
+                <Button variant="icon" size="xs" onClick={() => local.onClose()} aria-label="Close">
                   {"\u2715"}
-                </button>
+                </Button>
               </div>
             </Show>
             <div class="p-4">{local.children}</div>

@@ -1,5 +1,5 @@
 import { A } from "@solidjs/router";
-import { createResource, For, Show } from "solid-js";
+import { createMemo, createResource, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type {
@@ -18,7 +18,7 @@ export default function CostDashboardPage() {
   const [globalCosts] = createResource(() => api.costs.global());
 
   // Compute totals from global summary
-  const totals = () => {
+  const totals = createMemo(() => {
     const items = globalCosts() ?? [];
     return items.reduce(
       (acc, p) => ({
@@ -29,7 +29,7 @@ export default function CostDashboardPage() {
       }),
       { cost: 0, tokensIn: 0, tokensOut: 0, runs: 0 },
     );
-  };
+  });
 
   const projectColumns: TableColumn<ProjectCostSummary>[] = [
     {
@@ -147,10 +147,10 @@ export function ProjectCostSection(props: { projectId: string }) {
     (id) => api.costs.byTool(id),
   );
 
-  const maxDailyCost = () => {
+  const maxDailyCost = createMemo(() => {
     const items = daily() ?? [];
     return Math.max(...items.map((d) => d.cost_usd), 0.001);
-  };
+  });
 
   return (
     <Card>

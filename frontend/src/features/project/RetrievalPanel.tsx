@@ -282,9 +282,10 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                 {(hit, idx) => (
                   <div class="rounded-cf-sm border border-cf-border bg-cf-bg-surface-alt p-3">
                     <div class="flex items-center justify-between">
-                      <button
-                        type="button"
-                        class="flex items-center gap-2 text-sm font-medium text-cf-text-primary hover:text-cf-accent"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class="flex items-center gap-2"
                         onClick={() => toggleExpanded(idx())}
                         aria-expanded={!!expanded()[idx()]}
                         aria-label={`${expanded()[idx()] ? "Collapse" : "Expand"} result: ${hit.filepath}`}
@@ -295,7 +296,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
                         <span class="font-mono">
                           {hit.filepath}:{hit.start_line}-{hit.end_line}
                         </span>
-                      </button>
+                      </Button>
                       <div class="flex items-center gap-2">
                         <Show when={hit.symbol_name}>
                           <Badge variant="primary">{hit.symbol_name}</Badge>

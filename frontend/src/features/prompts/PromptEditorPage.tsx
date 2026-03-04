@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { batch, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { PromptSectionRow } from "~/api/types";
@@ -52,14 +52,16 @@ export default function PromptEditorPage() {
   }
 
   function handleEdit(row: PromptSectionRow) {
-    setFormName(row.name);
-    setFormContent(row.content);
-    setFormPriority(row.priority);
-    setFormSortOrder(row.sort_order);
-    setFormEnabled(row.enabled);
-    setFormMerge(row.merge);
-    setEditingId(row.id);
-    setShowForm(true);
+    batch(() => {
+      setFormName(row.name);
+      setFormContent(row.content);
+      setFormPriority(row.priority);
+      setFormSortOrder(row.sort_order);
+      setFormEnabled(row.enabled);
+      setFormMerge(row.merge);
+      setEditingId(row.id);
+      setShowForm(true);
+    });
   }
 
   async function handleSave() {

@@ -264,9 +264,9 @@ export default function SettingsPage() {
       key: "status",
       header: t("common.status"),
       render: (u) => (
-        <button
-          type="button"
-          class="text-xs"
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={() => handleToggleUser(u)}
           aria-label={
             u.enabled
@@ -277,7 +277,7 @@ export default function SettingsPage() {
           <Badge variant={u.enabled ? "success" : "default"} pill>
             {u.enabled ? t("settings.users.enabled") : t("settings.users.disabled")}
           </Badge>
-        </button>
+        </Button>
       ),
     },
     {

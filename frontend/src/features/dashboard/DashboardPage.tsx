@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { batch, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
@@ -100,14 +100,16 @@ export default function DashboardPage() {
           toast("error", initMsg);
         });
         toast("info", t("dashboard.toast.setupStarted"));
-        setForm({ ...emptyForm });
-        setShowForm(false);
-        setEditingId(null);
-        setStackResult(null);
-        setShowAdvanced(false);
-        setSelectedAutonomy("");
-        setBranches([]);
-        setSelectedBranch("");
+        batch(() => {
+          setForm({ ...emptyForm });
+          setShowForm(false);
+          setEditingId(null);
+          setStackResult(null);
+          setShowAdvanced(false);
+          setSelectedAutonomy("");
+          setBranches([]);
+          setSelectedBranch("");
+        });
         await refetch();
       } catch (err) {
         const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -135,15 +137,17 @@ export default function DashboardPage() {
         toast("success", t("dashboard.toast.created"));
         await api.projects.adopt(created.id, { path });
         toast("info", t("dashboard.toast.setupStarted"));
-        setForm({ ...emptyForm });
-        setLocalPath("");
-        setShowForm(false);
-        setEditingId(null);
-        setStackResult(null);
-        setShowAdvanced(false);
-        setSelectedAutonomy("");
-        setBranches([]);
-        setSelectedBranch("");
+        batch(() => {
+          setForm({ ...emptyForm });
+          setLocalPath("");
+          setShowForm(false);
+          setEditingId(null);
+          setStackResult(null);
+          setShowAdvanced(false);
+          setSelectedAutonomy("");
+          setBranches([]);
+          setSelectedBranch("");
+        });
         await refetch();
       } catch (err) {
         const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -187,14 +191,16 @@ export default function DashboardPage() {
           });
         }
       }
-      setForm({ ...emptyForm });
-      setShowForm(false);
-      setEditingId(null);
-      setStackResult(null);
-      setShowAdvanced(false);
-      setSelectedAutonomy("");
-      setBranches([]);
-      setSelectedBranch("");
+      batch(() => {
+        setForm({ ...emptyForm });
+        setShowForm(false);
+        setEditingId(null);
+        setStackResult(null);
+        setShowAdvanced(false);
+        setSelectedAutonomy("");
+        setBranches([]);
+        setSelectedBranch("");
+      });
       await refetch();
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -207,32 +213,36 @@ export default function DashboardPage() {
     const p = projects()?.find((proj) => proj.id === id);
     if (!p) return;
     const cfg = p.config ?? {};
-    setForm({
-      name: p.name,
-      description: p.description,
-      repo_url: p.repo_url,
-      provider: p.provider,
-      config: cfg,
+    batch(() => {
+      setForm({
+        name: p.name,
+        description: p.description,
+        repo_url: p.repo_url,
+        provider: p.provider,
+        config: cfg,
+      });
+      setSelectedAutonomy(cfg["autonomy_level"] ?? "");
+      if (cfg["autonomy_level"]) {
+        setShowAdvanced(true);
+      }
+      setEditingId(id);
+      setShowForm(true);
     });
-    setSelectedAutonomy(cfg["autonomy_level"] ?? "");
-    if (cfg["autonomy_level"]) {
-      setShowAdvanced(true);
-    }
-    setEditingId(id);
-    setShowForm(true);
   }
 
   function handleCancelForm() {
-    setShowForm(false);
-    setEditingId(null);
-    setForm({ ...emptyForm });
-    setLocalPath("");
-    setFormMode("remote");
-    setError("");
-    setShowAdvanced(false);
-    setSelectedAutonomy("");
-    setBranches([]);
-    setSelectedBranch("");
+    batch(() => {
+      setShowForm(false);
+      setEditingId(null);
+      setForm({ ...emptyForm });
+      setLocalPath("");
+      setFormMode("remote");
+      setError("");
+      setShowAdvanced(false);
+      setSelectedAutonomy("");
+      setBranches([]);
+      setSelectedBranch("");
+    });
   }
 
   async function handleDelete(id: string) {
@@ -324,11 +334,11 @@ export default function DashboardPage() {
     }, 500);
   }
 
-  const formModeTabs = () => [
+  const formModeTabs = createMemo(() => [
     { value: "remote", label: t("dashboard.form.modeRemote") },
     { value: "local", label: t("dashboard.form.modeLocal") },
     { value: "empty", label: t("dashboard.form.modeEmpty") },
-  ];
+  ]);
 
   return (
     <PageLayout
@@ -481,9 +491,10 @@ export default function DashboardPage() {
 
               {/* Advanced Settings Toggle */}
               <div class="mt-4 border-t border-cf-border pt-3">
-                <button
-                  type="button"
-                  class="flex items-center gap-1 text-sm font-medium text-cf-text-secondary hover:text-cf-text-primary transition-colors"
+                <Button
+                  variant="link"
+                  size="sm"
+                  class="flex items-center gap-1"
                   onClick={() => setShowAdvanced(!showAdvanced())}
                   aria-expanded={showAdvanced()}
                 >
@@ -494,7 +505,7 @@ export default function DashboardPage() {
                     &#9654;
                   </span>
                   {t("dashboard.form.advanced")}
-                </button>
+                </Button>
 
                 <Show when={showAdvanced()}>
                   <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -1,4 +1,5 @@
 import {
+  batch,
   createEffect,
   createResource,
   createSignal,
@@ -19,6 +20,20 @@ import ToolCallCard from "./ToolCallCard";
 
 interface ChatPanelProps {
   projectId: string;
+}
+
+interface ToolCallState {
+  callId: string;
+  name: string;
+  args?: Record<string, unknown>;
+  result?: string;
+  status: "pending" | "running" | "completed" | "failed";
+}
+
+interface PlanStepState {
+  stepId: string;
+  name: string;
+  status: "running" | "completed" | "failed" | "cancelled" | "skipped";
 }
 
 export default function ChatPanel(props: ChatPanelProps) {
@@ -44,21 +59,9 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [runError, setRunError] = createSignal<string | null>(null);
 
   // Tool call tracking from AG-UI events
-  interface ToolCallState {
-    callId: string;
-    name: string;
-    args?: Record<string, unknown>;
-    result?: string;
-    status: "pending" | "running" | "completed" | "failed";
-  }
   const [toolCalls, setToolCalls] = createSignal<ToolCallState[]>([]);
 
   // Plan step tracking from AG-UI events
-  interface PlanStepState {
-    stepId: string;
-    name: string;
-    status: "running" | "completed" | "failed" | "cancelled" | "skipped";
-  }
   const [planSteps, setPlanSteps] = createSignal<PlanStepState[]>([]);
 
   // Agentic mode tracking: step counter and running cost
@@ -113,11 +116,13 @@ export default function ChatPanel(props: ChatPanelProps) {
   const cleanupRunStarted = onAGUIEvent("agui.run_started", (payload) => {
     const runId = payload.run_id as string;
     if (runId === activeConversation()) {
-      setAgentRunning(true);
-      setStreamingContent("");
-      setRunError(null);
-      setStepCount(0);
-      setRunningCost(0);
+      batch(() => {
+        setAgentRunning(true);
+        setStreamingContent("");
+        setRunError(null);
+        setStepCount(0);
+        setRunningCost(0);
+      });
     }
   });
 
@@ -181,18 +186,20 @@ export default function ChatPanel(props: ChatPanelProps) {
     if (runId === activeConversation()) {
       const status = payload.status as string;
       const errorMsg = payload.error as string | undefined;
-      setAgentRunning(false);
-      setStreamingContent("");
-      setToolCalls([]);
-      setPlanSteps([]);
-      setStepCount(0);
-      setRunningCost(0);
+      batch(() => {
+        setAgentRunning(false);
+        setStreamingContent("");
+        setToolCalls([]);
+        setPlanSteps([]);
+        setStepCount(0);
+        setRunningCost(0);
 
-      if (status === "failed" && errorMsg) {
-        setRunError(errorMsg);
-      } else if (status === "cancelled") {
-        setRunError("Run was cancelled.");
-      }
+        if (status === "failed" && errorMsg) {
+          setRunError(errorMsg);
+        } else if (status === "cancelled") {
+          setRunError("Run was cancelled.");
+        }
+      });
 
       void refetchMessages();
     }

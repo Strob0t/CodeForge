@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateGoalRequest, GoalKind, ProjectGoal } from "~/api/types";
@@ -51,14 +51,14 @@ export default function GoalsPanel(props: Props) {
   const [formTitle, setFormTitle] = createSignal("");
   const [formContent, setFormContent] = createSignal("");
 
-  const groupedGoals = () => {
+  const groupedGoals = createMemo(() => {
     const all = goals() ?? [];
     const groups: Partial<Record<GoalKind, ProjectGoal[]>> = {};
     for (const g of all) {
       (groups[g.kind] ??= []).push(g);
     }
     return groups;
-  };
+  });
 
   const handleDetect = async () => {
     setDetecting(true);
@@ -238,26 +238,23 @@ export default function GoalsPanel(props: Props) {
                                 </Show>
                               </div>
                               <div class="flex items-center gap-1 flex-shrink-0">
-                                <button
-                                  type="button"
-                                  class={`text-xs px-1.5 py-0.5 rounded transition-colors ${
-                                    goal.enabled
-                                      ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
-                                      : "text-cf-text-muted hover:bg-cf-bg-tertiary"
-                                  }`}
+                                <Button
+                                  variant="secondary"
+                                  size="xs"
+                                  class={goal.enabled ? "text-cf-success" : ""}
                                   onClick={() => handleToggle(goal)}
                                   title={goal.enabled ? t("goals.disable") : t("goals.enable")}
                                 >
                                   {goal.enabled ? "ON" : "OFF"}
-                                </button>
-                                <button
-                                  type="button"
-                                  class="text-xs text-cf-text-muted hover:text-red-500 px-1 transition-colors"
+                                </Button>
+                                <Button
+                                  variant="icon"
+                                  size="xs"
                                   onClick={() => handleDelete(goal.id)}
                                   title={t("common.delete")}
                                 >
                                   x
-                                </button>
+                                </Button>
                               </div>
                             </div>
                           </div>

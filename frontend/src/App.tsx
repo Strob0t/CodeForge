@@ -72,14 +72,9 @@ function UserInfo(): JSX.Element {
               {user()?.role ?? ""}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            class="ml-2 text-cf-text-muted hover:text-red-500 dark:hover:text-red-400"
-            title={t("auth.logout")}
-          >
+          <Button variant="link" size="xs" onClick={() => void logout()} title={t("auth.logout")}>
             {t("auth.logout")}
-          </button>
+          </Button>
         </div>
       </Show>
     </Show>

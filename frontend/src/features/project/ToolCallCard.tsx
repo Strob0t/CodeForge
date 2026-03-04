@@ -1,6 +1,6 @@
 import { createSignal, Show } from "solid-js";
 
-import { Card } from "~/ui";
+import { Button, Card } from "~/ui";
 
 interface ToolCallCardProps {
   name: string;
@@ -97,8 +97,11 @@ export default function ToolCallCard(props: ToolCallCardProps) {
 
   return (
     <Card class="my-1 text-sm">
-      <button
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-cf-bg-surface-alt"
+      <Button
+        variant="ghost"
+        size="sm"
+        fullWidth
+        class="flex items-center gap-2 px-3 py-1.5 text-left"
         onClick={() => setExpanded(!expanded())}
         aria-expanded={expanded()}
       >
@@ -116,20 +119,22 @@ export default function ToolCallCard(props: ToolCallCardProps) {
         </Show>
 
         <span class="ml-auto text-xs text-cf-text-muted">{expanded() ? "\u25B2" : "\u25BC"}</span>
-      </button>
+      </Button>
 
       <Show when={expanded()}>
         <div class="border-t border-cf-border px-3 py-2">
           {/* Arguments section */}
           <Show when={props.args && Object.keys(props.args).length > 0}>
             <div class="mb-1">
-              <button
-                class="flex items-center gap-1 text-xs font-medium text-cf-text-tertiary hover:text-cf-text-secondary"
+              <Button
+                variant="ghost"
+                size="xs"
+                class="flex items-center gap-1 text-xs font-medium"
                 onClick={() => setArgsExpanded(!argsExpanded())}
               >
                 <span>{argsExpanded() ? "\u25BE" : "\u25B8"}</span>
                 Arguments
-              </button>
+              </Button>
               <Show when={!isLongArgs() || argsExpanded()}>
                 <pre class="mt-0.5 max-h-48 overflow-auto rounded-cf-sm bg-cf-bg-inset p-2 text-xs">
                   {argsText()}
@@ -146,33 +151,39 @@ export default function ToolCallCard(props: ToolCallCardProps) {
           {/* Result section */}
           <Show when={props.result}>
             <div>
-              <button
-                class="flex items-center gap-1 text-xs font-medium text-cf-text-tertiary hover:text-cf-text-secondary"
+              <Button
+                variant="ghost"
+                size="xs"
+                class="flex items-center gap-1 text-xs font-medium"
                 onClick={() => setResultExpanded(!resultExpanded())}
               >
                 <span>{resultExpanded() ? "\u25BE" : "\u25B8"}</span>
                 Result
-              </button>
+              </Button>
               <Show when={!((props.result?.length ?? 0) > COLLAPSE_THRESHOLD) || resultExpanded()}>
                 <pre class="mt-0.5 max-h-48 overflow-auto rounded-cf-sm bg-cf-bg-inset p-2 text-xs whitespace-pre-wrap break-all">
                   {displayResult()}
                 </pre>
                 <Show when={isLongResult() && !resultFullyShown()}>
-                  <button
-                    class="mt-1 text-xs text-cf-accent hover:underline"
+                  <Button
+                    variant="link"
+                    size="xs"
+                    class="mt-1"
                     onClick={() => setResultFullyShown(true)}
                   >
                     Show more ({((props.result?.length ?? 0) - TRUNCATE_THRESHOLD).toLocaleString()}{" "}
                     more chars)
-                  </button>
+                  </Button>
                 </Show>
                 <Show when={isLongResult() && resultFullyShown()}>
-                  <button
-                    class="mt-1 text-xs text-cf-accent hover:underline"
+                  <Button
+                    variant="link"
+                    size="xs"
+                    class="mt-1"
                     onClick={() => setResultFullyShown(false)}
                   >
                     Show less
-                  </button>
+                  </Button>
                 </Show>
               </Show>
               <Show when={(props.result?.length ?? 0) > COLLAPSE_THRESHOLD && !resultExpanded()}>

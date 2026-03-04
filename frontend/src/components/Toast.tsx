@@ -10,6 +10,7 @@ import {
 import { Portal } from "solid-js/web";
 
 import { useI18n } from "~/i18n";
+import { Button } from "~/ui";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,14 +151,15 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }): JSX.Element 
         {style().icon}
       </span>
       <p class="flex-1 text-sm">{props.toast.message}</p>
-      <button
-        type="button"
-        class="ml-2 text-sm opacity-60 hover:opacity-100"
+      <Button
+        variant="icon"
+        size="xs"
+        class="ml-2"
         onClick={() => props.onDismiss()}
         aria-label={t("toast.dismiss")}
       >
-        &times;
-      </button>
+        {"\u00D7"}
+      </Button>
     </div>
   );
 }

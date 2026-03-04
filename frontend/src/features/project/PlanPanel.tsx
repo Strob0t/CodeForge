@@ -229,14 +229,7 @@ export default function PlanPanel(props: PlanPanelProps) {
   >({});
 
   // Track debate status per step (populated via WS debate.status events)
-  const [debateStatuses, setDebateStatuses] = createSignal<Record<string, DebateStatusEvent>>({});
-
-  /** Update debate status for a step (called from WS event handler). */
-  const setStepDebateStatus = (stepId: string, status: DebateStatusEvent) => {
-    setDebateStatuses((prev) => ({ ...prev, [stepId]: status }));
-  };
-  // Expose for parent WS integration (same pattern as setStepReviewDecision)
-  void setStepDebateStatus;
+  const [debateStatuses] = createSignal<Record<string, DebateStatusEvent>>({});
 
   const setStepReviewDecision = (stepId: string, decision: ReviewDecisionSnapshot) => {
     setReviewDecisions((prev) => ({ ...prev, [stepId]: decision }));

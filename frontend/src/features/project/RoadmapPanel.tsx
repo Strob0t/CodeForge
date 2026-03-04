@@ -536,12 +536,14 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                   <Show
                     when={featureMilestoneId() === m.id}
                     fallback={
-                      <button
-                        class="mt-2 text-xs text-cf-accent hover:underline"
+                      <Button
+                        variant="link"
+                        size="xs"
+                        class="mt-2"
                         onClick={() => setFeatureMilestoneId(m.id)}
                       >
                         {t("roadmap.addFeature")}
-                      </button>
+                      </Button>
                     }
                   >
                     <div class="mt-2 flex gap-2">
@@ -576,12 +578,14 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
             <Show
               when={showMilestoneForm()}
               fallback={
-                <button
-                  class="mt-2 text-sm text-cf-accent hover:underline"
+                <Button
+                  variant="link"
+                  size="sm"
+                  class="mt-2"
                   onClick={() => setShowMilestoneForm(true)}
                 >
                   {t("roadmap.addMilestone")}
-                </button>
+                </Button>
               }
             >
               <div class="mt-2 flex gap-2">

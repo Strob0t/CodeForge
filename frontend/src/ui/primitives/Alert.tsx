@@ -1,5 +1,7 @@
 import { type JSX, Show, splitProps } from "solid-js";
 
+import { Button } from "./Button";
+
 export type AlertVariant = "error" | "warning" | "success" | "info";
 
 export interface AlertProps {
@@ -43,14 +45,15 @@ export function Alert(props: AlertProps): JSX.Element {
       </span>
       <div class="flex-1">{local.children}</div>
       <Show when={local.onDismiss}>
-        <button
-          type="button"
+        <Button
+          variant="icon"
+          size="xs"
           onClick={() => local.onDismiss?.()}
-          class="shrink-0 text-current opacity-60 hover:opacity-100 transition-opacity"
+          class="shrink-0 opacity-60 hover:opacity-100"
           aria-label="Dismiss"
         >
           {"\u2715"}
-        </button>
+        </Button>
       </Show>
     </div>
   );

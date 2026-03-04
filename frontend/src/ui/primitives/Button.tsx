@@ -2,8 +2,8 @@ import { type JSX, Show, splitProps } from "solid-js";
 
 import { Spinner } from "./Spinner";
 
-export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
-export type ButtonSize = "sm" | "md" | "lg";
+export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost" | "link" | "icon" | "pill";
+export type ButtonSize = "xs" | "sm" | "md" | "lg";
 
 export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -21,9 +21,13 @@ const variantClasses: Record<ButtonVariant, string> = {
     "bg-cf-danger text-white hover:opacity-90 focus-visible:ring-2 focus-visible:ring-cf-danger focus-visible:ring-offset-2",
   ghost:
     "text-cf-text-secondary hover:bg-cf-bg-surface-alt focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2",
+  link: "text-cf-accent hover:underline focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2",
+  icon: "text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2",
+  pill: "rounded-full border border-cf-border text-cf-text-secondary hover:border-cf-accent hover:text-cf-accent focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
+  xs: "px-1.5 py-0.5 text-xs rounded-cf-sm",
   sm: "px-2.5 py-1 text-xs rounded-cf-sm",
   md: "px-4 py-2 text-sm rounded-cf-md",
   lg: "px-6 py-3 text-base rounded-cf-lg",
@@ -53,7 +57,8 @@ export function Button(props: ButtonProps): JSX.Element {
         "inline-flex items-center justify-center font-medium transition-colors " +
         variantClasses[variant()] +
         " " +
-        sizeClasses[size()] +
+        (variant() === "icon" ? "p-1 rounded-cf-sm text-sm" : sizeClasses[size()]) +
+        (variant() === "pill" ? " rounded-full" : "") +
         (local.fullWidth ? " w-full" : "") +
         (isDisabled()
           ? " opacity-[var(--cf-disabled-opacity)] cursor-not-allowed"

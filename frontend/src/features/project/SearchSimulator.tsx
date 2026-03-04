@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { GraphSearchHit, RetrievalSearchHit } from "~/api/types";
@@ -34,17 +34,18 @@ export default function SearchSimulator(props: SearchSimulatorProps) {
   const [error, setError] = createSignal("");
   const [expanded, setExpanded] = createSignal<Record<number, boolean>>({});
 
-  const totalTokens = () =>
-    hybridResults().reduce((sum, hit) => sum + estimateTokens(hit.content), 0);
+  const totalTokens = createMemo(() =>
+    hybridResults().reduce((sum, hit) => sum + estimateTokens(hit.content), 0),
+  );
 
-  const resultsWithBudget = () => {
+  const resultsWithBudget = createMemo(() => {
     let running = 0;
     return hybridResults().map((hit) => {
       const tokens = estimateTokens(hit.content);
       running += tokens;
       return { hit, tokens, cumulative: running, withinBudget: running <= tokenBudget() };
     });
-  };
+  });
 
   const handleSearch = async (e: Event) => {
     e.preventDefault();
@@ -292,9 +293,10 @@ export default function SearchSimulator(props: SearchSimulatorProps) {
                   }`}
                 >
                   <div class="flex items-center justify-between">
-                    <button
-                      type="button"
-                      class="flex items-center gap-2 text-sm font-medium text-cf-text-primary hover:text-cf-accent"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="flex items-center gap-2"
                       onClick={() => toggleExpanded(idx())}
                       aria-expanded={!!expanded()[idx()]}
                       aria-label={t("simulator.toggleResult", { path: item.hit.filepath })}
@@ -305,7 +307,7 @@ export default function SearchSimulator(props: SearchSimulatorProps) {
                       <span class="font-mono text-xs">
                         {item.hit.filepath}:{item.hit.start_line}-{item.hit.end_line}
                       </span>
-                    </button>
+                    </Button>
                     <div class="flex items-center gap-2 text-xs">
                       <Show when={item.hit.symbol_name}>
                         <Badge variant="primary">{item.hit.symbol_name}</Badge>

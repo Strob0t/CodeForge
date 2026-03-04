@@ -119,10 +119,13 @@ function renderInline(text: string): string {
     /`([^`]+)`/g,
     '<code class="rounded-cf-sm bg-cf-bg-inset px-1 py-0.5 text-sm">$1</code>',
   );
-  // Links
+  // Links — sanitize URL protocol to prevent javascript: XSS
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" class="text-cf-accent underline hover:opacity-80" target="_blank" rel="noopener noreferrer">$1</a>',
+    (_match: string, text: string, url: string) => {
+      const safeUrl = /^(https?:|mailto:)/i.test(url) ? url : "#";
+      return `<a href="${safeUrl}" class="text-cf-accent underline hover:opacity-80" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    },
   );
   return result;
 }

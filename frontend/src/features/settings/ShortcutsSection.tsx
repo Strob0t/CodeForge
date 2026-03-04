@@ -136,26 +136,26 @@ export function ShortcutsSection(): JSX.Element {
                         />
                       </Show>
                       <Show when={def.configurable}>
-                        <button
-                          type="button"
-                          class="text-xs text-cf-text-muted hover:text-cf-accent transition-colors"
+                        <Button
+                          variant="link"
+                          size="xs"
                           onClick={() => {
                             setConflict(null);
                             setEditingId(editingId() === def.id ? null : def.id);
                           }}
                         >
                           {t("settings.shortcuts.edit")}
-                        </button>
+                        </Button>
                       </Show>
                       <Show when={isCustomized(def)}>
-                        <button
-                          type="button"
-                          class="text-xs text-cf-text-muted hover:text-red-500 transition-colors"
+                        <Button
+                          variant="icon"
+                          size="xs"
                           onClick={() => resetOne(def.id)}
                           title={t("settings.shortcuts.resetOne")}
                         >
                           {"\u21A9"}
-                        </button>
+                        </Button>
                       </Show>
                     </div>
                   </div>

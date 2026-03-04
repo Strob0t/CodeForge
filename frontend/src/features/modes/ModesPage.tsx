@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateModeRequest, Mode } from "~/api/types";
@@ -156,13 +156,13 @@ export default function ModesPage() {
     },
   );
 
-  const sorted = () => {
+  const sorted = createMemo(() => {
     const list = modes() ?? [];
     return [...list].sort((a, b) => {
       if (a.builtin !== b.builtin) return a.builtin ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  };
+  });
 
   return (
     <PageLayout

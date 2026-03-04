@@ -135,9 +135,10 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
                     {tab.modified ? "\u2022 " : ""}
                     {fileName(tab.path)}
                   </span>
-                  <button
-                    type="button"
-                    class="ml-1 text-cf-text-muted hover:text-cf-text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                  <Button
+                    variant="icon"
+                    size="xs"
+                    class="ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation();
                       closeTab(tab.path);
@@ -145,7 +146,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
                     title="Close"
                   >
                     {"\u00D7"}
-                  </button>
+                  </Button>
                 </div>
               )}
             </For>

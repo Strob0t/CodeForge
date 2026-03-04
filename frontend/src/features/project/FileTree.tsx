@@ -2,6 +2,7 @@ import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { FileEntry } from "~/api/types";
+import { Button } from "~/ui";
 
 export interface FileTreeProps {
   projectId: string;
@@ -70,10 +71,12 @@ function TreeNode(props: TreeNodeProps): JSX.Element {
 
   return (
     <div>
-      <button
-        type="button"
-        class={`flex items-center gap-1 w-full text-left px-1 py-0.5 text-sm rounded hover:bg-cf-bg-surface-alt transition-colors ${
-          isSelected() ? "bg-cf-accent/15 text-cf-accent" : "text-cf-text-secondary"
+      <Button
+        variant="ghost"
+        size="xs"
+        fullWidth
+        class={`flex items-center gap-1 text-left px-1 py-0.5 ${
+          isSelected() ? "bg-cf-accent/15 text-cf-accent" : ""
         }`}
         style={{ "padding-left": `${props.depth * 16 + 4}px` }}
         onClick={toggle}
@@ -89,7 +92,7 @@ function TreeNode(props: TreeNodeProps): JSX.Element {
         </Show>
         <span class="text-xs select-none">{fileIcon(props.entry.name, props.entry.is_dir)}</span>
         <span class="truncate">{props.entry.name}</span>
-      </button>
+      </Button>
 
       <Show when={expanded() && children()}>
         <div>

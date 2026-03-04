@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { BenchmarkCompareResult, BenchmarkResult, BenchmarkRun } from "~/api/types";
@@ -73,7 +73,7 @@ export function BenchmarkCompare(props: BenchmarkCompareProps) {
 function CompareResultsTable(props: { result: BenchmarkCompareResult }) {
   const { t } = useI18n();
 
-  const metricNames = () => {
+  const metricNames = createMemo(() => {
     const names = new Set<string>();
     for (const r of [...props.result.results_a, ...props.result.results_b]) {
       for (const key of Object.keys(r.scores)) {
@@ -81,7 +81,7 @@ function CompareResultsTable(props: { result: BenchmarkCompareResult }) {
       }
     }
     return [...names].sort();
-  };
+  });
 
   const avgScore = (results: BenchmarkResult[], metric: string): string => {
     const vals = results.map((r) => r.scores[metric]).filter((v) => v !== undefined);

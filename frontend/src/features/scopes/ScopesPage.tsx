@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type {
@@ -111,10 +111,10 @@ export default function ScopesPage() {
     }
   };
 
-  const sorted = () => {
+  const sorted = createMemo(() => {
     const list = scopes() ?? [];
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
-  };
+  });
 
   return (
     <PageLayout
@@ -176,17 +176,16 @@ export default function ScopesPage() {
                       {(proj) => {
                         const selected = () => formProjects().includes(proj.id);
                         return (
-                          <button
-                            type="button"
-                            class={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                              selected()
-                                ? "border-cf-accent bg-cf-accent/10 text-cf-accent"
-                                : "border-cf-border text-cf-text-tertiary hover:border-cf-border-input"
-                            }`}
+                          <Button
+                            variant="pill"
+                            size="xs"
+                            class={
+                              selected() ? "border-cf-accent bg-cf-accent/10 text-cf-accent" : ""
+                            }
                             onClick={() => toggleProject(proj.id)}
                           >
                             {proj.name}
-                          </button>
+                          </Button>
                         );
                       }}
                     </For>
@@ -408,13 +407,13 @@ function ScopeDetail(props: {
             <div class="mt-3 flex flex-wrap gap-1">
               <For each={props.availableProjects}>
                 {(proj) => (
-                  <button
-                    type="button"
-                    class="rounded-full border border-cf-border px-2 py-0.5 text-xs text-cf-text-tertiary hover:border-cf-accent hover:text-cf-accent"
+                  <Button
+                    variant="pill"
+                    size="xs"
                     onClick={() => props.onAddProject(props.scope.id, proj.id)}
                   >
                     + {proj.name}
-                  </button>
+                  </Button>
                 )}
               </For>
             </div>
@@ -445,13 +444,9 @@ function ScopeDetail(props: {
             <div class="mt-3 flex flex-wrap gap-1">
               <For each={attachableKbs()}>
                 {(kb) => (
-                  <button
-                    type="button"
-                    class="rounded-full border border-cf-border px-2 py-0.5 text-xs text-cf-text-tertiary hover:border-cf-accent hover:text-cf-accent"
-                    onClick={() => handleAttachKB(kb.id)}
-                  >
+                  <Button variant="pill" size="xs" onClick={() => handleAttachKB(kb.id)}>
                     + {kb.name}
-                  </button>
+                  </Button>
                 )}
               </For>
             </div>

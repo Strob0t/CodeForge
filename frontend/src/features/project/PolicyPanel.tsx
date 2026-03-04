@@ -301,15 +301,17 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               <For each={profiles()?.profiles ?? []}>
                 {(name) => (
                   <div class="flex items-center justify-between rounded-cf-sm px-3 py-2 hover:bg-cf-bg-surface-alt">
-                    <button
-                      class="flex items-center gap-2 text-sm font-medium text-cf-text-primary"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="flex items-center gap-2"
                       onClick={() => handleSelect(name)}
                     >
                       <span>{name}</span>
                       <Badge variant={PRESET_NAMES.has(name) ? "info" : "default"}>
                         {PRESET_NAMES.has(name) ? t("policy.preset") : t("policy.custom")}
                       </Badge>
-                    </button>
+                    </Button>
                     <Show when={!PRESET_NAMES.has(name)}>
                       <Button
                         variant="ghost"

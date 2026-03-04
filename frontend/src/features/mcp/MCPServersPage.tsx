@@ -632,44 +632,42 @@ function MCPServerToolsPanel(props: { server: MCPServer }) {
   };
 
   return (
-    <Show when={true}>
-      <div class="mt-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleToggleTools}
-          aria-label={
-            showTools()
-              ? t("mcp.tools.hideToolsAria", { name: props.server.name })
-              : t("mcp.tools.showToolsAria", { name: props.server.name })
-          }
-        >
-          {showTools()
-            ? t("mcp.tools.hideTools") + " - " + props.server.name
-            : t("mcp.tools.showTools") + " - " + props.server.name}
-        </Button>
-        <Show when={showTools()}>
-          <Card class="mt-2">
-            <Card.Body>
-              <h4 class="mb-2 text-sm font-medium text-cf-text-secondary">{t("mcp.tools")}</h4>
-              <Show when={toolsLoading()}>
-                <LoadingState message={t("mcp.tools.loading")} />
+    <div class="mt-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleToggleTools}
+        aria-label={
+          showTools()
+            ? t("mcp.tools.hideToolsAria", { name: props.server.name })
+            : t("mcp.tools.showToolsAria", { name: props.server.name })
+        }
+      >
+        {showTools()
+          ? t("mcp.tools.hideTools") + " - " + props.server.name
+          : t("mcp.tools.showTools") + " - " + props.server.name}
+      </Button>
+      <Show when={showTools()}>
+        <Card class="mt-2">
+          <Card.Body>
+            <h4 class="mb-2 text-sm font-medium text-cf-text-secondary">{t("mcp.tools")}</h4>
+            <Show when={toolsLoading()}>
+              <LoadingState message={t("mcp.tools.loading")} />
+            </Show>
+            <Show when={!toolsLoading()}>
+              <Show
+                when={(tools() ?? []).length > 0}
+                fallback={<EmptyState title={t("mcp.tools.empty")} />}
+              >
+                <div class="space-y-2">
+                  <For each={tools() ?? []}>{(tool) => <ToolCard tool={tool} />}</For>
+                </div>
               </Show>
-              <Show when={!toolsLoading()}>
-                <Show
-                  when={(tools() ?? []).length > 0}
-                  fallback={<EmptyState title={t("mcp.tools.empty")} />}
-                >
-                  <div class="space-y-2">
-                    <For each={tools() ?? []}>{(tool) => <ToolCard tool={tool} />}</For>
-                  </div>
-                </Show>
-              </Show>
-            </Card.Body>
-          </Card>
-        </Show>
-      </div>
-    </Show>
+            </Show>
+          </Card.Body>
+        </Card>
+      </Show>
+    </div>
   );
 }
 

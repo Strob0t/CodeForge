@@ -12,7 +12,7 @@ export interface CheckboxProps extends Omit<
 export function Checkbox(props: CheckboxProps): JSX.Element {
   const [local, rest] = splitProps(props, ["checked", "onChange", "label", "class"]);
 
-  const input = (
+  const InputEl = (): JSX.Element => (
     <input
       {...rest}
       type="checkbox"
@@ -27,9 +27,9 @@ export function Checkbox(props: CheckboxProps): JSX.Element {
   );
 
   return (
-    <Show when={local.label} fallback={input}>
+    <Show when={local.label} fallback={<InputEl />}>
       <label class="inline-flex cursor-pointer items-center gap-1.5 text-sm">
-        {input}
+        <InputEl />
         {local.label}
       </label>
     </Show>

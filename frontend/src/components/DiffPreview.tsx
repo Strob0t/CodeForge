@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 
 import { useI18n } from "~/i18n";
+import { Button } from "~/ui";
 
 interface DiffLine {
   type: "add" | "remove" | "context" | "header";
@@ -108,9 +109,11 @@ export function DiffPreview(props: DiffPreviewProps) {
           {(file, idx) => (
             <div class="border-b border-cf-border last:border-b-0">
               {/* File header */}
-              <button
-                type="button"
-                class="flex w-full items-center gap-2 bg-cf-bg-surface-alt px-3 py-2 text-left text-xs hover:bg-cf-bg-inset"
+              <Button
+                variant="ghost"
+                size="sm"
+                fullWidth
+                class="flex items-center gap-2 bg-cf-bg-surface-alt px-3 py-2 text-left text-xs"
                 onClick={() => toggleFile(idx())}
                 aria-expanded={!collapsed()[idx()]}
               >
@@ -121,7 +124,7 @@ export function DiffPreview(props: DiffPreviewProps) {
                 <span class="text-cf-success">+{addCount(file)}</span>
                 <span class="text-cf-danger">-{removeCount(file)}</span>
                 <span class="text-cf-text-muted">{collapsed()[idx()] ? "\u25B6" : "\u25BC"}</span>
-              </button>
+              </Button>
 
               {/* Hunks */}
               <Show when={!collapsed()[idx()]}>

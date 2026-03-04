@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateKnowledgeBaseRequest, KnowledgeBase } from "~/api/types";
@@ -94,10 +94,10 @@ export default function KnowledgeBasesPage() {
     },
   );
 
-  const sorted = () => {
+  const sorted = createMemo(() => {
     const list = kbs() ?? [];
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
-  };
+  });
 
   return (
     <PageLayout

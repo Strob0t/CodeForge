@@ -1,5 +1,13 @@
 import { useNavigate } from "@solidjs/router";
-import { createContext, createEffect, createSignal, type JSX, onMount, useContext } from "solid-js";
+import {
+  createContext,
+  createEffect,
+  createSignal,
+  type JSX,
+  onCleanup,
+  onMount,
+  useContext,
+} from "solid-js";
 
 import { clearCache } from "~/api/cache";
 import { api, setAccessTokenGetter } from "~/api/client";
@@ -37,13 +45,20 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
     setAccessTokenGetter(() => token);
   });
 
+  let refreshTimerId: ReturnType<typeof setTimeout> | undefined;
+
   const scheduleRefresh = (expiresIn: number): void => {
+    if (refreshTimerId !== undefined) clearTimeout(refreshTimerId);
     // Refresh 60s before expiry, minimum 10s.
     const delay = Math.max((expiresIn - 60) * 1000, 10_000);
-    setTimeout(() => {
+    refreshTimerId = setTimeout(() => {
       void refreshTokens();
     }, delay);
   };
+
+  onCleanup(() => {
+    if (refreshTimerId !== undefined) clearTimeout(refreshTimerId);
+  });
 
   const refreshTokens = async (): Promise<boolean> => {
     try {
@@ -81,6 +96,7 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
   };
 
   const logout = async (): Promise<void> => {
+    if (refreshTimerId !== undefined) clearTimeout(refreshTimerId);
     try {
       await api.auth.logout();
     } finally {

@@ -3,7 +3,7 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { ActiveWorkItem } from "~/api/types";
 import { createCodeForgeWS } from "~/api/websocket";
-import { Badge } from "~/ui";
+import { Badge, Button } from "~/ui";
 
 interface Props {
   projectId: string;
@@ -57,9 +57,11 @@ export default function ActiveWorkPanel(props: Props) {
   return (
     <Show when={count() > 0}>
       <div class="border-b border-cf-border bg-cf-bg-secondary/50">
-        <button
-          type="button"
-          class="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-cf-bg-tertiary/30 transition-colors"
+        <Button
+          variant="ghost"
+          size="sm"
+          fullWidth
+          class="flex items-center justify-between px-4 py-2 text-left"
           onClick={() => setCollapsed((v) => !v)}
         >
           <div class="flex items-center gap-2">
@@ -79,7 +81,7 @@ export default function ActiveWorkPanel(props: Props) {
           >
             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
-        </button>
+        </Button>
 
         <Show when={!collapsed()}>
           <div class="px-4 pb-2 space-y-1">
