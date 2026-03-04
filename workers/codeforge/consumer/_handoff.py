@@ -31,6 +31,12 @@ class HandoffHandlerMixin:
                 source_run=source_run,
                 target_mode=target_mode,
             )
+
+            if self._is_duplicate(f"handoff-{source_run}-{target_agent}"):
+                log.warning("duplicate handoff request, skipping")
+                await msg.ack()
+                return
+
             log.info("received handoff request")
 
             handoff_context = f"[Handoff from run {source_run}]\n\n{context_msg}"

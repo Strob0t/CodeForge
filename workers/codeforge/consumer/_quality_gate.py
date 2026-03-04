@@ -23,6 +23,12 @@ class QualityGateHandlerMixin:
         try:
             request = QualityGateRequest.model_validate_json(msg.data)
             log = logger.bind(run_id=request.run_id)
+
+            if self._is_duplicate(f"qgate-{request.run_id}"):
+                log.warning("duplicate quality gate request, skipping")
+                await msg.ack()
+                return
+
             log.info("received quality gate request")
 
             result: QualityGateResult = await self._gate_executor.execute(request)

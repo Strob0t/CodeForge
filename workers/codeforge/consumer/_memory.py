@@ -23,6 +23,12 @@ class MemoryHandlerMixin:
 
             req = MemoryStoreRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=req.project_id, kind=req.kind)
+
+            if self._is_duplicate(f"memstore-{req.project_id}-{req.run_id}-{req.kind.value}"):
+                log.warning("duplicate memory store request, skipping")
+                await msg.ack()
+                return
+
             log.info("received memory store request")
 
             embedding = None
@@ -71,6 +77,12 @@ class MemoryHandlerMixin:
 
             req = MemoryRecallRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=req.project_id, top_k=req.top_k)
+
+            if self._is_duplicate(f"memrecall-{req.project_id}-{req.query[:32]}"):
+                log.warning("duplicate memory recall request, skipping")
+                await msg.ack()
+                return
+
             log.info("received memory recall request")
 
             import numpy as np

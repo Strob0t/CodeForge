@@ -68,6 +68,12 @@ class BenchmarkHandlerMixin:
             req = BenchmarkRunRequest.model_validate_json(msg.data)
             benchmark_type = req.benchmark_type or "simple"
             log = log.bind(run_id=req.run_id, benchmark_type=benchmark_type, model=req.model)
+
+            if self._is_duplicate(f"bench-{req.run_id}"):
+                log.warning("duplicate benchmark run, skipping")
+                await msg.ack()
+                return
+
             log.info("benchmark run started")
 
             start = time.monotonic()
@@ -132,6 +138,12 @@ class BenchmarkHandlerMixin:
         try:
             request = GemmasEvalRequest.model_validate_json(msg.data)
             log = logger.bind(plan_id=request.plan_id)
+
+            if self._is_duplicate(f"gemmas-{request.plan_id}"):
+                log.warning("duplicate GEMMAS evaluation, skipping")
+                await msg.ack()
+                return
+
             log.info("received GEMMAS evaluation request", messages=len(request.messages))
 
             embed_fn = self._build_embed_fn()

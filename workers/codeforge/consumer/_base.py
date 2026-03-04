@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import structlog
 
@@ -23,6 +23,27 @@ class ConsumerBaseMixin:
     _js: JetStreamContext | None
     _litellm_url: str
     _litellm_key: str
+
+    # Shared idempotency guard: tracks processed message IDs to skip redeliveries.
+    _processed_ids: ClassVar[set[str]] = set()
+    _processed_ids_max = 10_000
+
+    @classmethod
+    def _is_duplicate(cls, msg_id: str) -> bool:
+        """Return True if *msg_id* was already processed (and mark it as processed)."""
+        if msg_id in cls._processed_ids:
+            return True
+        cls._processed_ids.add(msg_id)
+        if len(cls._processed_ids) > cls._processed_ids_max:
+            # Evict oldest half (set is unordered, good enough for dedup).
+            to_remove = list(cls._processed_ids)[: cls._processed_ids_max // 2]
+            cls._processed_ids -= set(to_remove)
+        return False
+
+    @classmethod
+    def _clear_processed(cls, msg_id: str) -> None:
+        """Remove a message ID so it can be reprocessed (e.g. after a failure)."""
+        cls._processed_ids.discard(msg_id)
 
     @staticmethod
     def _retry_count(msg: nats.aio.msg.Msg) -> int:

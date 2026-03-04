@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -253,8 +252,8 @@ func (s *AutoAgentService) processFeature(
 	return nil
 }
 
-// waitForCompletion subscribes to the conversation.run.complete subject
-// and waits for the run to finish or timeout.
+// waitForCompletion waits for the conversation run to finish via the
+// ConversationService's in-process waiter (no duplicate NATS subscription).
 func (s *AutoAgentService) waitForCompletion(
 	ctx context.Context,
 	conversationID string,
@@ -264,47 +263,20 @@ func (s *AutoAgentService) waitForCompletion(
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	done := make(chan error, 1)
-
-	unsub, err := s.queue.Subscribe(timeoutCtx, messagequeue.SubjectConversationRunComplete,
-		func(_ context.Context, _ string, data []byte) error {
-			var msg struct {
-				ConversationID string  `json:"conversation_id"`
-				Status         string  `json:"status"`
-				Error          string  `json:"error"`
-				CostUSD        float64 `json:"cost_usd"`
-			}
-			if err := json.Unmarshal(data, &msg); err != nil {
-				return nil // Ignore malformed messages.
-			}
-			if msg.ConversationID != conversationID {
-				return nil // Not our conversation.
-			}
-
-			aa.TotalCostUSD += msg.CostUSD
-
-			if msg.Status == "failed" {
-				done <- fmt.Errorf("conversation run failed: %s", msg.Error)
-			} else {
-				done <- nil
-			}
-			return nil
-		},
-	)
+	result, err := s.conversations.WaitForCompletion(timeoutCtx, conversationID)
 	if err != nil {
-		return fmt.Errorf("subscribe: %w", err)
-	}
-	defer unsub()
-
-	select {
-	case err := <-done:
-		return err
-	case <-timeoutCtx.Done():
-		if errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("feature timed out after %d minutes", autoagent.FeatureTimeoutMinutes)
 		}
-		return timeoutCtx.Err()
+		return err
 	}
+
+	aa.TotalCostUSD += result.CostUSD
+
+	if result.Status == "failed" {
+		return fmt.Errorf("conversation run failed: %s", result.Error)
+	}
+	return nil
 }
 
 // pendingFeatures returns all features with backlog or planned status.

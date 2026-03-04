@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"text/template"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -57,6 +58,13 @@ type builtinToolSummary struct {
 	Description string
 }
 
+// CompletionResult carries the outcome of an agentic conversation run.
+type CompletionResult struct {
+	Status  string
+	Error   string
+	CostUSD float64
+}
+
 // ConversationService manages conversations and LLM interactions.
 type ConversationService struct {
 	db            database.Store
@@ -73,6 +81,15 @@ type ConversationService struct {
 	agentCfg      *config.Agent
 	routingCfg    *config.Routing
 	metrics       *cfotel.Metrics
+
+	// processedRuns guards HandleConversationRunComplete against duplicate delivery.
+	processedRuns   map[string]struct{}
+	processedRunsMu sync.Mutex
+
+	// completionWaiters allows in-process consumers (e.g. autoagent) to wait for
+	// a conversation run to finish without creating a second NATS subscription.
+	completionWaiters   map[string]chan CompletionResult
+	completionWaitersMu sync.Mutex
 }
 
 // NewConversationService creates a new ConversationService.
@@ -83,7 +100,15 @@ func NewConversationService(
 	defaultModel string,
 	modeSvc *ModeService,
 ) *ConversationService {
-	return &ConversationService{db: db, llm: llm, hub: hub, model: defaultModel, modeSvc: modeSvc}
+	return &ConversationService{
+		db:                db,
+		llm:               llm,
+		hub:               hub,
+		model:             defaultModel,
+		modeSvc:           modeSvc,
+		processedRuns:     make(map[string]struct{}),
+		completionWaiters: make(map[string]chan CompletionResult),
+	}
 }
 
 // SetQueue configures the NATS queue for agentic message dispatch.

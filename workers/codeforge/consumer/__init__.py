@@ -44,6 +44,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_RETRIEVAL_SEARCH_REQUEST,
     SUBJECT_RUN_START,
     SUBJECT_SUBAGENT_SEARCH_REQUEST,
+    consumer_name,
 )
 from codeforge.consumer._tasks import TaskHandlerMixin
 from codeforge.executor import AgentExecutor
@@ -144,8 +145,15 @@ class TaskConsumer(
 
         loops = []
         for subject, handler in subscriptions:
-            sub = await self._js.subscribe(subject, stream=STREAM_NAME, manual_ack=True)
-            logger.info("subscribed", subject=subject)
+            name = consumer_name(subject)
+            sub = await self._js.subscribe(
+                subject,
+                stream=STREAM_NAME,
+                durable=name,
+                queue="codeforge-py",
+                manual_ack=True,
+            )
+            logger.info("subscribed", subject=subject, durable=name)
             loops.append(self._message_loop(sub, handler, subject))
 
         await asyncio.gather(*loops)
@@ -157,15 +165,29 @@ class TaskConsumer(
         label: str,
     ) -> None:
         """Generic message processing loop shared by all subscriptions."""
+        consecutive_errors = 0
+        max_consecutive_errors = 10
         while self._running:
             try:
                 msg = await asyncio.wait_for(sub.next_msg(), timeout=1.0)  # type: ignore[union-attr]
+                consecutive_errors = 0
             except TimeoutError:
                 continue
             except Exception as exc:
-                if self._running:
-                    logger.exception("error receiving message", subject=label, error=str(exc))
-                break
+                if not self._running:
+                    break
+                consecutive_errors += 1
+                logger.exception(
+                    "error receiving message",
+                    subject=label,
+                    error=str(exc),
+                    consecutive_errors=consecutive_errors,
+                )
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error("too many consecutive errors, stopping loop", subject=label)
+                    break
+                await asyncio.sleep(min(consecutive_errors * 0.5, 5.0))
+                continue
 
             await handler(msg)
 

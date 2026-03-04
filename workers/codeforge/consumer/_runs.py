@@ -23,6 +23,12 @@ class RunHandlerMixin:
         try:
             run_msg = RunStartMessage.model_validate_json(msg.data)
             log = logger.bind(run_id=run_msg.run_id, task_id=run_msg.task_id)
+
+            if self._is_duplicate(f"run-{run_msg.run_id}"):
+                log.warning("duplicate run start message, skipping")
+                await msg.ack()
+                return
+
             log.info("received run start", prompt=run_msg.prompt[:80])
 
             if self._js is None:

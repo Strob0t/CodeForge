@@ -23,6 +23,12 @@ class RepoMapHandlerMixin:
         try:
             request = RepoMapRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=request.project_id)
+
+            if self._is_duplicate(f"repomap-{request.project_id}"):
+                log.warning("duplicate repomap request, skipping")
+                await msg.ack()
+                return
+
             log.info("received repomap request", workspace=request.workspace_path)
 
             self._repomap_generator._token_budget = request.token_budget

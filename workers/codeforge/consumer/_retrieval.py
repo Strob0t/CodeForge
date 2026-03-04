@@ -34,6 +34,12 @@ class RetrievalHandlerMixin:
         try:
             request = RetrievalIndexRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=request.project_id)
+
+            if self._is_duplicate(f"retidx-{request.project_id}"):
+                log.warning("duplicate retrieval index request, skipping")
+                await msg.ack()
+                return
+
             log.info("received retrieval index request", workspace=request.workspace_path)
 
             status = await self._retriever.build_index(
@@ -78,6 +84,12 @@ class RetrievalHandlerMixin:
         try:
             request = RetrievalSearchRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
+
+            if self._is_duplicate(f"retsearch-{request.request_id}"):
+                log.warning("duplicate retrieval search request, skipping")
+                await msg.ack()
+                return
+
             log.info("received retrieval search request", query=request.query[:80])
 
             hits = await self._retriever.search(
@@ -118,6 +130,12 @@ class RetrievalHandlerMixin:
         try:
             request = SubAgentSearchRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
+
+            if self._is_duplicate(f"subagent-{request.request_id}"):
+                log.warning("duplicate subagent search request, skipping")
+                await msg.ack()
+                return
+
             log.info("received subagent search request", query=request.query[:80])
 
             hits, expanded_queries, total_candidates = await self._subagent.search(

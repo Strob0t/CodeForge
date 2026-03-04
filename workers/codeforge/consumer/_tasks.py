@@ -33,6 +33,12 @@ class TaskHandlerMixin:
 
             backend_name = msg.subject.rsplit(".", 1)[-1] if msg.subject else "unknown"
             log = log.bind(task_id=task.id, backend=backend_name)
+
+            if self._is_duplicate(f"task-{task.id}"):
+                log.warning("duplicate task message, skipping")
+                await msg.ack()
+                return
+
             log.info("received task", title=task.title)
 
             await self._publish_output(task.id, f"Starting task: {task.title}", "stdout", request_id)

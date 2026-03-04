@@ -28,6 +28,12 @@ class GraphHandlerMixin:
         try:
             request = GraphBuildRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=request.project_id, scope_id=request.scope_id)
+
+            if self._is_duplicate(f"graphbuild-{request.project_id}-{request.scope_id}"):
+                log.warning("duplicate graph build request, skipping")
+                await msg.ack()
+                return
+
             log.info("received graph build request", workspace=request.workspace_path)
 
             result: GraphBuildResult = await self._graph_builder.build_graph(
@@ -59,6 +65,12 @@ class GraphHandlerMixin:
         try:
             request = GraphSearchRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
+
+            if self._is_duplicate(f"graphsearch-{request.request_id}"):
+                log.warning("duplicate graph search request, skipping")
+                await msg.ack()
+                return
+
             log.info("received graph search request", seeds=request.seed_symbols)
 
             hits = await self._graph_searcher.search(

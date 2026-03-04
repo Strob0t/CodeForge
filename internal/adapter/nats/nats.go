@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -125,9 +126,16 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 // Messages are validated against known schemas before processing.
 // Failed messages are retried up to maxRetries times, then moved to a DLQ.
 func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequeue.Handler) (func(), error) {
+	name := sanitizeConsumerName("codeforge-go-", subject)
 	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
-		FilterSubject: subject,
-		AckPolicy:     jetstream.AckExplicitPolicy,
+		Name:              name,
+		Durable:           name,
+		FilterSubject:     subject,
+		AckPolicy:         jetstream.AckExplicitPolicy,
+		DeliverGroup:      "codeforge-go",
+		AckWait:           30 * time.Second,
+		MaxDeliver:        maxRetries + 1,
+		InactiveThreshold: 5 * time.Minute,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("nats consumer create: %w", err)
@@ -213,6 +221,12 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
 	}
 }
 
+// sanitizeConsumerName builds a deterministic durable consumer name from a subject.
+func sanitizeConsumerName(prefix, subject string) string {
+	r := strings.NewReplacer(".", "-", "*", "all", ">", "all")
+	return prefix + r.Replace(subject)
+}
+
 func retryCount(hdrs nats.Header) int {
 	if hdrs == nil {
 		return 0
@@ -233,7 +247,7 @@ func (q *Queue) Drain() error {
 	}
 	// nc.Drain() is async — wait for the connection to actually close.
 	for q.nc.IsConnected() {
-		// Spin briefly; Drain closes the connection after flushing.
+		time.Sleep(10 * time.Millisecond)
 	}
 	return nil
 }

@@ -71,3 +71,8 @@ SUBJECT_HANDOFF_REQUEST = "handoff.request"
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"
 MAX_RETRIES = 3
+
+
+def consumer_name(subject: str) -> str:
+    """Build a deterministic durable consumer name from a NATS subject."""
+    return "codeforge-py-" + subject.replace(".", "-").replace("*", "all").replace(">", "all")

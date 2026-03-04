@@ -329,6 +329,19 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		return fmt.Errorf("unmarshal conversation run complete: %w", err)
 	}
 
+	// Idempotency guard — skip duplicate deliveries.
+	s.processedRunsMu.Lock()
+	if _, seen := s.processedRuns[payload.RunID]; seen {
+		s.processedRunsMu.Unlock()
+		slog.Warn("duplicate conversation run complete, skipping",
+			"run_id", payload.RunID,
+			"conversation_id", payload.ConversationID,
+		)
+		return nil
+	}
+	s.processedRuns[payload.RunID] = struct{}{}
+	s.processedRunsMu.Unlock()
+
 	slog.Info("conversation run complete received",
 		"run_id", payload.RunID,
 		"conversation_id", payload.ConversationID,
@@ -404,7 +417,40 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		Error:  payload.Error,
 	})
 
+	// Notify in-process waiters (e.g. autoagent).
+	s.completionWaitersMu.Lock()
+	if ch, ok := s.completionWaiters[payload.ConversationID]; ok {
+		ch <- CompletionResult{
+			Status:  payload.Status,
+			Error:   payload.Error,
+			CostUSD: payload.CostUSD,
+		}
+	}
+	s.completionWaitersMu.Unlock()
+
 	return nil
+}
+
+// WaitForCompletion blocks until the conversation run finishes or the context is cancelled.
+func (s *ConversationService) WaitForCompletion(ctx context.Context, conversationID string) (CompletionResult, error) {
+	ch := make(chan CompletionResult, 1)
+
+	s.completionWaitersMu.Lock()
+	s.completionWaiters[conversationID] = ch
+	s.completionWaitersMu.Unlock()
+
+	defer func() {
+		s.completionWaitersMu.Lock()
+		delete(s.completionWaiters, conversationID)
+		s.completionWaitersMu.Unlock()
+	}()
+
+	select {
+	case result := <-ch:
+		return result, nil
+	case <-ctx.Done():
+		return CompletionResult{}, ctx.Err()
+	}
 }
 
 // StopConversation cancels an active agentic run by publishing a cancel message to NATS.
