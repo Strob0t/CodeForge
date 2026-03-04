@@ -69,10 +69,21 @@ def test_build_messages_with_context() -> None:
 def test_build_messages_truncates_tool_results() -> None:
     mgr = ConversationHistoryManager(HistoryConfig(tool_output_max_chars=50))
     history = [
+        ConversationMessagePayload(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="read_file", arguments="{}"),
+                ),
+            ],
+        ),
         ConversationMessagePayload(role="tool", content="X" * 200, tool_call_id="c1", name="read_file"),
     ]
     msgs = mgr.build_messages("system", history)
-    tool_msg = msgs[1]
+    tool_msg = msgs[2]
     content = tool_msg["content"]
     assert isinstance(content, str)
     assert len(content) < 200
@@ -138,3 +149,97 @@ def test_build_messages_empty_history() -> None:
     msgs = mgr.build_messages("prompt", [])
     assert len(msgs) == 1
     assert msgs[0]["role"] == "system"
+
+
+# --- Sanitize tool pairing tests ---
+
+
+def test_sanitize_paired_messages_unchanged() -> None:
+    """Properly paired tool_calls and results are not modified."""
+    mgr = ConversationHistoryManager()
+    history = [
+        ConversationMessagePayload(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="read_file", arguments="{}"),
+                ),
+            ],
+        ),
+        ConversationMessagePayload(role="tool", content="ok", tool_call_id="c1", name="read_file"),
+        ConversationMessagePayload(role="assistant", content="Done"),
+    ]
+    msgs = mgr.build_messages("sys", history)
+    # system + assistant(tool_calls) + tool + assistant
+    assert len(msgs) == 4
+    assert "tool_calls" in msgs[1]
+    assert msgs[2]["role"] == "tool"
+
+
+def test_sanitize_removes_orphaned_tool_result() -> None:
+    """Tool result without a matching assistant tool_call is removed."""
+    mgr = ConversationHistoryManager()
+    history = [
+        ConversationMessagePayload(role="user", content="hi"),
+        ConversationMessagePayload(role="tool", content="orphaned", tool_call_id="missing_id", name="bash"),
+        ConversationMessagePayload(role="assistant", content="ok"),
+    ]
+    msgs = mgr.build_messages("sys", history)
+    roles = [m["role"] for m in msgs]
+    assert "tool" not in roles
+
+
+def test_sanitize_filters_unmatched_tool_calls() -> None:
+    """Assistant tool_calls without matching results are stripped."""
+    mgr = ConversationHistoryManager()
+    history = [
+        ConversationMessagePayload(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="read_file", arguments="{}"),
+                ),
+                ConversationToolCallPayload(
+                    id="c2",
+                    type="function",
+                    function=ConversationToolCallFunction(name="bash", arguments="{}"),
+                ),
+            ],
+        ),
+        # Only c1 has a result, c2 is missing.
+        ConversationMessagePayload(role="tool", content="file contents", tool_call_id="c1", name="read_file"),
+        ConversationMessagePayload(role="assistant", content="Done"),
+    ]
+    msgs = mgr.build_messages("sys", history)
+    assistant_msg = msgs[1]
+    # Only c1 should survive.
+    assert len(assistant_msg["tool_calls"]) == 1
+    assert assistant_msg["tool_calls"][0]["id"] == "c1"
+
+
+def test_sanitize_removes_all_tool_calls_when_no_results() -> None:
+    """When no tool results exist, tool_calls key is removed entirely."""
+    mgr = ConversationHistoryManager()
+    history = [
+        ConversationMessagePayload(
+            role="assistant",
+            content="thinking",
+            tool_calls=[
+                ConversationToolCallPayload(
+                    id="c1",
+                    type="function",
+                    function=ConversationToolCallFunction(name="bash", arguments="{}"),
+                ),
+            ],
+        ),
+        ConversationMessagePayload(role="assistant", content="ok"),
+    ]
+    msgs = mgr.build_messages("sys", history)
+    # The first assistant message should have tool_calls removed.
+    assert "tool_calls" not in msgs[1]

@@ -108,6 +108,7 @@ class ConversationHistoryManager:
             remaining -= msg_tokens
 
         result = [system_msg, *included_head, *tail]
+        result = self._sanitize_tool_pairing(result)
         total_tokens = system_tokens + sum(self._msg_tokens(m) for m in included_head) + tail_tokens
         logger.debug(
             "history assembled: %d messages, ~%d tokens (budget %d)",
@@ -160,6 +161,47 @@ class ConversationHistoryManager:
             d["name"] = msg.name
 
         return d
+
+    def _sanitize_tool_pairing(self, messages: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Ensure every tool_call has a matching tool result and vice versa.
+
+        Strict providers like Mistral reject messages where the count of
+        tool_calls does not match the count of tool result messages.  This
+        can happen when head-and-tail truncation splits a tool-call group
+        or when the DB contains incomplete sequences.
+        """
+        # 1. Collect tool_call_ids present in tool result messages.
+        result_ids: set[str] = set()
+        for m in messages:
+            if m.get("role") == "tool":
+                tcid = m.get("tool_call_id")
+                if isinstance(tcid, str) and tcid:
+                    result_ids.add(tcid)
+
+        # 2. Filter assistant tool_calls to only those with matching results.
+        call_ids: set[str] = set()
+        for m in messages:
+            if m.get("role") != "assistant" or not m.get("tool_calls"):
+                continue
+            tcs = m["tool_calls"]
+            if not isinstance(tcs, list):
+                continue
+            kept = [tc for tc in tcs if isinstance(tc, dict) and tc.get("id") in result_ids]
+            if kept:
+                m["tool_calls"] = kept
+                call_ids.update(tc["id"] for tc in kept)
+            else:
+                del m["tool_calls"]
+
+        # 3. Remove orphaned tool result messages.
+        original_len = len(messages)
+        messages = [m for m in messages if not (m.get("role") == "tool" and m.get("tool_call_id") not in call_ids)]
+
+        removed = original_len - len(messages)
+        if removed:
+            logger.warning("sanitize_tool_pairing removed %d orphaned messages", removed)
+
+        return messages
 
     def _msg_tokens(self, msg: dict[str, object]) -> int:
         """Estimate token count for a single message dict."""

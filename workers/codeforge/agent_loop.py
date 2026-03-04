@@ -276,10 +276,15 @@ class AgentLoopExecutor:
         state.tool_messages.append(assistant_msg)
         messages.append(_payload_to_dict(assistant_msg))
 
-        for tc in response.tool_calls:
+        for i, tc in enumerate(response.tool_calls):
             state.step_count += 1
             await self._execute_tool_call(tc, messages, state)
             if self._runtime.is_cancelled:
+                # Append placeholder results for remaining tool calls so the
+                # message history stays balanced (required by strict providers
+                # like Mistral).
+                for remaining_tc in response.tool_calls[i + 1 :]:
+                    self._append_tool_result(remaining_tc, "Cancelled", messages, state)
                 break
 
         return None

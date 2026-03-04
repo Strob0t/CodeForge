@@ -322,3 +322,67 @@ async def test_unknown_tool() -> None:
     tool_results = [m for m in result.tool_messages if m.role == "tool"]
     assert len(tool_results) == 1
     assert "unknown tool" in tool_results[0].content.lower()
+
+
+async def test_cancellation_appends_placeholder_results() -> None:
+    """When cancelled mid-tool-execution, remaining tool calls get placeholder results."""
+    call_count = 0
+
+    async def _execute_with_cancel(arguments: dict, workspace_path: str) -> ToolResult:
+        nonlocal call_count
+        call_count += 1
+        return ToolResult(output=f"result-{call_count}", success=True)
+
+    from codeforge.tools._base import ToolDefinition
+
+    registry = ToolRegistry()
+
+    class _CountingTool:
+        async def execute(self, arguments: dict, workspace_path: str) -> ToolResult:
+            nonlocal call_count
+            call_count += 1
+            return ToolResult(output=f"result-{call_count}", success=True)
+
+    registry.register(
+        ToolDefinition(name="echo", description="Echo", parameters={"type": "object"}),
+        _CountingTool(),
+    )
+
+    llm = FakeLLM(
+        [
+            _FakeLLMCall(
+                content="",
+                tool_calls=[
+                    ToolCallPart(id="c1", name="echo", arguments="{}"),
+                    ToolCallPart(id="c2", name="echo", arguments="{}"),
+                    ToolCallPart(id="c3", name="echo", arguments="{}"),
+                ],
+                finish_reason="tool_calls",
+            ),
+            _FakeLLMCall(content="Done", tool_calls=[], finish_reason="stop"),
+        ]
+    )
+
+    # Runtime cancels after the first tool call executes.
+    runtime = _make_runtime()
+    execution_count = 0
+
+    async def _cancel_after_first(tool: str, command: str = "", path: str = "") -> ToolCallDecision:
+        nonlocal execution_count
+        execution_count += 1
+        if execution_count > 1:
+            runtime.is_cancelled = True
+        return ToolCallDecision(call_id=f"tc-{execution_count}", decision="allow", reason="")
+
+    runtime.request_tool_call = AsyncMock(side_effect=_cancel_after_first)
+
+    executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/workspace")
+    result = await executor.run([{"role": "user", "content": "test"}])
+
+    # Should have: 1 assistant msg + 2 executed tool results + 1 cancelled placeholder
+    tool_results = [m for m in result.tool_messages if m.role == "tool"]
+    assert len(tool_results) == 3  # c1 (executed), c2 (executed, triggered cancel), c3 (Cancelled)
+    assert tool_results[0].tool_call_id == "c1"
+    assert tool_results[1].tool_call_id == "c2"
+    assert tool_results[2].tool_call_id == "c3"
+    assert tool_results[2].content == "Cancelled"
