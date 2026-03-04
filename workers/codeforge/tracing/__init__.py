@@ -8,6 +8,9 @@ from codeforge.tracing.metrics import (
 )
 from codeforge.tracing.setup import TracerProtocol, TracingManager
 
+# Shared singleton — import this instead of creating new TracingManager() instances.
+tracing_manager = TracingManager()
+
 __all__ = [
     "TracerProtocol",
     "TracingManager",
@@ -15,4 +18,5 @@ __all__ = [
     "evaluate_plan_adaptability",
     "evaluate_tool_selection_accuracy",
     "launch_dashboard",
+    "tracing_manager",
 ]

@@ -12,15 +12,14 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from codeforge.mcp_models import MCPServerDef, MCPTool, MCPToolCallResult
-from codeforge.tracing.setup import TracingManager
+from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
-_tracing = TracingManager()
-_tracer = _tracing.get_tracer()
+_tracer = tracing_manager.get_tracer()
 
 
 class McpServerConnection:

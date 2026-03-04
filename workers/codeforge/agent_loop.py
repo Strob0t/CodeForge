@@ -22,7 +22,7 @@ from codeforge.models import (
     ConversationToolCallPayload,
 )
 from codeforge.pricing import resolve_cost
-from codeforge.tracing.setup import TracingManager
+from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
@@ -31,8 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_tracing = TracingManager()
-_tracer = _tracing.get_tracer()
+_tracer = tracing_manager.get_tracer()
 
 DEFAULT_MAX_ITERATIONS = 50
 

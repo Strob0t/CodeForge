@@ -19,6 +19,7 @@ export { Select } from "./primitives";
 export { Spinner } from "./primitives";
 export { StatusDot } from "./primitives";
 export { Textarea } from "./primitives";
+export { Tooltip } from "./primitives";
 
 // Composites (Phase 3)
 export { Card } from "./composites";

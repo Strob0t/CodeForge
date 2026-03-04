@@ -15,7 +15,7 @@ import { ToastProvider } from "~/components/Toast";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
 import { ShortcutProvider } from "~/shortcuts";
-import { Button, NavLink, Sidebar, StatusDot } from "~/ui";
+import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
 import {
   ActivityIcon,
   BenchmarksIcon,
@@ -112,38 +112,42 @@ function AppShell(props: {
             <UserInfo />
 
             <Sidebar.Nav>
-              <NavLink href="/" end icon={<DashboardIcon />}>
+              <NavLink href="/" end icon={<DashboardIcon />} label={t("app.nav.dashboard")}>
                 {t("app.nav.dashboard")}
               </NavLink>
-              <NavLink href="/costs" icon={<CostsIcon />}>
+              <NavLink href="/costs" icon={<CostsIcon />} label={t("app.nav.costs")}>
                 {t("app.nav.costs")}
               </NavLink>
-              <NavLink href="/models" icon={<ModelsIcon />}>
+              <NavLink href="/models" icon={<ModelsIcon />} label={t("app.nav.models")}>
                 {t("app.nav.models")}
               </NavLink>
-              <NavLink href="/modes" icon={<ModesIcon />}>
+              <NavLink href="/modes" icon={<ModesIcon />} label={t("app.nav.modes")}>
                 {t("app.nav.modes")}
               </NavLink>
-              <NavLink href="/activity" icon={<ActivityIcon />}>
+              <NavLink href="/activity" icon={<ActivityIcon />} label={t("app.nav.activity")}>
                 {t("app.nav.activity")}
               </NavLink>
-              <NavLink href="/knowledge-bases" icon={<KnowledgeBaseIcon />}>
+              <NavLink href="/knowledge-bases" icon={<KnowledgeBaseIcon />} label={t("kb.title")}>
                 {t("kb.title")}
               </NavLink>
-              <NavLink href="/scopes" icon={<ScopesIcon />}>
+              <NavLink href="/scopes" icon={<ScopesIcon />} label={t("app.nav.scopes")}>
                 {t("app.nav.scopes")}
               </NavLink>
-              <NavLink href="/mcp" icon={<McpIcon />}>
+              <NavLink href="/mcp" icon={<McpIcon />} label={t("app.nav.mcp")}>
                 {t("app.nav.mcp")}
               </NavLink>
-              <NavLink href="/prompts" icon={<PromptsIcon />}>
+              <NavLink href="/prompts" icon={<PromptsIcon />} label={t("app.nav.prompts")}>
                 {t("app.nav.prompts")}
               </NavLink>
-              <NavLink href="/settings" icon={<SettingsIcon />}>
+              <NavLink href="/settings" icon={<SettingsIcon />} label={t("app.nav.settings")}>
                 {t("app.nav.settings")}
               </NavLink>
               <Show when={props.health()?.dev_mode}>
-                <NavLink href="/benchmarks" icon={<BenchmarksIcon />}>
+                <NavLink
+                  href="/benchmarks"
+                  icon={<BenchmarksIcon />}
+                  label={t("app.nav.benchmarks")}
+                >
                   {t("app.nav.benchmarks")}
                 </NavLink>
               </Show>
@@ -154,35 +158,33 @@ function AppShell(props: {
                 when={!collapsed()}
                 fallback={
                   <div class="flex flex-col items-center gap-1.5">
-                    <ThemeToggle iconOnly />
-                    <LocaleSwitcher />
-                    <div class="group relative flex items-center justify-center p-1.5">
-                      <StatusDot
-                        color={
-                          props.connected() ? "var(--cf-status-idle)" : "var(--cf-status-error)"
-                        }
-                      />
-                      <span
-                        role="tooltip"
-                        class="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-cf-md bg-cf-bg-surface-alt px-2 py-1 text-xs text-cf-text-primary shadow-md opacity-0 transition-opacity group-hover:opacity-100 z-50"
-                      >
-                        {t("app.ws.label", {
-                          status: props.connected()
-                            ? t("app.ws.connected")
-                            : t("app.ws.disconnected"),
-                        })}
-                      </span>
-                    </div>
-                    <Show when={props.health()}>
-                      <div class="group relative flex items-center justify-center p-1.5">
-                        <StatusDot color="var(--cf-status-idle)" />
-                        <span
-                          role="tooltip"
-                          class="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-cf-md bg-cf-bg-surface-alt px-2 py-1 text-xs text-cf-text-primary shadow-md opacity-0 transition-opacity group-hover:opacity-100 z-50"
-                        >
-                          {t("app.api.label", { status: props.health()?.status ?? "" })}
-                        </span>
+                    <Tooltip text={t("theme.toggle", { name: "" })}>
+                      <ThemeToggle iconOnly />
+                    </Tooltip>
+                    <Tooltip text={`Language`}>
+                      <LocaleSwitcher />
+                    </Tooltip>
+                    <Tooltip
+                      text={t("app.ws.label", {
+                        status: props.connected()
+                          ? t("app.ws.connected")
+                          : t("app.ws.disconnected"),
+                      })}
+                    >
+                      <div class="flex items-center justify-center p-1.5">
+                        <StatusDot
+                          color={
+                            props.connected() ? "var(--cf-status-idle)" : "var(--cf-status-error)"
+                          }
+                        />
                       </div>
+                    </Tooltip>
+                    <Show when={props.health()}>
+                      <Tooltip text={t("app.api.label", { status: props.health()?.status ?? "" })}>
+                        <div class="flex items-center justify-center p-1.5">
+                          <StatusDot color="var(--cf-status-idle)" />
+                        </div>
+                      </Tooltip>
                     </Show>
                   </div>
                 }

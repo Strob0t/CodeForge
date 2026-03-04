@@ -9,3 +9,4 @@ export { Select } from "./Select";
 export { Spinner } from "./Spinner";
 export { StatusDot } from "./StatusDot";
 export { Textarea } from "./Textarea";
+export { Tooltip } from "./Tooltip";

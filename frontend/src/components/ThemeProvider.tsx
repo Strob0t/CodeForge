@@ -240,7 +240,6 @@ export function ThemeToggle(props: { iconOnly?: boolean }): JSX.Element {
       }
       onClick={toggle}
       aria-label={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}
-      title={t("theme.toggle", { name: t(THEME_KEYS[theme()]) })}
     >
       <span aria-hidden="true">{ICONS[theme()]}</span>
       <Show when={!props.iconOnly}>
