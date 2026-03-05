@@ -2,6 +2,7 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateKnowledgeBaseRequest, KnowledgeBase } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { KB_CATEGORIES } from "~/config/domain-constants";
 import { kbCategoryVariant, kbStatusVariant } from "~/config/statusVariants";
@@ -30,6 +31,7 @@ const KB_FORM_DEFAULTS = {
 export default function KnowledgeBasesPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const [kbs, { refetch }] = createResource(() => api.knowledgeBases.list());
   const [showForm, setShowForm] = createSignal(false);
   const [indexingId, setIndexingId] = createSignal<string | null>(null);
@@ -65,6 +67,13 @@ export default function KnowledgeBasesPage() {
 
   const { run: handleDelete } = useAsyncAction(
     async (id: string) => {
+      const ok = await confirm({
+        title: t("common.delete"),
+        message: t("kb.confirm.delete"),
+        variant: "danger",
+        confirmLabel: t("common.delete"),
+      });
+      if (!ok) return;
       await api.knowledgeBases.delete(id);
       refetch();
       toast("success", t("kb.toast.deleted"));

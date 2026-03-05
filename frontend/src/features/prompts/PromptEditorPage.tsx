@@ -2,6 +2,7 @@ import { batch, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { PromptSectionRow } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import {
@@ -24,6 +25,7 @@ const SCOPE_OPTIONS = ["global"];
 export default function PromptEditorPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
 
   const [scope, setScope] = createSignal("global");
   const [sections, { refetch }] = createResource(scope, (s) => api.promptSections.list(s));
@@ -93,6 +95,13 @@ export default function PromptEditorPage() {
   }
 
   async function handleDelete(id: string) {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("prompts.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.promptSections.delete(id);
       toast("success", t("prompts.deleted"));

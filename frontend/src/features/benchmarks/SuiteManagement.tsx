@@ -2,6 +2,7 @@ import { batch, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { BenchmarkSuite } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, EmptyState, FormField, Input, LoadingState } from "~/ui";
@@ -9,6 +10,7 @@ import { Badge, Button, Card, EmptyState, FormField, Input, LoadingState } from 
 export function SuiteManagement() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const [suites, { refetch }] = createResource(() => api.benchmarks.listSuites());
   const [showForm, setShowForm] = createSignal(false);
   const [editingSuite, setEditingSuite] = createSignal<BenchmarkSuite | null>(null);
@@ -77,6 +79,13 @@ export function SuiteManagement() {
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("benchmark.suites.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.benchmarks.deleteSuite(id);
       toast("success", t("benchmark.suites.toast.deleted"));

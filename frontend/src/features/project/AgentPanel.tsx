@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateAgentRequest, Task } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { agentStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
@@ -16,6 +17,7 @@ interface AgentPanelProps {
 export default function AgentPanel(props: AgentPanelProps) {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const [agents, { refetch }] = createResource(
     () => props.projectId,
     (id) => api.agents.list(id),
@@ -46,6 +48,13 @@ export default function AgentPanel(props: AgentPanelProps) {
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("agent.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.agents.delete(id);
       refetch();

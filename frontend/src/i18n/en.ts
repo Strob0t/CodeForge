@@ -23,6 +23,7 @@ const en = {
   "common.import": "Import",
   "common.importing": "Importing...",
   "common.select": "Select...",
+  "common.remove": "Remove",
 
   // -- App shell ------------------------------------------------------------
   "app.title": "CodeForge",
@@ -106,6 +107,8 @@ const en = {
   "dashboard.toast.created": "Project created",
   "dashboard.toast.createFailed": "Failed to create project",
   "dashboard.toast.setupStarted": "Setting up project (clone, detect stack, import specs)...",
+  "dashboard.confirm.delete":
+    "Are you sure you want to delete this project? This action cannot be undone.",
   "dashboard.toast.deleted": "Project deleted",
   "dashboard.toast.deleteFailed": "Failed to delete project",
 
@@ -177,6 +180,8 @@ const en = {
   "models.toast.nameRequired": "Model name is required",
   "models.toast.modelRequired": "Model ID is required",
   "models.toast.added": "Model added",
+  "models.confirm.delete":
+    "Are you sure you want to delete this model? This action cannot be undone.",
   "models.toast.deleted": "Model deleted",
   "models.toast.addFailed": "Failed to add model",
   "models.toast.deleteFailed": "Failed to delete model",
@@ -205,6 +210,8 @@ const en = {
   "agent.dispatchTask": "Dispatch task...",
   "agent.stop": "Stop",
   "agent.toast.created": "Agent created",
+  "agent.confirm.delete":
+    "Are you sure you want to delete this agent? This action cannot be undone.",
   "agent.toast.deleted": "Agent deleted",
   "agent.toast.dispatched": "Task dispatched to agent",
   "agent.toast.stopped": "Agent stopped",
@@ -420,6 +427,8 @@ const en = {
   "policy.preview.result.noRuleMatched": "(mode default)",
   "policy.toast.nameRequired": "Policy name is required",
   "policy.toast.saveFailed": "Failed to save policy",
+  "policy.confirm.delete":
+    "Are you sure you want to delete this policy? This action cannot be undone.",
   "policy.toast.deleteFailed": "Failed to delete policy",
   "policy.toast.evalFailed": "Evaluate failed",
 
@@ -874,6 +883,8 @@ const en = {
   "settings.apiKey.create": "Create Key",
   "settings.apiKey.created": "API key created",
   "settings.apiKey.createFailed": "Failed to create API key",
+  "settings.apiKey.confirm.delete":
+    "Are you sure you want to delete this API key? This action cannot be undone.",
   "settings.apiKey.deleted": "API key deleted",
   "settings.apiKey.deleteFailed": "Failed to delete API key",
   "settings.apiKey.deleteAria": "Delete API key {{name}}",
@@ -889,6 +900,8 @@ const en = {
   "settings.users.enableAria": "Enable user {{name}}",
   "settings.users.disableAria": "Disable user {{name}}",
   "settings.users.deleteAria": "Delete user {{name}}",
+  "settings.users.confirm.delete":
+    "Are you sure you want to delete this user? This action cannot be undone.",
   "settings.users.deleted": "User deleted",
   "settings.users.deleteFailed": "Failed to delete user",
   "settings.users.updateFailed": "Failed to update user",
@@ -956,6 +969,8 @@ const en = {
   "kb.index.button": "Index",
   "kb.index.reindex": "Re-index",
   "kb.toast.created": "Knowledge base created",
+  "kb.confirm.delete":
+    "Are you sure you want to delete this knowledge base? This action cannot be undone.",
   "kb.toast.deleted": "Knowledge base deleted",
   "kb.toast.indexed": "Indexing started",
   "kb.chunks": "chunks",
@@ -973,6 +988,9 @@ const en = {
   "scope.form.projects": "Projects",
   "scope.validation.sharedNeedsProject": "Shared scope requires at least one project",
   "scope.toast.created": "Scope created",
+  "scope.confirm.delete":
+    "Are you sure you want to delete this scope? This action cannot be undone.",
+  "scope.confirm.removeProject": "Are you sure you want to remove this project from the scope?",
   "scope.toast.deleted": "Scope deleted",
   "scope.toast.updated": "Scope updated",
   "scope.toast.projectAdded": "Project added to scope",
@@ -1043,6 +1061,8 @@ const en = {
   "modes.editAria": "Edit mode {{name}}",
   "modes.delete": "Delete",
   "modes.deleteAria": "Delete mode {{name}}",
+  "modes.confirm.delete":
+    "Are you sure you want to delete this mode? This action cannot be undone.",
   "modes.toast.deleted": "Mode deleted",
   "modes.toast.deleteFailed": "Failed to delete mode",
 
@@ -1150,6 +1170,8 @@ const en = {
   "prompts.newSection": "New Section",
   "prompts.editSection": "Edit Section",
   "prompts.saved": "Prompt section saved",
+  "prompts.confirm.delete":
+    "Are you sure you want to delete this prompt section? This action cannot be undone.",
   "prompts.deleted": "Prompt section deleted",
   "prompts.empty": "No prompt sections for this scope yet.",
   "prompts.field.name": "Name",
@@ -1283,6 +1305,8 @@ const en = {
   "benchmark.suites.createBtn": "Create Suite",
   "benchmark.suites.toast.created": "Suite created",
   "benchmark.suites.toast.createError": "Failed to create suite",
+  "benchmark.suites.confirm.delete":
+    "Are you sure you want to delete this benchmark suite? This action cannot be undone.",
   "benchmark.suites.toast.deleted": "Suite deleted",
   "benchmark.suites.toast.deleteError": "Failed to delete suite",
   "benchmark.suites.toast.updated": "Suite updated",

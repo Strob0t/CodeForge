@@ -2,6 +2,7 @@ import { batch, createMemo, createResource, createSignal, For, onCleanup, Show }
 
 import { api } from "~/api/client";
 import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
@@ -49,6 +50,7 @@ const categoryLabels: Record<string, string> = {
 export default function DashboardPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const [projects, { refetch }] = createResource(() => api.projects.list());
   const [providers] = createResource(() => api.providers.git().then((r) => r.providers));
   const [showForm, setShowForm] = createSignal(false);
@@ -246,6 +248,13 @@ export default function DashboardPage() {
   }
 
   async function handleDelete(id: string) {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("dashboard.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.projects.delete(id);
       await refetch();

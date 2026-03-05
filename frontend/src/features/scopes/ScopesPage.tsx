@@ -8,6 +8,7 @@ import type {
   RetrievalScope,
   ScopeType,
 } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { SCOPE_TYPES } from "~/config/domain-constants";
 import { scopeTypeVariant } from "~/config/statusVariants";
@@ -28,6 +29,7 @@ import {
 export default function ScopesPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const [scopes, { refetch }] = createResource(() => api.scopes.list());
   const [projects] = createResource(() => api.projects.list());
   const [showForm, setShowForm] = createSignal(false);
@@ -72,6 +74,13 @@ export default function ScopesPage() {
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("scope.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.scopes.delete(id);
       if (expanded() === id) setExpanded(null);
@@ -93,6 +102,13 @@ export default function ScopesPage() {
   };
 
   const handleRemoveProject = async (scopeId: string, projectId: string) => {
+    const ok = await confirm({
+      title: t("common.remove"),
+      message: t("scope.confirm.removeProject"),
+      variant: "danger",
+      confirmLabel: t("common.remove"),
+    });
+    if (!ok) return;
     try {
       await api.scopes.removeProject(scopeId, projectId);
       refetch();

@@ -6,6 +6,7 @@ import { api } from "~/api/client";
 import type { HealthStatus } from "~/api/types";
 import { AuthProvider, useAuth } from "~/components/AuthProvider";
 import { CommandPalette } from "~/components/CommandPalette";
+import { ConfirmProvider } from "~/components/ConfirmProvider";
 import { OfflineBanner } from "~/components/OfflineBanner";
 import { RouteGuard } from "~/components/RouteGuard";
 import { SidebarProvider, useSidebar } from "~/components/SidebarProvider";
@@ -263,17 +264,19 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
 
   return (
     <ToastProvider>
-      <SidebarProvider>
-        <ShortcutProvider>
-          <Show when={!isPublicPage() && isKnownRoute()} fallback={props.children}>
-            <RouteGuard>
-              <AppShell health={health} connected={connected}>
-                {props.children}
-              </AppShell>
-            </RouteGuard>
-          </Show>
-        </ShortcutProvider>
-      </SidebarProvider>
+      <ConfirmProvider>
+        <SidebarProvider>
+          <ShortcutProvider>
+            <Show when={!isPublicPage() && isKnownRoute()} fallback={props.children}>
+              <RouteGuard>
+                <AppShell health={health} connected={connected}>
+                  {props.children}
+                </AppShell>
+              </RouteGuard>
+            </Show>
+          </ShortcutProvider>
+        </SidebarProvider>
+      </ConfirmProvider>
     </ToastProvider>
   );
 }

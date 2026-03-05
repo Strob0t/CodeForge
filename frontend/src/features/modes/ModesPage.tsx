@@ -2,6 +2,7 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateModeRequest, Mode } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { COMMON_DENIED_ACTIONS } from "~/config/domain-constants";
 import { useAsyncAction, useFormState } from "~/hooks";
@@ -51,6 +52,7 @@ const FORM_DEFAULTS: ModeFormState = {
 export default function ModesPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const [modes, { refetch }] = createResource(() => api.modes.list());
   const [scenarios] = createResource(() => api.modes.scenarios());
   const [toolSuggestions] = createResource(() => api.modes.tools());
@@ -144,6 +146,13 @@ export default function ModesPage() {
 
   const { run: handleDelete } = useAsyncAction(
     async (mode: Mode) => {
+      const ok = await confirm({
+        title: t("common.delete"),
+        message: t("modes.confirm.delete"),
+        variant: "danger",
+        confirmLabel: t("common.delete"),
+      });
+      if (!ok) return;
       await api.modes.delete(mode.id);
       toast("success", t("modes.toast.deleted"));
       refetch();

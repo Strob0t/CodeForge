@@ -11,6 +11,7 @@ import type {
   PolicyToolCall,
   TerminationCondition,
 } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, FormField, Input, Select } from "~/ui";
 
@@ -63,6 +64,7 @@ function emptyRule(): PermissionRule {
 
 export default function PolicyPanel(props: PolicyPanelProps) {
   const { t } = useI18n();
+  const { confirm } = useConfirm();
   const [view, setView] = createSignal<View>("list");
   const [selectedName, setSelectedName] = createSignal<string | null>(null);
   const [profiles, { refetch: refetchProfiles }] = createResource(() => api.policies.list());
@@ -139,6 +141,13 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
   const handleDelete = async (name: string) => {
     props.onError("");
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("policy.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.policies.delete(name);
       refetchProfiles();

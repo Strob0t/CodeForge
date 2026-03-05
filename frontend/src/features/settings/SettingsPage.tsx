@@ -11,6 +11,7 @@ import type {
   VCSProvider,
 } from "~/api/types";
 import { useAuth } from "~/components/AuthProvider";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { AUTONOMY_LEVELS } from "~/config/domain-constants";
 import { useI18n } from "~/i18n";
@@ -37,6 +38,7 @@ import { ShortcutsSection } from "./ShortcutsSection";
 export default function SettingsPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const auth = useAuth();
 
   // -- General settings -------------------------------------------------------
@@ -108,6 +110,13 @@ export default function SettingsPage() {
   };
 
   const handleDeleteKey = async (id: string) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("settings.apiKey.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.auth.deleteAPIKey(id);
       refetchKeys();
@@ -124,6 +133,13 @@ export default function SettingsPage() {
   });
 
   const handleDeleteUser = async (id: string) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("settings.users.confirm.delete"),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
     try {
       await api.users.delete(id);
       refetchUsers();

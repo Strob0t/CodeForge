@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { DiscoveredModel, LLMModel } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
@@ -29,6 +30,7 @@ const MODEL_FORM_DEFAULTS = {
 export default function ModelsPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { confirm } = useConfirm();
   const [models, { refetch }] = createResource(() => api.llm.models());
   const [health] = createResource(() => api.llm.health());
   const [showForm, setShowForm] = createSignal(false);
@@ -68,6 +70,13 @@ export default function ModelsPage() {
 
   const { run: handleDelete } = useAsyncAction(
     async (modelId: string) => {
+      const ok = await confirm({
+        title: t("common.delete"),
+        message: t("models.confirm.delete"),
+        variant: "danger",
+        confirmLabel: t("common.delete"),
+      });
+      if (!ok) return;
       await api.llm.deleteModel(modelId);
       refetch();
       toast("success", t("models.toast.deleted"));

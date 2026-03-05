@@ -25,6 +25,7 @@ const de: Translations = {
   "common.import": "Importieren",
   "common.importing": "Importieren\u2026",
   "common.select": "Auswählen\u2026",
+  "common.remove": "Entfernen",
 
   // -- App shell ------------------------------------------------------------
   "app.title": "CodeForge",
@@ -109,6 +110,8 @@ const de: Translations = {
   "dashboard.toast.createFailed": "Projekt konnte nicht erstellt werden",
   "dashboard.toast.setupStarted":
     "Projekt wird eingerichtet (Klonen, Stack erkennen, Specs importieren)...",
+  "dashboard.confirm.delete":
+    "Sind Sie sicher, dass Sie dieses Projekt loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "dashboard.toast.deleted": "Projekt gel\u00f6scht",
   "dashboard.toast.deleteFailed": "Projekt konnte nicht gel\u00f6scht werden",
 
@@ -181,6 +184,8 @@ const de: Translations = {
   "models.toast.nameRequired": "Modellname ist erforderlich",
   "models.toast.modelRequired": "Modell-ID ist erforderlich",
   "models.toast.added": "Modell hinzugef\u00fcgt",
+  "models.confirm.delete":
+    "Sind Sie sicher, dass Sie dieses Modell loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "models.toast.deleted": "Modell gel\u00f6scht",
   "models.toast.addFailed": "Modell konnte nicht hinzugef\u00fcgt werden",
   "models.toast.deleteFailed": "Modell konnte nicht gel\u00f6scht werden",
@@ -209,6 +214,8 @@ const de: Translations = {
   "agent.dispatchTask": "Aufgabe zuweisen\u2026",
   "agent.stop": "Stoppen",
   "agent.toast.created": "Agent erstellt",
+  "agent.confirm.delete":
+    "Sind Sie sicher, dass Sie diesen Agenten loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "agent.toast.deleted": "Agent gel\u00f6scht",
   "agent.toast.dispatched": "Aufgabe an Agent zugewiesen",
   "agent.toast.stopped": "Agent gestoppt",
@@ -415,6 +422,8 @@ const de: Translations = {
   "policy.decision.ask": "fragen",
   "policy.toast.nameRequired": "Richtlinienname ist erforderlich",
   "policy.toast.saveFailed": "Richtlinie konnte nicht gespeichert werden",
+  "policy.confirm.delete":
+    "Sind Sie sicher, dass Sie diese Richtlinie loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "policy.toast.deleteFailed": "Richtlinie konnte nicht gel\u00f6scht werden",
   "policy.preview.title": "Effektive Berechtigungsvorschau",
   "policy.preview.description":
@@ -883,6 +892,8 @@ const de: Translations = {
   "settings.apiKey.create": "Schl\u00fcssel erstellen",
   "settings.apiKey.created": "API-Schl\u00fcssel erstellt",
   "settings.apiKey.createFailed": "API-Schl\u00fcssel konnte nicht erstellt werden",
+  "settings.apiKey.confirm.delete":
+    "Sind Sie sicher, dass Sie diesen API-Schluessel loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "settings.apiKey.deleted": "API-Schl\u00fcssel gel\u00f6scht",
   "settings.apiKey.deleteFailed": "API-Schl\u00fcssel konnte nicht gel\u00f6scht werden",
   "settings.apiKey.deleteAria": "API-Schl\u00fcssel {{name}} l\u00f6schen",
@@ -899,6 +910,8 @@ const de: Translations = {
   "settings.users.enableAria": "Benutzer {{name}} aktivieren",
   "settings.users.disableAria": "Benutzer {{name}} deaktivieren",
   "settings.users.deleteAria": "Benutzer {{name}} l\u00f6schen",
+  "settings.users.confirm.delete":
+    "Sind Sie sicher, dass Sie diesen Benutzer loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "settings.users.deleted": "Benutzer gel\u00f6scht",
   "settings.users.deleteFailed": "Benutzer konnte nicht gel\u00f6scht werden",
   "settings.users.updateFailed": "Benutzer konnte nicht aktualisiert werden",
@@ -969,6 +982,8 @@ const de: Translations = {
   "kb.index.button": "Indizieren",
   "kb.index.reindex": "Neu indizieren",
   "kb.toast.created": "Wissensbasis erstellt",
+  "kb.confirm.delete":
+    "Sind Sie sicher, dass Sie diese Wissensbasis loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "kb.toast.deleted": "Wissensbasis gel\u00f6scht",
   "kb.toast.indexed": "Indizierung gestartet",
   "kb.chunks": "Chunks",
@@ -987,6 +1002,10 @@ const de: Translations = {
   "scope.form.projects": "Projekte",
   "scope.validation.sharedNeedsProject": "Geteilter Bereich ben\u00f6tigt mindestens ein Projekt",
   "scope.toast.created": "Bereich erstellt",
+  "scope.confirm.delete":
+    "Sind Sie sicher, dass Sie diesen Bereich loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
+  "scope.confirm.removeProject":
+    "Sind Sie sicher, dass Sie dieses Projekt aus dem Bereich entfernen moechten?",
   "scope.toast.deleted": "Bereich gel\u00f6scht",
   "scope.toast.updated": "Bereich aktualisiert",
   "scope.toast.projectAdded": "Projekt zum Bereich hinzugef\u00fcgt",
@@ -1058,6 +1077,8 @@ const de: Translations = {
   "modes.editAria": "Modus {{name}} bearbeiten",
   "modes.delete": "Löschen",
   "modes.deleteAria": "Modus {{name}} löschen",
+  "modes.confirm.delete":
+    "Sind Sie sicher, dass Sie diesen Modus loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "modes.toast.deleted": "Modus gelöscht",
   "modes.toast.deleteFailed": "Modus konnte nicht gelöscht werden",
 
@@ -1164,6 +1185,8 @@ const de: Translations = {
   "prompts.newSection": "Neue Sektion",
   "prompts.editSection": "Sektion bearbeiten",
   "prompts.saved": "Prompt-Sektion gespeichert",
+  "prompts.confirm.delete":
+    "Sind Sie sicher, dass Sie diese Prompt-Sektion loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "prompts.deleted": "Prompt-Sektion geloescht",
   "prompts.empty": "Keine Prompt-Sektionen fuer diesen Scope vorhanden.",
   "prompts.field.name": "Name",
@@ -1299,6 +1322,8 @@ const de: Translations = {
   "benchmark.suites.createBtn": "Suite erstellen",
   "benchmark.suites.toast.created": "Suite erstellt",
   "benchmark.suites.toast.createError": "Suite konnte nicht erstellt werden",
+  "benchmark.suites.confirm.delete":
+    "Sind Sie sicher, dass Sie diese Benchmark-Suite loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "benchmark.suites.toast.deleted": "Suite geloescht",
   "benchmark.suites.toast.deleteError": "Suite konnte nicht geloescht werden",
   "benchmark.suites.toast.updated": "Suite aktualisiert",
