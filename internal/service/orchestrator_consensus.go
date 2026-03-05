@@ -204,14 +204,13 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 		Status:       "started",
 	})
 
-	// Override ping_pong max rounds with debate-specific config.
-	// We need to start the debate plan with the correct round limit.
-	// The debate plan uses the global PingPongMaxRounds, so we temporarily
-	// rely on the debate_rounds config being set correctly.
-	origRounds := s.orchCfg.PingPongMaxRounds
-	s.orchCfg.PingPongMaxRounds = debateRounds
+	// Store per-plan max rounds override so advancePingPong uses
+	// debate-specific rounds instead of the global config value.
+	s.debateMu.Lock()
+	s.planMaxRounds[debatePlan.ID] = debateRounds
+	s.debateMu.Unlock()
+
 	_, err = s.StartPlan(ctx, debatePlan.ID)
-	s.orchCfg.PingPongMaxRounds = origRounds
 
 	if err != nil {
 		slog.Error("start debate sub-plan", "debate_plan_id", debatePlan.ID, "error", err)
@@ -221,6 +220,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 
 		s.debateMu.Lock()
 		delete(s.debateSteps, debatePlan.ID)
+		delete(s.planMaxRounds, debatePlan.ID)
 		s.debateMu.Unlock()
 	}
 
@@ -240,6 +240,7 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 	ds, ok := s.debateSteps[debatePlanID]
 	if ok {
 		delete(s.debateSteps, debatePlanID)
+		delete(s.planMaxRounds, debatePlanID)
 	}
 	s.debateMu.Unlock()
 

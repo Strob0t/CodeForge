@@ -61,7 +61,22 @@ func (s *AutoAgentService) Start(ctx context.Context, projectID string) (*autoag
 		s.mu.Unlock()
 		return nil, fmt.Errorf("auto-agent already running for project: %w", domain.ErrConflict)
 	}
+	// Reserve the slot while holding the lock to prevent TOCTOU races.
+	// A nil cancel func signals "starting" — Stop() will treat it as not-yet-running.
+	s.cancels[projectID] = nil
 	s.mu.Unlock()
+
+	// If setup fails below, clean up the reservation.
+	setupOK := false
+	defer func() {
+		if !setupOK {
+			s.mu.Lock()
+			if s.cancels[projectID] == nil {
+				delete(s.cancels, projectID)
+			}
+			s.mu.Unlock()
+		}
+	}()
 
 	// Fetch pending features from the roadmap.
 	features, err := s.pendingFeatures(ctx, projectID)
@@ -89,6 +104,7 @@ func (s *AutoAgentService) Start(ctx context.Context, projectID string) (*autoag
 	s.mu.Lock()
 	s.cancels[projectID] = cancel
 	s.mu.Unlock()
+	setupOK = true
 
 	go s.runLoop(loopCtx, projectID, features)
 

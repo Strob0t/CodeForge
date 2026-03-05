@@ -39,6 +39,7 @@ type OrchestratorService struct {
 	debateMu       sync.Mutex
 	debateSteps    map[string]debateState
 	debatedStepIDs map[string]bool // steps that already completed a debate (skip re-evaluation)
+	planMaxRounds  map[string]int  // per-plan PingPongMaxRounds override (debate sub-plans)
 }
 
 // AddOnPlanComplete appends a callback invoked when a plan completes or fails.
@@ -77,6 +78,7 @@ func NewOrchestratorService(
 		orchCfg:        orchCfg,
 		debateSteps:    make(map[string]debateState),
 		debatedStepIDs: make(map[string]bool),
+		planMaxRounds:  make(map[string]int),
 	}
 	// Self-register debate completion handler so debate sub-plans
 	// automatically trigger the parent step dispatch.
@@ -333,7 +335,13 @@ func (s *OrchestratorService) advancePingPong(ctx context.Context, p *plan.Execu
 		return
 	}
 
-	maxRounds := s.orchCfg.PingPongMaxRounds
+	// Check for per-plan override (set by debate sub-plans), falling back to global config.
+	s.debateMu.Lock()
+	maxRounds, hasOverride := s.planMaxRounds[p.ID]
+	s.debateMu.Unlock()
+	if !hasOverride {
+		maxRounds = s.orchCfg.PingPongMaxRounds
+	}
 	if maxRounds <= 0 {
 		maxRounds = 3
 	}

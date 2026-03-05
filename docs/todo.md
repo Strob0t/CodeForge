@@ -3647,8 +3647,8 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 
 **Orchestration (Area 10):**
 
-- [ ] FIX-CR39 (Critical, S): `autoagent.go:59-91` — TOCTOU race condition. Two concurrent `Start()` calls can both pass the "already running" check. Causes double feature processing.
-- [ ] FIX-CR40 (Critical, M): `orchestrator_consensus.go:211-214` — `startDebate` mutates shared `s.orchCfg.PingPongMaxRounds` without proper synchronization. Use local variable instead.
+- [x] FIX-CR39 (Critical, S): `autoagent.go:59-91` — Fixed TOCTOU race by reserving the slot in `cancels` map while holding the lock, with cleanup on setup failure. (2026-03-05)
+- [x] FIX-CR40 (Critical, M): `orchestrator_consensus.go:211-214` — Replaced shared config mutation with per-plan `planMaxRounds` map. `advancePingPong` checks override before global config. Cleanup on completion/error. (2026-03-05)
 - [ ] FIX-CR41 (Important): `autoagent.go` — Zero test coverage (316 lines, stateful background goroutine manager with concurrency).
 
 #### Effort Estimates & Grouping
