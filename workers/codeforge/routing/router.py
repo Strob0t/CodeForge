@@ -164,9 +164,8 @@ class HybridRouter:
                     seen.add(m)
 
         tier_defaults = COMPLEXITY_DEFAULTS.get(primary.complexity_tier, [])
-        has_concrete_models = bool(self._available_models)
         for m in tier_defaults:
-            if m not in seen and (not has_concrete_models or m in self._available_models):
+            if m not in seen and m in self._available_models:
                 if self._rate_tracker is not None:
                     provider = m.split("/")[0] if "/" in m else ""
                     if provider and self._rate_tracker.is_exhausted(provider):
@@ -198,9 +197,8 @@ class HybridRouter:
 
         preferences = COMPLEXITY_DEFAULTS.get(analysis.complexity_tier, [])
 
-        has_concrete_models = bool(self._available_models)
         for model in preferences:
-            if has_concrete_models and model not in self._available_models:
+            if model not in self._available_models:
                 continue
             if self._rate_tracker is not None:
                 provider = model.split("/")[0] if "/" in model else ""

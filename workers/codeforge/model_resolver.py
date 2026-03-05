@@ -52,7 +52,26 @@ class _ModelCache:
                 logger.warning("model_resolver: LiteLLM /v1/models returned %d", resp.status_code)
                 return
             data = resp.json()
-            models = [m.get("id", "") for m in data.get("data", []) if m.get("id") and "*" not in m.get("id", "")]
+            raw_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            models: list[str] = []
+            wildcard_providers: set[str] = set()
+            for mid in raw_ids:
+                if "*" in mid:
+                    prefix = mid.split("/")[0]
+                    if prefix:
+                        wildcard_providers.add(prefix)
+                else:
+                    models.append(mid)
+            if wildcard_providers:
+                from codeforge.routing.router import COMPLEXITY_DEFAULTS
+
+                seen = set(models)
+                for tier_models in COMPLEXITY_DEFAULTS.values():
+                    for m in tier_models:
+                        provider = m.split("/")[0] if "/" in m else ""
+                        if provider in wildcard_providers and m not in seen:
+                            models.append(m)
+                            seen.add(m)
         except Exception as exc:
             logger.warning("model_resolver: failed to fetch from LiteLLM: %s", exc, exc_info=True)
             return

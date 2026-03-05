@@ -394,7 +394,12 @@ class ConversationHandlerMixin:
         )
 
     def _get_available_models(self) -> list[str]:
-        """Fetch available model names from LiteLLM /v1/models endpoint."""
+        """Fetch available model names from LiteLLM /v1/models endpoint.
+
+        LiteLLM wildcard entries (e.g. ``openai/*``) are expanded into
+        concrete model names from ``COMPLEXITY_DEFAULTS`` whose provider
+        prefix matches, so the router can check membership correctly.
+        """
         import httpx
 
         litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
@@ -407,10 +412,32 @@ class ConversationHandlerMixin:
                 logger.warning("LiteLLM /v1/models returned status %d", resp.status_code)
                 return []
             data = resp.json()
-            models = [m.get("id", "") for m in data.get("data", []) if m.get("id") and "*" not in m.get("id", "")]
-            if not models:
+            raw_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+
+            concrete: list[str] = []
+            wildcard_providers: set[str] = set()
+            for mid in raw_ids:
+                if "*" in mid:
+                    prefix = mid.split("/")[0]
+                    if prefix:
+                        wildcard_providers.add(prefix)
+                else:
+                    concrete.append(mid)
+
+            if wildcard_providers:
+                from codeforge.routing.router import COMPLEXITY_DEFAULTS
+
+                seen = set(concrete)
+                for models in COMPLEXITY_DEFAULTS.values():
+                    for m in models:
+                        provider = m.split("/")[0] if "/" in m else ""
+                        if provider in wildcard_providers and m not in seen:
+                            concrete.append(m)
+                            seen.add(m)
+
+            if not concrete:
                 logger.warning("LiteLLM /v1/models returned empty model list")
-            return models
+            return concrete
         except Exception as exc:
             logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
             return []
@@ -436,17 +463,6 @@ class ConversationHandlerMixin:
         if not fallbacks:
             available = self._get_available_models()
             fallbacks = [m for m in available if m != primary_model][:3]
-        if not fallbacks:
-            from codeforge.routing.models import ComplexityTier
-            from codeforge.routing.router import COMPLEXITY_DEFAULTS
-
-            for tier in (ComplexityTier.MEDIUM, ComplexityTier.COMPLEX, ComplexityTier.SIMPLE):
-                for m in COMPLEXITY_DEFAULTS.get(tier, []):
-                    if m != primary_model and m not in fallbacks:
-                        fallbacks.append(m)
-                if len(fallbacks) >= 3:
-                    break
-            fallbacks = fallbacks[:3]
         return fallbacks
 
     def _register_handoff_tool(self, registry: object, run_id: str) -> None:
