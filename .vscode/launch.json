@@ -45,7 +45,9 @@
         "APP_ENV": "development",
         "NATS_URL": "nats://codeforge-nats:4222",
         "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
-        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge"
+        "LITELLM_MASTER_KEY": "sk-codeforge-dev",
+        "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
+        "CODEFORGE_CONFIG_FILE": "${workspaceFolder}/codeforge.yaml"
       },
       "console": "integratedTerminal",
       "justMyCode": true,

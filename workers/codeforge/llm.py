@@ -228,45 +228,32 @@ def resolve_model_with_routing(
 
 
 def load_routing_config() -> object | None:
-    """Load routing config from environment variables. Returns RoutingConfig or None."""
-    enabled = os.environ.get("CODEFORGE_ROUTING_ENABLED", "").lower() in ("1", "true", "yes")
+    """Load routing config. Hierarchy: defaults < YAML < env vars."""
+    from codeforge.config import _resolve_bool, _resolve_float, _resolve_int, _resolve_str, load_yaml_config
+
+    yaml_cfg = load_yaml_config()
+    r: dict = yaml_cfg.get("routing", {}) if isinstance(yaml_cfg.get("routing"), dict) else {}
+
+    enabled = _resolve_bool("CODEFORGE_ROUTING_ENABLED", r.get("enabled"), False)
     if not enabled:
         return None
 
     from codeforge.routing.models import RoutingConfig
 
-    def _float(key: str, default: float) -> float:
-        val = os.environ.get(key, "")
-        try:
-            return float(val) if val else default
-        except ValueError:
-            return default
-
-    def _int(key: str, default: int) -> int:
-        val = os.environ.get(key, "")
-        try:
-            return int(val) if val else default
-        except ValueError:
-            return default
-
-    def _bool(key: str, default: bool) -> bool:
-        val = os.environ.get(key, "")
-        if not val:
-            return default
-        return val.lower() in ("1", "true", "yes")
-
     return RoutingConfig(
         enabled=True,
-        complexity_enabled=_bool("CODEFORGE_ROUTING_COMPLEXITY_ENABLED", True),
-        mab_enabled=_bool("CODEFORGE_ROUTING_MAB_ENABLED", True),
-        llm_meta_enabled=_bool("CODEFORGE_ROUTING_LLM_META_ENABLED", True),
-        mab_min_trials=_int("CODEFORGE_ROUTING_MAB_MIN_TRIALS", 10),
-        mab_exploration_rate=_float("CODEFORGE_ROUTING_MAB_EXPLORATION_RATE", 1.414),
-        cost_weight=_float("CODEFORGE_ROUTING_COST_WEIGHT", 0.3),
-        quality_weight=_float("CODEFORGE_ROUTING_QUALITY_WEIGHT", 0.5),
-        latency_weight=_float("CODEFORGE_ROUTING_LATENCY_WEIGHT", 0.2),
-        meta_router_model=os.environ.get("CODEFORGE_ROUTING_META_MODEL", ""),
-        stats_refresh_interval=os.environ.get("CODEFORGE_ROUTING_STATS_INTERVAL", "5m"),
+        complexity_enabled=_resolve_bool("CODEFORGE_ROUTING_COMPLEXITY_ENABLED", r.get("complexity_enabled"), True),
+        mab_enabled=_resolve_bool("CODEFORGE_ROUTING_MAB_ENABLED", r.get("mab_enabled"), True),
+        llm_meta_enabled=_resolve_bool("CODEFORGE_ROUTING_LLM_META_ENABLED", r.get("llm_meta_enabled"), True),
+        mab_min_trials=_resolve_int("CODEFORGE_ROUTING_MAB_MIN_TRIALS", r.get("mab_min_trials"), 10),
+        mab_exploration_rate=_resolve_float(
+            "CODEFORGE_ROUTING_MAB_EXPLORATION_RATE", r.get("mab_exploration_rate"), 1.414
+        ),
+        cost_weight=_resolve_float("CODEFORGE_ROUTING_COST_WEIGHT", r.get("cost_weight"), 0.3),
+        quality_weight=_resolve_float("CODEFORGE_ROUTING_QUALITY_WEIGHT", r.get("quality_weight"), 0.5),
+        latency_weight=_resolve_float("CODEFORGE_ROUTING_LATENCY_WEIGHT", r.get("latency_weight"), 0.2),
+        meta_router_model=_resolve_str("CODEFORGE_ROUTING_META_MODEL", r.get("meta_router_model"), ""),
+        stats_refresh_interval=_resolve_str("CODEFORGE_ROUTING_STATS_INTERVAL", r.get("stats_refresh_interval"), "5m"),
     )
 
 

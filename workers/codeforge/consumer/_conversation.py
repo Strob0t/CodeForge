@@ -394,12 +394,7 @@ class ConversationHandlerMixin:
         )
 
     def _get_available_models(self) -> list[str]:
-        """Fetch available model names from LiteLLM /v1/models endpoint.
-
-        LiteLLM wildcard entries (e.g. ``openai/*``) are expanded into
-        concrete model names from ``COMPLEXITY_DEFAULTS`` whose provider
-        prefix matches, so the router can check membership correctly.
-        """
+        """Fetch available model names from LiteLLM /v1/models endpoint."""
         import httpx
 
         litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
@@ -413,31 +408,12 @@ class ConversationHandlerMixin:
                 return []
             data = resp.json()
             raw_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            from codeforge.model_resolver import expand_wildcard_models
 
-            concrete: list[str] = []
-            wildcard_providers: set[str] = set()
-            for mid in raw_ids:
-                if "*" in mid:
-                    prefix = mid.split("/")[0]
-                    if prefix:
-                        wildcard_providers.add(prefix)
-                else:
-                    concrete.append(mid)
-
-            if wildcard_providers:
-                from codeforge.routing.router import COMPLEXITY_DEFAULTS
-
-                seen = set(concrete)
-                for models in COMPLEXITY_DEFAULTS.values():
-                    for m in models:
-                        provider = m.split("/")[0] if "/" in m else ""
-                        if provider in wildcard_providers and m not in seen:
-                            concrete.append(m)
-                            seen.add(m)
-
-            if not concrete:
+            models = expand_wildcard_models(raw_ids)
+            if not models:
                 logger.warning("LiteLLM /v1/models returned empty model list")
-            return concrete
+            return models
         except Exception as exc:
             logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
             return []

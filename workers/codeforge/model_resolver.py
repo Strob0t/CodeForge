@@ -14,6 +14,44 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL_SECONDS = 60.0
 
 
+def expand_wildcard_models(raw_ids: list[str]) -> list[str]:
+    """Expand wildcard model IDs into concrete model names from COMPLEXITY_DEFAULTS.
+
+    Wildcards like ``openai/*`` are mapped to their provider prefix, then
+    concrete model names from COMPLEXITY_DEFAULTS whose provider matches are
+    expanded (these come first). Non-wildcard concrete models are appended
+    after the expanded ones, preserving dedup order.
+    """
+    concrete: list[str] = []
+    wildcard_providers: set[str] = set()
+    for mid in raw_ids:
+        if "*" in mid:
+            prefix = mid.split("/")[0]
+            if prefix:
+                wildcard_providers.add(prefix)
+        else:
+            concrete.append(mid)
+
+    if not wildcard_providers:
+        return concrete
+
+    from codeforge.routing.router import COMPLEXITY_DEFAULTS
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for tier_models in COMPLEXITY_DEFAULTS.values():
+        for m in tier_models:
+            provider = m.split("/")[0] if "/" in m else ""
+            if provider in wildcard_providers and m not in seen:
+                result.append(m)
+                seen.add(m)
+    for m in concrete:
+        if m not in seen:
+            result.append(m)
+            seen.add(m)
+    return result
+
+
 class _ModelCache:
     """Thread-safe cached list of available models from LiteLLM."""
 
@@ -53,25 +91,7 @@ class _ModelCache:
                 return
             data = resp.json()
             raw_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
-            models: list[str] = []
-            wildcard_providers: set[str] = set()
-            for mid in raw_ids:
-                if "*" in mid:
-                    prefix = mid.split("/")[0]
-                    if prefix:
-                        wildcard_providers.add(prefix)
-                else:
-                    models.append(mid)
-            if wildcard_providers:
-                from codeforge.routing.router import COMPLEXITY_DEFAULTS
-
-                seen = set(models)
-                for tier_models in COMPLEXITY_DEFAULTS.values():
-                    for m in tier_models:
-                        provider = m.split("/")[0] if "/" in m else ""
-                        if provider in wildcard_providers and m not in seen:
-                            models.append(m)
-                            seen.add(m)
+            models = expand_wildcard_models(raw_ids)
         except Exception as exc:
             logger.warning("model_resolver: failed to fetch from LiteLLM: %s", exc, exc_info=True)
             return
