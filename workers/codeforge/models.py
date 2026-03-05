@@ -542,11 +542,20 @@ class BenchmarkRunResult(BaseModel):
 # --- GEMMAS Evaluation Models (Phase 20G) ---
 
 
+class GemmasAgentMessage(BaseModel):
+    """A single agent message for GEMMAS evaluation (matches Go GemmasAgentMessagePayload)."""
+
+    agent_id: str = ""
+    content: str = ""
+    round: int = 0
+    parent_agent_id: str = ""
+
+
 class GemmasEvalRequest(BaseModel):
     """Request to compute GEMMAS metrics for a completed plan."""
 
     plan_id: str
-    messages: list[dict] = Field(default_factory=list)
+    messages: list[GemmasAgentMessage] = Field(default_factory=list)
 
 
 class GemmasEvalResult(BaseModel):
@@ -555,4 +564,23 @@ class GemmasEvalResult(BaseModel):
     plan_id: str
     information_diversity_score: float = 0.0
     unnecessary_path_ratio: float = 0.0
+    error: str = ""
+
+
+# --- A2A Task Models (Phase 27) ---
+
+
+class A2ATaskCreatedMessage(BaseModel):
+    """Inbound A2A task from Go (matches Go A2ATaskCreatedPayload)."""
+
+    task_id: str
+    skill_id: str = ""
+    prompt: str = ""
+
+
+class A2ATaskCompleteMessage(BaseModel):
+    """A2A task completion to publish back to Go (matches Go A2ATaskCompletePayload)."""
+
+    task_id: str
+    state: str = "completed"
     error: str = ""

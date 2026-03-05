@@ -20,6 +20,7 @@ import nats.js.errors
 import structlog
 
 from codeforge.config import WorkerSettings
+from codeforge.consumer._a2a import A2AHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._benchmark import BenchmarkHandlerMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
@@ -33,6 +34,8 @@ from codeforge.consumer._runs import RunHandlerMixin
 from codeforge.consumer._subjects import (
     STREAM_NAME,
     STREAM_SUBJECTS,
+    SUBJECT_A2A_TASK_CANCEL,
+    SUBJECT_A2A_TASK_CREATED,
     SUBJECT_AGENT,
     SUBJECT_BENCHMARK_RUN_REQUEST,
     SUBJECT_CONVERSATION_RUN_START,
@@ -81,6 +84,7 @@ class TaskConsumer(
     BenchmarkHandlerMixin,
     MemoryHandlerMixin,
     HandoffHandlerMixin,
+    A2AHandlerMixin,
 ):
     """Consumes task messages from NATS JetStream and dispatches them to the executor."""
 
@@ -146,6 +150,8 @@ class TaskConsumer(
             (SUBJECT_MEMORY_STORE, self._handle_memory_store),
             (SUBJECT_MEMORY_RECALL, self._handle_memory_recall),
             (SUBJECT_HANDOFF_REQUEST, self._handle_handoff_request),
+            (SUBJECT_A2A_TASK_CREATED, self._handle_a2a_task_created),
+            (SUBJECT_A2A_TASK_CANCEL, self._handle_a2a_task_cancel),
         ]
 
         loops = []

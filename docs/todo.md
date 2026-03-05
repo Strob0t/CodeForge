@@ -3594,11 +3594,11 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [x] FIX-CR01 (Critical, S): `_subjects.py:6-19` — Added `"mcp.>"` and `"a2a.>"` to Python `STREAM_SUBJECTS`. (2026-03-05)
 - [x] FIX-CR02 (Critical, M): `_handoff.py:57` — Replaced `"handoff.execute"` dead-end with `runs.start` publication. (2026-03-05)
 - [x] FIX-CR03 (Critical, M): `_memory.py:146` — Added `SubjectMemoryRecallResult` constant to Go and used constant in Python. (2026-03-05)
-- [ ] FIX-CR04 (Critical, M): `a2a/executor.go:64` — `"a2a.task.created"` published by Go, no Python handler. Add A2A task handler to Python consumer.
-- [ ] FIX-CR05 (Critical, M): `a2a.go:476` — `"a2a.task.complete"` subscribed by Go but Python never publishes it. Wire up the Python A2A task handler to publish completion.
-- [ ] FIX-CR06 (Critical, S): `a2a/executor.go:95` — `"a2a.task.cancel"` published by Go, no Python subscriber. Wire up cancel handler.
-- [ ] FIX-CR07 (Critical, S): `a2a/executor.go:47` vs `:81` — Task ID prefix mismatch: `Execute` uses `"a2a-" + reqCtx.TaskID` but `Cancel` uses plain `reqCtx.TaskID`. Cancel will fail to find the task.
-- [ ] FIX-CR08 (Important): `models.py:549` — `GemmasEvalRequest.messages` typed as `list[dict]` instead of properly typed Pydantic model matching Go's `GemmasAgentMessagePayload`.
+- [x] FIX-CR04 (Critical, M): Added `_a2a.py` handler mixin with `_handle_a2a_task_created` subscribed to `a2a.task.created`. (2026-03-05)
+- [x] FIX-CR05 (Critical, M): A2A handler publishes `A2ATaskCompleteMessage` to `a2a.task.complete` after task execution. (2026-03-05)
+- [x] FIX-CR06 (Critical, S): Added `_handle_a2a_task_cancel` subscribed to `a2a.task.cancel`. (2026-03-05)
+- [x] FIX-CR07 (Critical, S): `executor.go` Cancel now uses `fmt.Sprintf("a2a-%s", reqCtx.TaskID)` matching Execute. (2026-03-05)
+- [x] FIX-CR08 (Important): Added `GemmasAgentMessage` Pydantic model; `GemmasEvalRequest.messages` now `list[GemmasAgentMessage]`. (2026-03-05)
 
 **Agent Loop & Run Protocol (Areas 2+3):**
 

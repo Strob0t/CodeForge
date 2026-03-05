@@ -67,6 +67,11 @@ SUBJECT_MEMORY_STORE = "memory.store"
 SUBJECT_MEMORY_RECALL = "memory.recall"
 SUBJECT_MEMORY_RECALL_RESULT = "memory.recall.result"
 
+# A2A
+SUBJECT_A2A_TASK_CREATED = "a2a.task.created"
+SUBJECT_A2A_TASK_COMPLETE = "a2a.task.complete"
+SUBJECT_A2A_TASK_CANCEL = "a2a.task.cancel"
+
 # Handoff
 SUBJECT_HANDOFF_REQUEST = "handoff.request"
 

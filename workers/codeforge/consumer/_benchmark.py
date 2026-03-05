@@ -150,7 +150,7 @@ class BenchmarkHandlerMixin:
 
             embed_fn = self._build_embed_fn()
             result_dict = await handle_gemmas_evaluation(
-                messages=request.messages,
+                messages=[m.model_dump() for m in request.messages],
                 plan_id=request.plan_id,
                 embed_fn=embed_fn,
             )

@@ -78,7 +78,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 
 // Cancel cancels an inbound A2A task (implements a2asrv.AgentExecutor).
 func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq eventqueue.Queue) error {
-	taskID := string(reqCtx.TaskID)
+	taskID := fmt.Sprintf("a2a-%s", reqCtx.TaskID)
 
 	// Update task state.
 	dt, err := e.store.GetA2ATask(ctx, taskID)
