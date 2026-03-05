@@ -34,25 +34,27 @@ repos:
       - id: go-fmt
 
   # Go hooks (local: goimports, go vet, golangci-lint)
+  # Optimized: only lint changed files/packages instead of ./...
   - repo: local
     hooks:
       - id: go-imports-repo
         name: go-imports-repo
-        entry: bash -c 'goimports -l -d $(find . -name "*.go" -not -path "./data/*" -not -path "./vendor/*")'
+        entry: goimports -l -d
         language: system
-        pass_filenames: false
         types: [go]
+        exclude: ^(data/|vendor/)
 
       - id: go-vet-repo-mod
         name: go-vet-repo-mod
-        entry: bash -c 'go vet ./...'
+        entry: bash -c 'pkgs=$(echo "$@" | xargs -n1 dirname | sort -u | sed "s|^|./|" | grep -v "^\./tests/"); if [ -n "$pkgs" ]; then go vet $pkgs; fi' --
         language: system
-        pass_filenames: false
+        pass_filenames: true
         types: [go]
+        exclude: ^tests/
 
       - id: golangci-lint-repo-mod
         name: golangci-lint-repo-mod
-        entry: bash -c 'golangci-lint run ./...'
+        entry: golangci-lint run --new-from-rev=HEAD
         language: system
         pass_filenames: false
         types: [go]
