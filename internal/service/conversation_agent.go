@@ -343,6 +343,18 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		return nil
 	}
 	s.processedRuns[payload.RunID] = struct{}{}
+	// Cap the dedup map to prevent unbounded growth (memory leak).
+	if len(s.processedRuns) > 10000 {
+		// Evict ~half the entries (map iteration order is random, good enough).
+		count := 0
+		for k := range s.processedRuns {
+			delete(s.processedRuns, k)
+			count++
+			if count >= 5000 {
+				break
+			}
+		}
+	}
 	s.processedRunsMu.Unlock()
 
 	slog.Info("conversation run complete received",

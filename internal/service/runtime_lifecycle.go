@@ -33,6 +33,22 @@ func (s *RuntimeService) cleanupRunState(runID string) {
 	if span, ok := s.runSpans.LoadAndDelete(runID); ok {
 		span.(trace.Span).End()
 	}
+	// Clean up budget alert dedup entries (prevents memory leak on cancelled runs).
+	s.budgetAlerts.Delete(fmt.Sprintf("%s:80", runID))
+	s.budgetAlerts.Delete(fmt.Sprintf("%s:90", runID))
+	// Clean up any pending HITL approval channels (unblocks waiting goroutines).
+	s.pendingApprovals.Range(func(key, value any) bool {
+		if k, ok := key.(string); ok && len(k) > len(runID) && k[:len(runID)] == runID && k[len(runID)] == ':' {
+			if ch, ok := value.(chan string); ok {
+				select {
+				case ch <- "deny":
+				default:
+				}
+			}
+			s.pendingApprovals.Delete(key)
+		}
+		return true
+	})
 }
 
 // cancelRunWithReason cancels a run with a specific reason message (used by timeout goroutine).
@@ -145,10 +161,6 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
 		slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
 	}
-
-	// Clean up budget alerts for this run
-	s.budgetAlerts.Delete(fmt.Sprintf("%s:80", r.ID))
-	s.budgetAlerts.Delete(fmt.Sprintf("%s:90", r.ID))
 
 	// Record event
 	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
