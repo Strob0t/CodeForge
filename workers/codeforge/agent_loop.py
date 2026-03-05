@@ -10,8 +10,12 @@ This is the heart of the interactive agent. The loop:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
 
 from codeforge.json_utils import safe_json_loads
 from codeforge.llm import LLMError, is_fallback_eligible
@@ -23,6 +27,7 @@ from codeforge.models import (
     ConversationToolCallPayload,
 )
 from codeforge.pricing import resolve_cost
+from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
@@ -133,7 +138,7 @@ class AgentLoopExecutor:
         """Handle an LLM error: record outcome, attempt fallback. Returns error or None."""
         logger.exception("LLM call failed on iteration %d", iteration)
         if cfg.routing_layer:
-            _record_routing_outcome(
+            await _record_routing_outcome(
                 model=cfg.model,
                 task_type=cfg.task_type,
                 complexity_tier=cfg.complexity_tier,
@@ -164,8 +169,10 @@ class AgentLoopExecutor:
         cfg = config or LoopConfig()
         state = _LoopState(model=cfg.model)
         tools_array = self._tools.get_openai_tools()
+        loop_start = time.monotonic()
 
         for iteration in range(cfg.max_iterations):
+            otel_metrics.loop_iterations.add(1)
             if self._runtime.is_cancelled:
                 state.error = "cancelled"
                 break
@@ -183,6 +190,8 @@ class AgentLoopExecutor:
                 break
         else:
             logger.warning("agent loop hit max iterations (%d)", cfg.max_iterations)
+
+        otel_metrics.loop_duration.record(time.monotonic() - loop_start)
 
         # When an output_schema is specified and the loop produced final content,
         # validate/reparse it through the StructuredOutputParser.
@@ -265,21 +274,44 @@ class AgentLoopExecutor:
             logger.warning("LLM call denied by policy: %s", llm_decision.reason)
             return f"LLM call denied: {llm_decision.reason}"
 
+        tracer = trace.get_tracer("codeforge")
+        model_name = cfg.model or resolve_model()
+        llm_start = time.monotonic()
+
         streamed_text: list[str] = []
-        try:
-            response = await self._llm.chat_completion_stream(
-                messages=messages,
-                model=cfg.model or resolve_model(),
-                tools=tools_array or None,
-                temperature=cfg.temperature,
-                tags=cfg.tags or None,
-                on_chunk=streamed_text.append,
-            )
-        except LLMError as exc:
-            return await self._handle_llm_error(cfg, state, exc, iteration)
-        except Exception as exc:
-            logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
-            return f"LLM call failed: {exc}"
+        with tracer.start_as_current_span(
+            "llm.chat_completion",
+            attributes={
+                "gen_ai.request.model": model_name,
+                "gen_ai.system": model_name.split("/")[0] if "/" in model_name else "unknown",
+            },
+        ) as llm_span:
+            try:
+                response = await self._llm.chat_completion_stream(
+                    messages=messages,
+                    model=model_name,
+                    tools=tools_array or None,
+                    temperature=cfg.temperature,
+                    tags=cfg.tags or None,
+                    on_chunk=streamed_text.append,
+                )
+            except LLMError as exc:
+                llm_span.set_status(StatusCode.ERROR, str(exc))
+                llm_span.record_exception(exc)
+                return await self._handle_llm_error(cfg, state, exc, iteration)
+            except Exception as exc:
+                llm_span.set_status(StatusCode.ERROR, str(exc))
+                llm_span.record_exception(exc)
+                logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
+                return f"LLM call failed: {exc}"
+
+            llm_span.set_attribute("gen_ai.usage.input_tokens", response.tokens_in)
+            llm_span.set_attribute("gen_ai.usage.output_tokens", response.tokens_out)
+            if response.model:
+                llm_span.set_attribute("gen_ai.response.model", response.model)
+
+        otel_metrics.llm_call_duration.record(time.monotonic() - llm_start)
+        otel_metrics.llm_tokens.add(response.tokens_in + response.tokens_out)
 
         full_text = "".join(streamed_text)
         if full_text:
@@ -304,7 +336,7 @@ class AgentLoopExecutor:
         )
 
         if cfg.routing_layer:
-            _record_routing_outcome(
+            await _record_routing_outcome(
                 model=response.model or cfg.model,
                 task_type=cfg.task_type,
                 complexity_tier=cfg.complexity_tier,
@@ -363,38 +395,49 @@ class AgentLoopExecutor:
             )
             return
 
-        try:
-            result = await self._tools.execute(tc.name, arguments, self._workspace)
-        except Exception as exc:
-            logger.exception("tool %s execution error", tc.name)
-            result_text = f"Error executing {tc.name}: {exc}"
-            correction = _build_correction_hint(tc.name, str(exc))
-            if correction:
-                result_text = f"{result_text}\n\n{correction}"
+        tracer = trace.get_tracer("codeforge")
+        tool_start = time.monotonic()
+        with tracer.start_as_current_span(
+            f"tool.execute:{tc.name}",
+            attributes={"tool.name": tc.name},
+        ) as tool_span:
+            try:
+                result = await self._tools.execute(tc.name, arguments, self._workspace)
+            except Exception as exc:
+                tool_span.set_status(StatusCode.ERROR, str(exc))
+                tool_span.record_exception(exc)
+                logger.exception("tool %s execution error", tc.name)
+                result_text = f"Error executing {tc.name}: {exc}"
+                correction = _build_correction_hint(tc.name, str(exc))
+                if correction:
+                    result_text = f"{result_text}\n\n{correction}"
+                self._append_tool_result(tc, result_text, messages, state)
+                await self._runtime.report_tool_result(
+                    call_id=decision.call_id,
+                    tool=tc.name,
+                    success=False,
+                    error=result_text,
+                )
+                return
+
+            if not result.success and result.error:
+                tool_span.set_status(StatusCode.ERROR, result.error)
+                correction = _build_correction_hint(tc.name, result.error)
+                result_text = f"Error: {result.error}\n\n{correction}" if correction else f"Error: {result.error}"
+            elif not result.success:
+                tool_span.set_status(StatusCode.ERROR, "Tool returned an error")
+                result_text = "Tool returned an error"
+            else:
+                result_text = result.output
             self._append_tool_result(tc, result_text, messages, state)
             await self._runtime.report_tool_result(
                 call_id=decision.call_id,
                 tool=tc.name,
-                success=False,
-                error=result_text,
+                success=result.success,
+                output=result.output[:500] if result.output else "",
+                error=result.error,
             )
-            return
-
-        if not result.success and result.error:
-            correction = _build_correction_hint(tc.name, result.error)
-            result_text = f"Error: {result.error}\n\n{correction}" if correction else f"Error: {result.error}"
-        elif not result.success:
-            result_text = "Tool returned an error"
-        else:
-            result_text = result.output
-        self._append_tool_result(tc, result_text, messages, state)
-        await self._runtime.report_tool_result(
-            call_id=decision.call_id,
-            tool=tc.name,
-            success=result.success,
-            output=result.output[:500] if result.output else "",
-            error=result.error,
-        )
+            otel_metrics.tool_duration.record(time.monotonic() - tool_start)
 
     @staticmethod
     def _append_tool_result(
@@ -409,7 +452,7 @@ class AgentLoopExecutor:
         messages.append(_payload_to_dict(msg))
 
 
-def _record_routing_outcome(
+async def _record_routing_outcome(
     model: str,
     task_type: str,
     complexity_tier: str,
@@ -437,25 +480,25 @@ def _record_routing_outcome(
     if internal_key:
         headers["X-API-Key"] = internal_key
     try:
-        httpx.post(
-            f"{core_url}/api/v1/routing/outcomes",
-            json={
-                "model_name": model,
-                "task_type": task_type or "chat",
-                "complexity_tier": complexity_tier or "simple",
-                "success": success,
-                "quality_score": quality,
-                "cost_usd": cost_usd,
-                "latency_ms": latency_ms,
-                "tokens_in": tokens_in,
-                "tokens_out": tokens_out,
-                "reward": reward,
-                "routing_layer": routing_layer,
-                "run_id": run_id,
-            },
-            headers=headers,
-            timeout=3.0,
-        )
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            await client.post(
+                f"{core_url}/api/v1/routing/outcomes",
+                json={
+                    "model_name": model,
+                    "task_type": task_type or "chat",
+                    "complexity_tier": complexity_tier or "simple",
+                    "success": success,
+                    "quality_score": quality,
+                    "cost_usd": cost_usd,
+                    "latency_ms": latency_ms,
+                    "tokens_in": tokens_in,
+                    "tokens_out": tokens_out,
+                    "reward": reward,
+                    "routing_layer": routing_layer,
+                    "run_id": run_id,
+                },
+                headers=headers,
+            )
     except Exception as exc:
         logger.debug("failed to record routing outcome: %s", exc, exc_info=True)
 

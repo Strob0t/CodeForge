@@ -12,6 +12,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"go.opentelemetry.io/otel"
+
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/resilience"
@@ -68,18 +70,22 @@ func (q *Queue) SetBreaker(b *resilience.Breaker) {
 
 // Publish sends a message to the given subject.
 // If the context carries a request ID, it is injected as a NATS header.
+// W3C trace context (traceparent) is always injected for distributed tracing.
 // If a circuit breaker is attached, the publish is wrapped in it.
 func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error {
 	msg := &nats.Msg{
 		Subject: subject,
 		Data:    data,
+		Header:  nats.Header{},
 	}
 
 	// Propagate request ID via NATS message header
 	if reqID := logger.RequestID(ctx); reqID != "" {
-		msg.Header = nats.Header{}
 		msg.Header.Set(headerRequestID, reqID)
 	}
+
+	// Inject W3C trace context for distributed tracing
+	injectTraceContext(ctx, msg.Header)
 
 	publish := func() error {
 		_, err := q.js.PublishMsg(ctx, msg)
@@ -107,6 +113,9 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 	if reqID := logger.RequestID(ctx); reqID != "" {
 		msg.Header.Set(headerRequestID, reqID)
 	}
+
+	// Inject W3C trace context for distributed tracing
+	injectTraceContext(ctx, msg.Header)
 
 	publish := func() error {
 		_, err := q.js.PublishMsg(ctx, msg)
@@ -142,13 +151,14 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 	}
 
 	cons, err := consumer.Consume(func(msg jetstream.Msg) {
-		// Extract request ID from NATS headers into context
+		// Extract request ID and trace context from NATS headers
 		msgCtx := ctx
 		hdrs := msg.Headers()
 		if hdrs != nil {
 			if reqID := hdrs.Get(headerRequestID); reqID != "" {
 				msgCtx = logger.WithRequestID(msgCtx, reqID)
 			}
+			msgCtx = extractTraceContext(msgCtx, hdrs)
 		}
 
 		// Schema validation — reject invalid messages immediately to DLQ
@@ -225,6 +235,32 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
 func sanitizeConsumerName(prefix, subject string) string {
 	r := strings.NewReplacer(".", "-", "*", "all", ">", "all")
 	return prefix + r.Replace(subject)
+}
+
+// natsHeaderCarrier adapts nats.Header to propagation.TextMapCarrier.
+type natsHeaderCarrier nats.Header
+
+func (c natsHeaderCarrier) Get(key string) string { return nats.Header(c).Get(key) }
+func (c natsHeaderCarrier) Set(key, value string) { nats.Header(c).Set(key, value) }
+func (c natsHeaderCarrier) Keys() []string {
+	keys := make([]string, 0, len(c))
+	for k := range c {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// injectTraceContext propagates W3C traceparent into NATS message headers.
+func injectTraceContext(ctx context.Context, hdrs nats.Header) {
+	otel.GetTextMapPropagator().Inject(ctx, natsHeaderCarrier(hdrs))
+}
+
+// extractTraceContext reads W3C traceparent from NATS headers into a new context.
+func extractTraceContext(ctx context.Context, hdrs nats.Header) context.Context {
+	if hdrs == nil {
+		return ctx
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, natsHeaderCarrier(hdrs))
 }
 
 func retryCount(hdrs nats.Header) int {

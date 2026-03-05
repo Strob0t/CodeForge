@@ -98,7 +98,7 @@ class ConversationHandlerMixin:
                     break
 
             scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
-            router = self._get_hybrid_router()
+            router = await self._get_hybrid_router()
             routing = resolve_model_with_routing(
                 prompt=user_prompt,
                 scenario=scenario,
@@ -109,7 +109,7 @@ class ConversationHandlerMixin:
             if routing.model:
                 log.info("routing selected model", model=routing.model, scenario=scenario)
 
-            fallback_models = self._build_fallback_chain(
+            fallback_models = await self._build_fallback_chain(
                 router,
                 user_prompt,
                 primary_model,
@@ -280,7 +280,7 @@ class ConversationHandlerMixin:
         log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
         return f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
 
-    def _get_hybrid_router(self) -> HybridRouter | None:  # noqa: C901
+    async def _get_hybrid_router(self) -> HybridRouter | None:  # noqa: C901
         """Build a HybridRouter if routing is enabled. Returns None otherwise."""
         from codeforge.llm import load_routing_config
 
@@ -386,7 +386,7 @@ class ConversationHandlerMixin:
             meta = LLMMetaRouter(llm_call=_llm_call, config=config)
 
         # Get available models from LiteLLM.
-        available_models = self._get_available_models()
+        available_models = await self._get_available_models()
 
         from codeforge.routing.rate_tracker import get_tracker
 
@@ -399,7 +399,7 @@ class ConversationHandlerMixin:
             rate_tracker=get_tracker(),
         )
 
-    def _get_available_models(self) -> list[str]:
+    async def _get_available_models(self) -> list[str]:
         """Fetch available model names from LiteLLM /v1/models endpoint."""
         import httpx
 
@@ -408,7 +408,8 @@ class ConversationHandlerMixin:
         if self._litellm_key:
             headers["Authorization"] = f"Bearer {self._litellm_key}"
         try:
-            resp = httpx.get(f"{litellm_url}/v1/models", headers=headers, timeout=5.0)
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{litellm_url}/v1/models", headers=headers)
             if resp.status_code != 200:
                 logger.warning("LiteLLM /v1/models returned status %d", resp.status_code)
                 return []
@@ -424,7 +425,7 @@ class ConversationHandlerMixin:
             logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
             return []
 
-    def _build_fallback_chain(
+    async def _build_fallback_chain(
         self,
         router: HybridRouter | None,
         user_prompt: str,
@@ -458,7 +459,7 @@ class ConversationHandlerMixin:
                 )
                 fallbacks = [m for m in plan.fallbacks if m != primary_model]
         if not fallbacks:
-            available = self._get_available_models()
+            available = await self._get_available_models()
             fallbacks = [m for m in available if m != primary_model][:3]
         return fallbacks
 

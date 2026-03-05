@@ -23,6 +23,21 @@ services:
   #   networks:
   #     - codeforge
 
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: codeforge-jaeger
+    logging: *default-logging
+    profiles:
+      - dev
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - codeforge
+
   playwright-mcp:
     image: mcp/playwright:latest
     container_name: codeforge-playwright
@@ -111,8 +126,11 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      OTEL_SERVICE_NAME: codeforge-litellm
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     volumes:
-      - ./litellm:/app/data
+      - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
     command: [ "--config", "/app/data/config.yaml", "--port", "4000" ]
     depends_on:
       postgres:

@@ -58,6 +58,7 @@ from codeforge.logger import setup_logging, stop_logging
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
+from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -217,7 +218,25 @@ class TaskConsumer(
                 continue
 
             for msg in msgs:
-                await handler(msg)
+                import time as _time
+
+                from opentelemetry import context as otel_context
+
+                from codeforge.tracing import metrics as otel_metrics
+                from codeforge.tracing.propagation import extract_trace_context
+
+                # Extract W3C trace context from NATS headers for distributed tracing.
+                raw_headers: dict[str, str] = {}
+                if msg.headers:
+                    for k, v in msg.headers.items():
+                        raw_headers[k] = v[0] if isinstance(v, list) else v
+                _, token = extract_trace_context(raw_headers)
+                msg_start = _time.monotonic()
+                try:
+                    await handler(msg)
+                finally:
+                    otel_metrics.nats_processing.record(_time.monotonic() - msg_start)
+                    otel_context.detach(token)
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""
@@ -234,6 +253,7 @@ class TaskConsumer(
                 logger.warning("NATS drain timed out after 10s, closing connection")
                 await self._nc.close()
 
+        tracing_manager.shutdown()
         logger.info("consumer stopped")
         stop_logging()
 
