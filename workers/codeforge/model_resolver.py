@@ -42,8 +42,12 @@ class _ModelCache:
 
     def _refresh(self) -> None:
         litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+        api_key = os.environ.get("LITELLM_MASTER_KEY", "")
+        headers: dict[str, str] = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         try:
-            resp = httpx.get(f"{litellm_url}/v1/models", timeout=5.0)
+            resp = httpx.get(f"{litellm_url}/v1/models", headers=headers, timeout=5.0)
             if resp.status_code != 200:
                 logger.warning("model_resolver: LiteLLM /v1/models returned %d", resp.status_code)
                 return

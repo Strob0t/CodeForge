@@ -344,11 +344,16 @@ class ConversationHandlerMixin:
         if config.llm_meta_enabled:
             from codeforge.routing.meta_router import LLMMetaRouter
 
+            litellm_key = self._litellm_key
+
             def _llm_call(model: str, prompt: str) -> str | None:
                 """Synchronous LLM call for meta-router classification."""
                 import httpx
 
                 litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+                headers: dict[str, str] = {"Content-Type": "application/json"}
+                if litellm_key:
+                    headers["Authorization"] = f"Bearer {litellm_key}"
                 try:
                     resp = httpx.post(
                         f"{litellm_url}/v1/chat/completions",
@@ -358,6 +363,7 @@ class ConversationHandlerMixin:
                             "temperature": 0.1,
                             "max_tokens": 200,
                         },
+                        headers=headers,
                         timeout=10.0,
                     )
                     if resp.status_code != 200:
@@ -387,14 +393,16 @@ class ConversationHandlerMixin:
             rate_tracker=get_tracker(),
         )
 
-    @staticmethod
-    def _get_available_models() -> list[str]:
+    def _get_available_models(self) -> list[str]:
         """Fetch available model names from LiteLLM /v1/models endpoint."""
         import httpx
 
         litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+        headers: dict[str, str] = {}
+        if self._litellm_key:
+            headers["Authorization"] = f"Bearer {self._litellm_key}"
         try:
-            resp = httpx.get(f"{litellm_url}/v1/models", timeout=5.0)
+            resp = httpx.get(f"{litellm_url}/v1/models", headers=headers, timeout=5.0)
             if resp.status_code != 200:
                 logger.warning("LiteLLM /v1/models returned status %d", resp.status_code)
                 return []
