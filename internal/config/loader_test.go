@@ -355,6 +355,73 @@ func TestCLIOverridesEnv(t *testing.T) {
 	}
 }
 
+func TestConfigFileEnvOverride(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "env-config.yaml")
+	content := `
+server:
+  port: "6666"
+`
+	if err := os.WriteFile(yamlPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CODEFORGE_CONFIG_FILE", yamlPath)
+
+	// No CLI flag for config path — env var should be used.
+	flags, err := ParseFlags(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, resolvedPath, err := LoadWithCLI(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resolvedPath != yamlPath {
+		t.Errorf("expected resolved path %s from env, got %s", yamlPath, resolvedPath)
+	}
+	if cfg.Server.Port != "6666" {
+		t.Errorf("expected port 6666 from env-specified YAML, got %s", cfg.Server.Port)
+	}
+}
+
+func TestCLIConfigOverridesEnvConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	// Env config file
+	envPath := filepath.Join(dir, "env-config.yaml")
+	if err := os.WriteFile(envPath, []byte(`server: { port: "6666" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// CLI config file
+	cliPath := filepath.Join(dir, "cli-config.yaml")
+	if err := os.WriteFile(cliPath, []byte(`server: { port: "7777" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CODEFORGE_CONFIG_FILE", envPath)
+
+	flags, err := ParseFlags([]string{"--config", cliPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, resolvedPath, err := LoadWithCLI(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resolvedPath != cliPath {
+		t.Errorf("expected CLI config path %s to win over env %s, got %s", cliPath, envPath, resolvedPath)
+	}
+	if cfg.Server.Port != "7777" {
+		t.Errorf("expected port 7777 from CLI config, got %s", cfg.Server.Port)
+	}
+}
+
 func TestLoadWithCLICustomConfig(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "custom.yaml")

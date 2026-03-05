@@ -74,6 +74,9 @@ func Load() (*Config, error) {
 // via CLIFlags.ConfigPath.
 func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
 	yamlPath := DefaultConfigFile
+	if v := os.Getenv("CODEFORGE_CONFIG_FILE"); v != "" {
+		yamlPath = v
+	}
 	if flags.ConfigPath != nil {
 		yamlPath = *flags.ConfigPath
 	}
