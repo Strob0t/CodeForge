@@ -8,7 +8,7 @@
 
 - [x] Market research conducted (docs/research/market-analysis.md) (20+ existing projects analyzed, market gap identified: no integrated solution for Project Dashboard + Roadmap + Multi-LLM + Agent Orchestration, SVN support confirmed as unique selling point)
 - [x] Architecture decision: Go + TypeScript + Python (Three-Layer Hybrid)
-- [x] Devcontainer configured (Go 1.23, Python 3.12, Node.js 22, Docker-in-Docker)
+- [x] Devcontainer configured (Go 1.25, Python 3.12, Node.js 22, Docker-in-Docker)
 - [x] Linting/Formatting for all three languages (Ruff, golangci-lint, ESLint/Prettier)
 - [x] Pre-commit Hooks (.pre-commit-config.yaml)
 - [x] Python package management with Poetry (pyproject.toml)
@@ -54,7 +54,7 @@
 > Phase 0 complete. All tasks done — proceed to Phase 1.
 > For granular tasks, see [todo.md](todo.md).
 
-- [x] Devcontainer verified (Go 1.23.12, Python 3.12.12, Node.js 22.22.0, Docker-in-Docker)
+- [x] Devcontainer verified (Go 1.25, Python 3.12.12, Node.js 22.22.0, Docker-in-Docker)
 - [x] Go module initialized, project structure created, chi HTTP server with health endpoint
 - [x] Python Workers scaffold (consumer, health, 3 tests passing)
 - [x] SolidJS frontend initialized (Tailwind CSS v4, ESLint 9, Prettier, @solidjs/router)
@@ -1061,7 +1061,7 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 ### Phase 20: Benchmark Mode (COMPLETED)
 
 - [x] (2026-02-25) **20A:** DeepEval integration — BenchmarkRunner, LiteLLMJudge, metrics (correctness, faithfulness, relevancy, tool correctness), YAML datasets, NATS handler
-- [x] (2026-02-25) **20B:** AgentNeo tracing — TracingManager with dev-mode gating, NoOp fallback, metric wrappers, optional dashboard
+- [x] (2026-02-25) **20B:** OTEL tracing — TracingManager with dev-mode gating, NoOp fallback, metric wrappers (AgentNeo replaced by OpenTelemetry)
 - [x] (2026-02-25) **20C:** GEMMAS collaboration metrics — IDS (TF-IDF cosine similarity), UPR, CollaborationDAG builder
 - [x] (2026-02-26) **20G:** GEMMAS auto-evaluation hook — EvaluationService (Go) registers via AddOnPlanComplete(), extracts agent messages from run events, publishes to NATS. Python executor computes IDS + UPR. IDS upgraded to use LiteLLM Embeddings with TF-IDF fallback.
 - [x] (2026-02-25) **20D:** Go Core benchmark API — 7 endpoints behind DevModeOnly middleware, Migration 041 (benchmark_runs + benchmark_results), PostgreSQL store

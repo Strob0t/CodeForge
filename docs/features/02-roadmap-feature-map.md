@@ -42,10 +42,14 @@ Each detector implements `specprovider.SpecProvider` or `pmprovider.PMProvider` 
 
 ### Bidirectional Sync
 
-```text
-CodeForge Roadmap Model  <-->  External PM (Plane, GitHub, OpenProject)
-         |
-         <-->  Repo Specs (OpenSpec, Spec Kit, Autospec)
+```mermaid
+flowchart LR
+    CF["CodeForge Roadmap Model"]
+    PM["External PM\n(Plane, GitHub, OpenProject)"]
+    SPECS["Repo Specs\n(OpenSpec, Spec Kit, Autospec)"]
+
+    CF <-- "Sync" --> PM
+    CF <-- "Sync" --> SPECS
 ```
 
 - Import: PM tool items become CodeForge features/tasks.

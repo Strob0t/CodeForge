@@ -13,33 +13,28 @@ Coordination of various AI coding agents through a **unified** orchestration lay
 | Agent | Go Adapter | Python Executor | Status | Capabilities |
 |---|---|---|---|---|
 | Aider | `adapter/aider/` | `backends/aider.py` | CLI wrapper | code-edit, git-commit, multi-file |
-| Goose | `adapter/goose/` | `backends/goose.py` | Stub (not yet implemented) | code-edit, mcp-native |
-| OpenHands | `adapter/openhands/` | `backends/openhands.py` | Stub (not yet implemented) | code-edit, browser, sandbox |
-| OpenCode | `adapter/opencode/` | `backends/opencode.py` | Stub (not yet implemented) | code-edit, lsp |
-| Plandex | `adapter/plandex/` | `backends/plandex.py` | Stub (not yet implemented) | code-edit, planning, multi-file |
+| Goose | `adapter/goose/` | `backends/goose.py` | CLI wrapper (requires CLI installed) | code-edit, mcp-native |
+| OpenHands | `adapter/openhands/` | `backends/openhands.py` | CLI wrapper (requires CLI installed) | code-edit, browser, sandbox |
+| OpenCode | `adapter/opencode/` | `backends/opencode.py` | CLI wrapper (requires CLI installed) | code-edit, lsp |
+| Plandex | `adapter/plandex/` | `backends/plandex.py` | CLI wrapper (requires CLI installed) | code-edit, planning, multi-file |
 | SWE-agent | `adapter/sweagent/` | -- | Phase 9+ | Not yet implemented |
 
 All Go backends implement the `agentbackend.Backend` interface with capability declarations. All Python backends implement the `BackendExecutor` protocol (see below).
 
-> **Current status:** Aider has a real CLI wrapper (`AiderExecutor`) that runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. Goose, OpenHands, OpenCode, and Plandex have stub executors that return explicit "not yet implemented" errors. The Python consumer routes tasks to the correct backend based on the NATS subject name.
+> **Current status:** All backends are implemented as CLI wrappers. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. Goose, OpenHands, OpenCode, and Plandex wrap their respective CLIs (requires each CLI to be installed). The Python consumer routes tasks to the correct backend based on the NATS subject name.
 
 ### Backend Routing Architecture
 
 The Python consumer extracts the backend name from the NATS subject (`tasks.agent.<backend_name>`) and routes via `BackendRouter`:
 
-```text
-Go Core (adapter/aider/, adapter/goose/, etc.)
-  |
-  | NATS: tasks.agent.aider, tasks.agent.goose, etc.
-  v
-Python Consumer (consumer.py)
-  |-- extract backend name from subject
-  |-- BackendRouter.execute(backend_name, ...)
-  v
-BackendExecutor (aider.py, goose.py, etc.)
-  |-- check_available() — verify CLI/service reachable
-  |-- execute() — run task (subprocess, API call, or stub error)
-  |-- cancel() — terminate running task
+```mermaid
+flowchart TD
+    GO["Go Core\n(adapter/aider/, adapter/goose/, etc.)"]
+    CONSUMER["Python Consumer (consumer.py)\nextract backend name from subject\nBackendRouter.execute(backend_name, ...)"]
+    EXEC["BackendExecutor (aider.py, goose.py, etc.)\ncheck_available() -- verify CLI/service reachable\nexecute() -- run task (subprocess or API call)\ncancel() -- terminate running task"]
+
+    GO -- "NATS: tasks.agent.aider,\ntasks.agent.goose, etc." --> CONSUMER
+    CONSUMER --> EXEC
 ```
 
 #### BackendExecutor Protocol (`workers/codeforge/backends/_base.py`)
@@ -70,10 +65,10 @@ class BackendExecutor(Protocol):
 | `workers/codeforge/backends/_base.py` | BackendExecutor protocol, BackendInfo, TaskResult |
 | `workers/codeforge/backends/router.py` | BackendRouter dispatcher |
 | `workers/codeforge/backends/aider.py` | AiderExecutor (real CLI wrapper) |
-| `workers/codeforge/backends/goose.py` | GooseExecutor (stub) |
-| `workers/codeforge/backends/openhands.py` | OpenHandsExecutor (stub) |
-| `workers/codeforge/backends/opencode.py` | OpenCodeExecutor (stub) |
-| `workers/codeforge/backends/plandex.py` | PlandexExecutor (stub) |
+| `workers/codeforge/backends/goose.py` | GooseExecutor (CLI wrapper) |
+| `workers/codeforge/backends/openhands.py` | OpenHandsExecutor (CLI wrapper) |
+| `workers/codeforge/backends/opencode.py` | OpenCodeExecutor (CLI wrapper) |
+| `workers/codeforge/backends/plandex.py` | PlandexExecutor (CLI wrapper) |
 | `workers/codeforge/backends/__init__.py` | `build_default_router()` factory |
 
 ### Execution Modes
@@ -86,8 +81,9 @@ class BackendExecutor(Protocol):
 
 ### Agent Workflow
 
-```text
-Plan -> Approve -> Execute -> Review -> Deliver
+```mermaid
+flowchart LR
+    Plan --> Approve --> Execute --> Review --> Deliver
 ```
 
 Each step is individually configurable. The **autonomy** level determines who approves.
@@ -172,21 +168,20 @@ LLM-guided multi-query retrieval that improves context quality for agents workin
 
 #### Architecture
 
-```text
-Go Core (RetrievalService)
-  |
-  | NATS: retrieval.subagent.request
-  v
-Python Worker (RetrievalSubAgent)
-  |-- 1. LLM query expansion (task prompt -> N focused queries)
-  |-- 2. Parallel hybrid searches (existing HybridRetriever.search() x N)
-  |-- 3. Deduplication (by filepath+start_line)
-  |-- 4. LLM re-ranking (top candidates scored for relevance)
-  |-- 5. Return top-K results
-  |
-  | NATS: retrieval.subagent.result
-  v
-Go Core (handles result, delivers to waiter or HTTP handler)
+```mermaid
+sequenceDiagram
+    participant GO1 as Go Core (RetrievalService)
+    participant PY as Python Worker (RetrievalSubAgent)
+    participant GO2 as Go Core (result handler)
+
+    GO1->>PY: NATS: retrieval.subagent.request
+    PY->>PY: 1. LLM query expansion (task prompt -> N queries)
+    PY->>PY: 2. Parallel hybrid searches (HybridRetriever x N)
+    PY->>PY: 3. Deduplication (by filepath+start_line)
+    PY->>PY: 4. LLM re-ranking (score for relevance)
+    PY->>PY: 5. Return top-K results
+    PY->>GO2: NATS: retrieval.subagent.result
+    GO2->>GO2: Deliver to waiter or HTTP handler
 ```
 
 #### Backend
@@ -426,6 +421,28 @@ All endpoints gated by `DevModeOnly` middleware.
 
 See [ADR-008: Benchmark Evaluation Framework](../architecture/adr/008-benchmark-evaluation-framework.md).
 
+> **Note:** Benchmarks are gated by `APP_ENV=development` by design (see ADR-008). They are not available in production mode.
+
+### Advanced Evaluation (Phase 28 -- R2E-Gym/EntroPO)
+
+Extends Phase 20 benchmarks with hybrid verification, multi-rollout scaling, synthetic task generation, and DPO trajectory export.
+
+#### Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **MultiRolloutRunner** | `workers/codeforge/evaluation/runners/multi_rollout.py` | Parallel evaluation runner for multi-rollout scaling |
+| **TrajectoryVerifier** | `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` | Hybrid verification pipeline for trajectory validation |
+| **SWE-GEN** | `workers/codeforge/evaluation/generators/swegen.py` | Synthetic task generator for SWE-bench style evaluation |
+| **DPO Trajectory Exporter** | `workers/codeforge/evaluation/export/trajectory_exporter.py` | Export trajectories in DPO format for training |
+
+#### Features
+
+- **Multi-rollout scaling**: Run multiple evaluation rollouts in parallel via `MultiRolloutRunner`, aggregate results with diversity-aware MAB (entropy-UCB1) selection
+- **Hybrid verification**: `TrajectoryVerifier` combines functional test results with LLM-based trajectory analysis for robust pass/fail decisions
+- **Synthetic tasks**: `SWE-GEN` generates SWE-bench style tasks from real repositories for custom evaluation datasets
+- **DPO export**: `DPO Trajectory Exporter` converts successful/failed trajectory pairs into DPO training format for model fine-tuning
+
 ### Phase 21: Intelligent Agent Orchestration (2026-02-26)
 
 Extends Phase 5 orchestration and Phase 12 quality layer with three capabilities:
@@ -488,9 +505,9 @@ When the review router triggers, a ping_pong sub-plan is created with proponent 
 - [x] `NewMetrics()` instantiated in main.go, injected via `SetMetrics()` setters.
 - [x] Python `BackendRouter` dispatcher with 5 registered backend executors.
 - [x] `AiderExecutor` real CLI wrapper (subprocess, streaming, timeout, cancel).
-- [x] Goose/OpenHands/OpenCode/Plandex stub executors with explicit error messages.
+- [x] Goose/OpenHands/OpenCode/Plandex CLI wrapper executors (requires respective CLIs installed).
 - [x] Consumer extracts backend name from NATS subject, routes to correct executor.
-- [x] 40 new Python tests (router, aider, stubs, consumer).
+- [x] 40 new Python tests (router, aider, CLI wrappers, consumer).
 
 ### Active Work Visibility (Phase 24)
 
@@ -598,11 +615,11 @@ Goal detection runs automatically during `SetupProject()` (Step 4) after repo cl
 
 Tracked in [todo.md](../todo.md) under Phase 9+.
 
-- [ ] Implement real CLI integrations for Goose, OpenHands, OpenCode, Plandex (stubs exist).
+- [ ] Enhance CLI wrappers for Goose, OpenHands, OpenCode, Plandex (basic wrappers exist, needs advanced features).
 - [ ] Trajectory replay UI and audit trail.
 - [ ] Session events as source of truth (Resume/Fork/Rewind).
 - [x] A2A protocol integration (Phase 27 — see below).
-- [ ] AG-UI protocol integration (agent to frontend streaming).
+- [x] AG-UI protocol integration (agent to frontend streaming) — implemented in Phase 17+.
 
 ### A2A Protocol Integration (Phase 27)
 
@@ -739,4 +756,5 @@ Goals are injected into agent interactions through two complementary paths:
 | `internal/adapter/postgres/migrations/056_project_goals.sql` | DB migration |
 | `internal/adapter/http/handlers_goals.go` | REST API handlers |
 | `internal/service/context_optimizer.go` | Goal → ContextPack integration |
+| `workers/codeforge/tools/manage_goals.py` | Phase 30 goal management tool (create, update, track goals) |
 | `internal/service/conversation_agent.go` | Goal → system prompt injection |

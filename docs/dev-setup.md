@@ -30,7 +30,7 @@ Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` an
 
 **Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed.
 
-The container automatically installs Go 1.24, Python 3.12, Node.js 22, Poetry, golangci-lint v2, goimports, Claude Code CLI, Python dependencies (poetry install), Node dependencies (npm install), and Pre-commit Hooks.
+The container automatically installs Go 1.25, Python 3.12, Node.js 22, Poetry, golangci-lint v2, goimports, Claude Code CLI, Python dependencies (poetry install), Node dependencies (npm install), and Pre-commit Hooks.
 
 ### Project Structure
 
@@ -281,6 +281,8 @@ Tests cover health checks (3), sidebar navigation (4), project CRUD (5), cost da
 #### LLM E2E Tests (API-Level)
 
 LLM E2E tests validate the full LLM integration stack via API calls (no browser needed). They require the backend + infrastructure but not the frontend dev server.
+
+> **WARNING: `APP_ENV=development` is required.** Without it, dev-mode-only endpoints (benchmarks, agent features) return 403 and benchmark-related tests will fail. The `/health` endpoint exposes `dev_mode: true/false` so you can verify the mode.
 
 ```bash
 # Prerequisites: backend + infrastructure running
@@ -544,7 +546,7 @@ CodeForge ships with multi-stage Dockerfiles for all three services.
 #### Building Images
 
 ```bash
-# Go Core (multi-stage: golang:1.24-alpine -> alpine:3.21)
+# Go Core (multi-stage: golang:1.25-alpine -> alpine:3.21)
 docker build -t codeforge-core .
 
 # Python Worker (python:3.12-slim, poetry, non-root user)

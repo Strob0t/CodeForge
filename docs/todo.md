@@ -279,6 +279,7 @@
 #### Version Control
 
 - [x] (2026-02-19) SVN integration — svn adapter (`internal/adapter/svn/`) implementing gitprovider.Provider via svn CLI (checkout, update, status, info, ls branches)
+- [x] (2026-03-05) SVN adapter extended — reclone logic for idempotent Clone(), CloneOption branch mapping (trunk/branches/ convention), authentication support (--username/--password via factory config), comprehensive test suite (18 tests: 10 unit + 8 integration)
 - [x] (2026-02-19) Gitea/Forgejo support — gitea PM adapter (`internal/adapter/gitea/`) implementing full pmprovider.Provider via REST API (list, get, create, update issues)
 
 #### Protocols
@@ -3476,7 +3477,7 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [x] (2026-03-05) Read `gitlocal/` — REAL. Full provider implementation with Clone, Pull, Checkout, Diff, Log, Status. Test file present.
 - [x] (2026-03-05) Read `gitea/` — REAL. Gitea API implementation with provider.go, register.go. Test file present.
 - [x] (2026-03-05) Read `gitlab/` — REAL. GitLab API implementation with provider.go. Test file present.
-- [x] (2026-03-05) Read `svn/` — NOT FOUND. No SVN adapter directory exists in `internal/adapter/`. If SVN support is needed, it must be implemented.
+- [x] (2026-03-05) Read `svn/` — REAL. SVN CLI adapter with provider.go, register.go, provider_test.go. Implements full Provider interface via svn CLI (checkout, update, status, info, ls, switch). Extended with reclone logic, CloneOption branch mapping, and authentication support (--username/--password).
 - [x] (2026-03-05) Read `githubpm/` — REAL. Bidirectional sync: `CreateItem` via `gh issue create`, `UpdateItem` via `gh issue edit`. Capabilities declare both as true. (Enhanced in FIX-CR38)
 - [x] (2026-03-05) Read spec providers — REAL. `spec_detector_adapter.go`: DetectAndImport, ImportSpecs. All 4 providers (openspec, speckit, autospec, markdownspec) parse actual spec files.
 - [x] (2026-03-05) Read `roadmap.go` — REAL. Full CRUD: Create, GetByProject, Update, Delete, milestones, features. Auto-detection via spec_detector_adapter.
@@ -3627,7 +3628,7 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 
 - [x] FIX-CR32 (Important): `_memory.py` — Added `tenant_id` to Go/Python request models, replaced hardcoded UUID. (2026-03-05)
 - [x] FIX-CR33 (Important): `_memory.py` — Replaced `query[:32]` dedup with SHA-256 hash. (2026-03-05)
-- [ ] FIX-CR34 (Important): `experience_pool.go` — `@exp_cache` decorator exists in Python but is never wired to a NATS consumer handler. Experience pool lookup is never invoked during agent runs.
+- [x] (2026-03-05) FIX-CR34 (Important): `experience_pool.go` — Wired ExperiencePool into AgentExecutor: lookup before LLM call (cache hit → skip execution), store after successful completion. Initialized in consumer with db_url + llm.
 - [x] FIX-CR35 (Important): `mcp.go:118` — `ResolveForRun` now merges YAML-loaded global servers with DB-assigned project servers via `ListMCPServersByProject`. (2026-03-05)
 
 **Git, Roadmap & PM Sync (Area 8):**
@@ -3656,3 +3657,50 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 | PM Sync Fixes | CR36-CR38 | S | Pass provider config, fix context, document capabilities |
 | Orchestration Fixes | CR39-CR41 | S | Fix TOCTOU race, config mutation, add tests |
 | Runtime Test Coverage | CR17 | L | Write tests for runtime_lifecycle, runtime_execution, runtime_approval |
+
+### Documentation-Code Reconciliation (2026-03-05)
+
+Gaps identified between documentation claims and actual Python codebase implementation.
+
+#### C1: Python Trust/Quarantine Layer
+
+- [ ] Create `workers/codeforge/trust/` module
+- **What's missing:** CLAUDE.md references `workers/codeforge/trust/` but this path does not exist. Only the Go side is implemented.
+- **Go provides:** `internal/domain/trust/trust.go` (4 trust levels: untrusted, partial, verified, full), `internal/service/quarantine.go` (172 lines — risk scoring, admin review hold, evaluate/approve/reject)
+- **What to build:**
+  1. TrustAnnotation Pydantic model matching Go's 4 trust levels
+  2. NATS middleware for auto-stamping outgoing messages with trust level
+  3. NATS middleware for enforcing minimum trust on incoming messages
+  4. Quarantine integration for sub-threshold messages
+- **Effort:** 2-3 days | **Priority:** Medium
+
+#### C2: Python Microagent Trigger Logic
+
+- [ ] Verify microagent resolution flow and implement Python triggers if needed
+- **Current state:** Go stores microagents via CRUD (`internal/service/microagent.go`). Python side (`workers/codeforge/consumer/_conversation.py:198-201`) injects `run_msg.microagent_prompts` into the system prompt.
+- **Open question:** Does Go pre-select microagents before publishing the run message? If yes, no Python work needed (document as "working as designed"). If not, build trigger matching logic in Python consumer.
+- **Effort:** 1 day (verify) + 1-2 days (if implementation needed) | **Priority:** Low
+
+#### C3: Python A2A Protocol Expansion
+
+- [ ] Expand `workers/codeforge/consumer/_a2a.py` beyond basic task execution
+- **Current state:** 100 lines, basic task execution + cancellation only
+- **Go provides:** Full A2A service (`internal/service/a2a.go`, 529 lines), HTTP handlers (`internal/adapter/http/a2a_handlers.go`, 256 lines), 8 task states, SSE streaming, auth middleware, 11 RPCs
+- **What to build:**
+  1. Pydantic models for A2A task/message/part types
+  2. Extended task state machine (8 states: SUBMITTED, WORKING, COMPLETED, FAILED, CANCELED, REJECTED, INPUT_REQUIRED, AUTH_REQUIRED)
+  3. Artifact production support
+  4. Error detail propagation
+- **Effort:** 3-5 days | **Priority:** Medium
+
+#### C4: Python Handoff Enrichment
+
+- [ ] Enhance `workers/codeforge/tools/handoff.py` with context merging and artifact passing
+- **Current state:** 77 lines, basic flow (receive handoff → create new run → publish)
+- **Go provides:** Full handoff domain model in `internal/domain/orchestration/handoff.go`
+- **What to build:**
+  1. Context merge logic (summarize source conversation before handoff)
+  2. Artifact forwarding between agents
+  3. Failure handler with rollback capability
+  4. Chain tracking metadata for multi-hop handoffs
+- **Effort:** 2-3 days | **Priority:** Low

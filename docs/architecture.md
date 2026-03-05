@@ -6,56 +6,48 @@ CodeForge is a containerized service for orchestrating AI coding agents. The arc
 
 ### System Architecture
 
-```text
-┌─────────────────────────────────────────────────────┐
-│                  TypeScript Frontend                 │
-│                     (SolidJS)                        │
-│                                                     │
-│  ┌─────────┐  ┌──────────┐  ┌────────┐  ┌────────┐ │
-│  │ Project  │  │ Roadmap/ │  │  LLM   │  │ Agent  │ │
-│  │Dashboard │  │FeatureMap│  │Provider│  │Monitor │ │
-│  └─────────┘  └──────────┘  └────────┘  └────────┘ │
-└────────────────────┬────────────────────────────────┘
-                     │ REST / WebSocket
-┌────────────────────▼────────────────────────────────┐
-│                  Go Core Service                     │
-│                                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐          │
-│  │ HTTP/WS  │  │  Agent   │  │   Repo   │          │
-│  │ Server   │  │Lifecycle │  │ Manager  │          │
-│  └──────────┘  └──────────┘  └──────────┘          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐          │
-│  │Scheduling│  │  Auth /  │  │  Queue   │          │
-│  │ Engine   │  │ Sessions │  │ Producer │          │
-│  └──────────┘  └──────────┘  └──────────┘          │
-│  ┌──────────┐  ┌──────────┐                        │
-│  │Auto-Detect│  │ PM Sync  │                        │
-│  │ Engine   │  │ Service  │                        │
-│  └──────────┘  └──────────┘                        │
-└────────────┬────────────────────────┬───────────────┘
-             │  Message Queue         │
-             │  (NATS JetStream)      │
-┌────────────▼──────┐  ┌─────────────▼───────────────┐
-│  Python Worker 1  │  │  Python Worker N            │
-│                   │  │                             │
-│  ┌─────────────┐  │  │  ┌─────────────┐           │
-│  │  LangGraph  │  │  │  │  LangGraph  │           │
-│  │  (Agents)   │  │  │  │  (Agents)   │           │
-│  └─────────────┘  │  │  └─────────────┘           │
-│  ┌─────────────┐  │  │  ┌─────────────┐           │
-│  │ Agent Exec  │  │  │  │ Agent Exec  │           │
-│  │(Aider, etc.)│  │  │  │(OpenHands)  │           │
-│  └─────────────┘  │  │  └─────────────┘           │
-└────────┬──────────┘  └──────────┬──────────────────┘
-         │  OpenAI-compatible API │
-┌────────▼────────────────────────▼──────────────────┐
-│            LiteLLM Proxy (Sidecar)                  │
-│  127+ Provider │ Routing │ Budgets │ Cost-Tracking  │
-└────────────────────────┬───────────────────────────┘
-                         │ Provider APIs
-┌────────────────────────▼───────────────────────────┐
-│  OpenAI │ Anthropic │ Ollama │ Bedrock │ OpenRouter │
-└────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph FE["TypeScript Frontend (SolidJS)"]
+        PD["Project Dashboard"]
+        RM["Roadmap/FeatureMap"]
+        LP["LLM Provider"]
+        AM["Agent Monitor"]
+    end
+
+    subgraph GO["Go Core Service"]
+        HTTP["HTTP/WS Server"]
+        AL["Agent Lifecycle"]
+        REPO["Repo Manager"]
+        SCHED["Scheduling Engine"]
+        AUTH["Auth / Sessions"]
+        QP["Queue Producer"]
+        AD["Auto-Detect Engine"]
+        PMS["PM Sync Service"]
+    end
+
+    subgraph W1["Python Worker 1"]
+        LG1["LangGraph (Agents)"]
+        AE1["Agent Exec (Aider, etc.)"]
+    end
+
+    subgraph WN["Python Worker N"]
+        LGN["LangGraph (Agents)"]
+        AEN["Agent Exec (OpenHands)"]
+    end
+
+    subgraph LITE["LiteLLM Proxy (Sidecar)"]
+        LCORE["127+ Providers | Routing | Budgets | Cost-Tracking"]
+    end
+
+    PROVIDERS["OpenAI | Anthropic | Ollama | Bedrock | OpenRouter"]
+
+    FE -- "REST / WebSocket" --> GO
+    GO -- "NATS JetStream" --> W1
+    GO -- "NATS JetStream" --> WN
+    W1 -- "OpenAI-compatible API" --> LITE
+    WN -- "OpenAI-compatible API" --> LITE
+    LITE -- "Provider APIs" --> PROVIDERS
 ```
 
 ### Layers in Detail
@@ -128,30 +120,27 @@ CodeForge integrates with standardized protocols for tool integration, agent coo
 
 #### Protocol Architecture
 
-```text
-┌─────────────────────────────────────────────────────┐
-│              TypeScript Frontend                     │
-│                                                     │
-│   AG-UI Events <-> Agent output streaming            │
-│   (TEXT_MESSAGE, TOOL_CALL, STATE_DELTA, APPROVAL)  │
-└────────────────────┬────────────────────────────────┘
-                     │ WebSocket (AG-UI event format)
-┌────────────────────▼────────────────────────────────┐
-│              Go Core Service                         │
-│                                                     │
-│   MCP Server <-> Expose CodeForge tools              │
-│   MCP Client <-> Connect to external MCP servers     │
-│   LSP Client <-> Code intelligence per language      │
-│   A2A Server <-> Agent Cards, task delegation        │
-│   OTEL SDK   <-> Traces, metrics -> collector         │
-└────────────────────┬────────────────────────────────┘
-                     │ NATS JetStream
-┌────────────────────▼────────────────────────────────┐
-│              Python Workers                          │
-│                                                     │
-│   MCP Client <-> Tool access for agents              │
-│   OTEL SDK   <-> LLM call traces, token metrics      │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph FE["TypeScript Frontend"]
+        AGUI["AG-UI Events: TEXT_MESSAGE, TOOL_CALL, STATE_DELTA, APPROVAL"]
+    end
+
+    subgraph GO["Go Core Service"]
+        MCPS["MCP Server -- Expose CodeForge tools"]
+        MCPC["MCP Client -- Connect to external MCP servers"]
+        LSPC["LSP Client -- Code intelligence per language"]
+        A2AS["A2A Server -- Agent Cards, task delegation"]
+        OTELG["OTEL SDK -- Traces, metrics"]
+    end
+
+    subgraph PY["Python Workers"]
+        MCPW["MCP Client -- Tool access for agents"]
+        OTELP["OTEL SDK -- LLM call traces, token metrics"]
+    end
+
+    FE -- "WebSocket (AG-UI event format)" --> GO
+    GO -- "NATS JetStream" --> PY
 ```
 
 ### Design Decisions
@@ -182,42 +171,42 @@ JSON is not used for configuration files. JSON remains for API responses, event 
 
 The core logic (domain + services) is completely isolated from external systems. All dependencies point inward, never outward.
 
-```text
-┌──────────────────────────────────────────────────────────┐
-│                    ADAPTERS (outer)                        │
-│  HTTP Handlers, GitHub, Postgres, NATS, Ollama, Aider     │
-│                                                          │
-│    ┌──────────────────────────────────────────────┐       │
-│    │              PORTS (boundary)               │       │
-│    │    Go Interfaces — define WHAT the           │       │
-│    │    core logic needs, not HOW                 │       │
-│    │                                              │       │
-│    │    ┌──────────────────────────────┐          │       │
-│    │    │        DOMAIN (core)        │          │       │
-│    │    │   Business logic, entities  │          │       │
-│    │    │   Rules, validation         │          │       │
-│    │    │   Zero external imports     │          │       │
-│    │    └──────────────────────────────┘          │       │
-│    └──────────────────────────────────────────────┘       │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph ADAPTERS["ADAPTERS (outer)"]
+        direction LR
+        A1["HTTP Handlers"]
+        A2["GitHub"]
+        A3["Postgres"]
+        A4["NATS"]
+        A5["Ollama"]
+        A6["Aider"]
+
+        subgraph PORTS["PORTS (boundary)"]
+            direction LR
+            P["Go Interfaces -- define WHAT the core logic needs, not HOW"]
+
+            subgraph DOMAIN["DOMAIN (core)"]
+                D1["Business logic, entities"]
+                D2["Rules, validation"]
+                D3["Zero external imports"]
+            end
+        end
+    end
 ```
 
 #### Provider Registry Pattern
 
 For open-source extensibility, CodeForge uses a self-registering provider pattern. New implementations (e.g., a Gitea adapter) require a Go package that satisfies the corresponding interface, a blank import in `cmd/codeforge/providers.go`, and no changes to the core logic.
 
-```text
-1. Port defines interface + registry
-   (Register, New, Available)
+```mermaid
+flowchart TD
+    S1["1. Port defines interface + registry\n(Register, New, Available)"]
+    S2["2. Adapter implements interface\nand registers itself via init()"]
+    S3["3. Blank import in providers.go\nactivates the adapter"]
+    S4["4. Core logic only uses the interface --\ndoes not know which adapter is behind it"]
 
-2. Adapter implements interface
-   and registers itself via init()
-
-3. Blank import in providers.go
-   activates the adapter
-
-4. Core logic only uses the interface —
-   does not know which adapter is behind it
+    S1 --> S2 --> S3 --> S4
 ```
 
 This pattern follows the Go standard pattern (`database/sql` + `_ "github.com/lib/pq"`).
@@ -309,11 +298,12 @@ internal/
 
 **Circuit Breaker** (`internal/resilience/breaker.go`) provides a zero-dependency circuit breaker for external service calls (NATS Publish, LiteLLM API).
 
-```text
-Closed ──(failure count >= maxFailures)──> Open
-Open   ──(timeout elapsed)──────────────> Half-Open
-Half-Open ──(success)───────────────────> Closed
-Half-Open ──(failure)───────────────────> Open
+```mermaid
+stateDiagram-v2
+    Closed --> Open : failure count >= maxFailures
+    Open --> HalfOpen : timeout elapsed
+    HalfOpen --> Closed : success
+    HalfOpen --> Open : failure
 ```
 
 The breaker has configurable `maxFailures` and `timeout` from `config.Breaker`. It is injected via `SetBreaker()` on NATS and LiteLLM adapters. This prevents cascading failures when downstream services are unavailable.
@@ -330,16 +320,21 @@ Response body is capped at 1 MB with best-effort storage (failures don't error t
 
 **Tiered Cache** (L1 + L2) provides a two-level caching strategy.
 
-```text
-L1: Ristretto (in-process)     L2: NATS JetStream KV (distributed)
-    100 MB, ~1ns reads              10-minute TTL, shared across instances
+```mermaid
+flowchart LR
+    subgraph L1["L1: Ristretto (in-process)\n100 MB, ~1ns reads"]
+    end
+    subgraph L2["L2: NATS JetStream KV (distributed)\n10-minute TTL, shared across instances"]
+    end
 
-Get: L1 hit? -> return
-     L2 hit? -> backfill L1 -> return
-     Miss?   -> return not-found
+    GET["Get"] --> L1HIT{"L1 hit?"}
+    L1HIT -- Yes --> RET1["Return"]
+    L1HIT -- No --> L2HIT{"L2 hit?"}
+    L2HIT -- Yes --> BACKFILL["Backfill L1"] --> RET2["Return"]
+    L2HIT -- No --> MISS["Return not-found"]
 
-Set: Write L1 + L2 (sequential)
-Delete: Remove L1 + L2 (sequential)
+    SET["Set"] --> WL1["Write L1"] --> WL2["Write L2"]
+    DEL["Delete"] --> RL1["Remove L1"] --> RL2["Remove L2"]
 ```
 
 The port lives at `internal/port/cache/cache.go` (Get/Set/Delete interface). Adapters live at `internal/adapter/ristretto/`, `internal/adapter/natskv/`, and `internal/adapter/tiered/`. L1 backfill uses shorter TTL (5 min) to prevent stale data.
@@ -364,39 +359,31 @@ Termination enforcement checks max steps, max cost, timeout, and stall detection
 
 The agentic loop makes CodeForge an autonomous coding agent. When a user sends a message in the Chat UI, the system dispatches to a Python worker that runs a multi-turn tool-use loop: LLM decides which tools to call, tools execute, results feed back, and the loop continues until the task is done.
 
-```text
-┌──────────────┐                  ┌─────────────────┐
-│   Frontend   │  WebSocket       │   Go Core        │
-│  (SolidJS)   │◄─────────────── │  ConversationSvc │
-│              │  AG-UI events    │                  │
-│  ChatPanel   │                  │  1. Store user   │
-│  ToolCards   │  POST /messages  │     message      │
-│  Approval UI │ ────────────────►│  2. Build context│
-└──────────────┘                  │  3. Publish NATS │
-                                  └────────┬────────┘
-                                           │ conversation.run.start
-                                  ┌────────▼────────┐
-                                  │  Python Worker   │
-                                  │  AgentLoopExec   │
-                                  │                  │
-                                  │  LOOP:           │
-                                  │  a. LLM call     │─── stream text ──► WS
-                                  │  b. tool_calls?  │
-                                  │     ├─ policy    │─── runs.toolcall ─► Go
-                                  │     ├─ execute   │    (allow/deny/ask)
-                                  │     └─ result    │
-                                  │  c. no tools?    │
-                                  │     └─ BREAK     │
-                                  └────────┬────────┘
-                                           │ conversation.run.complete
-                                  ┌────────▼────────┐
-                                  │   Go Core        │
-                                  │  1. Store tool   │
-                                  │     messages     │
-                                  │  2. Store reply  │
-                                  │  3. Broadcast    │
-                                  │     run_finished │
-                                  └─────────────────┘
+```mermaid
+sequenceDiagram
+    participant FE as Frontend (SolidJS)
+    participant GO as Go Core (ConversationSvc)
+    participant PY as Python Worker (AgentLoopExec)
+    participant WS as WebSocket
+
+    FE->>GO: POST /messages
+    GO->>GO: 1. Store user message
+    GO->>GO: 2. Build context
+    GO->>PY: NATS: conversation.run.start
+
+    loop Agent Loop
+        PY->>WS: Stream text (AG-UI events)
+        PY->>GO: NATS: runs.toolcall (policy check)
+        GO-->>PY: allow / deny / ask
+        PY->>PY: Execute tool
+        PY->>PY: Append result
+    end
+    Note over PY: Break when no tool_calls
+
+    PY->>GO: NATS: conversation.run.complete
+    GO->>GO: 1. Store tool messages
+    GO->>GO: 2. Store reply
+    GO->>WS: Broadcast run_finished
 ```
 
 **Conversation Service** (`internal/service/conversation.go`) provides two paths: simple (single LLM call for projects without workspaces) and agentic (multi-turn tool loop). `IsAgentic()` determines the mode from the request override, project config, and workspace presence. `SendMessageAgentic()` stores the user message, loads conversation history, builds a context pack (system prompt, tool definitions, MCP servers, policy profile), and publishes a `ConversationRunStartPayload` to NATS.
@@ -427,10 +414,11 @@ Not every LLM brings the same capabilities. CodeForge must fill the gaps so that
 
 #### The Problem
 
-```text
-Claude Code / Aider       ->  own tool usage, codebase search, agent loop
-OpenAI API (direct)       ->  function calling, but no codebase context
-Ollama (local)            ->  pure text completion, no tools, no context
+```mermaid
+flowchart LR
+    CC["Claude Code / Aider"] --> CC_CAP["Own tool usage, codebase search, agent loop"]
+    OAI["OpenAI API (direct)"] --> OAI_CAP["Function calling, but no codebase context"]
+    OL["Ollama (local)"] --> OL_CAP["Pure text completion, no tools, no context"]
 ```
 
 A local Ollama model knows nothing about the repo, cannot read files, and has no memory. CodeForge must provide these capabilities.
@@ -439,34 +427,16 @@ A local Ollama model knows nothing about the repo, cannot read files, and has no
 
 The workers supplement missing capabilities depending on the LLM level.
 
-```text
-┌──────────────────────────────────────────────────────┐
-│                    CodeForge Worker                    │
-│                                                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │  Context Layer (for all LLMs)                  │  │
-│  │  GraphRAG: Vector search + Graph DB +          │  │
-│  │  Web fallback -> find relevant code/docs        │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │  Quality Layer (optional, configurable)        │  │
-│  │  Multi-Agent Debate: Pro/Con/Moderator ->       │  │
-│  │  Reduce hallucinations, verify solutions       │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │  Routing Layer                                 │  │
-│  │  Task-based model routing via LiteLLM ->        │  │
-│  │  Right task to the right model                 │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │  Execution Layer                               │  │
-│  │  Agent backends: Aider, OpenHands, SWE-agent,  │  │
-│  │  Goose, OpenCode, Plandex, or direct LLM API   │  │
-│  └────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph WORKER["CodeForge Worker"]
+        CTX["Context Layer (for all LLMs)\nGraphRAG: Vector search + Graph DB + Web fallback"]
+        QL["Quality Layer (optional, configurable)\nMulti-Agent Debate: Pro/Con/Moderator"]
+        RL["Routing Layer\nTask-based model routing via LiteLLM"]
+        EL["Execution Layer\nAgent backends: Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex"]
+
+        CTX --> QL --> RL --> EL
+    end
 ```
 
 #### Three LLM Integration Levels
@@ -511,20 +481,13 @@ Cost management includes budget limits per task/project/user, automatic cost tra
 
 Not every use case needs a sandbox. CodeForge supports three modes.
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                      Execution Modes                             │
-│                                                                 │
-│  ┌──────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
-│  │   Sandbox    │  │     Mount        │  │     Hybrid       │  │
-│  │              │  │                  │  │                  │  │
-│  │  Isolated    │  │  Agent works     │  │  Sandbox with    │  │
-│  │  container,  │  │  directly on     │  │  mounted         │  │
-│  │  repo copy   │  │  mounted path    │  │  volumes         │  │
-│  │  in container│  │  of the host     │  │  (read/write     │  │
-│  │              │  │                  │  │   configurable)  │  │
-│  └──────────────┘  └──────────────────┘  └──────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph MODES["Execution Modes"]
+        SANDBOX["Sandbox\nIsolated container,\nrepo copy in container"]
+        MOUNT["Mount\nAgent works directly on\nmounted path of the host"]
+        HYBRID["Hybrid\nSandbox with mounted\nvolumes (read/write configurable)"]
+    end
 ```
 
 | Mode | When | Security | Speed |
@@ -543,26 +506,15 @@ Sandbox Mode runs a Docker container per task (Docker-in-Docker). The repo is co
 
 Agents in sandbox containers need the right tools. CodeForge provides these automatically depending on the agent type and execution mode.
 
-```text
-┌─────────────────────────────────────────────────┐
-│            Sandbox Container                     │
-│                                                 │
-│  ┌───────────────────────────────────────────┐  │
-│  │  Base Image (Python/Node/Go)              │  │
-│  └───────────────────────────────────────────┘  │
-│  ┌───────────────────────────────────────────┐  │
-│  │  CodeForge Tool Layer                     │  │
-│  │  - Shell (with Safety Evaluator)          │  │
-│  │  - File Read/Write/Patch                  │  │
-│  │  - Grep/Search                            │  │
-│  │  - Git Operations                         │  │
-│  │  - Dependency Installation                │  │
-│  │  - Test Runner                            │  │
-│  └───────────────────────────────────────────┘  │
-│  ┌───────────────────────────────────────────┐  │
-│  │  Repo (copied or mounted)                 │  │
-│  └───────────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph CONTAINER["Sandbox Container"]
+        BASE["Base Image (Python/Node/Go)"]
+        TOOLS["CodeForge Tool Layer\nShell (with Safety Evaluator) | File Read/Write/Patch\nGrep/Search | Git Operations\nDependency Installation | Test Runner"]
+        REPO["Repo (copied or mounted)"]
+
+        BASE --> TOOLS --> REPO
+    end
 ```
 
 Tools are defined as Pydantic schemas and passed to the LLM as function calls or tool definitions. Full-featured agents (Aider, OpenHands) bring their own tools and only need the repo.
@@ -577,16 +529,15 @@ When uncertain, the evaluator blocks the command and asks the user (human-in-the
 
 A standardized workflow applies to all agents with configurable autonomy level.
 
-```text
-1. PLAN      Agent analyzes task + codebase, creates structured plan
-                ↓
-2. APPROVE   Plan is submitted for approval (depending on autonomy level)
-                ↓  (User, safety rules, or auto-approve)
-3. EXECUTE   Agent works through plan point by point
-                ↓
-4. REVIEW    Self-review, second agent, or guardrail agent
-                ↓
-5. DELIVER   Result as diff/patch, PR, or direct file change
+```mermaid
+flowchart TD
+    PLAN["1. PLAN\nAgent analyzes task + codebase, creates structured plan"]
+    APPROVE["2. APPROVE\nPlan submitted for approval (depending on autonomy level)\nUser, safety rules, or auto-approve"]
+    EXECUTE["3. EXECUTE\nAgent works through plan point by point"]
+    REVIEW["4. REVIEW\nSelf-review, second agent, or guardrail agent"]
+    DELIVER["5. DELIVER\nResult as diff/patch, PR, or direct file change"]
+
+    PLAN --> APPROVE --> EXECUTE --> REVIEW --> DELIVER
 ```
 
 Each step is individually configurable (skip, auto-approve, etc.). The autonomy level determines who may approve (user vs. safety rules). At level 4-5, safety rules replace the human approver.
@@ -595,16 +546,15 @@ Each step is individually configurable (skip, auto-approve, etc.). The autonomy 
 
 CodeForge supports five autonomy levels, from fully supervised operation to completely autonomous execution without user interaction.
 
-```text
-Level 1   Level 2     Level 3     Level 4      Level 5
-supervised  semi-auto   auto-edit   full-auto    headless
-  │           │           │           │            │
-  ▼           ▼           ▼           ▼            ▼
- User       User        User       Safety       Safety
- approves   approves    approves   Rules        Rules
- EVERYTHING destructive Terminal/  replace      replace
-            actions     Deploy     User         User
-                                                + no UI
+```mermaid
+flowchart LR
+    L1["Level 1: supervised\nUser approves EVERYTHING"]
+    L2["Level 2: semi-auto\nUser approves destructive actions"]
+    L3["Level 3: auto-edit\nUser approves Terminal/Deploy"]
+    L4["Level 4: full-auto\nSafety Rules replace User"]
+    L5["Level 5: headless\nSafety Rules replace User + no UI"]
+
+    L1 --> L2 --> L3 --> L4 --> L5
 ```
 
 | Level | Name | Who Approves | Use Case |
@@ -649,33 +599,18 @@ autonomy:
 
 At level 4 (`full-auto`) and level 5 (`headless`), the following mechanisms replace the human approver.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                  Safety Layer (replaces user)                  │
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │  Budget Limiter  │  │ Command Safety  │                  │
-│  │  Hard stop when  │  │ Evaluator       │                  │
-│  │  exceeded        │  │ Blocklist +     │                  │
-│  │                  │  │ Regex matching  │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │  Branch Isolation│  │ Test/Lint Gate  │                  │
-│  │  Never on main,  │  │ Deliver only    │                  │
-│  │  always feature  │  │ when tests +    │                  │
-│  │  branch          │  │ lint pass       │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │  Max Steps       │  │ Rollback        │                  │
-│  │  Infinite loop   │  │ Automatic on    │                  │
-│  │  detection       │  │ failure         │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │  Path Blocklist  │  │ Stall Detection │                  │
-│  │  Sensitive files  │  │ Re-planning     │                  │
-│  │  protected       │  │ or abort        │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph SAFETY["Safety Layer (replaces user)"]
+        BL["Budget Limiter\nHard stop when exceeded"]
+        CS["Command Safety Evaluator\nBlocklist + Regex matching"]
+        BI["Branch Isolation\nNever on main, always feature branch"]
+        TL["Test/Lint Gate\nDeliver only when tests + lint pass"]
+        MS["Max Steps\nInfinite loop detection"]
+        RB["Rollback\nAutomatic on failure"]
+        PB["Path Blocklist\nSensitive files protected"]
+        SD["Stall Detection\nRe-planning or abort"]
+    end
 ```
 
 #### Headless Mode (Level 5) -- Use Cases
@@ -766,22 +701,27 @@ Every state mutation of an agent is immediately emitted to the frontend via WebS
 
 Inspired by Roo Code's Modes and Cline's `.clinerules`, CodeForge defines specialized agent modes as YAML configurations instead of using a general-purpose agent. Each mode has its own tools, LLM settings, and autonomy level.
 
-```text
-┌──────────────────────────────────────────────────────────┐
-│                    Mode Registry                          │
-│                                                          │
-│  Built-in Modes        Custom Modes (user-defined)       │
-│  ┌──────────────┐      ┌──────────────────────────┐     │
-│  │ architect    │      │ my-react-reviewer        │     │
-│  │ coder        │      │ security-auditor         │     │
-│  │ reviewer     │      │ docs-writer              │     │
-│  │ researcher   │      │ dependency-updater       │     │
-│  │ tester       │      │ ...                      │     │
-│  │ lint-fixer   │      │                          │     │
-│  │ planner      │      │ (YAML in project or      │     │
-│  │ debugger     │      │  global config)          │     │
-│  └──────────────┘      └──────────────────────────┘     │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph REG["Mode Registry"]
+        subgraph BUILTIN["Built-in Modes"]
+            B1["architect"]
+            B2["coder"]
+            B3["reviewer"]
+            B4["researcher"]
+            B5["tester"]
+            B6["lint-fixer"]
+            B7["planner"]
+            B8["debugger"]
+        end
+        subgraph CUSTOM["Custom Modes (user-defined)"]
+            C1["my-react-reviewer"]
+            C2["security-auditor"]
+            C3["docs-writer"]
+            C4["dependency-updater"]
+            C5["... (YAML in project or global config)"]
+        end
+    end
 ```
 
 #### Built-in Mode Definitions
@@ -1184,10 +1124,14 @@ Workbenches provide shared state between related tools, lifecycle management (st
 
 A dedicated agent validates the output of another agent.
 
-```text
-Agent A (Coder) -> Output -> Guardrail Agent -> Validates -> Accept / Reject + Feedback
-                                                              ↓ (on reject)
-                                                         Agent A retries with feedback
+```mermaid
+flowchart LR
+    A["Agent A (Coder)"] --> OUT["Output"]
+    OUT --> GA["Guardrail Agent"]
+    GA --> VAL{"Validates"}
+    VAL -- Accept --> DONE["Accept"]
+    VAL -- Reject --> FB["Feedback"]
+    FB --> A
 ```
 
 This is integrated into the Quality Layer as a fourth strategy alongside Action Sampling, RetryAgent+Reviewer, and Multi-Agent Debate.
@@ -1234,11 +1178,12 @@ Events are streamed to the frontend via WebSocket. The dashboard can filter, agg
 
 For complex multi-agent workflows with conditional paths.
 
-```text
-                    ┌─── success ──-> [Test Agent]
-[Plan Agent] ──-> [Code Agent] ──┤
-                    └─── failure ──-> [Debug Agent] ──-> [Code Agent]
-                                                          (Cycle)
+```mermaid
+flowchart LR
+    PLAN["Plan Agent"] --> CODE["Code Agent"]
+    CODE -- success --> TEST["Test Agent"]
+    CODE -- failure --> DEBUG["Debug Agent"]
+    DEBUG --> CODE
 ```
 
 This supports conditional edges based on agent output, parallel nodes (activation="any" for race, activation="all" for join), cycle support with exit conditions (max_iterations, success_condition), a DiGraphBuilder API for fluent graph construction, and visualization in the frontend as an interactive DAG editor.
@@ -1282,17 +1227,16 @@ This is essential for the GUI workflow editor. Agents/workflows can be saved, sh
 
 For complex features, structured intermediate artifacts replace direct code generation.
 
-```text
-1. Requirement -> Structured PRD (JSON)
-     User stories, acceptance criteria, scope
-2. PRD -> System Design (JSON + Mermaid)
-     Data structures, API specification, class diagram
-3. Design -> Task List (JSON)
-     Ordered list of files to create with dependencies
-4. Tasks -> Code (per file)
-     Context: Design + other already created files
-5. Code -> Review + Tests
-     Automatic validation against design specification
+```mermaid
+flowchart TD
+    REQ["1. Requirement\nUser stories, acceptance criteria, scope"]
+    PRD["2. Structured PRD (JSON)"]
+    DESIGN["3. System Design (JSON + Mermaid)\nData structures, API spec, class diagram"]
+    TASKS["4. Task List (JSON)\nOrdered files with dependencies"]
+    CODE["5. Code (per file)\nContext: Design + already created files"]
+    REVIEW["6. Review + Tests\nAutomatic validation against design"]
+
+    REQ --> PRD --> DESIGN --> TASKS --> CODE --> REVIEW
 ```
 
 Each intermediate document is schema-validated (ActionNode). Structured constraints reduce hallucination. Incremental development takes existing code into account. Intermediate documents are visible and editable in the GUI.
@@ -1301,14 +1245,17 @@ Each intermediate document is schema-validated (ActionNode). Structured constrai
 
 For complex, long-lived tasks, adaptive planning with stall detection applies.
 
-```text
-1. PLAN    -> Orchestrator creates initial plan
-2. EXECUTE -> Agent works through next step
-3. CHECK   -> Evaluate progress:
-               - Progress? -> Continue with 2
-               - Stall?    -> Re-planning (back to 1)
-               - Done?     -> Deliver result
-               - Failed?   -> Fact gathering, then re-planning
+```mermaid
+flowchart TD
+    PLAN["1. PLAN\nOrchestrator creates initial plan"]
+    EXEC["2. EXECUTE\nAgent works through next step"]
+    CHECK{"3. CHECK\nEvaluate progress"}
+
+    PLAN --> EXEC --> CHECK
+    CHECK -- "Progress?" --> EXEC
+    CHECK -- "Stall?" --> PLAN
+    CHECK -- "Done?" --> DELIVER["Deliver result"]
+    CHECK -- "Failed?" --> FACT["Fact gathering"] --> PLAN
 ```
 
 Stall detection recognizes when agents are going in circles. Re-planning adjusts the plan based on previous results. Fact gathering collects missing information before a new plan. Progress tracking uses a ledger (progress protocol).
@@ -1317,14 +1264,16 @@ Stall detection recognizes when agents are going in circles. Re-planning adjusts
 
 Agents explicitly hand off tasks to specialists.
 
-```text
-[Planner Agent]
-    -> HandoffMessage(target="coder", context="Implement feature X per plan")
-        -> [Code Agent]
-            -> HandoffMessage(target="reviewer", context="Review changes in src/")
-                -> [Review Agent]
-                    -> HandoffMessage(target="tester", context="Run test suite")
-                        -> [Test Agent]
+```mermaid
+flowchart TD
+    PLAN["Planner Agent"]
+    CODE["Code Agent"]
+    REV["Review Agent"]
+    TEST["Test Agent"]
+
+    PLAN -- "HandoffMessage\ntarget=coder\nImplement feature X per plan" --> CODE
+    CODE -- "HandoffMessage\ntarget=reviewer\nReview changes in src/" --> REV
+    REV -- "HandoffMessage\ntarget=tester\nRun test suite" --> TEST
 ```
 
 Handoff is explicit with context (not blind forwarding). The agent decides itself who to hand off to. This fits CodeForge's agent specialization (Planner, Coder, Reviewer, etc.) and works with different agent backends (Aider->OpenHands->SWE-agent).
@@ -1355,13 +1304,13 @@ An isolated git repository provides safe rollback during agent execution. Before
 
 All agent activities are recorded as an append-only event stream.
 
-```text
-EventStream: Agent actions, observations, thoughts, tool results
-     │
-     ├── Replay: Reconstruct any point in time
-     ├── Audit: Complete traceability of all actions
-     ├── Debug: Step through failed runs
-     └── Persist: Events stored for trajectory recording
+```mermaid
+flowchart TD
+    ES["EventStream\nAgent actions, observations, thoughts, tool results"]
+    ES --> REPLAY["Replay: Reconstruct any point in time"]
+    ES --> AUDIT["Audit: Complete traceability of all actions"]
+    ES --> DEBUG["Debug: Step through failed runs"]
+    ES --> PERSIST["Persist: Events stored for trajectory recording"]
 ```
 
 The EventStream serves as the central abstraction for agent execution. All components communicate through events (not direct calls). This enables the Trajectory Recording system. The frontend receives events via WebSocket for live visualization.
@@ -1518,27 +1467,30 @@ adapter/
 
 #### Three-Tier Auto-Detection
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    Auto-Detection Engine                      │
-│                                                             │
-│  Tier 1: Spec-Driven Detectors (repo files)                 │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │ OpenSpec  │ │ Spec Kit │ │ Autospec │ │ ADR/RFC  │      │
-│  │openspec/ │ │.specify/ │ │specs/*.y │ │docs/adr/ │      │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
-│                                                             │
-│  Tier 2: Platform Detectors (API-based)                     │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │ GitHub   │ │ GitLab   │ │ Plane.so │ │OpenProj. │      │
-│  │Issues/PR │ │Issues/MR │ │REST API  │ │REST API  │      │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
-│                                                             │
-│  Tier 3: File-Based Detectors (simple markers)              │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
-│  │ROADMAP.md│ │TASKS.md  │ │backlog/  │ │CHANGELOG │      │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph ENGINE["Auto-Detection Engine"]
+        subgraph T1["Tier 1: Spec-Driven Detectors (repo files)"]
+            OS["OpenSpec\nopenspec/"]
+            SK["Spec Kit\n.specify/"]
+            AS["Autospec\nspecs/*.y"]
+            ADR["ADR/RFC\ndocs/adr/"]
+        end
+        subgraph T2["Tier 2: Platform Detectors (API-based)"]
+            GH["GitHub\nIssues/PR"]
+            GL["GitLab\nIssues/MR"]
+            PL["Plane.so\nREST API"]
+            OP["OpenProject\nREST API"]
+        end
+        subgraph T3["Tier 3: File-Based Detectors (simple markers)"]
+            RM["ROADMAP.md"]
+            TM["TASKS.md"]
+            BL["backlog/"]
+            CL["CHANGELOG"]
+        end
+    end
+
+    T1 --> T2 --> T3
 ```
 
 Each detector implements the `specprovider.SpecProvider` or `pmprovider.PMProvider` interface and registers itself via `init()`. The detection engine iterates over all registered detectors and returns a list of detected tools.
@@ -1587,24 +1539,14 @@ type PMProvider interface {
 
 #### Bidirectional Sync
 
-```text
-┌─────────────────┐              ┌─────────────────┐
-│  CodeForge       │  <-- Sync -->  │  External PM     │
-│  Roadmap Model   │              │  (Plane/GitHub/  │
-│                  │              │   OpenProject)   │
-│  Milestone       │  <-------->   │  Initiative/     │
-│  Feature         │  <-------->   │  Epic/Issue      │
-│  Task            │  <-------->   │  Work Item       │
-└────────┬────────┘              └─────────────────┘
-         │
-         │  <-- Sync -->
-         │
-┌────────▼────────┐
-│  Repo Specs      │
-│  (OpenSpec/       │
-│   Spec Kit/       │
-│   Autospec)       │
-└─────────────────┘
+```mermaid
+flowchart TD
+    CF["CodeForge Roadmap Model\nMilestone | Feature | Task"]
+    PM["External PM\n(Plane/GitHub/OpenProject)\nInitiative | Epic/Issue | Work Item"]
+    SPECS["Repo Specs\n(OpenSpec / Spec Kit / Autospec)"]
+
+    CF <-- "Bidirectional Sync" --> PM
+    CF <-- "Bidirectional Sync" --> SPECS
 ```
 
 Import brings PM tool data into the CodeForge roadmap model (issues/epics become features/tasks). Export sends CodeForge data to the PM tool (new features are created as issues). **Bidirectional** sync means changes are synchronized in both directions. Conflict resolution is timestamp-based + user decision on conflicts. Sync triggers include webhook (real-time), poll (periodic), and manual.
@@ -1679,49 +1621,33 @@ After analysis of LiteLLM, OpenRouter, Claude Code Router, and OpenCode CLI, the
 
 #### Integration Architecture
 
-```text
-┌─────────────────────────────────────────────────────┐
-│                  TypeScript Frontend                 │
-│                                                     │
-│  ┌──────────────────────────────────────────────┐   │
-│  │  Cost Dashboard  │  Provider Config UI       │   │
-│  └──────────────────────────────────────────────┘   │
-└────────────────────┬────────────────────────────────┘
-                     │ REST / WebSocket
-┌────────────────────▼────────────────────────────────┐
-│                  Go Core Service                     │
-│                                                     │
-│  ┌──────────────┐  ┌──────────────┐                 │
-│  │ LiteLLM      │  │ Scenario     │                 │
-│  │ Config Mgr   │  │ Router       │                 │
-│  └──────────────┘  └──────────────┘                 │
-│  ┌──────────────┐  ┌──────────────┐                 │
-│  │ User-Key     │  │ Local Model  │                 │
-│  │ Mapping      │  │ Discovery    │                 │
-│  └──────────────┘  └──────────────┘                 │
-│  ┌──────────────┐                                   │
-│  │ Copilot      │                                   │
-│  │ Token Exch.  │                                   │
-│  └──────────────┘                                   │
-└────────────┬────────────────────────┬───────────────┘
-             │ OpenAI-compatible API  │
-             │ (Port 4000)            │
-┌────────────▼────────────────────────┤
-│      LiteLLM Proxy (Sidecar)       │
-│                                     │
-│  ┌──────────────┐  ┌────────────┐  │
-│  │  Router      │  │  Budget    │  │
-│  │  (6 Strat.)  │  │  Manager   │  │
-│  └──────────────┘  └────────────┘  │
-│  ┌──────────────┐  ┌────────────┐  │
-│  │  Caching     │  │  Callbacks │  │
-│  │  (Redis)     │  │(Prometheus)│  │
-│  └──────────────┘  └────────────┘  │
-└────────────┬────────────────────────┘
-             │ Provider APIs
-┌────────────▼────────────────────────────────────────┐
-│  OpenAI │ Anthropic │ Ollama │ Bedrock │ OpenRouter  │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph FE["TypeScript Frontend"]
+        CD["Cost Dashboard"]
+        PCI["Provider Config UI"]
+    end
+
+    subgraph GO["Go Core Service"]
+        LCM["LiteLLM Config Mgr"]
+        SR["Scenario Router"]
+        UKM["User-Key Mapping"]
+        LMD["Local Model Discovery"]
+        CTE["Copilot Token Exch."]
+    end
+
+    subgraph LITE["LiteLLM Proxy (Sidecar)"]
+        ROUTER["Router (6 Strat.)"]
+        BUDGET["Budget Manager"]
+        CACHE["Caching (Redis)"]
+        CB["Callbacks (Prometheus)"]
+    end
+
+    PROVIDERS["OpenAI | Anthropic | Ollama | Bedrock | OpenRouter"]
+
+    FE -- "REST / WebSocket" --> GO
+    GO -- "OpenAI-compatible API (Port 4000)" --> LITE
+    LITE -- "Provider APIs" --> PROVIDERS
 ```
 
 #### What LiteLLM Provides (not built by us)
@@ -1755,23 +1681,16 @@ After analysis of LiteLLM, OpenRouter, Claude Code Router, and OpenCode CLI, the
 
 CodeForge uses a three-layer routing cascade to automatically select the best model for each task. This replaces manual tag-based routing with adaptive, data-driven model selection.
 
-```text
-User prompt
-    |
-    v
-Layer 1: ComplexityAnalyzer (rule-based, <1ms)
-    |  -> PromptAnalysis {complexity_tier, task_type, confidence}
-    v
-Layer 2: MABModelSelector (UCB1 learning)
-    |  -> model name (if sufficient data) or None (cold start)
-    v
-Layer 3: LLMMetaRouter (small cheap model, cold-start fallback)
-    |  -> model name or None
-    v
-Fallback: Static tier-to-model mapping (COMPLEXITY_DEFAULTS)
-    |
-    v
-Selected model name -> LiteLLM (provider wildcard routing)
+```mermaid
+flowchart TD
+    PROMPT["User prompt"]
+    L1["Layer 1: ComplexityAnalyzer\n(rule-based, < 1ms)\nPromptAnalysis: complexity_tier, task_type, confidence"]
+    L2["Layer 2: MABModelSelector\n(UCB1 learning)\nmodel name or None (cold start)"]
+    L3["Layer 3: LLMMetaRouter\n(small cheap model, cold-start fallback)\nmodel name or None"]
+    FB["Fallback: Static tier-to-model mapping\n(COMPLEXITY_DEFAULTS)"]
+    OUT["Selected model name --> LiteLLM\n(provider wildcard routing)"]
+
+    PROMPT --> L1 --> L2 --> L3 --> FB --> OUT
 ```
 
 **Layer 1 -- ComplexityAnalyzer** (`workers/codeforge/routing/complexity.py`) scores prompts across 7 dimensions (code presence, reasoning markers, technical terms, prompt length, multi-step, context requirements, output complexity). Weighted combination maps to four tiers: SIMPLE (<0.25), MEDIUM (<0.50), COMPLEX (<0.75), REASONING (>=0.75). Also infers task type (CODE, REVIEW, PLAN, QA, CHAT, DEBUG, REFACTOR). Runs in <1ms with zero API calls.
@@ -1874,19 +1793,26 @@ Auto-detection of project goals from workspace files, injected into agent system
 
 #### Detection Architecture
 
-```text
-Workspace Directory
-  |
-  |-- Tier 1: GSD .planning/ (PROJECT.md, REQUIREMENTS.md, STATE.md, NN-CONTEXT.md)
-  |-- Tier 2: Agent Instructions (CLAUDE.md, .cursorrules, .clinerules)
-  |-- Tier 3: Project Docs (README.md, CONTRIBUTING.md, docs/architecture.md, docs/requirements.md)
-  |
-  v
-detectGoalFiles() -> []ProjectGoal (kind, title, content, source, priority)
-  |
-  |-- DetectAndImport() -> DB (idempotent: delete-by-source + recreate)
-  |-- AsContextEntries() -> ContextPack (EntryGoal, priority-weighted)
-  |-- renderGoalContext() -> System Prompt ({{.GoalContext}} template variable)
+```mermaid
+flowchart TD
+    WS["Workspace Directory"]
+    T1["Tier 1: GSD .planning/\nPROJECT.md, REQUIREMENTS.md, STATE.md, NN-CONTEXT.md"]
+    T2["Tier 2: Agent Instructions\nCLAUDE.md, .cursorrules, .clinerules"]
+    T3["Tier 3: Project Docs\nREADME.md, CONTRIBUTING.md, docs/architecture.md, docs/requirements.md"]
+    DETECT["detectGoalFiles()\n[]ProjectGoal (kind, title, content, source, priority)"]
+    DB["DetectAndImport()\nDB (idempotent: delete-by-source + recreate)"]
+    CTX["AsContextEntries()\nContextPack (EntryGoal, priority-weighted)"]
+    SYS["renderGoalContext()\nSystem Prompt (GoalContext template variable)"]
+
+    WS --> T1
+    WS --> T2
+    WS --> T3
+    T1 --> DETECT
+    T2 --> DETECT
+    T3 --> DETECT
+    DETECT --> DB
+    DETECT --> CTX
+    DETECT --> SYS
 ```
 
 Five goal kinds: `vision`, `requirement`, `constraint`, `state`, `context`. Safety: files >50KB skipped, binary detection (null bytes), UTF-8-safe truncation at 2000 bytes for README first-section extraction.

@@ -164,7 +164,7 @@ Detailed analysis: docs/research/market-analysis.md
   - AI Maestro (Next.js/Node.js, Peer Mesh, AMP Protocol, CozoDB) — multi-machine agent orchestration, War Room UX, persistent agent identity. Patterns extracted: trust annotations, quarantine, agent identity, War Room (Phase 23)
   - AMP (Agent Messaging Protocol v0.1.2-draft, Apache 2.0, 23blocks) — secure inter-agent messaging with Ed25519 signatures, trust annotations, federation. Too immature for adoption; patterns extracted into Phase 23
 - **Security & Trust Infrastructure (Phase 23):** — **implemented**
-  - Trust Annotations: 4 trust levels (untrusted, partial, verified, full), auto-stamped on NATS payloads — `internal/domain/trust/`, `workers/codeforge/trust/`
+  - Trust Annotations: 4 trust levels (untrusted, partial, verified, full), auto-stamped on NATS payloads — `internal/domain/trust/`
   - Message Quarantine: risk scoring, admin review hold, Evaluate/Approve/Reject — `internal/service/quarantine.go`, migration 049
   - Persistent Agent Identity: fingerprint, stats accumulation, inbox — `internal/domain/agent/identity.go`
   - War Room: live multi-agent collaboration view — `frontend/src/pages/WarRoom.tsx`
@@ -221,8 +221,9 @@ Detailed analysis: docs/research/market-analysis.md
     - Complementary to MCP: "MCP for tools, A2A for agents"
     - CodeForge integration: Agent backends as A2A servers (AgentCard → Provider Registry), Go Core as A2A client via `a2a-go`, NATS for internal + A2A for external federation
     - Partners: Atlassian, Salesforce, PayPal, Cohere, and others
-  - **AG-UI** (Agent-User Interaction Protocol, Phase 2-3): Bi-directional agent ↔ frontend streaming (CopilotKit) — **stub/planned**
-    - Frontend WebSocket follows AG-UI event format (TEXT_MESSAGE, TOOL_CALL, STATE_DELTA)
+  - **AG-UI** (Agent-User Interaction Protocol): Bi-directional agent ↔ frontend streaming (CopilotKit) — **implemented (Phase 17+)**
+    - 8 event types: run_started, run_finished, text_message, tool_call, tool_result, state_delta, step_started, step_finished
+    - Frontend WebSocket follows AG-UI event format across Go and TypeScript (20+ files)
   - **Future/Watch:** ANP (decentralized agent networking), LSAP (LSP for AI agents)
 - **LLM Integration (LiteLLM, OpenRouter, Claude Code Router, OpenCode CLI):**
   - **No custom LLM provider interface** — LiteLLM Proxy as Docker sidecar (port 4000)
@@ -268,7 +269,7 @@ Detailed analysis: docs/research/market-analysis.md
 
 - **Config files (.env, .yaml, .toml, .json, .sh, .gitignore) must use ASCII only** — no box-drawing characters (─, ═, │, etc.)
 - Use regular dashes `-` and equals `=` for section separators in config files
-- Box-drawing characters are acceptable in Markdown documentation for architecture diagrams
+- Use Mermaid diagram blocks (` ```mermaid `) for architecture diagrams in documentation
 
 ## Coding Principles
 

@@ -138,6 +138,13 @@ model_list:
 
 **Config:** Set `CODEFORGE_ROUTING_ENABLED=true` to activate intelligent routing.
 
+**Supporting Components:**
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Model Blocklist** | `workers/codeforge/routing/blocklist.py` | TTL-based model blocklist for temporarily disabling failing models |
+| **Rate Limit Tracker** | `workers/codeforge/routing/rate_tracker.py` | Per-provider rate limit tracking for intelligent request routing |
+
 - [x] Python routing package: `workers/codeforge/routing/` (7 modules, 164 tests)
 - [x] Integration: `resolve_model_with_routing()` in llm.py, conversation handler, executor
 - [x] LiteLLM wildcard config: 6 provider entries replace 38 individual models

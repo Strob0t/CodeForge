@@ -116,7 +116,7 @@
 - httpx ^0.28 — async HTTP client for LiteLLM proxy calls
 - deepeval ^3.0 — LLM-as-judge evaluation framework (GEval, faithfulness, relevancy metrics)
 - scikit-learn ^1.6 — TF-IDF vectorization and cosine similarity for collaboration metrics
-- agentneo ^1.0 (optional) — agent execution tracing, tool selection and goal decomposition metrics
+- opentelemetry-api + opentelemetry-sdk (optional) — agent execution tracing via OTEL, tool selection and goal decomposition metrics
 
 #### Planned Dependencies (not yet installed)
 

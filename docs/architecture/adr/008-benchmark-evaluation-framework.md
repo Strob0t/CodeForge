@@ -27,12 +27,12 @@ We adopt a three-pillar evaluation stack, all running in the Python worker:
 - `BenchmarkRunner` loads YAML datasets, executes tasks, and evaluates with configured metrics
 - Results persisted to PostgreSQL via Go Core API
 
-#### AgentNeo (Tracing & Observability)
+#### OpenTelemetry (Tracing & Observability)
 
-- Optional dependency (`agentneo`) for dev-mode agent execution tracing
-- `TracingManager` with graceful degradation to `_NoOpTracer` when not installed
+- OpenTelemetry (OTEL) provides agent execution tracing and observability
+- `TracingManager` with graceful degradation to `_NoOpTracer` when OTEL is not configured
 - Three metric wrappers: tool selection accuracy, goal decomposition, plan adaptability
-- Optional React dashboard on configurable port (default: 3100)
+- OTEL traces export via OTLP gRPC to any compatible backend (Jaeger, Grafana Tempo, etc.)
 
 #### GEMMAS-Inspired Collaboration Metrics
 
@@ -58,13 +58,13 @@ Unified `BenchmarkPage` with run management, dataset selection, results inspecti
 - Dev-mode gate ensures zero production overhead
 - YAML-based datasets are easy to create and version-control
 - Collaboration metrics prepare for multi-agent DAG workflows
-- AgentNeo tracing is optional and degrades gracefully
+- OTEL tracing is optional and degrades gracefully
 
 #### Negative
 
 - LLM-as-judge has inherent cost overhead (judge model calls per evaluation)
 - DeepEval and scikit-learn add ~100MB to the Python worker image
-- AgentNeo is an early-stage project with limited documentation
+- OTEL integration requires additional configuration for trace collection backends
 - GEMMAS metrics are our own implementation (no reference code from the paper)
 - Benchmark runs are only available in dev mode, not for production monitoring
 
@@ -87,7 +87,7 @@ Unified `BenchmarkPage` with run management, dataset selection, results inspecti
 ### References
 
 - DeepEval documentation: [docs.confident-ai.com](https://docs.confident-ai.com/)
-- AgentNeo repository: [github.com/raga-ai-hub/agentneo](https://github.com/raga-ai-hub/agentneo)
+- OpenTelemetry documentation: [opentelemetry.io/docs](https://opentelemetry.io/docs/)
 - GEMMAS paper: [arxiv.org/abs/2507.13190](https://arxiv.org/abs/2507.13190)
 - LiteLLM documentation: [docs.litellm.ai](https://docs.litellm.ai/)
 - ADR-006: Agent Execution Approach C (Go control plane + Python runtime)
