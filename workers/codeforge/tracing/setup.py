@@ -204,8 +204,8 @@ class TracingManager:
             self._tracer = _SafeTracer(inner)
             self._initialized = True
             logger.info("agentneo tracing initialized", project=self._project_name)
-        except ImportError:
-            logger.warning("agentneo not installed — falling back to no-op tracer")
+        except (ImportError, Exception) as exc:
+            logger.debug("agentneo unavailable, using no-op tracer", error=str(exc))
             self._tracer = _NoOpTracer()
             self._initialized = True
 
