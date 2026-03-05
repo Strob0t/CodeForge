@@ -70,7 +70,10 @@ class _ModelCache:
         if self._is_stale():
             self._refresh()
         with self._lock:
-            return list(self._models)
+            models = list(self._models)
+        from codeforge.routing.blocklist import get_blocklist
+
+        return get_blocklist().filter_available(models)
 
     def get_best(self) -> str:
         if self._is_stale():

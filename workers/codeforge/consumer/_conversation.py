@@ -420,7 +420,9 @@ class ConversationHandlerMixin:
             models = expand_wildcard_models(raw_ids)
             if not models:
                 logger.warning("LiteLLM /v1/models returned empty model list")
-            return models
+            from codeforge.routing.blocklist import get_blocklist
+
+            return get_blocklist().filter_available(models)
         except Exception as exc:
             logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
             return []

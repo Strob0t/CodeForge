@@ -77,6 +77,13 @@ class HybridRouter:
         self._config = config
         self._rate_tracker = rate_tracker
 
+    @property
+    def _effective_models(self) -> list[str]:
+        """Available models minus any that are currently blocked."""
+        from codeforge.routing.blocklist import get_blocklist
+
+        return get_blocklist().filter_available(self._available_models)
+
     def route(
         self,
         prompt: str,
@@ -98,12 +105,14 @@ class HybridRouter:
             analysis.confidence,
         )
 
+        available = self._effective_models
+
         # Layer 2: MAB selection (if enabled).
         if self._config.mab_enabled and self._mab is not None:
             model = self._mab.select(
                 analysis.task_type,
                 analysis.complexity_tier,
-                self._available_models,
+                available,
                 max_cost,
             )
             if model is not None:
@@ -119,7 +128,7 @@ class HybridRouter:
 
         # Layer 3: LLM meta-router (if enabled).
         if self._config.llm_meta_enabled and self._meta is not None:
-            decision = self._meta.classify(prompt, analysis, self._available_models)
+            decision = self._meta.classify(prompt, analysis, available)
             if decision is not None:
                 logger.debug("L3 meta-router selected: %s", decision.model)
                 return decision
@@ -142,6 +151,8 @@ class HybridRouter:
         if primary is None:
             primary = self.route(prompt, max_cost=max_cost)
 
+        available = self._effective_models
+
         if primary is None:
             return RoutingPlan(
                 primary=RoutingDecision(
@@ -150,7 +161,7 @@ class HybridRouter:
                     complexity_tier=ComplexityTier.MEDIUM,
                     task_type="chat",
                 ),
-                fallbacks=tuple(self._available_models[:max_fallbacks]),
+                fallbacks=tuple(available[:max_fallbacks]),
             )
 
         seen: set[str] = {primary.model}
@@ -160,7 +171,7 @@ class HybridRouter:
             diverse = self._mab.select_diverse(
                 primary.task_type,
                 primary.complexity_tier,
-                self._available_models,
+                available,
                 n=max_fallbacks + 1,
                 max_cost=max_cost,
             )
@@ -171,7 +182,7 @@ class HybridRouter:
 
         tier_defaults = COMPLEXITY_DEFAULTS.get(primary.complexity_tier, [])
         for m in tier_defaults:
-            if m not in seen and m in self._available_models:
+            if m not in seen and m in available:
                 if self._rate_tracker is not None:
                     provider = m.split("/")[0] if "/" in m else ""
                     if provider and self._rate_tracker.is_exhausted(provider):
@@ -179,7 +190,7 @@ class HybridRouter:
                 fallbacks.append(m)
                 seen.add(m)
 
-        for m in self._available_models:
+        for m in available:
             if m not in seen:
                 fallbacks.append(m)
                 seen.add(m)
@@ -201,10 +212,11 @@ class HybridRouter:
         if not isinstance(analysis, PromptAnalysis):
             return None
 
+        available = self._effective_models
         preferences = COMPLEXITY_DEFAULTS.get(analysis.complexity_tier, [])
 
         for model in preferences:
-            if model not in self._available_models:
+            if model not in available:
                 continue
             if self._rate_tracker is not None:
                 provider = model.split("/")[0] if "/" in model else ""
@@ -227,9 +239,9 @@ class HybridRouter:
             )
 
         # No preferred model available — use first available model.
-        if self._available_models:
+        if available:
             return RoutingDecision(
-                model=self._available_models[0],
+                model=available[0],
                 routing_layer="complexity",
                 complexity_tier=analysis.complexity_tier,
                 task_type=analysis.task_type,
