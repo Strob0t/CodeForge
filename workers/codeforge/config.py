@@ -135,6 +135,10 @@ class WorkerSettings:
 
         self.routing_enabled = _resolve_bool("CODEFORGE_ROUTING_ENABLED", routing_cfg.get("enabled"), False)
 
+        # Go Core connection (for routing stats/outcomes API calls)
+        self.core_url = _resolve_str("CODEFORGE_CORE_URL", None, "http://localhost:8080")
+        self.internal_key = _resolve_str("CODEFORGE_INTERNAL_KEY", None, "")
+
         # Agent backend CLI paths
         self.aider_path = os.environ.get("CODEFORGE_AIDER_PATH", "aider")
         self.goose_path = os.environ.get("CODEFORGE_GOOSE_PATH", "goose")

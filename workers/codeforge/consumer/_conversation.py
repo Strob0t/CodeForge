@@ -300,6 +300,7 @@ class ConversationHandlerMixin:
             from codeforge.routing.mab import MABModelSelector
 
             core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+            internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
 
             def _load_stats(task_type: str, tier: str) -> list:
                 """Synchronous stats loader via Go Core HTTP API."""
@@ -307,10 +308,14 @@ class ConversationHandlerMixin:
 
                 from codeforge.routing.models import ModelStats
 
+                headers: dict[str, str] = {}
+                if internal_key:
+                    headers["X-API-Key"] = internal_key
                 try:
                     resp = httpx.get(
                         f"{core_url}/api/v1/routing/stats",
                         params={"task_type": task_type, "tier": tier},
+                        headers=headers,
                         timeout=5.0,
                     )
                     if resp.status_code != 200:
@@ -364,7 +369,7 @@ class ConversationHandlerMixin:
                             "max_tokens": 200,
                         },
                         headers=headers,
-                        timeout=10.0,
+                        timeout=30.0,
                     )
                     if resp.status_code != 200:
                         return None

@@ -26,7 +26,8 @@
         "NATS_URL": "nats://codeforge-nats:4222",
         "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
         "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
-        "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!"
+        "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!",
+        "CODEFORGE_INTERNAL_KEY": "codeforge-internal-dev"
       },
       "console": "integratedTerminal",
       "presentation": {
@@ -47,7 +48,9 @@
         "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
         "LITELLM_MASTER_KEY": "sk-codeforge-dev",
         "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
-        "CODEFORGE_CONFIG_FILE": "${workspaceFolder}/codeforge.yaml"
+        "CODEFORGE_CONFIG_FILE": "${workspaceFolder}/codeforge.yaml",
+        "CODEFORGE_INTERNAL_KEY": "codeforge-internal-dev",
+        "CODEFORGE_CORE_URL": "http://localhost:8080"
       },
       "console": "integratedTerminal",
       "justMyCode": true,
@@ -68,7 +71,8 @@
         "NATS_URL": "nats://codeforge-nats:4222",
         "LITELLM_BASE_URL": "http://codeforge-litellm:4000",
         "DATABASE_URL": "postgresql://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge",
-        "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!"
+        "CODEFORGE_AUTH_ADMIN_PASS": "DebugPass123!",
+        "CODEFORGE_INTERNAL_KEY": "codeforge-internal-dev"
       },
       "preLaunchTask": "docker-compose-up",
       "console": "integratedTerminal",

@@ -432,6 +432,10 @@ def _record_routing_outcome(
     quality = 1.0 if success else 0.0
     reward = compute_reward(success, quality, cost_usd, latency_ms, RoutingConfig())
     core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+    internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
+    headers: dict[str, str] = {}
+    if internal_key:
+        headers["X-API-Key"] = internal_key
     try:
         httpx.post(
             f"{core_url}/api/v1/routing/outcomes",
@@ -449,6 +453,7 @@ def _record_routing_outcome(
                 "routing_layer": routing_layer,
                 "run_id": run_id,
             },
+            headers=headers,
             timeout=3.0,
         )
     except Exception as exc:

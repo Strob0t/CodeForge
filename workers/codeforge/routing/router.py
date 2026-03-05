@@ -35,7 +35,7 @@ COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
         "anthropic/claude-haiku-3.5",
     ],
     ComplexityTier.MEDIUM: [
-        "groq/llama-3.3-70b",
+        "groq/llama-3.3-70b-versatile",
         "openai/gpt-4o-mini",
         "gemini/gemini-2.0-flash",
     ],

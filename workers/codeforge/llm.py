@@ -38,7 +38,7 @@ class LLMError(Exception):
 
 # Status codes that may indicate the model is fundamentally unavailable
 # (billing, auth, quota) rather than a transient server error.
-_FALLBACK_CODES: frozenset[int] = frozenset({400, 401, 403})
+_FALLBACK_CODES: frozenset[int] = frozenset({400, 401, 403, 404})
 
 _FALLBACK_KEYWORDS: tuple[str, ...] = (
     "credit",
@@ -53,6 +53,9 @@ _FALLBACK_KEYWORDS: tuple[str, ...] = (
     "exceeded",
     "rate limit",
     "insufficient",
+    "not found",
+    "does not exist",
+    "model_not_found",
 )
 
 
