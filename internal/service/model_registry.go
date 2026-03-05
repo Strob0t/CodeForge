@@ -14,6 +14,12 @@ import (
 
 // ModelRegistry maintains an in-memory cache of discovered LLM models
 // with their health status, periodically refreshed via LiteLLM.
+//
+// ModelRegistry is intentionally shared across all tenants as an infrastructure-layer
+// component. LiteLLM and Ollama are shared sidecar services; model discovery data
+// (availability, capabilities, costs) is public provider information, not tenant-specific.
+// Tenant isolation is enforced at the application layer: routing stats and outcomes in
+// the database are scoped via tenantFromCtx() in store_routing.go.
 type ModelRegistry struct {
 	mu          sync.RWMutex
 	models      []litellm.DiscoveredModel
@@ -114,7 +120,8 @@ func (r *ModelRegistry) Refresh(ctx context.Context) error {
 	// Sync model capabilities into routing stats.
 	if r.routingSvc != nil {
 		go func() {
-			if err := r.routingSvc.SyncModelCapabilities(ctx, models); err != nil {
+			bgCtx := context.WithoutCancel(ctx)
+			if err := r.routingSvc.SyncModelCapabilities(bgCtx, models); err != nil {
 				slog.Warn("model registry: sync routing capabilities failed", "error", err)
 			}
 		}()
@@ -161,6 +168,25 @@ func (r *ModelRegistry) IsHealthy(modelName string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateConfiguredModel logs a warning if the given model name is not among
+// the currently discovered models. This is a non-blocking startup check.
+func (r *ModelRegistry) ValidateConfiguredModel(modelName string) {
+	if modelName == "" {
+		return
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for i := range r.models {
+		if r.models[i].ModelName == modelName {
+			return
+		}
+	}
+	slog.Warn("configured model not found in discovered models",
+		"model", modelName,
+		"discovered_count", len(r.models),
+	)
 }
 
 // broadcastHealth sends a models.health WS event with current state.

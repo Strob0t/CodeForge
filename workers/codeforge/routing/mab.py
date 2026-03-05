@@ -150,6 +150,10 @@ class MABModelSelector:
         if now < self._cache_expiry and (task_type, tier) in self._cache:
             return self._cache[(task_type, tier)]
 
+        # NOTE: _load_stats is synchronous by design. Converting to async would
+        # require changing the entire HybridRouter.route() call chain. The impact
+        # is minimal because stats are cached with TTL (_cache_expiry) and the
+        # synchronous HTTP call only happens once per refresh interval (default 5m).
         stats = self._load_stats(task_type, tier)
         self._cache[(task_type, tier)] = stats
         self._cache_expiry = now + self._refresh_interval

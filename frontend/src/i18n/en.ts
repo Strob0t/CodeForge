@@ -183,6 +183,8 @@ const en = {
   "models.confirm.delete":
     "Are you sure you want to delete this model? This action cannot be undone.",
   "models.toast.deleted": "Model deleted",
+  "models.toast.invalidApiBase": "Invalid API base URL",
+  "models.toast.apiKeyTooShort": "API key must be at least 8 characters",
   "models.toast.addFailed": "Failed to add model",
   "models.toast.deleteFailed": "Failed to delete model",
   "models.deleteAria": "Delete model {{name}}",

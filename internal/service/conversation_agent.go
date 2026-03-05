@@ -101,7 +101,10 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Resolve mode for scenario-based LLM routing.
 	var resolvedMode *messagequeue.ModePayload
 	if s.modeSvc != nil {
-		modeID := "coder" // Conversations default to coder mode.
+		modeID := req.Mode
+		if modeID == "" {
+			modeID = "coder" // Conversations default to coder mode.
+		}
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
 			resolvedMode = &messagequeue.ModePayload{
 				ID:          m.ID,

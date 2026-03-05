@@ -47,6 +47,19 @@ export default function ModelsPage() {
     async () => {
       if (!form.state.modelName.trim() || !form.state.litellmModel.trim()) return;
 
+      if (form.state.apiBase.trim()) {
+        try {
+          new URL(form.state.apiBase);
+        } catch {
+          toast("error", t("models.toast.invalidApiBase"));
+          return;
+        }
+      }
+      if (form.state.apiKey.trim() && form.state.apiKey.trim().length < 8) {
+        toast("error", t("models.toast.apiKeyTooShort"));
+        return;
+      }
+
       const params: Record<string, string> = { model: form.state.litellmModel };
       if (form.state.apiBase.trim()) params.api_base = form.state.apiBase;
       if (form.state.apiKey.trim()) params.api_key = form.state.apiKey;

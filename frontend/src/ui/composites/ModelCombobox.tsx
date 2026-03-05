@@ -202,8 +202,13 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
             <div class="px-3 py-2 text-sm text-cf-text-muted">Loading models...</div>
           </Show>
 
+          {/* Error state */}
+          <Show when={allModels.error}>
+            <div class="px-3 py-2 text-sm text-red-500">Failed to load models</div>
+          </Show>
+
           {/* Empty state */}
-          <Show when={!allModels.loading && flatList().length === 0}>
+          <Show when={!allModels.loading && !allModels.error && flatList().length === 0}>
             <div class="px-3 py-2 text-sm text-cf-text-muted">No models found</div>
           </Show>
 

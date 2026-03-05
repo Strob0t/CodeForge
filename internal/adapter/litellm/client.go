@@ -376,12 +376,13 @@ func SelectStrongestModel(models []DiscoveredModel) string {
 func modelScore(m *DiscoveredModel) float64 {
 	// Paid models: output cost is a strong quality signal.
 	// More expensive models are almost always more capable.
-	if m.OutputCostPer > 0 {
+	cost := max(0, m.OutputCostPer)
+	if cost > 0 {
 		// Scale so typical prices produce scores in 50-100 range.
 		// GPT-4o: ~$15/1M = 1.5e-5 → score ~75
 		// Claude Opus: ~$75/1M = 7.5e-5 → score ~100+
 		// GPT-4o-mini: ~$0.6/1M = 6e-7 → score ~30
-		return m.OutputCostPer * 5e6
+		return cost * 5e6
 	}
 
 	// Free/local models: use name-based heuristics.

@@ -485,6 +485,7 @@ func run() error {
 	modelRegistry := service.NewModelRegistry(llmClient, hub, cfg.LiteLLM.HealthPollInterval)
 	modelRegistry.SetRoutingService(routingSvc)
 	modelRegistry.Start(ctx)
+	modelRegistry.ValidateConfiguredModel(cfg.LiteLLM.ConversationModel)
 	slog.Info("model registry initialized",
 		"poll_interval", cfg.LiteLLM.HealthPollInterval,
 		"best_model", modelRegistry.BestModel(),

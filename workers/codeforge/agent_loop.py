@@ -9,6 +9,7 @@ This is the heart of the interactive agent. The loop:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ from codeforge.models import (
     ConversationToolCallPayload,
 )
 from codeforge.pricing import resolve_cost
+from codeforge.routing.blocklist import get_blocklist
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
@@ -114,6 +116,8 @@ class AgentLoopExecutor:
             return f"LLM call failed: {exc}"
         failed_model = cfg.model
         state.failed_models.add(failed_model)
+        if exc.status_code in (401, 403):
+            get_blocklist().block(failed_model, reason=f"HTTP {exc.status_code}")
         next_model = self._pick_next_fallback(cfg, state)
         if next_model is None:
             return f"LLM call failed: {exc}"
@@ -479,28 +483,33 @@ async def _record_routing_outcome(
     headers: dict[str, str] = {}
     if internal_key:
         headers["X-API-Key"] = internal_key
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            await client.post(
-                f"{core_url}/api/v1/routing/outcomes",
-                json={
-                    "model_name": model,
-                    "task_type": task_type or "chat",
-                    "complexity_tier": complexity_tier or "simple",
-                    "success": success,
-                    "quality_score": quality,
-                    "cost_usd": cost_usd,
-                    "latency_ms": latency_ms,
-                    "tokens_in": tokens_in,
-                    "tokens_out": tokens_out,
-                    "reward": reward,
-                    "routing_layer": routing_layer,
-                    "run_id": run_id,
-                },
-                headers=headers,
-            )
-    except Exception as exc:
-        logger.debug("failed to record routing outcome: %s", exc, exc_info=True)
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                await client.post(
+                    f"{core_url}/api/v1/routing/outcomes",
+                    json={
+                        "model_name": model,
+                        "task_type": task_type or "chat",
+                        "complexity_tier": complexity_tier or "simple",
+                        "success": success,
+                        "quality_score": quality,
+                        "cost_usd": cost_usd,
+                        "latency_ms": latency_ms,
+                        "tokens_in": tokens_in,
+                        "tokens_out": tokens_out,
+                        "reward": reward,
+                        "routing_layer": routing_layer,
+                        "run_id": run_id,
+                    },
+                    headers=headers,
+                )
+            return
+        except Exception as exc:
+            if attempt == 0:
+                await asyncio.sleep(1)
+                continue
+            logger.warning("failed to record routing outcome after retries: %s", exc, exc_info=True)
 
 
 def _build_correction_hint(tool_name: str, error: str) -> str:

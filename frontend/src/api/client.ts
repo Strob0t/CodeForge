@@ -1,4 +1,4 @@
-import { getCached, processQueue, queueAction, setCached } from "./cache";
+import { getCached, invalidateCache, processQueue, queueAction, setCached } from "./cache";
 import type {
   ActiveWorkItem,
   AddModelRequest,
@@ -366,11 +366,17 @@ export const api = {
       request<undefined>("/llm/models", {
         method: "POST",
         body: JSON.stringify(data),
+      }).then((r) => {
+        invalidateCache("/llm");
+        return r;
       }),
 
     deleteModel: (modelId: string) =>
       request<undefined>(url`/llm/models/${modelId}`, {
         method: "DELETE",
+      }).then((r) => {
+        invalidateCache("/llm");
+        return r;
       }),
 
     health: () => request<{ status: string }>("/llm/health"),

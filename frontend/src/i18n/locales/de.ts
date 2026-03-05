@@ -187,6 +187,8 @@ const de: Translations = {
   "models.confirm.delete":
     "Sind Sie sicher, dass Sie dieses Modell loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "models.toast.deleted": "Modell gel\u00f6scht",
+  "models.toast.invalidApiBase": "Ungueltige API-Basis-URL",
+  "models.toast.apiKeyTooShort": "API-Schluessel muss mindestens 8 Zeichen lang sein",
   "models.toast.addFailed": "Modell konnte nicht hinzugef\u00fcgt werden",
   "models.toast.deleteFailed": "Modell konnte nicht gel\u00f6scht werden",
   "models.deleteAria": "Modell {{name}} l\u00f6schen",

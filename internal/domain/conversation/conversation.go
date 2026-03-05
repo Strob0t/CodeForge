@@ -40,4 +40,5 @@ type CreateRequest struct {
 type SendMessageRequest struct {
 	Content string `json:"content"`
 	Agentic *bool  `json:"agentic,omitempty"` // Override agentic mode (nil = use project default).
+	Mode    string `json:"mode,omitempty"`
 }
