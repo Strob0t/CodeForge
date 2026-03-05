@@ -3602,7 +3602,7 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 
 **Agent Loop & Run Protocol (Areas 2+3):**
 
-- [ ] FIX-CR09 (Critical): 4 of 5 agent backends are stubs — `openhands.py`, `goose.py`, `opencode.py`, `plandex.py` all return `status="failed", error="not yet implemented"`. Only Aider works.
+- [x] FIX-CR09 (Critical): Implemented all 4 backend executors: Goose/OpenCode/Plandex (subprocess, following Aider pattern), OpenHands (HTTP API with polling). All 51 backend tests pass. (2026-03-05)
 - [x] FIX-CR10 (Critical, S): `runtime_lifecycle.go` — `cleanupRunState` now cleans budgetAlerts and pendingApprovals. Prevents leaks on cancel/timeout. (2026-03-05)
 - [x] FIX-CR11 (Important, S): `_conversation.py` — Extract `run_id` before try-block; finally uses it directly instead of re-parsing msg.data. (2026-03-05)
 - [x] FIX-CR12 (Important, S): `_runs.py:73` — Added None guard: `run_msg.mode.id if run_msg.mode else None`. (2026-03-05)
