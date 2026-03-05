@@ -107,6 +107,13 @@ class AgentExecutor:
                     tool_names = [f"{t.server_id}/{t.name}" for t in mcp_tools]
                     logger.info("discovered %d MCP tools: %s", len(mcp_tools), tool_names)
                     await runtime.send_output(f"MCP: discovered {len(mcp_tools)} tools")
+                    # Include MCP tool descriptions in system prompt so the LLM
+                    # is aware of available tools even in single-shot mode.
+                    tool_descs = "\n".join(
+                        f"- {t.server_id}/{t.name}: {t.description}" for t in mcp_tools if t.description
+                    )
+                    if tool_descs:
+                        system_prompt = f"{system_prompt}\n\nAvailable MCP tools:\n{tool_descs}"
 
             # Request permission for LLM call
             decision = await runtime.request_tool_call(

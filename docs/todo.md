@@ -3604,11 +3604,11 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 
 - [ ] FIX-CR09 (Critical): 4 of 5 agent backends are stubs — `openhands.py`, `goose.py`, `opencode.py`, `plandex.py` all return `status="failed", error="not yet implemented"`. Only Aider works.
 - [x] FIX-CR10 (Critical, S): `runtime_lifecycle.go` — `cleanupRunState` now cleans budgetAlerts and pendingApprovals. Prevents leaks on cancel/timeout. (2026-03-05)
-- [ ] FIX-CR11 (Important, S): `_conversation.py:190-193` — `_active_runs` never cleaned up on initial parse failure. Extract `run_id` before try-block.
-- [ ] FIX-CR12 (Important, S): `_runs.py:73` — `run_msg.mode.id` accessed without None guard. Causes infinite NATS redelivery when mode is None.
-- [ ] FIX-CR13 (Important, S): `agent_loop.py:178-196` — At `max_loop_iterations`, loop exits with empty content and `status="completed"`. Should set `state.error` to indicate iteration limit reached.
-- [ ] FIX-CR14 (Important, S): `_conversation.py:80-84` — Hardcoded `max_context_tokens=128_000` overrides CLAUDE.md documented 120K. Should use config value.
-- [ ] FIX-CR15 (Important, M): `executor.py:65-173` — `execute_with_runtime` ignores `mcp_servers` parameter. MCP tools discovered but never passed to LLM call in the backend runner path.
+- [x] FIX-CR11 (Important, S): `_conversation.py` — Extract `run_id` before try-block; finally uses it directly instead of re-parsing msg.data. (2026-03-05)
+- [x] FIX-CR12 (Important, S): `_runs.py:73` — Added None guard: `run_msg.mode.id if run_msg.mode else None`. (2026-03-05)
+- [x] FIX-CR13 (Important, S): `agent_loop.py` — Set `state.error` when max iterations reached instead of silent exit. (2026-03-05)
+- [x] FIX-CR14 (Important, S): `history.py` + `_conversation.py` — Changed default `max_context_tokens` from 128K to 120K matching CLAUDE.md docs. (2026-03-05)
+- [x] FIX-CR15 (Important, M): `executor.py` — MCP tool descriptions now injected into system prompt in single-shot runner path. (2026-03-05)
 - [x] FIX-CR16 (Important): `conversation_agent.go` — Capped processedRuns dedup map at 10K entries to prevent unbounded growth. (2026-03-05)
 - [ ] FIX-CR17 (Important): `runtime_lifecycle.go`, `runtime_execution.go`, `runtime_approval.go` — Zero test coverage on all three critical runtime files.
 

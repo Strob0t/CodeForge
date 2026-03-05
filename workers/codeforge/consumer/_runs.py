@@ -70,7 +70,7 @@ class RunHandlerMixin:
 
             await self._executor.execute_with_runtime(task, runtime, mode=run_msg.mode)
             await msg.ack()
-            log.info("run processing complete", mode_id=run_msg.mode.id)
+            log.info("run processing complete", mode_id=run_msg.mode.id if run_msg.mode else None)
 
         except Exception as exc:
             logger.exception("failed to process run start message", error=str(exc))

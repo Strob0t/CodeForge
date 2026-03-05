@@ -33,16 +33,18 @@ class ConversationHandlerMixin:
         from codeforge.tools import ToolRegistry, build_default_registry
 
         workbench: McpWorkbench | None = None
+        run_id: str | None = None
         try:
             run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
-            log = logger.bind(run_id=run_msg.run_id, conversation_id=run_msg.conversation_id)
+            run_id = run_msg.run_id
+            log = logger.bind(run_id=run_id, conversation_id=run_msg.conversation_id)
 
             # Skip duplicate deliveries — the LLM loop is expensive.
-            if run_msg.run_id in self._active_runs:
+            if run_id in self._active_runs:
                 log.warning("duplicate conversation run start, skipping")
                 await msg.ack()
                 return
-            self._active_runs.add(run_msg.run_id)
+            self._active_runs.add(run_id)
 
             log.info("received conversation run start")
 
@@ -77,11 +79,7 @@ class ConversationHandlerMixin:
             self._register_handoff_tool(registry, run_msg.run_id)
             self._register_goals_tool(registry, run_msg.project_id)
 
-            history_mgr = ConversationHistoryManager(
-                HistoryConfig(
-                    max_context_tokens=128_000,
-                )
-            )
+            history_mgr = ConversationHistoryManager(HistoryConfig())
             messages = history_mgr.build_messages(
                 system_prompt=system_prompt,
                 history=run_msg.messages,
@@ -186,11 +184,8 @@ class ConversationHandlerMixin:
             if workbench is not None:
                 await workbench.disconnect_all()
             # Clean up active run tracking.
-            try:
-                run_data = ConversationRunStartMessage.model_validate_json(msg.data)
-                self._active_runs.discard(run_data.run_id)
-            except Exception:
-                logger.debug("failed to clean up active run tracking")
+            if run_id is not None:
+                self._active_runs.discard(run_id)
 
     async def _build_system_prompt(
         self,

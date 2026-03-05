@@ -194,6 +194,7 @@ class AgentLoopExecutor:
                 break
         else:
             logger.warning("agent loop hit max iterations (%d)", cfg.max_iterations)
+            state.error = f"iteration limit reached ({cfg.max_iterations})"
 
         otel_metrics.loop_duration.record(time.monotonic() - loop_start)
 

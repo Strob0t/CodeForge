@@ -44,7 +44,7 @@ def truncate_tool_result(text: str, max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHA
 class HistoryConfig:
     """Configuration for history assembly."""
 
-    max_context_tokens: int = 128_000
+    max_context_tokens: int = 120_000
     tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS
     # Minimum number of recent messages to always include (including tool messages).
     min_recent_messages: int = 20
