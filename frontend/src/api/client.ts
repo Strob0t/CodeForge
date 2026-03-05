@@ -1102,6 +1102,11 @@ export const api = {
         `/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(path)}`,
       ),
 
+    tree: (projectId: string, maxEntries = 10000) =>
+      request<import("./types").FileEntry[]>(
+        `/projects/${encodeURIComponent(projectId)}/files/tree?max_entries=${maxEntries}`,
+      ),
+
     read: (projectId: string, path: string) =>
       request<import("./types").FileContent>(
         `/projects/${encodeURIComponent(projectId)}/files/content?path=${encodeURIComponent(path)}`,

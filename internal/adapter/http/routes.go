@@ -57,6 +57,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// File operations (nested under projects)
 		r.Get("/projects/{id}/files", h.ListFiles)
+		r.Get("/projects/{id}/files/tree", h.ListTree)
 		r.Get("/projects/{id}/files/content", h.ReadFile)
 		r.Put("/projects/{id}/files/content", h.WriteFile)
 

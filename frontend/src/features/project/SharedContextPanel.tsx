@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 
-import { createCodeForgeWS } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { Button } from "~/ui";
 
 interface ContextItem {
@@ -10,7 +10,7 @@ interface ContextItem {
 }
 
 export default function SharedContextPanel() {
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
   const [items, setItems] = createSignal<ContextItem[]>([]);
   const [collapsed, setCollapsed] = createSignal(true);
 

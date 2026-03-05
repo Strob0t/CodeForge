@@ -82,6 +82,49 @@ func (s *FileService) ListDirectory(ctx context.Context, projectID, relPath stri
 	return result, nil
 }
 
+// ListTree recursively lists all files and directories within a project workspace.
+func (s *FileService) ListTree(ctx context.Context, projectID string, maxEntries int) ([]FileEntry, error) {
+	absPath, err := s.resolveProjectPath(ctx, projectID, ".")
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]FileEntry, 0, 256)
+	err = filepath.WalkDir(absPath, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil // skip unreadable entries
+		}
+		if len(result) >= maxEntries {
+			return filepath.SkipAll
+		}
+		rel, relErr := filepath.Rel(absPath, path)
+		if relErr != nil || rel == "." {
+			return nil
+		}
+		// Skip .git directory (large, irrelevant for file browsing)
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		fi, fiErr := d.Info()
+		if fiErr != nil {
+			return nil
+		}
+		result = append(result, FileEntry{
+			Name:    d.Name(),
+			Path:    filepath.ToSlash(rel),
+			IsDir:   d.IsDir(),
+			Size:    fi.Size(),
+			ModTime: fi.ModTime(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk directory: %w", err)
+	}
+
+	return result, nil
+}
+
 // ReadFile reads the content of a file within a project workspace.
 func (s *FileService) ReadFile(ctx context.Context, projectID, relPath string) (*FileContent, error) {
 	absPath, err := s.resolveProjectPath(ctx, projectID, relPath)

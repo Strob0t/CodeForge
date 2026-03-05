@@ -199,7 +199,9 @@ class TracingManager:
             except Exception as exc:
                 logger.debug("project already exists, connecting", error=str(exc))
                 neo.connect_project(project_name=self._project_name)
-            self._tracer = _SafeTracer(Tracer(session=neo))
+            inner = Tracer(session=neo)
+            inner.start()
+            self._tracer = _SafeTracer(inner)
             self._initialized = True
             logger.info("agentneo tracing initialized", project=self._project_name)
         except ImportError:

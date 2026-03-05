@@ -4,7 +4,6 @@ import { createResource, ErrorBoundary, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { HealthStatus } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
 import { AuthProvider, useAuth } from "~/components/AuthProvider";
 import { CommandPalette } from "~/components/CommandPalette";
 import { OfflineBanner } from "~/components/OfflineBanner";
@@ -12,6 +11,7 @@ import { RouteGuard } from "~/components/RouteGuard";
 import { SidebarProvider, useSidebar } from "~/components/SidebarProvider";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
 import { ToastProvider } from "~/components/Toast";
+import { useWebSocket, WebSocketProvider } from "~/components/WebSocketProvider";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
 import { ShortcutProvider } from "~/shortcuts";
@@ -246,7 +246,7 @@ const KNOWN_ROUTES = new Set([
 /** Inner component rendered inside AuthProvider so the WS has access to the auth token. */
 function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const [health] = createResource(() => api.health.check());
-  const { connected } = createCodeForgeWS();
+  const { connected } = useWebSocket();
   const location = useLocation();
 
   const isPublicPage = (): boolean =>
@@ -284,7 +284,9 @@ export default function App(props: RouteSectionProps) {
       <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
         <ThemeProvider>
           <AuthProvider>
-            <AuthenticatedApp>{props.children}</AuthenticatedApp>
+            <WebSocketProvider>
+              <AuthenticatedApp>{props.children}</AuthenticatedApp>
+            </WebSocketProvider>
           </AuthProvider>
         </ThemeProvider>
       </ErrorBoundary>

@@ -1,7 +1,7 @@
 import { createSignal, For, onCleanup } from "solid-js";
 
 import type { HandoffStatusEvent } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 
 interface Arrow {
   id: string;
@@ -12,8 +12,9 @@ interface Arrow {
 }
 
 export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
   const [arrows, setArrows] = createSignal<Arrow[]>([]);
+  const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const cleanup = onMessage((msg) => {
     if (msg.type !== "handoff.status") return;
@@ -42,16 +43,22 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
 
     // Auto-remove completed/failed arrows after 10s
     if (p.status === "completed" || p.status === "failed") {
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
+        pendingTimers.delete(timerId);
         setArrows((prev) =>
           prev.filter(
             (a) => !(a.sourceId === p.source_agent_id && a.targetId === p.target_agent_id),
           ),
         );
       }, 10000);
+      pendingTimers.add(timerId);
     }
   });
-  onCleanup(cleanup);
+  onCleanup(() => {
+    cleanup();
+    for (const id of pendingTimers) clearTimeout(id);
+    pendingTimers.clear();
+  });
 
   const arrowColor = (status: string) => {
     switch (status) {

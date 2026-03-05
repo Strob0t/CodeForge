@@ -1,7 +1,7 @@
 import { createSignal, For, onCleanup } from "solid-js";
 
 import type { Agent } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 
 interface ToolCall {
   callId: string;
@@ -15,7 +15,7 @@ interface OutputLine {
 }
 
 export default function AgentLane(props: { agent: Agent }) {
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
   const [toolCalls, setToolCalls] = createSignal<ToolCall[]>([]);
   const [outputs, setOutputs] = createSignal<OutputLine[]>([]);
   const [stepCount, setStepCount] = createSignal(0);

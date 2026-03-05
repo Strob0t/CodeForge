@@ -2,14 +2,14 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Agent } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 
 import AgentLane from "./AgentLane";
 import MessageFlow from "./MessageFlow";
 import SharedContextPanel from "./SharedContextPanel";
 
 export default function WarRoom(props: { projectId: string }) {
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
   let gridRef: HTMLDivElement | undefined;
 
   const [agents, { refetch }] = createResource(

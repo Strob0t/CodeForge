@@ -2,7 +2,7 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AgentTeam, TeamMember, TeamRole } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { getVariant, teamStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card } from "~/ui";
@@ -114,7 +114,7 @@ export default function AgentNetwork(props: AgentNetworkProps) {
   };
 
   // Listen for WS events to animate message flow
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
   const cleanup = onMessage((msg) => {
     if (msg.type === "team.message" || msg.type === "shared_context.update") {
       const from = msg.payload.from_agent as string | undefined;

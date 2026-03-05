@@ -3,8 +3,8 @@ import { createEffect, createResource, createSignal, onCleanup, onMount, Show } 
 
 import { api } from "~/api/client";
 import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import {
   DEFAULT_SPLIT,
   MAX_SPLIT,
@@ -28,7 +28,7 @@ export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
   const { show: toast } = useToast();
   const params = useParams<{ id: string }>();
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
 
   const [project, { refetch: refetchProject }] = createResource(
     () => params.id,

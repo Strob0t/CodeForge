@@ -83,6 +83,9 @@ function buildWSURL(): string {
 /**
  * Creates a reconnecting WebSocket that rebuilds the URL (with a fresh token)
  * on every reconnection attempt. This ensures the auth token is always current.
+ *
+ * NOTE: Do not call this directly from components — use `useWebSocket()` from
+ * `~/components/WebSocketProvider` to share a single connection app-wide.
  */
 export function createCodeForgeWS() {
   const RECONNECT_DELAY = 1000;
@@ -90,6 +93,7 @@ export function createCodeForgeWS() {
 
   let ws: WebSocket | null = null;
   let disposed = false;
+  let manualReconnect = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const listeners: ((ev: MessageEvent) => void)[] = [];
 
@@ -110,7 +114,7 @@ export function createCodeForgeWS() {
 
     ws.addEventListener("close", () => {
       setConnected(false);
-      if (!disposed) {
+      if (!disposed && !manualReconnect) {
         reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
       }
     });
@@ -160,5 +164,19 @@ export function createCodeForgeWS() {
     });
   }
 
-  return { connected, onMessage, onAGUIEvent } as const;
+  /** Force-close and reconnect (e.g. after token refresh). */
+  function reconnect(): void {
+    if (disposed) return;
+    // Prevent the close handler from scheduling a competing reconnect.
+    manualReconnect = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    ws?.close();
+    manualReconnect = false;
+    connect();
+  }
+
+  return { connected, onMessage, onAGUIEvent, reconnect } as const;
 }

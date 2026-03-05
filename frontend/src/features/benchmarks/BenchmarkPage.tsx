@@ -17,8 +17,8 @@ import type {
   BenchmarkType,
   CreateBenchmarkRunRequest,
 } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import {
@@ -62,7 +62,7 @@ const TABS = [
 export default function BenchmarkPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
   const [runs, { refetch }] = createResource(() => api.benchmarks.listRuns());
   const [datasets] = createResource(() => api.benchmarks.listDatasets());
 

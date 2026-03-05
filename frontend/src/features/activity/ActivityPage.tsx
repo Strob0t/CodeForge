@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 
-import { createCodeForgeWS, type WSMessage } from "~/api/websocket";
+import type { WSMessage } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { severityVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, EmptyState, PageLayout, Select } from "~/ui";
@@ -196,7 +197,7 @@ function classifyMessage(msg: WSMessage): ActivityEntry | null {
 
 export default function ActivityPage() {
   const { t, fmt } = useI18n();
-  const { connected, onMessage } = createCodeForgeWS();
+  const { connected, onMessage } = useWebSocket();
   const [entries, setEntries] = createSignal<ActivityEntry[]>([]);
   const [filterType, setFilterType] = createSignal<string>("");
   const [paused, setPaused] = createSignal(false);

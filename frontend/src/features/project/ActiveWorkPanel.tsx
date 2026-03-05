@@ -2,7 +2,7 @@ import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { ActiveWorkItem } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { Badge, Button } from "~/ui";
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function ActiveWorkPanel(props: Props) {
-  const { onMessage } = createCodeForgeWS();
+  const { onMessage } = useWebSocket();
   const [collapsed, setCollapsed] = createSignal(false);
 
   const [items, { refetch }] = createResource(

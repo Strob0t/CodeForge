@@ -1,6 +1,8 @@
 import { createEffect, createSignal, type JSX, on } from "solid-js";
 import { MonacoEditor } from "solid-monaco";
 
+import { useTheme } from "~/components/ThemeProvider";
+
 export interface CodeEditorProps {
   value: string;
   language: string;
@@ -49,6 +51,7 @@ interface EditorInstance {
 }
 
 export default function CodeEditor(props: CodeEditorProps): JSX.Element {
+  const { resolved } = useTheme();
   const [editorRef, setEditorRef] = createSignal<EditorInstance | null>(null);
 
   // Register Ctrl+S keybinding when editor mounts
@@ -68,6 +71,7 @@ export default function CodeEditor(props: CodeEditorProps): JSX.Element {
       <MonacoEditor
         language={monacoLanguage(props.language)}
         value={props.value}
+        theme={resolved() === "dark" ? "vs-dark" : "vs"}
         onChange={(val) => props.onChange(val ?? "")}
         onMount={(_monaco, editor) => {
           setEditorRef(editor as unknown as EditorInstance);
@@ -81,7 +85,6 @@ export default function CodeEditor(props: CodeEditorProps): JSX.Element {
           tabSize: 2,
           renderWhitespace: "selection",
           automaticLayout: true,
-          theme: document.documentElement.classList.contains("dark") ? "vs-dark" : "vs",
         }}
       />
     </div>

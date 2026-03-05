@@ -11,7 +11,7 @@ import {
 
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage } from "~/api/types";
-import { createCodeForgeWS } from "~/api/websocket";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 import { Badge, Button, CostDisplay } from "~/ui";
 
@@ -38,7 +38,7 @@ interface PlanStepState {
 
 export default function ChatPanel(props: ChatPanelProps) {
   const { t } = useI18n();
-  const { onAGUIEvent } = createCodeForgeWS();
+  const { onAGUIEvent } = useWebSocket();
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
