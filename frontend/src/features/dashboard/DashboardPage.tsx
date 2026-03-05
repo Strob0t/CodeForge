@@ -184,13 +184,15 @@ export default function DashboardPage() {
         });
         toast("success", t("dashboard.toast.created"));
 
-        // Fire-and-forget: auto-setup (clone + detect stack + import specs)
+        // Auto-setup (clone + detect stack + import specs)
         if (created.repo_url) {
           toast("info", t("dashboard.toast.setupStarted"));
-          api.projects.setup(created.id, branch).catch((setupErr) => {
+          try {
+            await api.projects.setup(created.id, branch);
+          } catch (setupErr) {
             const setupMsg = setupErr instanceof Error ? setupErr.message : "setup failed";
             toast("error", setupMsg);
-          });
+          }
         }
       }
       batch(() => {

@@ -58,6 +58,26 @@ else
     pre-commit install -c .pre-commit-config.yaml
 fi
 
+# -- Resolve Host Project Path for Docker bind mounts --
+# In docker-outside-of-docker, the Docker daemon runs on the host.
+# Bind mounts must use host paths, not devcontainer paths.
+echo ""
+echo "> Resolving host project path for Docker bind mounts..."
+_host_path=$(docker inspect "$(hostname)" 2>/dev/null \
+  | python3 -c "
+import sys, json
+c = json.load(sys.stdin)
+for m in c[0]['Mounts']:
+    if m.get('Destination') == '/workspaces/CodeForge':
+        print(m['Source']); break
+" 2>/dev/null || true)
+if [ -n "$_host_path" ]; then
+    export HOST_PROJECT_PATH="$_host_path"
+    echo "  HOST_PROJECT_PATH=$HOST_PROJECT_PATH"
+else
+    echo "  Could not detect host path, using default (./)"
+fi
+
 # -- Docker Compose Services ---------------------
 echo ""
 echo "> Starting docker-compose services..."
@@ -88,6 +108,13 @@ if ! grep -q 'CodeForge .venv' ~/.bashrc 2>/dev/null; then
 # Activate CodeForge virtual environment
 if [ -f /workspaces/CodeForge/.venv/bin/activate ]; then
     source /workspaces/CodeForge/.venv/bin/activate
+fi
+
+# Resolve HOST_PROJECT_PATH for Docker bind mounts (docker-outside-of-docker)
+if [ -z "$HOST_PROJECT_PATH" ] || [ "$HOST_PROJECT_PATH" = '${localWorkspaceFolder}' ]; then
+    _hp=$(docker inspect "$(hostname)" 2>/dev/null \
+      | python3 -c "import sys,json;c=json.load(sys.stdin);[print(m['Source']) for m in c[0]['Mounts'] if m.get('Destination')=='/workspaces/CodeForge']" 2>/dev/null || true)
+    [ -n "$_hp" ] && export HOST_PROJECT_PATH="$_hp"
 fi
 BASHRC_EOF
     echo "  Added .venv activation to ~/.bashrc"

@@ -15,7 +15,6 @@
     "ghcr.io/devcontainers/features/git:1": {}
   },
   "remoteEnv": {
-    "HOST_PROJECT_PATH": "${localWorkspaceFolder}",
     "DATABASE_URL": "postgres://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge?sslmode=disable",
     "NATS_URL": "nats://codeforge-nats:4222",
     "LITELLM_URL": "http://codeforge-litellm:4000",
