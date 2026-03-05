@@ -3584,7 +3584,7 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 
 - [x] FIX-CR01 (Critical, S): `_subjects.py:6-19` — Added `"mcp.>"` and `"a2a.>"` to Python `STREAM_SUBJECTS`. (2026-03-05)
 - [x] FIX-CR02 (Critical, M): `_handoff.py:57` — Replaced `"handoff.execute"` dead-end with `runs.start` publication. (2026-03-05)
-- [x] FIX-CR03 (Critical, M): `_memory.py:146` — Added `SubjectMemoryRecallResult` constant to Go and used constant in Python. (2026-03-05) **NOTE (2026-03-05 audit):** Constant was added but Go-side NATS subscriber for `memory.recall.result` is still missing — Python publishes results but Go never consumes them. Partially incomplete.
+- [x] FIX-CR03 (Critical, M): `_memory.py:146` — Full memory recall pipeline: added `request_id` correlation to Go/Python models, converted fire-and-forget `Recall` to synchronous `RecallSync` with `syncWaiter`, added Go NATS subscriber for `memory.recall.result`, wired in `main.go`. (2026-03-05, completed 2026-03-05)
 - [x] FIX-CR04 (Critical, M): Added `_a2a.py` handler mixin with `_handle_a2a_task_created` subscribed to `a2a.task.created`. (2026-03-05)
 - [x] FIX-CR05 (Critical, M): A2A handler publishes `A2ATaskCompleteMessage` to `a2a.task.complete` after task execution. (2026-03-05)
 - [x] FIX-CR06 (Critical, S): Added `_handle_a2a_task_cancel` subscribed to `a2a.task.cancel`. (2026-03-05)

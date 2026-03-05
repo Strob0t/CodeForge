@@ -59,11 +59,29 @@ type CreateRequest struct {
 
 // RecallRequest is the input for querying memories.
 type RecallRequest struct {
+	RequestID string `json:"request_id,omitempty"`
 	TenantID  string `json:"tenant_id,omitempty"`
 	ProjectID string `json:"project_id"`
 	Query     string `json:"query"`
 	TopK      int    `json:"top_k"`
 	Kind      Kind   `json:"kind,omitempty"` // empty = all kinds
+}
+
+// RecallResult is returned by the Python worker after scoring memories.
+type RecallResult struct {
+	RequestID string         `json:"request_id"`
+	ProjectID string         `json:"project_id"`
+	Query     string         `json:"query"`
+	Results   []ScoredResult `json:"results"`
+	Error     string         `json:"error,omitempty"`
+}
+
+// ScoredResult is a single scored memory in a recall result.
+type ScoredResult struct {
+	ID      string  `json:"id"`
+	Content string  `json:"content"`
+	Kind    string  `json:"kind"`
+	Score   float64 `json:"score"`
 }
 
 // Validate checks that a CreateRequest has all required fields.

@@ -532,7 +532,11 @@ func run() error {
 
 	// --- Memory Service (Phase 22B) ---
 	memorySvc := service.NewMemoryService(store, queue)
-	slog.Info("memory service initialized")
+	memoryCancels, err := memorySvc.StartSubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("memory subscribers: %w", err)
+	}
+	slog.Info("memory service initialized", "subscribers", len(memoryCancels))
 
 	// --- Experience Pool Service (Phase 22B) ---
 	experienceSvc := service.NewExperiencePoolService(store)
@@ -850,6 +854,9 @@ func run() error {
 		cancel()
 	}
 	for _, cancel := range graphCancels {
+		cancel()
+	}
+	for _, cancel := range memoryCancels {
 		cancel()
 	}
 

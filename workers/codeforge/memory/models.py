@@ -69,6 +69,7 @@ class MemoryStoreRequest(BaseModel):
 class MemoryRecallRequest(BaseModel):
     """Request to recall memories (received from NATS)."""
 
+    request_id: str = ""
     tenant_id: str = DEFAULT_TENANT_ID
     project_id: str
     query: str

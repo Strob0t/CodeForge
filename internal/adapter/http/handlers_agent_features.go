@@ -315,11 +315,12 @@ func (h *Handlers) RecallMemories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ProjectID = projectID
-	if err := h.Memory.Recall(r.Context(), req); err != nil {
+	result, err := h.Memory.RecallSync(r.Context(), &req)
+	if err != nil {
 		writeDomainError(w, err, "recall memories failed")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "dispatched"})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // --- Experience Pool Handlers (Phase 22B) ---

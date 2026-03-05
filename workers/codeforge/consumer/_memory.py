@@ -141,6 +141,7 @@ class MemoryHandlerMixin:
                 import json
 
                 result_payload = {
+                    "request_id": req.request_id,
                     "project_id": req.project_id,
                     "query": req.query,
                     "results": top,
