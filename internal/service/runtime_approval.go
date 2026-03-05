@@ -44,7 +44,10 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 
 	// Fan out to registered feedback providers (Slack, Email, etc.).
 	// First response wins — the channel `ch` has buffer=1 so only the first write lands.
-	for _, p := range s.feedbackProviders {
+	s.feedbackProvidersMu.RLock()
+	providers := s.feedbackProviders
+	s.feedbackProvidersMu.RUnlock()
+	for _, p := range providers {
 		go func(provider feedbackPort.Provider) {
 			fbReq := feedback.FeedbackRequest{
 				RunID:   runID,
@@ -79,7 +82,7 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 		"call_id", callID,
 		"tool", tool,
 		"timeout", timeout,
-		"providers", len(s.feedbackProviders),
+		"providers", len(providers),
 	)
 
 	select {

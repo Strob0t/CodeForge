@@ -100,6 +100,7 @@ class RunStartMessage(BaseModel):
     prompt: str
     policy_profile: str = ""
     exec_mode: str = "mount"
+    deliver_mode: str = ""
     mode: ModeConfig = Field(default_factory=ModeConfig)
     config: dict[str, str] = Field(default_factory=dict)
     termination: TerminationConfig = Field(default_factory=TerminationConfig)

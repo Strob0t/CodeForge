@@ -16,8 +16,6 @@ import structlog
 from codeforge.memory.scorer import CompositeScorer
 
 if TYPE_CHECKING:
-    import psycopg
-
     from codeforge.llm import LiteLLMClient
 
 logger = structlog.get_logger()
@@ -30,12 +28,12 @@ class ExperiencePool:
 
     def __init__(
         self,
-        db: psycopg.AsyncConnection[object],
+        db_url: str,
         llm: LiteLLMClient,
         scorer: CompositeScorer | None = None,
         confidence_threshold: float = 0.85,
     ) -> None:
-        self._db = db
+        self._db_url = db_url
         self._llm = llm
         self._scorer = scorer or CompositeScorer()
         self._threshold = confidence_threshold
@@ -52,7 +50,9 @@ class ExperiencePool:
         if query_emb is None:
             return None
 
-        async with self._db.cursor() as cur:
+        import psycopg
+
+        async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
             await cur.execute(
                 """SELECT id, task_description, task_embedding, result_output,
                           result_cost, result_status, confidence, created_at
@@ -89,12 +89,12 @@ class ExperiencePool:
 
         if best_entry and best_score >= threshold:
             # Increment hit count
-            async with self._db.cursor() as cur:
+            async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
                 await cur.execute(
                     "UPDATE experience_entries SET hit_count = hit_count + 1, last_used_at = NOW() WHERE id = %s",
                     (best_entry["id"],),
                 )
-                await self._db.commit()
+                await conn.commit()
             logger.info(
                 "experience cache hit",
                 entry_id=best_entry["id"],
@@ -117,7 +117,9 @@ class ExperiencePool:
         embedding = await self._compute_embedding(task_desc)
         embedding_bytes = embedding.tobytes() if embedding is not None else None
 
-        async with self._db.cursor() as cur:
+        import psycopg
+
+        async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
             await cur.execute(
                 """INSERT INTO experience_entries
                    (tenant_id, project_id, task_description, task_embedding,
@@ -137,16 +139,18 @@ class ExperiencePool:
                 ),
             )
             row = await cur.fetchone()
-            await self._db.commit()
+            await conn.commit()
             entry_id = str(row[0]) if row else ""
             logger.info("experience stored", entry_id=entry_id)
             return entry_id
 
     async def invalidate(self, entry_id: str) -> None:
         """Remove an experience entry."""
-        async with self._db.cursor() as cur:
+        import psycopg
+
+        async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
             await cur.execute("DELETE FROM experience_entries WHERE id = %s", (entry_id,))
-            await self._db.commit()
+            await conn.commit()
         logger.info("experience invalidated", entry_id=entry_id)
 
     async def _compute_embedding(self, text: str) -> np.ndarray | None:

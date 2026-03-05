@@ -504,7 +504,9 @@ func (h *Handlers) HandleFeedbackCallback(w http.ResponseWriter, r *http.Request
 	}
 
 	// Log audit entry via RuntimeService.
-	_ = h.Runtime.LogFeedbackAudit(r.Context(), runID, callID, "", "web_callback", decision, "")
+	if err := h.Runtime.LogFeedbackAudit(r.Context(), runID, callID, "", "web_callback", decision, ""); err != nil {
+		slog.Error("failed to write feedback audit", "run_id", runID, "call_id", callID, "error", err)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":   "resolved",

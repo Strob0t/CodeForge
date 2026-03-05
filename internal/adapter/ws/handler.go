@@ -96,13 +96,17 @@ func (h *Hub) Broadcast(ctx context.Context, msg Message) {
 	}
 
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-
+	var dead []*conn
 	for c := range h.conns {
 		if err := c.ws.Write(ctx, websocket.MessageText, data); err != nil {
 			slog.Debug("websocket write failed", "error", err)
-			go h.remove(c)
+			dead = append(dead, c)
 		}
+	}
+	h.mu.RUnlock()
+
+	for _, c := range dead {
+		h.remove(c)
 	}
 }
 
@@ -115,16 +119,20 @@ func (h *Hub) BroadcastToTenant(ctx context.Context, tenantID string, msg Messag
 	}
 
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-
+	var dead []*conn
 	for c := range h.conns {
 		if c.tenantID != tenantID {
 			continue
 		}
 		if err := c.ws.Write(ctx, websocket.MessageText, data); err != nil {
 			slog.Debug("websocket write failed", "error", err)
-			go h.remove(c)
+			dead = append(dead, c)
 		}
+	}
+	h.mu.RUnlock()
+
+	for _, c := range dead {
+		h.remove(c)
 	}
 }
 

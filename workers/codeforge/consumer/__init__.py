@@ -101,7 +101,15 @@ class TaskConsumer(
         self._js: JetStreamContext | None = None
         self._running = False
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
-        self._executor = AgentExecutor(llm=self._llm)
+        self._db_url = os.environ.get(
+            "DATABASE_URL",
+            "postgresql://codeforge:codeforge_dev@localhost:5432/codeforge",
+        )
+
+        from codeforge.memory.experience import ExperiencePool
+
+        self._experience_pool = ExperiencePool(db_url=self._db_url, llm=self._llm)
+        self._executor = AgentExecutor(llm=self._llm, experience_pool=self._experience_pool)
 
         from codeforge.backends import build_default_router
 
@@ -112,10 +120,6 @@ class TaskConsumer(
         self._subagent = RetrievalSubAgent(retriever=self._retriever, llm=self._llm)
         self._graph_builder = CodeGraphBuilder()
         self._graph_searcher = GraphSearcher()
-        self._db_url = os.environ.get(
-            "DATABASE_URL",
-            "postgresql://codeforge:codeforge_dev@localhost:5432/codeforge",
-        )
 
     async def start(self) -> None:
         """Connect to NATS and subscribe to task and run subjects."""

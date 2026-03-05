@@ -13,6 +13,7 @@ from codeforge.tracing import tracing_manager
 if TYPE_CHECKING:
     from codeforge.llm import LiteLLMClient
     from codeforge.mcp_models import MCPServerDef
+    from codeforge.memory.experience import ExperiencePool
     from codeforge.runtime import RuntimeClient
 
 logger = logging.getLogger(__name__)
@@ -23,8 +24,9 @@ _tracer = tracing_manager.get_tracer()
 class AgentExecutor:
     """Executor that receives a task, calls LLM, and returns a result."""
 
-    def __init__(self, llm: LiteLLMClient) -> None:
+    def __init__(self, llm: LiteLLMClient, experience_pool: ExperiencePool | None = None) -> None:
         self._llm = llm
+        self._experience_pool = experience_pool
 
     @_tracer.trace_agent("executor")
     async def execute(self, task: TaskMessage) -> TaskResult:
@@ -60,6 +62,26 @@ class AgentExecutor:
                 status=TaskStatus.FAILED,
                 error=str(exc),
             )
+
+    async def _check_experience_cache(self, task: TaskMessage, runtime: RuntimeClient) -> bool:
+        """Check if a cached experience exists. Returns True if cache hit was used."""
+        if not (self._experience_pool and task.project_id and task.prompt):
+            return False
+        try:
+            cached = await self._experience_pool.lookup(task.prompt, task.project_id)
+            if cached:
+                logger.info(
+                    "experience cache hit run_id=%s entry_id=%s similarity=%.3f",
+                    runtime.run_id,
+                    cached["id"],
+                    cached["similarity"],
+                )
+                await runtime.send_output(f"Using cached result (similarity: {cached['similarity']:.2f})")
+                await runtime.complete_run(status="completed", output=cached["result_output"])
+                return True
+        except Exception as exc:
+            logger.warning("experience pool lookup failed, continuing: %s", exc)
+        return False
 
     @_tracer.trace_agent("executor")
     async def execute_with_runtime(
@@ -98,6 +120,10 @@ class AgentExecutor:
 
         workbench: McpWorkbench | None = None
         try:
+            # Check experience pool for cached result
+            if await self._check_experience_cache(task, runtime):
+                return
+
             # Set up MCP workbench if servers are configured
             if mcp_servers:
                 workbench = McpWorkbench()
@@ -163,6 +189,20 @@ class AgentExecutor:
             if runtime.is_cancelled:
                 await runtime.complete_run(status="cancelled", error="cancelled by user")
                 return
+
+            # Store successful result in experience pool
+            if self._experience_pool and task.project_id and task.prompt:
+                try:
+                    await self._experience_pool.store(
+                        task_desc=task.prompt,
+                        project_id=task.project_id,
+                        result_output=response.content,
+                        result_cost=cost,
+                        result_status="completed",
+                        run_id=runtime.run_id,
+                    )
+                except Exception as exc:
+                    logger.warning("experience pool store failed: %s", exc)
 
             await runtime.complete_run(
                 status="completed",

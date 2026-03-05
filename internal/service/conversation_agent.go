@@ -451,6 +451,10 @@ func (s *ConversationService) WaitForCompletion(ctx context.Context, conversatio
 	ch := make(chan CompletionResult, 1)
 
 	s.completionWaitersMu.Lock()
+	if _, exists := s.completionWaiters[conversationID]; exists {
+		s.completionWaitersMu.Unlock()
+		return CompletionResult{}, fmt.Errorf("a waiter already exists for conversation %s", conversationID)
+	}
 	s.completionWaiters[conversationID] = ch
 	s.completionWaitersMu.Unlock()
 

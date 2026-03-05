@@ -99,6 +99,22 @@ class MemoryHandlerMixin:
                 log.warning("embedding computation failed for recall query", exc_info=True, error=str(exc))
 
             if query_emb is None:
+                if self._js is not None:
+                    import json
+
+                    from codeforge.consumer._subjects import SUBJECT_MEMORY_RECALL_RESULT
+
+                    error_payload = {
+                        "request_id": req.request_id,
+                        "project_id": req.project_id,
+                        "query": req.query,
+                        "results": [],
+                        "error": "embedding computation failed for recall query",
+                    }
+                    await self._js.publish(
+                        SUBJECT_MEMORY_RECALL_RESULT,
+                        json.dumps(error_payload).encode(),
+                    )
                 await msg.ack()
                 return
 

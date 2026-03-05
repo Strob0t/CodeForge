@@ -76,8 +76,8 @@ class A2AHandlerMixin:
                         SUBJECT_A2A_TASK_COMPLETE,
                         fail.model_dump_json().encode(),
                     )
-            except Exception:
-                logger.debug("failed to publish A2A error result")
+            except Exception as exc:
+                logger.debug("failed to publish A2A error result", error=str(exc))
             await msg.ack()
 
     async def _handle_a2a_task_cancel(self, msg: nats.aio.msg.Msg) -> None:

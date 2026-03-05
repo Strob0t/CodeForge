@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,8 @@ const providerName = "svn"
 type Provider struct {
 	pool        *git.Pool
 	execCommand func(ctx context.Context, name string, args ...string) *exec.Cmd
+	username    string
+	password    string
 }
 
 // NewProvider creates an SVN provider that limits concurrent operations via pool.
@@ -52,19 +55,68 @@ func (p *Provider) ListRepos(_ context.Context) ([]string, error) {
 }
 
 // Clone checks out an SVN repository to the given local path.
-// CloneOption is accepted for interface compatibility but ignored (SVN has no branch concept in clone).
-func (p *Provider) Clone(ctx context.Context, url, destPath string, _ ...gitprovider.CloneOption) error {
+// If Branch is set via CloneOption, the URL is adjusted to point to the branch
+// directory following SVN's standard trunk/branches layout.
+// If the destination already exists and is an SVN working copy with a matching URL,
+// it runs svn update instead of failing.
+func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitprovider.CloneOption) error {
 	absPath, err := filepath.Abs(destPath)
 	if err != nil {
 		return fmt.Errorf("svn: resolve path: %w", err)
 	}
 
+	o := gitprovider.ApplyCloneOptions(opts)
+	checkoutURL := resolveBranchURL(url, o.Branch)
+
 	return p.pool.Run(ctx, func() error {
-		if _, execErr := p.runSVN(ctx, "", "checkout", url, absPath); execErr != nil {
+		// Handle existing directory.
+		if info, statErr := os.Stat(absPath); statErr == nil && info.IsDir() {
+			return p.reclone(ctx, checkoutURL, absPath)
+		}
+
+		if _, execErr := p.runSVN(ctx, "", "checkout", checkoutURL, absPath); execErr != nil {
 			return fmt.Errorf("svn: checkout: %w", execErr)
 		}
 		return nil
 	})
+}
+
+// reclone handles re-checkout when the destination directory already exists.
+// If it's an SVN working copy with the same URL, runs svn update.
+// Otherwise removes the directory and does a fresh checkout.
+func (p *Provider) reclone(ctx context.Context, url, absPath string) error {
+	// Check if it's an SVN working copy.
+	wcURL, err := p.runSVN(ctx, absPath, "info", "--show-item", "url")
+	if err == nil && strings.TrimSpace(wcURL) == url {
+		// Same URL: just update.
+		if _, updErr := p.runSVN(ctx, absPath, "update", "--non-interactive"); updErr != nil {
+			return fmt.Errorf("svn: update: %w", updErr)
+		}
+		return nil
+	}
+
+	// Not an SVN working copy or different URL — remove and re-checkout.
+	if rmErr := os.RemoveAll(absPath); rmErr != nil {
+		return fmt.Errorf("svn: remove existing directory: %w", rmErr)
+	}
+	if _, coErr := p.runSVN(ctx, "", "checkout", url, absPath); coErr != nil {
+		return fmt.Errorf("svn: checkout: %w", coErr)
+	}
+	return nil
+}
+
+// resolveBranchURL maps a branch name to the SVN URL convention.
+// Empty branch or "trunk" returns the URL as-is.
+// Other branch names replace a trailing /trunk with /branches/<name>,
+// or append /branches/<name> if no /trunk suffix is present.
+func resolveBranchURL(url, branch string) string {
+	if branch == "" || branch == "trunk" {
+		return url
+	}
+	if base, ok := strings.CutSuffix(url, "/trunk"); ok {
+		return base + "/branches/" + branch
+	}
+	return url + "/branches/" + branch
 }
 
 // Status returns the status of an SVN working copy.
@@ -204,7 +256,16 @@ func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error 
 }
 
 // runSVN executes an svn command and returns stdout.
+// Authentication flags are prepended when username/password are configured.
 func (p *Provider) runSVN(ctx context.Context, dir string, args ...string) (string, error) {
+	if p.username != "" {
+		authArgs := []string{"--username", p.username, "--no-auth-cache"}
+		if p.password != "" {
+			authArgs = append(authArgs, "--password", p.password)
+		}
+		args = append(authArgs, args...)
+	}
+
 	cmd := p.execCommand(ctx, "svn", args...)
 	if dir != "" {
 		cmd.Dir = dir

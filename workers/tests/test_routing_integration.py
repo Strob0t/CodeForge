@@ -104,11 +104,14 @@ class TestResolveScenario:
 class TestLoadRoutingConfig:
     def test_disabled_by_default(self) -> None:
         import os
+        from unittest.mock import patch
 
         os.environ.pop("CODEFORGE_ROUTING_ENABLED", None)
         from codeforge.llm import load_routing_config
 
-        assert load_routing_config() is None
+        # Patch YAML config to ensure no file-based override activates routing.
+        with patch("codeforge.config.load_yaml_config", return_value={}):
+            assert load_routing_config() is None
 
     def test_enabled_returns_config(self, monkeypatch: object) -> None:
         import os

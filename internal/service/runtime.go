@@ -29,29 +29,30 @@ import (
 // RuntimeService orchestrates the step-by-step execution protocol between
 // Go (control plane) and Python (execution plane).
 type RuntimeService struct {
-	store             database.Store
-	queue             messagequeue.Queue
-	hub               broadcast.Broadcaster
-	events            eventstore.Store
-	policy            *PolicyService
-	modes             *ModeService
-	deliver           *DeliverService
-	contextOpt        *ContextOptimizerService
-	checkpoint        *CheckpointService
-	sandbox           *SandboxService
-	mcpSvc            *MCPService
-	microagentSvc     *MicroagentService
-	onRunComplete     func(ctx context.Context, runID string, status run.Status)
-	runtimeCfg        *config.Runtime
-	stallTrackers     sync.Map // map[runID]*run.StallTracker
-	heartbeats        sync.Map // map[runID]time.Time — last heartbeat timestamp
-	runTimeouts       sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
-	budgetAlerts      sync.Map // map["runID:threshold"]bool — dedup budget alerts
-	pendingApprovals  sync.Map // map["runID:callID"]chan string — HITL approval channels
-	quarantine        *QuarantineService
-	feedbackProviders []feedbackPort.Provider
-	metrics           *cfotel.Metrics
-	runSpans          sync.Map // map[runID]trace.Span
+	store               database.Store
+	queue               messagequeue.Queue
+	hub                 broadcast.Broadcaster
+	events              eventstore.Store
+	policy              *PolicyService
+	modes               *ModeService
+	deliver             *DeliverService
+	contextOpt          *ContextOptimizerService
+	checkpoint          *CheckpointService
+	sandbox             *SandboxService
+	mcpSvc              *MCPService
+	microagentSvc       *MicroagentService
+	onRunComplete       func(ctx context.Context, runID string, status run.Status)
+	runtimeCfg          *config.Runtime
+	stallTrackers       sync.Map // map[runID]*run.StallTracker
+	heartbeats          sync.Map // map[runID]time.Time — last heartbeat timestamp
+	runTimeouts         sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
+	budgetAlerts        sync.Map // map["runID:threshold"]bool — dedup budget alerts
+	pendingApprovals    sync.Map // map["runID:callID"]chan string — HITL approval channels
+	quarantine          *QuarantineService
+	feedbackProvidersMu sync.RWMutex
+	feedbackProviders   []feedbackPort.Provider
+	metrics             *cfotel.Metrics
+	runSpans            sync.Map // map[runID]trace.Span
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -91,7 +92,9 @@ func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.S
 
 // RegisterFeedbackProvider adds a feedback provider for HITL fan-out.
 func (s *RuntimeService) RegisterFeedbackProvider(p feedbackPort.Provider) {
+	s.feedbackProvidersMu.Lock()
 	s.feedbackProviders = append(s.feedbackProviders, p)
+	s.feedbackProvidersMu.Unlock()
 }
 
 // SetCheckpointService sets the checkpoint service for shadow git commits.

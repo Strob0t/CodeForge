@@ -44,7 +44,9 @@ type OrchestratorService struct {
 
 // AddOnPlanComplete appends a callback invoked when a plan completes or fails.
 func (s *OrchestratorService) AddOnPlanComplete(fn func(ctx context.Context, planID string, status string)) {
+	s.mu.Lock()
 	s.onPlanCompleteCallbacks = append(s.onPlanCompleteCallbacks, fn)
+	s.mu.Unlock()
 }
 
 // SetOnPlanComplete registers a callback (backward-compatible alias for AddOnPlanComplete).

@@ -83,10 +83,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Agent Identity (Phase 23C)
 		r.Get("/agents/{id}/inbox", h.ListAgentInbox)
-		r.Post("/agents/{id}/inbox", h.SendAgentMessage)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/inbox", h.SendAgentMessage)
 		r.Post("/agents/{id}/inbox/{msgId}/read", h.MarkInboxRead)
 		r.Get("/agents/{id}/state", h.GetAgentState)
-		r.Put("/agents/{id}/state", h.UpdateAgentState)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/agents/{id}/state", h.UpdateAgentState)
 
 		// Tasks (nested under projects)
 		r.Post("/projects/{id}/tasks", h.CreateTask)
@@ -424,7 +424,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Delete("/skills/{id}", h.DeleteSkill)
 
 		// Human Feedback (Phase 22D)
-		r.Post("/feedback/{run_id}/{call_id}", h.HandleFeedbackCallback)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/feedback/{run_id}/{call_id}", h.HandleFeedbackCallback)
 		r.Get("/runs/{id}/feedback", h.ListFeedbackAudit)
 
 		// Auto-Agent (PR3.3)

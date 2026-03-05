@@ -56,13 +56,13 @@ func A2AAuth(validKeys []string) func(http.Handler) http.Handler {
 }
 
 // constantTimeContains checks if token matches any key using constant-time comparison.
+// Iterates all keys without early return to avoid leaking the matching key's index.
 func constantTimeContains(keys []string, token string) bool {
+	var match int
 	for _, k := range keys {
-		if subtle.ConstantTimeCompare([]byte(k), []byte(token)) == 1 {
-			return true
-		}
+		match |= subtle.ConstantTimeCompare([]byte(k), []byte(token))
 	}
-	return false
+	return match == 1
 }
 
 // A2ATrustFromContext returns the A2A trust level from the request context.
