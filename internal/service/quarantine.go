@@ -73,9 +73,9 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 		msg.Status = quarantine.StatusRejected
 		msg.ReviewNote = "auto-blocked: risk score exceeds block threshold"
 		if err := s.db.QuarantineMessage(ctx, msg); err != nil {
-			slog.Warn("failed to store auto-blocked message", "error", err)
-			// Fail-open: allow through on DB error.
-			return false, nil
+			slog.Error("failed to store auto-blocked message, blocking anyway (fail-closed)", "error", err)
+			// Fail-closed: block the message even if DB persistence fails.
+			return true, fmt.Errorf("quarantine db error: %w", err)
 		}
 		slog.Warn("message auto-blocked",
 			"subject", subject, "score", score, "factors", factors)
@@ -85,9 +85,9 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 	// Between quarantine and block thresholds — hold for review.
 	msg.Status = quarantine.StatusPending
 	if err := s.db.QuarantineMessage(ctx, msg); err != nil {
-		slog.Warn("failed to quarantine message", "error", err)
-		// Fail-open: allow through on DB error.
-		return false, nil
+		slog.Error("failed to quarantine message, blocking anyway (fail-closed)", "error", err)
+		// Fail-closed: block the message even if DB persistence fails.
+		return true, fmt.Errorf("quarantine db error: %w", err)
 	}
 
 	// Broadcast alert to admin UI.

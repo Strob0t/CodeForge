@@ -26,13 +26,20 @@ func SecurityHeaders(next http.Handler) http.Handler {
 }
 
 // CORS returns middleware that sets CORS headers for development.
+// When allowedOrigin is "*", credentials are not allowed (browser security).
 func CORS(allowedOrigin string) func(http.Handler) http.Handler {
+	if allowedOrigin == "*" {
+		slog.Warn("CORS origin is wildcard (*) - credentials will not be allowed; set CODEFORGE_CORS_ORIGIN for production")
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Tenant-ID, X-Idempotency-Key")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			// Wildcard origin + credentials is rejected by browsers (spec violation).
+			if allowedOrigin != "*" {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)

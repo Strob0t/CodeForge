@@ -366,7 +366,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/prompt-sections/preview", h.PreviewPromptSections)
 
 		// Dev tools (behind DEV_MODE env var)
-		r.Post("/dev/benchmark", h.BenchmarkPrompt)
+		r.With(middleware.DevModeOnly).Post("/dev/benchmark", h.BenchmarkPrompt)
 
 		// Benchmark Mode (Phase 20D — dev-mode only, requires APP_ENV=development)
 		r.Route("/benchmarks", func(r chi.Router) {

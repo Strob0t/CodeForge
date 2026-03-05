@@ -32,10 +32,16 @@ func Idempotency(kv jetstream.KeyValue) func(http.Handler) http.Handler {
 				return
 			}
 
-			key := r.Header.Get(headerIdempotencyKey)
-			if key == "" {
+			rawKey := r.Header.Get(headerIdempotencyKey)
+			if rawKey == "" {
 				next.ServeHTTP(w, r)
 				return
+			}
+
+			// Namespace by user ID to prevent cross-user collisions.
+			key := rawKey
+			if u := UserFromContext(r.Context()); u != nil {
+				key = u.ID + ":" + rawKey
 			}
 
 			// Check KV for existing response

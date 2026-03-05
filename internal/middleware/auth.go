@@ -2,10 +2,13 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -49,10 +52,14 @@ var passwordChangeExempt = map[string]bool{
 // Auth returns middleware that validates JWT or API key credentials.
 // When authEnabled is false, a default admin context is injected.
 func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) http.Handler {
+	var authDisabledOnce sync.Once
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// When auth is disabled, inject a default admin user context.
 			if !authEnabled {
+				authDisabledOnce.Do(func() {
+					slog.Warn("authentication is disabled - all requests are treated as admin")
+				})
 				defaultUser := &user.User{
 					ID:       "00000000-0000-0000-0000-000000000000",
 					Email:    "admin@localhost",
@@ -108,7 +115,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 			// Try X-API-Key header first.
 			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
 				// Internal service key — Python workers use this for API calls back to Go Core.
-				if internalKey := os.Getenv("CODEFORGE_INTERNAL_KEY"); internalKey != "" && apiKey == internalKey {
+				if internalKey := os.Getenv("CODEFORGE_INTERNAL_KEY"); internalKey != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(internalKey)) == 1 {
 					svcUser := &user.User{
 						ID:       "00000000-0000-0000-0000-000000000001",
 						Email:    "service@internal",
