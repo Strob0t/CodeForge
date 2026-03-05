@@ -42,24 +42,24 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Projects
 		r.Get("/projects", h.ListProjects)
-		r.Post("/projects", h.CreateProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.CreateProject)
 		r.Get("/projects/remote-branches", h.ListRemoteBranches)
 		r.Get("/projects/{id}", h.GetProject)
-		r.Delete("/projects/{id}", h.DeleteProject)
-		r.Put("/projects/{id}", h.UpdateProject)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.DeleteProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}", h.UpdateProject)
 
 		// Workspace operations (nested under projects)
-		r.Post("/projects/{id}/clone", h.CloneProject)
-		r.Post("/projects/{id}/adopt", h.AdoptProject)
-		r.Post("/projects/{id}/setup", h.SetupProject)
-		r.Post("/projects/{id}/init-workspace", h.InitWorkspace)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/clone", h.CloneProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/adopt", h.AdoptProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/setup", h.SetupProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/init-workspace", h.InitWorkspace)
 		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
 
 		// File operations (nested under projects)
 		r.Get("/projects/{id}/files", h.ListFiles)
 		r.Get("/projects/{id}/files/tree", h.ListTree)
 		r.Get("/projects/{id}/files/content", h.ReadFile)
-		r.Put("/projects/{id}/files/content", h.WriteFile)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}/files/content", h.WriteFile)
 
 		// Stack Detection
 		r.Get("/projects/{id}/detect-stack", h.DetectProjectStack)
@@ -77,9 +77,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Agents (direct access)
 		r.Get("/agents/{id}", h.GetAgent)
-		r.Delete("/agents/{id}", h.DeleteAgent)
-		r.Post("/agents/{id}/dispatch", h.DispatchTask)
-		r.Post("/agents/{id}/stop", h.StopAgentTask)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/agents/{id}", h.DeleteAgent)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/dispatch", h.DispatchTask)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/stop", h.StopAgentTask)
 
 		// Agent Identity (Phase 23C)
 		r.Get("/agents/{id}/inbox", h.ListAgentInbox)
@@ -290,7 +290,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Settings
 		r.Get("/settings", h.GetSettings)
-		r.Put("/settings", h.UpdateSettings)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Put("/settings", h.UpdateSettings)
 
 		// Auth (public routes handled by middleware exemption)
 		r.Post("/auth/login", h.Login)

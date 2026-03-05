@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -113,18 +114,40 @@ func (s *MCPService) Remove(id string) error {
 	return nil
 }
 
-// ResolveForRun returns all enabled server definitions. The projectID and
-// modeID parameters are reserved for future DB-backed filtering (Phase 15C).
-func (s *MCPService) ResolveForRun(_, _ string) []mcp.ServerDef {
+// ResolveForRun returns MCP server definitions available for a run.
+// It merges globally-enabled YAML servers with DB-assigned project servers.
+// If projectID is non-empty and the DB is configured, project-specific
+// servers are included. The modeID parameter is reserved for future filtering.
+func (s *MCPService) ResolveForRun(projectID, _ string) []mcp.ServerDef {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	seen := make(map[string]bool)
 	var defs []mcp.ServerDef
+
+	// Include globally-enabled YAML-loaded servers.
 	for _, d := range s.servers { //nolint:gocritic // rangeValCopy: map iteration requires value copy
 		if d.Enabled {
 			defs = append(defs, d)
+			seen[d.ID] = true
 		}
 	}
+
+	// Include DB-assigned project servers (if DB is configured and projectID given).
+	if projectID != "" && s.db != nil {
+		dbDefs, err := s.db.ListMCPServersByProject(context.Background(), projectID)
+		if err != nil {
+			slog.Warn("resolve mcp servers for project", "project_id", projectID, "error", err)
+		} else {
+			for i := range dbDefs {
+				if dbDefs[i].Enabled && !seen[dbDefs[i].ID] {
+					defs = append(defs, dbDefs[i])
+					seen[dbDefs[i].ID] = true
+				}
+			}
+		}
+	}
+
 	sort.Slice(defs, func(i, j int) bool {
 		return defs[i].ID < defs[j].ID
 	})

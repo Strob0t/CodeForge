@@ -3618,7 +3618,7 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [x] FIX-CR19 (Critical, S): `config.py` — Added warning when using default LiteLLM key `sk-codeforge-dev`. (2026-03-05)
 - [x] FIX-CR20 (Critical, S): `middleware/auth.go` — Added `slog.Warn` (via sync.Once) when auth is disabled. (2026-03-05)
 - [x] FIX-CR21 (Important, S): `middleware.go` — Skip `Allow-Credentials` header when CORS origin is wildcard. (2026-03-05)
-- [ ] FIX-CR22 (Important, M): `routes.go:36-485` — No `RequireRole` guard on most API routes. Only `/tenants`, `/users`, `/quarantine`, `/benchmarks` have role checks. Destructive endpoints (`DELETE /projects`, `PUT /settings`, `POST /dispatch`) lack RBAC.
+- [x] FIX-CR22 (Important, M): `routes.go` — Added `RequireRole` guards: DELETE projects (admin), PUT projects/settings (admin), POST clone/adopt/setup/dispatch (editor+admin), PUT files (editor+admin), DELETE agents (admin). (2026-03-05)
 - [x] FIX-CR23 (Important, S): `routes.go` — Added `DevModeOnly` guard to `POST /dev/benchmark`. (2026-03-05)
 - [x] FIX-CR24 (Important, M): `idempotency.go` — Namespaced idempotency keys by user ID. (2026-03-05)
 - [x] FIX-CR25 (Important, S): `quarantine.go` — Changed fail-open to fail-closed on DB errors. (2026-03-05)
@@ -3637,7 +3637,7 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [x] FIX-CR32 (Important): `_memory.py` — Added `tenant_id` to Go/Python request models, replaced hardcoded UUID. (2026-03-05)
 - [x] FIX-CR33 (Important): `_memory.py` — Replaced `query[:32]` dedup with SHA-256 hash. (2026-03-05)
 - [ ] FIX-CR34 (Important): `experience_pool.go` — `@exp_cache` decorator exists in Python but is never wired to a NATS consumer handler. Experience pool lookup is never invoked during agent runs.
-- [ ] FIX-CR35 (Important): `mcp.go:118` — `ResolveForRun` ignores `projectID` and `modeID`, returns all enabled servers globally. DB-registered servers invisible to agent runs.
+- [x] FIX-CR35 (Important): `mcp.go:118` — `ResolveForRun` now merges YAML-loaded global servers with DB-assigned project servers via `ListMCPServersByProject`. (2026-03-05)
 
 **Git, Roadmap & PM Sync (Area 8):**
 

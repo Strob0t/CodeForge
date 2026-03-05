@@ -50,6 +50,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -1601,6 +1602,23 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	}
 
 	r := chi.NewRouter()
+	// Inject a default admin user so RBAC-protected routes pass in tests.
+	// Skip for /auth/ paths — those tests manage their own user context.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+				if middleware.UserFromContext(r.Context()) == nil {
+					ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), &user.User{
+						ID:   "test-admin",
+						Name: "Test Admin",
+						Role: user.RoleAdmin,
+					})
+					r = r.WithContext(ctx)
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
 	cfhttp.MountRoutes(r, handlers, config.Webhook{})
 	return r
 }
