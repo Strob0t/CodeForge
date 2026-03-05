@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from codeforge.json_utils import safe_json_loads
+from codeforge.llm import LLMError, is_fallback_eligible
 from codeforge.model_resolver import resolve_model
 from codeforge.models import (
     AgentLoopResult,
@@ -45,6 +46,7 @@ class LoopConfig:
     model: str = ""
     temperature: float = 0.2
     tags: list[str] = field(default_factory=list)
+    fallback_models: list[str] = field(default_factory=list)
     output_schema: str = ""  # Pydantic schema name from codeforge.schemas
     routing_layer: str = ""
     complexity_tier: str = ""
@@ -63,6 +65,7 @@ class _LoopState:
     final_content: str = ""
     error: str = ""
     tool_messages: list[ConversationMessagePayload] = field(default_factory=list)
+    failed_models: set[str] = field(default_factory=set)
 
 
 class AgentLoopExecutor:
@@ -86,6 +89,63 @@ class AgentLoopExecutor:
         self._tools = tool_registry
         self._runtime = runtime
         self._workspace = workspace_path
+
+    @staticmethod
+    def _pick_next_fallback(cfg: LoopConfig, state: _LoopState) -> str | None:
+        """Return the next untried fallback model, or None if exhausted."""
+        for m in cfg.fallback_models:
+            if m not in state.failed_models:
+                return m
+        return None
+
+    async def _try_model_fallback(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        exc: LLMError,
+    ) -> str | None:
+        """Attempt to switch to a fallback model. Returns error string or None (retry)."""
+        if not is_fallback_eligible(exc) or not cfg.fallback_models:
+            return f"LLM call failed: {exc}"
+        failed_model = cfg.model
+        state.failed_models.add(failed_model)
+        next_model = self._pick_next_fallback(cfg, state)
+        if next_model is None:
+            return f"LLM call failed: {exc}"
+        cfg.model = next_model
+        logger.warning(
+            "model fallback: %s -> %s (status %d)",
+            failed_model,
+            next_model,
+            exc.status_code,
+        )
+        notice = f"\n[Model {failed_model} unavailable ({exc.status_code}). Switching to {next_model}]\n"
+        await self._runtime.send_output(notice)
+        return None
+
+    async def _handle_llm_error(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        exc: LLMError,
+        iteration: int,
+    ) -> str | None:
+        """Handle an LLM error: record outcome, attempt fallback. Returns error or None."""
+        logger.exception("LLM call failed on iteration %d", iteration)
+        if cfg.routing_layer:
+            _record_routing_outcome(
+                model=cfg.model,
+                task_type=cfg.task_type,
+                complexity_tier=cfg.complexity_tier,
+                success=False,
+                cost_usd=0.0,
+                latency_ms=0,
+                tokens_in=0,
+                tokens_out=0,
+                routing_layer=cfg.routing_layer,
+                run_id=self._runtime.run_id,
+            )
+        return await self._try_model_fallback(cfg, state, exc)
 
     @_tracer.trace_agent("agent_loop")
     async def run(
@@ -215,21 +275,10 @@ class AgentLoopExecutor:
                 tags=cfg.tags or None,
                 on_chunk=streamed_text.append,
             )
+        except LLMError as exc:
+            return await self._handle_llm_error(cfg, state, exc, iteration)
         except Exception as exc:
-            logger.exception("LLM call failed on iteration %d", iteration)
-            if cfg.routing_layer:
-                _record_routing_outcome(
-                    model=cfg.model,
-                    task_type=cfg.task_type,
-                    complexity_tier=cfg.complexity_tier,
-                    success=False,
-                    cost_usd=0.0,
-                    latency_ms=0,
-                    tokens_in=0,
-                    tokens_out=0,
-                    routing_layer=cfg.routing_layer,
-                    run_id=self._runtime.run_id,
-                )
+            logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
             return f"LLM call failed: {exc}"
 
         full_text = "".join(streamed_text)

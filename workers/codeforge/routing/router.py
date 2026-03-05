@@ -16,6 +16,7 @@ from codeforge.routing.models import (
     PromptAnalysis,
     RoutingConfig,
     RoutingDecision,
+    RoutingPlan,
 )
 
 if TYPE_CHECKING:
@@ -125,6 +126,61 @@ class HybridRouter:
 
         # Fallback: Static tier-to-model mapping.
         return self._complexity_fallback(analysis, max_cost)
+
+    def route_with_fallbacks(
+        self,
+        prompt: str,
+        max_cost: float | None = None,
+        max_fallbacks: int = 3,
+    ) -> RoutingPlan:
+        """Route a prompt and return a primary model plus ranked fallbacks."""
+        primary = self.route(prompt, max_cost=max_cost)
+
+        if primary is None:
+            return RoutingPlan(
+                primary=RoutingDecision(
+                    model="",
+                    routing_layer="none",
+                    complexity_tier=ComplexityTier.MEDIUM,
+                    task_type="chat",
+                ),
+                fallbacks=tuple(self._available_models[:max_fallbacks]),
+            )
+
+        seen: set[str] = {primary.model}
+        fallbacks: list[str] = []
+
+        if self._config.mab_enabled and self._mab is not None:
+            diverse = self._mab.select_diverse(
+                primary.task_type,
+                primary.complexity_tier,
+                self._available_models,
+                n=max_fallbacks + 1,
+                max_cost=max_cost,
+            )
+            for m in diverse:
+                if m not in seen:
+                    fallbacks.append(m)
+                    seen.add(m)
+
+        tier_defaults = COMPLEXITY_DEFAULTS.get(primary.complexity_tier, [])
+        for m in tier_defaults:
+            if m not in seen and m in self._available_models:
+                if self._rate_tracker is not None:
+                    provider = m.split("/")[0] if "/" in m else ""
+                    if provider and self._rate_tracker.is_exhausted(provider):
+                        continue
+                fallbacks.append(m)
+                seen.add(m)
+
+        for m in self._available_models:
+            if m not in seen:
+                fallbacks.append(m)
+                seen.add(m)
+
+        truncated = tuple(fallbacks[:max_fallbacks])
+        logger.debug("route_with_fallbacks: primary=%s fallbacks=%s", primary.model, truncated)
+        return RoutingPlan(primary=primary, fallbacks=truncated)
 
     def _complexity_fallback(
         self,

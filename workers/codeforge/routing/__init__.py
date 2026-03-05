@@ -9,6 +9,7 @@ from codeforge.routing.models import (
     PromptAnalysis,
     RoutingConfig,
     RoutingDecision,
+    RoutingPlan,
     TaskType,
 )
 from codeforge.routing.router import HybridRouter
@@ -23,5 +24,6 @@ __all__ = [
     "PromptAnalysis",
     "RoutingConfig",
     "RoutingDecision",
+    "RoutingPlan",
     "TaskType",
 ]

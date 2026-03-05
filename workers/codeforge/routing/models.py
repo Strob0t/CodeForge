@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -49,6 +49,14 @@ class RoutingDecision:
     reasoning: str = ""
     estimated_cost_per_1m: float = 0.0
     fallback_model: str = ""
+
+
+@dataclass(frozen=True)
+class RoutingPlan:
+    """Primary routing decision plus an ordered fallback chain."""
+
+    primary: RoutingDecision
+    fallbacks: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

@@ -105,8 +105,16 @@ class ConversationHandlerMixin:
                 router=router,
                 max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
             )
+            primary_model = routing.model or run_msg.model
             if routing.model:
                 log.info("routing selected model", model=routing.model, scenario=scenario)
+
+            fallback_models = self._build_fallback_chain(
+                router,
+                user_prompt,
+                primary_model,
+                run_msg.termination.max_cost,
+            )
 
             executor = AgentLoopExecutor(
                 llm=self._llm,
@@ -117,9 +125,10 @@ class ConversationHandlerMixin:
             loop_cfg = LoopConfig(
                 max_iterations=run_msg.termination.max_steps or 50,
                 max_cost=run_msg.termination.max_cost or 0.0,
-                model=routing.model or run_msg.model,
+                model=primary_model,
                 temperature=routing.temperature,
                 tags=routing.tags,
+                fallback_models=fallback_models,
                 routing_layer=routing.routing_layer,
                 complexity_tier=routing.complexity_tier,
                 task_type=routing.task_type,
@@ -397,6 +406,29 @@ class ConversationHandlerMixin:
         except Exception as exc:
             logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
             return []
+
+    def _build_fallback_chain(
+        self,
+        router: HybridRouter | None,
+        user_prompt: str,
+        primary_model: str,
+        max_cost: float,
+    ) -> list[str]:
+        """Build a ranked list of fallback models from the router or available models."""
+        fallbacks: list[str] = []
+        if router is not None:
+            from codeforge.routing.router import HybridRouter as HybridRouterCls
+
+            if isinstance(router, HybridRouterCls):
+                plan = router.route_with_fallbacks(
+                    prompt=user_prompt,
+                    max_cost=max_cost if max_cost > 0 else None,
+                )
+                fallbacks = [m for m in plan.fallbacks if m != primary_model]
+        if not fallbacks:
+            available = self._get_available_models()
+            fallbacks = [m for m in available if m != primary_model][:3]
+        return fallbacks
 
     def _register_handoff_tool(self, registry: object, run_id: str) -> None:
         """Register the handoff tool in the tool registry if NATS is available."""

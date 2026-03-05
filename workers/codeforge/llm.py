@@ -36,6 +36,37 @@ class LLMError(Exception):
         super().__init__(f"LiteLLM {status_code} for model={model}: {short}")
 
 
+# Status codes that may indicate the model is fundamentally unavailable
+# (billing, auth, quota) rather than a transient server error.
+_FALLBACK_CODES: frozenset[int] = frozenset({400, 401, 403})
+
+_FALLBACK_KEYWORDS: tuple[str, ...] = (
+    "credit",
+    "balance",
+    "quota",
+    "billing",
+    "unauthorized",
+    "forbidden",
+    "api key",
+    "authentication",
+    "permission",
+    "exceeded",
+    "rate limit",
+    "insufficient",
+)
+
+
+def is_fallback_eligible(exc: LLMError) -> bool:
+    """Return True if the error warrants trying a different model.
+
+    Only billing/auth/quota errors qualify -- malformed-request 400s do not.
+    """
+    if exc.status_code not in _FALLBACK_CODES:
+        return False
+    body = exc.body.lower()
+    return any(kw in body for kw in _FALLBACK_KEYWORDS)
+
+
 @dataclass(frozen=True)
 class CompletionResponse:
     """Parsed response from an LLM completion call."""
