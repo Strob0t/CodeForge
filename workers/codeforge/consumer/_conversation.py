@@ -407,7 +407,7 @@ class ConversationHandlerMixin:
                 logger.warning("LiteLLM /v1/models returned status %d", resp.status_code)
                 return []
             data = resp.json()
-            models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            models = [m.get("id", "") for m in data.get("data", []) if m.get("id") and "*" not in m.get("id", "")]
             if not models:
                 logger.warning("LiteLLM /v1/models returned empty model list")
             return models
@@ -436,6 +436,17 @@ class ConversationHandlerMixin:
         if not fallbacks:
             available = self._get_available_models()
             fallbacks = [m for m in available if m != primary_model][:3]
+        if not fallbacks:
+            from codeforge.routing.models import ComplexityTier
+            from codeforge.routing.router import COMPLEXITY_DEFAULTS
+
+            for tier in (ComplexityTier.MEDIUM, ComplexityTier.COMPLEX, ComplexityTier.SIMPLE):
+                for m in COMPLEXITY_DEFAULTS.get(tier, []):
+                    if m != primary_model and m not in fallbacks:
+                        fallbacks.append(m)
+                if len(fallbacks) >= 3:
+                    break
+            fallbacks = fallbacks[:3]
         return fallbacks
 
     def _register_handoff_tool(self, registry: object, run_id: str) -> None:

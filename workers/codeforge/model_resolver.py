@@ -52,7 +52,7 @@ class _ModelCache:
                 logger.warning("model_resolver: LiteLLM /v1/models returned %d", resp.status_code)
                 return
             data = resp.json()
-            models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            models = [m.get("id", "") for m in data.get("data", []) if m.get("id") and "*" not in m.get("id", "")]
         except Exception as exc:
             logger.warning("model_resolver: failed to fetch from LiteLLM: %s", exc, exc_info=True)
             return
