@@ -23,8 +23,12 @@ func NewSyncService(store database.Store) *SyncService {
 }
 
 // Sync performs a bidirectional sync operation based on the given config.
-func (s *SyncService) Sync(ctx context.Context, cfg roadmap.SyncConfig) (*roadmap.SyncResult, error) {
-	provider, err := pmprovider.New(cfg.Provider, map[string]string{})
+func (s *SyncService) Sync(ctx context.Context, cfg *roadmap.SyncConfig) (*roadmap.SyncResult, error) {
+	provCfg := cfg.ProviderConfig
+	if provCfg == nil {
+		provCfg = map[string]string{}
+	}
+	provider, err := pmprovider.New(cfg.Provider, provCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create pm provider %q: %w", cfg.Provider, err)
 	}
@@ -65,7 +69,7 @@ func (s *SyncService) Sync(ctx context.Context, cfg roadmap.SyncConfig) (*roadma
 }
 
 // pullFromPM imports items from the PM provider into CodeForge features.
-func (s *SyncService) pullFromPM(ctx context.Context, cfg roadmap.SyncConfig, provider pmprovider.Provider) (*roadmap.SyncResult, error) {
+func (s *SyncService) pullFromPM(ctx context.Context, cfg *roadmap.SyncConfig, provider pmprovider.Provider) (*roadmap.SyncResult, error) {
 	items, err := provider.ListItems(ctx, cfg.ProjectRef)
 	if err != nil {
 		return nil, fmt.Errorf("list PM items: %w", err)
@@ -140,7 +144,7 @@ func (s *SyncService) pullFromPM(ctx context.Context, cfg roadmap.SyncConfig, pr
 }
 
 // pushToPM exports CodeForge features to the PM provider.
-func (s *SyncService) pushToPM(ctx context.Context, cfg roadmap.SyncConfig, provider pmprovider.Provider) (*roadmap.SyncResult, error) {
+func (s *SyncService) pushToPM(ctx context.Context, cfg *roadmap.SyncConfig, provider pmprovider.Provider) (*roadmap.SyncResult, error) {
 	caps := provider.Capabilities()
 	result := &roadmap.SyncResult{Direction: "push", DryRun: cfg.DryRun}
 

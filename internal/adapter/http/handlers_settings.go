@@ -150,7 +150,7 @@ func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 		req.Direction = roadmap.SyncDirectionPull
 	}
 
-	result, err := h.Sync.Sync(r.Context(), req)
+	result, err := h.Sync.Sync(r.Context(), &req)
 	if err != nil {
 		writeDomainError(w, err, "sync failed")
 		return

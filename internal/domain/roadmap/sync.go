@@ -11,13 +11,14 @@ const (
 
 // SyncConfig configures a bidirectional sync operation.
 type SyncConfig struct {
-	ProjectID   string        `json:"project_id"`
-	Provider    string        `json:"provider"`
-	ProjectRef  string        `json:"project_ref"` // e.g., "owner/repo" for GitHub
-	Direction   SyncDirection `json:"direction"`
-	DryRun      bool          `json:"dry_run"`
-	CreateNew   bool          `json:"create_new"`   // Create items that don't exist on the other side
-	UpdateExist bool          `json:"update_exist"` // Update items that exist on both sides
+	ProjectID      string            `json:"project_id"`
+	Provider       string            `json:"provider"`
+	ProjectRef     string            `json:"project_ref"` // e.g., "owner/repo" for GitHub
+	Direction      SyncDirection     `json:"direction"`
+	DryRun         bool              `json:"dry_run"`
+	CreateNew      bool              `json:"create_new"`      // Create items that don't exist on the other side
+	UpdateExist    bool              `json:"update_exist"`    // Update items that exist on both sides
+	ProviderConfig map[string]string `json:"provider_config"` // Provider-specific credentials (token, base_url, etc.)
 }
 
 // SyncResult summarizes what happened during a sync operation.

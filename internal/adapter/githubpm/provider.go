@@ -30,8 +30,8 @@ func (p *Provider) Capabilities() pmprovider.Capabilities {
 	return pmprovider.Capabilities{
 		ListItems:  true,
 		GetItem:    true,
-		CreateItem: false,
-		UpdateItem: false,
+		CreateItem: true,
+		UpdateItem: true,
 		Webhooks:   false,
 	}
 }
@@ -134,14 +134,63 @@ func issueToItem(issue *ghIssue, repo string) pmprovider.Item {
 	}
 }
 
-// CreateItem is not supported by the GitHub Issues provider via gh CLI.
-func (p *Provider) CreateItem(_ context.Context, _ string, _ *pmprovider.Item) (*pmprovider.Item, error) {
-	return nil, pmprovider.ErrNotSupported
+// CreateItem creates a GitHub issue via the gh CLI.
+func (p *Provider) CreateItem(ctx context.Context, projectRef string, item *pmprovider.Item) (*pmprovider.Item, error) {
+	if err := validateProjectRef(projectRef); err != nil {
+		return nil, err
+	}
+
+	args := []string{"issue", "create", "--repo", projectRef, "--title", item.Title}
+	if item.Description != "" {
+		args = append(args, "--body", item.Description)
+	}
+	for _, label := range item.Labels {
+		args = append(args, "--label", label)
+	}
+
+	cmd := p.execCommand(ctx, "gh", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("gh issue create: %s: %w", stderr.String(), err)
+	}
+
+	// gh issue create prints the URL; extract the issue number from it.
+	url := strings.TrimSpace(stdout.String())
+	parts := strings.Split(url, "/")
+	issueNum := parts[len(parts)-1]
+
+	created := *item
+	created.ID = issueNum
+	created.ExternalID = fmt.Sprintf("%s#%s", projectRef, issueNum)
+	return &created, nil
 }
 
-// UpdateItem is not supported by the GitHub Issues provider via gh CLI.
-func (p *Provider) UpdateItem(_ context.Context, _ string, _ *pmprovider.Item) (*pmprovider.Item, error) {
-	return nil, pmprovider.ErrNotSupported
+// UpdateItem updates a GitHub issue via the gh CLI.
+func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmprovider.Item) (*pmprovider.Item, error) {
+	if err := validateProjectRef(projectRef); err != nil {
+		return nil, err
+	}
+	if item.ID == "" {
+		return nil, fmt.Errorf("item ID is required for update")
+	}
+
+	args := []string{"issue", "edit", item.ID, "--repo", projectRef, "--title", item.Title}
+	if item.Description != "" {
+		args = append(args, "--body", item.Description)
+	}
+
+	cmd := p.execCommand(ctx, "gh", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("gh issue edit: %s: %w", stderr.String(), err)
+	}
+
+	return item, nil
 }
 
 func validateProjectRef(ref string) error {

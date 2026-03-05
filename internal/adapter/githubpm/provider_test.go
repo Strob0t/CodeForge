@@ -3,7 +3,10 @@ package githubpm
 import (
 	"context"
 	"os/exec"
+	"strings"
 	"testing"
+
+	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
 func TestValidateProjectRef(t *testing.T) {
@@ -93,8 +96,11 @@ func TestProviderCapabilities(t *testing.T) {
 	if !caps.ListItems || !caps.GetItem {
 		t.Fatal("expected ListItems=true, GetItem=true")
 	}
-	if caps.CreateItem || caps.UpdateItem || caps.Webhooks {
-		t.Fatal("expected CreateItem=false, UpdateItem=false, Webhooks=false")
+	if !caps.CreateItem || !caps.UpdateItem {
+		t.Fatal("expected CreateItem=true, UpdateItem=true")
+	}
+	if caps.Webhooks {
+		t.Fatal("expected Webhooks=false")
 	}
 }
 
@@ -158,6 +164,97 @@ func TestGetItem_CommandConstruction(t *testing.T) {
 func TestGetItem_InvalidRef(t *testing.T) {
 	p := newProvider()
 	_, err := p.GetItem(context.Background(), "invalid", "1")
+	if err == nil {
+		t.Fatal("expected error for invalid project ref")
+	}
+}
+
+func TestCreateItem_CommandConstruction(t *testing.T) {
+	var capturedArgs []string
+	p := &Provider{
+		execCommand: func(_ context.Context, name string, args ...string) *exec.Cmd {
+			capturedArgs = append([]string{name}, args...)
+			// gh issue create prints the new issue URL.
+			return exec.Command("echo", "https://github.com/owner/repo/issues/99")
+		},
+	}
+
+	item := &pmprovider.Item{
+		Title:       "New bug",
+		Description: "Something broke",
+		Labels:      []string{"bug"},
+	}
+	created, err := p.CreateItem(context.Background(), "owner/repo", item)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created.ID != "99" {
+		t.Errorf("expected ID '99', got %q", created.ID)
+	}
+	if created.ExternalID != "owner/repo#99" {
+		t.Errorf("expected ExternalID 'owner/repo#99', got %q", created.ExternalID)
+	}
+
+	// Verify command includes title, body, and label flags.
+	argsStr := strings.Join(capturedArgs, " ")
+	if !strings.Contains(argsStr, "--title") {
+		t.Error("expected --title flag in command")
+	}
+	if !strings.Contains(argsStr, "--body") {
+		t.Error("expected --body flag in command")
+	}
+	if !strings.Contains(argsStr, "--label") {
+		t.Error("expected --label flag in command")
+	}
+}
+
+func TestCreateItem_InvalidRef(t *testing.T) {
+	p := newProvider()
+	_, err := p.CreateItem(context.Background(), "invalid", &pmprovider.Item{Title: "test"})
+	if err == nil {
+		t.Fatal("expected error for invalid project ref")
+	}
+}
+
+func TestUpdateItem_CommandConstruction(t *testing.T) {
+	var capturedArgs []string
+	p := &Provider{
+		execCommand: func(_ context.Context, name string, args ...string) *exec.Cmd {
+			capturedArgs = append([]string{name}, args...)
+			return exec.Command("true")
+		},
+	}
+
+	item := &pmprovider.Item{
+		ID:          "42",
+		Title:       "Updated title",
+		Description: "Updated body",
+	}
+	result, err := p.UpdateItem(context.Background(), "owner/repo", item)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ID != "42" {
+		t.Errorf("expected ID '42', got %q", result.ID)
+	}
+
+	argsStr := strings.Join(capturedArgs, " ")
+	if !strings.Contains(argsStr, "issue edit 42") {
+		t.Errorf("expected 'issue edit 42' in command, got: %s", argsStr)
+	}
+}
+
+func TestUpdateItem_MissingID(t *testing.T) {
+	p := newProvider()
+	_, err := p.UpdateItem(context.Background(), "owner/repo", &pmprovider.Item{Title: "test"})
+	if err == nil {
+		t.Fatal("expected error for missing item ID")
+	}
+}
+
+func TestUpdateItem_InvalidRef(t *testing.T) {
+	p := newProvider()
+	_, err := p.UpdateItem(context.Background(), "invalid", &pmprovider.Item{ID: "1", Title: "test"})
 	if err == nil {
 		t.Fatal("expected error for invalid project ref")
 	}

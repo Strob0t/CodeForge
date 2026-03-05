@@ -3641,9 +3641,9 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 
 **Git, Roadmap & PM Sync (Area 8):**
 
-- [ ] FIX-CR36 (Critical, M): `sync.go:27` — `pmprovider.New` always receives empty config map `map[string]string{}`. Gitea/GitLab sync fails immediately (blank URL/token).
-- [ ] FIX-CR37 (Critical, S): `pm_webhook.go:99,134,175` — `go s.triggerPullSync(ctx, ...)` passes HTTP request context to background goroutine. Context cancelled immediately; sync always fails.
-- [ ] FIX-CR38 (Important): `githubpm/provider.go:29-37` — GitHub PM capabilities declare `CreateItem: false, UpdateItem: false`. Bidirectional sync is actually import-only.
+- [x] FIX-CR36 (Critical, M): `sync.go:27` — Added `ProviderConfig` field to `SyncConfig`, passed to `pmprovider.New()` instead of empty map. (2026-03-05)
+- [x] FIX-CR37 (Critical, S): `pm_webhook.go:99,134,175` — Replaced `ctx` with `context.Background()` in goroutine calls so webhook-triggered syncs survive HTTP handler return. (2026-03-05)
+- [x] FIX-CR38 (Important): `githubpm/provider.go` — Implemented `CreateItem` via `gh issue create` and `UpdateItem` via `gh issue edit`. Capabilities now declare both as `true`. Added 5 new tests. (2026-03-05)
 
 **Orchestration (Area 10):**
 
