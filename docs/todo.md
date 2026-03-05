@@ -3246,3 +3246,422 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [ ] `python -m pytest workers/tests/ -v` — all tests green
 - [ ] `pre-commit run --all-files` — linting/formatting OK
 - [ ] Worker starts cleanly with `APP_ENV=development` — no agentneo warning
+
+---
+
+### Comprehensive Code Review Audit (2026-03-05)
+
+> Systematic feature-by-feature review of the entire CodeForge codebase.
+> Goal: Find non-functioning features, bugs, dead code, contract mismatches, security issues.
+> Plan: `/home/vscode/.claude/plans/buzzing-popping-acorn.md`
+
+#### Pre-Confirmed Issues (found during planning)
+
+- [ ] FIX (Critical): `_handoff.py:57` publishes to `"handoff.execute"` — no consumer exists. Either add a Go/Python subscriber for `handoff.execute` or route handoffs through `runs.start` instead.
+- [ ] FIX (Critical): `_memory.py:146` publishes to `"memory.recall.result"` — Go has no subscriber. Add a Go subscriber in `internal/adapter/nats/` or change to request-reply pattern.
+- [ ] FIX (High): `_subjects.py` STREAM_SUBJECTS missing `"mcp.>"` and `"a2a.>"` — add them to match Go `nats.go:54`.
+- [ ] FIX (High): `_memory.py:52` hardcoded tenant UUID `"00000000-..."` — extract tenant_id from the request payload or NATS headers.
+- [ ] FIX (Medium): `_memory.py:81` dedup key uses `req.query[:32]` — use full hash of query instead.
+
+#### Area 1: NATS Contract & Stream Integrity (P0)
+
+> **Goal:** Verify every NATS subject has a publisher AND subscriber. Verify all Go/Python payload schemas match.
+>
+> **Key files:**
+> - `internal/port/messagequeue/subjects.go` — Go subject constants
+> - `internal/port/messagequeue/schemas.go` — Go payload structs (JSON tags)
+> - `internal/adapter/nats/nats.go:52-56` — JetStream stream config
+> - `workers/codeforge/consumer/_subjects.py` — Python subject constants
+> - `workers/codeforge/models.py` — Python Pydantic models
+
+- [x] (2026-03-05) Build complete NATS subject matrix: 45+ subjects mapped with publisher/subscriber locations
+- [x] (2026-03-05) List orphaned subjects: found `handoff.execute`, `memory.recall.result`, `a2a.task.created`, `a2a.task.complete`, `a2a.task.cancel`, `tasks.created`, `context.shared.updated`, `mcp.server.status`, `mcp.tools.discovered`, `evaluation.gemmas.result`
+- [x] (2026-03-05) List orphaned subjects consumed but never published: `agents.status`, `agents.message`, `context.packed` (dead constants)
+- [x] (2026-03-05) Compare stream configs: Python missing `"mcp.>"` and `"a2a.>"` vs Go
+- [ ] Field-by-field comparison: `RunStartPayload` (Go) vs `RunStartMessage` (Python) — check JSON tag names, types, optionality
+- [ ] Field-by-field comparison: `ConversationRunStartPayload` vs `ConversationRunStartMessage`
+- [ ] Field-by-field comparison: `ConversationRunCompletePayload` vs `ConversationRunCompleteMessage`
+- [ ] Field-by-field comparison: `BenchmarkRunRequestPayload` vs `BenchmarkRunRequest`
+- [ ] Field-by-field comparison: `BenchmarkRunResultPayload` vs `BenchmarkRunResult`
+- [ ] Field-by-field comparison: `QualityGateRequestPayload` vs Python QG model
+- [ ] Field-by-field comparison: `RepoMapRequestPayload` vs Python model
+- [ ] Field-by-field comparison: `RetrievalIndexRequestPayload`, `RetrievalSearchRequestPayload` vs Python models
+- [ ] Field-by-field comparison: `GraphBuildRequestPayload`, `GraphSearchRequestPayload` vs Python models
+- [ ] Field-by-field comparison: `MemoryStorePayload`, `MemoryRecallPayload` vs Python `MemoryStoreRequest`, `MemoryRecallRequest`
+- [ ] Field-by-field comparison: `EvalGemmasRequestPayload` vs Python model
+- [ ] Check type mismatches: Go `int` vs `int64` on token fields, Go `time.Time` vs Python `datetime`, Go `uuid.UUID` vs Python `str`
+- [ ] Verify all NATS header constants match between Go (`headerRequestID`) and Python (`HEADER_REQUEST_ID`)
+
+#### Area 2: Agentic Conversation Loop (P0)
+
+> **Goal:** Verify the complete chat flow end-to-end: user message -> Go HTTP -> NATS -> Python agent loop -> LLM + tools -> results -> NATS -> Go -> WebSocket -> frontend.
+>
+> **Key files:**
+> - `internal/service/conversation.go` — Go conversation service
+> - `internal/service/conversation_agent.go` — Go agentic conversation dispatch
+> - `internal/adapter/http/handlers_conversation.go` — HTTP handlers
+> - `workers/codeforge/consumer/_conversation.py` — Python NATS handler
+> - `workers/codeforge/agent_loop.py` (598 lines) — Core agent loop
+> - `workers/codeforge/llm.py` (756 lines) — LiteLLM client wrapper
+> - `workers/codeforge/history.py` (249 lines) — Conversation history management
+> - `workers/codeforge/tools/` (12 files) — Built-in agent tools
+
+- [ ] Trace HTTP handler: `POST /api/v1/conversations/{id}/messages` -> which service method -> which NATS subject published
+- [ ] Verify `_conversation.py` subscribes to `conversation.run.start` and deserializes correctly
+- [ ] Read `agent_loop.py` top-to-bottom: trace the main loop (LLM call -> tool calls -> results -> repeat)
+- [ ] Check LLM error handling in `agent_loop.py`: what happens on HTTP 500, timeout, rate limit (429), invalid JSON response?
+- [ ] Check tool call policy enforcement: is `policy.Evaluate()` called before EVERY tool execution, or can it be bypassed?
+- [ ] Trace cancel flow: `conversation.run.cancel` -> how does the running agent loop get interrupted?
+- [ ] Check `history.py`: does truncation preserve the system prompt? What if system prompt alone exceeds token budget?
+- [ ] Check token counting: does Python report tokens_in/tokens_out? Does Go record them? Do the numbers match?
+- [ ] Review each tool in `tools/`: ReadFile, WriteFile, EditFile, Bash, SearchFiles, GlobFiles, ListDirectory — does `execute()` do real work?
+- [ ] Check CapabilityTool, ToolGuideTool, ManageGoalsTool — are these functional or stubs?
+- [ ] Check HandoffTool in `tools/handoff.py` — does it work given the broken `handoff.execute` subject?
+- [ ] Verify conversation run complete payload includes cost/token data
+- [ ] Check: what happens when `max_loop_iterations` (50) is reached? Graceful stop or crash?
+- [ ] Check: what happens when `max_context_tokens` (120K) is exceeded mid-conversation?
+
+#### Area 3: Run Protocol & Agent Backends (P0)
+
+> **Goal:** Verify agent run lifecycle works and check if backend implementations (Aider, OpenHands, Goose, etc.) are real or stubs.
+>
+> **Key files:**
+> - `internal/service/runtime.go` (612 lines) — Agent runtime
+> - `internal/service/runtime_lifecycle.go` (448 lines) — Lifecycle events
+> - `internal/service/runtime_execution.go` (605 lines) — Execution strategies
+> - `internal/service/runtime_approval.go` — HITL approval flow
+> - `workers/codeforge/consumer/_runs.py` — Python run handler
+> - `workers/codeforge/executor.py` (173 lines) — Agent executor
+> - `workers/codeforge/runtime.py` (336 lines) — Runtime client
+> - `workers/codeforge/backends/aider.py`, `openhands.py`, `goose.py`, `opencode.py`, `plandex.py` — Backend implementations
+> - `workers/codeforge/backends/router.py` — Backend selection
+> - `internal/domain/policy/` — Policy domain (5 files)
+
+- [ ] Read each backend file: `aider.py` — does `run()` actually invoke Aider CLI or is it a stub?
+- [ ] Read each backend file: `openhands.py` — does `run()` actually invoke OpenHands or is it a stub?
+- [ ] Read each backend file: `goose.py` — does `run()` actually invoke Goose or is it a stub?
+- [ ] Read each backend file: `opencode.py` — does `run()` actually invoke OpenCode or is it a stub?
+- [ ] Read each backend file: `plandex.py` — does `run()` actually invoke Plandex or is it a stub?
+- [ ] Check `router.py`: how does it select a backend? Is the selection logic correct?
+- [ ] Trace the full run lifecycle: Go dispatches RunStart -> NATS -> Python _runs.py -> executor.py -> backend.run() -> RunComplete
+- [ ] Check `runtime_approval.go`: HITL approval flow — what happens after 60s timeout? Auto-deny or hang?
+- [ ] Check `runtime_execution.go`: per-tool-call policy enforcement — is it actually calling the policy service?
+- [ ] Check for race conditions: what if cancel arrives while a tool call is executing?
+- [ ] Check heartbeat flow: Python `start_heartbeat()` -> NATS -> Go heartbeat subscriber -> timeout check
+- [ ] Check stall detection: if agent produces no output for N seconds, is it detected and handled?
+- [ ] Verify `runtime_lifecycle.go` test coverage — are there tests? (reported: 0 tests)
+- [ ] Verify `runtime_execution.go` test coverage (reported: 0 tests)
+- [ ] Verify `runtime_approval.go` test coverage (reported: 0 tests)
+
+#### Area 4: Benchmark & Evaluation System (P1)
+
+> **Goal:** Verify benchmark runners, evaluators, and dataset providers are functional (not stubs).
+>
+> **Key files:**
+> - `internal/service/benchmark.go` (737 lines) — Go benchmark service
+> - `internal/service/evaluation.go` — GEMMAS evaluation
+> - `internal/adapter/http/handlers_benchmark.go` — HTTP handlers
+> - `workers/codeforge/consumer/_benchmark.py` — Python NATS handler
+> - `workers/codeforge/evaluation/runners/simple.py` — Simple runner
+> - `workers/codeforge/evaluation/runners/agent.py` — Agent runner
+> - `workers/codeforge/evaluation/runners/multi_rollout.py` — Multi-rollout runner
+> - `workers/codeforge/evaluation/runners/tool_use.py` — Tool-use runner
+> - `workers/codeforge/evaluation/evaluators/llm_judge.py` — LLM judge
+> - `workers/codeforge/evaluation/evaluators/functional_test.py` — Functional test evaluator
+> - `workers/codeforge/evaluation/evaluators/sparc.py` — SPARC evaluator
+> - `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` — Trajectory verifier
+> - `workers/codeforge/evaluation/providers/` (15 dataset files)
+> - `workers/codeforge/evaluation/hybrid_pipeline.py` (7,710 lines!)
+
+- [ ] Read `runners/simple.py` — does `run()` actually execute tasks or return dummy results?
+- [ ] Read `runners/agent.py` — real agent execution or stub?
+- [ ] Read `runners/multi_rollout.py` — entropy-UCB1 MAB actually implemented or skeleton?
+- [ ] Read `runners/tool_use.py` — real tool-use execution or stub?
+- [ ] Read `evaluators/llm_judge.py` — does it call LLM for evaluation or return hardcoded scores?
+- [ ] Read `evaluators/functional_test.py` — does it run real tests or mock pass/fail?
+- [ ] Read `evaluators/sparc.py` — real SPARC scoring or placeholder?
+- [ ] Read `evaluators/trajectory_verifier.py` — real verification or stub?
+- [ ] Check 3 external dataset providers (HumanEval, MBPP, SWE-bench): do they download/load real data?
+- [ ] Check `resolveDatasetPath()` in Go `benchmark.go` — does path resolution work for all dataset types?
+- [ ] Check `hybrid_pipeline.py` (7,710 lines!) — scan for large stub sections, dead functions, TODO comments
+- [ ] Check `collaboration.py` (5,289 lines) and `dag_builder.py` (5,241 lines) — same scan for stubs
+- [ ] Verify BenchmarkRunRequest NATS payload matches between Go and Python
+- [ ] Check DevMode guard: is `APP_ENV=development` required? Is it checked consistently in Go AND Python?
+
+#### Area 5: Intelligent Routing (P1)
+
+> **Goal:** Verify the 3-layer routing cascade (ComplexityAnalyzer -> MAB -> MetaRouter) works and learns.
+>
+> **Key files:**
+> - `internal/service/routing.go` (318 lines) — Go routing service
+> - `workers/codeforge/routing/router.py` (8,542 lines) — HybridRouter
+> - `workers/codeforge/routing/complexity.py` (9,164 lines) — ComplexityAnalyzer
+> - `workers/codeforge/routing/mab.py` (7,610 lines) — MAB selector
+> - `workers/codeforge/routing/meta_router.py` (6,627 lines) — LLM meta-router
+> - `workers/codeforge/routing/rate_tracker.py` (4,039 lines) — Rate tracking
+> - `workers/codeforge/routing/capabilities.py` (2,655 lines) — Model capabilities
+> - `workers/codeforge/routing/reward.py` (1,810 lines) — Reward calculation
+
+- [ ] Read `complexity.py`: does `analyze()` return valid ComplexityTier for edge cases (empty string, 100K tokens, non-English)?
+- [ ] Read `mab.py`: check UCB1 formula — division by zero when `n_pulls == 0`? Initial exploration strategy?
+- [ ] Read `reward.py`: are rewards actually computed from real outcomes or synthetic?
+- [ ] Read `meta_router.py`: does it call LLM? What happens if LLM call fails? Blocking or async?
+- [ ] Read `router.py`: trace the cascade — complexity -> MAB -> meta-router. Are fallbacks correct?
+- [ ] Read `rate_tracker.py`: does it track real rate limits from provider responses (429 headers)?
+- [ ] Read Go `routing.go` (318 lines): is this a thin proxy to Python or does it have its own logic?
+- [ ] Check: is `CODEFORGE_ROUTING_ENABLED` actually read and honored in conversation_agent.go?
+- [ ] Check: are MAB observations persisted across restarts or lost (in-memory only)?
+- [ ] Run existing routing tests: `pytest workers/tests/test_routing_*.py` — do they all pass?
+
+#### Area 6: Memory, Retrieval & Knowledge (P1)
+
+> **Goal:** Verify memory store/recall, experience pool, BM25 retrieval, GraphRAG work correctly.
+>
+> **Key files:**
+> - `internal/service/memory.go` (77 lines), `experience_pool.go` (53 lines)
+> - `internal/service/retrieval.go`, `graph.go`, `repomap.go`
+> - `workers/codeforge/consumer/_memory.py`, `_retrieval.py`, `_repomap.py`, `_graph.py`
+> - `workers/codeforge/memory/models.py`, `scorer.py`, `storage.py`, `experience.py`
+> - `workers/codeforge/retrieval.py` (989 lines), `graphrag.py` (752 lines), `repomap.py` (483 lines)
+
+- [ ] Read Go `memory.go` (77 lines): is this a complete service or a thin stub that only forwards to NATS?
+- [ ] Read Go `experience_pool.go` (53 lines): same question — complete or stub?
+- [ ] Read `memory/storage.py`: does it actually persist to PostgreSQL? Are queries parameterized safely?
+- [ ] Read `memory/scorer.py`: CompositeScorer — are the 3 scoring components (semantic, recency, importance) all implemented?
+- [ ] Read `memory/experience.py`: `@exp_cache` decorator — does caching work or is it a no-op?
+- [ ] Verify hardcoded tenant UUID in all 3 Python memory files (`_memory.py:52`, `storage.py`, `experience.py`)
+- [ ] Read `retrieval.py` (989 lines): BM25 index building — does it actually chunk and index code? Or stub?
+- [ ] Read `graphrag.py` (752 lines): tree-sitter graph building — does it parse Go, Python, TypeScript, or only one language?
+- [ ] Read `repomap.py` (483 lines): repository structure analysis — real analysis or file listing?
+- [ ] Check `_retrieval.py` handler: index request -> build index -> store. Search request -> query index -> return results. Full cycle working?
+- [ ] Check `_graph.py` handler: graph build request -> parse code -> build graph -> store. Search -> query graph -> return. Full cycle?
+- [ ] Check `_repomap.py` handler: generate request -> analyze repo -> return map. Working?
+- [ ] Read Go `retrieval.go`, `graph.go`, `repomap.go`: do they dispatch to NATS and consume results, or are they stubs?
+
+#### Area 7: MCP, A2A & Handoff Protocols (P1)
+
+> **Goal:** Verify protocol integrations (MCP tools, A2A federation, agent handoff) work end-to-end.
+>
+> **Key files:**
+> - `internal/service/mcp.go`, `mcp_db.go` — MCP server management
+> - `internal/service/a2a.go` (529 lines) — A2A protocol service
+> - `internal/service/handoff.go` (147 lines) — Agent handoff service
+> - `internal/adapter/a2a/` — A2A adapter (321 lines)
+> - `internal/adapter/mcp/` — MCP adapter (365 lines)
+> - `internal/adapter/http/handlers_a2a.go`, `handlers_mcp.go` — HTTP handlers
+> - `workers/codeforge/consumer/_handoff.py` — Python handoff handler
+> - `workers/codeforge/mcp_workbench.py` (230 lines) — MCP tool bridging
+
+- [ ] Read `mcp.go` + `mcp_db.go`: MCP server CRUD — does it persist to PostgreSQL?
+- [ ] Read MCP adapter `internal/adapter/mcp/`: does it actually start an MCP server (JSON-RPC) or is it a config-only layer?
+- [ ] Read `mcp_workbench.py` (230 lines): does it connect to MCP servers, discover tools, and execute them? Or mock?
+- [ ] Read `a2a.go` (529 lines): A2A service — does it implement all 11 RPCs from the spec or just a subset?
+- [ ] Read A2A adapter `internal/adapter/a2a/` (321 lines): does it handle incoming A2A requests or just outgoing?
+- [ ] Read `handoff.go` (147 lines): what does Go-side handoff do? Publish to NATS? Route to a specific agent?
+- [ ] CONFIRMED: `_handoff.py:57` publishes to `"handoff.execute"` with no consumer — document fix needed
+- [ ] CONFIRMED: `"a2a.task.created"` published by Go, no Python handler — document fix needed
+- [ ] CONFIRMED: `"mcp.>"` and `"a2a.>"` missing from Python `_subjects.py` STREAM_SUBJECTS — document fix needed
+- [ ] Check `handlers_a2a.go`: are A2A HTTP endpoints registered? Do they work?
+- [ ] Check `handlers_mcp.go`: are MCP HTTP endpoints registered? Do they work?
+- [ ] Check: does MCP "test connection" actually test connectivity to the MCP server process?
+
+#### Area 8: Project Dashboard, Git & Roadmap (P2)
+
+> **Goal:** Verify multi-repo management, git operations, spec detection, and PM sync work.
+>
+> **Key files:**
+> - `internal/service/project.go` (700 lines) — Project service
+> - `internal/service/roadmap.go` (792 lines) — Roadmap service
+> - `internal/service/sync.go` — PM sync service
+> - `internal/service/pm_webhook.go` — PM webhook handler
+> - `internal/adapter/gitlocal/` — Local git adapter (290 lines)
+> - `internal/adapter/gitea/` — Gitea adapter (234 lines)
+> - `internal/adapter/gitlab/` — GitLab adapter (220 lines)
+> - `internal/adapter/svn/` — SVN adapter (230 lines)
+> - `internal/adapter/githubpm/` — GitHub PM adapter (162 lines)
+> - `internal/adapter/openspec/`, `speckit/`, `autospec/`, `markdownspec/` — Spec providers
+> - `internal/adapter/http/handlers_roadmap.go` (503 lines), `handlers_files.go`
+
+- [ ] Read `gitlocal/`: Clone, Pull, Checkout, Diff, Log, Status — all implemented or some stubs?
+- [ ] Read `gitea/` (234 lines): real Gitea API integration or GitHub adapter copy with minimal changes?
+- [ ] Read `gitlab/` (220 lines): real GitLab API integration or placeholder?
+- [ ] Read `svn/` (230 lines): real SVN CLI integration (svn checkout, svn update) or stub?
+- [ ] Read `githubpm/` (162 lines): GitHub Issues sync — real bidirectional sync or one-way read-only?
+- [ ] Read each spec provider (openspec, speckit, autospec, markdownspec): do they parse actual spec files or return mock data?
+- [ ] Read `roadmap.go` (792 lines): detect -> import -> sync cycle — all three phases functional?
+- [ ] Read `sync.go`: is PM sync bidirectional as claimed, or only import (PM -> CodeForge)?
+- [ ] Read `pm_webhook.go`: does it handle incoming webhooks? HMAC validation present? Constant-time comparison?
+- [ ] Read `handlers_files.go`: file read/write operations — path traversal prevention (e.g., `../../etc/passwd`)?
+- [ ] Check project setup flow: create project -> clone repo -> detect specs -> index for retrieval. Full cycle?
+
+#### Area 9: Auth, Security & Trust Infrastructure (P1)
+
+> **Goal:** Verify authentication, authorization, trust annotations, and quarantine work correctly.
+>
+> **Key files:**
+> - `internal/service/auth.go` (802 lines) — Auth service
+> - `internal/middleware/auth.go` — Auth middleware
+> - `internal/middleware/tenant.go` — Tenant isolation middleware
+> - `internal/middleware/ratelimit.go` — Rate limiter
+> - `internal/middleware/idempotency.go` — Idempotency middleware
+> - `internal/middleware/webhook.go` — Webhook HMAC validation
+> - `internal/adapter/http/routes.go` (486 lines) — Route definitions
+> - `internal/domain/trust/` — Trust annotations
+> - `internal/service/quarantine.go` — Message quarantine
+> - `internal/secrets/vault.go` — Secrets management
+
+- [ ] Read `routes.go` (486 lines): list ALL routes that do NOT have auth middleware applied. Are any sensitive routes unprotected?
+- [ ] Read `auth.go` (802 lines): JWT creation, validation, refresh — are tokens properly expired? Is the signing key from vault?
+- [ ] Check: is there RBAC beyond basic auth? Which endpoints require `admin` role? Are role checks enforced?
+- [ ] Read `middleware/auth.go`: does it check JWT on every request? What routes are exempted (health, login, etc.)?
+- [ ] Read `middleware/tenant.go`: does it enforce tenant isolation on all data-access routes?
+- [ ] Read `middleware/ratelimit.go`: does it actually enforce rate limits or just add headers?
+- [ ] Read `middleware/idempotency.go`: does it prevent duplicate operations or just track them?
+- [ ] Read `middleware/webhook.go`: HMAC validation — `hmac.Equal()` for constant-time comparison?
+- [ ] Read `trust/`: trust level enum (untrusted, partial, verified, full) — is it applied to NATS messages or just a domain model?
+- [ ] Read `quarantine.go`: risk scoring — real algorithm or stub that always returns "safe"?
+- [ ] Grep for hardcoded secrets: `sk-`, `password`, `secret`, `token` in Go and Python source (excluding test files)
+- [ ] Check `_memory.py` SQL queries: are they parameterized (`%s`) or string-formatted (SQL injection risk)?
+- [ ] Check: CORS configuration — is it restrictive or `Access-Control-Allow-Origin: *`?
+- [ ] Check: Content-Type validation on POST/PUT endpoints — does the server reject non-JSON requests?
+
+#### Area 10: Orchestration, Modes & Pipelines (P2)
+
+> **Goal:** Verify multi-agent orchestration, DAG pipelines, mode system, and auto-agent work.
+>
+> **Key files:**
+> - `internal/service/orchestrator.go` (399 lines) — Multi-agent orchestrator
+> - `internal/service/orchestrator_consensus.go` (431 lines) — Consensus protocol
+> - `internal/service/meta_agent.go` (339 lines) — Plan decomposition
+> - `internal/service/task_planner.go` — Multi-task planning
+> - `internal/service/pool_manager.go` — Agent pool management
+> - `internal/service/mode.go` — Mode management
+> - `internal/service/mode_prompt.go` — Mode prompt templates
+> - `internal/service/autoagent.go` (316 lines, 0 tests) — Auto-agent generation
+> - `internal/domain/pipeline/` — DAG pipeline domain
+> - `internal/domain/orchestration/` — Orchestration domain
+> - `internal/domain/mode/` — Mode domain
+
+- [ ] Read `orchestrator.go` (399 lines): multi-agent composition — does it dispatch to multiple agents and aggregate results?
+- [ ] Read `orchestrator_consensus.go` (431 lines): consensus protocol — real voting/merging algorithm or stub?
+- [ ] Read `meta_agent.go` (339 lines): does it call LLM to decompose plans? Error handling on LLM failure?
+- [ ] Read `task_planner.go`: real task decomposition or pass-through?
+- [ ] Read `pool_manager.go`: agent pooling — real connection pool or just a map?
+- [ ] Read `mode.go` + `mode_prompt.go`: do modes actually change agent behavior (tools, prompts, autonomy)?
+- [ ] Read `autoagent.go` (316 lines, 0 tests): what does auto-agent do? Feature discovery? Auto-generation? Is it functional?
+- [ ] Read `internal/domain/pipeline/`: DAG model — does it support parallel nodes, conditional edges, cycles detection?
+- [ ] Check: are there any services in `internal/service/` that are wired in `main.go` but never called from any HTTP handler or NATS subscriber?
+- [ ] Check mode prompt template rendering: what happens if a template variable is undefined? Panic, empty string, or error?
+- [ ] Check `internal/domain/orchestration/handoff.go`: does the domain model support the handoff protocol that's broken at NATS level?
+
+#### Area 11: Cross-Cutting Global Checks
+
+> **Goal:** Find patterns that span multiple areas.
+
+- [ ] Grep for all `TODO`, `FIXME`, `HACK`, `XXX` comments across Go, Python, TypeScript — categorize and count
+- [ ] Grep for all `interface{}` / `any` in Go code — count violations of strict typing rule
+- [ ] Grep for all `Any` in Python type hints — count violations
+- [ ] Check for dead imports: Go files importing packages that are never used
+- [ ] Check for unreachable code: functions in `internal/service/` that are never called from handlers, NATS, or other services
+- [ ] Verify all 49+ PostgreSQL migration files: do they all have `-- +goose Down` sections?
+- [ ] Check Go test coverage: `go test -coverprofile` — identify packages with <50% coverage
+- [ ] Check Python test coverage: `pytest --cov` — identify modules with <50% coverage
+- [ ] Verify frontend build: `cd frontend && npm run build` — any TypeScript errors?
+- [ ] Run `pre-commit run --all-files` — any linting failures?
+
+#### Area 11: Cross-Cutting Global Checks — Results
+
+- [x] (2026-03-05) TODO/FIXME/HACK/XXX: **1,027 files** with **2,456 comment lines** — needs categorization pass
+- [x] (2026-03-05) Go `any` / `interface{}` violations: **~30 occurrences** in non-test code (mostly `map[string]any` in HTTP handlers and LiteLLM client)
+- [x] (2026-03-05) Python `Any` type-hint violations: **30 occurrences** in non-test code (tools/, backends/, memory/, mcp_workbench)
+- [x] (2026-03-05) PostgreSQL migrations: All **57 migration files** have `-- +goose Down` sections
+- [x] (2026-03-05) Frontend TypeScript: `tsc --noEmit` compiles clean — no type errors
+
+---
+
+### Code Review Findings Report (2026-03-05)
+
+> **Total issues found: 46** across 10 areas
+> Critical: 18 | Important: 24 | Medium: 4
+> Areas reviewed: NATS Contracts, Agent Loop, Run Protocol, Benchmarks, Routing, Memory, Protocols, Git/Roadmap, Security, Orchestration
+
+#### Critical Fixes Required
+
+> These issues represent broken features, security vulnerabilities, or data loss scenarios.
+
+**NATS & Cross-Boundary (Area 1):**
+
+- [ ] FIX-CR01 (Critical, S): `_subjects.py:6-19` — Add `"mcp.>"` and `"a2a.>"` to Python `STREAM_SUBJECTS` to match Go `nats.go:54`. Without this, MCP and A2A messages are silently rejected when Python creates the stream first.
+- [ ] FIX-CR02 (Critical, M): `_handoff.py:57` — `"handoff.execute"` published but has no consumer anywhere. Either add a Go/Python subscriber or replace with direct `runs.start` publication.
+- [ ] FIX-CR03 (Critical, M): `_memory.py:146` — `"memory.recall.result"` published but Go has no subscriber. Add a Go subscriber in `internal/adapter/nats/` or change `memory.Recall()` to request-reply pattern (like `retrieval.go` does).
+- [ ] FIX-CR04 (Critical, M): `a2a/executor.go:64` — `"a2a.task.created"` published by Go, no Python handler. Add A2A task handler to Python consumer.
+- [ ] FIX-CR05 (Critical, M): `a2a.go:476` — `"a2a.task.complete"` subscribed by Go but Python never publishes it. Wire up the Python A2A task handler to publish completion.
+- [ ] FIX-CR06 (Critical, S): `a2a/executor.go:95` — `"a2a.task.cancel"` published by Go, no Python subscriber. Wire up cancel handler.
+- [ ] FIX-CR07 (Critical, S): `a2a/executor.go:47` vs `:81` — Task ID prefix mismatch: `Execute` uses `"a2a-" + reqCtx.TaskID` but `Cancel` uses plain `reqCtx.TaskID`. Cancel will fail to find the task.
+- [ ] FIX-CR08 (Important): `models.py:549` — `GemmasEvalRequest.messages` typed as `list[dict]` instead of properly typed Pydantic model matching Go's `GemmasAgentMessagePayload`.
+
+**Agent Loop & Run Protocol (Areas 2+3):**
+
+- [ ] FIX-CR09 (Critical): 4 of 5 agent backends are stubs — `openhands.py`, `goose.py`, `opencode.py`, `plandex.py` all return `status="failed", error="not yet implemented"`. Only Aider works.
+- [ ] FIX-CR10 (Critical, S): `runtime_execution.go:55` — `cleanupRunState` not called after `checkTermination` fires. Leaks heartbeat map, stall tracker, timeout goroutine, OTEL span. Same bug at `:283-309` (stall detection path).
+- [ ] FIX-CR11 (Important, S): `_conversation.py:190-193` — `_active_runs` never cleaned up on initial parse failure. Extract `run_id` before try-block.
+- [ ] FIX-CR12 (Important, S): `_runs.py:73` — `run_msg.mode.id` accessed without None guard. Causes infinite NATS redelivery when mode is None.
+- [ ] FIX-CR13 (Important, S): `agent_loop.py:178-196` — At `max_loop_iterations`, loop exits with empty content and `status="completed"`. Should set `state.error` to indicate iteration limit reached.
+- [ ] FIX-CR14 (Important, S): `_conversation.py:80-84` — Hardcoded `max_context_tokens=128_000` overrides CLAUDE.md documented 120K. Should use config value.
+- [ ] FIX-CR15 (Important, M): `executor.py:65-173` — `execute_with_runtime` ignores `mcp_servers` parameter. MCP tools discovered but never passed to LLM call in the backend runner path.
+- [ ] FIX-CR16 (Important): `runtime.go:396-412` — Timeout goroutine uses `context.Background()` after timer fires. Can write to closed DB/NATS after shutdown.
+- [ ] FIX-CR17 (Important): `runtime_lifecycle.go`, `runtime_execution.go`, `runtime_approval.go` — Zero test coverage on all three critical runtime files.
+
+**Security (Area 9):**
+
+- [ ] FIX-CR18 (Critical, S): `middleware/auth.go:111-112` — Internal service key comparison uses `==` (timing oracle). Must use `subtle.ConstantTimeCompare`.
+- [ ] FIX-CR19 (Critical, S): `config.py:131` and `litellm_judge.py:33` — LiteLLM master key falls back to hardcoded `"sk-codeforge-dev"`. Remove default; make env var required.
+- [ ] FIX-CR20 (Critical, S): `middleware/auth.go:55-67` — Auth disabled by default (`cfg.Auth.Enabled` defaults to `false`). No startup warning. Add `slog.Warn` when auth is disabled.
+- [ ] FIX-CR21 (Important, S): `middleware.go:35` — CORS with credentials but no guard against `allowedOrigin = "*"`. Validate origin is not wildcard before setting credentials header.
+- [ ] FIX-CR22 (Important, M): `routes.go:36-485` — No `RequireRole` guard on most API routes. Only `/tenants`, `/users`, `/quarantine`, `/benchmarks` have role checks. Destructive endpoints (`DELETE /projects`, `PUT /settings`, `POST /dispatch`) lack RBAC.
+- [ ] FIX-CR23 (Important, S): `routes.go:369` — `POST /dev/benchmark` has no `DevModeOnly` guard. Accessible in production.
+- [ ] FIX-CR24 (Important, M): `idempotency.go:35-82` — Idempotency keys not scoped per user. Attacker can replay cached responses by reusing another user's key.
+- [ ] FIX-CR25 (Important, S): `quarantine.go:77,88` — Fail-open on DB errors. If DB is unavailable, quarantine is silently disabled entirely.
+- [ ] FIX-CR26 (Important): `handlers_settings.go:79,164` — GitHub/GitLab PM webhooks have no HMAC signature validation. Any unauthenticated request triggers roadmap sync.
+
+**Benchmarks & Evaluation (Area 4):**
+
+- [ ] FIX-CR27 (Critical): `multi_rollout.py:25` — `MultiRolloutRunner` requires `run_single_task()` protocol, but none of the 3 concrete runners implement it. Multi-rollout is broken.
+- [ ] FIX-CR28 (Critical): `humaneval.py:98` / `mbpp.py:90` — `test_command` hardcoded to `"python solution.py"` but no code writes the test harness to `solution.py`. Functional tests always fail.
+- [ ] FIX-CR29 (Critical): `swebench.py:54` — `test_patch.diff` never written to disk. SWE-bench tests always fail with "fatal: cannot apply".
+- [ ] FIX-CR30 (Critical, S): `consumer/_benchmark.py:124` — `"req" in dir()` is always True. Should be `"req" in locals()`. Error handling swallows real exception.
+- [ ] FIX-CR31 (Important): `multi_rollout.py:97-103` — Dead code: `verify_batch` results discarded, then individual `verify()` called again (2x API cost).
+
+**Memory & Knowledge (Area 6):**
+
+- [ ] FIX-CR32 (Important): `_memory.py:52`, `storage.py:59`, `experience.py:128` — Hardcoded tenant UUID in 3 files. Must extract from request payload.
+- [ ] FIX-CR33 (Important): `_memory.py:81` — Dedup key uses `req.query[:32]`. Use hash of full query instead.
+- [ ] FIX-CR34 (Important): `experience_pool.go` — `@exp_cache` decorator exists in Python but is never wired to a NATS consumer handler. Experience pool lookup is never invoked during agent runs.
+- [ ] FIX-CR35 (Important): `mcp.go:118` — `ResolveForRun` ignores `projectID` and `modeID`, returns all enabled servers globally. DB-registered servers invisible to agent runs.
+
+**Git, Roadmap & PM Sync (Area 8):**
+
+- [ ] FIX-CR36 (Critical, M): `sync.go:27` — `pmprovider.New` always receives empty config map `map[string]string{}`. Gitea/GitLab sync fails immediately (blank URL/token).
+- [ ] FIX-CR37 (Critical, S): `pm_webhook.go:99,134,175` — `go s.triggerPullSync(ctx, ...)` passes HTTP request context to background goroutine. Context cancelled immediately; sync always fails.
+- [ ] FIX-CR38 (Important): `githubpm/provider.go:29-37` — GitHub PM capabilities declare `CreateItem: false, UpdateItem: false`. Bidirectional sync is actually import-only.
+
+**Orchestration (Area 10):**
+
+- [ ] FIX-CR39 (Critical, S): `autoagent.go:59-91` — TOCTOU race condition. Two concurrent `Start()` calls can both pass the "already running" check. Causes double feature processing.
+- [ ] FIX-CR40 (Critical, M): `orchestrator_consensus.go:211-214` — `startDebate` mutates shared `s.orchCfg.PingPongMaxRounds` without proper synchronization. Use local variable instead.
+- [ ] FIX-CR41 (Important): `autoagent.go` — Zero test coverage (316 lines, stateful background goroutine manager with concurrency).
+
+#### Effort Estimates & Grouping
+
+| PR Group | Fix IDs | Effort | Description |
+|----------|---------|--------|-------------|
+| NATS Contract Fixes | CR01-CR08 | M | Fix stream subjects, orphaned subjects, payload mismatches |
+| Backend Stubs Cleanup | CR09 | L | Document stubs as "planned", add clear error messaging, or implement |
+| Runtime State Leaks | CR10, CR16 | S | Add `cleanupRunState` calls, fix timeout goroutine context |
+| Agent Loop Edge Cases | CR11-CR15 | S | Fix parse failures, None guards, iteration limits, config |
+| Security Hardening | CR18-CR26 | M | Timing oracle, auth defaults, RBAC, CORS, idempotency, webhooks |
+| Benchmark Fixes | CR27-CR31 | M | Multi-rollout protocol, test harness writing, error handling |
+| Memory & Multi-tenancy | CR32-CR35 | M | Extract tenant_id, fix dedup, wire experience pool, MCP resolve |
+| PM Sync Fixes | CR36-CR38 | S | Pass provider config, fix context, document capabilities |
+| Orchestration Fixes | CR39-CR41 | S | Fix TOCTOU race, config mutation, add tests |
+| Runtime Test Coverage | CR17 | L | Write tests for runtime_lifecycle, runtime_execution, runtime_approval |
