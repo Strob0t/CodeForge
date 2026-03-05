@@ -49,7 +49,7 @@ class MemoryHandlerMixin:
                            (tenant_id, project_id, agent_id, run_id, content, kind, importance, embedding, metadata)
                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)""",
                     (
-                        "00000000-0000-0000-0000-000000000000",
+                        req.tenant_id,
                         req.project_id,
                         req.agent_id,
                         req.run_id,
@@ -78,7 +78,10 @@ class MemoryHandlerMixin:
             req = MemoryRecallRequest.model_validate_json(msg.data)
             log = logger.bind(project_id=req.project_id, top_k=req.top_k)
 
-            if self._is_duplicate(f"memrecall-{req.project_id}-{req.query[:32]}"):
+            import hashlib
+
+            query_hash = hashlib.sha256(req.query.encode()).hexdigest()[:16]
+            if self._is_duplicate(f"memrecall-{req.project_id}-{query_hash}"):
                 log.warning("duplicate memory recall request, skipping")
                 await msg.ack()
                 return

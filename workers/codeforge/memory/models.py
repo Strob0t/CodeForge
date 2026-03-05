@@ -50,9 +50,13 @@ class ScoredMemory(BaseModel):
     score: float = 0.0
 
 
+DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+
+
 class MemoryStoreRequest(BaseModel):
     """Request to store a new memory (received from NATS)."""
 
+    tenant_id: str = DEFAULT_TENANT_ID
     project_id: str
     agent_id: str = ""
     run_id: str = ""
@@ -65,6 +69,7 @@ class MemoryStoreRequest(BaseModel):
 class MemoryRecallRequest(BaseModel):
     """Request to recall memories (received from NATS)."""
 
+    tenant_id: str = DEFAULT_TENANT_ID
     project_id: str
     query: str
     top_k: int = 10

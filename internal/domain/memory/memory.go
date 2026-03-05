@@ -42,8 +42,12 @@ type ScoredMemory struct {
 	Score float64 `json:"score"`
 }
 
+// DefaultTenantID is used when no tenant context is available (single-tenant mode).
+const DefaultTenantID = "00000000-0000-0000-0000-000000000000"
+
 // CreateRequest is the input for storing a new memory.
 type CreateRequest struct {
+	TenantID   string            `json:"tenant_id,omitempty"`
 	ProjectID  string            `json:"project_id"`
 	AgentID    string            `json:"agent_id,omitempty"`
 	RunID      string            `json:"run_id,omitempty"`
@@ -55,6 +59,7 @@ type CreateRequest struct {
 
 // RecallRequest is the input for querying memories.
 type RecallRequest struct {
+	TenantID  string `json:"tenant_id,omitempty"`
 	ProjectID string `json:"project_id"`
 	Query     string `json:"query"`
 	TopK      int    `json:"top_k"`
