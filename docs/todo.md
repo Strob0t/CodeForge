@@ -3190,3 +3190,59 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [x] (2026-03-03) `frontend/playwright.llm.config.ts` — dedicated Playwright config for LLM tests (no browser, API-only, sequential execution)
 - [x] (2026-03-03) **Total: 95 tests across 12 spec files + 1 helper module**
 - [x] (2026-03-03) Run command: `cd frontend && npx playwright test --config=playwright.llm.config.ts`
+
+---
+
+### Replace AgentNeo with OpenTelemetry Tracing in Python Workers (2026-03-05)
+
+> AgentNeo is broken (missing transitive `litellm` dependency) and all 5 decorator calls
+> fall back to No-Op. Go Core already has full OTEL infrastructure. This task unifies
+> Python Workers onto the same OTEL stack for consistent distributed tracing.
+> Plan: `/home/vscode/.claude/plans/vectorized-booping-allen.md`
+
+#### Phase 1: Remove AgentNeo and dead code
+
+- [ ] Remove `agentneo` from `pyproject.toml`, run `poetry lock && poetry install`
+- [ ] Delete `workers/codeforge/tracing/dashboard.py` (never called, agentneo-specific)
+- [ ] Delete `workers/codeforge/tracing/metrics.py` (never called, agentneo-specific)
+- [ ] Clean up `workers/codeforge/tracing/__init__.py` exports (remove `launch_dashboard`, `evaluate_*`)
+- [ ] Remove `_SafeTracer` class and agentneo import block from `workers/codeforge/tracing/setup.py`
+
+#### Phase 2: Add OTEL dependencies
+
+- [ ] Add `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-grpc` to `pyproject.toml`
+- [ ] Run `poetry lock && poetry install`
+
+#### Phase 3: Rewrite TracingManager with OTEL backend
+
+- [ ] Add `OTELConfig` dataclass reading `CODEFORGE_OTEL_*` env vars (matching Go config)
+- [ ] Rewrite `TracingManager.init()` — OTEL TracerProvider + OTLP gRPC Exporter + Sampler
+- [ ] Implement `_OTELTracer` class (implements `TracerProtocol`):
+  - `trace_agent(name)` → OTEL Span `agent:{name}` with async support
+  - `trace_tool(name)` → OTEL Span `tool:{name}` with async support
+  - Exception recording on spans, spans always closed
+- [ ] Add `TracingManager.shutdown()` method for graceful TracerProvider shutdown
+- [ ] Tracer name: `"codeforge"` (identical to Go), service: `"codeforge-worker"`
+
+#### Phase 4: Verify existing decorator sites (no changes needed)
+
+- [ ] Confirm 5 call sites still work via `TracerProtocol` interface:
+  - `agent_loop.py:150`, `executor.py:29,64`, `mcp_workbench.py:104,140`
+
+#### Phase 5: Update tests
+
+- [ ] Update `workers/tests/test_tracing_setup.py`:
+  - Keep: `test_disabled_when_not_dev`, `test_disabled_when_env_missing`, `test_noop_tracer_decorators`
+  - Remove: `test_noop_tracer_session_lifecycle`, `test_dev_mode_agentneo_import_error_fallback`
+  - Add: `test_otel_tracer_creates_spans` (InMemorySpanExporter)
+  - Add: `test_otel_tracer_async_decorator`
+  - Add: `test_otel_tracer_records_exception`
+- [ ] Update `workers/tests/test_tracing_instrumentation.py` (verify module imports still work)
+
+#### Phase 6: Verification
+
+- [ ] `poetry install` — no agentneo deps, OTEL installed
+- [ ] `python -c "from codeforge.tracing import tracing_manager"` — no warning
+- [ ] `python -m pytest workers/tests/ -v` — all tests green
+- [ ] `pre-commit run --all-files` — linting/formatting OK
+- [ ] Worker starts cleanly with `APP_ENV=development` — no agentneo warning

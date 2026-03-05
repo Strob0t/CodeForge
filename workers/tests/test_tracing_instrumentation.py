@@ -1,7 +1,6 @@
 """Tests verifying that tracing decorators don't break instrumented modules.
 
-The decorators should be transparent no-op wrappers when AgentNeo is not
-installed (which is the case in the test environment).
+The decorators should be transparent no-op wrappers when OTEL is disabled.
 """
 
 from __future__ import annotations
