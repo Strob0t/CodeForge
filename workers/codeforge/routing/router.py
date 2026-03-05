@@ -132,9 +132,15 @@ class HybridRouter:
         prompt: str,
         max_cost: float | None = None,
         max_fallbacks: int = 3,
+        primary: RoutingDecision | None = None,
     ) -> RoutingPlan:
-        """Route a prompt and return a primary model plus ranked fallbacks."""
-        primary = self.route(prompt, max_cost=max_cost)
+        """Route a prompt and return a primary model plus ranked fallbacks.
+
+        If *primary* is already known (from a previous ``route()`` call),
+        pass it to skip a duplicate routing cascade (avoids a second meta-router LLM call).
+        """
+        if primary is None:
+            primary = self.route(prompt, max_cost=max_cost)
 
         if primary is None:
             return RoutingPlan(

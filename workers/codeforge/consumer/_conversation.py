@@ -114,6 +114,7 @@ class ConversationHandlerMixin:
                 user_prompt,
                 primary_model,
                 run_msg.termination.max_cost,
+                routing,
             )
 
             executor = AgentLoopExecutor(
@@ -429,16 +430,31 @@ class ConversationHandlerMixin:
         user_prompt: str,
         primary_model: str,
         max_cost: float,
+        routing_result: object | None = None,
     ) -> list[str]:
         """Build a ranked list of fallback models from the router or available models."""
         fallbacks: list[str] = []
         if router is not None:
+            from codeforge.routing.models import ComplexityTier, RoutingDecision, TaskType
             from codeforge.routing.router import HybridRouter as HybridRouterCls
 
             if isinstance(router, HybridRouterCls):
+                # Reuse the existing routing decision to avoid a duplicate meta-router LLM call.
+                existing: RoutingDecision | None = None
+                if routing_result is not None and getattr(routing_result, "routing_layer", ""):
+                    try:
+                        existing = RoutingDecision(
+                            model=primary_model,
+                            routing_layer=routing_result.routing_layer,
+                            complexity_tier=ComplexityTier(routing_result.complexity_tier),
+                            task_type=TaskType(routing_result.task_type),
+                        )
+                    except ValueError:
+                        existing = None
                 plan = router.route_with_fallbacks(
                     prompt=user_prompt,
                     max_cost=max_cost if max_cost > 0 else None,
+                    primary=existing,
                 )
                 fallbacks = [m for m in plan.fallbacks if m != primary_model]
         if not fallbacks:
