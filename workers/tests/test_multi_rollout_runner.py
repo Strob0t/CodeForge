@@ -12,6 +12,7 @@ import pytest
 from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
 from codeforge.evaluation.runners.multi_rollout import MultiRolloutRunner, compute_diversity
+from codeforge.evaluation.runners.simple import RunResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -29,16 +30,17 @@ class _FakeInnerRunner:
         self._outputs = outputs
         self._call_idx = 0
 
-    async def run_single_task(self, task: TaskSpec) -> ExecutionResult:
+    async def run_task(self, task: TaskSpec) -> RunResult:
         output = self._outputs[self._call_idx % len(self._outputs)]
         self._call_idx += 1
-        return ExecutionResult(
+        execution = ExecutionResult(
             actual_output=output,
             exit_code=0 if output != "FAIL" else 1,
             cost_usd=0.01,
             tokens_in=100,
             tokens_out=50,
         )
+        return RunResult(task=task, execution=execution)
 
 
 class _FakeFilterEvaluator:

@@ -64,10 +64,12 @@ class BenchmarkHandlerMixin:
             await msg.ack()
             return
 
+        run_id = ""
         try:
             req = BenchmarkRunRequest.model_validate_json(msg.data)
+            run_id = req.run_id
             benchmark_type = req.benchmark_type or "simple"
-            log = log.bind(run_id=req.run_id, benchmark_type=benchmark_type, model=req.model)
+            log = log.bind(run_id=run_id, benchmark_type=benchmark_type, model=req.model)
 
             if self._is_duplicate(f"bench-{req.run_id}"):
                 log.warning("duplicate benchmark run, skipping")
@@ -121,7 +123,7 @@ class BenchmarkHandlerMixin:
             log.exception("benchmark run failed")
             if self._js is not None:
                 error_result = BenchmarkRunResult(
-                    run_id=req.run_id if "req" in dir() else "",
+                    run_id=run_id,
                     status="failed",
                     error=str(exc),
                 )

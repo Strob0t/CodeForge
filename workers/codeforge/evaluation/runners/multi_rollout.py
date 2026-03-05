@@ -15,14 +15,19 @@ import structlog
 if TYPE_CHECKING:
     from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline, VerificationResult
     from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec
+    from codeforge.evaluation.runners.simple import RunResult
 
 logger = structlog.get_logger()
 
 
 class _InnerRunner(Protocol):
-    """Protocol for any runner that can execute a single task."""
+    """Protocol for any runner that can execute a single task.
 
-    async def run_single_task(self, task: TaskSpec) -> ExecutionResult: ...
+    Matches the interface of SimpleBenchmarkRunner, AgentBenchmarkRunner,
+    and ToolUseBenchmarkRunner which all expose ``run_task()``.
+    """
+
+    async def run_task(self, task: TaskSpec) -> RunResult: ...
 
 
 @dataclass
@@ -63,8 +68,8 @@ class MultiRolloutRunner:
         # Phase 1: Execute N independent rollouts.
         outcomes: list[RolloutOutcome] = []
         for i in range(self._rollout_count):
-            result = await self._inner.run_single_task(task)
-            outcomes.append(RolloutOutcome(rollout_id=i, result=result))
+            run_result = await self._inner.run_task(task)
+            outcomes.append(RolloutOutcome(rollout_id=i, result=run_result.execution))
 
         if self._rollout_count == 1:
             outcomes[0].is_best = True
@@ -89,21 +94,6 @@ class MultiRolloutRunner:
 
     async def _select_best_hybrid(self, task: TaskSpec, outcomes: list[RolloutOutcome]) -> None:
         """Use hybrid verification to select the best rollout."""
-        results = [o.result for o in outcomes]
-        verifications = await self._hybrid.verify_batch(task, results)  # type: ignore[union-attr]
-
-        # verify_batch returns results sorted by combined score desc.
-        # Map verifications back to outcomes by matching ExecutionResult identity.
-        result_to_verification: dict[int, tuple[int, VerificationResult]] = {}
-        for _rank, _vr in enumerate(verifications):
-            # Find which outcome this verification belongs to by matching scores.
-            for outcome in outcomes:
-                if id(outcome.result) not in {id(r) for _, r in result_to_verification.values()}:
-                    # Match by comparing filter scores and rank scores presence.
-                    pass
-
-        # Simpler approach: re-verify and sort outcomes directly.
-        # Since verify_batch sorts internally, we just need to find the best.
         best_idx = -1
         best_score = -1.0
 

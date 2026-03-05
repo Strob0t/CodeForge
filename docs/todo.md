@@ -3626,11 +3626,11 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 
 **Benchmarks & Evaluation (Area 4):**
 
-- [ ] FIX-CR27 (Critical): `multi_rollout.py:25` — `MultiRolloutRunner` requires `run_single_task()` protocol, but none of the 3 concrete runners implement it. Multi-rollout is broken.
-- [ ] FIX-CR28 (Critical): `humaneval.py:98` / `mbpp.py:90` — `test_command` hardcoded to `"python solution.py"` but no code writes the test harness to `solution.py`. Functional tests always fail.
-- [ ] FIX-CR29 (Critical): `swebench.py:54` — `test_patch.diff` never written to disk. SWE-bench tests always fail with "fatal: cannot apply".
-- [ ] FIX-CR30 (Critical, S): `consumer/_benchmark.py:124` — `"req" in dir()` is always True. Should be `"req" in locals()`. Error handling swallows real exception.
-- [ ] FIX-CR31 (Important): `multi_rollout.py:97-103` — Dead code: `verify_batch` results discarded, then individual `verify()` called again (2x API cost).
+- [x] FIX-CR27 (Critical): `multi_rollout.py` — Updated `_InnerRunner` protocol to use `run_task() -> RunResult` matching actual runners. (2026-03-05)
+- [x] FIX-CR28 (Critical): `agent.py` — Added `_prepare_test_files()` to write test harness with solution to `solution.py` before running tests. (2026-03-05)
+- [x] FIX-CR29 (Critical): `agent.py` — Same `_prepare_test_files()` also writes `test_patch.diff` from metadata for SWE-bench tasks. (2026-03-05)
+- [x] FIX-CR30 (Critical, S): `_benchmark.py` — Replaced fragile `"req" in dir()` with pre-initialized `run_id` sentinel. (2026-03-05)
+- [x] FIX-CR31 (Important): `multi_rollout.py` — Removed dead `verify_batch` call and empty mapping loop; only individual `verify()` used. (2026-03-05)
 
 **Memory & Knowledge (Area 6):**
 

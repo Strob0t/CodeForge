@@ -81,6 +81,22 @@ async def _run_test_command(test_command: str, workspace: Path, timeout: int = 6
         return f"Test command failed: {exc}", 1
 
 
+def _prepare_test_files(task: TaskSpec, workspace: Path, solution: str) -> None:
+    """Write test harness and patch files to workspace before running tests.
+
+    - HumanEval/MBPP: metadata["test_harness"] with {SOLUTION} placeholder → solution.py
+    - SWE-bench: metadata["test_patch"] → test_patch.diff
+    """
+    test_harness = task.metadata.get("test_harness", "")
+    if test_harness and "{SOLUTION}" in test_harness:
+        harness_content = test_harness.replace("{SOLUTION}", solution)
+        (workspace / "solution.py").write_text(harness_content, encoding="utf-8")
+
+    test_patch = task.metadata.get("test_patch", "")
+    if test_patch:
+        (workspace / "test_patch.diff").write_text(test_patch, encoding="utf-8")
+
+
 class AgentBenchmarkRunner:
     """Runs agent benchmarks: full multi-turn agent loop with workspace.
 
@@ -172,6 +188,10 @@ class AgentBenchmarkRunner:
         # Snapshot after and compute diff
         after = _snapshot_files(workspace)
         files_changed = _compute_files_changed(before, after)
+
+        # Write test harness and patch files to workspace before running tests.
+        actual_output = agent_result.final_content if hasattr(agent_result, "final_content") else str(agent_result)
+        _prepare_test_files(task, workspace, actual_output)
 
         # Run test command if specified
         test_output = ""
