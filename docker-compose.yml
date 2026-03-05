@@ -87,7 +87,7 @@ services:
       - "8222:8222"
     command: [ "--jetstream", "--store_dir", "/data", "-m", "8222" ]
     volumes:
-      - ${HOST_PROJECT_PATH:-.}/data/nats:/data
+      - nats_data:/data
     healthcheck:
       test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz" ]
       interval: 5s
@@ -112,7 +112,7 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
     volumes:
-      - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
+      - ./litellm:/app/data
     command: [ "--config", "/app/data/config.yaml", "--port", "4000" ]
     depends_on:
       postgres:
