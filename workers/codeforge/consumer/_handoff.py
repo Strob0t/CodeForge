@@ -44,17 +44,29 @@ class HandoffHandlerMixin:
                 handoff_context += f"\n\nArtifacts: {', '.join(artifacts)}"
 
             run_payload = {
-                "type": "handoff",
-                "source_run_id": source_run,
-                "target_agent_id": target_agent,
-                "target_mode_id": target_mode,
-                "context": handoff_context,
-                "artifacts": artifacts,
+                "run_id": f"handoff-{source_run}-{target_agent}",
+                "task_id": "",
+                "project_id": payload.get("project_id", ""),
+                "agent_id": target_agent,
+                "prompt": handoff_context,
+                "policy_profile": "standard",
+                "exec_mode": "sandbox",
+                "config": {
+                    "source_run_id": source_run,
+                    "handoff_type": "true",
+                },
+                "termination": {
+                    "max_steps": 50,
+                    "timeout_seconds": 600,
+                    "max_cost": 1.0,
+                },
             }
 
             if self._js is not None:
+                from codeforge.consumer._subjects import SUBJECT_RUN_START
+
                 await self._js.publish(
-                    "handoff.execute",
+                    SUBJECT_RUN_START,
                     json.dumps(run_payload).encode(),
                 )
 

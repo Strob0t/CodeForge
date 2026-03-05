@@ -14,6 +14,8 @@ STREAM_SUBJECTS = [
     "conversation.>",
     "benchmark.>",
     "evaluation.>",
+    "mcp.>",
+    "a2a.>",
     "memory.>",
     "handoff.>",
 ]
@@ -63,6 +65,7 @@ SUBJECT_EVAL_GEMMAS_RESULT = "evaluation.gemmas.result"
 # Memory
 SUBJECT_MEMORY_STORE = "memory.store"
 SUBJECT_MEMORY_RECALL = "memory.recall"
+SUBJECT_MEMORY_RECALL_RESULT = "memory.recall.result"
 
 # Handoff
 SUBJECT_HANDOFF_REQUEST = "handoff.request"

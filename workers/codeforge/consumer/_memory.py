@@ -142,8 +142,10 @@ class MemoryHandlerMixin:
                     "query": req.query,
                     "results": top,
                 }
+                from codeforge.consumer._subjects import SUBJECT_MEMORY_RECALL_RESULT
+
                 await self._js.publish(
-                    "memory.recall.result",
+                    SUBJECT_MEMORY_RECALL_RESULT,
                     json.dumps(result_payload).encode(),
                 )
 
