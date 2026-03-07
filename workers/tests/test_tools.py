@@ -208,6 +208,46 @@ async def test_search_files_with_include(workspace: Path) -> None:
     assert "line" in result.output
 
 
+@pytest.mark.asyncio
+async def test_search_files_path_traversal(workspace: Path) -> None:
+    tool = SearchFilesTool()
+    result = await tool.execute({"pattern": "line", "path": "../../etc"}, str(workspace))
+    assert result.success is False
+    assert "traversal" in result.error
+
+
+@pytest.mark.asyncio
+async def test_search_files_path_traversal_absolute(workspace: Path) -> None:
+    tool = SearchFilesTool()
+    result = await tool.execute({"pattern": "line", "path": "/etc"}, str(workspace))
+    assert result.success is False
+    assert "traversal" in result.error
+
+
+@pytest.mark.asyncio
+async def test_search_files_fixed_string_default(workspace: Path) -> None:
+    tool = SearchFilesTool()
+    result = await tool.execute({"pattern": "def foo"}, str(workspace))
+    assert result.success is True
+    assert "def foo" in result.output
+
+
+@pytest.mark.asyncio
+async def test_search_files_regex_mode(workspace: Path) -> None:
+    tool = SearchFilesTool()
+    result = await tool.execute({"pattern": "def\\s+foo", "regex": True}, str(workspace))
+    assert result.success is True
+    assert "def foo" in result.output
+
+
+@pytest.mark.asyncio
+async def test_search_files_invalid_regex(workspace: Path) -> None:
+    tool = SearchFilesTool()
+    result = await tool.execute({"pattern": "[invalid", "regex": True}, str(workspace))
+    assert result.success is False
+    assert "invalid regex" in result.error
+
+
 # --- GlobFilesTool ---
 
 

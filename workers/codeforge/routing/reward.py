@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 # Failure penalty — applied when the LLM call errors out.
 _FAILURE_REWARD: float = -0.5
 
-# Normalization ceilings.
+# Normalization ceilings (fallback defaults).
 _MAX_COST_USD: float = 0.10  # Per-call cost ceiling
 _MAX_LATENCY_MS: int = 30_000  # 30 seconds
 
@@ -34,12 +34,22 @@ def compute_reward(
                - latency_weight * normalized_latency
 
     Failure: reward = -0.5 regardless of other metrics.
+
+    Normalization ceilings are read from *config* when positive, falling back
+    to the module-level constants otherwise.  When ``config.cost_penalty_mode``
+    is ``"quadratic"``, the normalized cost is squared before weighting.
     """
     if not success:
         return _FAILURE_REWARD
 
-    norm_cost = min(1.0, cost_usd / _MAX_COST_USD) if _MAX_COST_USD > 0 else 0.0
-    norm_latency = min(1.0, latency_ms / _MAX_LATENCY_MS) if _MAX_LATENCY_MS > 0 else 0.0
+    max_cost = config.max_cost_ceiling if config.max_cost_ceiling > 0 else _MAX_COST_USD
+    max_latency = config.max_latency_ceiling if config.max_latency_ceiling > 0 else _MAX_LATENCY_MS
+
+    norm_cost = min(1.0, cost_usd / max_cost) if max_cost > 0 else 0.0
+    norm_latency = min(1.0, latency_ms / max_latency) if max_latency > 0 else 0.0
+
+    if config.cost_penalty_mode == "quadratic":
+        norm_cost = norm_cost**2
 
     return config.quality_weight * quality_score - config.cost_weight * norm_cost - config.latency_weight * norm_latency
 

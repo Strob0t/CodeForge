@@ -1344,3 +1344,31 @@ func TestProjectServiceInitWorkspaceUpdateFails(t *testing.T) {
 		t.Fatal("expected error when UpdateProject fails")
 	}
 }
+
+func TestIsAllowedGiteaHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		allowed bool
+	}{
+		{"loopback v4", "127.0.0.1", false},
+		{"loopback v6", "::1", false},
+		{"private 10.x", "10.0.0.1", false},
+		{"private 172.16.x", "172.16.0.1", false},
+		{"private 192.168.x", "192.168.1.1", false},
+		{"AWS metadata", "169.254.169.254", false},
+		{"link-local", "169.254.1.1", false},
+		{"localhost", "localhost", false},
+		{"host with port", "127.0.0.1:3000", false},
+		{"public IP allowed", "8.8.8.8", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isAllowedGiteaHost(context.Background(), tt.host)
+			if got != tt.allowed {
+				t.Errorf("isAllowedGiteaHost(%q) = %v, want %v", tt.host, got, tt.allowed)
+			}
+		})
+	}
+}

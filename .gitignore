@@ -65,3 +65,6 @@ backups/
 debug.log
 *.log
 __debug_bin*
+
+# Dev tools (not part of the project)
+/tools/

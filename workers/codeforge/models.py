@@ -36,6 +36,7 @@ class TaskResult(BaseModel):
     """Result sent back to NATS after task execution."""
 
     task_id: str
+    tenant_id: str = ""
     project_id: str = ""
     status: TaskStatus
     output: str = ""
@@ -95,6 +96,7 @@ class RunStartMessage(BaseModel):
 
     run_id: str
     task_id: str
+    tenant_id: str = ""
     project_id: str
     agent_id: str
     prompt: str
@@ -151,6 +153,7 @@ class RunCompleteMessage(BaseModel):
 
     run_id: str
     task_id: str
+    tenant_id: str = ""
     project_id: str
     status: str = "completed"
     output: str = ""
@@ -510,6 +513,7 @@ class BenchmarkTaskResult(BaseModel):
     """Result of a single benchmark task."""
 
     task_id: str
+    tenant_id: str = ""
     task_name: str
     scores: dict[str, float] = Field(default_factory=dict)
     actual_output: str = ""
@@ -576,6 +580,7 @@ class A2ATaskCreatedMessage(BaseModel):
     """Inbound A2A task from Go (matches Go A2ATaskCreatedPayload)."""
 
     task_id: str
+    tenant_id: str = ""
     skill_id: str = ""
     prompt: str = ""
 

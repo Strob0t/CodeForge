@@ -1,10 +1,4 @@
-"""HybridRouter — three-layer cascade orchestrator.
-
-Coordinates the ComplexityAnalyzer (Layer 1), MABModelSelector (Layer 2),
-and LLMMetaRouter (Layer 3) into a single routing decision.
-
-Cascade: L1 (always) → L2 (if enabled + data) → L3 (if enabled + L2 cold) → fallback.
-"""
+"""HybridRouter — three-layer cascade orchestrator."""
 
 from __future__ import annotations
 
@@ -12,6 +6,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from codeforge.routing.models import (
+    CascadePlan,
+    CascadeStep,
     ComplexityTier,
     PromptAnalysis,
     RoutingConfig,
@@ -23,11 +19,11 @@ if TYPE_CHECKING:
     from codeforge.routing.complexity import ComplexityAnalyzer
     from codeforge.routing.mab import MABModelSelector
     from codeforge.routing.meta_router import LLMMetaRouter
+    from codeforge.routing.models import RoutingProfile
     from codeforge.routing.rate_tracker import RateLimitTracker
 
 logger = logging.getLogger(__name__)
 
-# Cold-start default models per complexity tier (ordered by preference).
 COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ComplexityTier.SIMPLE: [
         "groq/llama-3.1-8b-instant",
@@ -51,16 +47,15 @@ COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ],
 }
 
+_TIER_ORDER: list[ComplexityTier] = [
+    ComplexityTier.SIMPLE,
+    ComplexityTier.MEDIUM,
+    ComplexityTier.COMPLEX,
+    ComplexityTier.REASONING,
+]
+
 
 class HybridRouter:
-    """Three-layer routing cascade.
-
-    Layer 1: ComplexityAnalyzer — rule-based, <1ms, always runs.
-    Layer 2: MABModelSelector — UCB1 learning, runs if enabled + data exists.
-    Layer 3: LLMMetaRouter — cold-start fallback, runs if L2 returned None.
-    Fallback: Static tier-to-model mapping.
-    """
-
     def __init__(
         self,
         complexity: ComplexityAnalyzer,
@@ -79,7 +74,6 @@ class HybridRouter:
 
     @property
     def _effective_models(self) -> list[str]:
-        """Available models minus any that are currently blocked."""
         from codeforge.routing.blocklist import get_blocklist
 
         return get_blocklist().filter_available(self._available_models)
@@ -88,35 +82,23 @@ class HybridRouter:
         self,
         prompt: str,
         max_cost: float | None = None,
+        profile: RoutingProfile | None = None,
     ) -> RoutingDecision | None:
-        """Route a prompt through the three-layer cascade.
-
-        Returns a RoutingDecision or None if routing is disabled.
-        """
         if not self._config.enabled:
             return None
 
-        # Layer 1: Complexity analysis (always runs).
         analysis = self._complexity.analyze(prompt)
-        logger.debug(
-            "L1 complexity: tier=%s task=%s confidence=%.2f",
-            analysis.complexity_tier,
-            analysis.task_type,
-            analysis.confidence,
-        )
-
         available = self._effective_models
 
-        # Layer 2: MAB selection (if enabled).
         if self._config.mab_enabled and self._mab is not None:
             model = self._mab.select(
                 analysis.task_type,
                 analysis.complexity_tier,
                 available,
                 max_cost,
+                profile=profile,
             )
             if model is not None:
-                logger.debug("L2 MAB selected: %s", model)
                 return RoutingDecision(
                     model=model,
                     routing_layer="mab",
@@ -126,14 +108,11 @@ class HybridRouter:
                     reasoning=f"MAB UCB1 selection for {analysis.task_type}/{analysis.complexity_tier}",
                 )
 
-        # Layer 3: LLM meta-router (if enabled).
         if self._config.llm_meta_enabled and self._meta is not None:
             decision = self._meta.classify(prompt, analysis, available)
             if decision is not None:
-                logger.debug("L3 meta-router selected: %s", decision.model)
                 return decision
 
-        # Fallback: Static tier-to-model mapping.
         return self._complexity_fallback(analysis, max_cost)
 
     def route_with_fallbacks(
@@ -142,14 +121,10 @@ class HybridRouter:
         max_cost: float | None = None,
         max_fallbacks: int = 3,
         primary: RoutingDecision | None = None,
+        profile: RoutingProfile | None = None,
     ) -> RoutingPlan:
-        """Route a prompt and return a primary model plus ranked fallbacks.
-
-        If *primary* is already known (from a previous ``route()`` call),
-        pass it to skip a duplicate routing cascade (avoids a second meta-router LLM call).
-        """
         if primary is None:
-            primary = self.route(prompt, max_cost=max_cost)
+            primary = self.route(prompt, max_cost=max_cost, profile=profile)
 
         available = self._effective_models
 
@@ -174,6 +149,7 @@ class HybridRouter:
                 available,
                 n=max_fallbacks + 1,
                 max_cost=max_cost,
+                profile=profile,
             )
             for m in diverse:
                 if m not in seen:
@@ -195,20 +171,68 @@ class HybridRouter:
                 fallbacks.append(m)
                 seen.add(m)
 
-        truncated = tuple(fallbacks[:max_fallbacks])
-        logger.debug("route_with_fallbacks: primary=%s fallbacks=%s", primary.model, truncated)
-        return RoutingPlan(primary=primary, fallbacks=truncated)
+        return RoutingPlan(primary=primary, fallbacks=tuple(fallbacks[:max_fallbacks]))
+
+    def route_cascade(
+        self,
+        prompt: str,
+        max_cost: float | None = None,
+        profile: RoutingProfile | None = None,
+    ) -> CascadePlan:
+        if not self._config.enabled:
+            model = self._available_models[0] if self._available_models else ""
+            return CascadePlan(
+                steps=[
+                    CascadeStep(
+                        model=model,
+                        confidence_threshold=self._config.cascade_confidence_threshold,
+                    )
+                ]
+            )
+
+        if not self._config.cascade_enabled:
+            decision = self.route(prompt, max_cost=max_cost, profile=profile)
+            model = decision.model if decision else (self._available_models[0] if self._available_models else "")
+            return CascadePlan(
+                steps=[
+                    CascadeStep(
+                        model=model,
+                        confidence_threshold=self._config.cascade_confidence_threshold,
+                    )
+                ]
+            )
+
+        available = self._effective_models
+        max_steps = self._config.cascade_max_steps
+        threshold = self._config.cascade_confidence_threshold
+        steps: list[CascadeStep] = []
+        seen: set[str] = set()
+
+        for tier in _TIER_ORDER:
+            if len(steps) >= max_steps:
+                break
+            for model in COMPLEXITY_DEFAULTS.get(tier, []):
+                if len(steps) >= max_steps:
+                    break
+                if model in seen or model not in available:
+                    continue
+                if self._rate_tracker is not None:
+                    provider = model.split("/")[0] if "/" in model else ""
+                    if provider and self._rate_tracker.is_exhausted(provider):
+                        continue
+                seen.add(model)
+                steps.append(CascadeStep(model=model, confidence_threshold=threshold))
+
+        if not steps and available:
+            steps.append(CascadeStep(model=available[0], confidence_threshold=threshold))
+
+        return CascadePlan(steps=steps)
 
     def _complexity_fallback(
         self,
         analysis: PromptAnalysis,
         max_cost: float | None,
     ) -> RoutingDecision | None:
-        """Select a model from the static tier-to-model defaults.
-
-        Respects ``max_cost`` by filtering out models whose
-        ``input_cost_per_token`` exceeds the budget (requires capabilities lookup).
-        """
         if not isinstance(analysis, PromptAnalysis):
             return None
 
@@ -221,7 +245,6 @@ class HybridRouter:
             if self._rate_tracker is not None:
                 provider = model.split("/")[0] if "/" in model else ""
                 if provider and self._rate_tracker.is_exhausted(provider):
-                    logger.debug("skipping rate-limited provider %s for model %s", provider, model)
                     continue
             if max_cost is not None:
                 from codeforge.routing.capabilities import enrich_model_capabilities
@@ -238,7 +261,6 @@ class HybridRouter:
                 reasoning=f"Complexity fallback: {analysis.complexity_tier}",
             )
 
-        # No preferred model available — use first available model.
         if available:
             return RoutingDecision(
                 model=available[0],

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -101,26 +100,8 @@ func TestTaskServiceCreate(t *testing.T) {
 		t.Fatalf("expected status 'pending', got %q", got.Status)
 	}
 
-	// Verify NATS publish was called
-	if len(queue.published) != 1 {
-		t.Fatalf("expected 1 publish call, got %d", len(queue.published))
-	}
-	if queue.published[0].subject != messagequeue.SubjectTaskCreated {
-		t.Fatalf("expected subject %q, got %q", messagequeue.SubjectTaskCreated, queue.published[0].subject)
-	}
-}
-
-func TestTaskServiceCreatePublishFailure(t *testing.T) {
-	// Even if queue publish fails, the task should still be returned (saved in DB).
-	queue := &mockQueue{publishErr: errors.New("nats down")}
-	svc := NewTaskService(&mockStore{}, queue)
-
-	req := task.CreateRequest{ProjectID: "p1", Title: "Resilient Task"}
-	got, err := svc.Create(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.Title != "Resilient Task" {
-		t.Fatalf("expected 'Resilient Task', got %q", got.Title)
+	// Create only persists to DB; no NATS publish (execution starts via runs.start).
+	if len(queue.published) != 0 {
+		t.Fatalf("expected 0 publish calls, got %d", len(queue.published))
 	}
 }

@@ -24,8 +24,8 @@
 | # | Sev | Finding | Status |
 |---|-----|---------|--------|
 | CR-N01 | CRIT | `deliver_mode` missing from Python `RunStartMessage` | **FIXED** |
-| CR-N02 | HIGH | `tasks.created` no subscriber (dead-letter messages) | Tracked |
-| CR-N03 | HIGH | `BenchmarkRunResultPayload.Summary` uses `map[string]any` | Tracked |
+| CR-N02 | HIGH | `tasks.created` no subscriber (dead-letter messages) | **FIXED** — removed orphaned publish |
+| CR-N03 | HIGH | `BenchmarkRunResultPayload.Summary` uses `map[string]any` | **FIXED** — concrete `BenchmarkSummary` struct |
 | CR-N04 | MED | `RecallRequest.Kind` omitempty dependency | Documented |
 
 ### Pass 1B: Security
@@ -78,7 +78,7 @@ Clean: All NATS handlers call `msg.ack()` on error. All `error=str(exc)` log cal
 
 | # | Sev | Finding | Status |
 |---|-----|---------|--------|
-| CR-M01 | MED | `agent_events` table missing composite indexes for (tenant_id + run_id/task_id/agent_id) queries | Tracked |
+| CR-M01 | MED | `agent_events` table missing composite indexes for (tenant_id + run_id/task_id/agent_id) queries | **FIXED** — migration 058 |
 
 Clean: 57 migrations, sequential numbering, all have up+down markers. Latest 5 have good index coverage.
 
@@ -99,15 +99,15 @@ Clean: 57 migrations, sequential numbering, all have up+down markers. Latest 5 h
 | Severity | Total | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | CRITICAL | 2 | 2 | 0 |
-| HIGH | 5 | 4 | 2 (tracked) |
-| MEDIUM | 8 | 2 | 6 (documented) |
+| HIGH | 5 | 5 | 0 |
+| MEDIUM | 8 | 3 | 5 (documented) |
 | LOW | 3 | 1 | 2 (documented) |
 
-### Tracked items for follow-up (not blocking merge)
+### All tracked items resolved
 
-1. **CR-N02:** `tasks.created` dead-letter — architectural decision needed
-2. **CR-N03:** `BenchmarkRunResultPayload.Summary` typed as `any` — needs concrete struct
-3. **CR-M01:** `agent_events` composite indexes — performance optimization
+1. **CR-N02:** `tasks.created` dead-letter — **FIXED**: removed orphaned publish from `TaskService.Create`
+2. **CR-N03:** `BenchmarkRunResultPayload.Summary` typed as `any` — **FIXED**: concrete `BenchmarkSummary` struct
+3. **CR-M01:** `agent_events` composite indexes — **FIXED**: migration 058 adds tenant-prefixed indexes
 
 ### Merge Gate: MET
 - 0 CRITICAL remaining
@@ -139,3 +139,10 @@ Clean: 57 migrations, sequential numbering, all have up+down markers. Latest 5 h
 **Error handling fixes:**
 - `workers/codeforge/consumer/_a2a.py` — capture exception in bare except
 - `internal/adapter/http/handlers_agent_features.go` — log feedback audit errors
+
+**Follow-up fixes (CR-N02, CR-N03, CR-M01):**
+- `internal/service/task.go` — removed orphaned `tasks.created` NATS publish
+- `internal/service/task_test.go` — updated tests for no-publish behavior
+- `internal/port/messagequeue/schemas.go` — concrete `BenchmarkSummary` struct replaces `map[string]any`
+- `internal/service/benchmark.go` — use typed `BenchmarkSummary` fields, remove `avgFromSummary` helper
+- `internal/adapter/postgres/migrations/058_agent_events_tenant_composite_indexes.sql` — tenant-prefixed indexes

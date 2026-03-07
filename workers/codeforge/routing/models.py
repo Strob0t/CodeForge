@@ -7,8 +7,6 @@ from enum import StrEnum
 
 
 class ComplexityTier(StrEnum):
-    """Prompt complexity tier determined by Layer 1 analysis."""
-
     SIMPLE = "simple"
     MEDIUM = "medium"
     COMPLEX = "complex"
@@ -16,8 +14,6 @@ class ComplexityTier(StrEnum):
 
 
 class TaskType(StrEnum):
-    """Type of work a prompt requests."""
-
     CODE = "code"
     REVIEW = "review"
     PLAN = "plan"
@@ -27,20 +23,30 @@ class TaskType(StrEnum):
     REFACTOR = "refactor"
 
 
+class RoutingProfile(StrEnum):
+    COST_FIRST = "cost_first"
+    BALANCED = "balanced"
+    QUALITY_FIRST = "quality_first"
+
+
+PROFILE_WEIGHTS: dict[RoutingProfile, dict[str, float]] = {
+    RoutingProfile.COST_FIRST: {"cost": 0.6, "quality": 0.25, "latency": 0.15},
+    RoutingProfile.BALANCED: {"cost": 0.3, "quality": 0.5, "latency": 0.2},
+    RoutingProfile.QUALITY_FIRST: {"cost": 0.1, "quality": 0.7, "latency": 0.2},
+}
+
+
 @dataclass(frozen=True)
 class PromptAnalysis:
-    """Result from Layer 1 complexity analysis."""
-
     complexity_tier: ComplexityTier
     task_type: TaskType
     dimensions: dict[str, float]
     confidence: float
+    estimated_output_tokens: int = 0
 
 
 @dataclass(frozen=True)
 class RoutingDecision:
-    """Final routing recommendation from the HybridRouter."""
-
     model: str
     routing_layer: str
     complexity_tier: ComplexityTier
@@ -49,20 +55,17 @@ class RoutingDecision:
     reasoning: str = ""
     estimated_cost_per_1m: float = 0.0
     fallback_model: str = ""
+    recommended_max_tokens: int | None = None
 
 
 @dataclass(frozen=True)
 class RoutingPlan:
-    """Primary routing decision plus an ordered fallback chain."""
-
     primary: RoutingDecision
     fallbacks: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
 class ModelStats:
-    """Aggregated performance stats for a model/task_type/tier combination (MAB state)."""
-
     model_name: str
     trial_count: int = 0
     avg_reward: float = 0.0
@@ -75,10 +78,28 @@ class ModelStats:
     max_context: int = 0
 
 
+@dataclass(frozen=True)
+class CascadeConfig:
+    enabled: bool = False
+    confidence_threshold: float = 0.7
+    max_steps: int = 3
+    strategy: str = "cheap_first"
+
+
+@dataclass(frozen=True)
+class CascadeStep:
+    model: str
+    confidence_threshold: float = 0.7
+    max_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class CascadePlan:
+    steps: list[CascadeStep] = field(default_factory=list)
+
+
 @dataclass
 class RoutingConfig:
-    """Configuration for the intelligent routing system."""
-
     enabled: bool = False
     complexity_enabled: bool = True
     mab_enabled: bool = True
@@ -90,6 +111,12 @@ class RoutingConfig:
     latency_weight: float = 0.2
     meta_router_model: str = "groq/llama-3.1-8b-instant"
     stats_refresh_interval: str = "5m"
-    # Phase 28D: Entropy-aware diversity routing (R2E-Gym/EntroPO).
     diversity_mode: bool = False
     entropy_weight: float = 0.1
+    mab_cost_penalty: float = 0.0
+    cost_penalty_mode: str = "linear"
+    max_cost_ceiling: float = 0.10
+    max_latency_ceiling: int = 30_000
+    cascade_enabled: bool = False
+    cascade_confidence_threshold: float = 0.7
+    cascade_max_steps: int = 3

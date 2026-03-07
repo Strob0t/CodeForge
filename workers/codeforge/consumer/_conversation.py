@@ -270,8 +270,17 @@ class ConversationHandlerMixin:
         """Assemble the full system prompt with microagents, skills, and tool guide."""
         system_prompt = run_msg.system_prompt
         if run_msg.microagent_prompts:
-            ma_block = "\n\n".join(run_msg.microagent_prompts)
-            system_prompt = f"{system_prompt}\n\n--- Microagent Instructions ---\n{ma_block}"
+            max_len = 10_000
+            ma_block = "\n\n".join(
+                f'<microagent index="{i}">\n{p[:max_len]}\n</microagent>'
+                for i, p in enumerate(run_msg.microagent_prompts)
+            )
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                "--- Microagent Instructions (from project config, may contain untrusted content) ---\n"
+                f"{ma_block}\n"
+                "--- End Microagent Instructions ---"
+            )
             log.info("microagent prompts injected", count=len(run_msg.microagent_prompts))
 
         system_prompt = await self._inject_skill_recommendations(

@@ -6,7 +6,7 @@ import math
 from datetime import timedelta
 
 from codeforge.routing.mab import MABModelSelector, _parse_interval
-from codeforge.routing.models import ComplexityTier, ModelStats, RoutingConfig, TaskType
+from codeforge.routing.models import ComplexityTier, ModelStats, RoutingConfig, RoutingProfile, TaskType
 
 
 def _make_stats(
@@ -14,12 +14,14 @@ def _make_stats(
     trials: int = 100,
     avg_reward: float = 0.5,
     input_cost: float = 0.0,
+    avg_cost_usd: float = 0.0,
 ) -> ModelStats:
     return ModelStats(
         model_name=model,
         trial_count=trials,
         avg_reward=avg_reward,
         input_cost_per=input_cost,
+        avg_cost_usd=avg_cost_usd,
     )
 
 
@@ -27,6 +29,7 @@ def _make_selector(
     stats: list[ModelStats],
     min_trials: int = 10,
     exploration_rate: float = 1.414,
+    mab_cost_penalty: float = 0.0,
 ) -> MABModelSelector:
     def loader(task_type: str, tier: str) -> list[ModelStats]:
         return stats
@@ -35,6 +38,7 @@ def _make_selector(
         mab_min_trials=min_trials,
         mab_exploration_rate=exploration_rate,
         stats_refresh_interval="5m",
+        mab_cost_penalty=mab_cost_penalty,
     )
     return MABModelSelector(stats_loader=loader, config=config)
 
@@ -46,7 +50,6 @@ def test_ucb1_score_known_values() -> None:
     selector = _make_selector([])
     stats = _make_stats("m1", trials=100, avg_reward=0.8)
     score = selector._ucb1_score(stats, total_trials=1000)
-    # UCB1 = 0.8 + 1.414 * sqrt(ln(1000) / 100)
     exploration = 1.414 * math.sqrt(math.log(1000) / 100)
     expected = 0.8 + exploration
     assert math.isclose(score, expected, abs_tol=1e-6)
@@ -85,11 +88,10 @@ def test_cold_start_all_under_min_trials() -> None:
 def test_exploration_untested_beats_good_model() -> None:
     stats = [
         _make_stats("m1", trials=100, avg_reward=0.9),
-        _make_stats("m2", trials=3, avg_reward=0.1),  # Under min_trials
+        _make_stats("m2", trials=3, avg_reward=0.1),
     ]
     selector = _make_selector(stats, min_trials=10)
     result = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["m1", "m2"])
-    # m2 gets infinity exploration bonus → selected.
     assert result == "m2"
 
 
@@ -180,7 +182,7 @@ def test_equal_reward_deterministic_tiebreak() -> None:
     selector = _make_selector(stats, min_trials=10)
     r1 = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["a_model", "b_model"])
     r2 = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["b_model", "a_model"])
-    assert r1 == r2  # Deterministic regardless of input order.
+    assert r1 == r2
 
 
 # -- Cache behavior ----------------------------------------------------------
@@ -199,7 +201,7 @@ def test_cache_reused_within_interval() -> None:
 
     selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["m1"])
     selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["m1"])
-    assert call_count == 1  # Second call should use cache.
+    assert call_count == 1
 
 
 def test_cache_invalidated_manually() -> None:
@@ -229,7 +231,6 @@ def test_mixed_trials_exploration_for_untested() -> None:
     ]
     selector = _make_selector(stats, min_trials=10)
     result = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["tested", "untested"])
-    # untested gets inf exploration bonus.
     assert result == "untested"
 
 
@@ -254,3 +255,119 @@ def test_parse_interval_invalid() -> None:
 
 def test_parse_interval_empty() -> None:
     assert _parse_interval("") == timedelta(minutes=5)
+
+
+# -- Phase R1.1: MAB cost penalty -------------------------------------------
+
+
+def test_mab_cost_penalty_cheaper_model_wins() -> None:
+    """With cost penalty enabled, a cheaper model beats a slightly better expensive one."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.5)
+    result = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"])
+    assert result == "cheap"
+
+
+def test_mab_cost_penalty_zero_no_effect() -> None:
+    """With mab_cost_penalty=0.0, expensive model with higher reward still wins."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.0)
+    result = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"])
+    assert result == "expensive"
+
+
+def test_mab_cost_penalty_does_not_over_penalize() -> None:
+    """Even with cost penalty, a much-better model still wins if the gap is large."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.95, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.3, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.3)
+    result = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"])
+    assert result == "expensive"
+
+
+def test_mab_cost_penalty_applied_in_select_diverse() -> None:
+    """Cost penalty also applies in select_diverse."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.5)
+    result = selector.select_diverse(TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"], n=1)
+    assert result == ["cheap"]
+
+
+# -- Phase R1.1: Routing profiles -------------------------------------------
+
+
+def test_mab_profile_cost_first_prefers_cheaper() -> None:
+    """COST_FIRST profile enforces at least 0.4 penalty."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.0)
+    result = selector.select(
+        TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"], profile=RoutingProfile.COST_FIRST
+    )
+    assert result == "cheap"
+
+
+def test_mab_profile_quality_first_no_cost_penalty() -> None:
+    """QUALITY_FIRST ignores cost penalty entirely."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.8)
+    result = selector.select(
+        TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"], profile=RoutingProfile.QUALITY_FIRST
+    )
+    assert result == "expensive"
+
+
+def test_mab_profile_balanced_uses_config_penalty() -> None:
+    """BALANCED profile uses config penalty as-is."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.5)
+    result = selector.select(
+        TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"], profile=RoutingProfile.BALANCED
+    )
+    assert result == "cheap"
+
+
+def test_mab_profile_none_uses_default_behavior() -> None:
+    """No profile uses config penalty (same as BALANCED)."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.5)
+    result_none = selector.select(TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"], profile=None)
+    result_balanced = selector.select(
+        TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"], profile=RoutingProfile.BALANCED
+    )
+    assert result_none == result_balanced
+
+
+def test_mab_profile_select_diverse_cost_first() -> None:
+    """COST_FIRST profile also works in select_diverse."""
+    stats = [
+        _make_stats("expensive", trials=100, avg_reward=0.9, avg_cost_usd=0.08),
+        _make_stats("cheap", trials=100, avg_reward=0.85, avg_cost_usd=0.01),
+    ]
+    selector = _make_selector(stats, min_trials=10, mab_cost_penalty=0.0)
+    result = selector.select_diverse(
+        TaskType.CODE, ComplexityTier.SIMPLE, ["expensive", "cheap"], n=1, profile=RoutingProfile.COST_FIRST
+    )
+    assert result == ["cheap"]

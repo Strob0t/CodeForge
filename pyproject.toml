@@ -43,6 +43,7 @@ pytest-asyncio = "^1.0"
 target-version = "py312"
 line-length = 120
 src = ["workers"]
+extend-exclude = ["tools"]
 
 [tool.ruff.lint]
 select = [
@@ -83,6 +84,7 @@ max-complexity = 12
 [tool.ruff.lint.per-file-ignores]
 "workers/tests/**/*.py" = ["S101", "PT011", "S108"]
 "workers/codeforge/test_*.py" = ["S101", "PT011", "S108"]
+"tools/*_test.py" = ["S101", "S108"]
 "frontend/e2e-*.py" = ["T201", "S603", "S607", "S310"]
 
 [tool.ruff.format]

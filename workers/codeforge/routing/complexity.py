@@ -1,8 +1,4 @@
-"""Layer 1: Rule-based prompt complexity analysis.
-
-Analyzes prompts across 7 dimensions using regex/heuristics. Zero API calls,
-sub-millisecond latency. Always runs as the first layer of the routing cascade.
-"""
+"""Layer 1: Rule-based prompt complexity analysis."""
 
 from __future__ import annotations
 
@@ -10,7 +6,6 @@ import re
 
 from codeforge.routing.models import ComplexityTier, PromptAnalysis, TaskType
 
-# Dimension weights (must sum to 1.0).
 _WEIGHTS: dict[str, float] = {
     "code_presence": 0.20,
     "reasoning_markers": 0.20,
@@ -21,7 +16,6 @@ _WEIGHTS: dict[str, float] = {
     "output_complexity": 0.10,
 }
 
-# Tier thresholds on weighted score (after task-type boost).
 _TIER_THRESHOLDS: list[tuple[float, ComplexityTier]] = [
     (0.75, ComplexityTier.REASONING),
     (0.50, ComplexityTier.COMPLEX),
@@ -29,8 +23,6 @@ _TIER_THRESHOLDS: list[tuple[float, ComplexityTier]] = [
     (0.0, ComplexityTier.SIMPLE),
 ]
 
-# Task-type complexity boost — certain task types are inherently more complex
-# than a simple chat, regardless of the prompt's surface features.
 _TASK_TYPE_BOOST: dict[TaskType, float] = {
     TaskType.CHAT: 0.0,
     TaskType.CODE: 0.10,
@@ -41,7 +33,6 @@ _TASK_TYPE_BOOST: dict[TaskType, float] = {
     TaskType.PLAN: 0.25,
 }
 
-# Compiled regex patterns for each dimension.
 _RE_CODE_BLOCKS = re.compile(r"```[\s\S]*?```|`[^`]+`")
 _RE_FILE_EXTENSIONS = re.compile(
     r"\b\w+\.(py|go|ts|tsx|js|jsx|java|rs|cpp|c|h|rb|php|swift|kt|scala|sql|yaml|yml|json|toml|sh|bash)\b",
@@ -137,7 +128,6 @@ _RE_OUTPUT = re.compile(
     re.IGNORECASE,
 )
 
-# Task type inference patterns (checked in priority order).
 _TASK_PATTERNS: list[tuple[TaskType, re.Pattern[str]]] = [
     (
         TaskType.REVIEW,
@@ -146,51 +136,47 @@ _TASK_PATTERNS: list[tuple[TaskType, re.Pattern[str]]] = [
     (
         TaskType.DEBUG,
         re.compile(
-            r"\b(fix|debug|error|bug|broken|not working|crash|exception|traceback|stacktrace|failing)\b",
-            re.IGNORECASE,
+            r"\b(fix|debug|error|bug|broken|not working|crash|exception|traceback|stacktrace|failing)\b", re.IGNORECASE
         ),
     ),
     (
         TaskType.REFACTOR,
-        re.compile(
-            r"\b(refactor|clean up|simplify|reorganize|restructure|rename|extract|inline)\b",
-            re.IGNORECASE,
-        ),
+        re.compile(r"\b(refactor|clean up|simplify|reorganize|restructure|rename|extract|inline)\b", re.IGNORECASE),
     ),
     (
         TaskType.PLAN,
-        re.compile(
-            r"\b(plan|design|architect|strategy|roadmap|approach|proposal|blueprint)\b",
-            re.IGNORECASE,
-        ),
+        re.compile(r"\b(plan|design|architect|strategy|roadmap|approach|proposal|blueprint)\b", re.IGNORECASE),
     ),
     (
         TaskType.QA,
-        re.compile(
-            r"\b(tests?|testing|coverage|assertion|unit tests?|integration tests?|e2e|spec)\b",
-            re.IGNORECASE,
-        ),
+        re.compile(r"\b(tests?|testing|coverage|assertion|unit tests?|integration tests?|e2e|spec)\b", re.IGNORECASE),
     ),
     (
         TaskType.CODE,
         re.compile(
-            r"\b(implement|write code|generate|create a function|add a method|"
-            r"write a|build|develop|code|program|script)\b",
+            r"\b(implement|write code|generate|create a function|add a method|write a|build|develop|code|program|script)\b",
             re.IGNORECASE,
         ),
     ),
 ]
 
+_RE_SHORT_OUTPUT = re.compile(
+    r"\b(briefly|short|concise|one[- ]line|yes or no|true or false|"
+    r"what is|is it|does it|can you|summarize in a sentence)\b",
+    re.IGNORECASE,
+)
+
+_RE_LONG_OUTPUT = re.compile(
+    r"\b(full implementation|complete code|write a complete|implement a complete|"
+    r"entire module|entire file|all files|full code|scaffold|boilerplate|"
+    r"write the full|develop a full|build a complete|implement all|"
+    r"refactor the entire|rewrite the entire|whole file)\b",
+    re.IGNORECASE,
+)
+
 
 class ComplexityAnalyzer:
-    """Rule-based prompt complexity analyzer.
-
-    Scores prompts across 7 dimensions and maps the weighted sum to a
-    ComplexityTier. Also infers the TaskType from keyword patterns.
-    """
-
     def analyze(self, prompt: str) -> PromptAnalysis:
-        """Analyze a prompt and return complexity tier, task type, and dimension scores."""
         dimensions = {
             "code_presence": _score_code_presence(prompt),
             "reasoning_markers": _score_reasoning_markers(prompt),
@@ -203,9 +189,6 @@ class ComplexityAnalyzer:
 
         weighted_score = sum(dimensions[dim] * weight for dim, weight in _WEIGHTS.items())
         task_type = _infer_task_type(prompt)
-
-        # Apply task-type boost: certain tasks (review, plan, refactor) are
-        # inherently more complex than simple chat, regardless of surface features.
         boosted_score = min(1.0, weighted_score + _TASK_TYPE_BOOST.get(task_type, 0.0))
 
         tier = ComplexityTier.SIMPLE
@@ -219,11 +202,11 @@ class ComplexityAnalyzer:
             task_type=task_type,
             dimensions=dimensions,
             confidence=min(1.0, boosted_score + 0.3),
+            estimated_output_tokens=_estimate_output_tokens(prompt, dimensions),
         )
 
 
 def _score_code_presence(prompt: str) -> float:
-    """Score 0.0-1.0 based on code blocks, file extensions, imports, keywords."""
     score = 0.0
     if _RE_CODE_BLOCKS.search(prompt):
         score += 0.4
@@ -237,7 +220,6 @@ def _score_code_presence(prompt: str) -> float:
 
 
 def _score_reasoning_markers(prompt: str) -> float:
-    """Score 0.0-1.0 based on reasoning/analysis language."""
     matches = len(_RE_REASONING.findall(prompt))
     if matches == 0:
         return 0.0
@@ -249,7 +231,6 @@ def _score_reasoning_markers(prompt: str) -> float:
 
 
 def _score_technical_terms(prompt: str) -> float:
-    """Score 0.0-1.0 based on domain-specific vocabulary density."""
     lower = prompt.lower()
     count = sum(1 for term in _TECHNICAL_TERMS if term in lower)
     if count == 0:
@@ -264,7 +245,6 @@ def _score_technical_terms(prompt: str) -> float:
 
 
 def _score_prompt_length(prompt: str) -> float:
-    """Score 0.0-1.0 based on estimated token count (chars/4)."""
     tokens = len(prompt) / 4
     if tokens < 15:
         return 0.0
@@ -278,7 +258,6 @@ def _score_prompt_length(prompt: str) -> float:
 
 
 def _score_multi_step(prompt: str) -> float:
-    """Score 0.0-1.0 based on numbered lists, sequential markers."""
     matches = len(_RE_MULTI_STEP.findall(prompt))
     if matches == 0:
         return 0.0
@@ -290,7 +269,6 @@ def _score_multi_step(prompt: str) -> float:
 
 
 def _score_context_requirements(prompt: str) -> float:
-    """Score 0.0-1.0 based on file path references, codebase mentions."""
     matches = len(_RE_CONTEXT.findall(prompt))
     if matches == 0:
         return 0.0
@@ -302,7 +280,6 @@ def _score_context_requirements(prompt: str) -> float:
 
 
 def _score_output_complexity(prompt: str) -> float:
-    """Score 0.0-1.0 based on generation/implementation language."""
     matches = len(_RE_OUTPUT.findall(prompt))
     if matches == 0:
         return 0.0
@@ -314,8 +291,24 @@ def _score_output_complexity(prompt: str) -> float:
 
 
 def _infer_task_type(prompt: str) -> TaskType:
-    """Infer the task type from keyword patterns. Returns CHAT as default."""
     for task_type, pattern in _TASK_PATTERNS:
         if pattern.search(prompt):
             return task_type
     return TaskType.CHAT
+
+
+def _estimate_output_tokens(prompt: str, dimensions: dict[str, float]) -> int:
+    if _RE_SHORT_OUTPUT.search(prompt):
+        return 150
+    if _RE_LONG_OUTPUT.search(prompt):
+        return 2000
+    output_score = dimensions.get("output_complexity", 0.0)
+    length_score = dimensions.get("prompt_length", 0.0)
+    combined = 0.7 * output_score + 0.3 * length_score
+    if combined <= 0.1:
+        return 150
+    if combined <= 0.4:
+        return 500
+    if combined <= 0.7:
+        return 1000
+    return 2000

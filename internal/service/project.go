@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -642,11 +643,47 @@ func (s *ProjectService) fetchGitLabRepoInfo(ctx context.Context, parsed *projec
 	}, nil
 }
 
+// isAllowedGiteaHost checks whether the given host resolves to a public IP.
+// It blocks requests to loopback, private, and link-local addresses to prevent SSRF.
+func isAllowedGiteaHost(ctx context.Context, host string) bool {
+	h := host
+	// Strip port if present.
+	if i := strings.LastIndex(h, ":"); i != -1 {
+		h = h[:i]
+	}
+
+	// Block known cloud metadata endpoints.
+	if h == "169.254.169.254" || h == "metadata.google.internal" {
+		return false
+	}
+
+	// Resolve hostname and check all IPs.
+	addrs, lookupErr := net.DefaultResolver.LookupIPAddr(ctx, h)
+	if lookupErr != nil {
+		// If lookup fails, try parsing as literal IP.
+		ip := net.ParseIP(h)
+		if ip == nil {
+			return false
+		}
+		return !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast()
+	}
+
+	for _, addr := range addrs {
+		if addr.IP.IsLoopback() || addr.IP.IsPrivate() || addr.IP.IsLinkLocalUnicast() || addr.IP.IsLinkLocalMulticast() {
+			return false
+		}
+	}
+	return true
+}
+
 // fetchGiteaRepoInfo fetches repo info from the Gitea/Forgejo API (GitHub-compatible).
 func (s *ProjectService) fetchGiteaRepoInfo(ctx context.Context, parsed *project.ParsedRepoURL) (*project.RepoInfo, error) {
 	host := parsed.Host
 	if host == "" {
 		return nil, fmt.Errorf("gitea: host is required")
+	}
+	if !isAllowedGiteaHost(ctx, host) {
+		return nil, fmt.Errorf("gitea: host %q is not allowed (private/loopback address)", host)
 	}
 	apiURL := fmt.Sprintf("https://%s/api/v1/repos/%s/%s", host, parsed.Owner, parsed.Repo)
 

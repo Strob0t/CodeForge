@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -453,16 +454,24 @@ func (h *Handlers) ListRemoteBranches(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Basic validation: reject obviously invalid URLs (must contain a host-like segment).
-	if !strings.Contains(repoURL, "/") {
+	// Validate URL: require a parsed host and an allowed scheme.
+	parsed, urlErr := url.Parse(repoURL)
+	if urlErr != nil || parsed.Host == "" {
 		writeError(w, http.StatusBadRequest, "invalid repository URL")
+		return
+	}
+	switch parsed.Scheme {
+	case "https", "http", "git", "ssh":
+		// allowed
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported URL scheme: only https, http, git, ssh are allowed")
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", repoURL) //nolint:gosec // repoURL is validated above as a safe git URL.
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", repoURL) //nolint:gosec // repoURL validated: parsed URL with scheme allowlist.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
