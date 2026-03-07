@@ -42,6 +42,40 @@ func (s *ConversationService) IsAgentic(ctx context.Context, conversationID stri
 	return proj.WorkspacePath != ""
 }
 
+// buildConversationContextEntries assembles context entries for a conversation run
+// when ContextEnabled is true and the context optimizer is wired.
+func (s *ConversationService) buildConversationContextEntries(
+	ctx context.Context,
+	projectID, userMessage, conversationID string,
+) []messagequeue.ContextEntryPayload {
+	if s.contextOpt == nil || s.agentCfg == nil || !s.agentCfg.ContextEnabled {
+		return nil
+	}
+
+	entries, err := s.contextOpt.BuildConversationContext(ctx, projectID, userMessage, "",
+		ConversationContextOpts{
+			Budget:        s.agentCfg.ContextBudget,
+			PromptReserve: s.agentCfg.ContextPromptReserve,
+		})
+	if err != nil {
+		slog.Warn("conversation context build failed",
+			"conversation_id", conversationID,
+			"project_id", projectID,
+			"error", err,
+		)
+		return nil
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+
+	slog.Info("conversation context entries built",
+		"conversation_id", conversationID,
+		"entries", len(entries),
+	)
+	return toContextEntryPayloads(entries)
+}
+
 // SendMessageAgentic stores the user message and dispatches an agentic run to the
 // Python worker via NATS. Streaming results arrive asynchronously via WebSocket.
 // The method returns immediately after dispatch.
@@ -158,6 +192,9 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		}
 	}
 
+	// Build context entries for the conversation run.
+	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, req.Content, conversationID)
+
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
 		ConversationID:    conversationID,
@@ -172,6 +209,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		MCPServers:        mcpDefs,
 		MicroagentPrompts: microagentPrompts,
 		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
+		Context:           contextEntries,
 	}
 
 	data, err := json.Marshal(payload)
@@ -282,6 +320,9 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		termination.MaxSteps = s.agentCfg.MaxLoopIterations
 	}
 
+	// Build context entries for the conversation run.
+	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID)
+
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:          runID,
@@ -295,6 +336,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		Mode:           resolvedMode,
 		Termination:    termination,
 		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
+		Context:        contextEntries,
 	}
 
 	data, err := json.Marshal(payload)
@@ -308,7 +350,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		AgentName: modeID,
 	})
 
-	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, "conv-start-"+runID); err != nil {
+	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunStart, data); err != nil {
 		return fmt.Errorf("publish conversation run start: %w", err)
 	}
 

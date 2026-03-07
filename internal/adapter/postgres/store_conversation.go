@@ -28,8 +28,8 @@ func (s *Store) GetConversation(ctx context.Context, id string) (*conversation.C
 	var c conversation.Conversation
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, tenant_id, project_id, title, created_at, updated_at
-		 FROM conversations WHERE id = $1`,
-		id,
+		 FROM conversations WHERE id = $1 AND tenant_id = $2`,
+		id, tenantFromCtx(ctx),
 	).Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, notFoundWrap(err, "get conversation %s", id)
@@ -59,7 +59,7 @@ func (s *Store) ListConversationsByProject(ctx context.Context, projectID string
 }
 
 func (s *Store) DeleteConversation(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM conversations WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM conversations WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete conversation %s", id)
 }
 

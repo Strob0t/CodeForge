@@ -24,6 +24,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // MaxA2APromptLength limits the size of prompts submitted via A2A to prevent abuse.
@@ -478,6 +479,9 @@ func (s *A2AService) StartCompletionSubscriber(ctx context.Context) (cancel func
 		if err := json.Unmarshal(data, &payload); err != nil {
 			slog.Warn("a2a: invalid completion payload", "error", err)
 			return nil // don't retry malformed messages
+		}
+		if payload.TenantID != "" {
+			ctx = tenantctx.WithTenant(ctx, payload.TenantID)
 		}
 		if err := s.HandleTaskComplete(ctx, payload.TaskID, payload.State, payload.Error); err != nil {
 			slog.Warn("a2a: handle task complete", "task_id", payload.TaskID, "error", err)

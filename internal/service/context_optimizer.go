@@ -74,6 +74,37 @@ func (s *ContextOptimizerService) GetPackByTask(ctx context.Context, taskID stri
 	return s.store.GetContextPackByTask(ctx, taskID)
 }
 
+// ConversationContextOpts configures context assembly for conversation flows.
+type ConversationContextOpts struct {
+	Budget        int
+	PromptReserve int
+}
+
+// BuildConversationContext assembles context entries for a conversation message
+// without persisting a context pack. Returns entries directly.
+func (s *ContextOptimizerService) BuildConversationContext(
+	ctx context.Context,
+	projectID, userMessage, teamID string,
+	opts ConversationContextOpts,
+) ([]cfcontext.ContextEntry, error) {
+	proj, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+
+	budget := opts.Budget
+	if budget <= 0 {
+		budget = 2048
+	}
+	reserve := opts.PromptReserve
+	if reserve <= 0 {
+		reserve = 512
+	}
+
+	entries, _ := s.assembleAndPack(ctx, proj.ID, proj.WorkspacePath, userMessage, teamID, budget, reserve)
+	return entries, nil
+}
+
 // BuildContextPack creates a context pack for a task by:
 // 1. Scanning workspace files and scoring by keyword relevance (parallel with retrieval)
 // 2. Injecting shared context items (if teamID is provided)
@@ -113,6 +144,41 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 	if reserve <= 0 {
 		reserve = 1024
 	}
+
+	packed, tokensUsed := s.assembleAndPack(ctx, proj.ID, proj.WorkspacePath, t.Prompt, teamID, budget, reserve)
+
+	if len(packed) == 0 {
+		return nil, nil
+	}
+
+	pack := &cfcontext.ContextPack{
+		TaskID:      taskID,
+		ProjectID:   projectID,
+		TokenBudget: budget,
+		TokensUsed:  tokensUsed,
+		Entries:     packed,
+	}
+
+	if err := s.store.CreateContextPack(ctx, pack); err != nil {
+		return nil, fmt.Errorf("persist context pack: %w", err)
+	}
+
+	slog.Info("context pack built",
+		"task_id", taskID,
+		"entries", len(packed),
+		"tokens_used", tokensUsed,
+		"budget", budget,
+	)
+	return pack, nil
+}
+
+// assembleAndPack runs the parallel context assembly pipeline and packs entries within
+// the token budget. Shared by BuildContextPack and BuildConversationContext.
+func (s *ContextOptimizerService) assembleAndPack(
+	ctx context.Context,
+	projectID, workspacePath, prompt, teamID string,
+	budget, reserve int,
+) (entries []cfcontext.ContextEntry, tokensUsed int) {
 	available := budget - reserve
 	if available <= 0 {
 		available = budget / 2
@@ -138,8 +204,8 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 
 	// Workspace scan goroutine.
 	go func() {
-		if proj.WorkspacePath != "" {
-			scanCh <- scanResult{entries: s.scanWorkspaceFiles(proj.WorkspacePath, t.Prompt)}
+		if workspacePath != "" {
+			scanCh <- scanResult{entries: s.scanWorkspaceFiles(workspacePath, prompt)}
 		} else {
 			scanCh <- scanResult{}
 		}
@@ -162,7 +228,7 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 			retrievalCtx, cancel := context.WithTimeout(ctx, retrievalTimeout)
 			defer cancel()
 
-			entries, hits := s.fetchRetrievalEntriesWithHits(retrievalCtx, projectID, t.Prompt)
+			entries, hits := s.fetchRetrievalEntriesWithHits(retrievalCtx, projectID, prompt)
 			retrievalCh <- retrievalResult{entries: entries, hits: hits}
 		} else {
 			retrievalCh <- retrievalResult{}
@@ -178,15 +244,15 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 
 	// Graph goroutine — uses retrieval hits as seed symbols.
 	go func() {
-		graphCh <- graphResult{entries: s.fetchGraphEntries(ctx, projectID, t.Prompt, rr.hits)}
+		graphCh <- graphResult{entries: s.fetchGraphEntries(ctx, projectID, prompt, rr.hits)}
 	}()
 
 	gr := <-graphCh
 	candidates = append(candidates, gr.entries...)
 
 	// Inject repo map if available for this project.
-	repoMap, err := s.store.GetRepoMap(ctx, projectID)
-	if err == nil && repoMap.MapText != "" {
+	repoMap, rmErr := s.store.GetRepoMap(ctx, projectID)
+	if rmErr == nil && repoMap.MapText != "" {
 		candidates = append(candidates, cfcontext.ContextEntry{
 			Kind:     cfcontext.EntryRepoMap,
 			Path:     "repo-map",
@@ -198,8 +264,8 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 
 	// Inject shared context if team is specified.
 	if teamID != "" {
-		sc, err := s.store.GetSharedContextByTeam(ctx, teamID)
-		if err == nil && sc != nil {
+		sc, scErr := s.store.GetSharedContextByTeam(ctx, teamID)
+		if scErr == nil && sc != nil {
 			for _, item := range sc.Items {
 				candidates = append(candidates, cfcontext.ContextEntry{
 					Kind:     cfcontext.EntryShared,
@@ -227,8 +293,7 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 	}
 
 	if len(candidates) == 0 {
-		slog.Debug("no context candidates found", "task_id", taskID, "project_id", projectID)
-		return nil, nil
+		return nil, 0
 	}
 
 	// Sort by priority descending.
@@ -237,39 +302,15 @@ func (s *ContextOptimizerService) BuildContextPack(ctx context.Context, taskID, 
 	})
 
 	// Pack entries within budget.
-	var packed []cfcontext.ContextEntry
-	tokensUsed := 0
 	for i := range candidates {
 		if tokensUsed+candidates[i].Tokens > available {
 			continue
 		}
-		packed = append(packed, candidates[i])
+		entries = append(entries, candidates[i])
 		tokensUsed += candidates[i].Tokens
 	}
 
-	if len(packed) == 0 {
-		return nil, nil
-	}
-
-	pack := &cfcontext.ContextPack{
-		TaskID:      taskID,
-		ProjectID:   projectID,
-		TokenBudget: budget,
-		TokensUsed:  tokensUsed,
-		Entries:     packed,
-	}
-
-	if err := s.store.CreateContextPack(ctx, pack); err != nil {
-		return nil, fmt.Errorf("persist context pack: %w", err)
-	}
-
-	slog.Info("context pack built",
-		"task_id", taskID,
-		"entries", len(packed),
-		"tokens_used", tokensUsed,
-		"budget", budget,
-	)
-	return pack, nil
+	return entries, tokensUsed
 }
 
 // fetchRetrievalEntriesWithHits tries the sub-agent first (if enabled), falls back to single-shot search.

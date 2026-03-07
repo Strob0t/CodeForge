@@ -81,6 +81,7 @@ type ConversationService struct {
 	agentCfg      *config.Agent
 	routingCfg    *config.Routing
 	metrics       *cfotel.Metrics
+	contextOpt    *ContextOptimizerService
 
 	// processedRuns guards HandleConversationRunComplete against duplicate delivery.
 	processedRuns   map[string]struct{}
@@ -137,6 +138,9 @@ func (s *ConversationService) SetGoalService(svc *GoalDiscoveryService) { s.goal
 
 // SetRoutingConfig configures intelligent model routing for conversation runs.
 func (s *ConversationService) SetRoutingConfig(cfg *config.Routing) { s.routingCfg = cfg }
+
+// SetContextOptimizer configures the context optimizer for conversation context injection.
+func (s *ConversationService) SetContextOptimizer(opt *ContextOptimizerService) { s.contextOpt = opt }
 
 // resolveModel picks the best available model using priority:
 // AgentConfig.DefaultModel > ConversationModel (explicit config) > ModelRegistry.BestModel (auto-discovery).

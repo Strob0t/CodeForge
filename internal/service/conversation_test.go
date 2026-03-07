@@ -2,10 +2,17 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -157,5 +164,117 @@ func TestConversation_ListMessages(t *testing.T) {
 	}
 	if msgs[1].Role != "assistant" {
 		t.Errorf("expected second message role 'assistant', got %q", msgs[1].Role)
+	}
+}
+
+func TestSendMessageAgentic_ContextPopulatedWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "handler.go"), []byte("package main\n\nfunc handleAuth() {}"), 0o644)
+
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: dir},
+	}
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, nil, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+
+	agentCfg := &config.Agent{
+		MaxLoopIterations:    10,
+		MaxContextTokens:     120000,
+		ContextEnabled:       true,
+		ContextBudget:        2048,
+		ContextPromptReserve: 512,
+	}
+	svc.SetAgentConfig(agentCfg)
+
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
+	ctxOpt := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc.SetContextOptimizer(ctxOpt)
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Agent Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{Content: "Implement authentication handler"})
+	if err != nil {
+		t.Fatalf("SendMessageAgentic: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if len(payload.Context) == 0 {
+		t.Error("expected non-empty Context in payload when ContextEnabled=true")
+	}
+
+	foundHandler := false
+	for _, ce := range payload.Context {
+		if ce.Path == "handler.go" {
+			foundHandler = true
+		}
+	}
+	if !foundHandler {
+		t.Error("expected handler.go in context entries")
+	}
+}
+
+func TestSendMessageAgentic_ContextEmptyWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "handler.go"), []byte("package main\n\nfunc handleAuth() {}"), 0o644)
+
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: dir},
+	}
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, nil, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+
+	agentCfg := &config.Agent{
+		MaxLoopIterations: 10,
+		MaxContextTokens:  120000,
+		ContextEnabled:    false,
+	}
+	svc.SetAgentConfig(agentCfg)
+
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
+	ctxOpt := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc.SetContextOptimizer(ctxOpt)
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Agent Test Disabled"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{Content: "Implement authentication handler"})
+	if err != nil {
+		t.Fatalf("SendMessageAgentic: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if len(payload.Context) != 0 {
+		t.Errorf("expected empty Context when ContextEnabled=false, got %d entries", len(payload.Context))
 	}
 }

@@ -48,7 +48,7 @@ func (s *Store) GetA2ATask(ctx context.Context, id string) (*a2adomain.A2ATask, 
 			trust_origin, trust_level, source_addr, project_id, remote_agent_id,
 			tenant_id, metadata, history, artifacts, error_message, version,
 			created_at, updated_at
-		FROM a2a_tasks WHERE id=$1`, id).Scan(
+		FROM a2a_tasks WHERE id=$1 AND tenant_id=$2`, id, tenantFromCtx(ctx)).Scan(
 		&t.ID, &t.ContextID, &state, &direction, &t.SkillID,
 		&t.TrustOrigin, &t.TrustLevel, &t.SourceAddr, &t.ProjectID, &t.RemoteAgentID,
 		&t.TenantID, &metaJSON, &t.History, &t.Artifacts, &t.ErrorMessage, &t.Version,
@@ -79,11 +79,11 @@ func (s *Store) UpdateA2ATask(ctx context.Context, t *a2adomain.A2ATask) error {
 			trust_origin=$6, trust_level=$7, source_addr=$8, project_id=$9,
 			remote_agent_id=$10, metadata=$11, history=$12, artifacts=$13,
 			error_message=$14, version=version+1, updated_at=$15
-		WHERE id=$1 AND version=$16`,
+		WHERE id=$1 AND version=$16 AND tenant_id=$17`,
 		t.ID, t.ContextID, string(t.State), string(t.Direction), t.SkillID,
 		t.TrustOrigin, t.TrustLevel, t.SourceAddr, t.ProjectID,
 		t.RemoteAgentID, metaJSON, t.History, t.Artifacts,
-		t.ErrorMessage, now, t.Version,
+		t.ErrorMessage, now, t.Version, tenantFromCtx(ctx),
 	)
 	if err != nil {
 		return fmt.Errorf("update a2a task %s: %w", t.ID, err)
@@ -97,9 +97,10 @@ func (s *Store) UpdateA2ATask(ctx context.Context, t *a2adomain.A2ATask) error {
 }
 
 func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter) ([]a2adomain.A2ATask, int, error) {
-	var conditions []string
-	var args []any
-	idx := 1
+	// Always enforce tenant isolation from context.
+	conditions := []string{"tenant_id=$1"}
+	args := []any{tenantFromCtx(ctx)}
+	idx := 2
 
 	if filter != nil {
 		if filter.State != "" {
@@ -117,22 +118,16 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 			args = append(args, filter.ProjectID)
 			idx++
 		}
-		if filter.TenantID != "" {
-			conditions = append(conditions, fmt.Sprintf("tenant_id=$%d", idx))
-			args = append(args, filter.TenantID)
-		}
 	}
 
-	where := ""
-	if len(conditions) > 0 {
-		where = "WHERE " + strings.Join(conditions, " AND ")
-	}
+	where := "WHERE " + strings.Join(conditions, " AND ")
 
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 100
 	}
-	query := fmt.Sprintf("SELECT id,context_id,state,direction,skill_id,trust_origin,trust_level,source_addr,project_id,remote_agent_id,tenant_id,metadata,history,artifacts,error_message,version,created_at,updated_at FROM a2a_tasks %s ORDER BY created_at DESC LIMIT %d", where, limit)
+	query := fmt.Sprintf("SELECT id,context_id,state,direction,skill_id,trust_origin,trust_level,source_addr,project_id,remote_agent_id,tenant_id,metadata,history,artifacts,error_message,version,created_at,updated_at FROM a2a_tasks %s ORDER BY created_at DESC LIMIT $%d", where, idx)
+	args = append(args, limit)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -165,7 +160,7 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 }
 
 func (s *Store) DeleteA2ATask(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM a2a_tasks WHERE id=$1", id)
+	tag, err := s.pool.Exec(ctx, "DELETE FROM a2a_tasks WHERE id=$1 AND tenant_id=$2", id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete a2a task %s", id)
 }
 
@@ -193,7 +188,7 @@ func (s *Store) GetRemoteAgent(ctx context.Context, id string) (*a2adomain.Remot
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, name, url, description, trust_level, enabled,
 			skills, last_seen, card_json, tenant_id, created_at, updated_at
-		FROM a2a_remote_agents WHERE id=$1`, id).Scan(
+		FROM a2a_remote_agents WHERE id=$1 AND tenant_id=$2`, id, tenantFromCtx(ctx)).Scan(
 		&a.ID, &a.Name, &a.URL, &a.Description, &a.TrustLevel, &a.Enabled,
 		&a.Skills, &a.LastSeen, &a.CardJSON, &a.TenantID, &a.CreatedAt, &a.UpdatedAt,
 	)
@@ -203,15 +198,11 @@ func (s *Store) GetRemoteAgent(ctx context.Context, id string) (*a2adomain.Remot
 	return &a, nil
 }
 
-func (s *Store) ListRemoteAgents(ctx context.Context, tenantID string, enabledOnly bool) ([]a2adomain.RemoteAgent, error) {
-	query := "SELECT id, name, url, description, trust_level, enabled, skills, last_seen, card_json, tenant_id, created_at, updated_at FROM a2a_remote_agents WHERE 1=1"
-	var args []any
-	idx := 1
-	if tenantID != "" {
-		query += fmt.Sprintf(" AND tenant_id=$%d", idx)
-		args = append(args, tenantID)
-		idx++
-	}
+func (s *Store) ListRemoteAgents(ctx context.Context, _ string, enabledOnly bool) ([]a2adomain.RemoteAgent, error) {
+	// Always enforce tenant from context.
+	query := "SELECT id, name, url, description, trust_level, enabled, skills, last_seen, card_json, tenant_id, created_at, updated_at FROM a2a_remote_agents WHERE tenant_id=$1"
+	args := []any{tenantFromCtx(ctx)}
+	idx := 2
 	if enabledOnly {
 		query += fmt.Sprintf(" AND enabled=$%d", idx)
 		args = append(args, true)
@@ -244,9 +235,9 @@ func (s *Store) UpdateRemoteAgent(ctx context.Context, a *a2adomain.RemoteAgent)
 		UPDATE a2a_remote_agents SET
 			name=$2, url=$3, description=$4, trust_level=$5, enabled=$6,
 			skills=$7, last_seen=$8, card_json=$9, updated_at=$10
-		WHERE id=$1`,
+		WHERE id=$1 AND tenant_id=$11`,
 		a.ID, a.Name, a.URL, a.Description, a.TrustLevel, a.Enabled,
-		pgTextArray(a.Skills), a.LastSeen, a.CardJSON, now,
+		pgTextArray(a.Skills), a.LastSeen, a.CardJSON, now, tenantFromCtx(ctx),
 	)
 	if err != nil {
 		return execExpectOne(tag, err, "update remote agent %s", a.ID)
@@ -259,7 +250,7 @@ func (s *Store) UpdateRemoteAgent(ctx context.Context, a *a2adomain.RemoteAgent)
 }
 
 func (s *Store) DeleteRemoteAgent(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM a2a_remote_agents WHERE id=$1", id)
+	tag, err := s.pool.Exec(ctx, "DELETE FROM a2a_remote_agents WHERE id=$1 AND tenant_id=$2", id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete remote agent %s", id)
 }
 

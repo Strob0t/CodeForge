@@ -507,6 +507,7 @@ func run() error {
 	conversationSvc.SetPolicyService(policySvc)
 	conversationSvc.SetModelRegistry(modelRegistry)
 	conversationSvc.SetRoutingConfig(&cfg.Routing)
+	conversationSvc.SetContextOptimizer(contextOptSvc)
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)

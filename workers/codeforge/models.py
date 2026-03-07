@@ -583,5 +583,6 @@ class A2ATaskCompleteMessage(BaseModel):
     """A2A task completion to publish back to Go (matches Go A2ATaskCompletePayload)."""
 
     task_id: str
+    tenant_id: str = ""
     state: str = "completed"
     error: str = ""

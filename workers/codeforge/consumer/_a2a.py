@@ -49,6 +49,7 @@ class A2AHandlerMixin:
             state = "completed" if result.status.value == "completed" else "failed"
             complete = A2ATaskCompleteMessage(
                 task_id=req.task_id,
+                tenant_id=req.tenant_id,
                 state=state,
                 error=result.error or "",
             )
@@ -69,6 +70,7 @@ class A2AHandlerMixin:
                 if self._js is not None:
                     fail = A2ATaskCompleteMessage(
                         task_id=req.task_id,
+                        tenant_id=req.tenant_id,
                         state="failed",
                         error=str(exc),
                     )

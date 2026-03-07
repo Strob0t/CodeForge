@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Executor implements a2asrv.AgentExecutor for inbound A2A tasks.
@@ -57,9 +58,10 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 
 	// Publish to NATS for worker pickup.
 	payload, _ := json.Marshal(messagequeue.A2ATaskCreatedPayload{
-		TaskID:  taskID,
-		SkillID: "",
-		Prompt:  prompt,
+		TaskID:   taskID,
+		TenantID: tenantctx.FromContext(ctx),
+		SkillID:  "",
+		Prompt:   prompt,
 	})
 	if err := e.queue.Publish(ctx, messagequeue.SubjectA2ATaskCreated, payload); err != nil {
 		slog.Error("a2a: publish task created", "error", err)

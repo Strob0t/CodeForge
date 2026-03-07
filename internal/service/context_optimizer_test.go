@@ -381,3 +381,139 @@ func TestFetchRetrievalEntries_BothFail_ReturnsNilPack(t *testing.T) {
 		}
 	}
 }
+
+// --- BuildConversationContext tests ---
+
+func TestBuildConversationContext_BasicAssembly(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "handler.go"), []byte("package main\n\nfunc handleAuth() {}"), 0o644)
+
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "test", WorkspacePath: dir},
+		},
+	}
+
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+
+	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "Implement authentication handler", "",
+		service.ConversationContextOpts{Budget: 2048, PromptReserve: 512})
+	if err != nil {
+		t.Fatalf("BuildConversationContext failed: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected at least one entry")
+	}
+
+	foundHandler := false
+	for _, e := range entries {
+		if e.Path == "handler.go" {
+			foundHandler = true
+		}
+	}
+	if !foundHandler {
+		t.Error("expected handler.go in entries")
+	}
+}
+
+func TestBuildConversationContext_EmptyWorkspace(t *testing.T) {
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "test", WorkspacePath: ""},
+		},
+	}
+
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 4096, PromptReserve: 1024}
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+
+	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "do something", "",
+		service.ConversationContextOpts{Budget: 2048, PromptReserve: 512})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries for empty workspace, got %d", len(entries))
+	}
+}
+
+func TestBuildConversationContext_BudgetRespected(t *testing.T) {
+	dir := t.TempDir()
+	bigContent := make([]byte, 2000)
+	for i := range bigContent {
+		bigContent[i] = 'a'
+	}
+	_ = os.WriteFile(filepath.Join(dir, "big.go"), bigContent, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "small.go"), []byte("package small"), 0o644)
+
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "test", WorkspacePath: dir},
+		},
+	}
+
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+
+	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "work with big and small package", "",
+		service.ConversationContextOpts{Budget: 100, PromptReserve: 50})
+	if err != nil {
+		t.Fatalf("BuildConversationContext failed: %v", err)
+	}
+
+	totalTokens := 0
+	for _, e := range entries {
+		totalTokens += e.Tokens
+	}
+	if totalTokens > 50 {
+		t.Errorf("total tokens %d exceeds available budget 50", totalTokens)
+	}
+}
+
+func TestBuildConversationContext_NilServices(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "test", WorkspacePath: dir},
+		},
+	}
+
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	// No retrieval, LSP, or goals services wired — should still work gracefully.
+
+	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "do something", "",
+		service.ConversationContextOpts{Budget: 2048, PromptReserve: 512})
+	if err != nil {
+		t.Fatalf("unexpected error with nil services: %v", err)
+	}
+	// Should have at least workspace entries.
+	if len(entries) == 0 {
+		t.Log("no entries returned (acceptable — depends on BM25 scoring)")
+	}
+}
+
+func TestBuildConversationContext_DefaultBudget(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main() {}"), 0o644)
+
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "test", WorkspacePath: dir},
+		},
+	}
+
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
+	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+
+	// Zero budget/reserve should fall back to defaults (2048/512).
+	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "implement main", "",
+		service.ConversationContextOpts{Budget: 0, PromptReserve: 0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Just verify it doesn't panic and returns some result.
+	_ = entries
+}

@@ -102,7 +102,7 @@ Detailed analysis: docs/research/market-analysis.md
   - `AgentLoopExecutor` (Python): streaming LLM calls, per-tool policy enforcement, cost tracking
   - `ConversationHistoryManager` (Python): head-and-tail token budget, tool result truncation
   - HITL approval: `DecisionAsk` → WS `permission_request` → HTTP approve/deny → channel resume
-  - Config: `Agent.MaxLoopIterations` (50), `Agent.MaxContextTokens` (120K), `Runtime.ApprovalTimeoutSeconds` (60)
+  - Config: `Agent.MaxLoopIterations` (50), `Agent.MaxContextTokens` (120K), `Agent.ContextEnabled` (false), `Agent.ContextBudget` (2048), `Agent.ContextPromptReserve` (512), `Runtime.ApprovalTimeoutSeconds` (60)
   - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
   > Reference patterns from framework analysis.
@@ -343,6 +343,14 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL of 
 - Always capture exceptions: `except Exception as exc:` (NOT bare `except Exception:`)
 - Log the actual exception: `error=str(exc)` (NOT `error=str(log)` or other objects)
 - Publish error results back to NATS so the Go side knows about failures
+
+### Tenant Isolation in SQL Queries
+- ALL queries on tenant-scoped tables MUST include `AND tenant_id = $N` with `tenantFromCtx(ctx)`
+- Exceptions: user management, token revocation, tenant management itself
+- Never rely on filter parameters for tenant isolation — always use `tenantFromCtx(ctx)`
+- LIMIT values must use parameterized placeholders (`$N`), not integer interpolation (`%d`)
+- NATS payloads that cross the Go/Python boundary MUST carry `tenant_id` so background jobs can inject tenant context via `tenantctx.WithTenant(ctx, payload.TenantID)`
+- Reference: `store.go:GetProject` (correct pattern), `store_a2a.go` (fixed pattern)
 
 ## Development Methodology: TDD (Test-Driven Development)
 

@@ -37,7 +37,8 @@ type TaskOutputPayload struct {
 
 // TaskCancelPayload is the schema for tasks.cancel messages.
 type TaskCancelPayload struct {
-	TaskID string `json:"task_id"`
+	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id,omitempty"`
 }
 
 // AgentStatusPayload is the schema for agents.status messages.
@@ -138,10 +139,11 @@ type RunCompletePayload struct {
 
 // RunOutputPayload is the schema for runs.output messages.
 type RunOutputPayload struct {
-	RunID  string `json:"run_id"`
-	TaskID string `json:"task_id"`
-	Line   string `json:"line"`
-	Stream string `json:"stream"`
+	RunID    string `json:"run_id"`
+	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id,omitempty"`
+	Line     string `json:"line"`
+	Stream   string `json:"stream"`
 }
 
 // --- Heartbeat payload (Phase 3C) ---
@@ -497,12 +499,22 @@ type BenchmarkRunRequestPayload struct {
 	Evaluators    []string `json:"evaluators,omitempty"`
 }
 
+// BenchmarkSummary holds aggregate statistics computed by the Python worker.
+type BenchmarkSummary struct {
+	TaskCount      int     `json:"task_count"`
+	AvgScore       float64 `json:"avg_score"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+	TotalTokensIn  int     `json:"total_tokens_in"`
+	TotalTokensOut int     `json:"total_tokens_out"`
+	ElapsedMs      int64   `json:"elapsed_ms"`
+}
+
 // BenchmarkRunResultPayload is published by Python when benchmark execution completes.
 type BenchmarkRunResultPayload struct {
 	RunID           string                `json:"run_id"`
 	Status          string                `json:"status"`
 	Results         []BenchmarkTaskResult `json:"results"`
-	Summary         map[string]any        `json:"summary"`
+	Summary         BenchmarkSummary      `json:"summary"`
 	TotalCost       float64               `json:"total_cost"`
 	TotalTokens     int                   `json:"total_tokens"`
 	TotalDurationMs int64                 `json:"total_duration_ms"`
@@ -532,14 +544,16 @@ type BenchmarkTaskResult struct {
 
 // A2ATaskCreatedPayload is published when an inbound A2A task is received.
 type A2ATaskCreatedPayload struct {
-	TaskID  string `json:"task_id"`
-	SkillID string `json:"skill_id"`
-	Prompt  string `json:"prompt"`
+	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id"`
+	SkillID  string `json:"skill_id"`
+	Prompt   string `json:"prompt"`
 }
 
 // A2ATaskCompletePayload is published when an A2A task completes.
 type A2ATaskCompletePayload struct {
-	TaskID string `json:"task_id"`
-	State  string `json:"state"`
-	Error  string `json:"error,omitempty"`
+	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id,omitempty"`
+	State    string `json:"state"`
+	Error    string `json:"error,omitempty"`
 }

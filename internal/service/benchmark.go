@@ -638,7 +638,7 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 	}
 
 	// Store summary scores if provided.
-	if len(payload.Summary) > 0 {
+	if payload.Summary.TaskCount > 0 {
 		summaryJSON, _ := json.Marshal(payload.Summary) //nolint:errcheck // best effort
 		run.SummaryScores = summaryJSON
 	}
@@ -654,7 +654,7 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 			Status:         string(run.Status),
 			CompletedTasks: len(payload.Results),
 			TotalTasks:     len(payload.Results),
-			AvgScore:       avgFromSummary(payload.Summary),
+			AvgScore:       payload.Summary.AvgScore,
 			TotalCostUSD:   payload.TotalCost,
 		})
 	}
@@ -702,19 +702,6 @@ func avgFromMap(m map[string]float64) float64 {
 		total += v
 	}
 	return total / float64(len(m))
-}
-
-// avgFromSummary extracts avg_score from a summary map.
-func avgFromSummary(summary map[string]any) float64 {
-	if v, ok := summary["avg_score"]; ok {
-		switch val := v.(type) {
-		case float64:
-			return val
-		case int:
-			return float64(val)
-		}
-	}
-	return 0
 }
 
 // avgScoreFromJSON extracts the average score from a JSON scores map.
