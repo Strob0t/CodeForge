@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"os"
 	"strings"
 	"testing"
@@ -3174,4 +3175,41 @@ func (m *mockStore) DeleteProjectGoalsBySource(_ context.Context, projectID, sou
 	}
 	m.goals = filtered
 	return nil
+}
+
+func TestListRemoteBranches_URLValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		wantStatus int
+		wantBody   string
+	}{
+		{"empty_url", "", http.StatusBadRequest, "url query parameter is required"},
+		{"no_host", "just-a-path", http.StatusBadRequest, "invalid repository URL"},
+		{"file_scheme", "file:///etc/passwd", http.StatusBadRequest, "invalid repository URL"},
+		{"ftp_scheme", "ftp://example.com/repo", http.StatusBadRequest, "unsupported URL scheme"},
+		{"javascript_scheme", "javascript:alert(1)", http.StatusBadRequest, "invalid repository URL"},
+		{"https_valid_format", "https://github.com/user/repo", http.StatusBadGateway, "failed to list remote branches"},
+		{"http_valid_format", "http://example.com/repo.git", http.StatusBadGateway, "failed to list remote branches"},
+		{"ssh_valid_format", "ssh://git@github.com/user/repo", http.StatusBadGateway, "failed to list remote branches"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqURL := "/api/v1/repos/branches"
+			if tt.url != "" {
+				reqURL += "?url=" + neturl.QueryEscape(tt.url)
+			}
+			req := httptest.NewRequest(http.MethodGet, reqURL, http.NoBody)
+			rr := httptest.NewRecorder()
+			h := &cfhttp.Handlers{}
+			h.ListRemoteBranches(rr, req)
+			if rr.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", rr.Code, tt.wantStatus)
+			}
+			if !strings.Contains(rr.Body.String(), tt.wantBody) {
+				t.Errorf("body = %q, want substring %q", rr.Body.String(), tt.wantBody)
+			}
+		})
+	}
 }

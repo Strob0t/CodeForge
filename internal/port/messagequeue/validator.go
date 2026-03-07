@@ -3,6 +3,7 @@ package messagequeue
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -48,6 +49,7 @@ func Validate(subject string, data []byte) error {
 		// Accept any valid JSON.
 		return nil
 	default:
+		slog.Warn("NATS validator: unknown subject, skipping schema check", "subject", subject)
 		return nil
 	}
 
