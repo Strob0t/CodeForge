@@ -7,6 +7,7 @@ import type { HealthStatus } from "~/api/types";
 import { AuthProvider, useAuth } from "~/components/AuthProvider";
 import { CommandPalette } from "~/components/CommandPalette";
 import { ConfirmProvider } from "~/components/ConfirmProvider";
+import { ConversationRunProvider, useConversationRuns } from "~/components/ConversationRunProvider";
 import { OfflineBanner } from "~/components/OfflineBanner";
 import { RouteGuard } from "~/components/RouteGuard";
 import { SidebarProvider, useSidebar } from "~/components/SidebarProvider";
@@ -89,6 +90,7 @@ function AppShell(props: {
 }) {
   const { t } = useI18n();
   const { collapsed } = useSidebar();
+  const { activeRuns } = useConversationRuns();
 
   return (
     <>
@@ -211,6 +213,17 @@ function AppShell(props: {
                     <span>{t("app.api.label", { status: props.health()?.status ?? "" })}</span>
                   </div>
                 </Show>
+                <Show when={activeRuns().size > 0}>
+                  <div
+                    class="mt-1 flex items-center gap-2 text-xs text-cf-accent"
+                    aria-live="polite"
+                  >
+                    <span class="inline-block h-2 w-2 rounded-full bg-cf-accent animate-pulse" />
+                    <span>
+                      {activeRuns().size} run{activeRuns().size !== 1 ? "s" : ""} active
+                    </span>
+                  </div>
+                </Show>
               </Show>
             </Sidebar.Footer>
           </Sidebar>
@@ -288,7 +301,9 @@ export default function App(props: RouteSectionProps) {
         <ThemeProvider>
           <AuthProvider>
             <WebSocketProvider>
-              <AuthenticatedApp>{props.children}</AuthenticatedApp>
+              <ConversationRunProvider>
+                <AuthenticatedApp>{props.children}</AuthenticatedApp>
+              </ConversationRunProvider>
             </WebSocketProvider>
           </AuthProvider>
         </ThemeProvider>

@@ -11,6 +11,7 @@ import {
 
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage } from "~/api/types";
+import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 import { Badge, Button, CostDisplay } from "~/ui";
@@ -39,6 +40,7 @@ interface PlanStepState {
 export default function ChatPanel(props: ChatPanelProps) {
   const { t } = useI18n();
   const { onAGUIEvent } = useWebSocket();
+  const { isRunActive } = useConversationRuns();
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
@@ -106,6 +108,14 @@ export default function ChatPanel(props: ChatPanelProps) {
           // toast handled by API layer
         }
       })();
+    }
+  });
+
+  // Restore agentRunning state from global tracker when navigating back.
+  createEffect(() => {
+    const convId = activeConversation();
+    if (convId && isRunActive(convId)) {
+      setAgentRunning(true);
     }
   });
 
@@ -241,9 +251,10 @@ export default function ChatPanel(props: ChatPanelProps) {
     try {
       const convId = activeConversation();
       if (!convId) return;
+      // All paths now dispatch via NATS (202 Accepted).
+      // Results stream via AG-UI WebSocket events; messages are
+      // refetched when run_finished arrives.
       await api.conversations.send(convId, { content });
-      await refetchMessages();
-      scrollToBottom();
     } catch {
       // toast handled by API layer
     } finally {

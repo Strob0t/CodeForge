@@ -865,10 +865,13 @@ export const api = {
       request<import("./types").ConversationMessage[]>(url`/conversations/${id}/messages`),
 
     send: (id: string, data: import("./types").SendMessageRequest) =>
-      request<import("./types").ConversationMessage>(url`/conversations/${id}/messages`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      request<{ status: string; run_id: string; message: string }>(
+        url`/conversations/${id}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        },
+      ),
 
     stop: (id: string) =>
       request<{ status: string; conversation_id: string }>(url`/conversations/${id}/stop`, {

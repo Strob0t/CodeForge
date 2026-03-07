@@ -83,27 +83,23 @@ func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Route to agentic path when applicable.
+	// Route to agentic or simple path — both dispatch via NATS and return 202.
+	var err error
 	if h.Conversations.IsAgentic(r.Context(), id, req) {
-		if err := h.Conversations.SendMessageAgentic(r.Context(), id, req); err != nil {
-			writeDomainError(w, err, "send agentic message")
-			return
-		}
-		// Agentic mode returns immediately; results stream via WebSocket.
-		writeJSON(w, http.StatusAccepted, map[string]string{
-			"status":  "dispatched",
-			"run_id":  id,
-			"message": "Agentic run dispatched. Results will stream via WebSocket.",
-		})
-		return
+		err = h.Conversations.SendMessageAgentic(r.Context(), id, req)
+	} else {
+		_, err = h.Conversations.SendMessage(r.Context(), id, req)
 	}
-
-	msg, err := h.Conversations.SendMessage(r.Context(), id, req)
 	if err != nil {
 		writeDomainError(w, err, "send message")
 		return
 	}
-	writeJSON(w, http.StatusCreated, msg)
+
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"status":  "dispatched",
+		"run_id":  id,
+		"message": "Run dispatched. Results will stream via WebSocket.",
+	})
 }
 
 // StopConversation handles POST /api/v1/conversations/{id}/stop.
