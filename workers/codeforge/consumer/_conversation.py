@@ -14,6 +14,7 @@ from codeforge.runtime import RuntimeClient
 if TYPE_CHECKING:
     import nats.aio.msg
 
+    from codeforge.models import AgentLoopResult
     from codeforge.routing.router import HybridRouter
 
 logger = structlog.get_logger()
@@ -27,7 +28,6 @@ class ConversationHandlerMixin:
 
     async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
         """Process a conversation run: agentic loop with tool calling."""
-        from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
         from codeforge.history import ConversationHistoryManager, HistoryConfig
         from codeforge.mcp_workbench import McpWorkbench
         from codeforge.tools import ToolRegistry, build_default_registry
@@ -115,24 +115,15 @@ class ConversationHandlerMixin:
                 routing,
             )
 
-            executor = AgentLoopExecutor(
-                llm=self._llm,
-                tool_registry=registry,
+            result = await self._execute_conversation_run(
+                run_msg=run_msg,
+                messages=messages,
+                primary_model=primary_model,
+                routing=routing,
                 runtime=runtime,
-                workspace_path=run_msg.workspace_path,
-            )
-            loop_cfg = LoopConfig(
-                max_iterations=run_msg.termination.max_steps or 50,
-                max_cost=run_msg.termination.max_cost or 0.0,
-                model=primary_model,
-                temperature=routing.temperature,
-                tags=routing.tags,
+                registry=registry,
                 fallback_models=fallback_models,
-                routing_layer=routing.routing_layer,
-                complexity_tier=routing.complexity_tier,
-                task_type=routing.task_type,
             )
-            result = await executor.run(messages, config=loop_cfg)
 
             complete_msg = ConversationRunCompleteMessage(
                 run_id=run_msg.run_id,
@@ -186,6 +177,89 @@ class ConversationHandlerMixin:
             # Clean up active run tracking.
             if run_id is not None:
                 self._active_runs.discard(run_id)
+
+    async def _execute_conversation_run(
+        self,
+        run_msg: ConversationRunStartMessage,
+        messages: list[dict],
+        primary_model: str,
+        routing: object,
+        runtime: RuntimeClient,
+        registry: object,
+        fallback_models: list[str],
+    ) -> AgentLoopResult:
+        """Dispatch to simple chat or agentic loop based on run_msg.agentic."""
+        if not run_msg.agentic:
+            return await self._run_simple_chat(
+                run_msg,
+                messages,
+                primary_model,
+                routing,
+                runtime,
+            )
+
+        from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
+
+        executor = AgentLoopExecutor(
+            llm=self._llm,
+            tool_registry=registry,
+            runtime=runtime,
+            workspace_path=run_msg.workspace_path,
+        )
+        loop_cfg = LoopConfig(
+            max_iterations=run_msg.termination.max_steps or 50,
+            max_cost=run_msg.termination.max_cost or 0.0,
+            model=primary_model,
+            temperature=routing.temperature,
+            tags=routing.tags,
+            fallback_models=fallback_models,
+            routing_layer=routing.routing_layer,
+            complexity_tier=routing.complexity_tier,
+            task_type=routing.task_type,
+        )
+        return await executor.run(messages, config=loop_cfg)
+
+    async def _run_simple_chat(
+        self,
+        run_msg: ConversationRunStartMessage,
+        messages: list[dict],
+        model: str,
+        routing: object,
+        runtime: RuntimeClient,
+    ) -> AgentLoopResult:
+        """Single-turn LLM call with per-chunk streaming via NATS."""
+        import asyncio
+
+        from codeforge.llm import RoutingResult
+        from codeforge.models import AgentLoopResult
+
+        rt = routing if isinstance(routing, RoutingResult) else RoutingResult()
+        loop = asyncio.get_running_loop()
+        pending: list[asyncio.Task[None]] = []
+
+        def _on_chunk(chunk_text: str) -> None:
+            task = loop.create_task(runtime.send_output(chunk_text))
+            pending.append(task)
+
+        resp = await self._llm.chat_completion_stream(
+            messages=messages,
+            model=model,
+            temperature=rt.temperature,
+            tags=rt.tags,
+            on_chunk=_on_chunk,
+        )
+
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        return AgentLoopResult(
+            final_content=resp.content,
+            total_cost=resp.cost_usd,
+            total_tokens_in=resp.tokens_in,
+            total_tokens_out=resp.tokens_out,
+            step_count=1,
+            model=resp.model,
+        )
 
     async def _build_system_prompt(
         self,

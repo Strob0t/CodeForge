@@ -432,6 +432,7 @@ class ConversationRunStartMessage(BaseModel):
     microagent_prompts: list[str] = Field(default_factory=list)
     trust: TrustAnnotation | None = None
     routing_enabled: bool = False
+    agentic: bool = True
 
     @field_validator("mcp_servers", mode="before")
     @classmethod
