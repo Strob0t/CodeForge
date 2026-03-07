@@ -18,6 +18,7 @@ const (
 // Message holds a quarantined NATS message awaiting review.
 type Message struct {
 	ID          string     `json:"id"`
+	TenantID    string     `json:"tenant_id"`
 	ProjectID   string     `json:"project_id"`
 	Subject     string     `json:"subject"`
 	Payload     []byte     `json:"payload"`

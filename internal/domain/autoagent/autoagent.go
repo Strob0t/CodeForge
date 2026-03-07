@@ -18,6 +18,7 @@ const (
 // AutoAgent tracks the state of an auto-agent run for a project.
 type AutoAgent struct {
 	ID               string    `json:"id"`
+	TenantID         string    `json:"tenant_id"`
 	ProjectID        string    `json:"project_id"`
 	Status           Status    `json:"status"`
 	CurrentFeatureID string    `json:"current_feature_id,omitempty"`

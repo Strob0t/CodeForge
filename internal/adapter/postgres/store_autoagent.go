@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 )
@@ -10,9 +9,9 @@ import (
 // UpsertAutoAgent creates or updates an auto-agent record for a project.
 func (s *Store) UpsertAutoAgent(ctx context.Context, aa *autoagent.AutoAgent) error {
 	const q = `
-		INSERT INTO auto_agents (project_id, status, current_feature_id, conversation_id,
+		INSERT INTO auto_agents (tenant_id, project_id, status, current_feature_id, conversation_id,
 			features_total, features_complete, features_failed, total_cost_usd, error, started_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
 		ON CONFLICT (project_id) DO UPDATE SET
 			status = EXCLUDED.status,
 			current_feature_id = EXCLUDED.current_feature_id,
@@ -27,7 +26,7 @@ func (s *Store) UpsertAutoAgent(ctx context.Context, aa *autoagent.AutoAgent) er
 		RETURNING id, updated_at`
 
 	return s.pool.QueryRow(ctx, q,
-		aa.ProjectID, string(aa.Status), aa.CurrentFeatureID, aa.ConversationID,
+		tenantFromCtx(ctx), aa.ProjectID, string(aa.Status), aa.CurrentFeatureID, aa.ConversationID,
 		aa.FeaturesTotal, aa.FeaturesComplete, aa.FeaturesFailed, aa.TotalCostUSD,
 		aa.Error, aa.StartedAt,
 	).Scan(&aa.ID, &aa.UpdatedAt)
@@ -36,15 +35,15 @@ func (s *Store) UpsertAutoAgent(ctx context.Context, aa *autoagent.AutoAgent) er
 // GetAutoAgent retrieves the auto-agent state for a project.
 func (s *Store) GetAutoAgent(ctx context.Context, projectID string) (*autoagent.AutoAgent, error) {
 	const q = `
-		SELECT id, project_id, status, current_feature_id, conversation_id,
+		SELECT id, tenant_id, project_id, status, current_feature_id, conversation_id,
 			features_total, features_complete, features_failed, total_cost_usd, error,
 			started_at, updated_at
 		FROM auto_agents
-		WHERE project_id = $1`
+		WHERE project_id = $1 AND tenant_id = $2`
 
 	var aa autoagent.AutoAgent
-	err := s.pool.QueryRow(ctx, q, projectID).Scan(
-		&aa.ID, &aa.ProjectID, &aa.Status, &aa.CurrentFeatureID, &aa.ConversationID,
+	err := s.pool.QueryRow(ctx, q, projectID, tenantFromCtx(ctx)).Scan(
+		&aa.ID, &aa.TenantID, &aa.ProjectID, &aa.Status, &aa.CurrentFeatureID, &aa.ConversationID,
 		&aa.FeaturesTotal, &aa.FeaturesComplete, &aa.FeaturesFailed, &aa.TotalCostUSD,
 		&aa.Error, &aa.StartedAt, &aa.UpdatedAt,
 	)
@@ -59,9 +58,9 @@ func (s *Store) UpdateAutoAgentStatus(ctx context.Context, projectID string, sta
 	const q = `
 		UPDATE auto_agents
 		SET status = $2, error = $3, updated_at = NOW()
-		WHERE project_id = $1`
+		WHERE project_id = $1 AND tenant_id = $4`
 
-	tag, err := s.pool.Exec(ctx, q, projectID, string(status), errMsg)
+	tag, err := s.pool.Exec(ctx, q, projectID, string(status), errMsg, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "update auto-agent status for project %s", projectID)
 }
 
@@ -72,20 +71,18 @@ func (s *Store) UpdateAutoAgentProgress(ctx context.Context, aa *autoagent.AutoA
 		SET current_feature_id = $2, conversation_id = $3,
 			features_complete = $4, features_failed = $5,
 			total_cost_usd = $6, updated_at = NOW()
-		WHERE project_id = $1`
+		WHERE project_id = $1 AND tenant_id = $7`
 
 	tag, err := s.pool.Exec(ctx, q,
 		aa.ProjectID, aa.CurrentFeatureID, aa.ConversationID,
 		aa.FeaturesComplete, aa.FeaturesFailed, aa.TotalCostUSD,
+		tenantFromCtx(ctx),
 	)
 	return execExpectOne(tag, err, "update auto-agent progress for project %s", aa.ProjectID)
 }
 
 // DeleteAutoAgent removes the auto-agent record for a project.
 func (s *Store) DeleteAutoAgent(ctx context.Context, projectID string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM auto_agents WHERE project_id = $1`, projectID)
-	if err != nil {
-		return fmt.Errorf("delete auto-agent for project %s: %w", projectID, err)
-	}
-	return nil
+	tag, err := s.pool.Exec(ctx, `DELETE FROM auto_agents WHERE project_id = $1 AND tenant_id = $2`, projectID, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "delete auto-agent for project %s", projectID)
 }

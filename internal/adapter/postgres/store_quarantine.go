@@ -11,13 +11,13 @@ import (
 // QuarantineMessage inserts a new quarantined message into the database.
 func (s *Store) QuarantineMessage(ctx context.Context, msg *quarantine.Message) error {
 	const q = `
-		INSERT INTO quarantine_messages (project_id, subject, payload, trust_origin, trust_level,
+		INSERT INTO quarantine_messages (tenant_id, project_id, subject, payload, trust_origin, trust_level,
 			risk_score, risk_factors, status, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id`
 
 	return s.pool.QueryRow(ctx, q,
-		msg.ProjectID, msg.Subject, msg.Payload, msg.TrustOrigin, msg.TrustLevel,
+		tenantFromCtx(ctx), msg.ProjectID, msg.Subject, msg.Payload, msg.TrustOrigin, msg.TrustLevel,
 		msg.RiskScore, msg.RiskFactors, string(msg.Status), msg.CreatedAt, msg.ExpiresAt,
 	).Scan(&msg.ID)
 }
@@ -25,15 +25,15 @@ func (s *Store) QuarantineMessage(ctx context.Context, msg *quarantine.Message) 
 // GetQuarantinedMessage retrieves a single quarantined message by ID.
 func (s *Store) GetQuarantinedMessage(ctx context.Context, id string) (*quarantine.Message, error) {
 	const q = `
-		SELECT id, project_id, subject, payload, trust_origin, trust_level,
+		SELECT id, tenant_id, project_id, subject, payload, trust_origin, trust_level,
 			risk_score, risk_factors, status, reviewed_by, review_note,
 			created_at, reviewed_at, expires_at
 		FROM quarantine_messages
-		WHERE id = $1`
+		WHERE id = $1 AND tenant_id = $2`
 
 	var msg quarantine.Message
-	err := s.pool.QueryRow(ctx, q, id).Scan(
-		&msg.ID, &msg.ProjectID, &msg.Subject, &msg.Payload, &msg.TrustOrigin, &msg.TrustLevel,
+	err := s.pool.QueryRow(ctx, q, id, tenantFromCtx(ctx)).Scan(
+		&msg.ID, &msg.TenantID, &msg.ProjectID, &msg.Subject, &msg.Payload, &msg.TrustOrigin, &msg.TrustLevel,
 		&msg.RiskScore, &msg.RiskFactors, &msg.Status, &msg.ReviewedBy, &msg.ReviewNote,
 		&msg.CreatedAt, &msg.ReviewedAt, &msg.ExpiresAt,
 	)
@@ -47,28 +47,29 @@ func (s *Store) GetQuarantinedMessage(ctx context.Context, id string) (*quaranti
 // Pass empty status to list all statuses. Results are ordered newest-first.
 func (s *Store) ListQuarantinedMessages(ctx context.Context, projectID string, status quarantine.Status, limit, offset int) ([]*quarantine.Message, error) {
 	var q string
-	var args []interface{}
+	var args []any
+	tid := tenantFromCtx(ctx)
 
 	if status != "" {
 		q = `
-			SELECT id, project_id, subject, payload, trust_origin, trust_level,
+			SELECT id, tenant_id, project_id, subject, payload, trust_origin, trust_level,
 				risk_score, risk_factors, status, reviewed_by, review_note,
 				created_at, reviewed_at, expires_at
 			FROM quarantine_messages
-			WHERE project_id = $1 AND status = $2
+			WHERE project_id = $1 AND status = $2 AND tenant_id = $3
 			ORDER BY created_at DESC
-			LIMIT $3 OFFSET $4`
-		args = []interface{}{projectID, string(status), limit, offset}
+			LIMIT $4 OFFSET $5`
+		args = []any{projectID, string(status), tid, limit, offset}
 	} else {
 		q = `
-			SELECT id, project_id, subject, payload, trust_origin, trust_level,
+			SELECT id, tenant_id, project_id, subject, payload, trust_origin, trust_level,
 				risk_score, risk_factors, status, reviewed_by, review_note,
 				created_at, reviewed_at, expires_at
 			FROM quarantine_messages
-			WHERE project_id = $1
+			WHERE project_id = $1 AND tenant_id = $2
 			ORDER BY created_at DESC
-			LIMIT $2 OFFSET $3`
-		args = []interface{}{projectID, limit, offset}
+			LIMIT $3 OFFSET $4`
+		args = []any{projectID, tid, limit, offset}
 	}
 
 	rows, err := s.pool.Query(ctx, q, args...)
@@ -81,7 +82,7 @@ func (s *Store) ListQuarantinedMessages(ctx context.Context, projectID string, s
 	for rows.Next() {
 		var msg quarantine.Message
 		if err := rows.Scan(
-			&msg.ID, &msg.ProjectID, &msg.Subject, &msg.Payload, &msg.TrustOrigin, &msg.TrustLevel,
+			&msg.ID, &msg.TenantID, &msg.ProjectID, &msg.Subject, &msg.Payload, &msg.TrustOrigin, &msg.TrustLevel,
 			&msg.RiskScore, &msg.RiskFactors, &msg.Status, &msg.ReviewedBy, &msg.ReviewNote,
 			&msg.CreatedAt, &msg.ReviewedAt, &msg.ExpiresAt,
 		); err != nil {
@@ -98,8 +99,8 @@ func (s *Store) UpdateQuarantineStatus(ctx context.Context, id string, status qu
 	const q = `
 		UPDATE quarantine_messages
 		SET status = $2, reviewed_by = $3, review_note = $4, reviewed_at = $5
-		WHERE id = $1`
+		WHERE id = $1 AND tenant_id = $6`
 
-	tag, err := s.pool.Exec(ctx, q, id, string(status), reviewedBy, note, now)
+	tag, err := s.pool.Exec(ctx, q, id, string(status), reviewedBy, note, now, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "update quarantine status for message %s", id)
 }

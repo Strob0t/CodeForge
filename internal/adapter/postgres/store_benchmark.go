@@ -9,11 +9,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
-const benchmarkRunColumns = `id, dataset, model, metrics, status, summary_scores,
+const benchmarkRunColumns = `id, tenant_id, dataset, model, metrics, status, summary_scores,
 		total_cost, total_tokens, total_duration_ms, created_at, completed_at,
 		suite_id, benchmark_type, exec_mode, config`
 
-const benchmarkResultColumns = `id, run_id, task_id, task_name, scores, actual_output, expected_output,
+const benchmarkResultColumns = `id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
 		evaluator_scores, files_changed, functional_test_output`
 
@@ -29,11 +29,11 @@ func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 		cfg = json.RawMessage(`{}`)
 	}
 	const q = `INSERT INTO benchmark_runs
-		(id, dataset, model, metrics, status, summary_scores, total_cost, total_tokens,
+		(id, tenant_id, dataset, model, metrics, status, summary_scores, total_cost, total_tokens,
 		 total_duration_ms, created_at, completed_at, suite_id, benchmark_type, exec_mode, config)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
 	_, err := s.pool.Exec(ctx, q,
-		r.ID, r.Dataset, r.Model, metricsArr, string(r.Status),
+		r.ID, tenantFromCtx(ctx), r.Dataset, r.Model, metricsArr, string(r.Status),
 		scores, r.TotalCost, r.TotalTokens, r.TotalDurationMs,
 		r.CreatedAt, r.CompletedAt,
 		nilIfEmpty(r.SuiteID), nilIfEmpty(string(r.BenchmarkType)),
@@ -47,8 +47,8 @@ func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 
 // GetBenchmarkRun retrieves a benchmark run by ID.
 func (s *Store) GetBenchmarkRun(ctx context.Context, id string) (*benchmark.Run, error) {
-	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs WHERE id = $1`
-	r, err := scanBenchmarkRun(s.pool.QueryRow(ctx, q, id))
+	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs WHERE id = $1 AND tenant_id = $2`
+	r, err := scanBenchmarkRun(s.pool.QueryRow(ctx, q, id, tenantFromCtx(ctx)))
 	if err != nil {
 		return nil, notFoundWrap(err, "get benchmark run %s", id)
 	}
@@ -57,8 +57,8 @@ func (s *Store) GetBenchmarkRun(ctx context.Context, id string) (*benchmark.Run,
 
 // ListBenchmarkRuns returns all benchmark runs ordered by creation time.
 func (s *Store) ListBenchmarkRuns(ctx context.Context) ([]benchmark.Run, error) {
-	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs ORDER BY created_at DESC`
-	rows, err := s.pool.Query(ctx, q)
+	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs WHERE tenant_id = $1 ORDER BY created_at DESC`
+	rows, err := s.pool.Query(ctx, q, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark runs: %w", err)
 	}
@@ -78,8 +78,13 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context) ([]benchmark.Run, error) 
 // ListBenchmarkRunsFiltered returns runs matching the given filter.
 func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter *benchmark.RunFilter) ([]benchmark.Run, error) {
 	var conditions []string
-	var args []interface{}
+	var args []any
 	idx := 1
+
+	// Always filter by tenant.
+	conditions = append(conditions, fmt.Sprintf("tenant_id = $%d", idx))
+	args = append(args, tenantFromCtx(ctx))
+	idx++
 
 	if filter.SuiteID != "" {
 		conditions = append(conditions, fmt.Sprintf("suite_id = $%d", idx))
@@ -142,17 +147,18 @@ func (s *Store) UpdateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 	const q = `UPDATE benchmark_runs
 		SET status=$2, summary_scores=$3, total_cost=$4, total_tokens=$5,
 		    total_duration_ms=$6, completed_at=$7
-		WHERE id=$1`
+		WHERE id=$1 AND tenant_id=$8`
 	tag, err := s.pool.Exec(ctx, q,
 		r.ID, string(r.Status), scores, r.TotalCost,
 		r.TotalTokens, r.TotalDurationMs, r.CompletedAt,
+		tenantFromCtx(ctx),
 	)
 	return execExpectOne(tag, err, "update benchmark run %s", r.ID)
 }
 
 // DeleteBenchmarkRun deletes a benchmark run and its results (ON DELETE CASCADE).
 func (s *Store) DeleteBenchmarkRun(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM benchmark_runs WHERE id=$1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM benchmark_runs WHERE id=$1 AND tenant_id=$2`, id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete benchmark run %s", id)
 }
 
@@ -172,12 +178,12 @@ func (s *Store) CreateBenchmarkResult(ctx context.Context, res *benchmark.Result
 	}
 	filesChanged := pgTextArray(res.FilesChanged)
 	const q = `INSERT INTO benchmark_results
-		(id, run_id, task_id, task_name, scores, actual_output, expected_output,
+		(id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		 tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
 		 evaluator_scores, files_changed, functional_test_output)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
 	_, err := s.pool.Exec(ctx, q,
-		res.ID, res.RunID, res.TaskID, res.TaskName,
+		res.ID, tenantFromCtx(ctx), res.RunID, res.TaskID, res.TaskName,
 		scores, res.ActualOutput, res.ExpectedOutput,
 		toolCalls, res.CostUSD, res.TokensIn, res.TokensOut, res.DurationMs,
 		evalScores, filesChanged, res.FunctionalTestOutput,
@@ -190,8 +196,8 @@ func (s *Store) CreateBenchmarkResult(ctx context.Context, res *benchmark.Result
 
 // ListBenchmarkResults returns all results for a given benchmark run.
 func (s *Store) ListBenchmarkResults(ctx context.Context, runID string) ([]benchmark.Result, error) {
-	q := `SELECT ` + benchmarkResultColumns + ` FROM benchmark_results WHERE run_id = $1 ORDER BY task_id`
-	rows, err := s.pool.Query(ctx, q, runID)
+	q := `SELECT ` + benchmarkResultColumns + ` FROM benchmark_results WHERE run_id = $1 AND tenant_id = $2 ORDER BY task_id`
+	rows, err := s.pool.Query(ctx, q, runID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark results: %w", err)
 	}
@@ -214,7 +220,7 @@ func scanBenchmarkRun(row scannable) (benchmark.Run, error) {
 	var metrics []string
 	var suiteID, bmType, execMode *string
 	err := row.Scan(
-		&r.ID, &r.Dataset, &r.Model, &metrics, &r.Status,
+		&r.ID, &r.TenantID, &r.Dataset, &r.Model, &metrics, &r.Status,
 		&r.SummaryScores, &r.TotalCost, &r.TotalTokens, &r.TotalDurationMs,
 		&r.CreatedAt, &r.CompletedAt,
 		&suiteID, &bmType, &execMode, &r.Config,
@@ -240,7 +246,7 @@ func scanBenchmarkResult(row scannable) (benchmark.Result, error) {
 	var res benchmark.Result
 	var filesChanged []string
 	err := row.Scan(
-		&res.ID, &res.RunID, &res.TaskID, &res.TaskName,
+		&res.ID, &res.TenantID, &res.RunID, &res.TaskID, &res.TaskName,
 		&res.Scores, &res.ActualOutput, &res.ExpectedOutput,
 		&res.ToolCalls, &res.CostUSD, &res.TokensIn, &res.TokensOut, &res.DurationMs,
 		&res.EvaluatorScores, &filesChanged, &res.FunctionalTestOutput,

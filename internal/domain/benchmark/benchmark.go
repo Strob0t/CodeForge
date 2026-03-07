@@ -57,6 +57,7 @@ func (m ExecMode) IsValid() bool {
 // Suite represents a registered benchmark suite (e.g. HumanEval, SWE-bench).
 type Suite struct {
 	ID           string          `json:"id"`
+	TenantID     string          `json:"tenant_id"`
 	Name         string          `json:"name"`
 	Description  string          `json:"description,omitempty"`
 	Type         BenchmarkType   `json:"type"`
@@ -92,6 +93,7 @@ func (r *CreateSuiteRequest) Validate() error {
 // Run is a single benchmark execution against a dataset with a specific model.
 type Run struct {
 	ID              string          `json:"id"`
+	TenantID        string          `json:"tenant_id"`
 	Dataset         string          `json:"dataset"`
 	Model           string          `json:"model"`
 	Metrics         []string        `json:"metrics"`
@@ -117,6 +119,7 @@ type Run struct {
 // Result stores evaluation output for a single task within a benchmark run.
 type Result struct {
 	ID             string          `json:"id"`
+	TenantID       string          `json:"tenant_id"`
 	RunID          string          `json:"run_id"`
 	TaskID         string          `json:"task_id"`
 	TaskName       string          `json:"task_name"`
