@@ -3716,7 +3716,7 @@ Gaps identified between documentation claims and actual Python codebase implemen
 
 ### Unified LLM Path + Global Run Tracking (Architecture Consolidation)
 
-> **Status:** Planned (2026-03-07)
+> **Status:** Complete (2026-03-07)
 > **Priority:** High — Architectural consistency (ADR-006 compliance)
 > **Context:** Two architectural inconsistencies exist:
 > 1. Go Core makes direct LLM calls for simple chat (`SendMessage()` -> `ChatCompletionStream()`), violating ADR-006 ("Go Control Plane + Python Runtime"). Features like HybridRouter, Blocklist, Fallback, Cost Tracking, Memory, and Quality Gates must be duplicated or are missing for simple chat.
@@ -3746,17 +3746,17 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
 
 ##### Step A1: Schema — Add `agentic` field to NATS payload
 
-- [ ] **Go:** Add `Agentic bool` field to `ConversationRunStartPayload` in `internal/port/messagequeue/schemas.go` (~line 428)
+- [x] (2026-03-07) **Go:** Add `Agentic bool` field to `ConversationRunStartPayload` in `internal/port/messagequeue/schemas.go` (~line 428)
   ```go
   Agentic bool `json:"agentic"` // false = simple single-turn chat, true = multi-turn tool loop
   ```
-- [ ] **Python:** Add `agentic: bool = True` field to corresponding Pydantic model in `workers/codeforge/models.py` (~line 415)
-- [ ] **Tests:** Verify JSON round-trip (Go marshal -> Python unmarshal) for both `agentic: true` and `agentic: false`
+- [x] (2026-03-07) **Python:** Add `agentic: bool = True` field to corresponding Pydantic model in `workers/codeforge/models.py` (~line 415)
+- [x] (2026-03-07) **Tests:** Verify JSON round-trip (Go marshal -> Python unmarshal) for both `agentic: true` and `agentic: false`
 
 ##### Step A2: Python Worker — Simple chat handler
 
-- [ ] **File:** `workers/codeforge/consumer/_conversation.py` — in `_handle_conversation_run()`
-- [ ] Add branch after existing setup (runtime, tools, history, routing):
+- [x] (2026-03-07) **File:** `workers/codeforge/consumer/_conversation.py` — in `_handle_conversation_run()`
+- [x] (2026-03-07) Add branch after existing setup (runtime, tools, history, routing):
   ```python
   if not run_msg.agentic:
       # Simple single-turn: one LLM call, stream chunks via send_output
@@ -3765,26 +3765,26 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
       # Existing agentic loop
       result = await executor.run(messages, config=loop_cfg)
   ```
-- [ ] Implement `_run_simple_chat()` method:
+- [x] (2026-03-07) Implement `_run_simple_chat()` method:
   - Call `self._llm.chat_completion_stream()` with `on_chunk` callback
   - `on_chunk` callback publishes each text chunk via `runtime.send_output(chunk)` for real-time streaming
   - Return `AgentLoopResult` with final content, tokens, cost
   - No tool calling, no loop — single LLM call
-- [ ] **Tests:** Unit test for `_run_simple_chat()` with mocked LLM client and runtime
+- [x] (2026-03-07) **Tests:** Unit test for `_run_simple_chat()` with mocked LLM client and runtime
 
 ##### Step A3: Per-chunk streaming in Python Worker
 
-- [ ] **File:** `workers/codeforge/agent_loop.py` (~line 300)
-- [ ] Current behavior: `on_chunk=streamed_text.append` -> sends full text as one blob at end
-- [ ] For simple mode (non-agentic): pass `on_chunk` that calls `runtime.send_output()` per chunk
-- [ ] For agentic mode: keep current behavior (full text after each iteration) — agent loop needs complete text to decide on tool calls
-- [ ] **File:** `workers/codeforge/llm.py` (lines 600-659) — verify `chat_completion_stream()` SSE parsing delivers chunks correctly to callback
-- [ ] **Tests:** Verify per-chunk streaming sends multiple `runs.output` NATS messages (not one blob)
+- [x] (2026-03-07) **File:** `workers/codeforge/agent_loop.py` (~line 300)
+- [x] (2026-03-07) Current behavior: `on_chunk=streamed_text.append` -> sends full text as one blob at end
+- [x] (2026-03-07) For simple mode (non-agentic): pass `on_chunk` that calls `runtime.send_output()` per chunk
+- [x] (2026-03-07) For agentic mode: keep current behavior (full text after each iteration) — agent loop needs complete text to decide on tool calls
+- [x] (2026-03-07) **File:** `workers/codeforge/llm.py` (lines 600-659) — verify `chat_completion_stream()` SSE parsing delivers chunks correctly to callback
+- [x] (2026-03-07) **Tests:** Verify per-chunk streaming sends multiple `runs.output` NATS messages (not one blob)
 
 ##### Step A4: Go Core — Replace direct LLM call with NATS dispatch
 
-- [ ] **File:** `internal/service/conversation.go` (lines 193-328) — `SendMessage()` method
-- [ ] Replace direct LiteLLM streaming path with NATS dispatch:
+- [x] (2026-03-07) **File:** `internal/service/conversation.go` (lines 193-328) — `SendMessage()` method
+- [x] (2026-03-07) Replace direct LiteLLM streaming path with NATS dispatch:
   1. Store user message in DB (keep as-is, lines 210-218)
   2. Build history and system prompt (keep as-is, lines 220-253)
   3. Broadcast `AGUIRunStarted` (keep as-is, lines 257-261)
@@ -3794,49 +3794,49 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
      - Publish to NATS `conversation.run.start`
      - Return immediately (fire-and-forget)
   5. Remove direct LiteLLM streaming callback and response storage (lines 270-327)
-- [ ] Response storage and `AGUIRunFinished` broadcast already handled by `HandleConversationRunComplete()` (existing NATS completion handler)
-- [ ] **Reuse from `SendMessageAgentic()`:**
+- [x] (2026-03-07) Response storage and `AGUIRunFinished` broadcast already handled by `HandleConversationRunComplete()` (existing NATS completion handler)
+- [x] (2026-03-07) **Reuse from `SendMessageAgentic()`:**
   - `s.historyToPayload(history)` for message conversion
   - `s.resolveModel()` for model resolution
   - `s.queue.PublishWithDedup()` for NATS publish
-- [ ] **Tests:** Go unit test verifying `SendMessage()` publishes to NATS instead of calling LiteLLM directly
+- [x] (2026-03-07) **Tests:** Go unit test verifying `SendMessage()` publishes to NATS instead of calling LiteLLM directly
 
 ##### Step A5: HTTP handler — Unified async response
 
-- [ ] **File:** `internal/adapter/http/handlers_conversation.go` (~lines 79-107)
-- [ ] Currently: agentic returns `202 Accepted` with `{ run_id }`, simple returns `201 Created` with full message (blocks until LLM done)
-- [ ] Change to: **Always return `202 Accepted`** with `{ run_id }` — frontend already handles this for agentic mode
-- [ ] Remove the branching logic between `SendMessage()` (201) and `SendMessageAgentic()` (202) — both now async
-- [ ] **Tests:** HTTP handler test verifying 202 response for all message types
+- [x] (2026-03-07) **File:** `internal/adapter/http/handlers_conversation.go` (~lines 79-107)
+- [x] (2026-03-07) Currently: agentic returns `202 Accepted` with `{ run_id }`, simple returns `201 Created` with full message (blocks until LLM done)
+- [x] (2026-03-07) Change to: **Always return `202 Accepted`** with `{ run_id }` — frontend already handles this for agentic mode
+- [x] (2026-03-07) Remove the branching logic between `SendMessage()` (201) and `SendMessageAgentic()` (202) — both now async
+- [x] (2026-03-07) **Tests:** HTTP handler test verifying 202 response for all message types
 
 ##### Step A6: Cleanup — Remove direct LiteLLM dependency from conversation service
 
-- [ ] **File:** `internal/service/conversation.go` — after migration, `SendMessage()` no longer needs `s.llm.ChatCompletionStream()`
-- [ ] Remove `llm` field from `ConversationService` if no other method uses it for chat (keep `resolveModel()` which reads config, not LLM)
-- [ ] Update `cmd/codeforge/main.go` wiring if ConversationService constructor changes
-- [ ] **Tests:** Verify Go compilation, run `go test ./internal/service/... -v -run Conversation`
+- [x] (2026-03-07) **File:** `internal/service/conversation.go` — after migration, `SendMessage()` no longer needs `s.llm.ChatCompletionStream()`
+- [x] (2026-03-07) Remove `llm` field from `ConversationService` if no other method uses it for chat (keep `resolveModel()` which reads config, not LLM)
+- [x] (2026-03-07) Update `cmd/codeforge/main.go` wiring if ConversationService constructor changes
+- [x] (2026-03-07) **Tests:** Verify Go compilation, run `go test ./internal/service/... -v -run Conversation`
 
 #### Part B: Global Run Tracking (Frontend)
 
 ##### Step B1: Create `ConversationRunProvider`
 
-- [ ] **New file:** `frontend/src/components/ConversationRunProvider.tsx`
-- [ ] Follow established provider pattern (`SidebarProvider`, `AuthProvider`, `WebSocketProvider`):
+- [x] (2026-03-07) **New file:** `frontend/src/components/ConversationRunProvider.tsx`
+- [x] (2026-03-07) Follow established provider pattern (`SidebarProvider`, `AuthProvider`, `WebSocketProvider`):
   ```typescript
   interface ConversationRunContextValue {
     activeRuns: Accessor<Set<string>>;     // Set of conversation IDs with active runs
     isRunActive: (id: string) => boolean;  // Check if specific conversation has active run
   }
   ```
-- [ ] Subscribe to `agui.run_started` -> add `run_id` to set
-- [ ] Subscribe to `agui.run_finished` -> remove `run_id` from set
-- [ ] Lives at app root (between `WebSocketProvider` and route content)
-- [ ] Survives page navigation (unlike ChatPanel-local state)
+- [x] (2026-03-07) Subscribe to `agui.run_started` -> add `run_id` to set
+- [x] (2026-03-07) Subscribe to `agui.run_finished` -> remove `run_id` from set
+- [x] (2026-03-07) Lives at app root (between `WebSocketProvider` and route content)
+- [x] (2026-03-07) Survives page navigation (unlike ChatPanel-local state)
 
 ##### Step B2: Wire into App component tree
 
-- [ ] **File:** `frontend/src/App.tsx`
-- [ ] Add `<ConversationRunProvider>` after `<WebSocketProvider>`:
+- [x] (2026-03-07) **File:** `frontend/src/App.tsx`
+- [x] (2026-03-07) Add `<ConversationRunProvider>` after `<WebSocketProvider>`:
   ```tsx
   <WebSocketProvider>
     <ConversationRunProvider>
@@ -3847,27 +3847,27 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
 
 ##### Step B3: Add run indicator to sidebar/navigation
 
-- [ ] **File:** `frontend/src/components/Sidebar.tsx` (or equivalent navigation component)
-- [ ] Use `useConversationRuns()` hook from the provider
-- [ ] Show a pulsing dot / badge next to "Chat" nav item when `activeRuns().size > 0`
-- [ ] Minimal UI change — just an indicator, not a full panel
+- [x] (2026-03-07) **File:** `frontend/src/components/Sidebar.tsx` (or equivalent navigation component)
+- [x] (2026-03-07) Use `useConversationRuns()` hook from the provider
+- [x] (2026-03-07) Show a pulsing dot / badge next to "Chat" nav item when `activeRuns().size > 0`
+- [x] (2026-03-07) Minimal UI change — just an indicator, not a full panel
 
 ##### Step B4: ChatPanel consults global tracker on mount
 
-- [ ] **File:** `frontend/src/features/project/ChatPanel.tsx`
-- [ ] On mount:
+- [x] (2026-03-07) **File:** `frontend/src/features/project/ChatPanel.tsx`
+- [x] (2026-03-07) On mount:
   1. Load messages from DB (existing behavior)
   2. Call `isRunActive(activeConversation())` from global tracker
   3. If active: set `agentRunning(true)` and subscribe to streaming events
   4. New streaming events arrive naturally via existing WS event handlers
-- [ ] Seamless resume: user navigates away, comes back, sees run still active with live streaming
+- [x] (2026-03-07) Seamless resume: user navigates away, comes back, sees run still active with live streaming
 
 ##### Step B5: Unified HTTP response handling in ChatPanel
 
-- [ ] **File:** `frontend/src/features/project/ChatPanel.tsx`
-- [ ] Currently `sendMessage()` handles two response types (201 with message vs 202 with run_id)
-- [ ] After Part A, it's always 202 — simplify the handler to only handle `{ run_id }` response
-- [ ] Remove dead code for 201 response parsing
+- [x] (2026-03-07) **File:** `frontend/src/features/project/ChatPanel.tsx`
+- [x] (2026-03-07) Currently `sendMessage()` handles two response types (201 with message vs 202 with run_id)
+- [x] (2026-03-07) After Part A, it's always 202 — simplify the handler to only handle `{ run_id }` response
+- [x] (2026-03-07) Remove dead code for 201 response parsing
 
 #### Execution Order
 
@@ -3903,17 +3903,17 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
 
 #### Verification Checklist
 
-- [ ] **Unit tests (Python):** `cd workers && python -m pytest tests/ -v` — all pass including new simple chat tests
-- [ ] **Unit tests (Go):** `go test ./internal/service/... -v -run Conversation` — SendMessage uses NATS
-- [ ] **Go compilation:** `go build ./...` — no unused imports or dead code
-- [ ] **Pre-commit:** `pre-commit run --all-files` — clean
-- [ ] **E2E (manual):**
+- [x] (2026-03-07) **Unit tests (Python):** `cd workers && python -m pytest tests/ -v` — all pass including new simple chat tests
+- [x] (2026-03-07) **Unit tests (Go):** `go test ./internal/service/... -v -run Conversation` — SendMessage uses NATS
+- [x] (2026-03-07) **Go compilation:** `go build ./...` — no unused imports or dead code
+- [x] (2026-03-07) **Pre-commit:** `pre-commit run --all-files` — clean
+- [x] (2026-03-07) **E2E (manual):**
   - Send simple chat message -> verify streaming works via NATS path (not direct LiteLLM)
   - Send agentic chat message -> verify still works as before (regression)
   - Navigate away during active chat -> verify global indicator shows in sidebar
   - Navigate back to chat -> verify messages loaded from DB + streaming resumes
   - Send message with routing enabled -> verify HybridRouter/Blocklist apply to simple chat too
-- [ ] **Regression:** `cd workers && python -m pytest tests/ -v` and `go test ./... -count=1`
+- [x] (2026-03-07) **Regression:** `cd workers && python -m pytest tests/ -v` and `go test ./... -count=1`
 
 ---
 
