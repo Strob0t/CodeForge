@@ -173,6 +173,7 @@
 
 - [x] (2026-02-17) Token budget management per task (ContextPack domain model with token budget + entries; EstimateTokens heuristic len/4, ScoreFileRelevance keyword matching; configurable budget default_context_budget and prompt reserve)
 - [x] (2026-02-17) Context packing as structured artifacts (ContextOptimizerService: scan workspace → score → pack within budget → persist; SharedContextService: team-level shared state with NATS notifications; pre-packed context injected into RunStartPayload for Python workers; 4 new REST endpoints task context CRUD, shared context CRUD; 26+ new test functions Go domain + service + Python, all passing)
+- [x] (2026-03-07) Proactive context injection for conversations (BuildConversationContext + assembleAndPack refactor; 3 new config fields; 7 new tests)
 - [x] (2026-03-07) Proactive context injection for conversations (BuildConversationContext + assembleAndPack refactor; wired into SendMessageAgentic/SendMessageAgenticWithMode; 3 new config fields; 7 new tests; no Python changes needed)
 
 #### 5E. Integration Fixes, WS Events, Modes System (COMPLETED)

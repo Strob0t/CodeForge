@@ -339,6 +339,9 @@ agent:
   max_loop_iterations: 50
   agentic_by_default: false
   tool_output_max_chars: 10000
+  context_enabled: false        # Enable proactive context injection for conversations
+  context_budget: 2048          # Token budget for conversation context
+  context_prompt_reserve: 512   # Tokens reserved for prompt in conversation context
   context_enabled: false       # Enable proactive context injection for conversations
   context_budget: 2048         # Token budget for conversation context (smaller than orchestration's 4096)
   context_prompt_reserve: 512  # Tokens reserved for prompt overhead
@@ -596,6 +599,17 @@ Goals reach agents through two complementary paths:
 1. **System prompt injection** -- `renderGoalContext()` in `conversation_agent.go` fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, renders them as structured markdown grouped by kind, and injects them into the `GoalContext` template field of the agent system prompt.
 
 2. **Context pack entries** -- `ContextOptimizerService` includes goal entries (kind `EntryGoal`) as high-priority candidates during context packing, ensuring goals survive token budget trimming.
+
+#### Proactive Context Injection for Conversations
+
+Conversations can optionally pre-pack codebase context into the NATS payload before the agent loop starts.
+
+- **Opt-in**: Set `agent.context_enabled: true` in config YAML
+- **Pipeline**: Reuses the existing ContextOptimizerService parallel pipeline
+- **Budget**: Separate token budget (context_budget: 2048) smaller than orchestration
+- **Graceful degradation**: Conversation proceeds without pre-packed context on failure
+- **Key files**: context_optimizer.go, conversation_agent.go, conversation.go
+- **Python side**: No changes needed
 
 #### Auto-Discovery
 

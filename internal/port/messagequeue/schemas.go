@@ -444,7 +444,6 @@ type ConversationRunStartPayload struct {
 	MicroagentPrompts []string                     `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
 	Trust             *trust.Annotation            `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
 	RoutingEnabled    bool                         `json:"routing_enabled,omitempty"`    // Intelligent routing enabled (Phase 29)
-	Agentic           bool                         `json:"agentic"`                      // false = simple single-turn chat, true = multi-turn tool loop
 }
 
 // ConversationRunCompletePayload is the schema for conversation.run.complete messages.
