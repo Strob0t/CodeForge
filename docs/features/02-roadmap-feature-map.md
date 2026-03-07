@@ -103,16 +103,6 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - [x] Frontend: Import Specs button, Import from PM form (provider dropdown + project ref), import result display.
 - [x] 24 new adapter tests (8 openspec, 7 markdownspec, 9 githubpm), all passing.
 
-### TODOs (Phase 9+)
+### Open Items
 
-Tracked in [todo.md](../todo.md) under Phase 9+.
-
-- [ ] Spec Kit adapter (`adapter/speckit/`).
-- [ ] Autospec adapter (`adapter/autospec/`).
-- [x] (2026-02-19) Gitea/Forgejo PM adapter (`adapter/gitea/`) -- full CRUD via REST API.
-- [x] (2026-02-19) Bidirectional Sync Service (`service/sync.go`) -- pull/push/bidi directions.
-- [x] (2026-02-19) PM Webhook sync (GitHub Issues, GitLab Issues, Plane.so) -- `service/pm_webhook.go`.
-- [x] (2026-02-19) Slack/Discord notification adapters -- `adapter/slack/`, `adapter/discord/`, notifier registry.
-- [ ] Plane.so PM adapter (REST API, full item CRUD).
-- [ ] Full Auto-Detection Engine (`service/detection.go`) with platform + file detectors.
-- [ ] Frontend: Feature-Map editor (visual drag-and-drop).
+> **Task tracking:** See [docs/todo.md](../todo.md) for current open items related to Roadmap/Feature-Map.

@@ -3658,6 +3658,11 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 | Orchestration Fixes | CR39-CR41 | S | Fix TOCTOU race, config mutation, add tests |
 | Runtime Test Coverage | CR17 | L | Write tests for runtime_lifecycle, runtime_execution, runtime_approval |
 
+**Follow-up items resolved (2026-03-07):**
+- [x] (2026-03-07) CR-N02: Removed orphaned `tasks.created` NATS publish from `TaskService.Create` — no subscriber existed
+- [x] (2026-03-07) CR-N03: Replaced `map[string]any` with concrete `BenchmarkSummary` struct in `BenchmarkRunResultPayload`
+- [x] (2026-03-07) CR-M01: Added migration 058 with composite tenant-prefixed indexes on `agent_events`
+
 ### Documentation-Code Reconciliation (2026-03-05)
 
 Gaps identified between documentation claims and actual Python codebase implementation.
@@ -3704,3 +3709,237 @@ Gaps identified between documentation claims and actual Python codebase implemen
   3. Failure handler with rollback capability
   4. Chain tracking metadata for multi-hop handoffs
 - **Effort:** 2-3 days | **Priority:** Low
+
+---
+
+### Unified LLM Path + Global Run Tracking (Architecture Consolidation)
+
+> **Status:** Planned (2026-03-07)
+> **Priority:** High — Architectural consistency (ADR-006 compliance)
+> **Context:** Two architectural inconsistencies exist:
+> 1. Go Core makes direct LLM calls for simple chat (`SendMessage()` -> `ChatCompletionStream()`), violating ADR-006 ("Go Control Plane + Python Runtime"). Features like HybridRouter, Blocklist, Fallback, Cost Tracking, Memory, and Quality Gates must be duplicated or are missing for simple chat.
+> 2. Frontend loses streaming state on page navigation. ChatPanel registers AG-UI event listeners locally; `onCleanup()` removes them on unmount. Backend keeps running, results saved to DB, but no UI indication of active run.
+>
+> **Goal:** All LLM interaction through Python Worker via NATS (single code path). Go Core becomes pure Control Plane. Frontend shows global "run active" indicator surviving page navigation.
+>
+> **Plan file:** `/home/vscode/.claude/plans/frolicking-hugging-oasis.md`
+
+#### Part A: Unified LLM Path (Backend) — All Chat via Python Worker
+
+**Current Flow:**
+```
+Simple Chat:   POST /messages -> Go Core -> LiteLLM (direct) -> stream via WS callback
+Agentic Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS -> Go Core -> WS
+```
+
+**Target Flow:**
+```
+ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS -> Go Core -> WS
+```
+
+**Key Insight:** The existing agentic pipeline already handles streaming:
+- Python Worker: `runtime.send_output(text)` -> publishes to NATS `runs.output`
+- Go Core: subscribes to `runs.output` -> broadcasts `AGUITextMessage` via WS (`internal/service/runtime.go:585-602`)
+- Missing piece: agent loop sends full text as one blob (`agent_loop.py:320-322`), needs per-chunk streaming
+
+##### Step A1: Schema — Add `agentic` field to NATS payload
+
+- [ ] **Go:** Add `Agentic bool` field to `ConversationRunStartPayload` in `internal/port/messagequeue/schemas.go` (~line 428)
+  ```go
+  Agentic bool `json:"agentic"` // false = simple single-turn chat, true = multi-turn tool loop
+  ```
+- [ ] **Python:** Add `agentic: bool = True` field to corresponding Pydantic model in `workers/codeforge/models.py` (~line 415)
+- [ ] **Tests:** Verify JSON round-trip (Go marshal -> Python unmarshal) for both `agentic: true` and `agentic: false`
+
+##### Step A2: Python Worker — Simple chat handler
+
+- [ ] **File:** `workers/codeforge/consumer/_conversation.py` — in `_handle_conversation_run()`
+- [ ] Add branch after existing setup (runtime, tools, history, routing):
+  ```python
+  if not run_msg.agentic:
+      # Simple single-turn: one LLM call, stream chunks via send_output
+      result = await self._run_simple_chat(run_msg, messages, primary_model, runtime)
+  else:
+      # Existing agentic loop
+      result = await executor.run(messages, config=loop_cfg)
+  ```
+- [ ] Implement `_run_simple_chat()` method:
+  - Call `self._llm.chat_completion_stream()` with `on_chunk` callback
+  - `on_chunk` callback publishes each text chunk via `runtime.send_output(chunk)` for real-time streaming
+  - Return `AgentLoopResult` with final content, tokens, cost
+  - No tool calling, no loop — single LLM call
+- [ ] **Tests:** Unit test for `_run_simple_chat()` with mocked LLM client and runtime
+
+##### Step A3: Per-chunk streaming in Python Worker
+
+- [ ] **File:** `workers/codeforge/agent_loop.py` (~line 300)
+- [ ] Current behavior: `on_chunk=streamed_text.append` -> sends full text as one blob at end
+- [ ] For simple mode (non-agentic): pass `on_chunk` that calls `runtime.send_output()` per chunk
+- [ ] For agentic mode: keep current behavior (full text after each iteration) — agent loop needs complete text to decide on tool calls
+- [ ] **File:** `workers/codeforge/llm.py` (lines 600-659) — verify `chat_completion_stream()` SSE parsing delivers chunks correctly to callback
+- [ ] **Tests:** Verify per-chunk streaming sends multiple `runs.output` NATS messages (not one blob)
+
+##### Step A4: Go Core — Replace direct LLM call with NATS dispatch
+
+- [ ] **File:** `internal/service/conversation.go` (lines 193-328) — `SendMessage()` method
+- [ ] Replace direct LiteLLM streaming path with NATS dispatch:
+  1. Store user message in DB (keep as-is, lines 210-218)
+  2. Build history and system prompt (keep as-is, lines 220-253)
+  3. Broadcast `AGUIRunStarted` (keep as-is, lines 257-261)
+  4. **Instead of** `s.llm.ChatCompletionStream()`:
+     - Build `ConversationRunStartPayload` with `Agentic: false`
+     - Set `Termination.MaxSteps = 1` (single LLM call, no tool loop)
+     - Publish to NATS `conversation.run.start`
+     - Return immediately (fire-and-forget)
+  5. Remove direct LiteLLM streaming callback and response storage (lines 270-327)
+- [ ] Response storage and `AGUIRunFinished` broadcast already handled by `HandleConversationRunComplete()` (existing NATS completion handler)
+- [ ] **Reuse from `SendMessageAgentic()`:**
+  - `s.historyToPayload(history)` for message conversion
+  - `s.resolveModel()` for model resolution
+  - `s.queue.PublishWithDedup()` for NATS publish
+- [ ] **Tests:** Go unit test verifying `SendMessage()` publishes to NATS instead of calling LiteLLM directly
+
+##### Step A5: HTTP handler — Unified async response
+
+- [ ] **File:** `internal/adapter/http/handlers_conversation.go` (~lines 79-107)
+- [ ] Currently: agentic returns `202 Accepted` with `{ run_id }`, simple returns `201 Created` with full message (blocks until LLM done)
+- [ ] Change to: **Always return `202 Accepted`** with `{ run_id }` — frontend already handles this for agentic mode
+- [ ] Remove the branching logic between `SendMessage()` (201) and `SendMessageAgentic()` (202) — both now async
+- [ ] **Tests:** HTTP handler test verifying 202 response for all message types
+
+##### Step A6: Cleanup — Remove direct LiteLLM dependency from conversation service
+
+- [ ] **File:** `internal/service/conversation.go` — after migration, `SendMessage()` no longer needs `s.llm.ChatCompletionStream()`
+- [ ] Remove `llm` field from `ConversationService` if no other method uses it for chat (keep `resolveModel()` which reads config, not LLM)
+- [ ] Update `cmd/codeforge/main.go` wiring if ConversationService constructor changes
+- [ ] **Tests:** Verify Go compilation, run `go test ./internal/service/... -v -run Conversation`
+
+#### Part B: Global Run Tracking (Frontend)
+
+##### Step B1: Create `ConversationRunProvider`
+
+- [ ] **New file:** `frontend/src/components/ConversationRunProvider.tsx`
+- [ ] Follow established provider pattern (`SidebarProvider`, `AuthProvider`, `WebSocketProvider`):
+  ```typescript
+  interface ConversationRunContextValue {
+    activeRuns: Accessor<Set<string>>;     // Set of conversation IDs with active runs
+    isRunActive: (id: string) => boolean;  // Check if specific conversation has active run
+  }
+  ```
+- [ ] Subscribe to `agui.run_started` -> add `run_id` to set
+- [ ] Subscribe to `agui.run_finished` -> remove `run_id` from set
+- [ ] Lives at app root (between `WebSocketProvider` and route content)
+- [ ] Survives page navigation (unlike ChatPanel-local state)
+
+##### Step B2: Wire into App component tree
+
+- [ ] **File:** `frontend/src/App.tsx`
+- [ ] Add `<ConversationRunProvider>` after `<WebSocketProvider>`:
+  ```tsx
+  <WebSocketProvider>
+    <ConversationRunProvider>
+      <AuthenticatedApp />
+    </ConversationRunProvider>
+  </WebSocketProvider>
+  ```
+
+##### Step B3: Add run indicator to sidebar/navigation
+
+- [ ] **File:** `frontend/src/components/Sidebar.tsx` (or equivalent navigation component)
+- [ ] Use `useConversationRuns()` hook from the provider
+- [ ] Show a pulsing dot / badge next to "Chat" nav item when `activeRuns().size > 0`
+- [ ] Minimal UI change — just an indicator, not a full panel
+
+##### Step B4: ChatPanel consults global tracker on mount
+
+- [ ] **File:** `frontend/src/features/project/ChatPanel.tsx`
+- [ ] On mount:
+  1. Load messages from DB (existing behavior)
+  2. Call `isRunActive(activeConversation())` from global tracker
+  3. If active: set `agentRunning(true)` and subscribe to streaming events
+  4. New streaming events arrive naturally via existing WS event handlers
+- [ ] Seamless resume: user navigates away, comes back, sees run still active with live streaming
+
+##### Step B5: Unified HTTP response handling in ChatPanel
+
+- [ ] **File:** `frontend/src/features/project/ChatPanel.tsx`
+- [ ] Currently `sendMessage()` handles two response types (201 with message vs 202 with run_id)
+- [ ] After Part A, it's always 202 — simplify the handler to only handle `{ run_id }` response
+- [ ] Remove dead code for 201 response parsing
+
+#### Execution Order
+
+| # | Step | Layer | Dependency | Description |
+|---|------|-------|------------|-------------|
+| 1 | A1 | Go + Python | None | Schema: add `agentic` bool to NATS payload |
+| 2 | A2 | Python | A1 | Simple chat handler in conversation consumer |
+| 3 | A3 | Python | A2 | Per-chunk streaming via `runtime.send_output()` |
+| 4 | A4 | Go | A1 | Replace `SendMessage()` direct LLM with NATS dispatch |
+| 5 | A5 | Go | A4 | Unify HTTP handler to always return 202 |
+| 6 | A6 | Go | A4, A5 | Remove unused LiteLLM direct call from service |
+| 7 | B1 | Frontend | None (parallel with A) | Create ConversationRunProvider |
+| 8 | B2 | Frontend | B1 | Wire provider into App component tree |
+| 9 | B3 | Frontend | B2 | Sidebar run indicator |
+| 10 | B4+B5 | Frontend | B2, A5 | ChatPanel integration + unified response |
+
+#### Critical Files (Quick Reference)
+
+| File | Layer | Change |
+|------|-------|--------|
+| `internal/port/messagequeue/schemas.go` | Go | Add `Agentic bool` to payload |
+| `internal/service/conversation.go` | Go | Replace direct LLM call with NATS dispatch |
+| `internal/service/conversation_agent.go` | Go | Share more code with unified path |
+| `internal/adapter/http/handlers_conversation.go` | Go | Always return 202 |
+| `workers/codeforge/models.py` | Python | Add `agentic: bool` field |
+| `workers/codeforge/consumer/_conversation.py` | Python | Add `_run_simple_chat()` method |
+| `workers/codeforge/agent_loop.py` | Python | Per-chunk streaming callback |
+| `workers/codeforge/llm.py` | Python | Verify SSE chunk delivery |
+| `frontend/src/components/ConversationRunProvider.tsx` | Frontend | New: global run tracker |
+| `frontend/src/App.tsx` | Frontend | Wire provider into tree |
+| `frontend/src/features/project/ChatPanel.tsx` | Frontend | Consult global tracker, simplify send |
+| `frontend/src/components/Sidebar.tsx` | Frontend | Run indicator badge |
+
+#### Verification Checklist
+
+- [ ] **Unit tests (Python):** `cd workers && python -m pytest tests/ -v` — all pass including new simple chat tests
+- [ ] **Unit tests (Go):** `go test ./internal/service/... -v -run Conversation` — SendMessage uses NATS
+- [ ] **Go compilation:** `go build ./...` — no unused imports or dead code
+- [ ] **Pre-commit:** `pre-commit run --all-files` — clean
+- [ ] **E2E (manual):**
+  - Send simple chat message -> verify streaming works via NATS path (not direct LiteLLM)
+  - Send agentic chat message -> verify still works as before (regression)
+  - Navigate away during active chat -> verify global indicator shows in sidebar
+  - Navigate back to chat -> verify messages loaded from DB + streaming resumes
+  - Send message with routing enabled -> verify HybridRouter/Blocklist apply to simple chat too
+- [ ] **Regression:** `cd workers && python -m pytest tests/ -v` and `go test ./... -count=1`
+
+---
+
+### Feature Roadmap — Consolidated Open Items (2026-03-07)
+
+> Extracted from `docs/features/*.md` and centralized here per documentation policy.
+> Feature docs now reference this file instead of maintaining their own TODO lists.
+
+#### Pillar 1: Project Dashboard
+
+- [ ] Implement GitHub adapter with OAuth flow — only Copilot token exchange exists (`internal/adapter/copilot/`), no full GitHub OAuth integration
+- [ ] Verify GitHub adapter compatibility with Forgejo/Codeberg — base URL override, API differences untested
+- [ ] Batch operations across selected repos — UI and service layer
+- [ ] Cross-repo search (code, issues) — requires indexing infrastructure
+
+#### Pillar 2: Roadmap/Feature-Map
+
+- [ ] Plane.so PM adapter (REST API, full item CRUD) — webhook handler exists (`service/pm_webhook.go`), full provider missing
+- [ ] Full Auto-Detection Engine (`service/detection.go`) — partial wrapper exists, needs platform + file detectors
+- [ ] Frontend: Feature-Map editor (visual drag-and-drop) — no implementation yet
+
+#### Pillar 3: Multi-LLM Provider
+
+- [ ] User-Key Mapping (secure storage, virtual keys per CodeForge user) — no implementation yet
+- [ ] Distributed tracing (OpenTelemetry full pipeline) — partial exists in `internal/adapter/otel/` (228 LOC), needs end-to-end trace correlation
+
+#### Pillar 4: Agent Orchestration
+
+- [ ] Enhance CLI wrappers for Goose, OpenHands, OpenCode, Plandex — basic wrappers exist in `workers/codeforge/backends/`, needs advanced features (streaming, interactive mode, config passthrough)
+- [ ] Trajectory replay UI and audit trail — domain model + service exist (`internal/service/trajectory.go`), frontend UI missing
+- [ ] Session events as source of truth (Resume/Fork/Rewind) — domain model + service exist (`internal/service/session.go`), full integration TBD

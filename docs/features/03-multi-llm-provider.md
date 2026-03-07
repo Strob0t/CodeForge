@@ -179,12 +179,6 @@ Automatic retry with exponential backoff for transient LLM provider failures, pl
 - [x] LiteLLM proxy retry reduced 2 -> 1 (app-level retry handles escalation)
 - [x] 64 tests across 4 test files
 
-### TODOs (Phase 9+)
+### Open Items
 
-Tracked in [todo.md](../todo.md) under Phase 9+.
-
-- [ ] User-Key Mapping (secure storage, virtual keys per CodeForge user).
-- [x] Scenario Router (Phase 29 -- intelligent routing replaces manual tag mapping).
-- [ ] Local Model Discovery (Ollama, LM Studio auto-detection).
-- [ ] Copilot Token Exchange (GitHub OAuth to Copilot bearer token).
-- [ ] Distributed tracing (OpenTelemetry full implementation).
+> **Task tracking:** See [docs/todo.md](../todo.md) for current open items related to Multi-LLM Provider.

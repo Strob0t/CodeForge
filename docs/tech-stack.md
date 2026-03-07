@@ -118,20 +118,18 @@
 - scikit-learn ^1.6 — TF-IDF vectorization and cosine similarity for collaboration metrics
 - opentelemetry-api + opentelemetry-sdk (optional) — agent execution tracing via OTEL, tool selection and goal decomposition metrics
 
-#### Planned Dependencies (not yet installed)
+#### Future Dependencies (not yet installed)
 
-- SVN Operations (`os/exec` wrapper around `svn` CLI) — Phase 9+
-- KeyBERT (Keyword Extraction for Retrieval) — Phase 9+
-- LangGraph (Agent Orchestration) — Phase 9+
-- OpenTelemetry SDKs (Go + Python) — Phase 9+
+- KeyBERT (Keyword Extraction for Retrieval) — under evaluation
+- LangGraph (Agent Orchestration) — under evaluation
 
 #### Protocols & Standards
 
 - MCP (Model Context Protocol) — Agent-to-Tool communication, JSON-RPC 2.0, Anthropic (Go Core: MCP server + client registry; Python Workers: MCP client for agent tool access)
 - LSP (Language Server Protocol) — code intelligence for agents, Microsoft (Go Core: LSP server lifecycle management per project language)
-- OpenTelemetry GenAI — LLM/agent observability, traces + metrics, CNCF (LiteLLM: native OTEL export; Go: `go.opentelemetry.io/otel` v1.40 + SDK + OTLP gRPC exporters + `otelhttp` middleware; Python: `opentelemetry-api` + `opentelemetry-sdk`, planned)
-- A2A (Agent-to-Agent Protocol) — stub with Agent Cards + task create/get endpoints
-- AG-UI (Agent-User Interaction Protocol) — event types defined, dual-emit planned
+- OpenTelemetry GenAI — LLM/agent observability, traces + metrics, CNCF (LiteLLM: native OTEL export; Go: `go.opentelemetry.io/otel` v1.40 + SDK + OTLP gRPC exporters + `otelhttp` middleware; Python: `opentelemetry-api` + `opentelemetry-sdk`)
+- A2A (Agent-to-Agent Protocol v0.3.0) — full implementation with AgentCard, JSON-RPC task lifecycle, inbound/outbound federation, trust annotations, push notifications (Phase 27)
+- AG-UI (Agent-User Interaction Protocol) — 8 event types emitted via WebSocket, Go + Python + Frontend integration (Phase 17+)
 
 #### Agent Backend Integration (Phase 9+)
 

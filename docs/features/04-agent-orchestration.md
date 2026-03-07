@@ -611,15 +611,9 @@ Goal detection runs automatically during `SetupProject()` (Step 4) after repo cl
 | `internal/service/project.go` | Auto-detection in `SetupProject()` Step 4 |
 | `frontend/src/features/project/GoalsPanel.tsx` | Goal management UI |
 
-### TODOs (Phase 9+)
+### Open Items
 
-Tracked in [todo.md](../todo.md) under Phase 9+.
-
-- [ ] Enhance CLI wrappers for Goose, OpenHands, OpenCode, Plandex (basic wrappers exist, needs advanced features).
-- [ ] Trajectory replay UI and audit trail.
-- [ ] Session events as source of truth (Resume/Fork/Rewind).
-- [x] A2A protocol integration (Phase 27 — see below).
-- [x] AG-UI protocol integration (agent to frontend streaming) — implemented in Phase 17+.
+> **Task tracking:** See [docs/todo.md](../todo.md) for current open items related to Agent Orchestration.
 
 ### A2A Protocol Integration (Phase 27)
 

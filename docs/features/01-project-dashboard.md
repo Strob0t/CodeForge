@@ -86,13 +86,6 @@ POST   /api/v1/projects/{id}/checkout      # Switch branch
 - [x] Optimistic locking (version field) on projects.
 - [x] Multi-tenancy preparation (tenant_id on projects).
 
-### TODOs (Phase 9+)
+### Open Items
 
-Tracked in [todo.md](../todo.md) under Phase 9+.
-
-- [ ] Implement GitHub adapter with OAuth.
-- [ ] Implement SVN adapter (CLI wrapper).
-- [ ] Verify GitHub adapter compatibility with Forgejo/Codeberg (base URL override, API differences).
-- [ ] Auto-detect provider type from URL.
-- [ ] Batch operations across selected repos.
-- [ ] Cross-repo search.
+> **Task tracking:** See [docs/todo.md](../todo.md) for current open items related to Project Dashboard.
