@@ -855,12 +855,13 @@ def main() -> int:
                 with psycopg.connect(db_url) as conn:
                     findings.extend(get_live_findings(conn))
             else:
-                pass
+                print("Warning: --live requires DATABASE_URL env var", file=sys.stderr)
         except ImportError:
-            pass
+            print("Warning: --live requires psycopg package", file=sys.stderr)
 
     score = calculate_score(findings)
-    format_output(findings, score, tables, indexes, migrations, fmt=args.format)
+    output = format_output(findings, score, tables, indexes, migrations, fmt=args.format)
+    print(output)
 
     if args.threshold and score < args.threshold:
         return 1
