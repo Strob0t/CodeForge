@@ -9,11 +9,11 @@ import (
 	"sync"
 	"text/template"
 
+	"encoding/json"
+
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -68,7 +68,6 @@ type CompletionResult struct {
 // ConversationService manages conversations and LLM interactions.
 type ConversationService struct {
 	db            database.Store
-	llm           *litellm.Client
 	hub           broadcast.Broadcaster
 	queue         messagequeue.Queue
 	model         string // default model name for LiteLLM
@@ -96,14 +95,12 @@ type ConversationService struct {
 // NewConversationService creates a new ConversationService.
 func NewConversationService(
 	db database.Store,
-	llm *litellm.Client,
 	hub broadcast.Broadcaster,
 	defaultModel string,
 	modeSvc *ModeService,
 ) *ConversationService {
 	return &ConversationService{
 		db:                db,
-		llm:               llm,
 		hub:               hub,
 		model:             defaultModel,
 		modeSvc:           modeSvc,
@@ -194,24 +191,24 @@ func (s *ConversationService) ListMessages(ctx context.Context, conversationID s
 	return s.db.ListMessages(ctx, conversationID)
 }
 
-// SendMessage stores the user message, calls LiteLLM, stores the assistant response,
-// and broadcasts it via WebSocket AG-UI events. This is the simple (non-agentic) path.
+// SendMessage stores the user message and dispatches a simple (non-agentic) chat run
+// to the Python worker via NATS. The result arrives asynchronously via WebSocket AG-UI
+// events and is stored by HandleConversationRunComplete.
 func (s *ConversationService) SendMessage(ctx context.Context, conversationID string, req conversation.SendMessageRequest) (*conversation.Message, error) {
 	if req.Content == "" {
 		return nil, errors.New("content is required")
 	}
+	if s.queue == nil {
+		return nil, errors.New("chat requires NATS queue")
+	}
 
-	// OTEL: conversation run span
-	_, runSpan := cfotel.StartRunSpan(ctx, conversationID, conversationID, "")
-	defer runSpan.End()
-
-	// Verify conversation exists
+	// Verify conversation exists.
 	conv, err := s.db.GetConversation(ctx, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 
-	// Store user message
+	// Store user message.
 	userMsg := &conversation.Message{
 		ConversationID: conversationID,
 		Role:           "user",
@@ -221,114 +218,77 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		return nil, fmt.Errorf("store user message: %w", err)
 	}
 
-	// Build chat messages from history
-	messages, err := s.db.ListMessages(ctx, conversationID)
+	// Load full conversation history.
+	history, err := s.db.ListMessages(ctx, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
 
-	// Build dynamic system prompt from template
+	// Build system prompt and convert history.
 	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
+	protoMessages := s.historyToPayload(history)
 
-	chatMessages := make([]litellm.ChatMessage, 0, len(messages)+1)
-	chatMessages = append(chatMessages, litellm.ChatMessage{
-		Role:    "system",
-		Content: systemPrompt,
-	})
-	for i := range messages {
-		// Skip system messages (we inject our own above).
-		if messages[i].Role == "system" {
-			continue
-		}
-		// Skip tool result messages and assistant messages that were pure
-		// tool-call placeholders (no human-readable content). These are
-		// agentic loop internals stored in the DB but not valid for the
-		// simple chat path — many providers (e.g. Mistral) reject
-		// role="tool" without matching tool_calls in the request.
-		if messages[i].Role == "tool" {
-			continue
-		}
-		if messages[i].Role == "assistant" && messages[i].Content == "" && len(messages[i].ToolCalls) > 0 {
-			continue
-		}
-		chatMessages = append(chatMessages, litellm.ChatMessage{
-			Role:    messages[i].Role,
-			Content: messages[i].Content,
-		})
+	// Resolve model.
+	model := s.resolveModel()
+	if model == "" {
+		return nil, errors.New("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
 	}
 
-	// Broadcast run started event
+	// Use conversation ID as run ID.
+	runID := conversationID
+
+	payload := messagequeue.ConversationRunStartPayload{
+		RunID:          runID,
+		ConversationID: conversationID,
+		ProjectID:      conv.ProjectID,
+		Messages:       protoMessages,
+		SystemPrompt:   systemPrompt,
+		Model:          model,
+		Agentic:        false,
+		Termination: messagequeue.TerminationPayload{
+			MaxSteps:       1,
+			TimeoutSeconds: 120,
+		},
+		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal conversation run start: %w", err)
+	}
+
+	// Broadcast run started via WebSocket.
 	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
-		RunID:     conversationID,
+		RunID:     runID,
 		ThreadID:  conversationID,
 		AgentName: "assistant",
 	})
 
-	// Resolve model for non-agentic chat.
-	chatModel := s.resolveModel()
-	if chatModel == "" {
-		return nil, errors.New("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
-	}
-
-	// Call LiteLLM with streaming — each chunk is broadcast via AG-UI text_message.
-	llmResp, err := s.llm.ChatCompletionStream(ctx, litellm.ChatCompletionRequest{
-		Model:    chatModel,
-		Messages: chatMessages,
-	}, func(chunk litellm.StreamChunk) {
-		if chunk.Done {
-			return
-		}
-		if chunk.Content != "" {
-			s.hub.BroadcastEvent(ctx, ws.AGUITextMessage, ws.AGUITextMessageEvent{
-				RunID:   conversationID,
-				Role:    "assistant",
-				Content: chunk.Content,
-			})
-		}
-	})
-	if err != nil {
-		slog.Error("llm chat completion stream failed", "conversation_id", conversationID, "error", err)
-		runSpan.SetStatus(codes.Error, err.Error())
-		if s.metrics != nil {
-			s.metrics.RunsFailed.Add(ctx, 1, metric.WithAttributes(
-				attribute.String("type", "conversation"),
-			))
-		}
+	// Publish to NATS for the Python worker.
+	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, "conv-start-"+runID); err != nil {
 		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
-			RunID:  conversationID,
+			RunID:  runID,
 			Status: "failed",
 			Error:  err.Error(),
 		})
-		return nil, fmt.Errorf("llm completion: %w", err)
-	}
-
-	// Store assistant message with the full accumulated response.
-	assistantMsg := &conversation.Message{
-		ConversationID: conversationID,
-		Role:           "assistant",
-		Content:        llmResp.Content,
-		TokensIn:       llmResp.TokensIn,
-		TokensOut:      llmResp.TokensOut,
-		Model:          llmResp.Model,
-	}
-	assistantMsg, err = s.db.CreateMessage(ctx, assistantMsg)
-	if err != nil {
-		return nil, fmt.Errorf("store assistant message: %w", err)
+		return nil, fmt.Errorf("publish conversation run start: %w", err)
 	}
 
 	if s.metrics != nil {
-		s.metrics.RunsCompleted.Add(ctx, 1, metric.WithAttributes(
+		s.metrics.RunsStarted.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("type", "conversation"),
+			attribute.String("project.id", conv.ProjectID),
 		))
 	}
 
-	// Broadcast run finished.
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
-		RunID:  conversationID,
-		Status: "completed",
-	})
+	slog.Info("conversation simple run dispatched",
+		"run_id", runID,
+		"conversation_id", conversationID,
+		"project_id", conv.ProjectID,
+		"model", model,
+	)
 
-	return assistantMsg, nil
+	return nil, nil
 }
 
 // IsAgentic determines whether a conversation message should use the agentic loop.

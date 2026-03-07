@@ -78,7 +78,7 @@ func TestConversation_Create(t *testing.T) {
 	store := &convMockStore{}
 	bc := &mockBroadcaster{}
 	modes := service.NewModeService()
-	svc := service.NewConversationService(store, nil, bc, "gpt-4o", modes)
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
 	ctx := context.Background()
 
 	// Create with title
@@ -119,7 +119,7 @@ func TestConversation_SendMessage_EmptyContent(t *testing.T) {
 	store := &convMockStore{}
 	bc := &mockBroadcaster{}
 	modes := service.NewModeService()
-	svc := service.NewConversationService(store, nil, bc, "gpt-4o", modes)
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
 	ctx := context.Background()
 
 	// SendMessage with empty content should fail validation before touching LLM
@@ -133,7 +133,7 @@ func TestConversation_ListMessages(t *testing.T) {
 	store := &convMockStore{}
 	bc := &mockBroadcaster{}
 	modes := service.NewModeService()
-	svc := service.NewConversationService(store, nil, bc, "gpt-4o", modes)
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
 	ctx := context.Background()
 
 	// Create a conversation
@@ -178,7 +178,7 @@ func TestSendMessageAgentic_ContextPopulatedWhenEnabled(t *testing.T) {
 	q := &captureQueue{}
 	bc := &mockBroadcaster{}
 	modes := service.NewModeService()
-	svc := service.NewConversationService(store, nil, bc, "gpt-4o", modes)
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
 	svc.SetQueue(q)
 
 	agentCfg := &config.Agent{
@@ -229,6 +229,77 @@ func TestSendMessageAgentic_ContextPopulatedWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestSendMessage_DispatchesViaNATS(t *testing.T) {
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "Test", WorkspacePath: "/tmp/test"},
+	}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	q := &captureQueue{}
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{DefaultModel: "gpt-4o"})
+	ctx := context.Background()
+
+	// Create conversation
+	conv, err := svc.Create(ctx, conversation.CreateRequest{
+		ProjectID: "proj-1",
+		Title:     "NATS Dispatch Test",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// SendMessage should now dispatch via NATS, not call LLM directly
+	_, err = svc.SendMessage(ctx, conv.ID, conversation.SendMessageRequest{Content: "Hello"})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	// Verify NATS message was published
+	subject, data := q.snapshot()
+	if subject != messagequeue.SubjectConversationRunStart {
+		t.Fatalf("expected subject %s, got %s", messagequeue.SubjectConversationRunStart, subject)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	// Verify Agentic=false in payload
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Agentic {
+		t.Error("expected Agentic=false for simple chat dispatch")
+	}
+	if payload.ConversationID != conv.ID {
+		t.Errorf("expected conversation_id %s, got %s", conv.ID, payload.ConversationID)
+	}
+	if payload.Model == "" {
+		t.Error("expected non-empty model")
+	}
+	if payload.Termination.MaxSteps != 1 {
+		t.Errorf("expected MaxSteps=1 for simple chat, got %d", payload.Termination.MaxSteps)
+	}
+}
+
+func TestSendMessage_RequiresQueue(t *testing.T) {
+	store := &convMockStore{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	// No queue set — should fail
+	ctx := context.Background()
+
+	conv, _ := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "No Queue"})
+	_, err := svc.SendMessage(ctx, conv.ID, conversation.SendMessageRequest{Content: "Hello"})
+	if err == nil {
+		t.Fatal("expected error when queue is nil")
+	}
+}
+
 func TestSendMessageAgentic_ContextEmptyWhenDisabled(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "handler.go"), []byte("package main\n\nfunc handleAuth() {}"), 0o644)
@@ -240,7 +311,7 @@ func TestSendMessageAgentic_ContextEmptyWhenDisabled(t *testing.T) {
 	q := &captureQueue{}
 	bc := &mockBroadcaster{}
 	modes := service.NewModeService()
-	svc := service.NewConversationService(store, nil, bc, "gpt-4o", modes)
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
 	svc.SetQueue(q)
 
 	agentCfg := &config.Agent{

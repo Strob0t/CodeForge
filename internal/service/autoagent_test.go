@@ -210,7 +210,7 @@ func (m *autoAgentMockStore) ListMessages(_ context.Context, conversationID stri
 func newTestAutoAgentService(store *autoAgentMockStore) *AutoAgentService {
 	hub := &noopBroadcaster{}
 	q := &noopQueue{}
-	convSvc := NewConversationService(store, nil, hub, "test-model", nil)
+	convSvc := NewConversationService(store, hub, "test-model", nil)
 	svc := NewAutoAgentService(store, hub, q, convSvc)
 	// Prevent SendMessage from reaching the nil LLM client by failing early.
 	// Tests that need SendMessage to succeed must clear this explicitly.
@@ -811,7 +811,7 @@ func TestNewAutoAgentService(t *testing.T) {
 	store := newAutoAgentMockStore()
 	hub := &noopBroadcaster{}
 	q := &noopQueue{}
-	convSvc := NewConversationService(store, nil, hub, "model", nil)
+	convSvc := NewConversationService(store, hub, "model", nil)
 
 	svc := NewAutoAgentService(store, hub, q, convSvc)
 

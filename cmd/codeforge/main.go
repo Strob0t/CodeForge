@@ -499,7 +499,7 @@ func run() error {
 	// --- Conversation Service ---
 	// Use the static config model as fallback; the registry provides live best model.
 	conversationModel := cfg.LiteLLM.ConversationModel
-	conversationSvc := service.NewConversationService(store, llmClient, hub, conversationModel, modeSvc)
+	conversationSvc := service.NewConversationService(store, hub, conversationModel, modeSvc)
 	conversationSvc.SetMetrics(metrics)
 	conversationSvc.SetQueue(queue)
 	conversationSvc.SetAgentConfig(&cfg.Agent)
