@@ -71,6 +71,11 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# Consumer error backoff config (overridable via env vars)
+_MAX_CONSECUTIVE_ERRORS = int(os.environ.get("CODEFORGE_CONSUMER_MAX_ERRORS", "10"))
+_BACKOFF_MULTIPLIER = float(os.environ.get("CODEFORGE_CONSUMER_BACKOFF_MULTIPLIER", "0.5"))
+_BACKOFF_MAX = float(os.environ.get("CODEFORGE_CONSUMER_BACKOFF_MAX", "5.0"))
+
 
 class TaskConsumer(
     ConsumerBaseMixin,
@@ -202,7 +207,7 @@ class TaskConsumer(
     ) -> None:
         """Generic message processing loop shared by all subscriptions."""
         consecutive_errors = 0
-        max_consecutive_errors = 10
+        max_consecutive_errors = _MAX_CONSECUTIVE_ERRORS
         while self._running:
             try:
                 msgs = await sub.fetch(batch=1, timeout=1)
@@ -224,7 +229,7 @@ class TaskConsumer(
                 if consecutive_errors >= max_consecutive_errors:
                     logger.error("too many consecutive errors, stopping loop", subject=label)
                     break
-                await asyncio.sleep(min(consecutive_errors * 0.5, 5.0))
+                await asyncio.sleep(min(consecutive_errors * _BACKOFF_MULTIPLIER, _BACKOFF_MAX))
                 continue
 
             for msg in msgs:
