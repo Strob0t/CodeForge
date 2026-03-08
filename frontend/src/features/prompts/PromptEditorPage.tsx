@@ -1,9 +1,10 @@
-import { batch, createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { PromptSectionRow } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction, useFormState } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -34,65 +35,60 @@ export default function PromptEditorPage() {
   const [previewText, setPreviewText] = createSignal("");
   const [previewTokens, setPreviewTokens] = createSignal(0);
 
-  // Form state
-  const [formName, setFormName] = createSignal("");
-  const [formContent, setFormContent] = createSignal("");
-  const [formPriority, setFormPriority] = createSignal(50);
-  const [formSortOrder, setFormSortOrder] = createSignal(0);
-  const [formEnabled, setFormEnabled] = createSignal(true);
-  const [formMerge, setFormMerge] = createSignal("replace");
-  const [saving, setSaving] = createSignal(false);
+  const form = useFormState({
+    name: "",
+    content: "",
+    priority: 50,
+    sortOrder: 0,
+    enabled: true,
+    merge: "replace",
+  });
 
   function resetForm() {
-    setFormName("");
-    setFormContent("");
-    setFormPriority(50);
-    setFormSortOrder(0);
-    setFormEnabled(true);
-    setFormMerge("replace");
+    form.reset();
     setEditingId(null);
   }
 
   function handleEdit(row: PromptSectionRow) {
-    batch(() => {
-      setFormName(row.name);
-      setFormContent(row.content);
-      setFormPriority(row.priority);
-      setFormSortOrder(row.sort_order);
-      setFormEnabled(row.enabled);
-      setFormMerge(row.merge);
-      setEditingId(row.id);
-      setShowForm(true);
+    form.populate({
+      name: row.name,
+      content: row.content,
+      priority: row.priority,
+      sortOrder: row.sort_order,
+      enabled: row.enabled,
+      merge: row.merge,
     });
+    setEditingId(row.id);
+    setShowForm(true);
   }
 
-  async function handleSave() {
-    if (!formName().trim()) {
-      toast("error", t("prompts.error.nameRequired"));
-      return;
-    }
-    setSaving(true);
-    try {
+  const { run: handleSave, loading: saving } = useAsyncAction(
+    async () => {
+      if (!form.state.name.trim()) {
+        toast("error", t("prompts.error.nameRequired"));
+        return;
+      }
       await api.promptSections.upsert({
         id: editingId() ?? "",
-        name: formName().trim(),
+        name: form.state.name.trim(),
         scope: scope(),
-        content: formContent(),
-        priority: formPriority(),
-        sort_order: formSortOrder(),
-        enabled: formEnabled(),
-        merge: formMerge() as "replace" | "prepend" | "append",
+        content: form.state.content,
+        priority: form.state.priority,
+        sort_order: form.state.sortOrder,
+        enabled: form.state.enabled,
+        merge: form.state.merge as "replace" | "prepend" | "append",
       });
       toast("success", t("prompts.saved"));
       setShowForm(false);
       resetForm();
       refetch();
-    } catch {
-      toast("error", t("prompts.error.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+    {
+      onError: () => {
+        toast("error", t("prompts.error.saveFailed"));
+      },
+    },
+  );
 
   async function handleDelete(id: string) {
     const ok = await confirm({
@@ -162,7 +158,7 @@ export default function PromptEditorPage() {
         >
           {t("prompts.add")}
         </Button>
-        <Button onClick={handlePreview} size="sm" variant="ghost">
+        <Button onClick={() => void handlePreview()} size="sm" variant="ghost">
           {t("prompts.preview")}
         </Button>
       </div>
@@ -190,10 +186,16 @@ export default function PromptEditorPage() {
           </h3>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <FormField label={t("prompts.field.name")}>
-              <Input value={formName()} onInput={(e) => setFormName(e.currentTarget.value)} />
+              <Input
+                value={form.state.name}
+                onInput={(e) => form.setState("name", e.currentTarget.value)}
+              />
             </FormField>
             <FormField label={t("prompts.field.merge")}>
-              <Select value={formMerge()} onChange={(e) => setFormMerge(e.currentTarget.value)}>
+              <Select
+                value={form.state.merge}
+                onChange={(e) => form.setState("merge", e.currentTarget.value)}
+              >
                 <For each={MERGE_OPTIONS}>
                   {(m) => <option value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>}
                 </For>
@@ -205,44 +207,46 @@ export default function PromptEditorPage() {
                   type="range"
                   min="0"
                   max="100"
-                  value={formPriority()}
-                  onInput={(e) => setFormPriority(Number(e.currentTarget.value))}
+                  value={form.state.priority}
+                  onInput={(e) => form.setState("priority", Number(e.currentTarget.value))}
                   class="flex-1"
                 />
-                <span class="w-8 text-center text-xs text-cf-text-muted">{formPriority()}</span>
+                <span class="w-8 text-center text-xs text-cf-text-muted">
+                  {form.state.priority}
+                </span>
               </div>
             </FormField>
             <FormField label={t("prompts.field.sortOrder")}>
               <Input
                 type="number"
-                value={String(formSortOrder())}
-                onInput={(e) => setFormSortOrder(Number(e.currentTarget.value))}
+                value={String(form.state.sortOrder)}
+                onInput={(e) => form.setState("sortOrder", Number(e.currentTarget.value))}
               />
             </FormField>
           </div>
           <FormField label={t("prompts.field.content")} class="mt-3">
             <Textarea
-              value={formContent()}
-              onInput={(e) => setFormContent(e.currentTarget.value)}
+              value={form.state.content}
+              onInput={(e) => form.setState("content", e.currentTarget.value)}
               rows={8}
               class="font-mono text-xs"
             />
             <span class="mt-1 text-xs text-cf-text-muted">
-              ~{estimateTokens(formContent())} tokens
+              ~{estimateTokens(form.state.content)} tokens
             </span>
           </FormField>
           <div class="mt-3 flex items-center gap-2">
             <label class="flex items-center gap-1 text-sm">
               <input
                 type="checkbox"
-                checked={formEnabled()}
-                onChange={(e) => setFormEnabled(e.currentTarget.checked)}
+                checked={form.state.enabled}
+                onChange={(e) => form.setState("enabled", e.currentTarget.checked)}
               />
               {t("prompts.field.enabled")}
             </label>
           </div>
           <div class="mt-4 flex gap-2">
-            <Button onClick={handleSave} size="sm" disabled={saving()}>
+            <Button onClick={() => void handleSave()} size="sm" disabled={saving()}>
               {saving() ? t("common.saving") : t("common.save")}
             </Button>
             <Button
@@ -286,7 +290,7 @@ export default function PromptEditorPage() {
                     <Button onClick={() => handleEdit(row)} size="sm" variant="ghost">
                       {t("common.edit")}
                     </Button>
-                    <Button onClick={() => handleDelete(row.id)} size="sm" variant="ghost">
+                    <Button onClick={() => void handleDelete(row.id)} size="sm" variant="ghost">
                       {t("common.delete")}
                     </Button>
                   </div>
