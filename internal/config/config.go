@@ -286,8 +286,12 @@ type Workspace struct {
 
 // Server holds HTTP server configuration.
 type Server struct {
-	Port       string `yaml:"port"`
-	CORSOrigin string `yaml:"cors_origin"`
+	Port              string        `yaml:"port"`
+	CORSOrigin        string        `yaml:"cors_origin"`
+	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout"`
+	ReadTimeout       time.Duration `yaml:"read_timeout"`
+	WriteTimeout      time.Duration `yaml:"write_timeout"`
+	IdleTimeout       time.Duration `yaml:"idle_timeout"`
 }
 
 // Postgres holds PostgreSQL connection configuration.
@@ -385,8 +389,12 @@ type LSP struct {
 func Defaults() Config {
 	return Config{
 		Server: Server{
-			Port:       "8080",
-			CORSOrigin: "http://localhost:3000",
+			Port:              "8080",
+			CORSOrigin:        "http://localhost:3000",
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       120 * time.Second,
 		},
 		Postgres: Postgres{
 			DSN:             "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable",

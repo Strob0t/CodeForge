@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from typing import Any
 
 from codeforge.backends._base import BackendInfo, ConfigField, OutputCallback, TaskResult
@@ -14,7 +15,23 @@ from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
-_POLL_INTERVAL = 2.0  # seconds between status polls
+
+
+def _env_float(key: str, default: float) -> float:
+    """Read a float from env var, falling back to default."""
+    raw = os.environ.get(key, "")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return default
+
+
+_POLL_INTERVAL = _env_float("CODEFORGE_OPENHANDS_POLL_INTERVAL", 2.0)
+_HTTP_TIMEOUT = _env_float("CODEFORGE_OPENHANDS_HTTP_TIMEOUT", 30.0)
+_HEALTH_TIMEOUT = _env_float("CODEFORGE_OPENHANDS_HEALTH_TIMEOUT", 5.0)
+_CANCEL_TIMEOUT = _env_float("CODEFORGE_OPENHANDS_CANCEL_TIMEOUT", 5.0)
 
 # Terminal states returned by the OpenHands API.
 _SUCCESS_STATES = frozenset({"completed", "finished", "done"})
@@ -49,7 +66,7 @@ class OpenHandsExecutor:
         try:
             import httpx
 
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
                 resp = await client.get(f"{self._url}/api/health")
                 return resp.status_code == 200
         except Exception as exc:
@@ -82,7 +99,7 @@ class OpenHandsExecutor:
 
         logger.info("openhands exec task=%s url=%s", task_id, base)
 
-        async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, headers=headers) as client:
             conversation_id, err = await self._start_conversation(client, base, payload)
             if err:
                 return err
@@ -101,7 +118,7 @@ class OpenHandsExecutor:
             import httpx
 
             base = self._url.rstrip("/")
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=_CANCEL_TIMEOUT) as client:
                 await client.delete(f"{base}/api/conversations/{conversation_id}")
         except Exception as exc:
             logger.warning("openhands cancel failed task=%s: %s", task_id, exc)
