@@ -239,6 +239,12 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 		seen[found] = true
 	}
 
+	// Phase 4: Detect PM platforms from git remote URL and project config.
+	result.Platforms = detectPlatforms(proj)
+	if len(result.Platforms) > 0 {
+		result.Found = true
+	}
+
 	return result, nil
 }
 

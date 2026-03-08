@@ -98,12 +98,21 @@ type CreateFeatureRequest struct {
 	ExternalIDs map[string]string `json:"external_ids,omitempty"`
 }
 
+// PlatformDetection describes a detected PM platform.
+type PlatformDetection struct {
+	Provider   string `json:"provider"`    // "github-issues", "gitlab", "plane"
+	ProjectRef string `json:"project_ref"` // "owner/repo" or "workspace/project"
+	Source     string `json:"source"`      // "git_remote", "config"
+	Confidence string `json:"confidence"`  // "high", "medium"
+}
+
 // DetectionResult describes what was found by auto-detection in a workspace.
 type DetectionResult struct {
-	Found       bool     `json:"found"`
-	FileMarkers []string `json:"file_markers,omitempty"`
-	Format      string   `json:"format,omitempty"`
-	Path        string   `json:"path,omitempty"`
+	Found       bool                `json:"found"`
+	FileMarkers []string            `json:"file_markers,omitempty"`
+	Format      string              `json:"format,omitempty"`
+	Path        string              `json:"path,omitempty"`
+	Platforms   []PlatformDetection `json:"platforms,omitempty"`
 }
 
 // ImportResult summarizes the outcome of a spec or PM import operation.
