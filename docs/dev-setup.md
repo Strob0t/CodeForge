@@ -59,45 +59,95 @@ CodeForge/
 │       └── providers.go      # Blank imports of all active adapters
 ├── internal/
 │   ├── config/               # Hierarchical config system (defaults < YAML < ENV < CLI)
-│   ├── domain/               # Core: Entities, Business Rules
-│   │   ├── agent/            # Agent + Team models
+│   ├── domain/               # Core: Entities, Business Rules (40+ packages)
+│   │   ├── a2a/              # A2A protocol types (AgentCard, Task, Message)
+│   │   ├── agent/            # Agent + Team + Identity models
+│   │   ├── artifact/         # Build artifacts
+│   │   ├── autoagent/        # Automatic agent orchestration
+│   │   ├── benchmark/        # Benchmark evaluation models
+│   │   ├── branchprotection/ # Branch protection rules
 │   │   ├── context/          # Context pack (token budget management)
+│   │   ├── conversation/     # Conversation + message models
 │   │   ├── cost/             # Cost aggregation models
 │   │   ├── errors.go         # Sentinel errors (ErrNotFound, ErrConflict)
 │   │   ├── event/            # Agent event types (22+ types)
-│   │   ├── mcp/             # MCP domain types (ServerDef, ServerTool, validation)
+│   │   ├── experience/       # Experience pool caching
+│   │   ├── feedback/         # Human feedback provider protocol
+│   │   ├── goal/             # Goal discovery models
+│   │   ├── knowledgebase/    # Knowledge base models
+│   │   ├── llmkey/           # Per-user LLM API key models
+│   │   ├── lsp/              # LSP server lifecycle types
+│   │   ├── mcp/              # MCP domain types (ServerDef, ServerTool)
+│   │   ├── memory/           # Composite memory scoring
+│   │   ├── microagent/       # Microagent trigger models
+│   │   ├── mode/             # Agent specialization modes
+│   │   ├── orchestration/    # Handoff, pipeline, DAG flow
+│   │   ├── pipeline/         # Artifact-gated pipelines
 │   │   ├── plan/             # Execution plans (DAG scheduling)
 │   │   ├── policy/           # Policy profiles, presets, validation
 │   │   ├── project/          # Project entity
+│   │   ├── prompt/           # Prompt template models
+│   │   ├── quarantine/       # Message quarantine + risk scoring
 │   │   ├── resource/         # Resource limits (shared across layers)
+│   │   ├── review/           # Periodic review models
 │   │   ├── roadmap/          # Roadmap, Milestone, Feature
+│   │   ├── routing/          # LLM routing + scenario models
 │   │   ├── run/              # Run entity, ToolCall, Stall tracker
-│   │   └── task/             # Task entity
+│   │   ├── settings/         # Project settings models
+│   │   ├── skill/            # Agent skills (reusable snippets)
+│   │   ├── task/             # Task entity
+│   │   ├── tenant/           # Multi-tenancy
+│   │   ├── trust/            # Trust annotations (4 levels)
+│   │   ├── user/             # User + auth models
+│   │   ├── vcsaccount/       # VCS account linking
+│   │   └── webhook/          # Webhook models
 │   ├── git/                  # Git worker pool (semaphore-bounded)
 │   ├── logger/               # Async slog JSON logging
 │   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
-│   ├── port/                 # Interfaces + Registries
+│   ├── port/                 # Interfaces + Registries (13 packages)
+│   │   ├── a2a/              # A2A protocol interface
 │   │   ├── agentbackend/     # Agent backend interface + registry
+│   │   ├── benchprovider/    # Benchmark provider interface
 │   │   ├── broadcast/        # Broadcaster interface (WS events)
 │   │   ├── cache/            # Cache interface (Get/Set/Delete)
 │   │   ├── database/         # Store interface (80+ methods)
 │   │   ├── eventstore/       # Event store interface + trajectory types
+│   │   ├── feedback/         # Feedback provider interface
 │   │   ├── gitprovider/      # Git provider interface + registry
 │   │   ├── messagequeue/     # Message queue interface + schemas
+│   │   ├── notifier/         # Notification interface (Slack, Discord, Email)
 │   │   ├── pmprovider/       # PM provider interface + registry
 │   │   └── specprovider/     # Spec provider interface + registry
-│   ├── adapter/              # Concrete Implementations
+│   ├── adapter/              # Concrete Implementations (31 packages)
+│   │   ├── a2a/              # A2A protocol server/client
 │   │   ├── aider/            # Aider agent backend
+│   │   ├── autospec/         # Autospec spec provider
+│   │   ├── copilot/          # GitHub Copilot token exchange
+│   │   ├── discord/          # Discord notification adapter
+│   │   ├── email/            # Email notification + feedback adapter
+│   │   ├── gitea/            # Gitea/Forgejo adapter
 │   │   ├── githubpm/         # GitHub Issues PM provider (gh CLI)
+│   │   ├── gitlab/           # GitLab adapter
 │   │   ├── gitlocal/         # Local git CLI provider
+│   │   ├── goose/            # Goose agent backend
 │   │   ├── http/             # REST API handlers + routes (80+ endpoints)
 │   │   ├── litellm/          # LiteLLM admin API client
+│   │   ├── lsp/              # LSP server lifecycle management
 │   │   ├── markdownspec/     # Markdown spec provider (ROADMAP.md)
-│   │   ├── natskv/           # NATS JetStream KV cache adapter (L2)
+│   │   ├── mcp/              # MCP server + client registry
 │   │   ├── nats/             # NATS JetStream adapter
+│   │   ├── natskv/           # NATS JetStream KV cache adapter (L2)
+│   │   ├── opencode/         # OpenCode agent backend
+│   │   ├── openhands/        # OpenHands agent backend
 │   │   ├── openspec/         # OpenSpec spec provider (openspec/ dir)
-│   │   ├── postgres/         # PostgreSQL store + 17 migrations
+│   │   ├── otel/             # OpenTelemetry tracing + metrics
+│   │   ├── plandex/          # Plandex agent backend
+│   │   ├── plane/            # Plane.so PM provider
+│   │   ├── postgres/         # PostgreSQL store + 65 migrations
 │   │   ├── ristretto/        # Ristretto in-process cache adapter (L1)
+│   │   ├── slack/            # Slack notification + feedback adapter
+│   │   ├── speckit/          # Spec Kit provider
+│   │   ├── svn/              # SVN provider
 │   │   ├── tiered/           # Tiered cache (L1 + L2)
 │   │   └── ws/               # WebSocket hub + event broadcasting
 │   ├── resilience/           # Circuit breaker
@@ -105,37 +155,25 @@ CodeForge/
 │   └── service/              # Use Cases (Runtime, Orchestrator, Policy, etc.)
 ├── workers/                  # Python AI Workers
 │   └── codeforge/
-│       ├── consumer.py       # NATS queue consumer (all subjects)
+│       ├── agent_loop.py     # Multi-turn agentic loop (LLM -> tools -> repeat)
+│       ├── consumer/         # NATS queue consumer (modular subject handlers)
 │       ├── executor.py       # Agent execution (runtime protocol)
 │       ├── graphrag.py       # GraphRAG code graph builder + searcher
 │       ├── llm.py            # LiteLLM async client (completions, embeddings)
-│       ├── mcp_models.py     # Pydantic MCP models (MCPServerDef, MCPTool)
 │       ├── mcp_workbench.py  # MCP workbench (multi-server, BM25 recommender)
-│       ├── pricing.py        # Fallback model pricing table
-│       ├── quality_gate.py   # Test/lint gate executor
-│       ├── repo_map.py       # tree-sitter repo map generator
+│       ├── models.py         # Pydantic data models
 │       ├── retrieval.py      # Hybrid retrieval (BM25 + semantic + sub-agent)
 │       ├── runtime.py        # Runtime client (Go <-> Python protocol)
-│       ├── models.py         # Pydantic data models
-│       ├── backends/         # Agent backend executors
-│       │   ├── _base.py      # BackendExecutor protocol, BackendInfo, TaskResult
-│       │   ├── router.py     # BackendRouter dispatcher
-│       │   ├── aider.py      # AiderExecutor (real CLI wrapper)
-│       │   ├── goose.py      # GooseExecutor (stub)
-│       │   ├── openhands.py  # OpenHandsExecutor (stub)
-│       │   ├── opencode.py   # OpenCodeExecutor (stub)
-│       │   └── plandex.py    # PlandexExecutor (stub)
-│       ├── evaluation/       # Benchmark evaluation (Phase 20)
-│       │   ├── runner.py     # BenchmarkRunner (dataset execution)
-│       │   ├── metrics.py    # DeepEval metric wrappers
-│       │   ├── litellm_judge.py # LiteLLM judge for DeepEval
-│       │   ├── datasets.py   # YAML dataset loader + result persistence
-│       │   ├── collaboration.py # GEMMAS IDS + UPR metrics
-│       │   └── dag_builder.py # CollaborationDAG from agent messages
-│       └── tracing/          # Agent tracing (Phase 20)
-│           ├── setup.py      # TracingManager (AgentNeo / NoOp)
-│           ├── metrics.py    # AgentNeo metric wrappers
-│           └── dashboard.py  # Optional AgentNeo dashboard
+│       ├── backends/         # Agent backend executors (Aider, Goose, OpenHands, etc.)
+│       ├── evaluation/       # Benchmark evaluation (datasets, runners, metrics)
+│       ├── memory/           # Composite memory scoring (semantic + recency)
+│       ├── orchestration/    # Multi-agent orchestration helpers
+│       ├── routing/          # Hybrid intelligent model routing (MAB, complexity)
+│       ├── schemas/          # Pydantic schema models
+│       ├── skills/           # Reusable agent skill snippets
+│       ├── tools/            # Built-in agent tools (Read, Write, Edit, Bash, etc.)
+│       ├── tracing/          # OpenTelemetry tracing
+│       └── trust/            # Trust annotation helpers
 ├── frontend/                 # SolidJS Web GUI
 │   ├── e2e/                  # Playwright E2E tests (5 browser specs + 12 LLM API specs)
 │   │   └── llm/              # LLM E2E test suite (95 tests, no browser needed)
@@ -150,14 +188,22 @@ CodeForge/
 │       │   ├── layout/       # Sidebar, NavLink, PageLayout, Section
 │       │   └── index.ts      # Barrel: import { Button, Card } from "~/ui"
 │       ├── features/
+│       │   ├── activity/     # Activity feed
+│       │   ├── audit/        # Audit trail viewer
+│       │   ├── auth/         # Login, auth guards
+│       │   ├── benchmarks/   # BenchmarkPage (dev-mode evaluation dashboard)
+│       │   ├── costs/        # CostDashboardPage (global cost overview)
 │       │   ├── dashboard/    # Project list, ProjectCard
-│       │   ├── project/      # ProjectDetailPage, AgentPanel, TaskPanel, RunPanel,
-│       │   │                 # PlanPanel, PolicyPanel, RepoMapPanel, RetrievalPanel,
-│       │   │                 # RoadmapPanel, TrajectoryPanel, CostSection, LiveOutput
+│       │   ├── knowledgebases/ # Knowledge base management
 │       │   ├── llm/          # ModelsPage (LLM model management)
 │       │   ├── mcp/          # MCPServersPage (MCP server management)
-│       │   ├── benchmarks/   # BenchmarkPage (dev-mode evaluation dashboard)
-│       │   └── cost/         # CostDashboardPage (global cost overview)
+│       │   ├── modes/        # Agent modes management
+│       │   ├── project/      # ProjectDetailPage, ChatPanel, WarRoom,
+│       │   │                 # AgentPanel, RunPanel, PlanPanel, PolicyPanel,
+│       │   │                 # RoadmapPanel, FeatureMapPanel, RepoMapPanel
+│       │   ├── prompts/      # Prompt template management
+│       │   ├── scopes/       # Scope/permissions management
+│       │   └── settings/     # Application settings
 │       └── api/              # API Client, Types, WebSocket
 ├── scripts/
 │   ├── test.sh               # Unified test runner (go/python/frontend/integration/e2e)

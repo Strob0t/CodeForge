@@ -118,10 +118,11 @@
 - scikit-learn ^1.6 — TF-IDF vectorization and cosine similarity for collaboration metrics
 - opentelemetry-api + opentelemetry-sdk (optional) — agent execution tracing via OTEL, tool selection and goal decomposition metrics
 
-#### Future Dependencies (not yet installed)
+#### MCP & A2A SDKs
 
-- KeyBERT (Keyword Extraction for Retrieval) — under evaluation
-- LangGraph (Agent Orchestration) — under evaluation
+- mcp-go v0.44 (Go MCP SDK) -- MCP server implementation in Go Core
+- a2a-go v0.3.7 (Go A2A SDK) -- Agent-to-Agent protocol client/server
+- mcp v1.0 (Python MCP) -- MCP client in Python Workers
 
 #### Protocols & Standards
 

@@ -12,12 +12,12 @@ Management of multiple repositories across different SCM platforms. Users can ad
 
 | Provider | Adapter | Key Capabilities |
 |---|---|---|
-| GitHub | `adapter/github/` | Clone, PR, Webhooks, Issues, Actions |
+| GitHub | `adapter/githubpm/` | Clone, PR, Webhooks, Issues, Actions |
 | GitLab | `adapter/gitlab/` | Clone, MR, Webhooks, Issues, CI |
 | Git (local) | `adapter/gitlocal/` | Clone, Branch, Diff, Commit |
 | SVN | `adapter/svn/` | Checkout, Update, Diff, Commit |
-| Gitea/Forgejo | `adapter/github/` (compatible) | Same as GitHub with minor adjustments |
-| Codeberg | `adapter/github/` (compatible) | Forgejo instance, same adapter as Gitea/Forgejo |
+| Gitea/Forgejo | `adapter/githubpm/` (compatible) | Same as GitHub with minor adjustments |
+| Codeberg | `adapter/githubpm/` (compatible) | Forgejo instance, same adapter as Gitea/Forgejo |
 
 All providers implement the `gitprovider.Provider` interface with capability declarations. See [architecture.md -- Provider Registry Pattern](../architecture.md#provider-registry-pattern).
 

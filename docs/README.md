@@ -39,6 +39,16 @@ Each of the four core pillars has its own feature spec:
 | [research/aider-deep-analysis.md](research/aider-deep-analysis.md) | Deep dive into Aider architecture |
 | [research/protocol-analysis.md](research/protocol-analysis.md) | Protocol and standards analysis (MCP, A2A, AG-UI, LSP, OTEL) |
 
+### Plans & Audits
+
+| Document | Purpose |
+|---|---|
+| [plans/](plans/) | Phase-specific implementation plans |
+| [audit/](audit/) | Schema and code audits |
+| [backend-qa-testplan.md](backend-qa-testplan.md) | Backend QA test coverage |
+| [e2e-test-plan.md](e2e-test-plan.md) | E2E testing strategy |
+| [code-review-2026-03-05.md](code-review-2026-03-05.md) | Code review findings |
+
 ### Documentation Rules
 
 See [CLAUDE.md](../CLAUDE.md) section "Documentation Policy" for rules about when to update which documentation files, how to track TODOs, and how to create feature specs and ADRs.

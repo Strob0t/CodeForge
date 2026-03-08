@@ -35,10 +35,8 @@ Each detector implements `specprovider.SpecProvider` or `pmprovider.PMProvider` 
 | Provider | Adapter | Sync Method |
 |---|---|---|
 | Plane.so | `adapter/plane/` | REST API v1, Webhooks, HMAC-SHA256 |
-| OpenProject | `adapter/openproject/` | REST API v3, Optimistic Locking |
-| GitHub Issues/Projects | `adapter/github_pm/` | REST + GraphQL |
-| GitLab Issues/Boards | `adapter/gitlab_pm/` | REST + GraphQL |
-| Forgejo/Codeberg Issues | `adapter/github_pm/` (compatible) | REST API (GitHub-compatible) |
+| GitHub Issues/Projects | `adapter/githubpm/` | `gh` CLI integration, issue CRUD |
+| Forgejo/Codeberg Issues | `adapter/githubpm/` (compatible) | REST API (GitHub-compatible) |
 
 ### Bidirectional Sync
 
