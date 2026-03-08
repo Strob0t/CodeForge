@@ -1,5 +1,6 @@
 -- +goose Up
 
+-- Missing foreign key indexes: JOINs and cascading deletes may do full table scans without these.
 CREATE INDEX IF NOT EXISTS idx_tasks_agent_id ON tasks(agent_id);
 CREATE INDEX IF NOT EXISTS idx_execution_plans_team_id ON execution_plans(team_id);
 CREATE INDEX IF NOT EXISTS idx_plan_steps_task_id ON plan_steps(task_id);

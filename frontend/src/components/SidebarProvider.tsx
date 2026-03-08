@@ -30,7 +30,9 @@ export function useSidebar(): SidebarContextValue {
 
 function loadCollapsed(): boolean {
   if (typeof window === "undefined") return false;
-  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+  if (stored !== null) return stored === "true";
+  return window.matchMedia("(max-width: 768px)").matches;
 }
 
 export function SidebarProvider(props: ParentProps): JSX.Element {

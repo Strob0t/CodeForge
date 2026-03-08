@@ -46,7 +46,7 @@ func (h *Handlers) StopAutoAgent(w http.ResponseWriter, r *http.Request) {
 // GetAutoAgentStatus handles GET /api/v1/projects/{id}/auto-agent/status
 func (h *Handlers) GetAutoAgentStatus(w http.ResponseWriter, r *http.Request) {
 	if h.AutoAgent == nil {
-		writeError(w, http.StatusServiceUnavailable, "auto-agent service not available")
+		writeJSON(w, http.StatusOK, map[string]string{"status": "idle"})
 		return
 	}
 	projectID := chi.URLParam(r, "id")

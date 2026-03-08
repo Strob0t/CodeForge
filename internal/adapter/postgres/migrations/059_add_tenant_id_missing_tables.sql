@@ -1,6 +1,6 @@
 -- +goose Up
 
--- Critical: tables with no tenant isolation
+-- Critical: 6 tables with no tenant isolation (security risk in multi-tenant deployments)
 ALTER TABLE quarantine_messages ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 ALTER TABLE benchmark_runs ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 ALTER TABLE benchmark_results ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
@@ -8,7 +8,7 @@ ALTER TABLE benchmark_suites ADD COLUMN tenant_id UUID NOT NULL DEFAULT '0000000
 ALTER TABLE auto_agents ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 ALTER TABLE agent_inbox ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 
--- Defense-in-depth: join/child/auth tables
+-- Defense-in-depth: 10 join/child/auth tables (inherit tenant via FK but direct column enables filtering without JOIN)
 ALTER TABLE a2a_push_configs ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 ALTER TABLE graph_metadata ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
 ALTER TABLE retrieval_scope_projects ADD COLUMN tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
@@ -40,6 +40,7 @@ CREATE INDEX idx_password_reset_tokens_tenant ON password_reset_tokens(tenant_id
 
 -- +goose Down
 
+-- Drop indexes
 DROP INDEX IF EXISTS idx_password_reset_tokens_tenant;
 DROP INDEX IF EXISTS idx_api_keys_tenant;
 DROP INDEX IF EXISTS idx_refresh_tokens_tenant;
@@ -57,6 +58,7 @@ DROP INDEX IF EXISTS idx_benchmark_results_tenant;
 DROP INDEX IF EXISTS idx_benchmark_runs_tenant;
 DROP INDEX IF EXISTS idx_quarantine_messages_tenant;
 
+-- Drop columns (reverse order)
 ALTER TABLE password_reset_tokens DROP COLUMN IF EXISTS tenant_id;
 ALTER TABLE api_keys DROP COLUMN IF EXISTS tenant_id;
 ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS tenant_id;
