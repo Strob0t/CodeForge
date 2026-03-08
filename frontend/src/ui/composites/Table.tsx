@@ -31,7 +31,7 @@ export function Table<T>(props: TableProps<T>): JSX.Element {
   return (
     <div
       class={
-        "overflow-auto rounded-cf-lg border border-cf-border" +
+        "overflow-x-auto rounded-cf-lg border border-cf-border" +
         (local.class ? " " + local.class : "")
       }
     >
@@ -42,7 +42,7 @@ export function Table<T>(props: TableProps<T>): JSX.Element {
               {(col) => (
                 <th
                   class={
-                    "px-4 py-2 text-xs font-medium uppercase tracking-wider text-cf-text-tertiary" +
+                    "px-3 py-2 sm:px-4 text-xs font-medium uppercase tracking-wider text-cf-text-tertiary" +
                     (col.class ? " " + col.class : "")
                   }
                 >
@@ -75,7 +75,8 @@ export function Table<T>(props: TableProps<T>): JSX.Element {
                     {(col) => (
                       <td
                         class={
-                          "px-4 py-2 text-cf-text-primary" + (col.class ? " " + col.class : "")
+                          "px-3 py-2 sm:px-4 text-cf-text-primary" +
+                          (col.class ? " " + col.class : "")
                         }
                       >
                         {col.render

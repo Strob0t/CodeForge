@@ -82,7 +82,7 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
     <Show when={props.open}>
       <div
         ref={popoverRef}
-        class="absolute right-0 top-full mt-2 w-96 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg z-50 p-4"
+        class="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-96 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg z-50 p-4"
       >
         <h3 class="text-sm font-semibold text-cf-text-primary mb-3">
           {t("detail.settings.title")}

@@ -91,7 +91,7 @@ export function Modal(props: ModalProps): JSX.Element {
           <div
             ref={dialogRef}
             class={
-              "relative mx-4 max-h-[85vh] w-full max-w-lg overflow-auto rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-lg" +
+              "relative mx-3 sm:mx-4 max-h-[85vh] w-full max-w-lg overflow-auto rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-lg" +
               (local.class ? " " + local.class : "")
             }
           >
@@ -103,7 +103,7 @@ export function Modal(props: ModalProps): JSX.Element {
                 </Button>
               </div>
             </Show>
-            <div class="p-4">{local.children}</div>
+            <div class="p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">{local.children}</div>
           </div>
         </div>
       </Portal>

@@ -70,7 +70,7 @@ export default function CostDashboardPage() {
   return (
     <PageLayout title={t("costs.title")}>
       {/* Global Totals */}
-      <div class="mb-6 grid grid-cols-4 gap-4">
+      <div class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <Card.Body>
             <p class="text-sm text-cf-text-muted">{t("costs.totalCost")}</p>
@@ -161,7 +161,7 @@ export function ProjectCostSection(props: { projectId: string }) {
         {/* Summary Cards */}
         <Show when={summary()}>
           {(s) => (
-            <div class="mb-4 grid grid-cols-4 gap-3">
+            <div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div class="rounded-cf-md bg-cf-bg-surface-alt p-3">
                 <p class="text-xs text-cf-text-muted">{t("costs.totalCost")}</p>
                 <p class="text-lg font-bold text-cf-text-primary">

@@ -188,7 +188,7 @@ export default function PromptEditorPage() {
           <h3 class="mb-3 text-sm font-semibold">
             {editingId() ? t("prompts.editSection") : t("prompts.newSection")}
           </h3>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <FormField label={t("prompts.field.name")}>
               <Input value={formName()} onInput={(e) => setFormName(e.currentTarget.value)} />
             </FormField>

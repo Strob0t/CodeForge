@@ -294,3 +294,43 @@
   border: 2px solid var(--cf-border);
   border-top-color: var(--cf-accent);
 }
+
+/* ---------------------------------------------------------------------------
+   Safe area insets for iOS notch / Dynamic Island
+   --------------------------------------------------------------------------- */
+
+:root {
+  --cf-safe-top: env(safe-area-inset-top, 0px);
+  --cf-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --cf-safe-left: env(safe-area-inset-left, 0px);
+  --cf-safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* ---------------------------------------------------------------------------
+   Touch-device minimum target sizes (WCAG 2.5.8)
+   --------------------------------------------------------------------------- */
+
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a[href],
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Hidden scrollbar for horizontal tab strips
+   --------------------------------------------------------------------------- */
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

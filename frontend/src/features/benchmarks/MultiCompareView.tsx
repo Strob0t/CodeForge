@@ -50,8 +50,8 @@ function RadarChart(props: {
       .join(" ");
 
   return (
-    <div class="flex items-center gap-4">
-      <svg viewBox="0 0 300 300" class="h-64 w-64 flex-shrink-0">
+    <div class="flex flex-col items-center gap-4 sm:flex-row">
+      <svg viewBox="0 0 300 300" class="w-full max-w-[16rem] aspect-square flex-shrink-0">
         {/* Grid levels */}
         <For each={Array.from({ length: levels }, (_, i) => (i + 1) / levels)}>
           {(level) => (

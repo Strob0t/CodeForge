@@ -82,10 +82,7 @@ export default function WarRoom(props: { projectId: string }) {
             </div>
           }
         >
-          <div
-            class="grid gap-4"
-            style={{ "grid-template-columns": "repeat(auto-fill, minmax(320px, 1fr))" }}
-          >
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <For each={agents() ?? []}>
               {(agent) => (
                 <div data-agent-id={agent.id}>

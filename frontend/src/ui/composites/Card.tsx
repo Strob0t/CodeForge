@@ -30,7 +30,9 @@ function CardRoot(props: CardProps): JSX.Element {
 function CardHeader(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
   return (
-    <div class={"border-b border-cf-border px-4 py-3" + (local.class ? " " + local.class : "")}>
+    <div
+      class={"border-b border-cf-border px-3 py-3 sm:px-4" + (local.class ? " " + local.class : "")}
+    >
       {local.children}
     </div>
   );
@@ -42,7 +44,11 @@ function CardHeader(props: CardProps): JSX.Element {
 
 function CardBody(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
-  return <div class={"px-4 py-4" + (local.class ? " " + local.class : "")}>{local.children}</div>;
+  return (
+    <div class={"px-3 py-3 sm:px-4 sm:py-4" + (local.class ? " " + local.class : "")}>
+      {local.children}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +58,9 @@ function CardBody(props: CardProps): JSX.Element {
 function CardFooter(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
   return (
-    <div class={"border-t border-cf-border px-4 py-3" + (local.class ? " " + local.class : "")}>
+    <div
+      class={"border-t border-cf-border px-3 py-3 sm:px-4" + (local.class ? " " + local.class : "")}
+    >
       {local.children}
     </div>
   );

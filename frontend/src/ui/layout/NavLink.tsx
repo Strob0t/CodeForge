@@ -25,8 +25,8 @@ export function NavLink(props: NavLinkProps): JSX.Element {
       class={
         "block rounded-cf-md text-sm font-medium text-cf-text-secondary hover:bg-cf-bg-surface-alt transition-colors " +
         (collapsed()
-          ? "flex items-center justify-center p-2"
-          : "flex items-center gap-2 px-3 py-2") +
+          ? "flex items-center justify-center p-2 min-h-[44px] min-w-[44px]"
+          : "flex items-center gap-2 px-3 py-2.5 min-h-[44px]") +
         (local.class ? " " + local.class : "")
       }
       activeClass="bg-cf-bg-surface-alt text-cf-accent"

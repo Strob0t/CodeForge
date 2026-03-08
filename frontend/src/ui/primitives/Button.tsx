@@ -27,10 +27,10 @@ const variantClasses: Record<ButtonVariant, string> = {
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
-  xs: "px-1.5 py-0.5 text-xs rounded-cf-sm",
-  sm: "px-2.5 py-1 text-xs rounded-cf-sm",
-  md: "px-4 py-2 text-sm rounded-cf-md",
-  lg: "px-6 py-3 text-base rounded-cf-lg",
+  xs: "px-2 py-1.5 text-xs min-h-[36px] rounded-cf-sm",
+  sm: "px-3 py-2 text-sm min-h-[40px] rounded-cf-sm",
+  md: "px-4 py-2.5 text-sm min-h-[44px] rounded-cf-md",
+  lg: "px-6 py-3 text-base min-h-[48px] rounded-cf-lg",
 };
 
 export function Button(props: ButtonProps): JSX.Element {
@@ -57,7 +57,9 @@ export function Button(props: ButtonProps): JSX.Element {
         "inline-flex items-center justify-center font-medium transition-colors " +
         variantClasses[variant()] +
         " " +
-        (variant() === "icon" ? "p-1 rounded-cf-sm text-sm" : sizeClasses[size()]) +
+        (variant() === "icon"
+          ? "p-2 min-h-[40px] min-w-[40px] rounded-cf-sm text-sm"
+          : sizeClasses[size()]) +
         (variant() === "pill" ? " rounded-full" : "") +
         (local.fullWidth ? " w-full" : "") +
         (isDisabled()

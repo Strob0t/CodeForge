@@ -24,7 +24,7 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
         <Select
           value={selectedRunId()}
           onChange={(e) => setSelectedRunId(e.currentTarget.value)}
-          class="w-80"
+          class="w-full sm:w-80"
         >
           <option value="">{t("common.select")}</option>
           <For each={props.runs}>
@@ -67,7 +67,7 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
               </div>
 
               {/* Token totals */}
-              <div class="grid grid-cols-2 gap-3">
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Card class="p-3">
                   <div class="text-xs text-gray-500">{t("benchmark.costAnalysis.tokensIn")}</div>
                   <div class="mt-1 text-lg font-semibold">
