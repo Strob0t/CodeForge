@@ -2,8 +2,10 @@ import { createSignal } from "solid-js";
 
 import { api } from "~/api/client";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Button, Input } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 interface MilestoneFormProps {
   projectId: string;
@@ -16,24 +18,22 @@ export default function MilestoneForm(props: MilestoneFormProps) {
   const { show: toast } = useToast();
 
   const [title, setTitle] = createSignal("");
-  const [saving, setSaving] = createSignal(false);
 
-  const handleSave = async () => {
-    const trimmed = title().trim();
-    if (!trimmed) return;
+  const { run: handleSave, loading: saving } = useAsyncAction(
+    async () => {
+      const trimmed = title().trim();
+      if (!trimmed) return;
 
-    setSaving(true);
-    try {
       await api.roadmap.createMilestone(props.projectId, { title: trimmed });
       toast("success", t("featuremap.milestoneCreated"));
       props.onSave();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("featuremap.createFailed");
-      toast("error", msg);
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        toast("error", getErrorMessage(err, t("featuremap.createFailed")));
+      },
+    },
+  );
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -61,7 +61,7 @@ export default function MilestoneForm(props: MilestoneFormProps) {
         <Button
           variant="primary"
           size="sm"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           disabled={saving() || !title().trim()}
           loading={saving()}
         >

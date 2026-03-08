@@ -1,7 +1,8 @@
-import { createResource, createSignal, Show } from "solid-js";
+import { createResource, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AutoAgentStatus } from "~/api/types";
+import { useAsyncAction } from "~/hooks";
 import { Button } from "~/ui";
 
 interface Props {
@@ -22,9 +23,6 @@ export default function AutoAgentButton(props: Props) {
     },
   );
 
-  const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal("");
-
   /** Prefer WS-pushed status, fall back to polled. */
   const status = (): AutoAgentStatus | undefined => props.wsStatus() ?? polledStatus();
 
@@ -35,22 +33,18 @@ export default function AutoAgentButton(props: Props) {
 
   const isStopping = () => status()?.status === "stopping";
 
-  const handleToggle = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      if (isRunning()) {
-        await api.autoAgent.stop(props.projectId);
-      } else {
-        await api.autoAgent.start(props.projectId);
-      }
-      refetch();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Auto-agent action failed");
-    } finally {
-      setLoading(false);
+  const {
+    run: handleToggle,
+    loading,
+    error,
+  } = useAsyncAction(async () => {
+    if (isRunning()) {
+      await api.autoAgent.stop(props.projectId);
+    } else {
+      await api.autoAgent.start(props.projectId);
     }
-  };
+    refetch();
+  });
 
   const progressText = () => {
     const s = status();
@@ -66,7 +60,7 @@ export default function AutoAgentButton(props: Props) {
       <Button
         variant={isRunning() ? "danger" : "primary"}
         size="sm"
-        onClick={handleToggle}
+        onClick={() => void handleToggle()}
         disabled={loading() || isStopping()}
         loading={loading() || isStopping()}
         title={isRunning() ? "Stop auto-agent" : "Start auto-agent on pending features"}

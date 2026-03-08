@@ -14,6 +14,7 @@ import { useAuth } from "~/components/AuthProvider";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { AUTONOMY_LEVELS } from "~/config/domain-constants";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Alert,
@@ -45,7 +46,6 @@ export default function SettingsPage() {
   const [defaultProvider, setDefaultProvider] = createSignal("");
   const [defaultAutonomy, setDefaultAutonomy] = createSignal("supervised");
   const [autoClone, setAutoClone] = createSignal(false);
-  const [saving, setSaving] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -58,9 +58,8 @@ export default function SettingsPage() {
     }
   });
 
-  const handleSaveGeneral = async () => {
-    setSaving(true);
-    try {
+  const { run: handleSaveGeneral, loading: saving } = useAsyncAction(
+    async () => {
       await api.settings.update({
         settings: {
           default_provider: defaultProvider(),
@@ -69,12 +68,13 @@ export default function SettingsPage() {
         },
       });
       toast("success", t("settings.general.saved"));
-    } catch {
-      toast("error", t("settings.general.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+    {
+      onError: () => {
+        toast("error", t("settings.general.saveFailed"));
+      },
+    },
+  );
 
   // -- Provider info (read-only) -------------------------------------------
   const [gitProviders] = createResource(() => api.providers.git().then((r) => r.providers));

@@ -3,6 +3,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { api } from "~/api/client";
 import { useToast } from "~/components/Toast";
 import { AUTONOMY_LEVELS_NUMERIC } from "~/config/domain-constants";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Button, FormField, Select } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
@@ -22,7 +23,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
   const { show: toast } = useToast();
 
   const [autonomy, setAutonomy] = createSignal("");
-  const [saving, setSaving] = createSignal(false);
 
   let popoverRef: HTMLDivElement | undefined;
 
@@ -61,9 +61,8 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
     document.removeEventListener("keydown", handleKeyDown);
   });
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
+  const { run: handleSave, loading: saving } = useAsyncAction(
+    async () => {
       const config: Record<string, string> = {};
       const a = autonomy();
       if (a) config["autonomy_level"] = a;
@@ -71,12 +70,13 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
       await api.projects.update(props.projectId, { config });
       toast("success", t("detail.toast.settingsSaved"));
       props.onSaved();
-    } catch (e) {
-      toast("error", getErrorMessage(e, t("detail.toast.settingsFailed")));
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        toast("error", getErrorMessage(err, t("detail.toast.settingsFailed")));
+      },
+    },
+  );
 
   return (
     <Show when={props.open}>
@@ -107,7 +107,7 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
           <Button
             variant="primary"
             size="sm"
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={saving()}
             loading={saving()}
           >

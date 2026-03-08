@@ -3,8 +3,10 @@ import { createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { FeatureStatus, RoadmapFeature } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Button, Input, Select } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 interface FeatureCardFormProps {
   milestoneId: string;
@@ -29,14 +31,12 @@ export default function FeatureCardForm(props: FeatureCardFormProps) {
   const [title, setTitle] = createSignal(props.feature?.title ?? "");
   // eslint-disable-next-line solid/reactivity -- intentional one-time initialization
   const [status, setStatus] = createSignal<FeatureStatus>(props.feature?.status ?? "backlog");
-  const [saving, setSaving] = createSignal(false);
 
-  const handleSave = async () => {
-    const trimmed = title().trim();
-    if (!trimmed) return;
+  const { run: handleSave, loading: saving } = useAsyncAction(
+    async () => {
+      const trimmed = title().trim();
+      if (!trimmed) return;
 
-    setSaving(true);
-    try {
       if (props.feature) {
         await api.roadmap.updateFeature(props.feature.id, {
           title: trimmed,
@@ -51,13 +51,13 @@ export default function FeatureCardForm(props: FeatureCardFormProps) {
         toast("success", t("featuremap.featureCreated"));
       }
       props.onSave();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("featuremap.createFailed");
-      toast("error", msg);
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+    {
+      onError: (err) => {
+        toast("error", getErrorMessage(err, t("featuremap.createFailed")));
+      },
+    },
+  );
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -94,7 +94,7 @@ export default function FeatureCardForm(props: FeatureCardFormProps) {
         <Button
           variant="primary"
           size="sm"
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           disabled={saving() || !title().trim()}
           loading={saving()}
         >

@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { BenchmarkRun, MultiCompareEntry } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { CHART_COLORS, RADAR_DEFAULTS } from "~/config/design-constants";
+import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, CostDisplay, EmptyState } from "~/ui";
 
@@ -156,7 +157,6 @@ export function MultiCompareView(props: MultiCompareViewProps) {
   const { show: toast } = useToast();
   const [selected, setSelected] = createSignal<Set<string>>(new Set());
   const [result, setResult] = createSignal<MultiCompareEntry[] | null>(null);
-  const [loading, setLoading] = createSignal(false);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -167,20 +167,20 @@ export function MultiCompareView(props: MultiCompareViewProps) {
     });
   };
 
-  const handleCompare = async () => {
-    const ids = [...selected()];
-    if (ids.length < 2) return;
-    setLoading(true);
-    try {
+  const { run: handleCompare, loading } = useAsyncAction(
+    async () => {
+      const ids = [...selected()];
+      if (ids.length < 2) return;
       const data = await api.benchmarks.compareMulti(ids);
       setResult(data);
       toast("success", t("benchmark.toast.compareReady"));
-    } catch {
-      toast("error", t("benchmark.toast.compareError"));
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    {
+      onError: () => {
+        toast("error", t("benchmark.toast.compareError"));
+      },
+    },
+  );
 
   /** Extract all unique metric names across all entries */
   const metricNames = (): string[] => {
@@ -238,7 +238,7 @@ export function MultiCompareView(props: MultiCompareViewProps) {
             size="sm"
             variant="primary"
             disabled={selected().size < 2 || loading()}
-            onClick={handleCompare}
+            onClick={() => void handleCompare()}
           >
             {loading() ? "..." : t("benchmark.multiCompare.compareBtn")} ({selected().size})
           </Button>
