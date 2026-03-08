@@ -1,10 +1,11 @@
 import { batch, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
+import type { StackDetectionResult } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
+import { useFormState } from "~/hooks/useFormState";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import {
@@ -34,12 +35,16 @@ const AUTONOMY_LEVELS = [
   { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
 ];
 
-const emptyForm: CreateProjectRequest = {
+const formDefaults = {
   name: "",
   description: "",
   repo_url: "",
   provider: "",
-  config: {},
+  config: {} as Record<string, string>,
+  localPath: "",
+  selectedAutonomy: "",
+  selectedBranch: "",
+  formMode: "remote" as "remote" | "local" | "empty",
 };
 
 const categoryLabels: Record<string, string> = {
@@ -56,24 +61,21 @@ export default function DashboardPage() {
   const [projects, { refetch }] = createResource(() => api.projects.list());
   const [providers] = createResource(() => api.providers.git().then((r) => r.providers));
   const [showForm, setShowForm] = createSignal(false);
-  const [form, setForm] = createSignal<CreateProjectRequest>({ ...emptyForm });
   const [error, setError] = createSignal("");
   const [detecting, setDetecting] = createSignal(false);
   const [stackResult, setStackResult] = createSignal<StackDetectionResult | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [parsingUrl, setParsingUrl] = createSignal(false);
-  const [formMode, setFormMode] = createSignal<"remote" | "local" | "empty">("remote");
-  const [localPath, setLocalPath] = createSignal("");
   const [showAdvanced, setShowAdvanced] = createSignal(false);
-  const [selectedAutonomy, setSelectedAutonomy] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
-  const [selectedBranch, setSelectedBranch] = createSignal("");
+
+  const form = useFormState(formDefaults);
 
   const { run: fetchBranches, loading: loadingBranches } = useAsyncAction(
     async (url: string) => {
       const branchList = await api.projects.remoteBranches(url);
       setBranches(branchList);
-      setSelectedBranch("");
+      form.setState("selectedBranch", "");
     },
     {
       onError: () => setBranches([]),
@@ -87,13 +89,24 @@ export default function DashboardPage() {
     return editingId() !== null;
   }
 
+  function resetFormState() {
+    batch(() => {
+      form.reset();
+      setShowForm(false);
+      setEditingId(null);
+      setStackResult(null);
+      setShowAdvanced(false);
+      setBranches([]);
+    });
+  }
+
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     setError("");
 
-    const data = form();
-    const isEmpty = formMode() === "empty" && !isEditing();
-    const isLocal = formMode() === "local" && !isEditing();
+    const data = form.state;
+    const isEmpty = data.formMode === "empty" && !isEditing();
+    const isLocal = data.formMode === "local" && !isEditing();
 
     if (isEmpty) {
       if (!data.name.trim()) {
@@ -114,16 +127,7 @@ export default function DashboardPage() {
           toast("error", initMsg);
         });
         toast("info", t("dashboard.toast.setupStarted"));
-        batch(() => {
-          setForm({ ...emptyForm });
-          setShowForm(false);
-          setEditingId(null);
-          setStackResult(null);
-          setShowAdvanced(false);
-          setSelectedAutonomy("");
-          setBranches([]);
-          setSelectedBranch("");
-        });
+        resetFormState();
         await refetch();
       } catch (err) {
         const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -134,7 +138,7 @@ export default function DashboardPage() {
     }
 
     if (isLocal) {
-      const path = localPath().trim();
+      const path = data.localPath.trim();
       if (!path) {
         setError(t("dashboard.toast.nameRequired"));
         return;
@@ -151,17 +155,7 @@ export default function DashboardPage() {
         toast("success", t("dashboard.toast.created"));
         await api.projects.adopt(created.id, { path });
         toast("info", t("dashboard.toast.setupStarted"));
-        batch(() => {
-          setForm({ ...emptyForm });
-          setLocalPath("");
-          setShowForm(false);
-          setEditingId(null);
-          setStackResult(null);
-          setShowAdvanced(false);
-          setSelectedAutonomy("");
-          setBranches([]);
-          setSelectedBranch("");
-        });
+        resetFormState();
         await refetch();
       } catch (err) {
         const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -188,9 +182,12 @@ export default function DashboardPage() {
         });
         toast("success", t("dashboard.toast.updated"));
       } else {
-        const branch = selectedBranch() || undefined;
+        const branch = data.selectedBranch || undefined;
         const created = await api.projects.create({
-          ...data,
+          name: data.name,
+          description: data.description,
+          repo_url: data.repo_url,
+          provider: data.provider,
           branch,
           config: buildAdvancedConfig(),
         });
@@ -207,16 +204,7 @@ export default function DashboardPage() {
           }
         }
       }
-      batch(() => {
-        setForm({ ...emptyForm });
-        setShowForm(false);
-        setEditingId(null);
-        setStackResult(null);
-        setShowAdvanced(false);
-        setSelectedAutonomy("");
-        setBranches([]);
-        setSelectedBranch("");
-      });
+      resetFormState();
       await refetch();
     } catch (err) {
       const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
@@ -230,14 +218,14 @@ export default function DashboardPage() {
     if (!p) return;
     const cfg = p.config ?? {};
     batch(() => {
-      setForm({
+      form.populate({
         name: p.name,
         description: p.description,
         repo_url: p.repo_url,
         provider: p.provider,
         config: cfg,
+        selectedAutonomy: cfg["autonomy_level"] ?? "",
       });
-      setSelectedAutonomy(cfg["autonomy_level"] ?? "");
       if (cfg["autonomy_level"]) {
         setShowAdvanced(true);
       }
@@ -250,14 +238,10 @@ export default function DashboardPage() {
     batch(() => {
       setShowForm(false);
       setEditingId(null);
-      setForm({ ...emptyForm });
-      setLocalPath("");
-      setFormMode("remote");
+      form.reset();
       setError("");
       setShowAdvanced(false);
-      setSelectedAutonomy("");
       setBranches([]);
-      setSelectedBranch("");
     });
   }
 
@@ -294,37 +278,29 @@ export default function DashboardPage() {
     }
   }
 
-  function updateField<K extends keyof CreateProjectRequest>(
-    field: K,
-    value: CreateProjectRequest[K],
-  ) {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  }
-
   function buildAdvancedConfig(): Record<string, string> {
     const config: Record<string, string> = {};
-    const autonomy = selectedAutonomy();
+    const autonomy = form.state.selectedAutonomy;
     if (autonomy) config["autonomy_level"] = autonomy;
     return config;
   }
 
   function handleRepoUrlInput(url: string) {
-    updateField("repo_url", url);
+    form.setState("repo_url", url);
     clearTimeout(urlDebounceTimer);
     if (!url.trim()) {
       setBranches([]);
-      setSelectedBranch("");
+      form.setState("selectedBranch", "");
       return;
     }
     urlDebounceTimer = setTimeout(async () => {
       try {
         setParsingUrl(true);
         const parsed = await api.projects.parseRepoURL(url);
-        setForm((prev) => ({
-          ...prev,
-          name: prev.name || parsed.repo,
-          provider: prev.provider || parsed.provider,
-        }));
+        form.populate({
+          name: form.state.name || parsed.repo,
+          provider: form.state.provider || parsed.provider,
+        });
       } catch {
         // silently ignore parse errors during typing
       } finally {
@@ -334,13 +310,12 @@ export default function DashboardPage() {
       // Fetch repo metadata (description, language, etc.) from hosting API
       try {
         const info = await api.projects.repoInfo(url);
-        setForm((prev) => ({
-          ...prev,
-          name: prev.name || info.name,
-          description: prev.description || info.description,
-        }));
+        form.populate({
+          name: form.state.name || info.name,
+          description: form.state.description || info.description,
+        });
       } catch {
-        // silently ignore — repo may be private or API unavailable
+        // silently ignore -- repo may be private or API unavailable
       }
 
       // Fetch remote branches
@@ -383,8 +358,8 @@ export default function DashboardPage() {
                 <div class="mb-4">
                   <Tabs
                     items={formModeTabs()}
-                    value={formMode()}
-                    onChange={(v) => setFormMode(v as "remote" | "local" | "empty")}
+                    value={form.state.formMode}
+                    onChange={(v) => form.setState("formMode", v as "remote" | "local" | "empty")}
                     variant="pills"
                   />
                 </div>
@@ -392,7 +367,7 @@ export default function DashboardPage() {
 
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {/* Local mode: path field */}
-                <Show when={formMode() === "local" && !isEditing()}>
+                <Show when={form.state.formMode === "local" && !isEditing()}>
                   <FormField
                     label={t("dashboard.form.path")}
                     id="local_path"
@@ -402,8 +377,8 @@ export default function DashboardPage() {
                     <Input
                       id="local_path"
                       type="text"
-                      value={localPath()}
-                      onInput={(e) => setLocalPath(e.currentTarget.value)}
+                      value={form.state.localPath}
+                      onInput={(e) => form.setState("localPath", e.currentTarget.value)}
                       placeholder={t("dashboard.form.pathPlaceholder")}
                       aria-required="true"
                     />
@@ -414,17 +389,19 @@ export default function DashboardPage() {
                   label={t("dashboard.form.name")}
                   id="name"
                   required={
-                    formMode() === "empty" || (formMode() === "remote" && !form().repo_url.trim())
+                    form.state.formMode === "empty" ||
+                    (form.state.formMode === "remote" && !form.state.repo_url.trim())
                   }
                 >
                   <Input
                     id="name"
                     type="text"
-                    value={form().name}
-                    onInput={(e) => updateField("name", e.currentTarget.value)}
+                    value={form.state.name}
+                    onInput={(e) => form.setState("name", e.currentTarget.value)}
                     placeholder={t("dashboard.form.namePlaceholder")}
                     aria-required={
-                      formMode() === "empty" || (formMode() === "remote" && !form().repo_url.trim())
+                      form.state.formMode === "empty" ||
+                      (form.state.formMode === "remote" && !form.state.repo_url.trim())
                         ? "true"
                         : "false"
                     }
@@ -432,12 +409,12 @@ export default function DashboardPage() {
                 </FormField>
 
                 {/* Remote mode: provider dropdown */}
-                <Show when={(formMode() === "remote" || isEditing()) && providers()}>
+                <Show when={(form.state.formMode === "remote" || isEditing()) && providers()}>
                   <FormField label={t("dashboard.form.provider")} id="provider">
                     <Select
                       id="provider"
-                      value={form().provider}
-                      onChange={(e) => updateField("provider", e.currentTarget.value)}
+                      value={form.state.provider}
+                      onChange={(e) => form.setState("provider", e.currentTarget.value)}
                     >
                       <option value="">{t("dashboard.form.providerPlaceholder")}</option>
                       <For each={providers() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
@@ -446,7 +423,7 @@ export default function DashboardPage() {
                 </Show>
 
                 {/* Remote mode: repo URL field */}
-                <Show when={formMode() === "remote" || isEditing()}>
+                <Show when={form.state.formMode === "remote" || isEditing()}>
                   <FormField
                     label={t("dashboard.form.repoUrl")}
                     id="repo_url"
@@ -456,7 +433,7 @@ export default function DashboardPage() {
                     <Input
                       id="repo_url"
                       type="text"
-                      value={form().repo_url}
+                      value={form.state.repo_url}
                       onInput={(e) => handleRepoUrlInput(e.currentTarget.value)}
                       placeholder={t("dashboard.form.repoUrlPlaceholder")}
                     />
@@ -466,7 +443,7 @@ export default function DashboardPage() {
                 {/* Branch selector (visible when branches loaded or loading) */}
                 <Show
                   when={
-                    (formMode() === "remote" || isEditing()) &&
+                    (form.state.formMode === "remote" || isEditing()) &&
                     (branches().length > 0 || loadingBranches())
                   }
                 >
@@ -478,8 +455,8 @@ export default function DashboardPage() {
                   >
                     <Select
                       id="branch"
-                      value={selectedBranch()}
-                      onChange={(e) => setSelectedBranch(e.currentTarget.value)}
+                      value={form.state.selectedBranch}
+                      onChange={(e) => form.setState("selectedBranch", e.currentTarget.value)}
                       disabled={loadingBranches()}
                     >
                       <option value="">{t("dashboard.form.branchPlaceholder")}</option>
@@ -495,8 +472,8 @@ export default function DashboardPage() {
                 >
                   <Textarea
                     id="description"
-                    value={form().description}
-                    onInput={(e) => updateField("description", e.currentTarget.value)}
+                    value={form.state.description}
+                    onInput={(e) => form.setState("description", e.currentTarget.value)}
                     rows={2}
                     placeholder={t("dashboard.form.descriptionPlaceholder")}
                   />
@@ -527,8 +504,8 @@ export default function DashboardPage() {
                     <FormField label={t("dashboard.form.autonomyLevel")} id="adv_autonomy">
                       <Select
                         id="adv_autonomy"
-                        value={selectedAutonomy()}
-                        onChange={(e) => setSelectedAutonomy(e.currentTarget.value)}
+                        value={form.state.selectedAutonomy}
+                        onChange={(e) => form.setState("selectedAutonomy", e.currentTarget.value)}
                       >
                         <option value="">{t("dashboard.form.autonomyPlaceholder")}</option>
                         <For each={AUTONOMY_LEVELS}>

@@ -20,6 +20,7 @@ import type {
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
+import { useFormState } from "~/hooks/useFormState";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -86,11 +87,14 @@ export default function BenchmarkPage() {
 
   // New run form
   const [showForm, setShowForm] = createSignal(false);
-  const [dataset, setDataset] = createSignal("");
-  const [model, setModel] = createSignal("");
-  const [metrics, setMetrics] = createSignal<string[]>(["correctness"]);
-  const [benchmarkType, setBenchmarkType] = createSignal<BenchmarkType>("simple");
-  const [execMode, setExecMode] = createSignal<BenchmarkExecMode>("mount");
+  const formDefaults = {
+    dataset: "",
+    model: "",
+    metrics: ["correctness"] as string[],
+    benchmarkType: "simple" as BenchmarkType,
+    execMode: "mount" as BenchmarkExecMode,
+  };
+  const form = useFormState(formDefaults);
 
   // Run detail
   const [selectedRun, setSelectedRun] = createSignal<string | null>(null);
@@ -105,22 +109,16 @@ export default function BenchmarkPage() {
     })),
   );
 
-  const resetForm = () => {
-    setDataset("");
-    setModel("");
-    setMetrics(["correctness"]);
-    setBenchmarkType("simple");
-    setExecMode("mount");
-  };
+  const resetForm = () => form.reset();
 
   const handleCreate = async (e: SubmitEvent) => {
     e.preventDefault();
     const req: CreateBenchmarkRunRequest = {
-      dataset: dataset(),
-      model: model(),
-      metrics: metrics(),
-      benchmark_type: benchmarkType(),
-      exec_mode: benchmarkType() === "agent" ? execMode() : undefined,
+      dataset: form.state.dataset,
+      model: form.state.model,
+      metrics: form.state.metrics,
+      benchmark_type: form.state.benchmarkType,
+      exec_mode: form.state.benchmarkType === "agent" ? form.state.execMode : undefined,
     };
     try {
       await api.benchmarks.createRun(req);
@@ -160,7 +158,8 @@ export default function BenchmarkPage() {
   };
 
   const toggleMetric = (m: string) => {
-    setMetrics((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
+    const prev = form.state.metrics;
+    form.setState("metrics", prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]);
   };
 
   return (
@@ -186,14 +185,17 @@ export default function BenchmarkPage() {
                     when={datasets()?.length}
                     fallback={
                       <Input
-                        value={dataset()}
-                        onInput={(e) => setDataset(e.currentTarget.value)}
+                        value={form.state.dataset}
+                        onInput={(e) => form.setState("dataset", e.currentTarget.value)}
                         placeholder="basic-coding"
                         required
                       />
                     }
                   >
-                    <Select value={dataset()} onChange={(e) => setDataset(e.currentTarget.value)}>
+                    <Select
+                      value={form.state.dataset}
+                      onChange={(e) => form.setState("dataset", e.currentTarget.value)}
+                    >
                       <option value="">{t("common.select")}</option>
                       <For each={datasets()}>
                         {(d: BenchmarkDatasetInfo) => (
@@ -207,13 +209,20 @@ export default function BenchmarkPage() {
                 </FormField>
 
                 <FormField label={t("benchmark.model")} id="benchmark-model">
-                  <ModelCombobox id="benchmark-model" value={model()} onInput={setModel} required />
+                  <ModelCombobox
+                    id="benchmark-model"
+                    value={form.state.model}
+                    onInput={(v) => form.setState("model", v)}
+                    required
+                  />
                 </FormField>
 
                 <FormField label={t("benchmark.benchmarkType")} id="benchmark-type">
                   <Select
-                    value={benchmarkType()}
-                    onChange={(e) => setBenchmarkType(e.currentTarget.value as BenchmarkType)}
+                    value={form.state.benchmarkType}
+                    onChange={(e) =>
+                      form.setState("benchmarkType", e.currentTarget.value as BenchmarkType)
+                    }
                   >
                     <option value="simple">Simple (prompt → output)</option>
                     <option value="tool_use">Tool Use (with tool calling)</option>
@@ -221,11 +230,13 @@ export default function BenchmarkPage() {
                   </Select>
                 </FormField>
 
-                <Show when={benchmarkType() === "agent"}>
+                <Show when={form.state.benchmarkType === "agent"}>
                   <FormField label={t("benchmark.execMode")} id="benchmark-exec-mode">
                     <Select
-                      value={execMode()}
-                      onChange={(e) => setExecMode(e.currentTarget.value as BenchmarkExecMode)}
+                      value={form.state.execMode}
+                      onChange={(e) =>
+                        form.setState("execMode", e.currentTarget.value as BenchmarkExecMode)
+                      }
                     >
                       <option value="mount">Mount (direct file access)</option>
                       <option value="sandbox">Sandbox (isolated container)</option>
@@ -242,7 +253,7 @@ export default function BenchmarkPage() {
                           variant="pill"
                           size="xs"
                           class={
-                            metrics().includes(m)
+                            form.state.metrics.includes(m)
                               ? "border-cf-accent bg-cf-accent/10 text-cf-accent"
                               : ""
                           }
