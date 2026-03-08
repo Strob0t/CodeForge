@@ -3927,14 +3927,14 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
 
 #### Pillar 2: Roadmap/Feature-Map
 
-- [ ] Plane.so PM adapter (REST API, full item CRUD) — webhook handler exists (`service/pm_webhook.go`), full provider missing
-- [ ] Full Auto-Detection Engine (`service/detection.go`) — partial wrapper exists, needs platform + file detectors
+- [x] (2026-03-08) Plane.so PM adapter (REST API, full item CRUD, cursor pagination, label sync, HMAC-SHA256 webhooks) — `internal/adapter/plane/provider.go`
+- [x] (2026-03-08) Full Auto-Detection Engine — three-tier detection: repo files → platform APIs → file markers; `internal/service/detection.go`
 - [ ] Frontend: Feature-Map editor (visual drag-and-drop) — no implementation yet
 
 #### Pillar 3: Multi-LLM Provider
 
-- [ ] User-Key Mapping (secure storage, virtual keys per CodeForge user) — no implementation yet
-- [ ] Distributed tracing (OpenTelemetry full pipeline) — partial exists in `internal/adapter/otel/` (228 LOC), needs end-to-end trace correlation
+- [x] (2026-03-08) User-Key Mapping (per-user LLM provider API keys with AES-256-GCM encryption, REST API POST/GET/DELETE `/api/v1/llm-keys`, auto-resolve per provider from model name, fallback to global key; `internal/crypto/aes.go`, `internal/domain/llmkey/`, `internal/service/llmkey.go`, `internal/adapter/http/handlers_llm_keys.go`, `internal/adapter/postgres/store_llm_key.go`, migration 064; Python worker threads `provider_api_key` through `LoopConfig` → `LiteLLMClient` → LiteLLM Proxy `api_key` body field; 26 tests Go+Python)
+- [x] (2026-03-08) Distributed tracing (OpenTelemetry full pipeline — MeterProvider, trace propagation, Go+Python spans) — `internal/adapter/otel/`
 
 #### Pillar 4: Agent Orchestration
 
