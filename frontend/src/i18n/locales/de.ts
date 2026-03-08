@@ -570,6 +570,9 @@ const de: Translations = {
   "featuremap.deleteFailed": "Löschen fehlgeschlagen",
   "featuremap.moveFailed": "Feature konnte nicht verschoben werden",
   "featuremap.reorderFailed": "Feature konnte nicht umsortiert werden",
+  "featuremap.dragToMove": "Ziehen zum Verschieben",
+  "featuremap.statusToggled": "Status aktualisiert",
+  "featuremap.dropHere": "Hier ablegen",
 
   // -- Project detail -------------------------------------------------------
   "detail.loading": "Laden\u2026",

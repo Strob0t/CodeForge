@@ -14,6 +14,7 @@ import { SidebarProvider, useSidebar } from "~/components/SidebarProvider";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
 import { ToastProvider } from "~/components/Toast";
 import { useWebSocket, WebSocketProvider } from "~/components/WebSocketProvider";
+import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
 import { ShortcutProvider } from "~/shortcuts";
@@ -71,7 +72,7 @@ function UserInfo(): JSX.Element {
         <div class="flex items-center justify-between border-b border-cf-border px-4 py-2 text-xs">
           <div class="truncate text-cf-text-secondary" title={user()?.email ?? ""}>
             {user()?.name ?? ""}{" "}
-            <span class="rounded bg-cf-bg-surface-alt px-1 py-0.5 text-[10px] font-medium uppercase">
+            <span class="rounded bg-cf-bg-surface-alt px-1 py-0.5 text-xs font-medium uppercase">
               {user()?.role ?? ""}
             </span>
           </div>
@@ -90,7 +91,8 @@ function AppShell(props: {
   children: JSX.Element;
 }) {
   const { t } = useI18n();
-  const { collapsed } = useSidebar();
+  const { collapsed, openMobile } = useSidebar();
+  const { isMobile } = useBreakpoint();
   const { activeRuns } = useConversationRuns();
 
   return (
@@ -232,7 +234,35 @@ function AppShell(props: {
             </Sidebar.Footer>
           </Sidebar>
 
-          <main id="main-content" class="flex-1 overflow-auto p-6">
+          <main
+            id="main-content"
+            class="flex-1 overflow-auto p-3 sm:p-4 lg:p-6"
+            style={{ "padding-bottom": "max(0.75rem, var(--cf-safe-bottom))" }}
+          >
+            <Show when={isMobile()}>
+              <div class="mb-3 flex items-center">
+                <button
+                  type="button"
+                  onClick={openMobile}
+                  class="rounded-cf-md p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-cf-text-secondary hover:bg-cf-bg-surface-alt transition-colors"
+                  aria-label="Open menu"
+                >
+                  <svg
+                    class="h-6 w-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    stroke-width="2"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </Show>
             {props.children}
           </main>
         </div>

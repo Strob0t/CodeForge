@@ -565,6 +565,9 @@ const en = {
   "featuremap.deleteFailed": "Failed to delete",
   "featuremap.moveFailed": "Failed to move feature",
   "featuremap.reorderFailed": "Failed to reorder feature",
+  "featuremap.dragToMove": "Drag to move",
+  "featuremap.statusToggled": "Status updated",
+  "featuremap.dropHere": "Drop here",
 
   // -- Project detail -------------------------------------------------------
   "detail.loading": "Loading...",
