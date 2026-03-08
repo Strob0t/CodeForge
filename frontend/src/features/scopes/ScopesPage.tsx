@@ -19,6 +19,7 @@ import {
   Card,
   EmptyState,
   FormField,
+  GridLayout,
   Input,
   LoadingState,
   PageLayout,
@@ -223,7 +224,7 @@ export default function ScopesPage() {
 
       <Show when={!scopes.loading}>
         <Show when={sorted().length} fallback={<EmptyState title={t("scope.empty")} />}>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <GridLayout>
             <For each={sorted()}>
               {(scope) => (
                 <ScopeCard
@@ -238,7 +239,7 @@ export default function ScopesPage() {
                 />
               )}
             </For>
-          </div>
+          </GridLayout>
         </Show>
       </Show>
     </PageLayout>

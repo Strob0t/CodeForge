@@ -14,6 +14,7 @@ import {
   EmptyState,
   ErrorBanner,
   FormField,
+  GridLayout,
   Input,
   LoadingState,
   PageLayout,
@@ -557,7 +558,7 @@ export default function DashboardPage() {
 
       <Show when={!projects.loading && !projects.error}>
         <Show when={projects()?.length} fallback={<EmptyState title={t("dashboard.empty")} />}>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <GridLayout>
             <For each={projects()}>
               {(p) => (
                 <ProjectCard
@@ -569,7 +570,7 @@ export default function DashboardPage() {
                 />
               )}
             </For>
-          </div>
+          </GridLayout>
         </Show>
       </Show>
 

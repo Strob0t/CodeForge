@@ -15,6 +15,7 @@ import {
   EmptyState,
   ErrorBanner,
   FormField,
+  GridLayout,
   Input,
   LoadingState,
   PageLayout,
@@ -323,11 +324,11 @@ export default function ModesPage() {
 
       <Show when={!modes.loading && !modes.error}>
         <Show when={sorted().length} fallback={<EmptyState title={t("modes.empty")} />}>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <GridLayout>
             <For each={sorted()}>
               {(mode) => <ModeCard mode={mode} onEdit={handleEdit} onDelete={handleDelete} />}
             </For>
-          </div>
+          </GridLayout>
         </Show>
       </Show>
     </PageLayout>

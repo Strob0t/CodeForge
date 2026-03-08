@@ -14,6 +14,7 @@ import {
   Card,
   EmptyState,
   FormField,
+  GridLayout,
   Input,
   LoadingState,
   PageLayout,
@@ -197,7 +198,7 @@ export default function KnowledgeBasesPage() {
 
       <Show when={!kbs.loading}>
         <Show when={sorted().length} fallback={<EmptyState title={t("kb.empty")} />}>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <GridLayout>
             <For each={sorted()}>
               {(kb) => (
                 <KBCard
@@ -208,7 +209,7 @@ export default function KnowledgeBasesPage() {
                 />
               )}
             </For>
-          </div>
+          </GridLayout>
         </Show>
       </Show>
     </PageLayout>

@@ -14,6 +14,7 @@ import {
   EmptyState,
   ErrorBanner,
   FormField,
+  GridLayout,
   Input,
   LoadingState,
   ModelCombobox,
@@ -215,11 +216,11 @@ export default function ModelsPage() {
             when={discoveredModels().length > 0}
             fallback={<EmptyState title={t("models.discoveredEmpty")} />}
           >
-            <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            <GridLayout>
               <For each={discoveredModels()}>
                 {(model) => <DiscoveredModelCard model={model} />}
               </For>
-            </div>
+            </GridLayout>
           </Show>
         </div>
       </Show>
@@ -234,11 +235,11 @@ export default function ModelsPage() {
 
       <Show when={!models.loading && !models.error}>
         <Show when={models()?.length} fallback={<EmptyState title={t("models.empty")} />}>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <GridLayout>
             <For each={models() ?? []}>
               {(model) => <ModelCard model={model} onDelete={handleDelete} />}
             </For>
-          </div>
+          </GridLayout>
         </Show>
       </Show>
     </PageLayout>

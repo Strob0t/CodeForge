@@ -1,3 +1,4 @@
+export { GridLayout } from "./GridLayout";
 export { NavLink } from "./NavLink";
 export { PageLayout } from "./PageLayout";
 export { Section } from "./Section";
