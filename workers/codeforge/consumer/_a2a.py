@@ -54,9 +54,10 @@ class A2AHandlerMixin:
                 error=result.error or "",
             )
             if self._js is not None:
+                stamped = self._stamp_trust(complete.model_dump())
                 await self._js.publish(
                     SUBJECT_A2A_TASK_COMPLETE,
-                    complete.model_dump_json().encode(),
+                    json.dumps(stamped).encode(),
                 )
 
             await msg.ack()

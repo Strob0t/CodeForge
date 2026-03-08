@@ -3672,15 +3672,13 @@ Gaps identified between documentation claims and actual Python codebase implemen
 
 #### C1: Python Trust/Quarantine Layer
 
-- [ ] Create `workers/codeforge/trust/` module
-- **What's missing:** CLAUDE.md references `workers/codeforge/trust/` but this path does not exist. Only the Go side is implemented.
-- **Go provides:** `internal/domain/trust/trust.go` (4 trust levels: untrusted, partial, verified, full), `internal/service/quarantine.go` (172 lines — risk scoring, admin review hold, evaluate/approve/reject)
-- **What to build:**
-  1. TrustAnnotation Pydantic model matching Go's 4 trust levels
-  2. NATS middleware for auto-stamping outgoing messages with trust level
-  3. NATS middleware for enforcing minimum trust on incoming messages
-  4. Quarantine integration for sub-threshold messages
-- **Effort:** 2-3 days | **Priority:** Medium
+- [x] Create `workers/codeforge/trust/` module (2026-03-08)
+  - `levels.py`: TrustLevel enum, rank(), meets_minimum(), internal_annotation()
+  - `scorer.py`: Risk scorer mirroring Go scorer.go (same regex, same weights)
+  - `middleware.py`: stamp_outgoing(), validate_incoming()
+  - Consumer integration: trust stamping on conversation and A2A outgoing messages
+  - Config: `CODEFORGE_TRUST_MIN_LEVEL` env var / `trust.min_level` YAML
+  - 40 tests in `workers/tests/test_trust.py`
 
 #### C2: Python Microagent Trigger Logic
 

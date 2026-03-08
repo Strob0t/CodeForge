@@ -117,6 +117,7 @@ class WorkerSettings:
     log_service: str
     health_port: int
     routing_enabled: bool
+    trust_min_level: str
 
     def __init__(self) -> None:
         yaml_cfg = load_yaml_config()
@@ -125,6 +126,7 @@ class WorkerSettings:
         litellm_cfg: dict = yaml_cfg.get("litellm", {}) if isinstance(yaml_cfg.get("litellm"), dict) else {}
         logging_cfg: dict = yaml_cfg.get("logging", {}) if isinstance(yaml_cfg.get("logging"), dict) else {}
         routing_cfg: dict = yaml_cfg.get("routing", {}) if isinstance(yaml_cfg.get("routing"), dict) else {}
+        trust_cfg: dict = yaml_cfg.get("trust", {}) if isinstance(yaml_cfg.get("trust"), dict) else {}
 
         self.nats_url = _resolve_str("NATS_URL", nats_cfg.get("url"), "nats://localhost:4222")
         self.litellm_url = _resolve_str("LITELLM_BASE_URL", litellm_cfg.get("url"), "http://localhost:4000")
@@ -136,6 +138,7 @@ class WorkerSettings:
         self.health_port = _resolve_int("CODEFORGE_WORKER_HEALTH_PORT", None, 8081)
 
         self.routing_enabled = _resolve_bool("CODEFORGE_ROUTING_ENABLED", routing_cfg.get("enabled"), False)
+        self.trust_min_level = _resolve_str("CODEFORGE_TRUST_MIN_LEVEL", trust_cfg.get("min_level"), "untrusted")
 
         # Go Core connection (for routing stats/outcomes API calls)
         self.core_url = _resolve_str("CODEFORGE_CORE_URL", None, "http://localhost:8080")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import TYPE_CHECKING, ClassVar
 
@@ -138,9 +139,10 @@ class ConversationHandlerMixin:
                 step_count=result.step_count,
                 model=result.model,
             )
+            stamped = self._stamp_trust(complete_msg.model_dump())
             await self._js.publish(
                 SUBJECT_CONVERSATION_RUN_COMPLETE,
-                complete_msg.model_dump_json().encode(),
+                json.dumps(stamped).encode(),
                 headers={"Nats-Msg-Id": f"conv-complete-{run_msg.run_id}"},
             )
 

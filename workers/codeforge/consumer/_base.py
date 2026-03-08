@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, ClassVar
 import structlog
 
 from codeforge.consumer._subjects import HEADER_REQUEST_ID, HEADER_RETRY_COUNT, SUBJECT_OUTPUT
+from codeforge.trust.middleware import stamp_outgoing
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -67,6 +68,11 @@ class ConsumerBaseMixin:
         except Exception as exc:
             logger.exception("failed to publish to DLQ", dlq_subject=dlq_subject, error=str(exc))
         await msg.ack()
+
+    @staticmethod
+    def _stamp_trust(payload: dict, source_id: str = "python-worker") -> dict:
+        """Add trust annotation to an outgoing NATS payload."""
+        return stamp_outgoing(payload, source_id=source_id)
 
     async def _publish_output(self, task_id: str, line: str, stream: str = "stdout", request_id: str = "") -> None:
         """Publish a streaming output line for a task."""
