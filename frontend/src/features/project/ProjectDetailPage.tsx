@@ -12,6 +12,7 @@ import {
   ROADMAP_COLLAPSED_KEY,
   SPLIT_RATIO_KEY,
 } from "~/config/constants";
+import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { useI18n } from "~/i18n";
 import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 
@@ -79,7 +80,9 @@ export default function ProjectDetailPage() {
   const [splitRatio, setSplitRatio] = createSignal(DEFAULT_SPLIT);
   const [roadmapCollapsed, setRoadmapCollapsed] = createSignal(false);
   const [dragging, setDragging] = createSignal(false);
-  const [isNarrow, setIsNarrow] = createSignal(false);
+  const { isMobile, isDesktop } = useBreakpoint();
+  type MobileView = "panels" | "chat";
+  const [mobileView, setMobileView] = createSignal<MobileView>("panels");
   let containerRef: HTMLDivElement | undefined;
 
   onMount(() => {
@@ -89,12 +92,6 @@ export default function ProjectDetailPage() {
       if (n >= MIN_SPLIT && n <= MAX_SPLIT) setSplitRatio(n);
     }
     setRoadmapCollapsed(localStorage.getItem(ROADMAP_COLLAPSED_KEY) === "true");
-
-    const mq = window.matchMedia("(max-width: 768px)");
-    setIsNarrow(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
-    mq.addEventListener("change", handler);
-    onCleanup(() => mq.removeEventListener("change", handler));
   });
 
   function persistSplit(ratio: number) {
@@ -304,7 +301,7 @@ export default function ProjectDetailPage() {
         {(p) => (
           <>
             {/* Header Bar */}
-            <div class="flex items-center justify-between px-4 py-3 border-b border-cf-border flex-shrink-0">
+            <div class="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 border-b border-cf-border flex-shrink-0">
               <div class="flex items-center gap-3">
                 <h2 class="text-lg font-bold text-cf-text-primary">{p().name}</h2>
 
@@ -319,7 +316,7 @@ export default function ProjectDetailPage() {
                 </Show>
               </div>
 
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 {/* Clone Button */}
                 <Show when={!p().workspace_path && p().repo_url}>
                   <Button
@@ -421,173 +418,209 @@ export default function ProjectDetailPage() {
             {/* Side-by-side Layout: Roadmap (left) | Chat (right) */}
             <div
               ref={containerRef}
-              class={`flex flex-1 min-h-0 ${isNarrow() ? "flex-col" : "flex-row"}`}
+              class={`flex flex-1 min-h-0 ${!isDesktop() ? "flex-col" : "flex-row"}`}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
             >
-              <Show when={!roadmapCollapsed()}>
-                <div
-                  class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" ? "" : "overflow-y-auto"}`}
-                  style={
-                    isNarrow()
-                      ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }
-                      : {
-                          width: `${splitRatio()}%`,
-                          "border-right": "1px solid var(--cf-border)",
-                        }
-                  }
-                >
-                  <div class="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
-                    <div class="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class={leftTab() === "roadmap" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                        onClick={() => setLeftTab("roadmap")}
-                      >
-                        {t("detail.tab.roadmap")}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class={leftTab() === "featuremap" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                        onClick={() => setLeftTab("featuremap")}
-                      >
-                        {t("detail.tab.featuremap")}
-                      </Button>
-                      <Show when={p().workspace_path}>
+              <Show when={!isMobile() || mobileView() === "panels"}>
+                <Show when={!roadmapCollapsed()}>
+                  <div
+                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" ? "" : "overflow-y-auto"}`}
+                    style={
+                      isMobile()
+                        ? { height: "100%" }
+                        : !isDesktop()
+                          ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }
+                          : {
+                              width: `${splitRatio()}%`,
+                              "border-right": "1px solid var(--cf-border)",
+                            }
+                    }
+                  >
+                    <div class="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
+                      <div class="flex items-center gap-1 overflow-x-auto scrollbar-none whitespace-nowrap">
                         <Button
                           variant="ghost"
                           size="sm"
-                          class={leftTab() === "files" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("files")}
+                          class={leftTab() === "roadmap" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("roadmap")}
                         >
-                          Files
+                          {t("detail.tab.roadmap")}
                         </Button>
-                      </Show>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "featuremap" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("featuremap")}
+                        >
+                          {t("detail.tab.featuremap")}
+                        </Button>
+                        <Show when={p().workspace_path}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            class={leftTab() === "files" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                            onClick={() => setLeftTab("files")}
+                          >
+                            Files
+                          </Button>
+                        </Show>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "warroom" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("warroom")}
+                        >
+                          War Room
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "goals" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("goals")}
+                        >
+                          {t("goals.tab")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "audit" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("audit")}
+                        >
+                          {t("audit.title")}
+                        </Button>
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
-                        class={leftTab() === "warroom" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                        onClick={() => setLeftTab("warroom")}
+                        onClick={toggleRoadmap}
+                        title={t("detail.roadmap.collapse")}
                       >
-                        War Room
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class={leftTab() === "goals" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                        onClick={() => setLeftTab("goals")}
-                      >
-                        {t("goals.tab")}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class={leftTab() === "audit" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                        onClick={() => setLeftTab("audit")}
-                      >
-                        {t("audit.title")}
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          stroke-width="2"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+                          />
+                        </svg>
                       </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={toggleRoadmap}
-                      title={t("detail.roadmap.collapse")}
-                    >
-                      <svg
-                        class="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        stroke-width="2"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-                        />
-                      </svg>
-                    </Button>
+                    <Show when={leftTab() === "roadmap"}>
+                      <div class="flex-1 overflow-y-auto px-4 pb-4">
+                        <RoadmapPanel projectId={params.id} onError={setError} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "featuremap"}>
+                      <div class="flex-1 min-h-0">
+                        <FeatureMapPanel projectId={params.id} onError={setError} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "files"}>
+                      <div class="flex-1 min-h-0">
+                        <FilePanel projectId={params.id} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "warroom"}>
+                      <div class="flex-1 min-h-0">
+                        <WarRoom projectId={params.id} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "goals"}>
+                      <div class="flex-1 min-h-0">
+                        <GoalsPanel projectId={params.id} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "audit"}>
+                      <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                        <AuditTable projectId={params.id} />
+                      </div>
+                    </Show>
                   </div>
-                  <Show when={leftTab() === "roadmap"}>
-                    <div class="flex-1 overflow-y-auto px-4 pb-4">
-                      <RoadmapPanel projectId={params.id} onError={setError} />
-                    </div>
-                  </Show>
-                  <Show when={leftTab() === "featuremap"}>
-                    <div class="flex-1 min-h-0">
-                      <FeatureMapPanel projectId={params.id} onError={setError} />
-                    </div>
-                  </Show>
-                  <Show when={leftTab() === "files"}>
-                    <div class="flex-1 min-h-0">
-                      <FilePanel projectId={params.id} />
-                    </div>
-                  </Show>
-                  <Show when={leftTab() === "warroom"}>
-                    <div class="flex-1 min-h-0">
-                      <WarRoom projectId={params.id} />
-                    </div>
-                  </Show>
-                  <Show when={leftTab() === "goals"}>
-                    <div class="flex-1 min-h-0">
-                      <GoalsPanel projectId={params.id} />
-                    </div>
-                  </Show>
-                  <Show when={leftTab() === "audit"}>
-                    <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
-                      <AuditTable projectId={params.id} />
-                    </div>
-                  </Show>
-                </div>
 
-                {/* Draggable Divider */}
-                <Show when={!isNarrow()}>
-                  <div
-                    class={`w-1.5 flex-shrink-0 cursor-col-resize hover:bg-cf-accent/30 transition-colors ${dragging() ? "bg-cf-accent/40" : "bg-transparent"}`}
-                    onPointerDown={handlePointerDown}
-                  />
+                  {/* Draggable Divider */}
+                  <Show when={isDesktop()}>
+                    <div
+                      class={`w-1.5 flex-shrink-0 cursor-col-resize hover:bg-cf-accent/30 transition-colors ${dragging() ? "bg-cf-accent/40" : "bg-transparent"}`}
+                      onPointerDown={handlePointerDown}
+                    />
+                  </Show>
                 </Show>
               </Show>
 
-              <div
-                class="flex flex-col min-h-0"
-                style={
-                  isNarrow()
-                    ? { height: roadmapCollapsed() ? "100%" : "50%" }
-                    : { width: roadmapCollapsed() ? "100%" : `${100 - splitRatio()}%` }
-                }
-              >
-                <Show when={roadmapCollapsed()}>
-                  <div class="flex items-center px-4 py-1 border-b border-cf-border flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={toggleRoadmap}
-                      title={t("detail.roadmap.expand")}
-                    >
-                      <svg
-                        class="h-4 w-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        stroke-width="2"
+              <Show when={!isMobile() || mobileView() === "chat"}>
+                <div
+                  class="flex flex-col min-h-0"
+                  style={
+                    isMobile()
+                      ? { height: "100%" }
+                      : !isDesktop()
+                        ? { height: roadmapCollapsed() ? "100%" : "50%" }
+                        : { width: roadmapCollapsed() ? "100%" : `${100 - splitRatio()}%` }
+                  }
+                >
+                  <Show when={roadmapCollapsed()}>
+                    <div class="flex items-center px-4 py-1 border-b border-cf-border flex-shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={toggleRoadmap}
+                        title={t("detail.roadmap.expand")}
                       >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          d="M13 5l7 7-7 7M5 5l7 7-7 7"
-                        />
-                      </svg>
-                    </Button>
-                    <span class="text-xs text-cf-text-muted ml-1">{t("detail.tab.roadmap")}</span>
-                  </div>
-                </Show>
-                <ActiveWorkPanel projectId={params.id} />
-                <ChatPanel projectId={params.id} />
-              </div>
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          stroke-width="2"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                          />
+                        </svg>
+                      </Button>
+                      <span class="text-xs text-cf-text-muted ml-1">{t("detail.tab.roadmap")}</span>
+                    </div>
+                  </Show>
+                  <ActiveWorkPanel projectId={params.id} />
+                  <ChatPanel projectId={params.id} />
+                </div>
+              </Show>
+
+              {/* Mobile bottom tab bar */}
+              <Show when={isMobile()}>
+                <div class="flex border-t border-cf-border flex-shrink-0">
+                  <button
+                    type="button"
+                    class={`flex-1 py-3 text-sm font-medium text-center min-h-[48px] transition-colors ${
+                      mobileView() === "panels"
+                        ? "text-cf-accent border-t-2 border-cf-accent bg-cf-bg-surface"
+                        : "text-cf-text-muted hover:text-cf-text-secondary"
+                    }`}
+                    onClick={() => setMobileView("panels")}
+                  >
+                    Panels
+                  </button>
+                  <button
+                    type="button"
+                    class={`flex-1 py-3 text-sm font-medium text-center min-h-[48px] transition-colors ${
+                      mobileView() === "chat"
+                        ? "text-cf-accent border-t-2 border-cf-accent bg-cf-bg-surface"
+                        : "text-cf-text-muted hover:text-cf-text-secondary"
+                    }`}
+                    onClick={() => setMobileView("chat")}
+                  >
+                    Chat
+                  </button>
+                </div>
+              </Show>
             </div>
           </>
         )}

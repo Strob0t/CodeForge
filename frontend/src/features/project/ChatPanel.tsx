@@ -307,13 +307,13 @@ export default function ChatPanel(props: ChatPanelProps) {
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-cf-text-primary">{t("chat.tab")}</span>
             <Show when={agentRunning()}>
-              <span class="inline-flex items-center gap-1 rounded-full bg-cf-accent/10 px-2 py-0.5 text-[11px] font-medium text-cf-accent">
+              <span class="inline-flex items-center gap-1 rounded-full bg-cf-accent/10 px-2 py-0.5 text-xs font-medium text-cf-accent">
                 <span class="inline-block h-1.5 w-1.5 rounded-full bg-cf-accent animate-pulse" />
                 Agentic
               </span>
             </Show>
           </div>
-          <div class="flex items-center gap-3">
+          <div class="flex flex-wrap items-center gap-2 sm:gap-3">
             {/* Session status badge */}
             <Show when={session()}>
               {(sess) => (
@@ -389,7 +389,7 @@ export default function ChatPanel(props: ChatPanelProps) {
             {(msg) => (
               <div class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  class={`max-w-[75%] rounded-cf-md px-4 py-2 text-sm ${
+                  class={`max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm ${
                     msg.role === "user"
                       ? "bg-cf-accent text-white whitespace-pre-wrap"
                       : "bg-cf-bg-surface-alt text-cf-text-primary"
@@ -422,7 +422,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           {/* Active tool calls from AG-UI events — grouped with vertical line */}
           <Show when={toolCalls().length > 0}>
             <div class="flex justify-start">
-              <div class="max-w-[75%] w-full border-l-2 border-cf-accent/40 pl-3 ml-2">
+              <div class="max-w-[90%] sm:max-w-[75%] w-full border-l-2 border-cf-accent/40 pl-3 ml-2">
                 <Show when={stepCount() > 0}>
                   <div class="mb-1 text-xs text-cf-text-muted">
                     Step {stepCount()} {"\u00B7"} {toolCalls().length} tool call
@@ -447,7 +447,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           <Show when={streamingContent()}>
             {(content) => (
               <div class="flex justify-start">
-                <div class="max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-primary">
+                <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-primary">
                   <Markdown content={content()} />
                   <div class="mt-1 text-xs opacity-60">{t("chat.streaming")}</div>
                 </div>
@@ -459,7 +459,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           <Show when={runError()}>
             {(error) => (
               <div class="flex justify-start">
-                <div class="max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
+                <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
                   <span class="font-medium">Error: </span>
                   {error()}
                 </div>

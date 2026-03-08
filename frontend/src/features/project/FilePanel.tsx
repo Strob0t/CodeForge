@@ -3,6 +3,7 @@ import { createSignal, For, type JSX, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { FileContent } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { fileIconUrl } from "~/lib/file-icon";
 import { Button, Spinner } from "~/ui";
 
@@ -220,6 +221,10 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
 
   const currentTab = () => tabs().find((t) => t.path === activeTab());
 
+  // -- Mobile breakpoint -----------------------------------------------------
+  const { isMobile } = useBreakpoint();
+  const [fileDrawerOpen, setFileDrawerOpen] = createSignal(false);
+
   // -- Resizable sidebar ----------------------------------------------------
   const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT);
   const [dragging, setDragging] = createSignal(false);
@@ -250,32 +255,92 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
 
   return (
     <div class="flex h-full min-h-0" style={{ cursor: dragging() ? "col-resize" : undefined }}>
-      {/* File Tree Sidebar */}
-      <FileTreeProvider>
-        <div
-          class="relative flex-shrink-0 border-r border-cf-border overflow-hidden flex flex-col bg-cf-bg-surface"
-          style={{ width: `${sidebarWidth()}px` }}
-        >
-          <TreeLoadingOverlay />
-          <SidebarHeader projectId={props.projectId} />
-          <SearchInput />
-          <div class="flex-1 overflow-y-auto">
-            <FileTree
-              projectId={props.projectId}
-              onFileSelect={openFile}
-              selectedPath={activeTab() ?? undefined}
-            />
+      {/* File Tree Sidebar (desktop/tablet) */}
+      <Show when={!isMobile()}>
+        <FileTreeProvider>
+          <div
+            class="relative flex-shrink-0 border-r border-cf-border overflow-hidden flex flex-col bg-cf-bg-surface"
+            style={{ width: `${sidebarWidth()}px` }}
+          >
+            <TreeLoadingOverlay />
+            <SidebarHeader projectId={props.projectId} />
+            <SearchInput />
+            <div class="flex-1 overflow-y-auto">
+              <FileTree
+                projectId={props.projectId}
+                onFileSelect={openFile}
+                selectedPath={activeTab() ?? undefined}
+              />
+            </div>
           </div>
-        </div>
-        {/* Resize handle */}
-        <div
-          class="w-1 flex-shrink-0 cursor-col-resize hover:bg-cf-accent/40 active:bg-cf-accent/60 transition-colors"
-          classList={{ "bg-cf-accent/60": dragging() }}
-          onMouseDown={onDragStart}
-          onDblClick={onDragDblClick}
-          title="Drag to resize, double-click to reset"
-        />
-      </FileTreeProvider>
+          {/* Resize handle */}
+          <div
+            class="w-1 flex-shrink-0 cursor-col-resize hover:bg-cf-accent/40 active:bg-cf-accent/60 transition-colors"
+            classList={{ "bg-cf-accent/60": dragging() }}
+            onMouseDown={onDragStart}
+            onDblClick={onDragDblClick}
+            title="Drag to resize, double-click to reset"
+          />
+        </FileTreeProvider>
+      </Show>
+
+      {/* Mobile file tree */}
+      <Show when={isMobile()}>
+        {/* Mobile file tree toggle button */}
+        <Show when={!fileDrawerOpen()}>
+          <button
+            type="button"
+            class="flex items-center gap-2 px-3 py-2 text-sm text-cf-text-secondary hover:bg-cf-bg-surface-alt border-b border-cf-border w-full min-h-[44px]"
+            onClick={() => setFileDrawerOpen(true)}
+          >
+            <svg
+              class="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+              />
+            </svg>
+            Files
+          </button>
+        </Show>
+
+        {/* Mobile file tree overlay */}
+        <Show when={fileDrawerOpen()}>
+          <div class="fixed inset-0 z-40 bg-black/50" onClick={() => setFileDrawerOpen(false)} />
+          <div class="fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r border-cf-border bg-cf-bg-surface shadow-cf-lg">
+            <FileTreeProvider>
+              <div class="flex items-center justify-between p-2 border-b border-cf-border">
+                <span class="text-sm font-medium px-2">Files</span>
+                <button
+                  type="button"
+                  class="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-cf-md text-cf-text-muted hover:bg-cf-bg-surface-alt"
+                  onClick={() => setFileDrawerOpen(false)}
+                >
+                  {"\u2715"}
+                </button>
+              </div>
+              <SidebarHeader projectId={props.projectId} />
+              <SearchInput />
+              <div class="flex-1 overflow-y-auto">
+                <FileTree
+                  projectId={props.projectId}
+                  onFileSelect={(path) => {
+                    openFile(path);
+                    setFileDrawerOpen(false);
+                  }}
+                  selectedPath={activeTab() ?? undefined}
+                />
+              </div>
+            </FileTreeProvider>
+          </div>
+        </Show>
+      </Show>
 
       {/* Editor Area */}
       <div class="flex-1 flex flex-col min-w-0">
