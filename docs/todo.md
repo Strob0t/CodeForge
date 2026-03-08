@@ -3666,6 +3666,22 @@ Automatic retry with exponential backoff for transient LLM failures + per-provid
 - [x] (2026-03-07) CR-N03: Replaced `map[string]any` with concrete `BenchmarkSummary` struct in `BenchmarkRunResultPayload`
 - [x] (2026-03-07) CR-M01: Added migration 058 with composite tenant-prefixed indexes on `agent_events`
 
+### Benchmark Cross-Layer Bug Fixes (2026-03-08)
+
+> **Context:** Systematic cross-layer audit found 7 bugs where Phase 28 features (hybrid verification, multi-rollout)
+> were implemented in the Python evaluation framework but never wired into the NATS integration layer,
+> plus data flow issues causing zeros in the UI and broken CSV exports.
+
+- [x] (2026-03-08) Bug 1 (HIGH): Missing DB migration for rollout fields — `065_benchmark_result_rollout_fields.sql` adds `rollout_id`, `rollout_count`, `is_best_rollout`, `diversity_score` to `benchmark_results` and `hybrid_verification`, `rollout_count`, `rollout_strategy` to `benchmark_runs`; updated `store_benchmark.go` column constants, INSERT queries, and scan functions
+- [x] (2026-03-08) Bug 2 (HIGH): Python never sets `total_cost`/`total_tokens`/`total_duration_ms` — `BenchmarkRunResult` now populates from `summary` dict; Go `HandleBenchmarkRunResult` falls back to `payload.Summary` when top-level fields are 0
+- [x] (2026-03-08) Bug 3 (MEDIUM): `hybrid_verification` unreachable via NATS — wired through `CreateRunRequest` -> `Run` -> `BenchmarkRunRequestPayload` -> `BenchmarkRunRequest` (Pydantic); replaced `getattr()` with direct attribute access in `_benchmark.py`
+- [x] (2026-03-08) Bug 4 (MEDIUM): `MultiRolloutRunner` never instantiated — added `_run_with_optional_rollout()` that wraps inner runner when `rollout_count > 1`; added `_convert_rollout_outcome()` for rollout-aware serialization; all 3 runner functions now delegate through it
+- [x] (2026-03-08) Bug 5 (MEDIUM): `_dataset_to_task_specs()` drops `expected_tools` — now converts `BenchmarkTask.expected_tools` list of dicts to `ToolCall` objects instead of hardcoding `[]`
+- [x] (2026-03-08) Bug 6 (MEDIUM): NATS payloads missing `tenant_id` — added `TenantID` to both `BenchmarkRunRequestPayload` and `BenchmarkRunResultPayload`; `StartRun` sets `TenantID: tenantctx.FromContext(ctx)`
+- [x] (2026-03-08) Bug 7 (LOW): CSV export doesn't escape fields — replaced `fmt.Sprintf` with `encoding/csv.Writer` for RFC 4180 compliance in `handlers_benchmark.go`
+
+**Files modified (8):** `065_benchmark_result_rollout_fields.sql` (NEW), `store_benchmark.go`, `benchmark.go` (domain), `schemas.go`, `benchmark.go` (service), `handlers_benchmark.go`, `models.py`, `_benchmark.py`
+
 ### Documentation-Code Reconciliation (2026-03-05)
 
 Gaps identified between documentation claims and actual Python codebase implementation.

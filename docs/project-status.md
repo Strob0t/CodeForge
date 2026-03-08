@@ -1168,6 +1168,7 @@ The central agentic loop that makes CodeForge an autonomous coding agent. The us
 - [x] (2026-03-02) 28E: Trajectory Export for DPO/EntroPO Training — JSONL chosen/rejected pairs (12 tests)
 - [x] (2026-03-02) 28F: SWE-GEN Synthetic Task Generation — benchmark tasks from Git commit history (19 tests)
 - [x] (2026-03-02) 28G: Integration Wiring — consumer, Go handlers, routes, migration 055
+- [x] (2026-03-08) 28-Bugfix: Cross-layer audit — 7 bugs fixed: DB migration for rollout fields (065), Python total_cost/tokens/duration population + Go summary fallback, hybrid_verification NATS wiring, MultiRolloutRunner instantiation, expected_tools passthrough, tenant_id in NATS payloads, CSV export RFC 4180 escaping
 
 ### Phase 27: A2A Protocol Integration (COMPLETED)
 
