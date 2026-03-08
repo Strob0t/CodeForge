@@ -118,7 +118,7 @@ class AgentLoopExecutor:
         failed_model = cfg.model
         state.failed_models.add(failed_model)
         if exc.status_code in (401, 403):
-            get_blocklist().block(failed_model, reason=f"HTTP {exc.status_code}")
+            get_blocklist().block_auth(failed_model, reason=f"HTTP {exc.status_code}")
         next_model = self._pick_next_fallback(cfg, state)
         if next_model is None:
             return f"LLM call failed: {exc}"

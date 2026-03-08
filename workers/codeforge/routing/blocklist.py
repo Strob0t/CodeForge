@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BLOCK_TTL = float(os.environ.get("CODEFORGE_MODEL_BLOCK_TTL", "300"))
+_AUTH_BLOCK_TTL = float(os.environ.get("CODEFORGE_MODEL_AUTH_BLOCK_TTL", "86400"))
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class BlockEntry:
     reason: str
     blocked_at: float
     ttl: float
+    auth_failure: bool = False
 
 
 class ModelBlocklist:
@@ -50,6 +52,19 @@ class ModelBlocklist:
         with self._lock:
             self._blocked[model] = entry
         logger.warning("model_blocklist: blocked %s for %.0fs (reason: %s)", model, ttl, reason)
+
+    def block_auth(self, model: str, reason: str = "") -> None:
+        """Block a model for auth/billing failures (long TTL)."""
+        entry = BlockEntry(
+            model=model,
+            reason=reason,
+            blocked_at=self._now(),
+            ttl=_AUTH_BLOCK_TTL,
+            auth_failure=True,
+        )
+        with self._lock:
+            self._blocked[model] = entry
+        logger.warning("model_blocklist: auth-blocked %s for %.0fs (reason: %s)", model, _AUTH_BLOCK_TTL, reason)
 
     def is_blocked(self, model: str) -> bool:
         """Return True if *model* is currently blocked (not expired)."""

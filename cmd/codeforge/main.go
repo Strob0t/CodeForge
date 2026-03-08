@@ -94,6 +94,10 @@ func run() error {
 		"pg_max_conns", cfg.Postgres.MaxConns,
 	)
 
+	if os.Getenv("CODEFORGE_INTERNAL_KEY") == "" {
+		slog.Warn("CODEFORGE_INTERNAL_KEY not set — Python worker API calls will fail with 401")
+	}
+
 	// --- OpenTelemetry ---
 	otelShutdown, err := cfotel.InitTracer(cfotel.OTELConfig{
 		Enabled:     cfg.OTEL.Enabled,

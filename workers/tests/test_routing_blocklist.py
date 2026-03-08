@@ -112,6 +112,61 @@ class TestSingleton:
         assert a is b
 
 
+class TestAuthBlocklist:
+    """Tests for auth-failure-specific blocking (24h TTL)."""
+
+    def _make_blocklist(self, now: float = 1000.0) -> ModelBlocklist:
+        bl = ModelBlocklist()
+        bl._now = lambda: now  # type: ignore[assignment]
+        return bl
+
+    def test_block_auth_uses_long_ttl(self) -> None:
+        bl = self._make_blocklist()
+        bl.block_auth("openai/gpt-4o-mini", reason="HTTP 401")
+        entry = bl.get_blocked()["openai/gpt-4o-mini"]
+        assert entry.ttl == 86400.0
+
+    def test_block_auth_sets_auth_failure_flag(self) -> None:
+        bl = self._make_blocklist()
+        bl.block_auth("openai/gpt-4o-mini", reason="HTTP 401")
+        entry = bl.get_blocked()["openai/gpt-4o-mini"]
+        assert entry.auth_failure is True
+
+    def test_auth_blocked_model_survives_default_ttl(self) -> None:
+        """After 301s (past default 300s TTL), auth-blocked model is still blocked."""
+        current_time = 1000.0
+        bl = ModelBlocklist()
+        bl._now = lambda: current_time  # type: ignore[assignment]
+
+        bl.block_auth("openai/gpt-4o-mini", reason="HTTP 401")
+        assert bl.is_blocked("openai/gpt-4o-mini") is True
+
+        # Advance past default TTL (300s) but within auth TTL (86400s).
+        current_time = 1301.0
+        bl._now = lambda: current_time  # type: ignore[assignment]
+        assert bl.is_blocked("openai/gpt-4o-mini") is True
+
+    def test_auth_blocked_model_expires_after_auth_ttl(self) -> None:
+        current_time = 1000.0
+        bl = ModelBlocklist()
+        bl._now = lambda: current_time  # type: ignore[assignment]
+
+        bl.block_auth("openai/gpt-4o-mini", reason="HTTP 401")
+
+        # Advance past auth TTL (86400s).
+        current_time = 1000.0 + 86401.0
+        bl._now = lambda: current_time  # type: ignore[assignment]
+        assert bl.is_blocked("openai/gpt-4o-mini") is False
+
+    def test_default_block_still_uses_short_ttl(self) -> None:
+        """Regular block() is unaffected — still uses the default TTL."""
+        bl = self._make_blocklist()
+        bl.block("groq/llama-3.1-8b-instant", reason="HTTP 429")
+        entry = bl.get_blocked()["groq/llama-3.1-8b-instant"]
+        assert entry.ttl == 300.0  # default
+        assert entry.auth_failure is False
+
+
 class TestThreadSafety:
     """Concurrent access tests."""
 
