@@ -3929,7 +3929,7 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
 
 - [x] (2026-03-08) Plane.so PM adapter (REST API, full item CRUD, cursor pagination, label sync, HMAC-SHA256 webhooks) — `internal/adapter/plane/provider.go`
 - [x] (2026-03-08) Full Auto-Detection Engine — three-tier detection: repo files → platform APIs → file markers; `internal/service/detection.go`
-- [ ] Frontend: Feature-Map editor (visual drag-and-drop) — no implementation yet
+- [x] (2026-03-08) Frontend: Feature-Map visual editor (Kanban drag-and-drop board) — `FeatureMapPanel.tsx`, `MilestoneColumn.tsx`, `FeatureCard.tsx`, `FeatureCardForm.tsx`, `MilestoneForm.tsx`, `featuremap-dnd.ts`; cross-milestone move via `milestone_id` in UpdateFeature handler + SQL; 21 i18n keys (EN + DE); integrated as "Feature Map" tab in ProjectDetailPage
 
 #### Pillar 3: Multi-LLM Provider
 

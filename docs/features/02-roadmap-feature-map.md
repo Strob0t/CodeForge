@@ -1,6 +1,6 @@
 # Feature: Roadmap/Feature-Map (Pillar 2)
 
-> Status: Foundation implemented (Phase 8A) -- domain, store, service, REST API, frontend
+> Status: Complete (Phase 8A + 9A + 9D) -- domain, store, service, REST API, 4 spec providers, 5 PM providers, auto-detection, Feature-Map visual editor
 > Priority: Phase 8 (Foundation) then Phase 9+ (Advanced integrations)
 > Architecture reference: [architecture.md](../architecture.md) -- "Roadmap/Feature-Map: Auto-Detection & Adaptive Integration"
 
@@ -102,6 +102,20 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - [x] Provider wiring via blank imports + main.go instantiation from registries.
 - [x] Frontend: Import Specs button, Import from PM form (provider dropdown + project ref), import result display.
 - [x] 24 new adapter tests (8 openspec, 7 markdownspec, 9 githubpm), all passing.
+
+### Phase 9D: Plane.so Adapter + Full Auto-Detection + Feature-Map Editor (Completed)
+
+- [x] Plane.so PM Adapter (`internal/adapter/plane/`) -- REST API v1 with `X-API-Key` auth, full CRUD (ListItems, GetItem, CreateItem, UpdateItem), cursor pagination, status mapping (5 Plane state groups to FeatureStatus), self-registration via `init()`, 22 tests.
+- [x] Full Auto-Detection Engine (`internal/service/detection.go`) -- extends Phase 3 AutoDetect with PM platform detection: `detectFromGitRemote()` (github.com -> github-issues, gitlab.com -> gitlab), `detectFromProjectConfig()` (Plane workspace/project, generic pm_provider/pm_project_ref), deduplication, filtered by `pmprovider.Available()`. New `PlatformDetection` struct in domain model. 19 tests.
+- [x] Backend: Cross-milestone feature move -- `milestone_id` field added to UpdateFeature handler + SQL UPDATE, enabling drag-and-drop across milestone columns.
+- [x] Frontend: Feature-Map Visual Editor -- Kanban-style board view as new `"Feature Map"` tab in ProjectDetailPage:
+  - `FeatureMapPanel.tsx` -- main panel, fetches roadmap data via `createResource`, orchestrates DnD state and mutations.
+  - `MilestoneColumn.tsx` -- vertical column with HTML5 drop zone, insertion index calculation, blue indicator line.
+  - `FeatureCard.tsx` -- draggable card with status badge, labels, inline status toggle.
+  - `FeatureCardForm.tsx` -- inline create/edit form with keyboard shortcuts (Enter/Escape).
+  - `MilestoneForm.tsx` -- inline milestone creation form.
+  - `featuremap-dnd.ts` -- DnD utilities: custom MIME type `application/x-codeforge-feature`, encode/decode helpers.
+  - 21 i18n keys (EN + DE).
 
 ### Open Items
 

@@ -1,6 +1,6 @@
 # CodeForge — Project Status
 
-> Last update: 2026-03-02
+> Last update: 2026-03-08
 
 ### Phase 0: Project Setup (COMPLETED)
 
@@ -558,6 +558,21 @@
 - New Go deps: go.opentelemetry.io/otel (v1.40), go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp
 - Tests: 5 A2A handler tests, all Go tests pass
 - Verification: go build, golangci-lint 0 issues, go test all pass, pre-commit 15/15 hooks pass
+
+### Phase 9E: Pillar 2 Completion — Plane Adapter + Auto-Detection + Feature-Map Editor (COMPLETED)
+
+> Completes Pillar 2 (Roadmap/Feature-Map) with the remaining three tasks: Plane.so PM adapter, full auto-detection engine, and Feature-Map visual editor.
+
+- [x] (2026-03-08) Plane.so PM Adapter (`internal/adapter/plane/`) — `pmprovider.Provider` via REST API v1 (`X-API-Key` auth, cursor pagination, status mapping backlog/unstarted/started/completed/cancelled → FeatureStatus; ListItems, GetItem, CreateItem, UpdateItem; self-registration via `init()`, blank import in `providers.go`; 22 tests with `httptest.Server` mocks)
+- [x] (2026-03-08) Full Auto-Detection Engine (`internal/service/detection.go`) — Phase 4 added to `AutoDetect()`: `detectFromGitRemote()` maps github.com → github-issues, gitlab.com → gitlab; `detectFromProjectConfig()` checks plane_workspace/plane_project_id and generic pm_provider/pm_project_ref; deduplication by provider, filtered by `pmprovider.Available()`. New `PlatformDetection` struct in `internal/domain/roadmap/roadmap.go`. 19 tests.
+- [x] (2026-03-08) Backend: Cross-milestone feature move — `MilestoneID` field added to UpdateFeature handler request struct + SQL UPDATE (`milestone_id = $9`), enabling drag-and-drop across milestone columns.
+- [x] (2026-03-08) Frontend: Feature-Map Visual Editor — Kanban-style drag-and-drop board as `"Feature Map"` tab in ProjectDetailPage (6 new components: FeatureMapPanel, MilestoneColumn, FeatureCard, FeatureCardForm, MilestoneForm, featuremap-dnd.ts; HTML5 DnD with custom MIME `application/x-codeforge-feature`; within-column reorder + cross-milestone move; 21 i18n keys EN + DE)
+
+#### Phase 9E Key Deliverables
+- **New files (8):** plane/ (provider.go, register.go, provider_test.go), detection.go + detection_test.go, frontend featuremap/ (6 components)
+- Modified files (8): roadmap.go (domain + service), handlers_roadmap.go, store.go (SQL), ProjectDetailPage.tsx, en.ts, de.ts, providers.go
+- Tests: 41 new tests (22 Plane adapter + 19 detection), all Go tests pass
+- Verification: go build, golangci-lint 0 issues, go test all pass, ESLint clean, pre-commit all hooks pass
 
 ### Phase 10 — Frontend Foundations (IN PROGRESS)
 
