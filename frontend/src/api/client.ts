@@ -877,6 +877,20 @@ export const api = {
       request<{ status: string; conversation_id: string }>(url`/conversations/${id}/stop`, {
         method: "POST",
       }),
+
+    session: (id: string) => request<import("./types").Session>(url`/conversations/${id}/session`),
+
+    fork: (id: string, data?: { from_event_id?: string }) =>
+      request<import("./types").Session>(url`/conversations/${id}/fork`, {
+        method: "POST",
+        body: JSON.stringify(data ?? {}),
+      }),
+
+    rewind: (id: string, data?: { run_id?: string; to_event_id?: string }) =>
+      request<import("./types").Session>(url`/conversations/${id}/rewind`, {
+        method: "POST",
+        body: JSON.stringify(data ?? {}),
+      }),
   },
 
   vcsAccounts: {
@@ -1177,6 +1191,30 @@ export const api = {
         url`/projects/${projectId}/goals/ai-discover`,
         { method: "POST" },
       ),
+  },
+  audit: {
+    list: (opts?: { action?: string; cursor?: string; limit?: number }) => {
+      const params = new URLSearchParams();
+      if (opts?.action) params.set("action", opts.action);
+      if (opts?.cursor) params.set("cursor", opts.cursor);
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      const qs = params.toString();
+      return request<import("./types").AuditPage>(`/audit${qs ? `?${qs}` : ""}`);
+    },
+
+    listByProject: (
+      projectId: string,
+      opts?: { action?: string; cursor?: string; limit?: number },
+    ) => {
+      const params = new URLSearchParams();
+      if (opts?.action) params.set("action", opts.action);
+      if (opts?.cursor) params.set("cursor", opts.cursor);
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      const qs = params.toString();
+      return request<import("./types").AuditPage>(
+        url`/projects/${projectId}/audit${qs ? `?${qs}` : ""}`,
+      );
+    },
   },
 } as const;
 

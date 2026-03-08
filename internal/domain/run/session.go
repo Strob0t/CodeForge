@@ -18,7 +18,8 @@ type Session struct {
 	ID              string        `json:"id"`
 	TenantID        string        `json:"tenant_id,omitempty"`
 	ProjectID       string        `json:"project_id"`
-	TaskID          string        `json:"task_id"`
+	TaskID          string        `json:"task_id,omitempty"`
+	ConversationID  string        `json:"conversation_id,omitempty"`
 	ParentSessionID string        `json:"parent_session_id,omitempty"`
 	ParentRunID     string        `json:"parent_run_id,omitempty"`
 	CurrentRunID    string        `json:"current_run_id,omitempty"`

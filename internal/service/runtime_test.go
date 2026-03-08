@@ -557,6 +557,9 @@ func (m *runtimeMockStore) CreateSession(_ context.Context, _ *run.Session) erro
 func (m *runtimeMockStore) GetSession(_ context.Context, _ string) (*run.Session, error) {
 	return nil, nil
 }
+func (m *runtimeMockStore) GetSessionByConversation(_ context.Context, _ string) (*run.Session, error) {
+	return nil, nil
+}
 func (m *runtimeMockStore) ListSessions(_ context.Context, _ string) ([]run.Session, error) {
 	return nil, nil
 }

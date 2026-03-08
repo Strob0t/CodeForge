@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Conversation, ConversationMessage } from "~/api/types";
+import type { Conversation, ConversationMessage, Session } from "~/api/types";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
@@ -49,6 +49,11 @@ export default function ChatPanel(props: ChatPanelProps) {
   );
   const [messages, { refetch: refetchMessages }] = createResource(activeConversation, (cid) =>
     cid ? api.conversations.messages(cid) : Promise.resolve([] as ConversationMessage[]),
+  );
+  const [session, { refetch: refetchSession }] = createResource(activeConversation, (cid) =>
+    cid
+      ? api.conversations.session(cid).catch(() => null as Session | null)
+      : Promise.resolve(null as Session | null),
   );
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
@@ -212,6 +217,7 @@ export default function ChatPanel(props: ChatPanelProps) {
       });
 
       void refetchMessages();
+      void refetchSession();
     }
   });
 
@@ -308,6 +314,53 @@ export default function ChatPanel(props: ChatPanelProps) {
             </Show>
           </div>
           <div class="flex items-center gap-3">
+            {/* Session status badge */}
+            <Show when={session()}>
+              {(sess) => (
+                <Badge
+                  variant={
+                    sess().status === "active"
+                      ? "success"
+                      : sess().status === "forked"
+                        ? "info"
+                        : "default"
+                  }
+                  pill
+                >
+                  Session: {sess().status}
+                </Badge>
+              )}
+            </Show>
+            {/* Fork / Rewind buttons (only when not running) */}
+            <Show when={!agentRunning() && session()}>
+              <Button
+                variant="secondary"
+                size="sm"
+                class="text-xs px-2 py-0.5"
+                onClick={() => {
+                  const convId = activeConversation();
+                  if (!convId) return;
+                  void api.conversations.fork(convId).then(() => refetchSession());
+                }}
+              >
+                Fork
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                class="text-xs px-2 py-0.5"
+                onClick={() => {
+                  const convId = activeConversation();
+                  if (!convId) return;
+                  void api.conversations.rewind(convId).then(() => {
+                    void refetchSession();
+                    void refetchMessages();
+                  });
+                }}
+              >
+                Rewind
+              </Button>
+            </Show>
             {/* Step counter during agentic turns */}
             <Show when={agentRunning() && stepCount() > 0}>
               <span class="text-xs text-cf-text-muted">Step {stepCount()}</span>

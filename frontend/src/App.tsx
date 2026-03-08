@@ -20,6 +20,7 @@ import { ShortcutProvider } from "~/shortcuts";
 import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
 import {
   ActivityIcon,
+  AuditIcon,
   BenchmarksIcon,
   CostsIcon,
   DashboardIcon,
@@ -124,6 +125,9 @@ function AppShell(props: {
               </NavLink>
               <NavLink href="/activity" icon={<ActivityIcon />} label={t("app.nav.activity")}>
                 {t("app.nav.activity")}
+              </NavLink>
+              <NavLink href="/audit" icon={<AuditIcon />} label={t("app.nav.audit")}>
+                {t("app.nav.audit")}
               </NavLink>
               <NavLink href="/knowledge-bases" icon={<KnowledgeBaseIcon />} label={t("kb.title")}>
                 {t("kb.title")}
@@ -254,6 +258,7 @@ const KNOWN_ROUTES = new Set([
   "/mcp",
   "/prompts",
   "/settings",
+  "/audit",
   "/benchmarks",
 ]);
 

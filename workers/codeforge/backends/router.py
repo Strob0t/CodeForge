@@ -5,9 +5,46 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from codeforge.backends._base import BackendExecutor, OutputCallback, TaskResult
+from codeforge.backends._base import BackendExecutor, ConfigField, OutputCallback, TaskResult
 
 logger = logging.getLogger(__name__)
+
+
+def validate_config(
+    config: dict[str, Any],
+    schema: tuple[ConfigField, ...],
+    backend_name: str,
+) -> list[str]:
+    """Validate config dict against schema. Returns list of error strings.
+
+    - Checks required fields are present
+    - Checks types match (isinstance check on values)
+    - Logs unknown keys at warning level
+    - Returns list of validation errors (empty = valid)
+    """
+    if not schema:
+        return []
+
+    errors: list[str] = []
+    known_keys = {f.key for f in schema}
+
+    for key in config:
+        if key not in known_keys:
+            logger.warning("Backend '%s': unknown config key '%s'", backend_name, key)
+
+    for field in schema:
+        if field.key not in config:
+            if field.required:
+                errors.append(f"Required config key '{field.key}' is missing for backend '{backend_name}'")
+            continue
+        value = config[field.key]
+        if not isinstance(value, field.type):
+            errors.append(
+                f"Config key '{field.key}' for backend '{backend_name}' "
+                f"expected {field.type.__name__}, got {type(value).__name__}"
+            )
+
+    return errors
 
 
 class BackendRouter:
@@ -37,6 +74,7 @@ class BackendRouter:
         workspace_path: str,
         config: dict[str, Any] | None = None,
         on_output: OutputCallback | None = None,
+        required_capabilities: list[str] | None = None,
     ) -> TaskResult:
         """Route execution to the named backend."""
         executor = self._executors.get(backend_name)
@@ -53,6 +91,27 @@ class BackendRouter:
                 status="failed",
                 error=(f"Backend '{info.display_name}' is not available. Install it with: {info.cli_command} --help"),
             )
+
+        # Capability enforcement (A4)
+        if required_capabilities:
+            provided = set(executor.info.capabilities)
+            missing = [cap for cap in required_capabilities if cap not in provided]
+            if missing:
+                logger.warning(
+                    "Backend '%s' missing capabilities: %s",
+                    backend_name,
+                    missing,
+                )
+                return TaskResult(
+                    status="failed",
+                    error=(f"Backend '{backend_name}' missing required capabilities: {', '.join(missing)}"),
+                )
+
+        # Config validation (A2) — advisory, logs warnings but does not block
+        if config and executor.info.config_schema:
+            warnings = validate_config(config, executor.info.config_schema, backend_name)
+            for warning in warnings:
+                logger.warning(warning)
 
         self._active[task_id] = backend_name
         try:

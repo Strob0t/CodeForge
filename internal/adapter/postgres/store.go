@@ -1561,10 +1561,10 @@ func scanBranchProtectionRule(row pgx.Row) (bp.ProtectionRule, error) {
 func (s *Store) CreateSession(ctx context.Context, sess *run.Session) error {
 	tid := tenantFromCtx(ctx)
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO sessions (tenant_id, project_id, task_id, parent_session_id, parent_run_id, current_run_id, status, metadata)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO sessions (tenant_id, project_id, task_id, conversation_id, parent_session_id, parent_run_id, current_run_id, status, metadata)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING id, created_at, updated_at`,
-		tid, sess.ProjectID, sess.TaskID,
+		tid, sess.ProjectID, nullIfEmpty(sess.TaskID), nullIfEmpty(sess.ConversationID),
 		nullIfEmpty(sess.ParentSessionID), nullIfEmpty(sess.ParentRunID),
 		nullIfEmpty(sess.CurrentRunID), string(sess.Status), sess.Metadata,
 	).Scan(&sess.ID, &sess.CreatedAt, &sess.UpdatedAt)
@@ -1577,7 +1577,8 @@ func (s *Store) CreateSession(ctx context.Context, sess *run.Session) error {
 
 func (s *Store) GetSession(ctx context.Context, id string) (*run.Session, error) {
 	sess, err := scanSession(s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, project_id, task_id, COALESCE(parent_session_id::text, ''), COALESCE(parent_run_id::text, ''),
+		`SELECT id, tenant_id, project_id, COALESCE(task_id::text, ''), COALESCE(conversation_id::text, ''),
+		        COALESCE(parent_session_id::text, ''), COALESCE(parent_run_id::text, ''),
 		        COALESCE(current_run_id::text, ''), status, COALESCE(metadata::text, '{}'), created_at, updated_at
 		 FROM sessions WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx)))
 	if err != nil {
@@ -1586,9 +1587,23 @@ func (s *Store) GetSession(ctx context.Context, id string) (*run.Session, error)
 	return &sess, nil
 }
 
+func (s *Store) GetSessionByConversation(ctx context.Context, conversationID string) (*run.Session, error) {
+	sess, err := scanSession(s.pool.QueryRow(ctx,
+		`SELECT id, tenant_id, project_id, COALESCE(task_id::text, ''), COALESCE(conversation_id::text, ''),
+		        COALESCE(parent_session_id::text, ''), COALESCE(parent_run_id::text, ''),
+		        COALESCE(current_run_id::text, ''), status, COALESCE(metadata::text, '{}'), created_at, updated_at
+		 FROM sessions WHERE conversation_id = $1 AND tenant_id = $2 ORDER BY created_at DESC LIMIT 1`,
+		conversationID, tenantFromCtx(ctx)))
+	if err != nil {
+		return nil, notFoundWrap(err, "get session by conversation %s", conversationID)
+	}
+	return &sess, nil
+}
+
 func (s *Store) ListSessions(ctx context.Context, projectID string) ([]run.Session, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, project_id, task_id, COALESCE(parent_session_id::text, ''), COALESCE(parent_run_id::text, ''),
+		`SELECT id, tenant_id, project_id, COALESCE(task_id::text, ''), COALESCE(conversation_id::text, ''),
+		        COALESCE(parent_session_id::text, ''), COALESCE(parent_run_id::text, ''),
 		        COALESCE(current_run_id::text, ''), status, COALESCE(metadata::text, '{}'), created_at, updated_at
 		 FROM sessions WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
 	if err != nil {
@@ -1600,7 +1615,7 @@ func (s *Store) ListSessions(ctx context.Context, projectID string) ([]run.Sessi
 	for rows.Next() {
 		var sess run.Session
 		if err := rows.Scan(
-			&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID,
+			&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID, &sess.ConversationID,
 			&sess.ParentSessionID, &sess.ParentRunID, &sess.CurrentRunID,
 			&sess.Status, &sess.Metadata, &sess.CreatedAt, &sess.UpdatedAt,
 		); err != nil {
@@ -1622,7 +1637,7 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id string, status run.S
 func scanSession(row pgx.Row) (run.Session, error) {
 	var sess run.Session
 	err := row.Scan(
-		&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID,
+		&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID, &sess.ConversationID,
 		&sess.ParentSessionID, &sess.ParentRunID, &sess.CurrentRunID,
 		&sess.Status, &sess.Metadata, &sess.CreatedAt, &sess.UpdatedAt,
 	)

@@ -422,6 +422,9 @@ func (m *mockStore) CreateSession(_ context.Context, _ *run.Session) error { ret
 func (m *mockStore) GetSession(_ context.Context, _ string) (*run.Session, error) {
 	return nil, nil
 }
+func (m *mockStore) GetSessionByConversation(_ context.Context, _ string) (*run.Session, error) {
+	return nil, nil
+}
 func (m *mockStore) ListSessions(_ context.Context, _ string) ([]run.Session, error) {
 	return nil, nil
 }

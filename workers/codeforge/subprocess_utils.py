@@ -3,12 +3,34 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import shutil
 
 from codeforge.constants import CLI_CHECK_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
+
+
+async def graceful_terminate(
+    proc: asyncio.subprocess.Process,
+    grace_period: float = 5.0,
+) -> None:
+    """Terminate a subprocess gracefully: SIGTERM -> wait(grace) -> SIGKILL -> wait().
+
+    Suppresses OSError if process already exited.
+    """
+    try:
+        proc.terminate()
+    except OSError:
+        return
+
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=grace_period)
+    except TimeoutError:
+        with contextlib.suppress(OSError):
+            proc.kill()
+        await proc.wait()
 
 
 async def check_cli_available(

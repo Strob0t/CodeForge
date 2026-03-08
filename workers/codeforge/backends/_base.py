@@ -2,11 +2,43 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from codeforge.subprocess_utils import check_cli_available
+
+
+def parse_extra_args(config: dict[str, Any] | None) -> list[str]:
+    """Extract extra CLI arguments from config.
+
+    Supports:
+    - config["extra_args"] as list[str]: used directly
+    - config["extra_args"] as str: parsed as JSON list
+    - Missing or None: returns empty list
+    """
+    if config is None:
+        return []
+    raw = config.get("extra_args")
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        return json.loads(raw)
+    return []
+
+
+@dataclass(frozen=True)
+class ConfigField:
+    """Describes a single configuration key for a backend."""
+
+    key: str
+    type: type
+    default: object = None
+    description: str = ""
+    required: bool = False
 
 
 @dataclass(frozen=True)
@@ -18,6 +50,7 @@ class BackendInfo:
     cli_command: str
     requires_docker: bool = False
     capabilities: list[str] = field(default_factory=list)
+    config_schema: tuple[ConfigField, ...] = ()
 
 
 @dataclass

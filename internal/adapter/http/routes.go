@@ -314,6 +314,11 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Delete("/vcs-accounts/{id}", h.DeleteVCSAccount)
 		r.Post("/vcs-accounts/{id}/test", h.TestVCSAccount)
 
+		// LLM Keys
+		r.Get("/llm-keys", h.ListLLMKeys)
+		r.Post("/llm-keys", h.CreateLLMKey)
+		r.Delete("/llm-keys/{id}", h.DeleteLLMKey)
+
 		// Conversations
 		r.Post("/projects/{id}/conversations", h.CreateConversation)
 		r.Get("/projects/{id}/conversations", h.ListConversations)
@@ -322,6 +327,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/conversations/{id}/messages", h.ListConversationMessages)
 		r.Post("/conversations/{id}/messages", h.SendConversationMessage)
 		r.Post("/conversations/{id}/stop", h.StopConversation)
+		r.Get("/conversations/{id}/session", h.GetConversationSession)
+		r.Post("/conversations/{id}/fork", h.ForkConversation)
+		r.Post("/conversations/{id}/rewind", h.RewindConversation)
 
 		// HITL (Human-in-the-Loop) Approval
 		r.Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)

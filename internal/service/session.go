@@ -28,6 +28,75 @@ func (s *SessionService) GetSession(ctx context.Context, id string) (*run.Sessio
 	return s.store.GetSession(ctx, id)
 }
 
+// GetSessionByConversation returns the most recent session for a conversation.
+func (s *SessionService) GetSessionByConversation(ctx context.Context, conversationID string) (*run.Session, error) {
+	return s.store.GetSessionByConversation(ctx, conversationID)
+}
+
+// EnsureConversationSession returns the active session for a conversation,
+// or creates a new one. If the previous session is "completed", creates a new
+// one with ParentSessionID link.
+func (s *SessionService) EnsureConversationSession(ctx context.Context, projectID, conversationID string) (*run.Session, error) {
+	existing, err := s.store.GetSessionByConversation(ctx, conversationID)
+	if err == nil && existing != nil && existing.Status == run.SessionStatusActive {
+		return existing, nil
+	}
+
+	sess := &run.Session{
+		ProjectID:      projectID,
+		ConversationID: conversationID,
+		Status:         run.SessionStatusActive,
+	}
+
+	if existing != nil {
+		sess.ParentSessionID = existing.ID
+	}
+
+	if err := s.store.CreateSession(ctx, sess); err != nil {
+		return nil, fmt.Errorf("ensure conversation session: %w", err)
+	}
+
+	slog.Debug("conversation session ensured", "session_id", sess.ID, "conversation_id", conversationID)
+	return sess, nil
+}
+
+// CompleteSession marks a session as completed.
+func (s *SessionService) CompleteSession(ctx context.Context, sessionID string) error {
+	return s.store.UpdateSessionStatus(ctx, sessionID, run.SessionStatusCompleted, "")
+}
+
+// ForkConversation creates a new forked session from a conversation's current session.
+func (s *SessionService) ForkConversation(ctx context.Context, conversationID string, req run.ForkRequest) (*run.Session, error) {
+	existing, err := s.store.GetSessionByConversation(ctx, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("fork conversation: find session: %w", err)
+	}
+
+	meta, _ := json.Marshal(map[string]string{
+		"forked_from_conversation": conversationID,
+		"from_event":               req.FromEventID,
+	})
+
+	sess := &run.Session{
+		ProjectID:       existing.ProjectID,
+		ConversationID:  conversationID,
+		ParentSessionID: existing.ID,
+		ParentRunID:     req.RunID,
+		Status:          run.SessionStatusActive,
+		Metadata:        string(meta),
+	}
+
+	if err := s.store.CreateSession(ctx, sess); err != nil {
+		return nil, fmt.Errorf("fork conversation: create session: %w", err)
+	}
+
+	// Mark old session as forked.
+	_ = s.store.UpdateSessionStatus(ctx, existing.ID, run.SessionStatusForked, "")
+
+	slog.Debug("conversation forked", "session_id", sess.ID, "parent", existing.ID)
+	return sess, nil
+}
+
 // ListSessions returns all sessions for a project.
 func (s *SessionService) ListSessions(ctx context.Context, projectID string) ([]run.Session, error) {
 	return s.store.ListSessions(ctx, projectID)

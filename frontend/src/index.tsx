@@ -6,6 +6,7 @@ import { render } from "solid-js/web";
 
 import App from "./App.tsx";
 import ActivityPage from "./features/activity/ActivityPage.tsx";
+import AuditTrailPage from "./features/audit/AuditTrailPage.tsx";
 import ChangePasswordPage from "./features/auth/ChangePasswordPage.tsx";
 import ForgotPasswordPage from "./features/auth/ForgotPasswordPage.tsx";
 import LoginPage from "./features/auth/LoginPage.tsx";
@@ -50,6 +51,7 @@ render(
       <Route path="/mcp" component={MCPServersPage} />
       <Route path="/prompts" component={PromptEditorPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/audit" component={AuditTrailPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />
       <Route path="*404" component={NotFoundPage} />
     </Router>

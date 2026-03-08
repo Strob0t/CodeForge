@@ -666,6 +666,9 @@ func (m *mockStore) GetSession(_ context.Context, id string) (*run.Session, erro
 	}
 	return nil, errNotFound
 }
+func (m *mockStore) GetSessionByConversation(_ context.Context, _ string) (*run.Session, error) {
+	return nil, nil
+}
 func (m *mockStore) ListSessions(_ context.Context, projectID string) ([]run.Session, error) {
 	var result []run.Session
 	for i := range m.sessions {

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
 
-from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
-from codeforge.backends.router import BackendRouter
+from codeforge.backends._base import BackendInfo, ConfigField, OutputCallback, TaskResult
+from codeforge.backends.router import BackendRouter, validate_config
 
 
 class FakeExecutor:
@@ -184,3 +185,121 @@ async def test_empty_router_unknown_backend() -> None:
     result = await router.execute("anything", "t1", "prompt", "/tmp")
     assert result.status == "failed"
     assert "Available: none" in result.error
+
+
+# ---------- Config Validation (A2) ----------
+
+
+class TestValidateConfig:
+    """Tests for validate_config()."""
+
+    def test_valid_config_passes(self) -> None:
+        """Config that matches schema produces no errors."""
+        schema = (
+            ConfigField(key="model", type=str, default="gpt-4"),
+            ConfigField(key="timeout", type=int, default=600),
+        )
+        errors = validate_config({"model": "claude", "timeout": 300}, schema, "test")
+        assert errors == []
+
+    def test_unknown_key_logged_as_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Unknown keys are reported as warnings."""
+        schema = (ConfigField(key="model", type=str),)
+        with caplog.at_level(logging.WARNING):
+            errors = validate_config({"model": "gpt-4", "unknown_key": 42}, schema, "test")
+        assert errors == []
+        assert "unknown_key" in caplog.text
+
+    def test_wrong_type_reported(self) -> None:
+        """Type mismatch is reported as a validation error."""
+        schema = (ConfigField(key="timeout", type=int, default=600),)
+        errors = validate_config({"timeout": "not-a-number"}, schema, "test")
+        assert len(errors) == 1
+        assert "timeout" in errors[0]
+        assert "int" in errors[0]
+
+    def test_required_field_missing(self) -> None:
+        """Missing required field is reported as a validation error."""
+        schema = (ConfigField(key="model", type=str, required=True),)
+        errors = validate_config({}, schema, "test")
+        assert len(errors) == 1
+        assert "model" in errors[0]
+        assert "required" in errors[0].lower()
+
+    def test_empty_schema_accepts_any_config(self) -> None:
+        """Empty schema produces no errors for any config."""
+        errors = validate_config({"anything": "goes", "x": 42}, (), "test")
+        assert errors == []
+
+
+# ---------- Capability Enforcement (A4) ----------
+
+
+class TestCapabilityEnforcement:
+    """Tests for required_capabilities in execute()."""
+
+    @pytest.mark.asyncio
+    async def test_no_required_capabilities_normal_execution(self) -> None:
+        """Without required_capabilities, execution proceeds normally."""
+        router = BackendRouter()
+        executor = FakeExecutor(name="test")
+        router.register(executor)
+
+        result = await router.execute("test", "t1", "prompt", "/tmp")
+        assert result.status == "completed"
+        assert len(executor.execute_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_all_capabilities_present_normal_execution(self) -> None:
+        """When all required capabilities are present, execution proceeds."""
+        router = BackendRouter()
+        executor = FakeExecutor(name="test")  # has ["test"] capability
+        router.register(executor)
+
+        result = await router.execute(
+            "test",
+            "t1",
+            "prompt",
+            "/tmp",
+            required_capabilities=["test"],
+        )
+        assert result.status == "completed"
+        assert len(executor.execute_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_missing_capability_returns_failed(self) -> None:
+        """Missing capability results in a failed TaskResult without execution."""
+        router = BackendRouter()
+        executor = FakeExecutor(name="test")  # has ["test"] capability
+        router.register(executor)
+
+        result = await router.execute(
+            "test",
+            "t1",
+            "prompt",
+            "/tmp",
+            required_capabilities=["code-edit"],
+        )
+        assert result.status == "failed"
+        assert "code-edit" in result.error
+        assert len(executor.execute_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_multiple_missing_capabilities_listed(self) -> None:
+        """All missing capabilities are listed in the error message."""
+        router = BackendRouter()
+        executor = FakeExecutor(name="test")  # has ["test"] capability
+        router.register(executor)
+
+        result = await router.execute(
+            "test",
+            "t1",
+            "prompt",
+            "/tmp",
+            required_capabilities=["code-edit", "sandbox", "test"],
+        )
+        assert result.status == "failed"
+        assert "code-edit" in result.error
+        assert "sandbox" in result.error
+        # "test" is satisfied, so it should not appear as missing
+        assert len(executor.execute_calls) == 0

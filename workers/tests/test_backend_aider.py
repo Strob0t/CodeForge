@@ -152,14 +152,105 @@ class TestExecute:
         assert "http://llm:4000" in cmd_args
 
 
+class TestExtraArgs:
+    """Tests for extra_args config passthrough (A3)."""
+
+    @pytest.mark.asyncio
+    async def test_extra_args_list_appended(self, executor: AiderExecutor) -> None:
+        """extra_args as list is appended to the command."""
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=[b""])
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await executor.execute(
+                "t1",
+                "prompt",
+                "/workspace",
+                config={"extra_args": ["--verbose", "--dark-mode"]},
+            )
+
+        cmd_args = mock_exec.call_args[0]
+        assert "--verbose" in cmd_args
+        assert "--dark-mode" in cmd_args
+
+    @pytest.mark.asyncio
+    async def test_extra_args_json_string_parsed(self, executor: AiderExecutor) -> None:
+        """extra_args as JSON string is parsed and appended."""
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=[b""])
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await executor.execute(
+                "t1",
+                "prompt",
+                "/workspace",
+                config={"extra_args": '["--verbose", "--dark-mode"]'},
+            )
+
+        cmd_args = mock_exec.call_args[0]
+        assert "--verbose" in cmd_args
+        assert "--dark-mode" in cmd_args
+
+    @pytest.mark.asyncio
+    async def test_no_extra_args_no_change(self, executor: AiderExecutor) -> None:
+        """Without extra_args, command is unchanged."""
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=[b""])
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await executor.execute("t1", "prompt", "/workspace")
+
+        cmd_args = mock_exec.call_args[0]
+        # Base command: aider --yes-always --no-auto-commits --message prompt
+        assert cmd_args == ("/usr/bin/aider", "--yes-always", "--no-auto-commits", "--message", "prompt")
+
+    @pytest.mark.asyncio
+    async def test_empty_list_no_change(self, executor: AiderExecutor) -> None:
+        """Empty extra_args list has no effect."""
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=[b""])
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await executor.execute(
+                "t1",
+                "prompt",
+                "/workspace",
+                config={"extra_args": []},
+            )
+
+        cmd_args = mock_exec.call_args[0]
+        assert cmd_args == ("/usr/bin/aider", "--yes-always", "--no-auto-commits", "--message", "prompt")
+
+
 class TestCancel:
     """Tests for cancel()."""
 
     @pytest.mark.asyncio
     async def test_cancel_terminates_process(self, executor: AiderExecutor) -> None:
-        mock_proc = MagicMock()
+        mock_proc = AsyncMock()
         mock_proc.returncode = None
         mock_proc.terminate = MagicMock()
+        mock_proc.wait = AsyncMock(return_value=0)
 
         executor._processes["t1"] = mock_proc
 

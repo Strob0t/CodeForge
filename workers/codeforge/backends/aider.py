@@ -6,10 +6,10 @@ import asyncio
 import logging
 from typing import Any
 
-from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
+from codeforge.backends._base import BackendInfo, ConfigField, OutputCallback, TaskResult, parse_extra_args
 from codeforge.config import resolve_backend_path
 from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
-from codeforge.subprocess_utils import check_cli_available
+from codeforge.subprocess_utils import check_cli_available, graceful_terminate
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,12 @@ class AiderExecutor:
             display_name="Aider",
             cli_command=self._cli_path,
             capabilities=["code-edit", "git-commit", "multi-file"],
+            config_schema=(
+                ConfigField(key="model", type=str, description="LLM model name"),
+                ConfigField(key="timeout", type=int, default=_DEFAULT_TIMEOUT, description="Timeout in seconds"),
+                ConfigField(key="openai_api_base", type=str, description="OpenAI-compatible API base URL"),
+                ConfigField(key="extra_args", type=list, description="Extra CLI arguments"),
+            ),
         )
 
     async def check_available(self) -> bool:
@@ -58,6 +64,8 @@ class AiderExecutor:
         if api_base:
             cmd.extend(["--openai-api-base", api_base])
 
+        cmd.extend(parse_extra_args(config))
+
         logger.info("aider exec task=%s cmd=%s cwd=%s", task_id, cmd[:4], workspace_path)
 
         try:
@@ -81,8 +89,7 @@ class AiderExecutor:
                 try:
                     line_bytes = await asyncio.wait_for(stdout.readline(), timeout=timeout)
                 except TimeoutError:
-                    proc.terminate()
-                    await proc.wait()
+                    await graceful_terminate(proc)
                     return TaskResult(
                         status="failed",
                         output="\n".join(output_lines),
@@ -115,5 +122,5 @@ class AiderExecutor:
         """Terminate the running aider process."""
         proc = self._processes.get(task_id)
         if proc is not None and proc.returncode is None:
-            proc.terminate()
+            await graceful_terminate(proc)
             logger.info("aider process terminated for task %s", task_id)

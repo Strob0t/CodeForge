@@ -77,10 +77,12 @@ type ConversationService struct {
 	policySvc     *PolicyService
 	microagentSvc *MicroagentService
 	goalSvc       *GoalDiscoveryService
+	sessionSvc    *SessionService
 	agentCfg      *config.Agent
 	routingCfg    *config.Routing
 	metrics       *cfotel.Metrics
 	contextOpt    *ContextOptimizerService
+	llmKeySvc     *LLMKeyService
 
 	// processedRuns guards HandleConversationRunComplete against duplicate delivery.
 	processedRuns   map[string]struct{}
@@ -138,6 +140,12 @@ func (s *ConversationService) SetRoutingConfig(cfg *config.Routing) { s.routingC
 
 // SetContextOptimizer configures the context optimizer for conversation context injection.
 func (s *ConversationService) SetContextOptimizer(opt *ContextOptimizerService) { s.contextOpt = opt }
+
+// SetSessionService configures the session service for conversation session tracking.
+func (s *ConversationService) SetSessionService(svc *SessionService) { s.sessionSvc = svc }
+
+// SetLLMKeyService configures per-user LLM key resolution for conversation runs.
+func (s *ConversationService) SetLLMKeyService(svc *LLMKeyService) { s.llmKeySvc = svc }
 
 // resolveModel picks the best available model using priority:
 // AgentConfig.DefaultModel > ConversationModel (explicit config) > ModelRegistry.BestModel (auto-discovery).

@@ -15,6 +15,7 @@ import {
 import { useI18n } from "~/i18n";
 import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 
+import AuditTable from "../audit/AuditTable";
 import ActiveWorkPanel from "./ActiveWorkPanel";
 import AutoAgentButton from "./AutoAgentButton";
 import ChatPanel from "./ChatPanel";
@@ -60,7 +61,7 @@ export default function ProjectDetailPage() {
   const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
 
   // Left panel tab
-  type LeftTab = "roadmap" | "files" | "warroom" | "goals";
+  type LeftTab = "roadmap" | "files" | "warroom" | "goals" | "audit";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
 
   // Auto-select "files" tab once on initial load when project has a workspace
@@ -425,7 +426,7 @@ export default function ProjectDetailPage() {
             >
               <Show when={!roadmapCollapsed()}>
                 <div
-                  class={`flex flex-col min-h-0 ${leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" ? "" : "overflow-y-auto"}`}
+                  class={`flex flex-col min-h-0 ${leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" ? "" : "overflow-y-auto"}`}
                   style={
                     isNarrow()
                       ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }
@@ -471,6 +472,14 @@ export default function ProjectDetailPage() {
                       >
                         {t("goals.tab")}
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class={leftTab() === "audit" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                        onClick={() => setLeftTab("audit")}
+                      >
+                        {t("audit.title")}
+                      </Button>
                     </div>
                     <Button
                       variant="ghost"
@@ -511,6 +520,11 @@ export default function ProjectDetailPage() {
                   <Show when={leftTab() === "goals"}>
                     <div class="flex-1 min-h-0">
                       <GoalsPanel projectId={params.id} />
+                    </div>
+                  </Show>
+                  <Show when={leftTab() === "audit"}>
+                    <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                      <AuditTable projectId={params.id} />
                     </div>
                   </Show>
                 </div>

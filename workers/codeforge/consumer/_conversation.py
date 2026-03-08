@@ -38,7 +38,7 @@ class ConversationHandlerMixin:
         try:
             run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
             run_id = run_msg.run_id
-            log = logger.bind(run_id=run_id, conversation_id=run_msg.conversation_id)
+            log = logger.bind(run_id=run_id, conversation_id=run_msg.conversation_id, session_id=run_msg.session_id)
 
             # Skip duplicate deliveries — the LLM loop is expensive.
             if run_id in self._active_runs:
@@ -129,6 +129,7 @@ class ConversationHandlerMixin:
             complete_msg = ConversationRunCompleteMessage(
                 run_id=run_msg.run_id,
                 conversation_id=run_msg.conversation_id,
+                session_id=run_msg.session_id,
                 assistant_content=result.final_content,
                 tool_messages=result.tool_messages,
                 status="failed" if result.error else "completed",
@@ -498,6 +499,9 @@ class ConversationHandlerMixin:
             from codeforge.model_resolver import expand_wildcard_models
 
             models = expand_wildcard_models(raw_ids)
+            from codeforge.routing.key_filter import filter_keyless_models
+
+            models = filter_keyless_models(models)
             if not models:
                 logger.warning("LiteLLM /v1/models returned empty model list")
             from codeforge.routing.blocklist import get_blocklist

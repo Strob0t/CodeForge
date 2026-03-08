@@ -1337,6 +1337,26 @@ const en = {
   "goals.toast.deleted": "Goal deleted",
   "goals.toast.deleteFailed": "Failed to delete goal",
   "goals.toast.titleRequired": "Goal title is required",
+
+  // -- Audit Trail ---------------------------------------------------------------
+  "audit.title": "Audit Trail",
+  "audit.description": "System-wide audit log of all agent actions and events.",
+  "audit.table.timestamp": "Timestamp",
+  "audit.table.action": "Action",
+  "audit.table.project": "Project",
+  "audit.table.run": "Run",
+  "audit.table.agent": "Agent",
+  "audit.table.details": "Details",
+  "audit.filter.all": "All Actions",
+  "audit.filter.label": "Filter by action",
+  "audit.empty": "No audit entries found.",
+  "audit.loadMore": "Load More",
+  "audit.loading": "Loading audit entries...",
+  "audit.error": "Failed to load audit entries.",
+  "audit.total": "{{count}} total entries",
+  "audit.expandRow": "Show details",
+  "audit.collapseRow": "Hide details",
+  "app.nav.audit": "Audit Trail",
 } as const;
 
 export type TranslationKey = keyof typeof en;

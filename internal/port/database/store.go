@@ -35,6 +35,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 )
 
@@ -157,6 +158,7 @@ type Store interface {
 	// Sessions
 	CreateSession(ctx context.Context, s *run.Session) error
 	GetSession(ctx context.Context, id string) (*run.Session, error)
+	GetSessionByConversation(ctx context.Context, conversationID string) (*run.Session, error)
 	ListSessions(ctx context.Context, projectID string) ([]run.Session, error)
 	UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error
 
@@ -242,6 +244,12 @@ type Store interface {
 	GetVCSAccount(ctx context.Context, id string) (*vcsaccount.VCSAccount, error)
 	CreateVCSAccount(ctx context.Context, a *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error)
 	DeleteVCSAccount(ctx context.Context, id string) error
+
+	// LLM Keys (per-user provider API keys)
+	CreateLLMKey(ctx context.Context, k *llmkey.LLMKey) error
+	ListLLMKeysByUser(ctx context.Context, userID string) ([]llmkey.LLMKey, error)
+	GetLLMKeyByUserProvider(ctx context.Context, userID, provider string) (*llmkey.LLMKey, error)
+	DeleteLLMKey(ctx context.Context, id, userID string) error
 
 	// Conversations
 	CreateConversation(ctx context.Context, c *conversation.Conversation) (*conversation.Conversation, error)

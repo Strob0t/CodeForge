@@ -7,7 +7,7 @@ import contextlib
 import logging
 from typing import Any
 
-from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
+from codeforge.backends._base import BackendInfo, ConfigField, OutputCallback, TaskResult
 from codeforge.config import resolve_backend_path
 from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
 
@@ -36,6 +36,12 @@ class OpenHandsExecutor:
             cli_command=self._url,
             requires_docker=True,
             capabilities=["code-edit", "browser", "sandbox"],
+            config_schema=(
+                ConfigField(key="model", type=str, description="LLM model name"),
+                ConfigField(key="timeout", type=int, default=_DEFAULT_TIMEOUT, description="Timeout in seconds"),
+                ConfigField(key="api_key", type=str, description="OpenHands API key"),
+                ConfigField(key="workspace", type=str, description="Workspace path override"),
+            ),
         )
 
     async def check_available(self) -> bool:

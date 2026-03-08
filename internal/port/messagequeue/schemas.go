@@ -430,6 +430,7 @@ type ConversationMessagePayload struct {
 type ConversationRunStartPayload struct {
 	RunID             string                       `json:"run_id"`
 	ConversationID    string                       `json:"conversation_id"`
+	SessionID         string                       `json:"session_id,omitempty"`
 	ProjectID         string                       `json:"project_id"`
 	Messages          []ConversationMessagePayload `json:"messages"`
 	SystemPrompt      string                       `json:"system_prompt"`
@@ -445,12 +446,14 @@ type ConversationRunStartPayload struct {
 	Trust             *trust.Annotation            `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
 	RoutingEnabled    bool                         `json:"routing_enabled,omitempty"`    // Intelligent routing enabled (Phase 29)
 	Agentic           bool                         `json:"agentic"`                      // true = multi-turn tool loop, false = single-turn chat
+	ProviderAPIKey    string                       `json:"provider_api_key,omitempty"`   // Per-user provider API key (overrides global)
 }
 
 // ConversationRunCompletePayload is the schema for conversation.run.complete messages.
 type ConversationRunCompletePayload struct {
 	RunID            string                       `json:"run_id"`
 	ConversationID   string                       `json:"conversation_id"`
+	SessionID        string                       `json:"session_id,omitempty"`
 	AssistantContent string                       `json:"assistant_content"`
 	ToolMessages     []ConversationMessagePayload `json:"tool_messages,omitempty"`
 	Status           string                       `json:"status"`

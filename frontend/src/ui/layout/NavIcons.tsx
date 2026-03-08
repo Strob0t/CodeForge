@@ -114,6 +114,17 @@ export function SettingsIcon(): JSX.Element {
   );
 }
 
+export function AuditIcon(): JSX.Element {
+  return (
+    <svg {...svgBase}>
+      <path d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
+      <rect x="8" y="3" width="4" height="3" rx="1" />
+      <line x1="7" y1="10" x2="13" y2="10" />
+      <line x1="7" y1="13" x2="11" y2="13" />
+    </svg>
+  );
+}
+
 export function BenchmarksIcon(): JSX.Element {
   return (
     <svg {...svgBase}>

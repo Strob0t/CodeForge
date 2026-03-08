@@ -241,3 +241,50 @@ func (h *Handlers) GetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, sess)
 }
+
+// GetConversationSession handles GET /api/v1/conversations/{id}/session
+func (h *Handlers) GetConversationSession(w http.ResponseWriter, r *http.Request) {
+	conversationID := chi.URLParam(r, "id")
+	sess, err := h.Sessions.GetSessionByConversation(r.Context(), conversationID)
+	if err != nil {
+		writeDomainError(w, err, "session not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, sess)
+}
+
+// ForkConversation handles POST /api/v1/conversations/{id}/fork
+func (h *Handlers) ForkConversation(w http.ResponseWriter, r *http.Request) {
+	conversationID := chi.URLParam(r, "id")
+	var req run.ForkRequest
+	r.Body = http.MaxBytesReader(w, r.Body, h.Limits.MaxRequestBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req = run.ForkRequest{}
+	}
+
+	sess, err := h.Sessions.ForkConversation(r.Context(), conversationID, req)
+	if err != nil {
+		writeDomainError(w, err, "fork conversation failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, sess)
+}
+
+// RewindConversation handles POST /api/v1/conversations/{id}/rewind
+func (h *Handlers) RewindConversation(w http.ResponseWriter, r *http.Request) {
+	conversationID := chi.URLParam(r, "id")
+	_ = conversationID // used for context; rewind operates on the run
+
+	var req run.RewindRequest
+	r.Body = http.MaxBytesReader(w, r.Body, h.Limits.MaxRequestBodySize)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req = run.RewindRequest{}
+	}
+
+	sess, err := h.Sessions.Rewind(r.Context(), req)
+	if err != nil {
+		writeDomainError(w, err, "rewind conversation failed")
+		return
+	}
+	writeJSON(w, http.StatusCreated, sess)
+}

@@ -210,9 +210,10 @@ class TestCLIBackendCancel:
     async def test_cancel_terminates(self, cls: type, cli_path: str, display: str, name: str) -> None:
         executor = cls(cli_path=cli_path)
 
-        mock_proc = MagicMock()
+        mock_proc = AsyncMock()
         mock_proc.returncode = None
         mock_proc.terminate = MagicMock()
+        mock_proc.wait = AsyncMock(return_value=0)
 
         executor._processes["t1"] = mock_proc
         await executor.cancel("t1")
@@ -227,6 +228,95 @@ class TestCLIBackendCancel:
     async def test_cancel_noop_unknown(self, cls: type, cli_path: str, display: str, name: str) -> None:
         executor = cls(cli_path=cli_path)
         await executor.cancel("no-such-task")
+
+
+# ---------- Config Passthrough (extra_args) for CLI backends ----------
+
+
+class TestCLIBackendExtraArgs:
+    """All CLI-based backends support extra_args config passthrough."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("cls", "cli_path", "display", "name"),
+        CLI_BACKENDS,
+        ids=lambda x: x if isinstance(x, str) and "/" not in x else "",
+    )
+    async def test_extra_args_list_appended(self, cls: type, cli_path: str, display: str, name: str) -> None:
+        executor = cls(cli_path=cli_path)
+
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=[b""])
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await executor.execute(
+                "t1",
+                "fix bug",
+                "/workspace",
+                config={"extra_args": ["--verbose", "--debug"]},
+            )
+
+        cmd_args = mock_exec.call_args[0]
+        assert "--verbose" in cmd_args
+        assert "--debug" in cmd_args
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("cls", "cli_path", "display", "name"),
+        CLI_BACKENDS,
+        ids=lambda x: x if isinstance(x, str) and "/" not in x else "",
+    )
+    async def test_extra_args_json_string_parsed(self, cls: type, cli_path: str, display: str, name: str) -> None:
+        executor = cls(cli_path=cli_path)
+
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=[b""])
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await executor.execute(
+                "t1",
+                "fix bug",
+                "/workspace",
+                config={"extra_args": '["--verbose"]'},
+            )
+
+        cmd_args = mock_exec.call_args[0]
+        assert "--verbose" in cmd_args
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("cls", "cli_path", "display", "name"),
+        CLI_BACKENDS,
+        ids=lambda x: x if isinstance(x, str) and "/" not in x else "",
+    )
+    async def test_no_extra_args_no_change(self, cls: type, cli_path: str, display: str, name: str) -> None:
+        executor = cls(cli_path=cli_path)
+
+        mock_stdout = AsyncMock()
+        mock_stdout.readline = AsyncMock(side_effect=[b""])
+
+        mock_proc = AsyncMock()
+        mock_proc.stdout = mock_stdout
+        mock_proc.returncode = 0
+        mock_proc.wait = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await executor.execute("t1", "fix bug", "/workspace")
+
+        cmd_args = mock_exec.call_args[0]
+        # No extra_args should be appended
+        assert "--verbose" not in cmd_args
+        assert "--debug" not in cmd_args
 
 
 # ---------- OpenHands HTTP executor ----------

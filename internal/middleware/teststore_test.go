@@ -386,6 +386,9 @@ func (s *testStore) CreateSession(_ context.Context, _ *run.Session) error { ret
 func (s *testStore) GetSession(_ context.Context, _ string) (*run.Session, error) {
 	return nil, nil
 }
+func (s *testStore) GetSessionByConversation(_ context.Context, _ string) (*run.Session, error) {
+	return nil, nil
+}
 func (s *testStore) ListSessions(_ context.Context, _ string) ([]run.Session, error) {
 	return nil, nil
 }

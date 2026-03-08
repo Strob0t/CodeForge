@@ -1422,6 +1422,45 @@ export interface CreateVCSAccountRequest {
   token: string;
 }
 
+// --- Audit Trail ---
+
+/** Matches Go domain/event.AuditEntry */
+export interface AuditEntry {
+  id: string;
+  project_id: string;
+  run_id: string;
+  agent_id: string;
+  action: string;
+  details: string;
+  created_at: string;
+}
+
+/** Paginated audit response from GET /audit endpoints */
+export interface AuditPage {
+  entries: AuditEntry[];
+  cursor: string;
+  has_more: boolean;
+  total: number;
+}
+
+// --- Sessions ---
+
+/** Matches Go domain/run.Session */
+export interface Session {
+  id: string;
+  tenant_id?: string;
+  project_id: string;
+  task_id?: string;
+  conversation_id?: string;
+  parent_session_id?: string;
+  parent_run_id?: string;
+  current_run_id?: string;
+  status: "active" | "paused" | "completed" | "forked";
+  metadata?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // --- Dev Tools (Phase 13.7B) ---
 
 /** Prompt benchmark request body */

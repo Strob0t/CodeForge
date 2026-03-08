@@ -18,6 +18,24 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
+// resolveProviderAPIKey looks up a per-user provider key for the given model.
+// Returns "" if no key is found or the service is not wired.
+func (s *ConversationService) resolveProviderAPIKey(ctx context.Context, userID, model string) string {
+	if s.llmKeySvc == nil || userID == "" {
+		return ""
+	}
+	provider := strings.SplitN(model, "/", 2)[0]
+	if provider == "" || provider == model {
+		return ""
+	}
+	key, err := s.llmKeySvc.ResolveKeyForProvider(ctx, userID, provider)
+	if err != nil {
+		slog.Warn("failed to resolve user LLM key", "user_id", userID, "provider", provider, "error", err)
+		return ""
+	}
+	return key
+}
+
 func (s *ConversationService) IsAgentic(ctx context.Context, conversationID string, req conversation.SendMessageRequest) bool {
 	if req.Agentic != nil {
 		return *req.Agentic
@@ -114,6 +132,17 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		return fmt.Errorf("get project: %w", err)
 	}
 
+	// Ensure a session exists for this conversation.
+	var sessionID string
+	if s.sessionSvc != nil {
+		sess, sessErr := s.sessionSvc.EnsureConversationSession(ctx, proj.ID, conversationID)
+		if sessErr != nil {
+			slog.Warn("failed to ensure conversation session", "conversation_id", conversationID, "error", sessErr)
+		} else {
+			sessionID = sess.ID
+		}
+	}
+
 	// Build system prompt.
 	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
 
@@ -195,9 +224,13 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Build context entries for the conversation run.
 	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, req.Content, conversationID)
 
+	// Resolve per-user provider API key (if configured).
+	providerAPIKey := s.resolveProviderAPIKey(ctx, req.UserID, model)
+
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
 		ConversationID:    conversationID,
+		SessionID:         sessionID,
 		ProjectID:         proj.ID,
 		Messages:          protoMessages,
 		SystemPrompt:      systemPrompt,
@@ -211,6 +244,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:           contextEntries,
 		Agentic:           true,
+		ProviderAPIKey:    providerAPIKey,
 	}
 
 	data, err := json.Marshal(payload)
@@ -245,6 +279,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	slog.Info("conversation agentic run dispatched",
 		"run_id", runID,
 		"conversation_id", conversationID,
+		"session_id", sessionID,
 		"project_id", proj.ID,
 		"model", model,
 	)
@@ -286,6 +321,17 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 	proj, err := s.db.GetProject(ctx, conv.ProjectID)
 	if err != nil {
 		return fmt.Errorf("get project: %w", err)
+	}
+
+	// Ensure a session exists for this conversation.
+	var sessionID string
+	if s.sessionSvc != nil {
+		sess, sessErr := s.sessionSvc.EnsureConversationSession(ctx, proj.ID, conversationID)
+		if sessErr != nil {
+			slog.Warn("failed to ensure conversation session", "conversation_id", conversationID, "error", sessErr)
+		} else {
+			sessionID = sess.ID
+		}
 	}
 
 	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
@@ -359,6 +405,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
 		ConversationID:    conversationID,
+		SessionID:         sessionID,
 		ProjectID:         proj.ID,
 		Messages:          protoMessages,
 		SystemPrompt:      systemPrompt,
@@ -392,6 +439,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 	slog.Info("conversation agentic run dispatched (mode override)",
 		"run_id", runID,
 		"conversation_id", conversationID,
+		"session_id", sessionID,
 		"project_id", proj.ID,
 		"mode", modeID,
 		"model", model,
@@ -437,6 +485,7 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	slog.Info("conversation run complete received",
 		"run_id", payload.RunID,
 		"conversation_id", payload.ConversationID,
+		"session_id", payload.SessionID,
 		"status", payload.Status,
 		"steps", payload.StepCount,
 		"cost", payload.CostUSD,

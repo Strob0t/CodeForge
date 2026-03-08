@@ -1355,6 +1355,26 @@ const de: Translations = {
   "goals.toast.deleted": "Ziel geloescht",
   "goals.toast.deleteFailed": "Ziel konnte nicht geloescht werden",
   "goals.toast.titleRequired": "Zieltitel ist erforderlich",
+
+  // -- Pruefprotokoll (Audit Trail) ----------------------------------------------
+  "audit.title": "Pruefprotokoll",
+  "audit.description": "Systemweites Pruefprotokoll aller Agent-Aktionen und Ereignisse.",
+  "audit.table.timestamp": "Zeitstempel",
+  "audit.table.action": "Aktion",
+  "audit.table.project": "Projekt",
+  "audit.table.run": "Lauf",
+  "audit.table.agent": "Agent",
+  "audit.table.details": "Details",
+  "audit.filter.all": "Alle Aktionen",
+  "audit.filter.label": "Nach Aktion filtern",
+  "audit.empty": "Keine Pruefprotokolleintraege gefunden.",
+  "audit.loadMore": "Mehr laden",
+  "audit.loading": "Pruefprotokolleintraege werden geladen...",
+  "audit.error": "Pruefprotokolleintraege konnten nicht geladen werden.",
+  "audit.total": "{{count}} Eintraege gesamt",
+  "audit.expandRow": "Details anzeigen",
+  "audit.collapseRow": "Details ausblenden",
+  "app.nav.audit": "Pruefprotokoll",
 };
 
 export default de;

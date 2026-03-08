@@ -421,6 +421,7 @@ class ConversationRunStartMessage(BaseModel):
 
     run_id: str
     conversation_id: str
+    session_id: str = ""
     project_id: str
     messages: list[ConversationMessagePayload]
     system_prompt: str
@@ -436,6 +437,7 @@ class ConversationRunStartMessage(BaseModel):
     trust: TrustAnnotation | None = None
     routing_enabled: bool = False
     agentic: bool = True
+    provider_api_key: str = ""
 
     @field_validator("mcp_servers", mode="before")
     @classmethod
@@ -467,6 +469,7 @@ class ConversationRunCompleteMessage(BaseModel):
 
     run_id: str
     conversation_id: str
+    session_id: str = ""
     assistant_content: str = ""
     tool_messages: list[ConversationMessagePayload] = Field(default_factory=list)
     status: str = "completed"
