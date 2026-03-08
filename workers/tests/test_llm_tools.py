@@ -11,6 +11,7 @@ from codeforge.llm import (
     ChatCompletionResponse,
     LiteLLMClient,
     ToolCallPart,
+    _normalize_tool_call,
     _parse_tool_calls,
 )
 
@@ -359,3 +360,94 @@ async def test_stream_usage_from_final_chunk(client: LiteLLMClient) -> None:
     assert result.tokens_in == 42
     assert result.tokens_out == 7
     assert result.cost_usd == pytest.approx(0.001)
+
+
+# -- _normalize_tool_call --
+
+
+class TestNormalizeToolCall:
+    """Tests for _normalize_tool_call() — fixes Groq/Llama malformed tool calls."""
+
+    def test_normal_call_unchanged(self) -> None:
+        name, args = _normalize_tool_call("read_file", '{"path": "main.py"}')
+        assert name == "read_file"
+        assert args == '{"path": "main.py"}'
+
+    def test_embedded_json_no_space(self) -> None:
+        name, args = _normalize_tool_call('read_file{"path":"x"}', "")
+        assert name == "read_file"
+        assert args == '{"path":"x"}'
+
+    def test_embedded_json_with_space(self) -> None:
+        name, args = _normalize_tool_call('read_file {"path":"x"}', "")
+        assert name == "read_file"
+        assert args == '{"path":"x"}'
+
+    def test_empty_args_triggers_extraction(self) -> None:
+        name, args = _normalize_tool_call('bash{"command":"ls"}', "")
+        assert name == "bash"
+        assert args == '{"command":"ls"}'
+
+    def test_whitespace_args_triggers_extraction(self) -> None:
+        name, args = _normalize_tool_call('bash{"command":"ls"}', "   ")
+        assert name == "bash"
+        assert args == '{"command":"ls"}'
+
+    def test_existing_args_preserved(self) -> None:
+        name, args = _normalize_tool_call('read_file{"path":"x"}', '{"path": "real.py"}')
+        assert name == 'read_file{"path":"x"}'
+        assert args == '{"path": "real.py"}'
+
+    def test_name_without_brace_unchanged(self) -> None:
+        name, args = _normalize_tool_call("read_file", "")
+        assert name == "read_file"
+        assert args == ""
+
+    def test_name_starting_with_brace_unchanged(self) -> None:
+        name, args = _normalize_tool_call('{"not_tool":true}', "")
+        assert name == '{"not_tool":true}'
+        assert args == ""
+
+    def test_nested_json_preserved(self) -> None:
+        name, args = _normalize_tool_call('write_file{"cfg":{"x":1}}', "")
+        assert name == "write_file"
+        assert args == '{"cfg":{"x":1}}'
+
+    def test_mcp_namespaced_tool(self) -> None:
+        name, args = _normalize_tool_call('mcp__srv__tool{"a":1}', "")
+        assert name == "mcp__srv__tool"
+        assert args == '{"a":1}'
+
+
+class TestNormalizeToolCallIntegration:
+    """Integration tests verifying normalization is wired into parsing paths."""
+
+    def test_parse_tool_calls_normalizes_malformed(self) -> None:
+        raw = [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": 'read_file{"path": "main.py"}',
+                    "arguments": "",
+                },
+            }
+        ]
+        result = _parse_tool_calls(raw)
+        assert len(result) == 1
+        assert result[0].name == "read_file"
+        assert result[0].arguments == '{"path": "main.py"}'
+
+    def test_stream_normalizes_malformed(self) -> None:
+        from codeforge.llm import _StreamAccumulator
+
+        acc = _StreamAccumulator()
+        acc.tc_accum[0] = {
+            "id": "call_2",
+            "name": 'bash{"command":"ls"}',
+            "arguments": "",
+        }
+        result = acc.build_tool_calls(on_tool_call=None)
+        assert len(result) == 1
+        assert result[0].name == "bash"
+        assert result[0].arguments == '{"command":"ls"}'

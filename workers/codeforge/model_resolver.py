@@ -95,6 +95,9 @@ class _ModelCache:
             data = resp.json()
             raw_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
             models = expand_wildcard_models(raw_ids)
+            from codeforge.routing.key_filter import filter_keyless_models
+
+            models = filter_keyless_models(models)
         except Exception as exc:
             logger.warning("model_resolver: failed to fetch from LiteLLM: %s", exc, exc_info=True)
             return
