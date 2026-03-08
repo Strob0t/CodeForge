@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
@@ -70,17 +72,9 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context) ([]benchmark.Run, error) 
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark runs: %w", err)
 	}
-	defer rows.Close()
-
-	var result []benchmark.Run
-	for rows.Next() {
-		r, err := scanBenchmarkRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, r)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (benchmark.Run, error) {
+		return scanBenchmarkRun(r)
+	})
 }
 
 // ListBenchmarkRunsFiltered returns runs matching the given filter.
@@ -133,17 +127,9 @@ func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter *benchmark
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark runs filtered: %w", err)
 	}
-	defer rows.Close()
-
-	var result []benchmark.Run
-	for rows.Next() {
-		r, err := scanBenchmarkRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, r)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (benchmark.Run, error) {
+		return scanBenchmarkRun(r)
+	})
 }
 
 // UpdateBenchmarkRun updates a benchmark run (status, scores, totals, completed_at).
@@ -211,17 +197,9 @@ func (s *Store) ListBenchmarkResults(ctx context.Context, runID string) ([]bench
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark results: %w", err)
 	}
-	defer rows.Close()
-
-	var result []benchmark.Result
-	for rows.Next() {
-		res, err := scanBenchmarkResult(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, res)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (benchmark.Result, error) {
+		return scanBenchmarkResult(r)
+	})
 }
 
 // scanBenchmarkRun scans a single benchmark run row.

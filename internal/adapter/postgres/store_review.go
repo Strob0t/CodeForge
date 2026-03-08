@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
@@ -49,21 +51,15 @@ func (s *Store) ListReviewPoliciesByProject(ctx context.Context, projectID strin
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var result []review.ReviewPolicy
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (review.ReviewPolicy, error) {
 		var p review.ReviewPolicy
-		if err := rows.Scan(
+		err := r.Scan(
 			&p.ID, &p.ProjectID, &p.TenantID, &p.Name, &p.TriggerType,
 			&p.CommitThreshold, &p.CronExpr, &p.BranchPattern, &p.TemplateID,
 			&p.Enabled, &p.CommitCounter, &p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, p)
-	}
-	return result, rows.Err()
+		)
+		return p, err
+	})
 }
 
 // UpdateReviewPolicy updates a review policy.
@@ -97,21 +93,15 @@ func (s *Store) ListEnabledPoliciesByTrigger(ctx context.Context, triggerType re
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var result []review.ReviewPolicy
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (review.ReviewPolicy, error) {
 		var p review.ReviewPolicy
-		if err := rows.Scan(
+		err := r.Scan(
 			&p.ID, &p.ProjectID, &p.TenantID, &p.Name, &p.TriggerType,
 			&p.CommitThreshold, &p.CronExpr, &p.BranchPattern, &p.TemplateID,
 			&p.Enabled, &p.CommitCounter, &p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, p)
-	}
-	return result, rows.Err()
+		)
+		return p, err
+	})
 }
 
 // IncrementCommitCounter atomically increments a policy's commit counter and returns the new value.
@@ -172,20 +162,14 @@ func (s *Store) ListReviewsByProject(ctx context.Context, projectID string) ([]r
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var result []review.Review
-	for rows.Next() {
-		var r review.Review
-		if err := rows.Scan(
-			&r.ID, &r.PolicyID, &r.ProjectID, &r.TenantID, &r.PlanID,
-			&r.Status, &r.TriggerRef, &r.CreatedAt, &r.CompletedAt,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, r)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (review.Review, error) {
+		var rv review.Review
+		err := r.Scan(
+			&rv.ID, &rv.PolicyID, &rv.ProjectID, &rv.TenantID, &rv.PlanID,
+			&rv.Status, &rv.TriggerRef, &rv.CreatedAt, &rv.CompletedAt,
+		)
+		return rv, err
+	})
 }
 
 // UpdateReviewStatus updates a review's status and optional completion time.

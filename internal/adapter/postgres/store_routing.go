@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
 )
 
@@ -57,23 +59,17 @@ func (s *Store) ListRoutingStats(ctx context.Context, taskType, complexityTier s
 	if err != nil {
 		return nil, fmt.Errorf("list routing stats: %w", err)
 	}
-	defer rows.Close()
-
-	var result []routing.ModelPerformanceStats
-	for rows.Next() {
-		var s routing.ModelPerformanceStats
-		if err := rows.Scan(
-			&s.ID, &s.ModelName, &s.TaskType, &s.ComplexityTier,
-			&s.TrialCount, &s.TotalReward, &s.AvgReward, &s.AvgCostUSD, &s.AvgLatencyMs, &s.AvgQuality,
-			&s.LastSelected,
-			&s.SupportsTools, &s.SupportsVision, &s.MaxContext, &s.InputCostPer, &s.OutputCostPer,
-			&s.CreatedAt, &s.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan routing stats: %w", err)
-		}
-		result = append(result, s)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (routing.ModelPerformanceStats, error) {
+		var st routing.ModelPerformanceStats
+		err := r.Scan(
+			&st.ID, &st.ModelName, &st.TaskType, &st.ComplexityTier,
+			&st.TrialCount, &st.TotalReward, &st.AvgReward, &st.AvgCostUSD, &st.AvgLatencyMs, &st.AvgQuality,
+			&st.LastSelected,
+			&st.SupportsTools, &st.SupportsVision, &st.MaxContext, &st.InputCostPer, &st.OutputCostPer,
+			&st.CreatedAt, &st.UpdatedAt,
+		)
+		return st, err
+	})
 }
 
 // UpsertRoutingStats inserts or updates model performance stats.
@@ -165,21 +161,15 @@ func (s *Store) ListRoutingOutcomes(ctx context.Context, limit int) ([]routing.R
 	if err != nil {
 		return nil, fmt.Errorf("list routing outcomes: %w", err)
 	}
-	defer rows.Close()
-
-	var result []routing.RoutingOutcome
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (routing.RoutingOutcome, error) {
 		var o routing.RoutingOutcome
-		if err := rows.Scan(
+		err := r.Scan(
 			&o.ID, &o.ModelName, &o.TaskType, &o.ComplexityTier,
 			&o.Success, &o.QualityScore, &o.CostUSD, &o.LatencyMs,
 			&o.TokensIn, &o.TokensOut, &o.Reward,
 			&o.RoutingLayer, &o.RunID, &o.ConversationID, &o.PromptHash,
 			&o.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan routing outcome: %w", err)
-		}
-		result = append(result, o)
-	}
-	return result, rows.Err()
+		)
+		return o, err
+	})
 }

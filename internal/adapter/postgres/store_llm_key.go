@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 )
 
@@ -28,18 +30,12 @@ func (s *Store) ListLLMKeysByUser(ctx context.Context, userID string) ([]llmkey.
 	if err != nil {
 		return nil, fmt.Errorf("list llm keys: %w", err)
 	}
-	defer rows.Close()
-
-	var keys []llmkey.LLMKey
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (llmkey.LLMKey, error) {
 		var k llmkey.LLMKey
-		if err := rows.Scan(&k.ID, &k.UserID, &k.TenantID, &k.Provider, &k.Label,
-			&k.EncryptedKey, &k.KeyPrefix, &k.CreatedAt, &k.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan llm key: %w", err)
-		}
-		keys = append(keys, k)
-	}
-	return keys, rows.Err()
+		err := r.Scan(&k.ID, &k.UserID, &k.TenantID, &k.Provider, &k.Label,
+			&k.EncryptedKey, &k.KeyPrefix, &k.CreatedAt, &k.UpdatedAt)
+		return k, err
+	})
 }
 
 func (s *Store) GetLLMKeyByUserProvider(ctx context.Context, userID, provider string) (*llmkey.LLMKey, error) {

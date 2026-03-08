@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -133,29 +135,28 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 	if err != nil {
 		return nil, 0, fmt.Errorf("list a2a tasks: %w", err)
 	}
-	defer rows.Close()
-
-	var tasks []a2adomain.A2ATask
-	for rows.Next() {
+	tasks, err := scanRows(rows, func(r pgx.Rows) (a2adomain.A2ATask, error) {
 		var t a2adomain.A2ATask
 		var metaJSON []byte
 		var state, direction string
-		if err := rows.Scan(
+		if err := r.Scan(
 			&t.ID, &t.ContextID, &state, &direction, &t.SkillID,
 			&t.TrustOrigin, &t.TrustLevel, &t.SourceAddr, &t.ProjectID, &t.RemoteAgentID,
 			&t.TenantID, &metaJSON, &t.History, &t.Artifacts, &t.ErrorMessage, &t.Version,
 			&t.CreatedAt, &t.UpdatedAt,
 		); err != nil {
-			return nil, 0, fmt.Errorf("list a2a tasks: scan: %w", err)
+			return t, err
 		}
 		t.State = a2adomain.TaskState(state)
 		t.Direction = a2adomain.Direction(direction)
 		if len(metaJSON) > 0 {
 			_ = json.Unmarshal(metaJSON, &t.Metadata)
 		}
-		tasks = append(tasks, t)
+		return t, nil
+	})
+	if err != nil {
+		return nil, 0, err
 	}
-
 	return tasks, len(tasks), nil
 }
 
@@ -213,20 +214,14 @@ func (s *Store) ListRemoteAgents(ctx context.Context, _ string, enabledOnly bool
 	if err != nil {
 		return nil, fmt.Errorf("list remote agents: %w", err)
 	}
-	defer rows.Close()
-
-	var agents []a2adomain.RemoteAgent
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (a2adomain.RemoteAgent, error) {
 		var a a2adomain.RemoteAgent
-		if err := rows.Scan(
+		err := r.Scan(
 			&a.ID, &a.Name, &a.URL, &a.Description, &a.TrustLevel, &a.Enabled,
 			&a.Skills, &a.LastSeen, &a.CardJSON, &a.TenantID, &a.CreatedAt, &a.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("list remote agents: scan: %w", err)
-		}
-		agents = append(agents, a)
-	}
-	return agents, nil
+		)
+		return a, err
+	})
 }
 
 func (s *Store) UpdateRemoteAgent(ctx context.Context, a *a2adomain.RemoteAgent) error {
@@ -283,17 +278,11 @@ func (s *Store) ListA2APushConfigs(ctx context.Context, taskID string) ([]databa
 	if err != nil {
 		return nil, fmt.Errorf("list push configs: %w", err)
 	}
-	defer rows.Close()
-
-	var configs []database.A2APushConfig
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (database.A2APushConfig, error) {
 		var c database.A2APushConfig
-		if err := rows.Scan(&c.ID, &c.TaskID, &c.URL, &c.Token, &c.CreatedAt); err != nil {
-			return nil, fmt.Errorf("list push configs: scan: %w", err)
-		}
-		configs = append(configs, c)
-	}
-	return configs, nil
+		err := r.Scan(&c.ID, &c.TaskID, &c.URL, &c.Token, &c.CreatedAt)
+		return c, err
+	})
 }
 
 func (s *Store) DeleteA2APushConfig(ctx context.Context, id string) error {

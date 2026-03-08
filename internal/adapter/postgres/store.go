@@ -40,17 +40,9 @@ func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
-	defer rows.Close()
-
-	var projects []project.Project
-	for rows.Next() {
-		p, err := scanProject(rows)
-		if err != nil {
-			return nil, err
-		}
-		projects = append(projects, p)
-	}
-	return projects, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (project.Project, error) {
+		return scanProject(r)
+	})
 }
 
 func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, error) {
@@ -130,17 +122,9 @@ func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
-	defer rows.Close()
-
-	var agents []agent.Agent
-	for rows.Next() {
-		a, err := scanAgent(rows)
-		if err != nil {
-			return nil, err
-		}
-		agents = append(agents, a)
-	}
-	return agents, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (agent.Agent, error) {
+		return scanAgent(r)
+	})
 }
 
 func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
@@ -203,17 +187,9 @@ func (s *Store) ListTasks(ctx context.Context, projectID string) ([]task.Task, e
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	defer rows.Close()
-
-	var tasks []task.Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, t)
-	}
-	return tasks, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (task.Task, error) {
+		return scanTask(r)
+	})
 }
 
 func (s *Store) GetTask(ctx context.Context, id string) (*task.Task, error) {
@@ -322,17 +298,9 @@ func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, e
 	if err != nil {
 		return nil, fmt.Errorf("list runs by task: %w", err)
 	}
-	defer rows.Close()
-
-	var runs []run.Run
-	for rows.Next() {
-		r, err := scanRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		runs = append(runs, r)
-	}
-	return runs, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (run.Run, error) {
+		return scanRun(r)
+	})
 }
 
 // --- Agent Teams ---
@@ -402,17 +370,10 @@ func (s *Store) ListTeamsByProject(ctx context.Context, projectID string) ([]age
 	if err != nil {
 		return nil, fmt.Errorf("list teams: %w", err)
 	}
-	defer rows.Close()
-
-	var teams []agent.Team
-	for rows.Next() {
-		t, err := scanTeam(rows)
-		if err != nil {
-			return nil, err
-		}
-		teams = append(teams, t)
-	}
-	if err := rows.Err(); err != nil {
+	teams, err := scanRows(rows, func(r pgx.Rows) (agent.Team, error) {
+		return scanTeam(r)
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -445,17 +406,11 @@ func (s *Store) listTeamMembers(ctx context.Context, teamID string) ([]agent.Tea
 	if err != nil {
 		return nil, fmt.Errorf("list team members: %w", err)
 	}
-	defer rows.Close()
-
-	var members []agent.TeamMember
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (agent.TeamMember, error) {
 		var m agent.TeamMember
-		if err := rows.Scan(&m.ID, &m.TeamID, &m.AgentID, &m.Role); err != nil {
-			return nil, fmt.Errorf("scan team member: %w", err)
-		}
-		members = append(members, m)
-	}
-	return members, rows.Err()
+		err := r.Scan(&m.ID, &m.TeamID, &m.AgentID, &m.Role)
+		return m, err
+	})
 }
 
 // --- Execution Plans ---
@@ -550,17 +505,9 @@ func (s *Store) ListPlansByProject(ctx context.Context, projectID string) ([]pla
 	if err != nil {
 		return nil, fmt.Errorf("list plans: %w", err)
 	}
-	defer rows.Close()
-
-	var plans []plan.ExecutionPlan
-	for rows.Next() {
-		p, err := scanPlan(rows)
-		if err != nil {
-			return nil, err
-		}
-		plans = append(plans, p)
-	}
-	return plans, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (plan.ExecutionPlan, error) {
+		return scanPlan(r)
+	})
 }
 
 func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Status) error {
@@ -587,17 +534,9 @@ func (s *Store) ListPlanSteps(ctx context.Context, planID string) ([]plan.Step, 
 	if err != nil {
 		return nil, fmt.Errorf("list plan steps: %w", err)
 	}
-	defer rows.Close()
-
-	var steps []plan.Step
-	for rows.Next() {
-		st, err := scanPlanStep(rows)
-		if err != nil {
-			return nil, err
-		}
-		steps = append(steps, st)
-	}
-	return steps, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (plan.Step, error) {
+		return scanPlanStep(r)
+	})
 }
 
 func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status plan.StepStatus, runID, errMsg string) error {
@@ -832,17 +771,11 @@ func (s *Store) loadContextEntries(ctx context.Context, packID string) ([]cfcont
 	if err != nil {
 		return nil, fmt.Errorf("load context_entries: %w", err)
 	}
-	defer rows.Close()
-
-	var entries []cfcontext.ContextEntry
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (cfcontext.ContextEntry, error) {
 		var e cfcontext.ContextEntry
-		if err := rows.Scan(&e.ID, &e.PackID, &e.Kind, &e.Path, &e.Content, &e.Tokens, &e.Priority); err != nil {
-			return nil, fmt.Errorf("scan context_entry: %w", err)
-		}
-		entries = append(entries, e)
-	}
-	return entries, rows.Err()
+		err := r.Scan(&e.ID, &e.PackID, &e.Kind, &e.Path, &e.Content, &e.Tokens, &e.Priority)
+		return e, err
+	})
 }
 
 // --- Shared Context ---
@@ -1083,17 +1016,9 @@ func (s *Store) ListMilestones(ctx context.Context, roadmapID string) ([]roadmap
 	if err != nil {
 		return nil, fmt.Errorf("list milestones: %w", err)
 	}
-	defer rows.Close()
-
-	var milestones []roadmap.Milestone
-	for rows.Next() {
-		m, err := scanMilestone(rows)
-		if err != nil {
-			return nil, err
-		}
-		milestones = append(milestones, m)
-	}
-	return milestones, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (roadmap.Milestone, error) {
+		return scanMilestone(r)
+	})
 }
 
 func (s *Store) UpdateMilestone(ctx context.Context, m *roadmap.Milestone) error {
@@ -1198,17 +1123,9 @@ func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap
 	if err != nil {
 		return nil, fmt.Errorf("list features: %w", err)
 	}
-	defer rows.Close()
-
-	var features []roadmap.Feature
-	for rows.Next() {
-		f, err := scanFeature(rows)
-		if err != nil {
-			return nil, err
-		}
-		features = append(features, f)
-	}
-	return features, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (roadmap.Feature, error) {
+		return scanFeature(r)
+	})
 }
 
 func (s *Store) ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error) {
@@ -1218,17 +1135,9 @@ func (s *Store) ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("list features by roadmap: %w", err)
 	}
-	defer rows.Close()
-
-	var features []roadmap.Feature
-	for rows.Next() {
-		f, err := scanFeature(rows)
-		if err != nil {
-			return nil, err
-		}
-		features = append(features, f)
-	}
-	return features, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (roadmap.Feature, error) {
+		return scanFeature(r)
+	})
 }
 
 func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
@@ -1292,17 +1201,11 @@ func (s *Store) loadSharedContextItems(ctx context.Context, sharedID string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("load shared_context_items: %w", err)
 	}
-	defer rows.Close()
-
-	var items []cfcontext.SharedContextItem
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (cfcontext.SharedContextItem, error) {
 		var item cfcontext.SharedContextItem
-		if err := rows.Scan(&item.ID, &item.SharedID, &item.Key, &item.Value, &item.Author, &item.Tokens, &item.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan shared_context_item: %w", err)
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
+		err := r.Scan(&item.ID, &item.SharedID, &item.Key, &item.Value, &item.Author, &item.Tokens, &item.CreatedAt)
+		return item, err
+	})
 }
 
 // --- Cost Aggregation ---
@@ -1317,17 +1220,11 @@ func (s *Store) CostSummaryGlobal(ctx context.Context) ([]cost.ProjectSummary, e
 	if err != nil {
 		return nil, fmt.Errorf("cost summary global: %w", err)
 	}
-	defer rows.Close()
-
-	var result []cost.ProjectSummary
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (cost.ProjectSummary, error) {
 		var ps cost.ProjectSummary
-		if err := rows.Scan(&ps.ProjectID, &ps.ProjectName, &ps.TotalCostUSD, &ps.TotalTokensIn, &ps.TotalTokensOut, &ps.RunCount); err != nil {
-			return nil, fmt.Errorf("scan cost summary: %w", err)
-		}
-		result = append(result, ps)
-	}
-	return result, rows.Err()
+		err := r.Scan(&ps.ProjectID, &ps.ProjectName, &ps.TotalCostUSD, &ps.TotalTokensIn, &ps.TotalTokensOut, &ps.RunCount)
+		return ps, err
+	})
 }
 
 func (s *Store) CostSummaryByProject(ctx context.Context, projectID string) (*cost.Summary, error) {
@@ -1350,17 +1247,11 @@ func (s *Store) CostByModel(ctx context.Context, projectID string) ([]cost.Model
 	if err != nil {
 		return nil, fmt.Errorf("cost by model: %w", err)
 	}
-	defer rows.Close()
-
-	var result []cost.ModelSummary
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (cost.ModelSummary, error) {
 		var ms cost.ModelSummary
-		if err := rows.Scan(&ms.Model, &ms.TotalCostUSD, &ms.TotalTokensIn, &ms.TotalTokensOut, &ms.RunCount); err != nil {
-			return nil, fmt.Errorf("scan model summary: %w", err)
-		}
-		result = append(result, ms)
-	}
-	return result, rows.Err()
+		err := r.Scan(&ms.Model, &ms.TotalCostUSD, &ms.TotalTokensIn, &ms.TotalTokensOut, &ms.RunCount)
+		return ms, err
+	})
 }
 
 func (s *Store) CostTimeSeries(ctx context.Context, projectID string, days int) ([]cost.DailyCost, error) {
@@ -1376,17 +1267,11 @@ func (s *Store) CostTimeSeries(ctx context.Context, projectID string, days int) 
 	if err != nil {
 		return nil, fmt.Errorf("cost time series: %w", err)
 	}
-	defer rows.Close()
-
-	var result []cost.DailyCost
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (cost.DailyCost, error) {
 		var dc cost.DailyCost
-		if err := rows.Scan(&dc.Date, &dc.CostUSD, &dc.TokensIn, &dc.TokensOut, &dc.RunCount); err != nil {
-			return nil, fmt.Errorf("scan daily cost: %w", err)
-		}
-		result = append(result, dc)
-	}
-	return result, rows.Err()
+		err := r.Scan(&dc.Date, &dc.CostUSD, &dc.TokensIn, &dc.TokensOut, &dc.RunCount)
+		return dc, err
+	})
 }
 
 func (s *Store) RecentRunsWithCost(ctx context.Context, projectID string, limit int) ([]run.Run, error) {
@@ -1403,17 +1288,9 @@ func (s *Store) RecentRunsWithCost(ctx context.Context, projectID string, limit 
 	if err != nil {
 		return nil, fmt.Errorf("recent runs with cost: %w", err)
 	}
-	defer rows.Close()
-
-	var result []run.Run
-	for rows.Next() {
-		r, err := scanRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, r)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (run.Run, error) {
+		return scanRun(r)
+	})
 }
 
 // --- Per-Tool Cost Aggregation (Phase 12H) ---
@@ -1429,17 +1306,11 @@ func (s *Store) CostByTool(ctx context.Context, projectID string) ([]cost.ToolSu
 	if err != nil {
 		return nil, fmt.Errorf("cost by tool: %w", err)
 	}
-	defer rows.Close()
-
-	var result []cost.ToolSummary
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (cost.ToolSummary, error) {
 		var ts cost.ToolSummary
-		if err := rows.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount); err != nil {
-			return nil, fmt.Errorf("scan tool summary: %w", err)
-		}
-		result = append(result, ts)
-	}
-	return result, rows.Err()
+		err := r.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount)
+		return ts, err
+	})
 }
 
 func (s *Store) CostByToolForRun(ctx context.Context, runID string) ([]cost.ToolSummary, error) {
@@ -1453,17 +1324,11 @@ func (s *Store) CostByToolForRun(ctx context.Context, runID string) ([]cost.Tool
 	if err != nil {
 		return nil, fmt.Errorf("cost by tool for run: %w", err)
 	}
-	defer rows.Close()
-
-	var result []cost.ToolSummary
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (cost.ToolSummary, error) {
 		var ts cost.ToolSummary
-		if err := rows.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount); err != nil {
-			return nil, fmt.Errorf("scan tool summary: %w", err)
-		}
-		result = append(result, ts)
-	}
-	return result, rows.Err()
+		err := r.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount)
+		return ts, err
+	})
 }
 
 // --- Branch Protection Rules ---
@@ -1507,17 +1372,9 @@ func (s *Store) ListBranchProtectionRules(ctx context.Context, projectID string)
 	if err != nil {
 		return nil, fmt.Errorf("list branch protection rules: %w", err)
 	}
-	defer rows.Close()
-
-	var result []bp.ProtectionRule
-	for rows.Next() {
-		r, err := scanBranchProtectionRule(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, r)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (bp.ProtectionRule, error) {
+		return scanBranchProtectionRule(r)
+	})
 }
 
 func (s *Store) UpdateBranchProtectionRule(ctx context.Context, rule *bp.ProtectionRule) error {
@@ -1609,21 +1466,15 @@ func (s *Store) ListSessions(ctx context.Context, projectID string) ([]run.Sessi
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
-	defer rows.Close()
-
-	var sessions []run.Session
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (run.Session, error) {
 		var sess run.Session
-		if err := rows.Scan(
+		err := r.Scan(
 			&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID, &sess.ConversationID,
 			&sess.ParentSessionID, &sess.ParentRunID, &sess.CurrentRunID,
 			&sess.Status, &sess.Metadata, &sess.CreatedAt, &sess.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan session: %w", err)
-		}
-		sessions = append(sessions, sess)
-	}
-	return sessions, rows.Err()
+		)
+		return sess, err
+	})
 }
 
 func (s *Store) UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error {

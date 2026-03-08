@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 )
 
@@ -42,22 +44,18 @@ func (s *Store) ListMemories(ctx context.Context, projectID string) ([]memory.Me
 	if err != nil {
 		return nil, fmt.Errorf("list memories: %w", err)
 	}
-	defer rows.Close()
-
-	var result []memory.Memory
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (memory.Memory, error) {
 		var m memory.Memory
 		var metadata []byte
-		if err := rows.Scan(
+		if err := r.Scan(
 			&m.ID, &m.TenantID, &m.ProjectID, &m.AgentID, &m.RunID,
 			&m.Content, &m.Kind, &m.Importance, &metadata, &m.CreatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan memory: %w", err)
+			return m, err
 		}
 		if len(metadata) > 0 {
 			_ = json.Unmarshal(metadata, &m.Metadata)
 		}
-		result = append(result, m)
-	}
-	return result, rows.Err()
+		return m, nil
+	})
 }

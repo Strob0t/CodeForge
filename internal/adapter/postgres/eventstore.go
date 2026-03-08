@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -57,17 +58,11 @@ func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.Age
 	if err != nil {
 		return nil, fmt.Errorf("load events by task %s: %w", taskID, err)
 	}
-	defer rows.Close()
-
-	var events []event.AgentEvent
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (event.AgentEvent, error) {
 		var ev event.AgentEvent
-		if err := scanEvent(rows, &ev); err != nil {
-			return nil, fmt.Errorf("scan event: %w", err)
-		}
-		events = append(events, ev)
-	}
-	return events, rows.Err()
+		err := scanEvent(r, &ev)
+		return ev, err
+	})
 }
 
 // LoadByAgent returns all events for the given agent, ordered by version ascending.
@@ -78,17 +73,11 @@ func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.A
 	if err != nil {
 		return nil, fmt.Errorf("load events by agent %s: %w", agentID, err)
 	}
-	defer rows.Close()
-
-	var events []event.AgentEvent
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (event.AgentEvent, error) {
 		var ev event.AgentEvent
-		if err := scanEvent(rows, &ev); err != nil {
-			return nil, fmt.Errorf("scan event: %w", err)
-		}
-		events = append(events, ev)
-	}
-	return events, rows.Err()
+		err := scanEvent(r, &ev)
+		return ev, err
+	})
 }
 
 // LoadByRun returns all events for the given run, ordered by version ascending.
@@ -99,17 +88,11 @@ func (s *EventStore) LoadByRun(ctx context.Context, runID string) ([]event.Agent
 	if err != nil {
 		return nil, fmt.Errorf("load events by run %s: %w", runID, err)
 	}
-	defer rows.Close()
-
-	var events []event.AgentEvent
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (event.AgentEvent, error) {
 		var ev event.AgentEvent
-		if err := scanEvent(rows, &ev); err != nil {
-			return nil, fmt.Errorf("scan event: %w", err)
-		}
-		events = append(events, ev)
-	}
-	return events, rows.Err()
+		err := scanEvent(r, &ev)
+		return ev, err
+	})
 }
 
 // LoadTrajectory returns a cursor-paginated page of events for a run with optional filtering.
@@ -169,17 +152,12 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 	if err != nil {
 		return nil, fmt.Errorf("load trajectory: %w", err)
 	}
-	defer rows.Close()
-
-	var events []event.AgentEvent
-	for rows.Next() {
+	events, err := scanRows(rows, func(r pgx.Rows) (event.AgentEvent, error) {
 		var ev event.AgentEvent
-		if err := scanEvent(rows, &ev); err != nil {
-			return nil, fmt.Errorf("scan trajectory event: %w", err)
-		}
-		events = append(events, ev)
-	}
-	if err := rows.Err(); err != nil {
+		err := scanEvent(r, &ev)
+		return ev, err
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -295,17 +273,11 @@ func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, to
 	if err != nil {
 		return nil, fmt.Errorf("load events range: %w", err)
 	}
-	defer rows.Close()
-
-	var events []event.AgentEvent
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (event.AgentEvent, error) {
 		var ev event.AgentEvent
-		if err := scanEvent(rows, &ev); err != nil {
-			return nil, fmt.Errorf("scan event range: %w", err)
-		}
-		events = append(events, ev)
-	}
-	return events, rows.Err()
+		err := scanEvent(r, &ev)
+		return ev, err
+	})
 }
 
 // ListCheckpoints returns events of type tool_result for a run, which serve as checkpoints.
@@ -317,17 +289,11 @@ func (s *EventStore) ListCheckpoints(ctx context.Context, runID string) ([]event
 	if err != nil {
 		return nil, fmt.Errorf("list checkpoints: %w", err)
 	}
-	defer rows.Close()
-
-	var events []event.AgentEvent
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (event.AgentEvent, error) {
 		var ev event.AgentEvent
-		if err := scanEvent(rows, &ev); err != nil {
-			return nil, fmt.Errorf("scan checkpoint: %w", err)
-		}
-		events = append(events, ev)
-	}
-	return events, rows.Err()
+		err := scanEvent(r, &ev)
+		return ev, err
+	})
 }
 
 // AppendAudit inserts an audit trail entry.
@@ -411,18 +377,15 @@ func (s *EventStore) LoadAudit(ctx context.Context, filter *event.AuditFilter, c
 	if err != nil {
 		return nil, fmt.Errorf("load audit: %w", err)
 	}
-	defer rows.Close()
-
-	var entries []event.AuditEntry
-	for rows.Next() {
+	entries, err := scanRows(rows, func(r pgx.Rows) (event.AuditEntry, error) {
 		var e event.AuditEntry
-		if err := rows.Scan(&e.ID, &e.ProjectID, &e.RunID, &e.AgentID, &e.Action, &e.Details, &e.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan audit entry: %w", err)
+		if err := r.Scan(&e.ID, &e.ProjectID, &e.RunID, &e.AgentID, &e.Action, &e.Details, &e.CreatedAt); err != nil {
+			return e, err
 		}
 		e.TenantID = tid
-		entries = append(entries, e)
-	}
-	if err := rows.Err(); err != nil {
+		return e, nil
+	})
+	if err != nil {
 		return nil, err
 	}
 

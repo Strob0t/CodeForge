@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 )
 
@@ -50,21 +52,17 @@ func (s *Store) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list tenants: %w", err)
 	}
-	defer rows.Close()
-
-	var tenants []tenant.Tenant
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (tenant.Tenant, error) {
 		var t tenant.Tenant
 		var settingsJSON []byte
-		if err := rows.Scan(&t.ID, &t.Name, &t.Slug, &t.Enabled, &settingsJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan tenant: %w", err)
+		if err := r.Scan(&t.ID, &t.Name, &t.Slug, &t.Enabled, &settingsJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return t, err
 		}
 		if settingsJSON != nil {
 			_ = json.Unmarshal(settingsJSON, &t.Settings)
 		}
-		tenants = append(tenants, t)
-	}
-	return tenants, rows.Err()
+		return t, nil
+	})
 }
 
 func (s *Store) UpdateTenant(ctx context.Context, t *tenant.Tenant) error {

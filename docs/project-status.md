@@ -172,3 +172,13 @@ AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumente
 ### Mobile-Responsive Frontend (COMPLETED)
 
 Full mobile + tablet responsiveness for the CodeForge frontend (320px+). Bottom-up approach: `useBreakpoint` singleton hook with `matchMedia` signals, CSS foundation (safe-area insets, `@media (pointer: coarse)` touch targets, scrollbar-none), `viewport-fit=cover`. Primitives overhauled (Button min-heights 36-48px, NavLink 44px touch targets). Composites responsive (Modal, Table, Card, PageLayout). 3-state sidebar (hidden+Portal overlay on mobile, collapsed on tablet, expanded on desktop) with hamburger menu. All page grids responsive (1->2->4 columns). ProjectDetailPage redesigned with mobile tab-switch (bottom bar "Panels"/"Chat"), scrollable sub-tabs. ChatPanel responsive bubbles (90%/75%). FilePanel mobile file tree drawer overlay. 21 files changed (1 new, 20 modified).
+
+### Codebase Optimization -- Full Overhaul (COMPLETED)
+
+Systematic cleanup of code duplicates, stubs, hardcoded constants, and code smells across all 3 language layers. 25 tasks executed via subagent-driven development.
+
+**Go (13 tasks):** Deleted duplicate `internal/crypto/crypto/aes.go`. Added generic helpers (`scanRows[T]`, `writeJSONList[T]`, `queryParamInt`) and migrated 27 store files + ~14 handler files. Removed duplicate `nilIfEmpty()`. Externalized server timeouts and stale-work thresholds to config struct with yaml/env tags. Net ~350 lines removed from store boilerplate alone.
+
+**Python (8 tasks):** Shared `coerce_none_to_list` Pydantic validator. `@catch_os_error` decorator for file tools. `_extract_cost()` in LLM client. `BaseBenchmarkRunner` ABC for 3 runner types. `RoutingConfig` dataclass with configurable weights/thresholds. OpenHands timeouts externalized to env vars. Consumer `_handle_request()` generic NATS handler (10 migrated, 6 skipped for complexity). Consumer backoff constants externalized.
+
+**TypeScript (4 tasks):** `cx()` class-name utility, `getErrorMessage()` error helper, `StatCard`/`ResourceView`/`GridLayout` shared components, `useFocusTrap`/`useFormState`/`useAsyncAction` hooks, `CHART_COLORS`/`RADAR_DEFAULTS` design constants. Adopted across 10+ pages.

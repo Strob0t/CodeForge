@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 )
 
@@ -102,19 +104,13 @@ func (s *Store) scanGoals(ctx context.Context, query string, args ...any) ([]goa
 	if err != nil {
 		return nil, fmt.Errorf("list project goals: %w", err)
 	}
-	defer rows.Close()
-
-	var result []goal.ProjectGoal
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (goal.ProjectGoal, error) {
 		var g goal.ProjectGoal
-		if err := rows.Scan(
+		err := r.Scan(
 			&g.ID, &g.TenantID, &g.ProjectID, &g.Kind, &g.Title, &g.Content,
 			&g.Source, &g.SourcePath, &g.Priority, &g.Enabled,
 			&g.CreatedAt, &g.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan project goal: %w", err)
-		}
-		result = append(result, g)
-	}
-	return result, rows.Err()
+		)
+		return g, err
+	})
 }

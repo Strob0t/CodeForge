@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 )
 
@@ -16,17 +18,11 @@ func (s *Store) ListSettings(ctx context.Context) ([]settings.Setting, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list settings: %w", err)
 	}
-	defer rows.Close()
-
-	var result []settings.Setting
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (settings.Setting, error) {
 		var st settings.Setting
-		if err := rows.Scan(&st.Key, &st.Value, &st.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan setting: %w", err)
-		}
-		result = append(result, st)
-	}
-	return result, rows.Err()
+		err := r.Scan(&st.Key, &st.Value, &st.UpdatedAt)
+		return st, err
+	})
 }
 
 // GetSetting returns a single setting by key for the current tenant.

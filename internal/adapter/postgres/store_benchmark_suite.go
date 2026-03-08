@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
@@ -50,20 +52,14 @@ func (s *Store) ListBenchmarkSuites(ctx context.Context) ([]benchmark.Suite, err
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark suites: %w", err)
 	}
-	defer rows.Close()
-
-	var result []benchmark.Suite
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (benchmark.Suite, error) {
 		var suite benchmark.Suite
-		if err := rows.Scan(
+		err := r.Scan(
 			&suite.ID, &suite.TenantID, &suite.Name, &suite.Description, &suite.Type,
 			&suite.ProviderName, &suite.TaskCount, &suite.Config, &suite.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan benchmark suite: %w", err)
-		}
-		result = append(result, suite)
-	}
-	return result, rows.Err()
+		)
+		return suite, err
+	})
 }
 
 // UpdateBenchmarkSuite updates an existing benchmark suite.

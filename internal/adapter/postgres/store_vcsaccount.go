@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 )
 
@@ -17,18 +19,12 @@ func (s *Store) ListVCSAccounts(ctx context.Context) ([]vcsaccount.VCSAccount, e
 	if err != nil {
 		return nil, fmt.Errorf("list vcs accounts: %w", err)
 	}
-	defer rows.Close()
-
-	var accounts []vcsaccount.VCSAccount
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (vcsaccount.VCSAccount, error) {
 		var a vcsaccount.VCSAccount
-		if err := rows.Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.ServerURL,
-			&a.AuthMethod, &a.EncryptedToken, &a.CreatedAt, &a.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan vcs account: %w", err)
-		}
-		accounts = append(accounts, a)
-	}
-	return accounts, rows.Err()
+		err := r.Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.ServerURL,
+			&a.AuthMethod, &a.EncryptedToken, &a.CreatedAt, &a.UpdatedAt)
+		return a, err
+	})
 }
 
 func (s *Store) GetVCSAccount(ctx context.Context, id string) (*vcsaccount.VCSAccount, error) {

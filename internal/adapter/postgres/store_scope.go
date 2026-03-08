@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 )
 
@@ -76,22 +78,22 @@ func (s *Store) ListScopes(ctx context.Context) ([]cfcontext.RetrievalScope, err
 	if err != nil {
 		return nil, fmt.Errorf("list scopes: %w", err)
 	}
-	defer rows.Close()
-
-	var scopes []cfcontext.RetrievalScope
-	for rows.Next() {
+	scopes, err := scanRows(rows, func(r pgx.Rows) (cfcontext.RetrievalScope, error) {
 		var sc cfcontext.RetrievalScope
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Type, &sc.Description, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan scope: %w", err)
-		}
-		pids, err := s.scopeProjectIDs(ctx, sc.ID)
+		err := r.Scan(&sc.ID, &sc.Name, &sc.Type, &sc.Description, &sc.CreatedAt, &sc.UpdatedAt)
+		return sc, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for i := range scopes {
+		pids, err := s.scopeProjectIDs(ctx, scopes[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		sc.ProjectIDs = pids
-		scopes = append(scopes, sc)
+		scopes[i].ProjectIDs = pids
 	}
-	return scopes, rows.Err()
+	return scopes, nil
 }
 
 func (s *Store) UpdateScope(ctx context.Context, id string, req cfcontext.UpdateScopeRequest) (*cfcontext.RetrievalScope, error) {
@@ -163,22 +165,22 @@ func (s *Store) ListScopesByProject(ctx context.Context, projectID string) ([]cf
 	if err != nil {
 		return nil, fmt.Errorf("list scopes by project: %w", err)
 	}
-	defer rows.Close()
-
-	var scopes []cfcontext.RetrievalScope
-	for rows.Next() {
+	scopes, err := scanRows(rows, func(r pgx.Rows) (cfcontext.RetrievalScope, error) {
 		var sc cfcontext.RetrievalScope
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Type, &sc.Description, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan scope: %w", err)
-		}
-		pids, err := s.scopeProjectIDs(ctx, sc.ID)
+		err := r.Scan(&sc.ID, &sc.Name, &sc.Type, &sc.Description, &sc.CreatedAt, &sc.UpdatedAt)
+		return sc, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	for i := range scopes {
+		pids, err := s.scopeProjectIDs(ctx, scopes[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		sc.ProjectIDs = pids
-		scopes = append(scopes, sc)
+		scopes[i].ProjectIDs = pids
 	}
-	return scopes, rows.Err()
+	return scopes, nil
 }
 
 func (s *Store) AddProjectToScope(ctx context.Context, scopeID, projectID string) error {
@@ -207,15 +209,9 @@ func (s *Store) scopeProjectIDs(ctx context.Context, scopeID string) ([]string, 
 	if err != nil {
 		return nil, fmt.Errorf("scope project ids: %w", err)
 	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (string, error) {
 		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan project id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+		err := r.Scan(&id)
+		return id, err
+	})
 }

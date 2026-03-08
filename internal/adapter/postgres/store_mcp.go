@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 )
 
@@ -59,17 +61,9 @@ func (s *Store) ListMCPServers(ctx context.Context) ([]mcp.ServerDef, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list mcp servers: %w", err)
 	}
-	defer rows.Close()
-
-	var result []mcp.ServerDef
-	for rows.Next() {
-		srv, err := scanMCPServer(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, srv)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (mcp.ServerDef, error) {
+		return scanMCPServer(r)
+	})
 }
 
 // UpdateMCPServer updates an existing MCP server definition.
@@ -149,17 +143,9 @@ func (s *Store) ListMCPServersByProject(ctx context.Context, projectID string) (
 	if err != nil {
 		return nil, fmt.Errorf("list mcp servers for project %s: %w", projectID, err)
 	}
-	defer rows.Close()
-
-	var result []mcp.ServerDef
-	for rows.Next() {
-		srv, err := scanMCPServer(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, srv)
-	}
-	return result, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (mcp.ServerDef, error) {
+		return scanMCPServer(r)
+	})
 }
 
 // UpsertMCPServerTools replaces all cached tools for an MCP server.
@@ -198,21 +184,17 @@ func (s *Store) ListMCPServerTools(ctx context.Context, serverID string) ([]mcp.
 	if err != nil {
 		return nil, fmt.Errorf("list mcp server tools %s: %w", serverID, err)
 	}
-	defer rows.Close()
-
-	var result []mcp.ServerTool
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (mcp.ServerTool, error) {
 		var t mcp.ServerTool
 		var schemaJSON []byte
-		if err := rows.Scan(&t.ServerID, &t.Name, &t.Description, &schemaJSON); err != nil {
-			return nil, err
+		if err := r.Scan(&t.ServerID, &t.Name, &t.Description, &schemaJSON); err != nil {
+			return t, err
 		}
 		if schemaJSON != nil {
 			t.InputSchema = schemaJSON
 		}
-		result = append(result, t)
-	}
-	return result, rows.Err()
+		return t, nil
+	})
 }
 
 // scanMCPServer scans a single MCP server row.

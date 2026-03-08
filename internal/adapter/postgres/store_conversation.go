@@ -45,17 +45,11 @@ func (s *Store) ListConversationsByProject(ctx context.Context, projectID string
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
-	defer rows.Close()
-
-	var result []conversation.Conversation
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (conversation.Conversation, error) {
 		var c conversation.Conversation
-		if err := rows.Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan conversation: %w", err)
-		}
-		result = append(result, c)
-	}
-	return result, rows.Err()
+		err := r.Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
+		return c, err
+	})
 }
 
 func (s *Store) DeleteConversation(ctx context.Context, id string) error {
@@ -95,19 +89,13 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string) ([]conv
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
-	defer rows.Close()
-
-	var result []conversation.Message
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (conversation.Message, error) {
 		var m conversation.Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content,
+		err := r.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content,
 			&m.ToolCalls, &m.ToolCallID, &m.ToolName,
-			&m.TokensIn, &m.TokensOut, &m.Model, &m.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan message: %w", err)
-		}
-		result = append(result, m)
-	}
-	return result, rows.Err()
+			&m.TokensIn, &m.TokensOut, &m.Model, &m.CreatedAt)
+		return m, err
+	})
 }
 
 // CreateToolMessages inserts multiple tool-related messages (assistant messages

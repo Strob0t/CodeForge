@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 )
 
@@ -76,21 +78,15 @@ func (s *Store) ListQuarantinedMessages(ctx context.Context, projectID string, s
 	if err != nil {
 		return nil, fmt.Errorf("list quarantined messages: %w", err)
 	}
-	defer rows.Close()
-
-	var result []*quarantine.Message
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (*quarantine.Message, error) {
 		var msg quarantine.Message
-		if err := rows.Scan(
+		err := r.Scan(
 			&msg.ID, &msg.TenantID, &msg.ProjectID, &msg.Subject, &msg.Payload, &msg.TrustOrigin, &msg.TrustLevel,
 			&msg.RiskScore, &msg.RiskFactors, &msg.Status, &msg.ReviewedBy, &msg.ReviewNote,
 			&msg.CreatedAt, &msg.ReviewedAt, &msg.ExpiresAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan quarantined message: %w", err)
-		}
-		result = append(result, &msg)
-	}
-	return result, rows.Err()
+		)
+		return &msg, err
+	})
 }
 
 // UpdateQuarantineStatus sets the review status of a quarantined message.

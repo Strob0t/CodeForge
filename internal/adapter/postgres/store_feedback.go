@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 )
 
@@ -32,18 +34,12 @@ func (s *Store) ListFeedbackByRun(ctx context.Context, runID string) ([]feedback
 	if err != nil {
 		return nil, fmt.Errorf("list feedback by run: %w", err)
 	}
-	defer rows.Close()
-
-	var result []feedback.AuditEntry
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (feedback.AuditEntry, error) {
 		var a feedback.AuditEntry
-		if err := rows.Scan(
+		err := r.Scan(
 			&a.ID, &a.TenantID, &a.RunID, &a.CallID, &a.Tool,
 			&a.Provider, &a.Decision, &a.Responder, &a.ResponseTimeMs, &a.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan feedback audit: %w", err)
-		}
-		result = append(result, a)
-	}
-	return result, rows.Err()
+		)
+		return a, err
+	})
 }

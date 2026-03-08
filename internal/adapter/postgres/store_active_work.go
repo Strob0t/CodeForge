@@ -41,21 +41,15 @@ func (s *Store) ListActiveWork(ctx context.Context, projectID string) ([]task.Ac
 	if err != nil {
 		return nil, fmt.Errorf("list active work: %w", err)
 	}
-	defer rows.Close()
-
-	var items []task.ActiveWorkItem
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (task.ActiveWorkItem, error) {
 		var item task.ActiveWorkItem
-		if err := rows.Scan(
+		err := r.Scan(
 			&item.TaskID, &item.TaskTitle, &item.TaskStatus, &item.ProjectID,
 			&item.AgentID, &item.AgentName, &item.AgentMode,
 			&item.RunID, &item.StepCount, &item.CostUSD, &item.StartedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan active work item: %w", err)
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
+		)
+		return item, err
+	})
 }
 
 // ClaimTask atomically claims a pending task for the given agent using
@@ -95,15 +89,7 @@ func (s *Store) ReleaseStaleWork(ctx context.Context, threshold time.Duration) (
 	if err != nil {
 		return nil, fmt.Errorf("release stale work: %w", err)
 	}
-	defer rows.Close()
-
-	var tasks []task.Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, t)
-	}
-	return tasks, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (task.Task, error) {
+		return scanTask(r)
+	})
 }

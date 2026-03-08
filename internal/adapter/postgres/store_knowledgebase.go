@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 )
 
@@ -52,17 +54,11 @@ func (s *Store) ListKnowledgeBases(ctx context.Context) ([]knowledgebase.Knowled
 	if err != nil {
 		return nil, fmt.Errorf("list knowledge bases: %w", err)
 	}
-	defer rows.Close()
-
-	var kbs []knowledgebase.KnowledgeBase
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (knowledgebase.KnowledgeBase, error) {
 		var kb knowledgebase.KnowledgeBase
-		if err := rows.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan knowledge base: %w", err)
-		}
-		kbs = append(kbs, kb)
-	}
-	return kbs, rows.Err()
+		err := r.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt)
+		return kb, err
+	})
 }
 
 func (s *Store) UpdateKnowledgeBase(ctx context.Context, id string, req knowledgebase.UpdateRequest) (*knowledgebase.KnowledgeBase, error) {
@@ -151,15 +147,9 @@ func (s *Store) ListKnowledgeBasesByScope(ctx context.Context, scopeID string) (
 	if err != nil {
 		return nil, fmt.Errorf("list knowledge bases by scope: %w", err)
 	}
-	defer rows.Close()
-
-	var kbs []knowledgebase.KnowledgeBase
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (knowledgebase.KnowledgeBase, error) {
 		var kb knowledgebase.KnowledgeBase
-		if err := rows.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan knowledge base: %w", err)
-		}
-		kbs = append(kbs, kb)
-	}
-	return kbs, rows.Err()
+		err := r.Scan(&kb.ID, &kb.Name, &kb.Description, &kb.Category, &kb.Tags, &kb.ContentPath, &kb.Status, &kb.ChunkCount, &kb.CreatedAt, &kb.UpdatedAt)
+		return kb, err
+	})
 }

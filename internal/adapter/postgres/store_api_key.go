@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
@@ -46,21 +48,17 @@ func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.AP
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
 	}
-	defer rows.Close()
-
-	var keys []user.APIKey
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (user.APIKey, error) {
 		var key user.APIKey
 		var expiresAt sql.NullTime
-		if err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.Scopes, &expiresAt, &key.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan api key: %w", err)
+		if err := r.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.Scopes, &expiresAt, &key.CreatedAt); err != nil {
+			return key, err
 		}
 		if expiresAt.Valid {
 			key.ExpiresAt = expiresAt.Time
 		}
-		keys = append(keys, key)
-	}
-	return keys, rows.Err()
+		return key, nil
+	})
 }
 
 func (s *Store) DeleteAPIKey(ctx context.Context, id, userID string) error {

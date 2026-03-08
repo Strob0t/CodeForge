@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 )
 
@@ -81,20 +83,14 @@ func (s *Store) ListAgentInbox(ctx context.Context, agentID string, unreadOnly b
 	if err != nil {
 		return nil, fmt.Errorf("list agent inbox: %w", err)
 	}
-	defer rows.Close()
-
-	var result []agent.InboxMessage
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (agent.InboxMessage, error) {
 		var msg agent.InboxMessage
-		if err := rows.Scan(
+		err := r.Scan(
 			&msg.ID, &msg.AgentID, &msg.FromAgent, &msg.Content,
 			&msg.Priority, &msg.Read, &msg.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan agent inbox message: %w", err)
-		}
-		result = append(result, msg)
-	}
-	return result, rows.Err()
+		)
+		return msg, err
+	})
 }
 
 // MarkInboxRead marks a single inbox message as read.
