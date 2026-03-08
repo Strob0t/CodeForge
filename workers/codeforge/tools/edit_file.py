@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._error_handler import catch_os_error
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ DEFINITION = ToolDefinition(
 class EditFileTool(ToolExecutor):
     """Replace a unique text snippet in a file."""
 
+    @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("file_path", "")
         target, err = resolve_safe_path(workspace_path, rel, must_be_file=True)
@@ -64,10 +66,7 @@ class EditFileTool(ToolExecutor):
         old_text = arguments.get("old_text", "")
         new_text = arguments.get("new_text", "")
 
-        try:
-            content = target.read_text(encoding="utf-8")
-        except OSError as exc:
-            return ToolResult(output="", error=str(exc), success=False)
+        content = target.read_text(encoding="utf-8")
 
         count = content.count(old_text)
         if count == 0:
@@ -77,10 +76,7 @@ class EditFileTool(ToolExecutor):
 
         updated = content.replace(old_text, new_text, 1)
 
-        try:
-            target.write_text(updated, encoding="utf-8")
-        except OSError as exc:
-            return ToolResult(output="", error=str(exc), success=False)
+        target.write_text(updated, encoding="utf-8")
 
         old_lines = old_text.count("\n") + 1
         new_lines = new_text.count("\n") + 1

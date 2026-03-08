@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._error_handler import catch_os_error
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ DEFINITION = ToolDefinition(
 class WriteFileTool(ToolExecutor):
     """Write content to a file, creating parent directories as needed."""
 
+    @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("file_path", "")
         target, err = resolve_safe_path(workspace_path, rel)
@@ -54,10 +56,7 @@ class WriteFileTool(ToolExecutor):
 
         content = arguments.get("content", "")
 
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
-        except OSError as exc:
-            return ToolResult(output="", error=str(exc), success=False)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
 
         return ToolResult(output=f"wrote {len(content)} bytes to {rel}")

@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._error_handler import catch_os_error
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +55,14 @@ DEFINITION = ToolDefinition(
 class ReadFileTool(ToolExecutor):
     """Read a file's contents with optional line offset and limit."""
 
+    @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("file_path", "")
         target, err = resolve_safe_path(workspace_path, rel, must_be_file=True)
         if err is not None:
             return err
 
-        try:
-            text = target.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            return ToolResult(output="", error=str(exc), success=False)
+        text = target.read_text(encoding="utf-8", errors="replace")
 
         lines = text.splitlines(keepends=True)
         offset = max(arguments.get("offset", 1), 1)
