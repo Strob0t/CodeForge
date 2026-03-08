@@ -3,7 +3,6 @@ package http
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -123,12 +122,7 @@ func (h *Handlers) GlobalAuditTrail(w http.ResponseWriter, r *http.Request) {
 		Action: r.URL.Query().Get("action"),
 	}
 	cursor := r.URL.Query().Get("cursor")
-	limit := 50
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
+	limit := queryParamInt(r, "limit", 50)
 
 	page, err := h.Replay.AuditTrail(r.Context(), &filter, cursor, limit)
 	if err != nil {
@@ -146,12 +140,7 @@ func (h *Handlers) ProjectAuditTrail(w http.ResponseWriter, r *http.Request) {
 		Action:    r.URL.Query().Get("action"),
 	}
 	cursor := r.URL.Query().Get("cursor")
-	limit := 50
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
+	limit := queryParamInt(r, "limit", 50)
 
 	page, err := h.Replay.AuditTrail(r.Context(), &filter, cursor, limit)
 	if err != nil {

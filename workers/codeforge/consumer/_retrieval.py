@@ -31,53 +31,37 @@ class RetrievalHandlerMixin:
 
     async def _handle_retrieval_index(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval index request: build index and publish result."""
-        try:
-            request = RetrievalIndexRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id)
+        await self._handle_request(
+            msg,
+            request_model=RetrievalIndexRequest,
+            dedup_key=lambda r: f"retidx-{r.project_id}",
+            handler=self._do_retrieval_index,
+            result_subject=SUBJECT_RETRIEVAL_INDEX_RESULT,
+            log_context=lambda r: {"project_id": r.project_id},
+        )
 
-            if self._is_duplicate(f"retidx-{request.project_id}"):
-                log.warning("duplicate retrieval index request, skipping")
-                await msg.ack()
-                return
-
-            log.info("received retrieval index request", workspace=request.workspace_path)
-
-            status = await self._retriever.build_index(
-                project_id=request.project_id,
-                workspace_path=request.workspace_path,
-                embedding_model=request.embedding_model,
-                file_extensions=request.file_extensions or None,
-            )
-
-            result = RetrievalIndexResult(
-                project_id=status.project_id,
-                status=status.status,
-                file_count=status.file_count,
-                chunk_count=status.chunk_count,
-                embedding_model=status.embedding_model,
-                error=status.error,
-                incremental=status.incremental,
-                files_changed=status.files_changed,
-                files_unchanged=status.files_unchanged,
-            )
-
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_RETRIEVAL_INDEX_RESULT,
-                    result.model_dump_json().encode(),
-                )
-
-            await msg.ack()
-            log.info(
-                "retrieval index built",
-                status=result.status,
-                files=result.file_count,
-                chunks=result.chunk_count,
-            )
-
-        except Exception as exc:
-            logger.exception("failed to process retrieval index request", error=str(exc))
-            await msg.nak()
+    async def _do_retrieval_index(
+        self, request: RetrievalIndexRequest, log: structlog.BoundLogger
+    ) -> RetrievalIndexResult:
+        """Business logic for retrieval index building."""
+        log.info("received retrieval index request", workspace=request.workspace_path)
+        status = await self._retriever.build_index(
+            project_id=request.project_id,
+            workspace_path=request.workspace_path,
+            embedding_model=request.embedding_model,
+            file_extensions=request.file_extensions or None,
+        )
+        return RetrievalIndexResult(
+            project_id=status.project_id,
+            status=status.status,
+            file_count=status.file_count,
+            chunk_count=status.chunk_count,
+            embedding_model=status.embedding_model,
+            error=status.error,
+            incremental=status.incremental,
+            files_changed=status.files_changed,
+            files_unchanged=status.files_unchanged,
+        )
 
     async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval search request: search index and publish result."""

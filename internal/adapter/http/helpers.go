@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -35,6 +36,19 @@ func readJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64) (T
 // urlParam is a short alias for chi.URLParam.
 func urlParam(r *http.Request, name string) string { //nolint:unparam // name varies by endpoint
 	return chi.URLParam(r, name)
+}
+
+// queryParamInt parses an integer query parameter with a positive-value constraint.
+func queryParamInt(r *http.Request, name string, defaultVal int) int {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return defaultVal
+	}
+	return n
 }
 
 // requireField writes a 400 error and returns false when value is empty.
@@ -108,6 +122,14 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		slog.Error("unhandled domain error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 	}
+}
+
+// writeJSONList writes a JSON array response, converting nil slices to empty arrays.
+func writeJSONList[T any](w http.ResponseWriter, status int, items []T) {
+	if items == nil {
+		items = []T{}
+	}
+	writeJSON(w, status, items)
 }
 
 // writeInternalError logs the actual error server-side and returns a generic message to the client.

@@ -3,7 +3,6 @@ package http
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
 )
@@ -34,12 +33,7 @@ func (h *Handlers) HandleRefreshRoutingStats(w http.ResponseWriter, r *http.Requ
 
 // HandleListRoutingOutcomes handles GET /api/v1/routing/outcomes
 func (h *Handlers) HandleListRoutingOutcomes(w http.ResponseWriter, r *http.Request) {
-	limit := 50
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit := queryParamInt(r, "limit", 50)
 
 	outcomes, err := h.Routing.ListOutcomes(r.Context(), limit)
 	if err != nil {

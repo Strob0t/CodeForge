@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
 
@@ -11,6 +11,8 @@ from codeforge.consumer._subjects import HEADER_REQUEST_ID, HEADER_RETRY_COUNT, 
 from codeforge.trust.middleware import stamp_outgoing
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     import nats.aio.msg
     from nats.js.client import JetStreamContext
 
@@ -105,3 +107,36 @@ class ConsumerBaseMixin:
         except Exception as exc:
             logger.exception("failed to publish error result", subject=subject, error=str(exc))
         await msg.nak()
+
+    async def _handle_request(
+        self,
+        msg: nats.aio.msg.Msg,
+        request_model: type,
+        dedup_key: Callable[[Any], str],
+        handler: Callable[[Any, Any], Awaitable[Any | None]],
+        result_subject: str | None = None,
+        log_context: Callable[[Any], dict[str, Any]] | None = None,
+    ) -> None:
+        """Generic NATS handler with dedup, processing, and error handling."""
+        try:
+            request = request_model.model_validate_json(msg.data)
+            bind_kwargs = log_context(request) if log_context else {}
+            log = logger.bind(**bind_kwargs)
+
+            key = dedup_key(request)
+            if self._is_duplicate(key):
+                log.warning("duplicate request, skipping", dedup_key=key)
+                await msg.ack()
+                return
+
+            result = await handler(request, log)
+
+            if result is not None and result_subject and self._js is not None:
+                await self._js.publish(result_subject, result.model_dump_json().encode())
+
+            await msg.ack()
+            log.info("request processed", dedup_key=key)
+
+        except Exception as exc:
+            logger.exception("failed to process request", error=str(exc))
+            await msg.nak()

@@ -2,7 +2,6 @@ package http
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -53,12 +52,7 @@ func (h *Handlers) ProjectCostByModel(w http.ResponseWriter, r *http.Request) {
 // ProjectCostTimeSeries handles GET /api/v1/projects/{id}/costs/daily
 func (h *Handlers) ProjectCostTimeSeries(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	days := 30
-	if d := r.URL.Query().Get("days"); d != "" {
-		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
-			days = parsed
-		}
-	}
+	days := queryParamInt(r, "days", 30)
 	series, err := h.Cost.TimeSeries(r.Context(), projectID, days)
 	if err != nil {
 		writeDomainError(w, err, "project not found")
@@ -73,12 +67,7 @@ func (h *Handlers) ProjectCostTimeSeries(w http.ResponseWriter, r *http.Request)
 // ProjectRecentRuns handles GET /api/v1/projects/{id}/costs/runs
 func (h *Handlers) ProjectRecentRuns(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	limit := 20
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
+	limit := queryParamInt(r, "limit", 20)
 	runs, err := h.Cost.RecentRuns(r.Context(), projectID, limit)
 	if err != nil {
 		writeDomainError(w, err, "project not found")
