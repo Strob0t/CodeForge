@@ -419,6 +419,14 @@ class LiteLLMClient:
             ),
         )
 
+    @staticmethod
+    def _extract_cost(headers: httpx.Headers) -> float:
+        """Extract LLM response cost from LiteLLM proxy headers."""
+        try:
+            return float(headers.get("x-litellm-response-cost", "0"))
+        except (ValueError, TypeError):
+            return 0.0
+
     # -- public API ---------------------------------------------------------
 
     async def completion(
@@ -472,10 +480,7 @@ class LiteLLMClient:
                 raise LLMError(resp.status_code, model, body)
             data: dict[str, object] = resp.json()
 
-            try:
-                litellm_cost = float(resp.headers.get("x-litellm-response-cost", "0"))
-            except (ValueError, TypeError):
-                litellm_cost = 0.0
+            litellm_cost = self._extract_cost(resp.headers)
 
             choices = data.get("choices", [])
             if not isinstance(choices, list) or len(choices) == 0:
@@ -557,10 +562,7 @@ class LiteLLMClient:
                 raise LLMError(resp.status_code, model, body)
             data: dict[str, object] = resp.json()
 
-            try:
-                cost = float(resp.headers.get("x-litellm-response-cost", "0"))
-            except (ValueError, TypeError):
-                cost = 0.0
+            cost = self._extract_cost(resp.headers)
 
             choices = data.get("choices", [])
             if not isinstance(choices, list) or len(choices) == 0:
@@ -655,8 +657,7 @@ class LiteLLMClient:
                         body[:1000],
                     )
                     raise LLMError(resp.status_code, model, body)
-                with contextlib.suppress(ValueError, TypeError):
-                    acc.cost = float(resp.headers.get("x-litellm-response-cost", "0"))
+                acc.cost = self._extract_cost(resp.headers)
 
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
