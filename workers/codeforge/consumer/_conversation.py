@@ -219,6 +219,7 @@ class ConversationHandlerMixin:
             routing_layer=routing.routing_layer,
             complexity_tier=routing.complexity_tier,
             task_type=routing.task_type,
+            provider_api_key=run_msg.provider_api_key,
         )
         return await executor.run(messages, config=loop_cfg)
 
@@ -250,6 +251,7 @@ class ConversationHandlerMixin:
             temperature=rt.temperature,
             tags=rt.tags,
             on_chunk=_on_chunk,
+            provider_api_key=run_msg.provider_api_key,
         )
 
         if pending:

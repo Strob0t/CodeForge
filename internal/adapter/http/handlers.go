@@ -70,6 +70,7 @@ type Handlers struct {
 	KnowledgeBases   *service.KnowledgeBaseService
 	Settings         *service.SettingsService
 	VCSAccounts      *service.VCSAccountService
+	LLMKeys          *service.LLMKeyService
 	Conversations    *service.ConversationService
 	LSP              *service.LSPService
 	MCP              *service.MCPService

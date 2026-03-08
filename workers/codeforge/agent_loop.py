@@ -59,6 +59,7 @@ class LoopConfig:
     routing_layer: str = ""
     complexity_tier: str = ""
     task_type: str = ""
+    provider_api_key: str = ""
 
 
 @dataclass
@@ -308,6 +309,7 @@ class AgentLoopExecutor:
                     temperature=cfg.temperature,
                     tags=cfg.tags or None,
                     on_chunk=_on_chunk,
+                    provider_api_key=cfg.provider_api_key,
                 )
             except LLMError as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))

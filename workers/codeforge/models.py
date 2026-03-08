@@ -503,6 +503,7 @@ class BenchmarkRunRequest(BaseModel):
     """Request to execute a benchmark evaluation run."""
 
     run_id: str
+    tenant_id: str = ""
     dataset_path: str
     model: str
     metrics: list[str] = Field(default_factory=lambda: ["correctness"])
@@ -510,6 +511,9 @@ class BenchmarkRunRequest(BaseModel):
     suite_id: str = ""
     exec_mode: str = ""
     evaluators: list[str] = Field(default_factory=list)
+    hybrid_verification: bool = False
+    rollout_count: int = 1
+    rollout_strategy: str = "best"
 
 
 class BenchmarkTaskResult(BaseModel):

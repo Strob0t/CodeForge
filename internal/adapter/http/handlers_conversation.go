@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
 func (h *Handlers) CreateConversation(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +82,11 @@ func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Reques
 	req, ok := readJSON[conversation.SendMessageRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
+	}
+
+	// Inject authenticated user ID for per-user key resolution.
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		req.UserID = u.ID
 	}
 
 	// Route to agentic or simple path — both dispatch via NATS and return 202.

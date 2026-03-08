@@ -23,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
+	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
@@ -1277,6 +1278,16 @@ func (m *mockStore) ListEnabledGoals(_ context.Context, _ string) ([]goal.Projec
 func (m *mockStore) UpdateProjectGoal(_ context.Context, _ *goal.ProjectGoal) error  { return nil }
 func (m *mockStore) DeleteProjectGoal(_ context.Context, _ string) error             { return nil }
 func (m *mockStore) DeleteProjectGoalsBySource(_ context.Context, _, _ string) error { return nil }
+
+// LLM Key stubs
+func (m *mockStore) CreateLLMKey(_ context.Context, _ *llmkey.LLMKey) error { return nil }
+func (m *mockStore) ListLLMKeysByUser(_ context.Context, _ string) ([]llmkey.LLMKey, error) {
+	return nil, nil
+}
+func (m *mockStore) GetLLMKeyByUserProvider(_ context.Context, _, _ string) (*llmkey.LLMKey, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteLLMKey(_ context.Context, _, _ string) error { return nil }
 
 // --- InitWorkspace tests ---
 

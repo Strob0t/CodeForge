@@ -1,5 +1,6 @@
 import { useI18n } from "~/i18n";
 import { PageLayout } from "~/ui";
+
 import AuditTable from "./AuditTable";
 
 export default function AuditTrailPage() {

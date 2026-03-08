@@ -493,14 +493,18 @@ type GemmasEvalResultPayload struct {
 
 // BenchmarkRunRequestPayload is published to trigger benchmark execution in Python.
 type BenchmarkRunRequestPayload struct {
-	RunID         string   `json:"run_id"`
-	DatasetPath   string   `json:"dataset_path"`
-	Model         string   `json:"model"`
-	Metrics       []string `json:"metrics,omitempty"`
-	BenchmarkType string   `json:"benchmark_type,omitempty"`
-	SuiteID       string   `json:"suite_id,omitempty"`
-	ExecMode      string   `json:"exec_mode,omitempty"`
-	Evaluators    []string `json:"evaluators,omitempty"`
+	RunID              string   `json:"run_id"`
+	TenantID           string   `json:"tenant_id,omitempty"`
+	DatasetPath        string   `json:"dataset_path"`
+	Model              string   `json:"model"`
+	Metrics            []string `json:"metrics,omitempty"`
+	BenchmarkType      string   `json:"benchmark_type,omitempty"`
+	SuiteID            string   `json:"suite_id,omitempty"`
+	ExecMode           string   `json:"exec_mode,omitempty"`
+	Evaluators         []string `json:"evaluators,omitempty"`
+	HybridVerification bool     `json:"hybrid_verification,omitempty"`
+	RolloutCount       int      `json:"rollout_count,omitempty"`
+	RolloutStrategy    string   `json:"rollout_strategy,omitempty"`
 }
 
 // BenchmarkSummary holds aggregate statistics computed by the Python worker.
@@ -516,6 +520,7 @@ type BenchmarkSummary struct {
 // BenchmarkRunResultPayload is published by Python when benchmark execution completes.
 type BenchmarkRunResultPayload struct {
 	RunID           string                `json:"run_id"`
+	TenantID        string                `json:"tenant_id,omitempty"`
 	Status          string                `json:"status"`
 	Results         []BenchmarkTaskResult `json:"results"`
 	Summary         BenchmarkSummary      `json:"summary"`

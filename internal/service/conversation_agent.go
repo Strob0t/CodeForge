@@ -18,24 +18,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
-// resolveProviderAPIKey looks up a per-user provider key for the given model.
-// Returns "" if no key is found or the service is not wired.
-func (s *ConversationService) resolveProviderAPIKey(ctx context.Context, userID, model string) string {
-	if s.llmKeySvc == nil || userID == "" {
-		return ""
-	}
-	provider := strings.SplitN(model, "/", 2)[0]
-	if provider == "" || provider == model {
-		return ""
-	}
-	key, err := s.llmKeySvc.ResolveKeyForProvider(ctx, userID, provider)
-	if err != nil {
-		slog.Warn("failed to resolve user LLM key", "user_id", userID, "provider", provider, "error", err)
-		return ""
-	}
-	return key
-}
-
 func (s *ConversationService) IsAgentic(ctx context.Context, conversationID string, req conversation.SendMessageRequest) bool {
 	if req.Agentic != nil {
 		return *req.Agentic
@@ -798,4 +780,22 @@ func detectStackSummary(workspacePath string) (string, error) {
 		names[i] = lang.Name
 	}
 	return strings.Join(names, ", "), nil
+}
+
+// resolveProviderAPIKey attempts to look up the user's per-provider LLM key.
+// Returns "" when no key is found (caller falls back to global key).
+func (s *ConversationService) resolveProviderAPIKey(ctx context.Context, userID, model string) string {
+	if s.llmKeySvc == nil || userID == "" {
+		return ""
+	}
+	provider := strings.SplitN(model, "/", 2)[0]
+	if provider == "" || provider == model {
+		return ""
+	}
+	key, err := s.llmKeySvc.ResolveKeyForProvider(ctx, userID, provider)
+	if err != nil {
+		slog.Warn("failed to resolve user LLM key", "user_id", userID, "provider", provider, "error", err)
+		return ""
+	}
+	return key
 }

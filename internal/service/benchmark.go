@@ -19,6 +19,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // BenchmarkService manages benchmark runs and results.
@@ -91,16 +92,27 @@ func (s *BenchmarkService) CreateRun(ctx context.Context, req *benchmark.CreateR
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
+	rolloutCount := req.RolloutCount
+	if rolloutCount < 1 {
+		rolloutCount = 1
+	}
+	rolloutStrategy := req.RolloutStrategy
+	if rolloutStrategy == "" {
+		rolloutStrategy = "best"
+	}
 	r := &benchmark.Run{
-		ID:            uuid.New().String(),
-		Dataset:       req.Dataset,
-		Model:         req.Model,
-		Metrics:       req.Metrics,
-		Status:        benchmark.StatusRunning,
-		SuiteID:       req.SuiteID,
-		BenchmarkType: req.BenchmarkType,
-		ExecMode:      req.ExecMode,
-		CreatedAt:     time.Now().UTC(),
+		ID:                 uuid.New().String(),
+		Dataset:            req.Dataset,
+		Model:              req.Model,
+		Metrics:            req.Metrics,
+		Status:             benchmark.StatusRunning,
+		SuiteID:            req.SuiteID,
+		BenchmarkType:      req.BenchmarkType,
+		ExecMode:           req.ExecMode,
+		HybridVerification: req.HybridVerification,
+		RolloutCount:       rolloutCount,
+		RolloutStrategy:    rolloutStrategy,
+		CreatedAt:          time.Now().UTC(),
 	}
 	if err := s.store.CreateBenchmarkRun(ctx, r); err != nil {
 		return nil, err
@@ -139,14 +151,18 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 	}
 
 	payload := messagequeue.BenchmarkRunRequestPayload{
-		RunID:         run.ID,
-		DatasetPath:   datasetPath,
-		Model:         run.Model,
-		Metrics:       run.Metrics,
-		BenchmarkType: string(run.BenchmarkType),
-		SuiteID:       run.SuiteID,
-		ExecMode:      string(run.ExecMode),
-		Evaluators:    run.Metrics, // metrics double as evaluator names
+		RunID:              run.ID,
+		TenantID:           tenantctx.FromContext(ctx),
+		DatasetPath:        datasetPath,
+		Model:              run.Model,
+		Metrics:            run.Metrics,
+		BenchmarkType:      string(run.BenchmarkType),
+		SuiteID:            run.SuiteID,
+		ExecMode:           string(run.ExecMode),
+		Evaluators:         run.Metrics, // metrics double as evaluator names
+		HybridVerification: run.HybridVerification,
+		RolloutCount:       run.RolloutCount,
+		RolloutStrategy:    run.RolloutStrategy,
 	}
 
 	data, err := json.Marshal(payload)
@@ -628,8 +644,17 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 	now := time.Now().UTC()
 	run.CompletedAt = &now
 	run.TotalCost = payload.TotalCost
+	if run.TotalCost == 0 {
+		run.TotalCost = payload.Summary.TotalCostUSD
+	}
 	run.TotalTokens = payload.TotalTokens
+	if run.TotalTokens == 0 {
+		run.TotalTokens = payload.Summary.TotalTokensIn + payload.Summary.TotalTokensOut
+	}
 	run.TotalDurationMs = payload.TotalDurationMs
+	if run.TotalDurationMs == 0 {
+		run.TotalDurationMs = payload.Summary.ElapsedMs
+	}
 
 	if payload.Status == "completed" {
 		run.Status = benchmark.StatusCompleted

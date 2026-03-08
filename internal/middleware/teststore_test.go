@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
+	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
@@ -728,3 +729,13 @@ func (s *testStore) DeleteProjectGoal(_ context.Context, _ string) error        
 func (s *testStore) DeleteProjectGoalsBySource(_ context.Context, _, _ string) error {
 	return nil
 }
+
+// LLM Key stubs
+func (s *testStore) CreateLLMKey(_ context.Context, _ *llmkey.LLMKey) error { return nil }
+func (s *testStore) ListLLMKeysByUser(_ context.Context, _ string) ([]llmkey.LLMKey, error) {
+	return nil, nil
+}
+func (s *testStore) GetLLMKeyByUserProvider(_ context.Context, _, _ string) (*llmkey.LLMKey, error) {
+	return nil, nil
+}
+func (s *testStore) DeleteLLMKey(_ context.Context, _, _ string) error { return nil }

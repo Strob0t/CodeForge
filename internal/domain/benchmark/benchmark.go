@@ -111,6 +111,9 @@ type Run struct {
 	ExecMode      ExecMode        `json:"exec_mode,omitempty"`
 	Config        json.RawMessage `json:"config,omitempty"`
 
+	// Phase 28A: Hybrid verification flag.
+	HybridVerification bool `json:"hybrid_verification,omitempty"`
+
 	// Phase 28C: Multi-rollout fields.
 	RolloutCount    int    `json:"rollout_count,omitempty"`
 	RolloutStrategy string `json:"rollout_strategy,omitempty"`
@@ -146,12 +149,15 @@ type Result struct {
 
 // CreateRunRequest is the payload for creating a new benchmark run.
 type CreateRunRequest struct {
-	Dataset       string        `json:"dataset"`
-	SuiteID       string        `json:"suite_id,omitempty"`
-	Model         string        `json:"model"`
-	Metrics       []string      `json:"metrics"`
-	BenchmarkType BenchmarkType `json:"benchmark_type,omitempty"`
-	ExecMode      ExecMode      `json:"exec_mode,omitempty"`
+	Dataset            string        `json:"dataset"`
+	SuiteID            string        `json:"suite_id,omitempty"`
+	Model              string        `json:"model"`
+	Metrics            []string      `json:"metrics"`
+	BenchmarkType      BenchmarkType `json:"benchmark_type,omitempty"`
+	ExecMode           ExecMode      `json:"exec_mode,omitempty"`
+	HybridVerification bool          `json:"hybrid_verification,omitempty"`
+	RolloutCount       int           `json:"rollout_count,omitempty"`
+	RolloutStrategy    string        `json:"rollout_strategy,omitempty"`
 }
 
 // Validate checks required fields on a CreateRunRequest.

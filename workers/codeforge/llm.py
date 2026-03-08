@@ -508,6 +508,7 @@ class LiteLLMClient:
         tags: list[str] | None = None,
         max_tokens: int | None = None,
         response_format: dict[str, object] | None = None,
+        provider_api_key: str = "",
     ) -> ChatCompletionResponse:
         """Send a chat completion with tool-calling support and automatic retry."""
         if not model:
@@ -531,6 +532,8 @@ class LiteLLMClient:
                 payload["max_tokens"] = max_tokens
             if response_format is not None:
                 payload["response_format"] = response_format
+            if provider_api_key:
+                payload["api_key"] = provider_api_key
 
             logger.debug(
                 "chat_completion model=%s tools=%d temperature=%.2f",
@@ -605,6 +608,7 @@ class LiteLLMClient:
         max_tokens: int | None = None,
         on_chunk: Callable[[str], None] | None = None,
         on_tool_call: Callable[[ToolCallPart], None] | None = None,
+        provider_api_key: str = "",
     ) -> ChatCompletionResponse:
         """Stream a chat completion with automatic retry on transient errors."""
         if not model:
@@ -627,6 +631,8 @@ class LiteLLMClient:
                 payload["tags"] = tags
             if max_tokens is not None:
                 payload["max_tokens"] = max_tokens
+            if provider_api_key:
+                payload["api_key"] = provider_api_key
 
             logger.debug(
                 "chat_completion_stream model=%s tools=%d temperature=%.2f",
@@ -744,11 +750,30 @@ class _StreamAccumulator:
         result: list[ToolCallPart] = []
         for idx in sorted(self.tc_accum):
             acc = self.tc_accum[idx]
-            tc = ToolCallPart(id=acc["id"], name=acc["name"], arguments=acc["arguments"])
+            norm_name, norm_args = _normalize_tool_call(acc["name"], acc["arguments"])
+            tc = ToolCallPart(id=acc["id"], name=norm_name, arguments=norm_args)
             result.append(tc)
             if on_tool_call:
                 on_tool_call(tc)
         return result
+
+
+def _normalize_tool_call(name: str, arguments: str) -> tuple[str, str]:
+    """Normalize malformed tool calls from Groq/Llama models.
+
+    Some models embed JSON arguments inside the tool name string:
+        name="read_file{\\"path\\": \\"main.py\\"}", arguments=""
+
+    This extracts the JSON part and moves it to arguments.
+    """
+    if arguments.strip():
+        return name, arguments
+    brace_pos = name.find("{")
+    if brace_pos <= 0:
+        return name, arguments
+    clean_name = name[:brace_pos].rstrip()
+    extracted_args = name[brace_pos:]
+    return clean_name, extracted_args
 
 
 def _parse_tool_calls(raw: object) -> list[ToolCallPart]:
@@ -762,11 +787,14 @@ def _parse_tool_calls(raw: object) -> list[ToolCallPart]:
         func = tc.get("function")
         if not isinstance(func, dict) or "name" not in func:
             continue
+        raw_name = str(func["name"])
+        raw_args = str(func.get("arguments", ""))
+        norm_name, norm_args = _normalize_tool_call(raw_name, raw_args)
         result.append(
             ToolCallPart(
                 id=str(tc.get("id", "")),
-                name=str(func["name"]),
-                arguments=str(func.get("arguments", "")),
+                name=norm_name,
+                arguments=norm_args,
             )
         )
     return result

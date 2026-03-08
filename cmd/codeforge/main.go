@@ -37,6 +37,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/tiered"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
@@ -467,6 +468,10 @@ func run() error {
 	vcsKey := vcsaccount.DeriveKey(cfg.Auth.JWTSecret)
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
+	// --- LLM Key Service ---
+	llmKeyEncKey := crypto.DeriveKey(cfg.Auth.JWTSecret)
+	llmKeySvc := service.NewLLMKeyService(store, llmKeyEncKey)
+
 	// --- MCP Service (Phase 15C) ---
 	mcpSvc := service.NewMCPService(&cfg.MCP, &cfg.Limits)
 	mcpSvc.SetStore(store)
@@ -512,6 +517,7 @@ func run() error {
 	conversationSvc.SetModelRegistry(modelRegistry)
 	conversationSvc.SetRoutingConfig(&cfg.Routing)
 	conversationSvc.SetContextOptimizer(contextOptSvc)
+	conversationSvc.SetLLMKeyService(llmKeySvc)
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)
@@ -636,6 +642,7 @@ func run() error {
 		KnowledgeBases:   kbSvc,
 		Settings:         settingsSvc,
 		VCSAccounts:      vcsAccountSvc,
+		LLMKeys:          llmKeySvc,
 		Conversations:    conversationSvc,
 		LSP:              lspSvc,
 		MCP:              mcpSvc,

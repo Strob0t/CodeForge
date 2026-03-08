@@ -1,9 +1,11 @@
 package http
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
@@ -178,13 +180,19 @@ func (h *Handlers) ExportBenchmarkResults(w http.ResponseWriter, r *http.Request
 	if format == "csv" {
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"results.csv\"")
-		_, _ = w.Write([]byte("task_id,task_name,cost_usd,tokens_in,tokens_out,duration_ms\n"))
+		csvWriter := csv.NewWriter(w)
+		_ = csvWriter.Write([]string{"task_id", "task_name", "cost_usd", "tokens_in", "tokens_out", "duration_ms"})
 		for i := range results {
-			line := fmt.Sprintf("%s,%s,%.6f,%d,%d,%d\n",
-				results[i].TaskID, results[i].TaskName, results[i].CostUSD,
-				results[i].TokensIn, results[i].TokensOut, results[i].DurationMs)
-			_, _ = w.Write([]byte(line)) //nolint:gosec // CSV export, not HTML
+			_ = csvWriter.Write([]string{
+				results[i].TaskID,
+				results[i].TaskName,
+				fmt.Sprintf("%.6f", results[i].CostUSD),
+				strconv.Itoa(results[i].TokensIn),
+				strconv.Itoa(results[i].TokensOut),
+				strconv.FormatInt(results[i].DurationMs, 10),
+			})
 		}
+		csvWriter.Flush()
 		return
 	}
 

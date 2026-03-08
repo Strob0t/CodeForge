@@ -2,11 +2,13 @@
 package plane
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
 
@@ -169,24 +171,26 @@ func (p *Provider) ListItems(ctx context.Context, projectRef string) ([]pmprovid
 	for {
 		url := p.issuesURL(workspace, projectID)
 		if cursor != "" {
-			url += "?cursor=" + cursor
+			url += "?cursor=" + neturl.QueryEscape(cursor)
 		}
 
 		resp, err := p.doRequest(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, fmt.Errorf("plane: list issues: %w", err)
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("plane: list issues: status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var listResp planeListResponseBody
 		if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("plane: decode list response: %w", err)
 		}
+		_ = resp.Body.Close()
 
 		for i := range listResp.Results {
 			allItems = append(allItems, issueToItem(&listResp.Results[i], projectRef))
@@ -257,7 +261,7 @@ func (p *Provider) CreateItem(ctx context.Context, projectRef string, item *pmpr
 	}
 
 	url := p.issuesURL(workspace, projectID)
-	resp, err := p.doRequest(ctx, http.MethodPost, url, strings.NewReader(string(body)))
+	resp, err := p.doRequest(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("plane: create issue: %w", err)
 	}
@@ -299,7 +303,7 @@ func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmpr
 	}
 
 	url := fmt.Sprintf("%s%s/", p.issuesURL(workspace, projectID), item.ID)
-	resp, err := p.doRequest(ctx, http.MethodPatch, url, strings.NewReader(string(body)))
+	resp, err := p.doRequest(ctx, http.MethodPatch, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("plane: update issue: %w", err)
 	}

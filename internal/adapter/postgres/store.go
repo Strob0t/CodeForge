@@ -1240,9 +1240,9 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 	labels := orEmpty(f.Labels)
 
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8
-		 WHERE id = $1 AND version = $9 AND tenant_id = $10`,
-		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.Version, tenantFromCtx(ctx))
+		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8, milestone_id = $9
+		 WHERE id = $1 AND version = $10 AND tenant_id = $11`,
+		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.MilestoneID, f.Version, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("update feature %s: %w", f.ID, err)
 	}

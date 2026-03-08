@@ -255,6 +255,7 @@ func (h *Handlers) UpdateFeature(w http.ResponseWriter, r *http.Request) {
 		SpecRef     string            `json:"spec_ref"`
 		ExternalIDs map[string]string `json:"external_ids"`
 		SortOrder   *int              `json:"sort_order"`
+		MilestoneID string            `json:"milestone_id"`
 		Version     int               `json:"version"`
 	}](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
@@ -287,6 +288,9 @@ func (h *Handlers) UpdateFeature(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SortOrder != nil {
 		f.SortOrder = *req.SortOrder
+	}
+	if req.MilestoneID != "" {
+		f.MilestoneID = req.MilestoneID
 	}
 	if req.Version > 0 {
 		f.Version = req.Version

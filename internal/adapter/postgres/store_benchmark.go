@@ -11,11 +11,13 @@ import (
 
 const benchmarkRunColumns = `id, tenant_id, dataset, model, metrics, status, summary_scores,
 		total_cost, total_tokens, total_duration_ms, created_at, completed_at,
-		suite_id, benchmark_type, exec_mode, config`
+		suite_id, benchmark_type, exec_mode, config,
+		hybrid_verification, rollout_count, rollout_strategy`
 
 const benchmarkResultColumns = `id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
-		evaluator_scores, files_changed, functional_test_output`
+		evaluator_scores, files_changed, functional_test_output,
+		rollout_id, rollout_count, is_best_rollout, diversity_score`
 
 // CreateBenchmarkRun inserts a new benchmark run.
 func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error {
@@ -28,16 +30,22 @@ func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 	if cfg == nil {
 		cfg = json.RawMessage(`{}`)
 	}
+	rolloutStrategy := r.RolloutStrategy
+	if rolloutStrategy == "" {
+		rolloutStrategy = "best"
+	}
 	const q = `INSERT INTO benchmark_runs
 		(id, tenant_id, dataset, model, metrics, status, summary_scores, total_cost, total_tokens,
-		 total_duration_ms, created_at, completed_at, suite_id, benchmark_type, exec_mode, config)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+		 total_duration_ms, created_at, completed_at, suite_id, benchmark_type, exec_mode, config,
+		 hybrid_verification, rollout_count, rollout_strategy)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
 	_, err := s.pool.Exec(ctx, q,
 		r.ID, tenantFromCtx(ctx), r.Dataset, r.Model, metricsArr, string(r.Status),
 		scores, r.TotalCost, r.TotalTokens, r.TotalDurationMs,
 		r.CreatedAt, r.CompletedAt,
 		nilIfEmpty(r.SuiteID), nilIfEmpty(string(r.BenchmarkType)),
 		nilIfEmpty(string(r.ExecMode)), cfg,
+		r.HybridVerification, r.RolloutCount, rolloutStrategy,
 	)
 	if err != nil {
 		return fmt.Errorf("create benchmark run: %w", err)
@@ -180,13 +188,15 @@ func (s *Store) CreateBenchmarkResult(ctx context.Context, res *benchmark.Result
 	const q = `INSERT INTO benchmark_results
 		(id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		 tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
-		 evaluator_scores, files_changed, functional_test_output)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+		 evaluator_scores, files_changed, functional_test_output,
+		 rollout_id, rollout_count, is_best_rollout, diversity_score)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
 	_, err := s.pool.Exec(ctx, q,
 		res.ID, tenantFromCtx(ctx), res.RunID, res.TaskID, res.TaskName,
 		scores, res.ActualOutput, res.ExpectedOutput,
 		toolCalls, res.CostUSD, res.TokensIn, res.TokensOut, res.DurationMs,
 		evalScores, filesChanged, res.FunctionalTestOutput,
+		res.RolloutID, res.RolloutCount, res.IsBestRollout, res.DiversityScore,
 	)
 	if err != nil {
 		return fmt.Errorf("create benchmark result: %w", err)
