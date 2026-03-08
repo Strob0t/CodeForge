@@ -3,6 +3,7 @@ import { createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { BenchmarkRun, MultiCompareEntry } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { CHART_COLORS, RADAR_DEFAULTS } from "~/config/design-constants";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, CostDisplay, EmptyState } from "~/ui";
 
@@ -10,27 +11,13 @@ interface MultiCompareViewProps {
   runs: BenchmarkRun[];
 }
 
-const CHART_COLORS = [
-  "#3B82F6", // blue
-  "#EF4444", // red
-  "#10B981", // green
-  "#F59E0B", // amber
-  "#8B5CF6", // violet
-  "#EC4899", // pink
-  "#06B6D4", // cyan
-  "#F97316", // orange
-];
-
 /** Render an SVG radar/spider chart for multi-model metric comparison. */
 function RadarChart(props: {
   entries: MultiCompareEntry[];
   metrics: string[];
   avgScore: (entry: MultiCompareEntry, metric: string) => string;
 }) {
-  const cx = 150;
-  const cy = 150;
-  const radius = 120;
-  const levels = 5;
+  const { cx, cy, radius, levels } = RADAR_DEFAULTS;
 
   const angleStep = () => (2 * Math.PI) / Math.max(props.metrics.length, 1);
 
@@ -51,7 +38,10 @@ function RadarChart(props: {
 
   return (
     <div class="flex flex-col items-center gap-4 sm:flex-row">
-      <svg viewBox="0 0 300 300" class="w-full max-w-[16rem] aspect-square flex-shrink-0">
+      <svg
+        viewBox={RADAR_DEFAULTS.viewBox}
+        class="w-full max-w-[16rem] aspect-square flex-shrink-0"
+      >
         {/* Grid levels */}
         <For each={Array.from({ length: levels }, (_, i) => (i + 1) / levels)}>
           {(level) => (
