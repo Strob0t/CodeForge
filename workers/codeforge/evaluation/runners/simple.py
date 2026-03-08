@@ -3,31 +3,21 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
 
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec
+from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
 
 if TYPE_CHECKING:
     from codeforge.evaluation.pipeline import EvaluationPipeline
-    from codeforge.evaluation.providers.base import EvalScore
     from codeforge.llm import LiteLLMClient
 
 logger = structlog.get_logger(__name__)
 
 
-@dataclass(slots=True)
-class RunResult:
-    """Holds task, execution output, and evaluation score together."""
-
-    task: TaskSpec
-    execution: ExecutionResult
-    eval_score: EvalScore | None = None
-
-
-class SimpleBenchmarkRunner:
+class SimpleBenchmarkRunner(BaseBenchmarkRunner):
     """Runs simple prompt -> LLM -> compare output benchmarks."""
 
     def __init__(
@@ -39,14 +29,6 @@ class SimpleBenchmarkRunner:
         self._llm = llm
         self._pipeline = pipeline
         self._model = model
-
-    async def run_tasks(self, tasks: list[TaskSpec]) -> list[RunResult]:
-        """Run all tasks sequentially and return results."""
-        results: list[RunResult] = []
-        for task in tasks:
-            result = await self.run_task(task)
-            results.append(result)
-        return results
 
     async def run_task(self, task: TaskSpec) -> RunResult:
         """Run a single task: send prompt to LLM, evaluate output."""

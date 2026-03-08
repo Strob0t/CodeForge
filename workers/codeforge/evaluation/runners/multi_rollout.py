@@ -15,7 +15,7 @@ import structlog
 if TYPE_CHECKING:
     from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline, VerificationResult
     from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec
-    from codeforge.evaluation.runners.simple import RunResult
+    from codeforge.evaluation.runners._base import RunResult
 
 logger = structlog.get_logger()
 

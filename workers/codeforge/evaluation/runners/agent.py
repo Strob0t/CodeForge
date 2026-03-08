@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
-from codeforge.evaluation.runners.simple import RunResult
+from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
 
 if TYPE_CHECKING:
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
@@ -97,7 +97,7 @@ def _prepare_test_files(task: TaskSpec, workspace: Path, solution: str) -> None:
         (workspace / "test_patch.diff").write_text(test_patch, encoding="utf-8")
 
 
-class AgentBenchmarkRunner:
+class AgentBenchmarkRunner(BaseBenchmarkRunner):
     """Runs agent benchmarks: full multi-turn agent loop with workspace.
 
     For each task:
@@ -119,14 +119,6 @@ class AgentBenchmarkRunner:
         self._pipeline = pipeline
         self._loop_config = loop_config
         self._workspace_base = workspace_base
-
-    async def run_tasks(self, tasks: list[TaskSpec]) -> list[RunResult]:
-        """Run all tasks sequentially and return results."""
-        results: list[RunResult] = []
-        for task in tasks:
-            result = await self.run_task(task)
-            results.append(result)
-        return results
 
     async def run_task(self, task: TaskSpec) -> RunResult:
         """Run a single agent benchmark task."""

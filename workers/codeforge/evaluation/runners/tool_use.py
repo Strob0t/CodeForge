@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
-from codeforge.evaluation.runners.simple import RunResult
+from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
 
 if TYPE_CHECKING:
     from codeforge.evaluation.pipeline import EvaluationPipeline
@@ -34,7 +34,7 @@ def _parse_tools(task: TaskSpec) -> list[dict]:
         return []
 
 
-class ToolUseBenchmarkRunner:
+class ToolUseBenchmarkRunner(BaseBenchmarkRunner):
     """Runs tool-use benchmarks: prompt + tools -> LLM -> output + tool calls."""
 
     def __init__(
@@ -46,14 +46,6 @@ class ToolUseBenchmarkRunner:
         self._llm = llm
         self._pipeline = pipeline
         self._model = model
-
-    async def run_tasks(self, tasks: list[TaskSpec]) -> list[RunResult]:
-        """Run all tasks sequentially and return results."""
-        results: list[RunResult] = []
-        for task in tasks:
-            result = await self.run_task(task)
-            results.append(result)
-        return results
 
     async def run_task(self, task: TaskSpec) -> RunResult:
         """Run a single tool-use task."""
