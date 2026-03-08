@@ -5,8 +5,6 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-
-	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // ListFiles handles GET /api/v1/projects/{id}/files?path=.
@@ -22,10 +20,7 @@ func (h *Handlers) ListFiles(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "list directory failed")
 		return
 	}
-	if entries == nil {
-		entries = []service.FileEntry{}
-	}
-	writeJSON(w, http.StatusOK, entries)
+	writeJSONList(w, http.StatusOK, entries)
 }
 
 // ListTree handles GET /api/v1/projects/{id}/files/tree?max_entries=10000
@@ -43,10 +38,7 @@ func (h *Handlers) ListTree(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "list tree failed")
 		return
 	}
-	if entries == nil {
-		entries = []service.FileEntry{}
-	}
-	writeJSON(w, http.StatusOK, entries)
+	writeJSONList(w, http.StatusOK, entries)
 }
 
 // ReadFile handles GET /api/v1/projects/{id}/files/content?path=src/main.go

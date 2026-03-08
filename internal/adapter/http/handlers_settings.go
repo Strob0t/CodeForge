@@ -24,10 +24,7 @@ func (h *Handlers) ListTenants(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if tenants == nil {
-		tenants = []tenant.Tenant{}
-	}
-	writeJSON(w, http.StatusOK, tenants)
+	writeJSONList(w, http.StatusOK, tenants)
 }
 
 // CreateTenant handles POST /api/v1/tenants
@@ -364,10 +361,7 @@ func (h *Handlers) ListVCSAccounts(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if accounts == nil {
-		accounts = []vcsaccount.VCSAccount{}
-	}
-	writeJSON(w, http.StatusOK, accounts)
+	writeJSONList(w, http.StatusOK, accounts)
 }
 
 // CreateVCSAccount handles POST /api/v1/vcs-accounts

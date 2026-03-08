@@ -40,10 +40,7 @@ func (h *Handlers) ListPlans(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "project not found")
 		return
 	}
-	if plans == nil {
-		plans = []plan.ExecutionPlan{}
-	}
-	writeJSON(w, http.StatusOK, plans)
+	writeJSONList(w, http.StatusOK, plans)
 }
 
 // GetPlan handles GET /api/v1/plans/{id}
@@ -281,10 +278,7 @@ func (h *Handlers) BuildContextPack(w http.ResponseWriter, r *http.Request) {
 // ListModes handles GET /api/v1/modes
 func (h *Handlers) ListModes(w http.ResponseWriter, _ *http.Request) {
 	modes := h.Modes.List()
-	if modes == nil {
-		modes = []mode.Mode{}
-	}
-	writeJSON(w, http.StatusOK, modes)
+	writeJSONList(w, http.StatusOK, modes)
 }
 
 // GetMode handles GET /api/v1/modes/{id}
@@ -356,10 +350,7 @@ func (h *Handlers) DeleteMode(w http.ResponseWriter, r *http.Request) {
 // ListPipelines handles GET /api/v1/pipelines
 func (h *Handlers) ListPipelines(w http.ResponseWriter, _ *http.Request) {
 	templates := h.Pipelines.List()
-	if templates == nil {
-		templates = []pipeline.Template{}
-	}
-	writeJSON(w, http.StatusOK, templates)
+	writeJSONList(w, http.StatusOK, templates)
 }
 
 // GetPipeline handles GET /api/v1/pipelines/{id}

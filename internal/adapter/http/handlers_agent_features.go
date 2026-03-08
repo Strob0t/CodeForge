@@ -11,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
-	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
@@ -134,10 +133,7 @@ func (h *Handlers) LSPStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := chi.URLParam(r, "id")
 	infos := h.LSP.Status(projectID)
-	if infos == nil {
-		infos = []lspDomain.ServerInfo{}
-	}
-	writeJSON(w, http.StatusOK, infos)
+	writeJSONList(w, http.StatusOK, infos)
 }
 
 // LSPDiagnostics handles GET /api/v1/projects/{id}/lsp/diagnostics
@@ -149,10 +145,7 @@ func (h *Handlers) LSPDiagnostics(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	uri := r.URL.Query().Get("uri")
 	diags := h.LSP.Diagnostics(projectID, uri)
-	if diags == nil {
-		diags = []lspDomain.Diagnostic{}
-	}
-	writeJSON(w, http.StatusOK, diags)
+	writeJSONList(w, http.StatusOK, diags)
 }
 
 // lspPositionRequest is the shared request body for definition/references/hover.
@@ -184,10 +177,7 @@ func (h *Handlers) LSPDefinition(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "definition lookup failed")
 		return
 	}
-	if locs == nil {
-		locs = []lspDomain.Location{}
-	}
-	writeJSON(w, http.StatusOK, locs)
+	writeJSONList(w, http.StatusOK, locs)
 }
 
 // LSPReferences handles POST /api/v1/projects/{id}/lsp/references
@@ -212,10 +202,7 @@ func (h *Handlers) LSPReferences(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "references lookup failed")
 		return
 	}
-	if locs == nil {
-		locs = []lspDomain.Location{}
-	}
-	writeJSON(w, http.StatusOK, locs)
+	writeJSONList(w, http.StatusOK, locs)
 }
 
 // LSPDocumentSymbols handles POST /api/v1/projects/{id}/lsp/symbols
@@ -241,10 +228,7 @@ func (h *Handlers) LSPDocumentSymbols(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "symbol lookup failed")
 		return
 	}
-	if symbols == nil {
-		symbols = []lspDomain.DocumentSymbol{}
-	}
-	writeJSON(w, http.StatusOK, symbols)
+	writeJSONList(w, http.StatusOK, symbols)
 }
 
 // LSPHover handles POST /api/v1/projects/{id}/lsp/hover
@@ -286,10 +270,7 @@ func (h *Handlers) ListMemories(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if mems == nil {
-		mems = []memory.Memory{}
-	}
-	writeJSON(w, http.StatusOK, mems)
+	writeJSONList(w, http.StatusOK, mems)
 }
 
 // StoreMemory handles POST /api/v1/projects/{id}/memories.
@@ -333,10 +314,7 @@ func (h *Handlers) ListExperienceEntries(w http.ResponseWriter, r *http.Request)
 		writeInternalError(w, err)
 		return
 	}
-	if entries == nil {
-		entries = []experience.Entry{}
-	}
-	writeJSON(w, http.StatusOK, entries)
+	writeJSONList(w, http.StatusOK, entries)
 }
 
 // DeleteExperienceEntry handles DELETE /api/v1/experience/{id}.
@@ -359,10 +337,7 @@ func (h *Handlers) ListMicroagents(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if mas == nil {
-		mas = []microagent.Microagent{}
-	}
-	writeJSON(w, http.StatusOK, mas)
+	writeJSONList(w, http.StatusOK, mas)
 }
 
 // CreateMicroagent handles POST /api/v1/projects/{id}/microagents.
@@ -427,10 +402,7 @@ func (h *Handlers) ListSkills(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if sk == nil {
-		sk = []skill.Skill{}
-	}
-	writeJSON(w, http.StatusOK, sk)
+	writeJSONList(w, http.StatusOK, sk)
 }
 
 // CreateSkill handles POST /api/v1/projects/{id}/skills.

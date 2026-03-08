@@ -231,10 +231,7 @@ func (h *Handlers) ListUsersHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	if users == nil {
-		users = []user.User{}
-	}
-	writeJSON(w, http.StatusOK, users)
+	writeJSONList(w, http.StatusOK, users)
 }
 
 // CreateUserHandler handles POST /api/v1/users (admin only)

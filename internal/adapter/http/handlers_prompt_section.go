@@ -21,10 +21,7 @@ func (h *Handlers) ListPromptSections(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "failed to list prompt sections")
 		return
 	}
-	if rows == nil {
-		rows = []prompt.SectionRow{}
-	}
-	writeJSON(w, http.StatusOK, rows)
+	writeJSONList(w, http.StatusOK, rows)
 }
 
 // UpsertPromptSection handles PUT /api/v1/prompt-sections

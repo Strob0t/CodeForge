@@ -21,10 +21,7 @@ func (h *Handlers) ListBranchProtectionRules(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, err, "project not found")
 		return
 	}
-	if rules == nil {
-		rules = []bp.ProtectionRule{}
-	}
-	writeJSON(w, http.StatusOK, rules)
+	writeJSONList(w, http.StatusOK, rules)
 }
 
 // CreateBranchProtectionRule handles POST /api/v1/projects/{id}/branch-rules
@@ -93,10 +90,7 @@ func (h *Handlers) ListRunCheckpoints(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "run not found")
 		return
 	}
-	if checkpoints == nil {
-		checkpoints = []event.AgentEvent{}
-	}
-	writeJSON(w, http.StatusOK, checkpoints)
+	writeJSONList(w, http.StatusOK, checkpoints)
 }
 
 // ReplayRun handles POST /api/v1/runs/{id}/replay
@@ -214,10 +208,7 @@ func (h *Handlers) ListProjectSessions(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "project not found")
 		return
 	}
-	if sessions == nil {
-		sessions = []run.Session{}
-	}
-	writeJSON(w, http.StatusOK, sessions)
+	writeJSONList(w, http.StatusOK, sessions)
 }
 
 // GetSession handles GET /api/v1/sessions/{id}

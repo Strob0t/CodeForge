@@ -17,10 +17,7 @@ func (h *Handlers) ListMCPServers(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if servers == nil {
-		servers = []mcp.ServerDef{}
-	}
-	writeJSON(w, http.StatusOK, servers)
+	writeJSONList(w, http.StatusOK, servers)
 }
 
 // GetMCPServer handles GET /api/v1/mcp/servers/{id}
@@ -121,10 +118,7 @@ func (h *Handlers) ListMCPServerTools(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "mcp server not found")
 		return
 	}
-	if tools == nil {
-		tools = []mcp.ServerTool{}
-	}
-	writeJSON(w, http.StatusOK, tools)
+	writeJSONList(w, http.StatusOK, tools)
 }
 
 // ListProjectMCPServers handles GET /api/v1/projects/{id}/mcp-servers
@@ -135,10 +129,7 @@ func (h *Handlers) ListProjectMCPServers(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, err, "list project mcp servers")
 		return
 	}
-	if servers == nil {
-		servers = []mcp.ServerDef{}
-	}
-	writeJSON(w, http.StatusOK, servers)
+	writeJSONList(w, http.StatusOK, servers)
 }
 
 // assignMCPRequest is the request body for assigning an MCP server to a project.

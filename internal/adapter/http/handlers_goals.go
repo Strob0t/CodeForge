@@ -18,10 +18,7 @@ func (h *Handlers) ListProjectGoals(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if goals == nil {
-		goals = []goal.ProjectGoal{}
-	}
-	writeJSON(w, http.StatusOK, goals)
+	writeJSONList(w, http.StatusOK, goals)
 }
 
 // CreateProjectGoal handles POST /api/v1/projects/{id}/goals.

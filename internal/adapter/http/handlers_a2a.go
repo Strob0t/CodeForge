@@ -157,10 +157,7 @@ func (h *Handlers) ListA2APushConfigs(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if configs == nil {
-		configs = []database.A2APushConfig{}
-	}
-	writeJSON(w, http.StatusOK, configs)
+	writeJSONList(w, http.StatusOK, configs)
 }
 
 // DeleteA2APushConfig handles DELETE /api/v1/a2a/push-config/{id}

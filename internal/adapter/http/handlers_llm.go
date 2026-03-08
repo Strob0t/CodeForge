@@ -16,10 +16,7 @@ func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "LLM service unavailable")
 		return
 	}
-	if models == nil {
-		models = []litellm.Model{}
-	}
-	writeJSON(w, http.StatusOK, models)
+	writeJSONList(w, http.StatusOK, models)
 }
 
 // AddLLMModel handles POST /api/v1/llm/models

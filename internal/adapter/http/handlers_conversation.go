@@ -32,10 +32,7 @@ func (h *Handlers) ListConversations(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "project not found")
 		return
 	}
-	if conversations == nil {
-		conversations = []conversation.Conversation{}
-	}
-	writeJSON(w, http.StatusOK, conversations)
+	writeJSONList(w, http.StatusOK, conversations)
 }
 
 // GetConversation handles GET /api/v1/conversations/{id}
@@ -67,10 +64,7 @@ func (h *Handlers) ListConversationMessages(w http.ResponseWriter, r *http.Reque
 		writeDomainError(w, err, "conversation not found")
 		return
 	}
-	if messages == nil {
-		messages = []conversation.Message{}
-	}
-	writeJSON(w, http.StatusOK, messages)
+	writeJSONList(w, http.StatusOK, messages)
 }
 
 // SendConversationMessage handles POST /api/v1/conversations/{id}/messages.

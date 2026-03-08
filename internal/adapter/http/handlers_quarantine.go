@@ -31,10 +31,7 @@ func (h *Handlers) listQuarantinedMessages(w http.ResponseWriter, r *http.Reques
 		writeInternalError(w, err)
 		return
 	}
-	if msgs == nil {
-		msgs = []*quarantine.Message{}
-	}
-	writeJSON(w, http.StatusOK, msgs)
+	writeJSONList(w, http.StatusOK, msgs)
 }
 
 // getQuarantinedMessage handles GET /api/v1/quarantine/{id}

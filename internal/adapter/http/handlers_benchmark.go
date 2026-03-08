@@ -65,10 +65,7 @@ func (h *Handlers) ListBenchmarkRuns(w http.ResponseWriter, r *http.Request) {
 			writeInternalError(w, err)
 			return
 		}
-		if runs == nil {
-			runs = []benchmark.Run{}
-		}
-		writeJSON(w, http.StatusOK, runs)
+		writeJSONList(w, http.StatusOK, runs)
 		return
 	}
 	handleList(h.Benchmarks.ListRuns)(w, r)
@@ -156,10 +153,7 @@ func (h *Handlers) ListBenchmarkDatasets(w http.ResponseWriter, r *http.Request)
 		writeInternalError(w, err)
 		return
 	}
-	if datasets == nil {
-		datasets = []benchmark.DatasetInfo{}
-	}
-	writeJSON(w, http.StatusOK, datasets)
+	writeJSONList(w, http.StatusOK, datasets)
 }
 
 // ExportBenchmarkResults handles GET /api/v1/benchmarks/runs/{id}/export/results

@@ -22,10 +22,7 @@ func (h *Handlers) ListLLMKeys(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	if keys == nil {
-		keys = []llmkey.LLMKey{}
-	}
-	writeJSON(w, http.StatusOK, keys)
+	writeJSONList(w, http.StatusOK, keys)
 }
 
 // CreateLLMKey handles POST /api/v1/llm-keys

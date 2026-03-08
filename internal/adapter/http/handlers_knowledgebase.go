@@ -4,8 +4,6 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-
-	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 )
 
 // --- Knowledge Base Handlers ---
@@ -87,8 +85,5 @@ func (h *Handlers) ListScopeKnowledgeBases(w http.ResponseWriter, r *http.Reques
 		writeDomainError(w, err, "failed to list scope knowledge bases")
 		return
 	}
-	if kbs == nil {
-		kbs = []knowledgebase.KnowledgeBase{}
-	}
-	writeJSON(w, http.StatusOK, kbs)
+	writeJSONList(w, http.StatusOK, kbs)
 }

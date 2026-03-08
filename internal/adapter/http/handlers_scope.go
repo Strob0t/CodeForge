@@ -32,10 +32,7 @@ func (h *Handlers) ListScopes(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "failed to list scopes")
 		return
 	}
-	if scopes == nil {
-		scopes = []cfcontext.RetrievalScope{}
-	}
-	writeJSON(w, http.StatusOK, scopes)
+	writeJSONList(w, http.StatusOK, scopes)
 }
 
 // GetScope handles GET /api/v1/scopes/{id}
