@@ -133,19 +133,24 @@ class BenchmarkHandlerMixin:
             await msg.ack()
 
     async def _handle_gemmas_eval(self, msg: nats.aio.msg.Msg) -> None:
-        """Process a GEMMAS evaluation request: compute IDS + UPR and publish result."""
-        from codeforge.evaluation.executor import handle_gemmas_evaluation
+        """Process a GEMMAS scoring request: compute IDS + UPR and publish result."""
+        await self._handle_request(
+            msg=msg,
+            request_model=GemmasEvalRequest,
+            dedup_key=lambda r: f"gemmas-{r.plan_id}",
+            handler=self._do_gemmas_scoring,
+            result_subject=SUBJECT_EVAL_GEMMAS_RESULT,
+            log_context=lambda r: {"plan_id": r.plan_id},
+        )
 
+    async def _do_gemmas_scoring(
+        self, request: GemmasEvalRequest, log: structlog.BoundLogger
+    ) -> GemmasEvalResult | None:
+        """Business logic for GEMMAS scoring. Catches errors to ensure ack (not nak)."""
         try:
-            request = GemmasEvalRequest.model_validate_json(msg.data)
-            log = logger.bind(plan_id=request.plan_id)
+            from codeforge.evaluation.executor import handle_gemmas_evaluation
 
-            if self._is_duplicate(f"gemmas-{request.plan_id}"):
-                log.warning("duplicate GEMMAS evaluation, skipping")
-                await msg.ack()
-                return
-
-            log.info("received GEMMAS evaluation request", messages=len(request.messages))
+            log.info("received GEMMAS scoring request", messages=len(request.messages))
 
             embed_fn = self._build_embed_fn()
             result_dict = await handle_gemmas_evaluation(
@@ -155,22 +160,17 @@ class BenchmarkHandlerMixin:
             )
 
             result = GemmasEvalResult(**result_dict)
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_EVAL_GEMMAS_RESULT,
-                    result.model_dump_json().encode(),
-                )
-
-            await msg.ack()
             log.info(
-                "GEMMAS evaluation completed",
+                "GEMMAS scoring completed",
                 ids=result.information_diversity_score,
                 upr=result.unnecessary_path_ratio,
             )
-
+            return result
         except Exception as exc:
-            logger.exception("failed to process GEMMAS evaluation request", error=str(exc))
-            await msg.ack()
+            # Log but do not re-raise: GEMMAS scoring is best-effort, ack to prevent
+            # infinite redelivery.
+            logger.exception("failed to process GEMMAS scoring request", error=str(exc))
+            return None
 
     def _build_embed_fn(self) -> Callable[[list[str]], list[list[float]]] | None:
         """Build a sync embedding function using LiteLLM's /v1/embeddings endpoint."""

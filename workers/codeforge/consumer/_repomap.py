@@ -20,38 +20,30 @@ class RepoMapHandlerMixin:
 
     async def _handle_repomap(self, msg: nats.aio.msg.Msg) -> None:
         """Process a repo map request: generate map and publish result."""
-        try:
-            request = RepoMapRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id)
+        await self._handle_request(
+            msg=msg,
+            request_model=RepoMapRequest,
+            dedup_key=lambda r: f"repomap-{r.project_id}",
+            handler=self._do_repomap,
+            result_subject=SUBJECT_REPOMAP_RESULT,
+            log_context=lambda r: {"project_id": r.project_id},
+        )
 
-            if self._is_duplicate(f"repomap-{request.project_id}"):
-                log.warning("duplicate repomap request, skipping")
-                await msg.ack()
-                return
+    async def _do_repomap(self, request: RepoMapRequest, log: structlog.BoundLogger) -> RepoMapResult:
+        """Business logic for repo map generation."""
+        log.info("received repomap request", workspace=request.workspace_path)
 
-            log.info("received repomap request", workspace=request.workspace_path)
+        self._repomap_generator._token_budget = request.token_budget
+        result: RepoMapResult = await self._repomap_generator.generate(
+            workspace_path=request.workspace_path,
+            active_files=request.active_files,
+        )
+        result = result.model_copy(update={"project_id": request.project_id})
 
-            self._repomap_generator._token_budget = request.token_budget
-            result: RepoMapResult = await self._repomap_generator.generate(
-                workspace_path=request.workspace_path,
-                active_files=request.active_files,
-            )
-            result = result.model_copy(update={"project_id": request.project_id})
-
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_REPOMAP_RESULT,
-                    result.model_dump_json().encode(),
-                )
-
-            await msg.ack()
-            log.info(
-                "repomap generated",
-                files=result.file_count,
-                symbols=result.symbol_count,
-                tokens=result.token_count,
-            )
-
-        except Exception as exc:
-            logger.exception("failed to process repomap request", error=str(exc))
-            await msg.nak()
+        log.info(
+            "repomap generated",
+            files=result.file_count,
+            symbols=result.symbol_count,
+            tokens=result.token_count,
+        )
+        return result

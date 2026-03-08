@@ -65,17 +65,26 @@ class RetrievalHandlerMixin:
 
     async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval search request: search index and publish result."""
+        await self._handle_request(
+            msg=msg,
+            request_model=RetrievalSearchRequest,
+            dedup_key=lambda r: f"retsearch-{r.request_id}",
+            handler=self._do_retrieval_search,
+            result_subject=SUBJECT_RETRIEVAL_SEARCH_RESULT,
+            log_context=lambda r: {
+                "project_id": r.project_id,
+                "request_id": r.request_id,
+                "scope_id": r.scope_id,
+            },
+        )
+
+    async def _do_retrieval_search(
+        self, request: RetrievalSearchRequest, log: structlog.BoundLogger
+    ) -> RetrievalSearchResult:
+        """Business logic for retrieval search."""
+        log.info("received retrieval search request", query=request.query[:80])
+
         try:
-            request = RetrievalSearchRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
-
-            if self._is_duplicate(f"retsearch-{request.request_id}"):
-                log.warning("duplicate retrieval search request, skipping")
-                await msg.ack()
-                return
-
-            log.info("received retrieval search request", query=request.query[:80])
-
             hits = await self._retriever.search(
                 project_id=request.project_id,
                 query=request.query,
@@ -83,45 +92,64 @@ class RetrievalHandlerMixin:
                 bm25_weight=request.bm25_weight,
                 semantic_weight=request.semantic_weight,
             )
+        except Exception:
+            # Publish error result so the Go waiter gets a response, then re-raise
+            # so _handle_request performs the nak.
+            await self._publish_retrieval_search_error(request)
+            raise
 
-            result = RetrievalSearchResult(
+        result = RetrievalSearchResult(
+            project_id=request.project_id,
+            query=request.query,
+            request_id=request.request_id,
+            results=hits,
+        )
+
+        log.info("retrieval search completed", hits=len(hits))
+        return result
+
+    async def _publish_retrieval_search_error(self, request: RetrievalSearchRequest) -> None:
+        """Publish an error result for retrieval search so Go waiter gets a response."""
+        try:
+            error_result = RetrievalSearchResult(
                 project_id=request.project_id,
                 query=request.query,
                 request_id=request.request_id,
-                results=hits,
+                error="internal worker error",
             )
-
             if self._js is not None:
                 await self._js.publish(
                     SUBJECT_RETRIEVAL_SEARCH_RESULT,
-                    result.model_dump_json().encode(),
+                    error_result.model_dump_json().encode(),
                 )
-
-            await msg.ack()
-            log.info("retrieval search completed", hits=len(hits))
-
         except Exception as exc:
-            logger.exception("failed to process retrieval search request", error=str(exc))
-            await self._publish_error_result(
-                msg,
-                RetrievalSearchRequest,
-                RetrievalSearchResult,
-                SUBJECT_RETRIEVAL_SEARCH_RESULT,
+            logger.exception(
+                "failed to publish retrieval search error result",
+                error=str(exc),
             )
 
     async def _handle_subagent_search(self, msg: nats.aio.msg.Msg) -> None:
         """Process a sub-agent search request: expand, search, dedup, rerank, publish."""
+        await self._handle_request(
+            msg=msg,
+            request_model=SubAgentSearchRequest,
+            dedup_key=lambda r: f"subagent-{r.request_id}",
+            handler=self._do_subagent_search,
+            result_subject=SUBJECT_SUBAGENT_SEARCH_RESULT,
+            log_context=lambda r: {
+                "project_id": r.project_id,
+                "request_id": r.request_id,
+                "scope_id": r.scope_id,
+            },
+        )
+
+    async def _do_subagent_search(
+        self, request: SubAgentSearchRequest, log: structlog.BoundLogger
+    ) -> SubAgentSearchResult:
+        """Business logic for sub-agent search."""
+        log.info("received subagent search request", query=request.query[:80])
+
         try:
-            request = SubAgentSearchRequest.model_validate_json(msg.data)
-            log = logger.bind(project_id=request.project_id, request_id=request.request_id, scope_id=request.scope_id)
-
-            if self._is_duplicate(f"subagent-{request.request_id}"):
-                log.warning("duplicate subagent search request, skipping")
-                await msg.ack()
-                return
-
-            log.info("received subagent search request", query=request.query[:80])
-
             hits, expanded_queries, total_candidates = await self._subagent.search(
                 project_id=request.project_id,
                 query=request.query,
@@ -131,40 +159,51 @@ class RetrievalHandlerMixin:
                 rerank=request.rerank,
                 expansion_prompt=request.expansion_prompt,
             )
-            cost = self._subagent.last_cost
+        except Exception:
+            # Publish error result so the Go waiter gets a response, then re-raise
+            # so _handle_request performs the nak.
+            await self._publish_subagent_search_error(request)
+            raise
 
-            result = SubAgentSearchResult(
+        cost = self._subagent.last_cost
+
+        result = SubAgentSearchResult(
+            project_id=request.project_id,
+            query=request.query,
+            request_id=request.request_id,
+            results=hits,
+            expanded_queries=expanded_queries,
+            total_candidates=total_candidates,
+            model=cost.model,
+            tokens_in=cost.tokens_in,
+            tokens_out=cost.tokens_out,
+            cost_usd=cost.cost_usd,
+        )
+
+        log.info(
+            "subagent search completed",
+            hits=len(hits),
+            queries=len(expanded_queries),
+            candidates=total_candidates,
+        )
+        return result
+
+    async def _publish_subagent_search_error(self, request: SubAgentSearchRequest) -> None:
+        """Publish an error result for subagent search so Go waiter gets a response."""
+        try:
+            error_result = SubAgentSearchResult(
                 project_id=request.project_id,
                 query=request.query,
                 request_id=request.request_id,
-                results=hits,
-                expanded_queries=expanded_queries,
-                total_candidates=total_candidates,
-                model=cost.model,
-                tokens_in=cost.tokens_in,
-                tokens_out=cost.tokens_out,
-                cost_usd=cost.cost_usd,
+                error="internal worker error",
             )
-
             if self._js is not None:
                 await self._js.publish(
                     SUBJECT_SUBAGENT_SEARCH_RESULT,
-                    result.model_dump_json().encode(),
+                    error_result.model_dump_json().encode(),
                 )
-
-            await msg.ack()
-            log.info(
-                "subagent search completed",
-                hits=len(hits),
-                queries=len(expanded_queries),
-                candidates=total_candidates,
-            )
-
         except Exception as exc:
-            logger.exception("failed to process subagent search request", error=str(exc))
-            await self._publish_error_result(
-                msg,
-                SubAgentSearchRequest,
-                SubAgentSearchResult,
-                SUBJECT_SUBAGENT_SEARCH_RESULT,
+            logger.exception(
+                "failed to publish subagent search error result",
+                error=str(exc),
             )
