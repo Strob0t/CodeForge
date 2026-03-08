@@ -1,6 +1,7 @@
-import { createEffect, type JSX, onCleanup, Show, splitProps } from "solid-js";
+import { type JSX, Show, splitProps } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { useFocusTrap } from "~/hooks/useFocusTrap";
 import { cx } from "~/utils/cx";
 
 import { Button } from "../primitives/Button";
@@ -16,7 +17,11 @@ export interface ModalProps {
 export function Modal(props: ModalProps): JSX.Element {
   const [local] = splitProps(props, ["open", "onClose", "title", "class", "children"]);
   let dialogRef: HTMLDivElement | undefined;
-  let previousFocus: HTMLElement | null = null;
+
+  const { onKeyDown: trapKeyDown } = useFocusTrap(
+    () => dialogRef,
+    () => local.open,
+  );
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
@@ -24,31 +29,7 @@ export function Modal(props: ModalProps): JSX.Element {
       local.onClose();
       return;
     }
-    if (e.key === "Tab" && dialogRef) {
-      trapFocus(e, dialogRef);
-    }
-  }
-
-  function trapFocus(e: KeyboardEvent, container: HTMLElement) {
-    const focusable = container.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusable.length === 0) return;
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (e.shiftKey) {
-      if (document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      }
-    } else {
-      if (document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
+    trapKeyDown(e);
   }
 
   function handleBackdropClick(e: MouseEvent) {
@@ -56,28 +37,6 @@ export function Modal(props: ModalProps): JSX.Element {
       local.onClose();
     }
   }
-
-  // Lock body scroll and manage focus
-  createEffect(() => {
-    if (local.open) {
-      previousFocus = document.activeElement as HTMLElement | null;
-      document.body.style.overflow = "hidden";
-      // Focus the dialog content after mount
-      requestAnimationFrame(() => {
-        const firstFocusable = dialogRef?.querySelector<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        firstFocusable?.focus();
-      });
-    } else {
-      document.body.style.overflow = "";
-      previousFocus?.focus();
-    }
-  });
-
-  onCleanup(() => {
-    document.body.style.overflow = "";
-  });
 
   return (
     <Show when={local.open}>
