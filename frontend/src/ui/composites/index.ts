@@ -7,6 +7,7 @@ export { LoadingState } from "./LoadingState";
 export { Modal } from "./Modal";
 export { ModelCombobox } from "./ModelCombobox";
 export { ResourceGuard } from "./ResourceGuard";
+export { ResourceView } from "./ResourceView";
 export { SectionHeader } from "./SectionHeader";
 export { StatCard } from "./StatCard";
 export { Table } from "./Table";

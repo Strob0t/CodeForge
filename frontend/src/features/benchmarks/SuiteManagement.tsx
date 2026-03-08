@@ -5,7 +5,16 @@ import type { BenchmarkSuite } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
-import { Badge, Button, Card, EmptyState, FormField, Input, LoadingState } from "~/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  FormField,
+  Input,
+  LoadingState,
+  ResourceView,
+} from "~/ui";
 
 export function SuiteManagement() {
   const { t } = useI18n();
@@ -95,6 +104,11 @@ export function SuiteManagement() {
     }
   };
 
+  const suiteData = () => {
+    const items = suites();
+    return items?.length ? items : undefined;
+  };
+
   return (
     <div class="space-y-4">
       <div class="flex gap-2">
@@ -160,10 +174,15 @@ export function SuiteManagement() {
         </Card>
       </Show>
 
-      <Show when={!suites.loading} fallback={<LoadingState />}>
-        <Show when={suites()?.length} fallback={<EmptyState title={t("benchmark.suites.empty")} />}>
+      <ResourceView
+        loading={suites.loading}
+        data={suiteData()}
+        loadingFallback={<LoadingState />}
+        emptyFallback={<EmptyState title={t("benchmark.suites.empty")} />}
+      >
+        {(items) => (
           <div class="space-y-2">
-            <For each={suites()}>
+            <For each={items}>
               {(suite: BenchmarkSuite) => (
                 <Card class="flex items-center justify-between p-4">
                   <div>
@@ -189,8 +208,8 @@ export function SuiteManagement() {
               )}
             </For>
           </div>
-        </Show>
-      </Show>
+        )}
+      </ResourceView>
     </div>
   );
 }

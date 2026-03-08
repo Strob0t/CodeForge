@@ -31,6 +31,7 @@ export { LoadingState } from "./composites";
 export { Modal } from "./composites";
 export { ModelCombobox } from "./composites";
 export { ResourceGuard } from "./composites";
+export { ResourceView } from "./composites";
 export { SectionHeader } from "./composites";
 export { StatCard } from "./composites";
 export { Table } from "./composites";
