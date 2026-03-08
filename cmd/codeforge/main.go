@@ -823,14 +823,14 @@ func run() error {
 	// --- Active Work Stale Recovery (Phase 24) ---
 	staleCtx, staleCancel := context.WithCancel(ctx)
 	go func() {
-		ticker := time.NewTicker(60 * time.Second)
+		ticker := time.NewTicker(cfg.Runtime.StaleCheckInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-staleCtx.Done():
 				return
 			case <-ticker.C:
-				released, err := activeWorkSvc.ReleaseStaleWork(staleCtx, 30*time.Minute)
+				released, err := activeWorkSvc.ReleaseStaleWork(staleCtx, cfg.Runtime.StaleWorkThreshold)
 				if err != nil {
 					slog.Error("stale work release error", "error", err)
 				} else if len(released) > 0 {
