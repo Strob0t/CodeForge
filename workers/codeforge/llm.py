@@ -316,24 +316,40 @@ class LiteLLMClient:
 
     @staticmethod
     def _parse_retry_after(exc: LLMError) -> float | None:
-        """Extract a Retry-After hint from the error body or well-known JSON fields."""
+        """Extract a Retry-After hint from the error body or well-known JSON fields.
+
+        Also parses Gemini-style hints embedded in error messages:
+        ``"Please retry in 30.18s"``
+        """
+        body = exc.body
         try:
-            data = json.loads(exc.body)
+            data = json.loads(body)
         except (json.JSONDecodeError, TypeError):
-            return None
-        for key in ("retry_after", "Retry-After", "retry-after"):
-            val = data.get(key)
-            if val is not None:
-                try:
-                    return float(val)
-                except (ValueError, TypeError):
-                    pass
+            data = None
+        if data is not None:
+            for key in ("retry_after", "Retry-After", "retry-after"):
+                val = data.get(key)
+                if val is not None:
+                    try:
+                        return float(val)
+                    except (ValueError, TypeError):
+                        pass
+        # Fallback: extract "retry in <N>s" from the full error text.
+        import re
+
+        match = re.search(r"[Rr]etry in (\d+(?:\.\d+)?)s", body)
+        if match:
+            try:
+                return float(match.group(1))
+            except (ValueError, TypeError):
+                pass
         return None
 
     def _compute_backoff(self, exc: LLMError, attempt: int) -> float:
         hint = self._parse_retry_after(exc)
         if hint is not None:
-            return min(hint, self._config.backoff_max)
+            # Add a small buffer so we don't retry right at the rate window edge.
+            return min(hint + 5.0, self._config.backoff_max)
         return min(self._config.backoff_base ** (attempt + 1), self._config.backoff_max)
 
     async def _with_retry(self, fn: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
