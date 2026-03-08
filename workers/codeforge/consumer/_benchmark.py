@@ -82,11 +82,7 @@ class BenchmarkHandlerMixin:
             evaluators = _build_evaluators(req.evaluators, req.model)
 
             # Phase 28A: Split evaluators by stage for hybrid verification.
-            pipeline = (
-                _build_hybrid_pipeline(evaluators)
-                if getattr(req, "hybrid_verification", False)
-                else EvaluationPipeline(evaluators)
-            )
+            pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else EvaluationPipeline(evaluators)
 
             if benchmark_type == "tool_use":
                 results = await _run_tool_use_benchmark(req, self._llm, pipeline)
@@ -103,6 +99,9 @@ class BenchmarkHandlerMixin:
                 status="completed",
                 results=results,
                 summary=summary,
+                total_cost=summary.get("total_cost_usd", 0.0),
+                total_tokens=summary.get("total_tokens_in", 0) + summary.get("total_tokens_out", 0),
+                total_duration_ms=summary.get("elapsed_ms", 0),
             )
 
             if self._js is not None:
@@ -239,7 +238,7 @@ async def _wait_for_litellm(
 def _dataset_to_task_specs(dataset_path: str) -> list:
     """Load dataset YAML and convert BenchmarkTasks to TaskSpec objects."""
     from codeforge.evaluation.datasets import load_dataset
-    from codeforge.evaluation.providers.base import TaskSpec
+    from codeforge.evaluation.providers.base import TaskSpec, ToolCall
 
     dataset = load_dataset(dataset_path)
     return [
@@ -248,7 +247,7 @@ def _dataset_to_task_specs(dataset_path: str) -> list:
             name=t.name,
             input=t.input,
             expected_output=t.expected_output,
-            expected_tools=[],
+            expected_tools=[ToolCall(name=tc.get("name", ""), args=tc.get("args", "")) for tc in t.expected_tools],
             context=t.context,
             difficulty=t.difficulty,
         )
@@ -262,8 +261,7 @@ async def _run_simple_benchmark(req, llm, pipeline) -> list:
 
     runner = SimpleBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
     tasks = _dataset_to_task_specs(req.dataset_path)
-    run_results = await runner.run_tasks(tasks)
-    return [_convert_result(r) for r in run_results]
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline)
 
 
 async def _run_tool_use_benchmark(req, llm, pipeline) -> list:
@@ -272,8 +270,7 @@ async def _run_tool_use_benchmark(req, llm, pipeline) -> list:
 
     runner = ToolUseBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
     tasks = _dataset_to_task_specs(req.dataset_path)
-    run_results = await runner.run_tasks(tasks)
-    return [_convert_result(r) for r in run_results]
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline)
 
 
 async def _run_agent_benchmark(req, llm, pipeline) -> list:
@@ -287,8 +284,61 @@ async def _run_agent_benchmark(req, llm, pipeline) -> list:
     provider = CodeForgeAgentProvider(datasets_dir=req.dataset_path)
     tasks = await provider.load_tasks()
     runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline, loop_config=config)
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline)
+
+
+async def _run_with_optional_rollout(runner, tasks, req, pipeline) -> list:
+    """Wrap runner in MultiRolloutRunner when rollout_count > 1."""
+    from codeforge.models import BenchmarkRunRequest
+
+    if isinstance(req, BenchmarkRunRequest) and req.rollout_count > 1:
+        from codeforge.evaluation.runners.multi_rollout import MultiRolloutRunner
+
+        hybrid_pipeline = pipeline if req.hybrid_verification else None
+        multi_runner = MultiRolloutRunner(
+            inner_runner=runner,
+            hybrid_pipeline=hybrid_pipeline,
+            rollout_count=req.rollout_count,
+            strategy=req.rollout_strategy,
+        )
+        results: list = []
+        for task in tasks:
+            outcomes = await multi_runner.run_task(task)
+            results.extend(_convert_rollout_outcome(task, outcome, req.rollout_count) for outcome in outcomes)
+        return results
+
     run_results = await runner.run_tasks(tasks)
     return [_convert_result(r) for r in run_results]
+
+
+def _convert_rollout_outcome(task, outcome, rollout_count) -> object:
+    """Convert a RolloutOutcome to a BenchmarkTaskResult with rollout fields."""
+    from codeforge.models import BenchmarkTaskResult
+
+    scores: dict[str, float] = {}
+    if outcome.eval_score:
+        for dim in outcome.eval_score.dimensions:
+            scores[dim.name] = dim.score
+
+    return BenchmarkTaskResult(
+        task_id=task.id,
+        task_name=task.name,
+        scores=scores,
+        actual_output=outcome.execution.actual_output,
+        expected_output=task.expected_output,
+        tool_calls=[{"name": tc.name, "args": tc.args} for tc in outcome.execution.tool_calls],
+        cost_usd=outcome.execution.cost_usd,
+        tokens_in=outcome.execution.tokens_in,
+        tokens_out=outcome.execution.tokens_out,
+        duration_ms=outcome.execution.duration_ms,
+        evaluator_scores={},
+        files_changed=outcome.execution.files_changed,
+        functional_test_output=outcome.execution.test_output,
+        rollout_id=outcome.rollout_id,
+        rollout_count=rollout_count,
+        is_best_rollout=outcome.is_best,
+        diversity_score=outcome.diversity_score,
+    )
 
 
 def _convert_result(r) -> object:
