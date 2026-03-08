@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.a2a_protocol import A2ATaskState
 from codeforge.consumer._subjects import (
     SUBJECT_A2A_TASK_COMPLETE,
 )
@@ -34,6 +35,18 @@ class A2AHandlerMixin:
 
             log.info("received A2A task", prompt_len=len(req.prompt))
 
+            # Publish "working" state transition before execution.
+            if self._js is not None:
+                working_msg = A2ATaskCompleteMessage(
+                    task_id=req.task_id,
+                    tenant_id=req.tenant_id,
+                    state=A2ATaskState.WORKING,
+                )
+                await self._js.publish(
+                    SUBJECT_A2A_TASK_COMPLETE,
+                    working_msg.model_dump_json().encode(),
+                )
+
             # Execute via the simple executor path.
             from codeforge.models import TaskMessage
 
@@ -45,8 +58,8 @@ class A2AHandlerMixin:
             )
             result = await self._executor.execute(task)
 
-            # Publish completion back to Go.
-            state = "completed" if result.status.value == "completed" else "failed"
+            # Publish completion back to Go using validated enum state.
+            state = A2ATaskState.COMPLETED if result.status.value == "completed" else A2ATaskState.FAILED
             complete = A2ATaskCompleteMessage(
                 task_id=req.task_id,
                 tenant_id=req.tenant_id,
@@ -72,12 +85,13 @@ class A2AHandlerMixin:
                     fail = A2ATaskCompleteMessage(
                         task_id=req.task_id,
                         tenant_id=req.tenant_id,
-                        state="failed",
+                        state=A2ATaskState.FAILED,
                         error=str(exc),
                     )
+                    stamped = self._stamp_trust(fail.model_dump())
                     await self._js.publish(
                         SUBJECT_A2A_TASK_COMPLETE,
-                        fail.model_dump_json().encode(),
+                        json.dumps(stamped).encode(),
                     )
             except Exception as exc:
                 logger.debug("failed to publish A2A error result", error=str(exc))

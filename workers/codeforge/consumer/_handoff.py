@@ -24,7 +24,10 @@ class HandoffHandlerMixin:
             context_msg = payload.get("context", "")
             target_mode = payload.get("target_mode_id", "")
             source_run = payload.get("source_run_id", "")
-            artifacts = payload.get("artifacts", [])
+            artifacts: list[str] = payload.get("artifacts", [])
+            plan_id = payload.get("plan_id", "")
+            step_id = payload.get("step_id", "")
+            metadata: dict[str, str] = payload.get("metadata", {})
 
             log = logger.bind(
                 target_agent=target_agent,
@@ -43,7 +46,21 @@ class HandoffHandlerMixin:
             if artifacts:
                 handoff_context += f"\n\nArtifacts: {', '.join(artifacts)}"
 
-            run_payload = {
+            # Increment hop counter
+            hop = int(metadata.get("handoff_hop", "0")) + 1
+            metadata["handoff_hop"] = str(hop)
+
+            # Build config with plan/step fields and prefixed metadata
+            config: dict[str, str] = {
+                "source_run_id": source_run,
+                "handoff_type": "true",
+                "plan_id": plan_id,
+                "step_id": step_id,
+            }
+            for k, v in metadata.items():
+                config[f"handoff_{k}"] = str(v)
+
+            run_payload: dict[str, object] = {
                 "run_id": f"handoff-{source_run}-{target_agent}",
                 "task_id": "",
                 "project_id": payload.get("project_id", ""),
@@ -51,10 +68,7 @@ class HandoffHandlerMixin:
                 "prompt": handoff_context,
                 "policy_profile": "standard",
                 "exec_mode": "sandbox",
-                "config": {
-                    "source_run_id": source_run,
-                    "handoff_type": "true",
-                },
+                "config": config,
                 "termination": {
                     "max_steps": 50,
                     "timeout_seconds": 600,
@@ -62,12 +76,15 @@ class HandoffHandlerMixin:
                 },
             }
 
+            # Stamp trust on outgoing payload
+            stamped = self._stamp_trust(run_payload)
+
             if self._js is not None:
                 from codeforge.consumer._subjects import SUBJECT_RUN_START
 
                 await self._js.publish(
                     SUBJECT_RUN_START,
-                    json.dumps(run_payload).encode(),
+                    json.dumps(stamped).encode(),
                 )
 
             await msg.ack()

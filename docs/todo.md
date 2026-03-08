@@ -3682,34 +3682,31 @@ Gaps identified between documentation claims and actual Python codebase implemen
 
 #### C2: Python Microagent Trigger Logic
 
-- [ ] Verify microagent resolution flow and implement Python triggers if needed
-- **Current state:** Go stores microagents via CRUD (`internal/service/microagent.go`). Python side (`workers/codeforge/consumer/_conversation.py:198-201`) injects `run_msg.microagent_prompts` into the system prompt.
-- **Open question:** Does Go pre-select microagents before publishing the run message? If yes, no Python work needed (document as "working as designed"). If not, build trigger matching logic in Python consumer.
-- **Effort:** 1 day (verify) + 1-2 days (if implementation needed) | **Priority:** Low
+- [x] Verify microagent resolution flow (2026-03-08) — **Working as designed, no Python trigger logic needed**
+  - Go pre-selects microagents via `MicroagentService.Match()` before NATS publish (`runtime.go:339-350`, `conversation_agent.go:181-193`)
+  - NATS payload carries `microagent_prompts: []string` with resolved prompt text
+  - Python receives and injects into system prompt (`_conversation.py:274-286`, `_runs.py:57-61`)
+  - **Go Bug found:** `SendMessageAgenticWithMode()` (`conversation_agent.go:256-366`) missing `Match()` call — tracked separately
 
 #### C3: Python A2A Protocol Expansion
 
-- [ ] Expand `workers/codeforge/consumer/_a2a.py` beyond basic task execution
-- **Current state:** 100 lines, basic task execution + cancellation only
-- **Go provides:** Full A2A service (`internal/service/a2a.go`, 529 lines), HTTP handlers (`internal/adapter/http/a2a_handlers.go`, 256 lines), 8 task states, SSE streaming, auth middleware, 11 RPCs
-- **What to build:**
-  1. Pydantic models for A2A task/message/part types
-  2. Extended task state machine (8 states: SUBMITTED, WORKING, COMPLETED, FAILED, CANCELED, REJECTED, INPUT_REQUIRED, AUTH_REQUIRED)
-  3. Artifact production support
-  4. Error detail propagation
-- **Effort:** 3-5 days | **Priority:** Medium
+- [x] Expand `workers/codeforge/consumer/_a2a.py` beyond basic task execution (2026-03-08)
+  - Extended `A2ATaskCreatedMessage` with context_id, direction, trust fields, metadata, artifacts
+  - Added `A2ATaskState` enum with all 8 states matching Go `internal/domain/a2a/task.go`
+  - Extended `A2ATaskCompleteMessage` with artifacts, metadata, context_id
+  - Consumer publishes state transitions (submitted → working → completed/failed)
+  - Trust stamping on outgoing A2A messages
+  - Tests in `workers/tests/test_a2a_protocol.py`
 
 #### C4: Python Handoff Enrichment
 
-- [ ] Enhance `workers/codeforge/tools/handoff.py` with context merging and artifact passing
-- **Current state:** 77 lines, basic flow (receive handoff → create new run → publish)
-- **Go provides:** Full handoff domain model in `internal/domain/orchestration/handoff.go`
-- **What to build:**
-  1. Context merge logic (summarize source conversation before handoff)
-  2. Artifact forwarding between agents
-  3. Failure handler with rollback capability
-  4. Chain tracking metadata for multi-hop handoffs
-- **Effort:** 2-3 days | **Priority:** Low
+- [x] Enhance `workers/codeforge/tools/handoff.py` with context merging and artifact passing (2026-03-08)
+  - Added `plan_id`, `step_id`, `metadata`, `trust` fields to handoff payload (matches Go `HandoffMessage`)
+  - Trust auto-stamping via `stamp_outgoing()`
+  - Chain tracking metadata for multi-hop handoffs (`handoff_chain_id`, `handoff_hop`)
+  - Replaced hardcoded NATS subject with `SUBJECT_HANDOFF_REQUEST` constant
+  - Consumer: failure result propagation back to NATS on handoff run failure
+  - Tests in `workers/tests/test_handoff_enrichment.py`
 
 ---
 
