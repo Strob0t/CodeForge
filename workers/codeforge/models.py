@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
+from codeforge._validators import coerce_none_to_list
 from codeforge.mcp_models import MCPServerDef  # noqa: TC001 — Pydantic needs at runtime
 
 
@@ -121,20 +122,17 @@ class RunStartMessage(BaseModel):
     @field_validator("mcp_servers", mode="before")
     @classmethod
     def _coerce_mcp_servers_none(cls, v: list[MCPServerDef] | None) -> list[MCPServerDef]:
-        """Go serializes nil slices as null; coerce to empty list."""
-        return v if v is not None else []
+        return coerce_none_to_list(v)
 
     @field_validator("context", mode="before")
     @classmethod
     def _coerce_context_none(cls, v: list[ContextEntry] | None) -> list[ContextEntry]:
-        """Go serializes nil slices as null; coerce to empty list."""
-        return v if v is not None else []
+        return coerce_none_to_list(v)
 
     @field_validator("microagent_prompts", mode="before")
     @classmethod
     def _coerce_microagent_prompts_none(cls, v: list[str] | None) -> list[str]:
-        """Go serializes nil slices as null; coerce to empty list."""
-        return v if v is not None else []
+        return coerce_none_to_list(v)
 
 
 class ToolCallDecision(BaseModel):
