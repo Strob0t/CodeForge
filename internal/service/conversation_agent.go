@@ -320,23 +320,56 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		termination.MaxSteps = s.agentCfg.MaxLoopIterations
 	}
 
+	// MCP servers.
+	var mcpDefs []messagequeue.MCPServerDefPayload
+	if s.mcpSvc != nil {
+		servers := s.mcpSvc.ResolveForRun(proj.ID, "")
+		for i := range servers {
+			mcpDefs = append(mcpDefs, messagequeue.MCPServerDefPayload{
+				ID:        servers[i].ID,
+				Name:      servers[i].Name,
+				Transport: string(servers[i].Transport),
+				Command:   servers[i].Command,
+				Args:      servers[i].Args,
+				URL:       servers[i].URL,
+				Env:       servers[i].Env,
+			})
+		}
+	}
+
+	// Match microagents against the user message.
+	var microagentPrompts []string
+	if s.microagentSvc != nil {
+		matched, maErr := s.microagentSvc.Match(ctx, proj.ID, content)
+		if maErr != nil {
+			slog.Warn("microagent match failed", "conversation_id", conversationID, "error", maErr)
+		} else if len(matched) > 0 {
+			for i := range matched {
+				microagentPrompts = append(microagentPrompts, matched[i].Prompt)
+			}
+			slog.Info("microagents matched for conversation", "conversation_id", conversationID, "count", len(matched))
+		}
+	}
+
 	// Build context entries for the conversation run.
 	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID)
 
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{
-		RunID:          runID,
-		ConversationID: conversationID,
-		ProjectID:      proj.ID,
-		Messages:       protoMessages,
-		SystemPrompt:   systemPrompt,
-		Model:          model,
-		PolicyProfile:  policyProfile,
-		WorkspacePath:  proj.WorkspacePath,
-		Mode:           resolvedMode,
-		Termination:    termination,
-		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
-		Context:        contextEntries,
+		RunID:             runID,
+		ConversationID:    conversationID,
+		ProjectID:         proj.ID,
+		Messages:          protoMessages,
+		SystemPrompt:      systemPrompt,
+		Model:             model,
+		PolicyProfile:     policyProfile,
+		WorkspacePath:     proj.WorkspacePath,
+		Mode:              resolvedMode,
+		Termination:       termination,
+		MCPServers:        mcpDefs,
+		MicroagentPrompts: microagentPrompts,
+		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
+		Context:           contextEntries,
 	}
 
 	data, err := json.Marshal(payload)

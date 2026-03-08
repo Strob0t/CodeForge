@@ -3686,7 +3686,7 @@ Gaps identified between documentation claims and actual Python codebase implemen
   - Go pre-selects microagents via `MicroagentService.Match()` before NATS publish (`runtime.go:339-350`, `conversation_agent.go:181-193`)
   - NATS payload carries `microagent_prompts: []string` with resolved prompt text
   - Python receives and injects into system prompt (`_conversation.py:274-286`, `_runs.py:57-61`)
-  - **Go Bug found:** `SendMessageAgenticWithMode()` (`conversation_agent.go:256-366`) missing `Match()` call — tracked separately
+  - **Go Bug fixed (2026-03-08):** `SendMessageAgenticWithMode()` was missing MCP server resolution and microagent matching — added both blocks + test `TestSendMessageAgenticWithMode_IncludesMicroagentsAndMCP`
 
 #### C3: Python A2A Protocol Expansion
 

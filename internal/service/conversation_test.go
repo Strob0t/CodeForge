@@ -11,6 +11,8 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -21,6 +23,11 @@ type convMockStore struct {
 	runtimeMockStore
 	conversations []conversation.Conversation
 	messages      []conversation.Message
+	microagents   []microagent.Microagent
+}
+
+func (m *convMockStore) ListMicroagents(_ context.Context, _ string) ([]microagent.Microagent, error) {
+	return m.microagents, nil
 }
 
 func (m *convMockStore) CreateConversation(_ context.Context, c *conversation.Conversation) (*conversation.Conversation, error) {
@@ -347,5 +354,80 @@ func TestSendMessageAgentic_ContextEmptyWhenDisabled(t *testing.T) {
 	}
 	if len(payload.Context) != 0 {
 		t.Errorf("expected empty Context when ContextEnabled=false, got %d entries", len(payload.Context))
+	}
+}
+
+func TestSendMessageAgenticWithMode_IncludesMicroagentsAndMCP(t *testing.T) {
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+	// Seed a microagent with a trigger pattern that matches the test content.
+	store.microagents = []microagent.Microagent{
+		{
+			ID:             "ma-1",
+			ProjectID:      "proj-1",
+			Name:           "auth-helper",
+			TriggerPattern: "auth",
+			Prompt:         "You are an authentication specialist.",
+			Enabled:        true,
+		},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	// Configure MCP service with a registered server.
+	mcpSvc := service.NewMCPService(&config.MCP{}, nil)
+	_ = mcpSvc.Register(mcp.ServerDef{
+		Name:      "test-mcp",
+		Transport: mcp.TransportSSE,
+		URL:       "http://localhost:3001",
+		Enabled:   true,
+	})
+	svc.SetMCPService(mcpSvc)
+
+	// Configure microagent service backed by our store.
+	maSvc := service.NewMicroagentService(store)
+	svc.SetMicroagentService(maSvc)
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Mode Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Use mode override — this is the code path under test.
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "Implement auth handler", "architect")
+	if err != nil {
+		t.Fatalf("SendMessageAgenticWithMode: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Verify MCP servers are present in the payload.
+	if len(payload.MCPServers) == 0 {
+		t.Error("expected MCPServers in payload, got none")
+	} else if payload.MCPServers[0].Name != "test-mcp" {
+		t.Errorf("expected MCP server name 'test-mcp', got %q", payload.MCPServers[0].Name)
+	}
+
+	// Verify microagent prompts are present in the payload.
+	if len(payload.MicroagentPrompts) == 0 {
+		t.Error("expected MicroagentPrompts in payload, got none")
+	} else if payload.MicroagentPrompts[0] != "You are an authentication specialist." {
+		t.Errorf("expected microagent prompt, got %q", payload.MicroagentPrompts[0])
 	}
 }
