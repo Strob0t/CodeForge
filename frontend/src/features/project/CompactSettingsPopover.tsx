@@ -5,6 +5,7 @@ import { useToast } from "~/components/Toast";
 import { AUTONOMY_LEVELS_NUMERIC } from "~/config/domain-constants";
 import { useI18n } from "~/i18n";
 import { Button, FormField, Select } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
 
@@ -71,8 +72,7 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
       toast("success", t("detail.toast.settingsSaved"));
       props.onSaved();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("detail.toast.settingsFailed");
-      toast("error", msg);
+      toast("error", getErrorMessage(e, t("detail.toast.settingsFailed")));
     } finally {
       setSaving(false);
     }

@@ -19,6 +19,7 @@ import {
   ModelCombobox,
   PageLayout,
 } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 const MODEL_FORM_DEFAULTS = {
   modelName: "",
@@ -75,8 +76,7 @@ export default function ModelsPage() {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : t("models.toast.addFailed");
-        toast("error", msg);
+        toast("error", getErrorMessage(err, t("models.toast.addFailed")));
       },
     },
   );
@@ -96,8 +96,7 @@ export default function ModelsPage() {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : t("models.toast.deleteFailed");
-        toast("error", msg);
+        toast("error", getErrorMessage(err, t("models.toast.deleteFailed")));
       },
     },
   );
@@ -110,8 +109,7 @@ export default function ModelsPage() {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : t("models.toast.discoverFailed");
-        toast("error", msg);
+        toast("error", getErrorMessage(err, t("models.toast.discoverFailed")));
       },
     },
   );

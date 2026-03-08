@@ -19,6 +19,7 @@ import {
   PageLayout,
   Select,
 } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 const KB_FORM_DEFAULTS = {
   name: "",
@@ -60,7 +61,7 @@ export default function KnowledgeBasesPage() {
     },
     {
       onError: (err) => {
-        toast("error", err instanceof Error ? err.message : "Failed to create knowledge base");
+        toast("error", getErrorMessage(err, "Failed to create knowledge base"));
       },
     },
   );
@@ -80,7 +81,7 @@ export default function KnowledgeBasesPage() {
     },
     {
       onError: (err) => {
-        toast("error", err instanceof Error ? err.message : "Failed to delete knowledge base");
+        toast("error", getErrorMessage(err, "Failed to delete knowledge base"));
       },
     },
   );
@@ -98,7 +99,7 @@ export default function KnowledgeBasesPage() {
     },
     {
       onError: (err) => {
-        toast("error", err instanceof Error ? err.message : "Failed to index knowledge base");
+        toast("error", getErrorMessage(err, "Failed to index knowledge base"));
       },
     },
   );

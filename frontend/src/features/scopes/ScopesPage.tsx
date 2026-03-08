@@ -25,6 +25,7 @@ import {
   Select,
   Tabs,
 } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 export default function ScopesPage() {
   const { t } = useI18n();
@@ -69,7 +70,7 @@ export default function ScopesPage() {
       refetch();
       toast("success", t("scope.toast.created"));
     } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to create scope");
+      toast("error", getErrorMessage(err, "Failed to create scope"));
     }
   };
 
@@ -87,7 +88,7 @@ export default function ScopesPage() {
       refetch();
       toast("success", t("scope.toast.deleted"));
     } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to delete scope");
+      toast("error", getErrorMessage(err, "Failed to delete scope"));
     }
   };
 
@@ -97,7 +98,7 @@ export default function ScopesPage() {
       refetch();
       toast("success", t("scope.toast.projectAdded"));
     } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to add project");
+      toast("error", getErrorMessage(err, "Failed to add project"));
     }
   };
 
@@ -114,7 +115,7 @@ export default function ScopesPage() {
       refetch();
       toast("success", t("scope.toast.projectRemoved"));
     } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to remove project");
+      toast("error", getErrorMessage(err, "Failed to remove project"));
     }
   };
 
@@ -349,7 +350,7 @@ function ScopeDetail(props: {
       const result = await api.scopes.search(props.scope.id, { query: q, top_k: 20 });
       setSearchResults(result.results);
     } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Search failed");
+      toast("error", getErrorMessage(err, "Search failed"));
     } finally {
       setSearching(false);
     }
@@ -361,7 +362,7 @@ function ScopeDetail(props: {
       setKbVersion((v) => v + 1);
       toast("success", t("scope.toast.updated"));
     } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to attach KB");
+      toast("error", getErrorMessage(err, "Failed to attach KB"));
     }
   };
 
@@ -371,7 +372,7 @@ function ScopeDetail(props: {
       setKbVersion((v) => v + 1);
       toast("success", t("scope.toast.updated"));
     } catch (err) {
-      toast("error", err instanceof Error ? err.message : "Failed to detach KB");
+      toast("error", getErrorMessage(err, "Failed to detach KB"));
     }
   };
 
