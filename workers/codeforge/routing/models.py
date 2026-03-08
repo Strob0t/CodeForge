@@ -120,3 +120,39 @@ class RoutingConfig:
     cascade_enabled: bool = False
     cascade_confidence_threshold: float = 0.7
     cascade_max_steps: int = 3
+
+    # Complexity analyzer weights (dimension -> weight, must sum to ~1.0)
+    complexity_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "code_presence": 0.20,
+            "reasoning_markers": 0.20,
+            "technical_terms": 0.15,
+            "prompt_length": 0.10,
+            "multi_step": 0.15,
+            "context_requirements": 0.10,
+            "output_complexity": 0.10,
+        }
+    )
+
+    # Tier thresholds: (min_score, tier) evaluated top-down
+    tier_thresholds: list[tuple[float, str]] = field(
+        default_factory=lambda: [
+            (0.75, "reasoning"),
+            (0.50, "complex"),
+            (0.25, "medium"),
+            (0.0, "simple"),
+        ]
+    )
+
+    # Task-type score boost
+    task_type_boost: dict[str, float] = field(
+        default_factory=lambda: {
+            "chat": 0.0,
+            "code": 0.10,
+            "debug": 0.20,
+            "qa": 0.15,
+            "refactor": 0.20,
+            "review": 0.25,
+            "plan": 0.25,
+        }
+    )

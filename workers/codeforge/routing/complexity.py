@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-from codeforge.routing.models import ComplexityTier, PromptAnalysis, TaskType
+from codeforge.routing.models import ComplexityTier, PromptAnalysis, RoutingConfig, TaskType
 
-_WEIGHTS: dict[str, float] = {
+_DEFAULT_WEIGHTS: dict[str, float] = {
     "code_presence": 0.20,
     "reasoning_markers": 0.20,
     "technical_terms": 0.15,
@@ -16,14 +16,14 @@ _WEIGHTS: dict[str, float] = {
     "output_complexity": 0.10,
 }
 
-_TIER_THRESHOLDS: list[tuple[float, ComplexityTier]] = [
+_DEFAULT_TIER_THRESHOLDS: list[tuple[float, ComplexityTier]] = [
     (0.75, ComplexityTier.REASONING),
     (0.50, ComplexityTier.COMPLEX),
     (0.25, ComplexityTier.MEDIUM),
     (0.0, ComplexityTier.SIMPLE),
 ]
 
-_TASK_TYPE_BOOST: dict[TaskType, float] = {
+_DEFAULT_TASK_TYPE_BOOST: dict[TaskType, float] = {
     TaskType.CHAT: 0.0,
     TaskType.CODE: 0.10,
     TaskType.DEBUG: 0.20,
@@ -176,6 +176,18 @@ _RE_LONG_OUTPUT = re.compile(
 
 
 class ComplexityAnalyzer:
+    def __init__(self, config: RoutingConfig | None = None) -> None:
+        if config is not None:
+            self._weights = config.complexity_weights
+            self._tier_thresholds: list[tuple[float, ComplexityTier]] = [
+                (thresh, ComplexityTier(name)) for thresh, name in config.tier_thresholds
+            ]
+            self._task_type_boost: dict[TaskType, float] = {TaskType(k): v for k, v in config.task_type_boost.items()}
+        else:
+            self._weights = _DEFAULT_WEIGHTS
+            self._tier_thresholds = _DEFAULT_TIER_THRESHOLDS
+            self._task_type_boost = _DEFAULT_TASK_TYPE_BOOST
+
     def analyze(self, prompt: str) -> PromptAnalysis:
         dimensions = {
             "code_presence": _score_code_presence(prompt),
@@ -187,12 +199,12 @@ class ComplexityAnalyzer:
             "output_complexity": _score_output_complexity(prompt),
         }
 
-        weighted_score = sum(dimensions[dim] * weight for dim, weight in _WEIGHTS.items())
+        weighted_score = sum(dimensions[dim] * weight for dim, weight in self._weights.items())
         task_type = _infer_task_type(prompt)
-        boosted_score = min(1.0, weighted_score + _TASK_TYPE_BOOST.get(task_type, 0.0))
+        boosted_score = min(1.0, weighted_score + self._task_type_boost.get(task_type, 0.0))
 
         tier = ComplexityTier.SIMPLE
-        for threshold, candidate_tier in _TIER_THRESHOLDS:
+        for threshold, candidate_tier in self._tier_thresholds:
             if boosted_score >= threshold:
                 tier = candidate_tier
                 break
