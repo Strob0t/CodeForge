@@ -10,7 +10,7 @@ import type {
   ToolCostSummary,
 } from "~/api/types";
 import { useI18n } from "~/i18n";
-import { Card, LoadingState, PageLayout, Table } from "~/ui";
+import { Card, LoadingState, PageLayout, StatCard, Table } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
 
 export default function CostDashboardPage() {
@@ -71,36 +71,10 @@ export default function CostDashboardPage() {
     <PageLayout title={t("costs.title")}>
       {/* Global Totals */}
       <div class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <Card.Body>
-            <p class="text-sm text-cf-text-muted">{t("costs.totalCost")}</p>
-            <p class="mt-1 text-2xl font-bold text-cf-text-primary">
-              {fmt.currency(totals().cost)}
-            </p>
-          </Card.Body>
-        </Card>
-        <Card>
-          <Card.Body>
-            <p class="text-sm text-cf-text-muted">{t("costs.tokensIn")}</p>
-            <p class="mt-1 text-2xl font-bold text-cf-text-primary">
-              {fmt.compact(totals().tokensIn)}
-            </p>
-          </Card.Body>
-        </Card>
-        <Card>
-          <Card.Body>
-            <p class="text-sm text-cf-text-muted">{t("costs.tokensOut")}</p>
-            <p class="mt-1 text-2xl font-bold text-cf-text-primary">
-              {fmt.compact(totals().tokensOut)}
-            </p>
-          </Card.Body>
-        </Card>
-        <Card>
-          <Card.Body>
-            <p class="text-sm text-cf-text-muted">{t("costs.totalRuns")}</p>
-            <p class="mt-1 text-2xl font-bold text-cf-text-primary">{totals().runs}</p>
-          </Card.Body>
-        </Card>
+        <StatCard label={t("costs.totalCost")} value={fmt.currency(totals().cost)} />
+        <StatCard label={t("costs.tokensIn")} value={fmt.compact(totals().tokensIn)} />
+        <StatCard label={t("costs.tokensOut")} value={fmt.compact(totals().tokensOut)} />
+        <StatCard label={t("costs.totalRuns")} value={totals().runs} />
       </div>
 
       {/* Project Breakdown */}

@@ -3,7 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { BenchmarkRun, CostAnalysis } from "~/api/types";
 import { useI18n } from "~/i18n";
-import { Card, CostDisplay, EmptyState, LoadingState, Select } from "~/ui";
+import { Card, CostDisplay, EmptyState, LoadingState, Select, StatCard } from "~/ui";
 
 interface CostAnalysisViewProps {
   runs: BenchmarkRun[];
@@ -48,19 +48,19 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
             <>
               {/* Summary cards */}
               <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <SummaryCard
+                <StatCard
                   label={t("benchmark.costAnalysis.totalCost")}
                   value={<CostDisplay usd={ca().total_cost_usd} />}
                 />
-                <SummaryCard
+                <StatCard
                   label={t("benchmark.costAnalysis.avgScore")}
                   value={<span class="font-mono">{ca().avg_score.toFixed(3)}</span>}
                 />
-                <SummaryCard
+                <StatCard
                   label={t("benchmark.costAnalysis.costPerPoint")}
                   value={<CostDisplay usd={ca().cost_per_score_point} />}
                 />
-                <SummaryCard
+                <StatCard
                   label={t("benchmark.costAnalysis.tokenEfficiency")}
                   value={<span class="font-mono">{ca().token_efficiency.toFixed(1)}</span>}
                 />
@@ -68,18 +68,14 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
 
               {/* Token totals */}
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Card class="p-3">
-                  <div class="text-xs text-gray-500">{t("benchmark.costAnalysis.tokensIn")}</div>
-                  <div class="mt-1 text-lg font-semibold">
-                    {ca().total_tokens_in.toLocaleString()}
-                  </div>
-                </Card>
-                <Card class="p-3">
-                  <div class="text-xs text-gray-500">{t("benchmark.costAnalysis.tokensOut")}</div>
-                  <div class="mt-1 text-lg font-semibold">
-                    {ca().total_tokens_out.toLocaleString()}
-                  </div>
-                </Card>
+                <StatCard
+                  label={t("benchmark.costAnalysis.tokensIn")}
+                  value={ca().total_tokens_in.toLocaleString()}
+                />
+                <StatCard
+                  label={t("benchmark.costAnalysis.tokensOut")}
+                  value={ca().total_tokens_out.toLocaleString()}
+                />
               </div>
 
               {/* Task breakdown table */}
@@ -149,14 +145,5 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
         </Show>
       </Show>
     </div>
-  );
-}
-
-function SummaryCard(props: { label: string; value: import("solid-js").JSX.Element }) {
-  return (
-    <Card class="p-3">
-      <div class="text-xs text-gray-500">{props.label}</div>
-      <div class="mt-1 text-lg font-semibold">{props.value}</div>
-    </Card>
   );
 }

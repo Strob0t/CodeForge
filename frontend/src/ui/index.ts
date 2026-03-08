@@ -32,6 +32,7 @@ export { Modal } from "./composites";
 export { ModelCombobox } from "./composites";
 export { ResourceGuard } from "./composites";
 export { SectionHeader } from "./composites";
+export { StatCard } from "./composites";
 export { Table } from "./composites";
 export { Tabs } from "./composites";
 export { TagInput } from "./composites";

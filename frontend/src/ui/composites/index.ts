@@ -8,6 +8,7 @@ export { Modal } from "./Modal";
 export { ModelCombobox } from "./ModelCombobox";
 export { ResourceGuard } from "./ResourceGuard";
 export { SectionHeader } from "./SectionHeader";
+export { StatCard } from "./StatCard";
 export { Table } from "./Table";
 export { Tabs } from "./Tabs";
 export { TagInput } from "./TagInput";
