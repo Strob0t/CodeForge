@@ -1,5 +1,7 @@
 import { type JSX, splitProps } from "solid-js";
 
+import { cx } from "~/utils/cx";
+
 // ---------------------------------------------------------------------------
 // Card
 // ---------------------------------------------------------------------------
@@ -13,10 +15,7 @@ function CardRoot(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
   return (
     <div
-      class={
-        "rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-sm" +
-        (local.class ? " " + local.class : "")
-      }
+      class={cx("rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-sm", local.class)}
     >
       {local.children}
     </div>
@@ -30,9 +29,7 @@ function CardRoot(props: CardProps): JSX.Element {
 function CardHeader(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
   return (
-    <div
-      class={"border-b border-cf-border px-3 py-3 sm:px-4" + (local.class ? " " + local.class : "")}
-    >
+    <div class={cx("border-b border-cf-border px-3 py-3 sm:px-4", local.class)}>
       {local.children}
     </div>
   );
@@ -45,7 +42,7 @@ function CardHeader(props: CardProps): JSX.Element {
 function CardBody(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
   return (
-    <div class={"px-3 py-3 sm:px-4 sm:py-4" + (local.class ? " " + local.class : "")}>
+    <div class={cx("px-3 py-3 sm:px-4 sm:py-4", local.class)}>
       {local.children}
     </div>
   );
@@ -58,9 +55,7 @@ function CardBody(props: CardProps): JSX.Element {
 function CardFooter(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
   return (
-    <div
-      class={"border-t border-cf-border px-3 py-3 sm:px-4" + (local.class ? " " + local.class : "")}
-    >
+    <div class={cx("border-t border-cf-border px-3 py-3 sm:px-4", local.class)}>
       {local.children}
     </div>
   );

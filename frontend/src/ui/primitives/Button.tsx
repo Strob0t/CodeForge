@@ -1,5 +1,6 @@
 import { type JSX, Show, splitProps } from "solid-js";
 
+import { cx } from "~/utils/cx";
 import { Spinner } from "./Spinner";
 
 export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost" | "link" | "icon" | "pill";
@@ -53,20 +54,19 @@ export function Button(props: ButtonProps): JSX.Element {
       {...rest}
       type={rest.type ?? "button"}
       disabled={isDisabled()}
-      class={
-        "inline-flex items-center justify-center font-medium transition-colors " +
-        variantClasses[variant()] +
-        " " +
-        (variant() === "icon"
+      class={cx(
+        "inline-flex items-center justify-center font-medium transition-colors",
+        variantClasses[variant()],
+        variant() === "icon"
           ? "p-2 min-h-[40px] min-w-[40px] rounded-cf-sm text-sm"
-          : sizeClasses[size()]) +
-        (variant() === "pill" ? " rounded-full" : "") +
-        (local.fullWidth ? " w-full" : "") +
-        (isDisabled()
-          ? " opacity-[var(--cf-disabled-opacity)] cursor-not-allowed"
-          : " cursor-pointer") +
-        (local.class ? " " + local.class : "")
-      }
+          : sizeClasses[size()],
+        variant() === "pill" && "rounded-full",
+        local.fullWidth && "w-full",
+        isDisabled()
+          ? "opacity-[var(--cf-disabled-opacity)] cursor-not-allowed"
+          : "cursor-pointer",
+        local.class,
+      )}
     >
       <Show when={local.loading}>
         <Spinner size="sm" class="mr-2" />

@@ -43,8 +43,8 @@ func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 		r.ID, tenantFromCtx(ctx), r.Dataset, r.Model, metricsArr, string(r.Status),
 		scores, r.TotalCost, r.TotalTokens, r.TotalDurationMs,
 		r.CreatedAt, r.CompletedAt,
-		nilIfEmpty(r.SuiteID), nilIfEmpty(string(r.BenchmarkType)),
-		nilIfEmpty(string(r.ExecMode)), cfg,
+		nullIfEmpty(r.SuiteID), nullIfEmpty(string(r.BenchmarkType)),
+		nullIfEmpty(string(r.ExecMode)), cfg,
 		r.HybridVerification, r.RolloutCount, rolloutStrategy,
 	)
 	if err != nil {
@@ -266,12 +266,4 @@ func scanBenchmarkResult(row scannable) (benchmark.Result, error) {
 	}
 	res.FilesChanged = filesChanged
 	return res, nil
-}
-
-// nilIfEmpty returns nil for empty strings, or the string pointer.
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

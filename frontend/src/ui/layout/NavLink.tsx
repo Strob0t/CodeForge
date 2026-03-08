@@ -2,6 +2,7 @@ import { A } from "@solidjs/router";
 import { type JSX, Show, splitProps } from "solid-js";
 
 import { useSidebar } from "~/components/SidebarProvider";
+import { cx } from "~/utils/cx";
 import { Tooltip } from "~/ui/primitives/Tooltip";
 
 export interface NavLinkProps {
@@ -22,13 +23,13 @@ export function NavLink(props: NavLinkProps): JSX.Element {
       {...rest}
       href={local.href}
       end={local.end}
-      class={
-        "block rounded-cf-md text-sm font-medium text-cf-text-secondary hover:bg-cf-bg-surface-alt transition-colors " +
-        (collapsed()
+      class={cx(
+        "block rounded-cf-md text-sm font-medium text-cf-text-secondary hover:bg-cf-bg-surface-alt transition-colors",
+        collapsed()
           ? "flex items-center justify-center p-2 min-h-[44px] min-w-[44px]"
-          : "flex items-center gap-2 px-3 py-2.5 min-h-[44px]") +
-        (local.class ? " " + local.class : "")
-      }
+          : "flex items-center gap-2 px-3 py-2.5 min-h-[44px]",
+        local.class,
+      )}
       activeClass="bg-cf-bg-surface-alt text-cf-accent"
     >
       <Show when={local.icon}>

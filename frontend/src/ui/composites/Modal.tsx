@@ -1,6 +1,7 @@
 import { createEffect, type JSX, onCleanup, Show, splitProps } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { cx } from "~/utils/cx";
 import { Button } from "../primitives/Button";
 
 export interface ModalProps {
@@ -90,10 +91,10 @@ export function Modal(props: ModalProps): JSX.Element {
         >
           <div
             ref={dialogRef}
-            class={
-              "relative mx-3 sm:mx-4 max-h-[85vh] w-full max-w-lg overflow-auto rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-lg" +
-              (local.class ? " " + local.class : "")
-            }
+            class={cx(
+              "relative mx-3 sm:mx-4 max-h-[85vh] w-full max-w-lg overflow-auto rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-lg",
+              local.class,
+            )}
           >
             <Show when={local.title}>
               <div class="flex items-center justify-between border-b border-cf-border px-4 py-3">

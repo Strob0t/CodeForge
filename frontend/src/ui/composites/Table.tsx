@@ -1,5 +1,6 @@
 import { For, type JSX, Show, splitProps } from "solid-js";
 
+import { cx } from "~/utils/cx";
 import { Spinner } from "../primitives/Spinner";
 
 export interface TableColumn<T> {
@@ -29,22 +30,17 @@ export function Table<T>(props: TableProps<T>): JSX.Element {
   ]);
 
   return (
-    <div
-      class={
-        "overflow-x-auto rounded-cf-lg border border-cf-border" +
-        (local.class ? " " + local.class : "")
-      }
-    >
+    <div class={cx("overflow-x-auto rounded-cf-lg border border-cf-border", local.class)}>
       <table class="w-full text-left text-sm">
         <thead>
           <tr class="border-b border-cf-border bg-cf-bg-surface-alt">
             <For each={local.columns}>
               {(col) => (
                 <th
-                  class={
-                    "px-3 py-2 sm:px-4 text-xs font-medium uppercase tracking-wider text-cf-text-tertiary" +
-                    (col.class ? " " + col.class : "")
-                  }
+                  class={cx(
+                    "px-3 py-2 sm:px-4 text-xs font-medium uppercase tracking-wider text-cf-text-tertiary",
+                    col.class,
+                  )}
                 >
                   {col.header}
                 </th>
@@ -73,12 +69,7 @@ export function Table<T>(props: TableProps<T>): JSX.Element {
                 <tr class="border-b border-cf-border last:border-b-0 hover:bg-cf-bg-surface-alt transition-colors">
                   <For each={local.columns}>
                     {(col) => (
-                      <td
-                        class={
-                          "px-3 py-2 sm:px-4 text-cf-text-primary" +
-                          (col.class ? " " + col.class : "")
-                        }
-                      >
+                      <td class={cx("px-3 py-2 sm:px-4 text-cf-text-primary", col.class)}>
                         {col.render
                           ? col.render(row)
                           : String((row as Record<string, unknown>)[col.key] ?? "")}
