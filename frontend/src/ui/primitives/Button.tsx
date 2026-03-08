@@ -1,6 +1,7 @@
 import { type JSX, Show, splitProps } from "solid-js";
 
 import { cx } from "~/utils/cx";
+
 import { Spinner } from "./Spinner";
 
 export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost" | "link" | "icon" | "pill";
@@ -62,9 +63,7 @@ export function Button(props: ButtonProps): JSX.Element {
           : sizeClasses[size()],
         variant() === "pill" && "rounded-full",
         local.fullWidth && "w-full",
-        isDisabled()
-          ? "opacity-[var(--cf-disabled-opacity)] cursor-not-allowed"
-          : "cursor-pointer",
+        isDisabled() ? "opacity-[var(--cf-disabled-opacity)] cursor-not-allowed" : "cursor-pointer",
         local.class,
       )}
     >

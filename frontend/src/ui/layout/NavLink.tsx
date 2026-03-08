@@ -2,8 +2,8 @@ import { A } from "@solidjs/router";
 import { type JSX, Show, splitProps } from "solid-js";
 
 import { useSidebar } from "~/components/SidebarProvider";
-import { cx } from "~/utils/cx";
 import { Tooltip } from "~/ui/primitives/Tooltip";
+import { cx } from "~/utils/cx";
 
 export interface NavLinkProps {
   href: string;

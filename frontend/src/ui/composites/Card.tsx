@@ -41,11 +41,7 @@ function CardHeader(props: CardProps): JSX.Element {
 
 function CardBody(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children"]);
-  return (
-    <div class={cx("px-3 py-3 sm:px-4 sm:py-4", local.class)}>
-      {local.children}
-    </div>
-  );
+  return <div class={cx("px-3 py-3 sm:px-4 sm:py-4", local.class)}>{local.children}</div>;
 }
 
 // ---------------------------------------------------------------------------

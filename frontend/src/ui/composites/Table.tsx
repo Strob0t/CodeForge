@@ -1,6 +1,7 @@
 import { For, type JSX, Show, splitProps } from "solid-js";
 
 import { cx } from "~/utils/cx";
+
 import { Spinner } from "../primitives/Spinner";
 
 export interface TableColumn<T> {

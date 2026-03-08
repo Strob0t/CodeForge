@@ -2,6 +2,7 @@ import { createEffect, type JSX, onCleanup, Show, splitProps } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { cx } from "~/utils/cx";
+
 import { Button } from "../primitives/Button";
 
 export interface ModalProps {
