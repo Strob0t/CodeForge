@@ -168,3 +168,7 @@ AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumente
 **LLM E2E:** 95 API-level Playwright tests across 12 spec files (prerequisites, models, conversations, streaming, multi-provider, routing, costs, MCP, benchmarks).
 **Benchmark E2E:** 132 browser Playwright tests across 12 spec files.
 **Backend E2E:** 88 pass / 0 fail / 3 skip (97% pass rate) across all 4 pillars with real LLM calls.
+
+### Mobile-Responsive Frontend (COMPLETED)
+
+Full mobile + tablet responsiveness for the CodeForge frontend (320px+). Bottom-up approach: `useBreakpoint` singleton hook with `matchMedia` signals, CSS foundation (safe-area insets, `@media (pointer: coarse)` touch targets, scrollbar-none), `viewport-fit=cover`. Primitives overhauled (Button min-heights 36-48px, NavLink 44px touch targets). Composites responsive (Modal, Table, Card, PageLayout). 3-state sidebar (hidden+Portal overlay on mobile, collapsed on tablet, expanded on desktop) with hamburger menu. All page grids responsive (1->2->4 columns). ProjectDetailPage redesigned with mobile tab-switch (bottom bar "Panels"/"Chat"), scrollable sub-tabs. ChatPanel responsive bubbles (90%/75%). FilePanel mobile file tree drawer overlay. 21 files changed (1 new, 20 modified).

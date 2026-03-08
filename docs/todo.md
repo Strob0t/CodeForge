@@ -199,6 +199,16 @@
 > Extracted from `docs/features/*.md` and centralized here per documentation policy.
 > Feature docs now reference this file instead of maintaining their own TODO lists.
 
+#### Mobile-Responsive Frontend (COMPLETED)
+- [x] (2026-03-08) useBreakpoint hook, CSS foundation (safe-area, touch targets, scrollbar-none), viewport-fit
+- [x] (2026-03-08) Primitives/composites: Button touch targets (36-48px), NavLink 44px, Modal/Table/Card/PageLayout responsive
+- [x] (2026-03-08) 3-state sidebar (hidden+overlay on mobile, collapsed on tablet, expanded on desktop), hamburger menu
+- [x] (2026-03-08) Responsive grids: CostDashboard, CostAnalysis, MultiCompare, PromptEditor, WarRoom, CompactSettings
+- [x] (2026-03-08) ProjectDetailPage: mobile tab-switch (Panels/Chat), scrollable sub-tabs, responsive header
+- [x] (2026-03-08) ChatPanel: responsive bubbles (90%/75%), flex-wrap header, text size fixes
+- [x] (2026-03-08) FilePanel: mobile file tree drawer overlay with backdrop
+- [x] (2026-03-08) Fix pre-existing i18n errors (featuremap.dragToMove, statusToggled, dropHere)
+
 #### Pillar 1: Project Dashboard
 
 - [ ] Implement GitHub adapter with OAuth flow -- only Copilot token exchange exists (`internal/adapter/copilot/`), no full GitHub OAuth integration
