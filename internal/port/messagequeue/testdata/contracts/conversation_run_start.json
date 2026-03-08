@@ -1,0 +1,82 @@
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440001",
+  "conversation_id": "550e8400-e29b-41d4-a716-446655440002",
+  "session_id": "550e8400-e29b-41d4-a716-446655440003",
+  "project_id": "550e8400-e29b-41d4-a716-446655440004",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "I will read the file for you.",
+      "tool_calls": [
+        {
+          "id": "call_abc123",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"/src/main.go\", \"lines\": 50}"
+          }
+        }
+      ],
+      "tool_call_id": "call_abc123",
+      "name": "read_file"
+    }
+  ],
+  "system_prompt": "You are a helpful coding assistant.",
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "policy_profile": "standard",
+  "workspace_path": "/workspaces/my-project",
+  "mode": {
+    "id": "coder",
+    "prompt_prefix": "You are an expert Go developer.",
+    "tools": ["read_file", "write_file", "bash"],
+    "denied_tools": ["deploy"],
+    "denied_actions": ["rm -rf /"],
+    "required_artifact": "code",
+    "llm_scenario": "default",
+    "output_schema": "{\"type\":\"object\"}"
+  },
+  "termination": {
+    "max_steps": 50,
+    "timeout_seconds": 600,
+    "max_cost": 5
+  },
+  "context": [
+    {
+      "kind": "file",
+      "path": "/src/main.go",
+      "content": "package main\n\nfunc main() {}",
+      "tokens": 42,
+      "priority": 1
+    }
+  ],
+  "mcp_servers": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440010",
+      "name": "filesystem-server",
+      "description": "MCP server for filesystem operations",
+      "transport": "stdio",
+      "command": "/usr/local/bin/mcp-filesystem",
+      "args": ["--root", "/workspace"],
+      "url": "http://localhost:3001",
+      "env": {
+        "MCP_LOG_LEVEL": "debug"
+      },
+      "headers": {
+        "Authorization": "Bearer tok_sample"
+      },
+      "enabled": true
+    }
+  ],
+  "tools": ["read_file", "write_file", "bash"],
+  "microagent_prompts": ["When working with Go, always run gofmt."],
+  "trust": {
+    "origin": "internal",
+    "trust_level": "full",
+    "source_id": "agent-550e8400",
+    "signature": "abcdef1234567890",
+    "timestamp": "2026-03-08T12:00:00Z"
+  },
+  "routing_enabled": true,
+  "agentic": true,
+  "provider_api_key": "sk-user-key-abc123"
+}

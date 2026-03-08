@@ -1,0 +1,17 @@
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "request_id": "550e8400-e29b-41d4-a716-446655440012",
+  "results": [
+    {
+      "filepath": "/src/cache/lru.go",
+      "symbol_name": "LRU.Get",
+      "kind": "method",
+      "start_line": 50,
+      "end_line": 65,
+      "distance": 2,
+      "score": 0.88,
+      "edge_path": ["LRU", "LRU.Get", "LRU.cache"],
+      "project_id": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ]
+}

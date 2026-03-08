@@ -1,0 +1,14 @@
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440005",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "dataset_path": "/datasets/basic-coding",
+  "model": "mistral/mistral-large-latest",
+  "metrics": ["correctness", "style", "efficiency"],
+  "benchmark_type": "coding",
+  "suite_id": "550e8400-e29b-41d4-a716-446655440007",
+  "exec_mode": "sandbox",
+  "evaluators": ["llm_judge", "functional_test"],
+  "hybrid_verification": true,
+  "rollout_count": 3,
+  "rollout_strategy": "best"
+}

@@ -1,0 +1,29 @@
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "query": "How is caching handled?",
+  "request_id": "550e8400-e29b-41d4-a716-446655440011",
+  "results": [
+    {
+      "filepath": "/src/cache/lru.go",
+      "start_line": 10,
+      "end_line": 45,
+      "content": "func NewLRU(cap int) *LRU {",
+      "language": "go",
+      "symbol_name": "NewLRU",
+      "score": 0.92,
+      "bm25_rank": 1,
+      "semantic_rank": 2,
+      "project_id": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ],
+  "expanded_queries": [
+    "cache eviction policy",
+    "LRU implementation",
+    "cache invalidation"
+  ],
+  "total_candidates": 42,
+  "model": "openai/gpt-4o",
+  "tokens_in": 500,
+  "tokens_out": 250,
+  "cost_usd": 0.008
+}

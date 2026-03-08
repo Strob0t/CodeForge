@@ -1,0 +1,6 @@
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "workspace_path": "/workspaces/my-project",
+  "token_budget": 4096,
+  "active_files": ["/src/main.go", "/src/handler.go"]
+}

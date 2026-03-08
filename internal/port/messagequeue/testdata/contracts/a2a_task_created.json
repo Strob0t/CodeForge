@@ -1,0 +1,6 @@
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440013",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "skill_id": "code-review",
+  "prompt": "Review the authentication module for security issues."
+}

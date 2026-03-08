@@ -1,0 +1,19 @@
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "query": "LRU cache implementation",
+  "request_id": "550e8400-e29b-41d4-a716-446655440009",
+  "results": [
+    {
+      "filepath": "/src/cache/lru.go",
+      "start_line": 10,
+      "end_line": 45,
+      "content": "func NewLRU(cap int) *LRU {",
+      "language": "go",
+      "symbol_name": "NewLRU",
+      "score": 0.92,
+      "bm25_rank": 1,
+      "semantic_rank": 2,
+      "project_id": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ]
+}

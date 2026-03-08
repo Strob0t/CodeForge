@@ -27,6 +27,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
+	"github.com/Strob0t/CodeForge/internal/domain/dashboard"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
@@ -382,6 +383,29 @@ func (m *mockStore) CostByTool(_ context.Context, _ string) ([]cost.ToolSummary,
 }
 func (m *mockStore) CostByToolForRun(_ context.Context, _ string) ([]cost.ToolSummary, error) {
 	return []cost.ToolSummary{}, nil
+}
+
+// Dashboard Aggregation stubs
+func (m *mockStore) DashboardStats(_ context.Context) (*dashboard.DashboardStats, error) {
+	return &dashboard.DashboardStats{}, nil
+}
+func (m *mockStore) ProjectHealth(_ context.Context, _ string) (*dashboard.ProjectHealth, error) {
+	return &dashboard.ProjectHealth{Sparkline: []float64{}}, nil
+}
+func (m *mockStore) DashboardRunOutcomes(_ context.Context, _ int) ([]dashboard.RunOutcome, error) {
+	return []dashboard.RunOutcome{}, nil
+}
+func (m *mockStore) DashboardAgentPerformance(_ context.Context) ([]dashboard.AgentPerf, error) {
+	return []dashboard.AgentPerf{}, nil
+}
+func (m *mockStore) DashboardModelUsage(_ context.Context) ([]dashboard.ModelUsage, error) {
+	return []dashboard.ModelUsage{}, nil
+}
+func (m *mockStore) DashboardCostByProject(_ context.Context) ([]dashboard.ProjectCost, error) {
+	return []dashboard.ProjectCost{}, nil
+}
+func (m *mockStore) DashboardCostTrend(_ context.Context, _ int) ([]cost.DailyCost, error) {
+	return []cost.DailyCost{}, nil
 }
 
 // Project repo lookup

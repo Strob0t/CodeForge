@@ -1,0 +1,9 @@
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "query": "LRU cache implementation",
+  "request_id": "550e8400-e29b-41d4-a716-446655440009",
+  "top_k": 10,
+  "bm25_weight": 0.4,
+  "semantic_weight": 0.6,
+  "scope_id": "scope-backend"
+}

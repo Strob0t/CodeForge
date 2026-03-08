@@ -541,6 +541,7 @@ class BenchmarkRunResult(BaseModel):
     """Result of a complete benchmark run."""
 
     run_id: str
+    tenant_id: str = ""
     status: str = "completed"
     results: list[BenchmarkTaskResult] = Field(default_factory=list)
     summary: dict[str, object] = Field(default_factory=dict)

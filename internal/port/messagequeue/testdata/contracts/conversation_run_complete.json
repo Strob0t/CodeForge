@@ -1,0 +1,30 @@
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440001",
+  "conversation_id": "550e8400-e29b-41d4-a716-446655440002",
+  "session_id": "550e8400-e29b-41d4-a716-446655440003",
+  "assistant_content": "I have successfully implemented the LRU cache.",
+  "tool_messages": [
+    {
+      "role": "assistant",
+      "content": "I will read the file for you.",
+      "tool_calls": [
+        {
+          "id": "call_abc123",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"/src/main.go\", \"lines\": 50}"
+          }
+        }
+      ],
+      "tool_call_id": "call_abc123",
+      "name": "read_file"
+    }
+  ],
+  "status": "completed",
+  "cost_usd": 0.035,
+  "tokens_in": 2500,
+  "tokens_out": 1200,
+  "step_count": 7,
+  "model": "anthropic/claude-sonnet-4-20250514"
+}

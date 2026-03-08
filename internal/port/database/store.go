@@ -14,6 +14,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
+	"github.com/Strob0t/CodeForge/internal/domain/dashboard"
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
@@ -115,6 +116,15 @@ type Store interface {
 	RecentRunsWithCost(ctx context.Context, projectID string, limit int) ([]run.Run, error)
 	CostByTool(ctx context.Context, projectID string) ([]cost.ToolSummary, error)
 	CostByToolForRun(ctx context.Context, runID string) ([]cost.ToolSummary, error)
+
+	// Dashboard Aggregation
+	DashboardStats(ctx context.Context) (*dashboard.DashboardStats, error)
+	ProjectHealth(ctx context.Context, projectID string) (*dashboard.ProjectHealth, error)
+	DashboardRunOutcomes(ctx context.Context, days int) ([]dashboard.RunOutcome, error)
+	DashboardAgentPerformance(ctx context.Context) ([]dashboard.AgentPerf, error)
+	DashboardModelUsage(ctx context.Context) ([]dashboard.ModelUsage, error)
+	DashboardCostByProject(ctx context.Context) ([]dashboard.ProjectCost, error)
+	DashboardCostTrend(ctx context.Context, days int) ([]cost.DailyCost, error)
 
 	// Roadmaps
 	CreateRoadmap(ctx context.Context, req roadmap.CreateRoadmapRequest) (*roadmap.Roadmap, error)

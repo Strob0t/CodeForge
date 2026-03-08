@@ -14,6 +14,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
+	"github.com/Strob0t/CodeForge/internal/domain/dashboard"
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
@@ -313,6 +314,29 @@ func (s *testStore) CostByTool(_ context.Context, _ string) ([]cost.ToolSummary,
 }
 func (s *testStore) CostByToolForRun(_ context.Context, _ string) ([]cost.ToolSummary, error) {
 	return nil, nil
+}
+
+// Dashboard Aggregation stubs
+func (s *testStore) DashboardStats(_ context.Context) (*dashboard.DashboardStats, error) {
+	return &dashboard.DashboardStats{}, nil
+}
+func (s *testStore) ProjectHealth(_ context.Context, _ string) (*dashboard.ProjectHealth, error) {
+	return &dashboard.ProjectHealth{Sparkline: []float64{}}, nil
+}
+func (s *testStore) DashboardRunOutcomes(_ context.Context, _ int) ([]dashboard.RunOutcome, error) {
+	return []dashboard.RunOutcome{}, nil
+}
+func (s *testStore) DashboardAgentPerformance(_ context.Context) ([]dashboard.AgentPerf, error) {
+	return []dashboard.AgentPerf{}, nil
+}
+func (s *testStore) DashboardModelUsage(_ context.Context) ([]dashboard.ModelUsage, error) {
+	return []dashboard.ModelUsage{}, nil
+}
+func (s *testStore) DashboardCostByProject(_ context.Context) ([]dashboard.ProjectCost, error) {
+	return []dashboard.ProjectCost{}, nil
+}
+func (s *testStore) DashboardCostTrend(_ context.Context, _ int) ([]cost.DailyCost, error) {
+	return []cost.DailyCost{}, nil
 }
 
 // Roadmap stubs
