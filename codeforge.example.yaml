@@ -71,6 +71,16 @@ orchestrator:
   graph_top_k: 10              # Top-K results for graph search (default: 10)
   graph_hop_decay: 0.7         # Score decay per hop (default: 0.7)
 
+# OpenTelemetry distributed tracing and metrics
+# Requires Jaeger or any OTLP-compatible collector.
+# Start Jaeger: docker compose --profile dev up -d jaeger
+otel:
+  enabled: false               # Enable OTEL tracing + metrics (default: false)
+  endpoint: "localhost:4317"   # OTLP gRPC endpoint (Jaeger, Tempo, etc.)
+  service_name: "codeforge-core"  # Service name in traces
+  insecure: true               # Use insecure gRPC (true for local dev)
+  sample_rate: 1.0             # Trace sampling rate 0.0-1.0 (1.0 = all traces)
+
 # Authentication & Authorization (Phase 10C)
 # When disabled (default), a default admin context is injected for all requests.
 # Enable and set jwt_secret for production use.

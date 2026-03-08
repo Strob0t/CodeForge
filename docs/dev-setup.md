@@ -619,6 +619,67 @@ See `.env.example` for all configurable values.
 | CODEFORGE_LLM_BACKOFF_MAX  | 60.0                                     | Maximum backoff cap (sec)       |
 | CODEFORGE_LLM_TIMEOUT      | 120.0                                    | HTTP request timeout (sec)      |
 
+### Distributed Tracing (OpenTelemetry)
+
+CodeForge supports end-to-end distributed tracing across Go Core, Python Workers, and NATS messaging using OpenTelemetry. Traces flow bidirectionally: Go injects W3C `traceparent` headers into NATS messages, Python extracts them on incoming messages and injects them on outgoing responses, creating a single trace that spans the full request lifecycle.
+
+#### Quick Start
+
+```bash
+# 1. Start Jaeger (OTLP collector + UI)
+docker compose --profile dev up -d jaeger
+
+# 2. Enable OTEL on Go Core
+CODEFORGE_OTEL_ENABLED=true go run ./cmd/codeforge/
+
+# 3. Enable OTEL on Python Worker
+CODEFORGE_OTEL_ENABLED=true cd workers && poetry run python -m codeforge.consumer
+
+# 4. Open Jaeger UI
+open http://localhost:16686
+```
+
+Select service `codeforge-core` or `codeforge-worker` in Jaeger to see traces.
+
+#### Configuration
+
+Both Go Core and Python Workers share the same environment variables:
+
+| ENV Variable | Default | Description |
+|---|---|---|
+| `CODEFORGE_OTEL_ENABLED` | `false` | Master switch for tracing + metrics |
+| `CODEFORGE_OTEL_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint |
+| `CODEFORGE_OTEL_SERVICE_NAME` | `codeforge-core` / `codeforge-worker` | Service name in traces |
+| `CODEFORGE_OTEL_INSECURE` | `true` | Use insecure gRPC (set `false` for production TLS) |
+| `CODEFORGE_OTEL_SAMPLE_RATE` | `1.0` | Trace sampling rate (0.0-1.0) |
+
+Or use the YAML config file (`codeforge.yaml`):
+
+```yaml
+otel:
+  enabled: true
+  endpoint: "localhost:4317"
+  service_name: "codeforge-core"
+  insecure: true
+  sample_rate: 1.0
+```
+
+#### Jaeger Ports
+
+| Port | Protocol | Purpose |
+|---|---|---|
+| 16686 | HTTP | Jaeger UI |
+| 4317 | gRPC | OTLP trace + metric receiver |
+| 4318 | HTTP | OTLP HTTP receiver |
+
+#### What Gets Traced
+
+**Go Core:** HTTP requests (middleware), run lifecycle (start/complete), tool call approval, delivery, conversation messages.
+
+**Python Workers:** Agent execution (`agent_loop`, `executor`), tool calls (`mcp_workbench`), all NATS publish/subscribe with W3C trace propagation.
+
+**Metrics (Python):** 6 instruments -- `agent.llm_calls`, `agent.tool_calls`, `agent.tokens_used`, `agent.cost_usd`, `agent.loop_iterations`, `agent.errors`. Active when OTEL is enabled; no-ops when disabled.
+
 ### Backup and Restore
 
 #### Manual Backup
