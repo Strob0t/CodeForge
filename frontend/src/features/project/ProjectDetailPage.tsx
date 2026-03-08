@@ -20,6 +20,7 @@ import ActiveWorkPanel from "./ActiveWorkPanel";
 import AutoAgentButton from "./AutoAgentButton";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
+import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
 import RoadmapPanel from "./RoadmapPanel";
@@ -61,7 +62,7 @@ export default function ProjectDetailPage() {
   const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
 
   // Left panel tab
-  type LeftTab = "roadmap" | "files" | "warroom" | "goals" | "audit";
+  type LeftTab = "roadmap" | "featuremap" | "files" | "warroom" | "goals" | "audit";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
 
   // Auto-select "files" tab once on initial load when project has a workspace
@@ -426,7 +427,7 @@ export default function ProjectDetailPage() {
             >
               <Show when={!roadmapCollapsed()}>
                 <div
-                  class={`flex flex-col min-h-0 ${leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" ? "" : "overflow-y-auto"}`}
+                  class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" ? "" : "overflow-y-auto"}`}
                   style={
                     isNarrow()
                       ? { height: "50%", "border-bottom": "1px solid var(--cf-border)" }
@@ -445,6 +446,14 @@ export default function ProjectDetailPage() {
                         onClick={() => setLeftTab("roadmap")}
                       >
                         {t("detail.tab.roadmap")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        class={leftTab() === "featuremap" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                        onClick={() => setLeftTab("featuremap")}
+                      >
+                        {t("detail.tab.featuremap")}
                       </Button>
                       <Show when={p().workspace_path}>
                         <Button
@@ -505,6 +514,11 @@ export default function ProjectDetailPage() {
                   <Show when={leftTab() === "roadmap"}>
                     <div class="flex-1 overflow-y-auto px-4 pb-4">
                       <RoadmapPanel projectId={params.id} onError={setError} />
+                    </div>
+                  </Show>
+                  <Show when={leftTab() === "featuremap"}>
+                    <div class="flex-1 min-h-0">
+                      <FeatureMapPanel projectId={params.id} onError={setError} />
                     </div>
                   </Show>
                   <Show when={leftTab() === "files"}>

@@ -3935,6 +3935,8 @@ ALL Chat:  POST /messages -> Go Core -> NATS -> Python Worker -> LiteLLM -> NATS
 
 - [x] (2026-03-08) User-Key Mapping (per-user LLM provider API keys with AES-256-GCM encryption, REST API POST/GET/DELETE `/api/v1/llm-keys`, auto-resolve per provider from model name, fallback to global key; `internal/crypto/aes.go`, `internal/domain/llmkey/`, `internal/service/llmkey.go`, `internal/adapter/http/handlers_llm_keys.go`, `internal/adapter/postgres/store_llm_key.go`, migration 064; Python worker threads `provider_api_key` through `LoopConfig` → `LiteLLMClient` → LiteLLM Proxy `api_key` body field; 26 tests Go+Python)
 - [x] (2026-03-08) Distributed tracing (OpenTelemetry full pipeline — MeterProvider, trace propagation, Go+Python spans) — `internal/adapter/otel/`
+- [x] (2026-03-08) Pre-validate LLM API keys — `filter_keyless_models()` integrated into `model_resolver.py` (second choke point after `_conversation.py`), prevents routing to providers without configured keys
+- [x] (2026-03-08) Normalize Groq tool calls — `_normalize_tool_call()` handles Llama models embedding JSON arguments in tool name string; 12 tests covering streaming/non-streaming paths and edge cases (`workers/tests/test_llm_tools.py`)
 
 #### Pillar 4: Agent Orchestration
 
