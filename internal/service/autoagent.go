@@ -249,14 +249,12 @@ func (s *AutoAgentService) processFeature(
 		feat.Description,
 	)
 
-	// Send the message (this triggers the agentic loop).
-	agentic := true
-	_, err = s.conversations.SendMessage(ctx, conv.ID, conversation.SendMessageRequest{
+	// Send the message via the agentic loop (tool-use enabled).
+	err = s.conversations.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
 		Content: prompt,
-		Agentic: &agentic,
 	})
 	if err != nil {
-		return fmt.Errorf("send message: %w", err)
+		return fmt.Errorf("send agentic message: %w", err)
 	}
 
 	// Wait for the conversation run to complete via NATS.

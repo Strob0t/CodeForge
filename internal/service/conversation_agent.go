@@ -210,6 +210,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		MicroagentPrompts: microagentPrompts,
 		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:           contextEntries,
+		Agentic:           true,
 	}
 
 	data, err := json.Marshal(payload)
@@ -370,6 +371,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		MicroagentPrompts: microagentPrompts,
 		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:           contextEntries,
+		Agentic:           true,
 	}
 
 	data, err := json.Marshal(payload)

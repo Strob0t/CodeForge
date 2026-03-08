@@ -514,6 +514,10 @@ func run() error {
 	}
 	slog.Info("conversation service initialized", "agentic_by_default", cfg.Agent.AgenticByDefault)
 
+	// --- Auto-Agent Service ---
+	autoAgentSvc := service.NewAutoAgentService(store, hub, queue, conversationSvc)
+	slog.Info("auto-agent service initialized")
+
 	// --- Auth Service (Phase 10C) ---
 	authSvc := service.NewAuthService(store, &cfg.Auth)
 	if cfg.Auth.Enabled {
@@ -645,6 +649,7 @@ func run() error {
 		ActiveWork:       activeWorkSvc,
 		Routing:          routingSvc,
 		GoalDiscovery:    goalSvc,
+		AutoAgent:        autoAgentSvc,
 		Limits:           &cfg.Limits,
 	}
 
