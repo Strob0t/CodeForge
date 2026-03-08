@@ -255,6 +255,9 @@ export default function ChatPanel(props: ChatPanelProps) {
       // Results stream via AG-UI WebSocket events; messages are
       // refetched when run_finished arrives.
       await api.conversations.send(convId, { content });
+      // User message is now persisted in DB — show it immediately.
+      await refetchMessages();
+      scrollToBottom();
     } catch {
       // toast handled by API layer
     } finally {

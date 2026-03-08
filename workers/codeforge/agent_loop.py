@@ -26,6 +26,7 @@ from codeforge.models import (
     ConversationMessagePayload,
     ConversationToolCallFunction,
     ConversationToolCallPayload,
+    ToolCallDecision,
 )
 from codeforge.pricing import resolve_cost
 from codeforge.routing.blocklist import get_blocklist
@@ -284,6 +285,14 @@ class AgentLoopExecutor:
         llm_start = time.monotonic()
 
         streamed_text: list[str] = []
+        loop = asyncio.get_running_loop()
+        pending_sends: list[asyncio.Task[None]] = []
+
+        def _on_chunk(chunk_text: str) -> None:
+            streamed_text.append(chunk_text)
+            task = loop.create_task(self._runtime.send_output(chunk_text))
+            pending_sends.append(task)
+
         with tracer.start_as_current_span(
             "llm.chat_completion",
             attributes={
@@ -298,7 +307,7 @@ class AgentLoopExecutor:
                     tools=tools_array or None,
                     temperature=cfg.temperature,
                     tags=cfg.tags or None,
-                    on_chunk=streamed_text.append,
+                    on_chunk=_on_chunk,
                 )
             except LLMError as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
@@ -315,13 +324,28 @@ class AgentLoopExecutor:
             if response.model:
                 llm_span.set_attribute("gen_ai.response.model", response.model)
 
+        if pending_sends:
+            await asyncio.gather(*pending_sends, return_exceptions=True)
+
         otel_metrics.llm_call_duration.record(time.monotonic() - llm_start)
         otel_metrics.llm_tokens.add(response.tokens_in + response.tokens_out)
 
         full_text = "".join(streamed_text)
-        if full_text:
+        if full_text and not pending_sends:
             await self._runtime.send_output(full_text)
 
+        return await self._process_llm_response(cfg, state, response, llm_decision, full_text, messages)
+
+    async def _process_llm_response(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        response: ChatCompletionResponse,
+        llm_decision: ToolCallDecision,
+        full_text: str,
+        messages: list[dict[str, object]],
+    ) -> bool | None:
+        """Process LLM response: update state, report results, execute tool calls."""
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
         state.total_cost += cost
         state.total_tokens_in += response.tokens_in
