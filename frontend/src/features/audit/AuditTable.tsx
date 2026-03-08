@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AuditEntry } from "~/api/types";
+import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useI18n } from "~/i18n";
 import { Button } from "~/ui";
 
@@ -16,44 +17,38 @@ export default function AuditTable(props: AuditTableProps) {
   const [cursor, setCursor] = createSignal<string>("");
   const [hasMore, setHasMore] = createSignal(false);
   const [total, setTotal] = createSignal(0);
-  const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal("");
   const [expandedId, setExpandedId] = createSignal<string | null>(null);
   const [filterAction, setFilterAction] = createSignal("");
   const [initialLoaded, setInitialLoaded] = createSignal(false);
 
   const PAGE_SIZE = 50;
 
-  async function fetchPage(reset: boolean) {
-    setLoading(true);
-    setError("");
-    try {
-      const opts: { action?: string; cursor?: string; limit: number } = {
-        limit: PAGE_SIZE,
-      };
-      const action = filterAction();
-      if (action) opts.action = action;
-      if (!reset && cursor()) opts.cursor = cursor();
+  const {
+    run: fetchPage,
+    loading,
+    error,
+  } = useAsyncAction(async (reset: boolean) => {
+    const opts: { action?: string; cursor?: string; limit: number } = {
+      limit: PAGE_SIZE,
+    };
+    const action = filterAction();
+    if (action) opts.action = action;
+    if (!reset && cursor()) opts.cursor = cursor();
 
-      const page = props.projectId
-        ? await api.audit.listByProject(props.projectId, opts)
-        : await api.audit.list(opts);
+    const page = props.projectId
+      ? await api.audit.listByProject(props.projectId, opts)
+      : await api.audit.list(opts);
 
-      if (reset) {
-        setEntries(page.entries);
-      } else {
-        setEntries((prev) => [...prev, ...page.entries]);
-      }
-      setCursor(page.cursor);
-      setHasMore(page.has_more);
-      if (reset || total() === 0) setTotal(page.total);
-      setInitialLoaded(true);
-    } catch {
-      setError(t("audit.error"));
-    } finally {
-      setLoading(false);
+    if (reset) {
+      setEntries(page.entries);
+    } else {
+      setEntries((prev) => [...prev, ...page.entries]);
     }
-  }
+    setCursor(page.cursor);
+    setHasMore(page.has_more);
+    if (reset || total() === 0) setTotal(page.total);
+    setInitialLoaded(true);
+  });
 
   // Initial fetch
   void fetchPage(true);

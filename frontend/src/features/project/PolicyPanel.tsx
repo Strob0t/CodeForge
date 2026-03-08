@@ -12,8 +12,10 @@ import type {
   TerminationCondition,
 } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
+import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, FormField, Input, Select } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 interface PolicyPanelProps {
   projectId: string;
@@ -82,7 +84,6 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
   // Editor state
   const [editProfile, setEditProfile] = createSignal<PolicyProfile>(emptyProfile());
-  const [saving, setSaving] = createSignal(false);
 
   // Evaluate tester state
   const [evalTool, setEvalTool] = createSignal("");
@@ -118,26 +119,24 @@ export default function PolicyPanel(props: PolicyPanelProps) {
     setView("editor");
   };
 
-  const handleSave = async () => {
-    const profile = editProfile();
-    if (!profile.name) {
-      props.onError(t("policy.toast.nameRequired"));
-      return;
-    }
-    setSaving(true);
-    props.onError("");
-    try {
+  const { run: handleSave, loading: saving } = useAsyncAction(
+    async () => {
+      const profile = editProfile();
+      if (!profile.name) {
+        props.onError(t("policy.toast.nameRequired"));
+        return;
+      }
+      props.onError("");
       await api.policies.create(profile);
       refetchProfiles();
       setSelectedName(profile.name);
       setView("detail");
       refetchProfile();
-    } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("policy.toast.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+    {
+      onError: (err) => props.onError(getErrorMessage(err, t("policy.toast.saveFailed"))),
+    },
+  );
 
   const handleDelete = async (name: string) => {
     props.onError("");

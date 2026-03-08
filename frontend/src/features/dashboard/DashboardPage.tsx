@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { CreateProjectRequest, StackDetectionResult } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import {
@@ -67,7 +68,17 @@ export default function DashboardPage() {
   const [selectedAutonomy, setSelectedAutonomy] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
   const [selectedBranch, setSelectedBranch] = createSignal("");
-  const [loadingBranches, setLoadingBranches] = createSignal(false);
+
+  const { run: fetchBranches, loading: loadingBranches } = useAsyncAction(
+    async (url: string) => {
+      const branchList = await api.projects.remoteBranches(url);
+      setBranches(branchList);
+      setSelectedBranch("");
+    },
+    {
+      onError: () => setBranches([]),
+    },
+  );
 
   let urlDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(urlDebounceTimer));
@@ -333,16 +344,7 @@ export default function DashboardPage() {
       }
 
       // Fetch remote branches
-      try {
-        setLoadingBranches(true);
-        const branchList = await api.projects.remoteBranches(url);
-        setBranches(branchList);
-        setSelectedBranch("");
-      } catch {
-        setBranches([]);
-      } finally {
-        setLoadingBranches(false);
-      }
+      await fetchBranches(url);
     }, 500);
   }
 

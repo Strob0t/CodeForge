@@ -3,9 +3,11 @@ import { createSignal, For, type JSX, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { FileContent } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { fileIconUrl } from "~/lib/file-icon";
 import { Button, Spinner } from "~/ui";
+import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import CodeEditor from "./CodeEditor";
 import FileTree from "./FileTree";
@@ -146,7 +148,6 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
   const { show: toast } = useToast();
   const [tabs, setTabs] = createSignal<OpenTab[]>([]);
   const [activeTab, setActiveTab] = createSignal<string | null>(null);
-  const [saving, setSaving] = createSignal(false);
 
   function fileName(path: string): string {
     const parts = path.split("/");
@@ -195,15 +196,14 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
     );
   }
 
-  async function saveActiveFile() {
-    const path = activeTab();
-    if (!path) return;
+  const { run: saveActiveFile, loading: saving } = useAsyncAction(
+    async () => {
+      const path = activeTab();
+      if (!path) return;
 
-    const tab = tabs().find((t) => t.path === path);
-    if (!tab || !tab.modified) return;
+      const tab = tabs().find((t) => t.path === path);
+      if (!tab || !tab.modified) return;
 
-    setSaving(true);
-    try {
       await api.files.write(props.projectId, path, tab.content);
       setTabs((prev) =>
         prev.map((t) =>
@@ -211,13 +211,11 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
         ),
       );
       toast("success", `Saved ${fileName(path)}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to save file";
-      toast("error", msg);
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+    {
+      onError: (err) => toast("error", getErrorMessage(err, "Failed to save file")),
+    },
+  );
 
   const currentTab = () => tabs().find((t) => t.path === activeTab());
 
