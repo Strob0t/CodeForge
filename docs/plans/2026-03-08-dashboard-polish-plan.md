@@ -280,7 +280,7 @@ git commit -m "feat(dashboard): add domain types and health score formula"
 ## Task 3: Store interface + SQL queries for dashboard (Go)
 
 **Files:**
-- Modify: `internal/port/database/store.go` (add 3 methods after line 117)
+- Modify: `internal/port/database/store.go` (add 7 methods after line 117)
 - Create: `internal/adapter/postgres/store_dashboard.go`
 
 **Step 1: Add interface methods to store.go**
@@ -295,9 +295,10 @@ After line 117 (after `CostByToolForRun`), add:
 	DashboardAgentPerformance(ctx context.Context) ([]dashboard.AgentPerf, error)
 	DashboardModelUsage(ctx context.Context) ([]dashboard.ModelUsage, error)
 	DashboardCostByProject(ctx context.Context) ([]dashboard.ProjectCost, error)
+	DashboardCostTrend(ctx context.Context, days int) ([]cost.DailyCost, error)
 ```
 
-Add import: `"github.com/Strob0t/CodeForge/internal/domain/dashboard"`
+Add imports: `"github.com/Strob0t/CodeForge/internal/domain/dashboard"` and `"github.com/Strob0t/CodeForge/internal/domain/cost"` (cost is likely already imported)
 
 **Step 2: Write the SQL implementation**
 
@@ -311,6 +312,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/dashboard"
 )
 
@@ -319,21 +321,7 @@ func (s *Store) DashboardStats(ctx context.Context) (*dashboard.DashboardStats, 
 	tid := tenantFromCtx(ctx)
 	var ds dashboard.DashboardStats
 
-	// Cost today + yesterday for delta
-	err := s.pool.QueryRow(ctx, `
-		SELECT
-			COALESCE(SUM(CASE WHEN r.created_at::date = CURRENT_DATE THEN r.cost_usd ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN r.created_at::date = CURRENT_DATE - 1 THEN r.cost_usd ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN r.created_at::date = CURRENT_DATE THEN r.tokens_in + r.tokens_out ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN r.created_at::date = CURRENT_DATE - 1 THEN r.tokens_in + r.tokens_out ELSE 0 END), 0)
-		FROM runs r WHERE r.tenant_id = $1
-			AND r.created_at >= CURRENT_DATE - 1
-	`, tid).Scan(&ds.CostTodayUSD, new(float64), &ds.TokenUsageToday, new(int64))
-	if err != nil {
-		return nil, fmt.Errorf("dashboard cost today: %w", err)
-	}
-
-	// Full stats query (single pass over runs table)
+	// Single-pass conditional aggregation across all time windows
 	var costYesterday float64
 	var tokensYesterday int64
 	var completedCur, failedCur, timeoutCur, totalCur int
@@ -341,7 +329,7 @@ func (s *Store) DashboardStats(ctx context.Context) (*dashboard.DashboardStats, 
 	var avgCostCur, avgCostPrev float64
 	var failedRecent, totalRecent int
 
-	err = s.pool.QueryRow(ctx, `
+	err := s.pool.QueryRow(ctx, `
 		SELECT
 			-- cost today/yesterday
 			COALESCE(SUM(CASE WHEN created_at::date = CURRENT_DATE THEN cost_usd ELSE 0 END), 0),
@@ -591,15 +579,22 @@ func (s *Store) DashboardRunOutcomes(ctx context.Context, days int) ([]dashboard
 }
 
 // DashboardAgentPerformance returns agent success rates for the bar chart.
+// Computed from runs table via JOIN (agents table has no success_rate/total_runs columns).
 func (s *Store) DashboardAgentPerformance(ctx context.Context) ([]dashboard.AgentPerf, error) {
 	tid := tenantFromCtx(ctx)
 	rows, err := s.pool.Query(ctx, `
 		SELECT a.name,
-			COALESCE(a.success_rate, 0),
-			COALESCE(a.total_runs, 0)
+			CASE WHEN COUNT(r.id) > 0
+				THEN (SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END)::float / COUNT(r.id)) * 100
+				ELSE 0
+			END AS success_rate,
+			COUNT(r.id)::int AS total_runs
 		FROM agents a
-		WHERE a.tenant_id = $1 AND a.total_runs > 0
-		ORDER BY a.success_rate DESC
+		JOIN runs r ON r.agent_id = a.id AND r.tenant_id = $1
+		WHERE a.tenant_id = $1
+		GROUP BY a.id, a.name
+		HAVING COUNT(r.id) > 0
+		ORDER BY success_rate DESC
 		LIMIT 20
 	`, tid)
 	if err != nil {
@@ -672,6 +667,37 @@ func (s *Store) DashboardCostByProject(ctx context.Context) ([]dashboard.Project
 	}
 	if result == nil {
 		result = []dashboard.ProjectCost{}
+	}
+	return result, rows.Err()
+}
+
+// DashboardCostTrend returns daily cost aggregated across ALL projects (global).
+// NOTE: Do NOT delegate to CostTimeSeries — that method requires a non-empty project_id.
+func (s *Store) DashboardCostTrend(ctx context.Context, days int) ([]cost.DailyCost, error) {
+	if days <= 0 {
+		days = 30
+	}
+	tid := tenantFromCtx(ctx)
+	rows, err := s.pool.Query(ctx,
+		`SELECT TO_CHAR(created_at::date, 'YYYY-MM-DD'), SUM(cost_usd), SUM(tokens_in), SUM(tokens_out), COUNT(*)
+		 FROM runs
+		 WHERE tenant_id = $1 AND created_at >= NOW() - ($2 || ' days')::interval
+		 GROUP BY created_at::date
+		 ORDER BY created_at::date`, tid, fmt.Sprintf("%d", days))
+	if err != nil {
+		return nil, fmt.Errorf("dashboard cost trend: %w", err)
+	}
+	defer rows.Close()
+	var result []cost.DailyCost
+	for rows.Next() {
+		var dc cost.DailyCost
+		if err := rows.Scan(&dc.Date, &dc.CostUSD, &dc.TokensIn, &dc.TokensOut, &dc.RunCount); err != nil {
+			return nil, fmt.Errorf("scan cost trend: %w", err)
+		}
+		result = append(result, dc)
+	}
+	if result == nil {
+		result = []cost.DailyCost{}
 	}
 	return result, rows.Err()
 }
@@ -812,9 +838,9 @@ func (s *DashboardService) CostByProject(ctx context.Context) ([]dashboard.Proje
 	return s.store.DashboardCostByProject(ctx)
 }
 
-// CostTrend delegates to the cost time series with all-projects aggregation.
+// CostTrend returns daily cost aggregated across all projects.
 func (s *DashboardService) CostTrend(ctx context.Context, days int) ([]cost.DailyCost, error) {
-	return s.store.CostTimeSeries(ctx, "", days)
+	return s.store.DashboardCostTrend(ctx, days)
 }
 ```
 
@@ -840,6 +866,9 @@ func (m *mockStore) DashboardModelUsage(_ context.Context) ([]dashboard.ModelUsa
 }
 func (m *mockStore) DashboardCostByProject(_ context.Context) ([]dashboard.ProjectCost, error) {
 	return []dashboard.ProjectCost{}, nil
+}
+func (m *mockStore) DashboardCostTrend(_ context.Context, _ int) ([]cost.DailyCost, error) {
+	return []cost.DailyCost{}, nil
 }
 ```
 
@@ -1008,7 +1037,7 @@ In `cmd/codeforge/main.go`, after line 462 (`costSvc := service.NewCostService(s
 	dashboardSvc := service.NewDashboardService(store)
 ```
 
-And in the Handlers struct literal (after `Cost: costSvc,` around line 628), add:
+And in the Handlers struct literal (after `GoalDiscovery: goalSvc,` at line 662), add:
 
 ```go
 		Dashboard:        dashboardSvc,
@@ -1474,8 +1503,12 @@ interface ProjectCardProps {
   health: ProjectHealth | undefined;
   onDelete: (id: string) => void;
   onEdit: (project: Project) => void;
+  onDetectStack?: (id: string) => void; // PRESERVE existing prop
+  detecting?: boolean;                   // PRESERVE existing prop
 }
 ```
+
+**Important:** The existing `onDetectStack` and `detecting` props must be preserved — they are used by the stack detection feature in the current codebase.
 
 Card layout (from design doc Section 2):
 - Header: HealthDot + project name + provider badge
@@ -1628,12 +1661,14 @@ git commit -m "i18n: add dashboard KPI, health, chart, and timeline translation 
 ## Task 17: Update mock stores for Go compilation (Go)
 
 **Files:**
-- Modify: `internal/adapter/http/handlers_test.go` (add mock methods)
-- Modify: any other test files with mockStore that fail to compile
+- Modify: `internal/adapter/http/handlers_test.go` (add mock methods to `mockStore`)
+- Modify: `internal/service/project_test.go` (add mock methods to `mockStore`, verified: `var _ database.Store = (*mockStore)(nil)` at line 49)
+- Modify: `internal/service/runtime_test.go` (add mock methods to `runtimeMockStore`)
+- Modify: `internal/service/cost_test.go` (uses `costMockStore` which wraps `runtimeMockStore` via composition — only `runtimeMockStore` needs methods)
 
 **Step 1: Add dashboard mock methods to all mockStores**
 
-Every mockStore that implements `database.Store` needs the 6 new methods. Add no-op implementations returning empty results.
+Every mockStore that implements `database.Store` needs the 7 new methods (6 original + `DashboardCostTrend`). Add no-op implementations returning empty results.
 
 **Step 2: Full test suite**
 
@@ -1652,38 +1687,40 @@ git commit -m "test: add dashboard mock methods to all test mockStores"
 ## Task 18: E2E smoke test (Frontend)
 
 **Files:**
-- Create: `frontend/e2e/dashboard.spec.ts`
+- Modify: `frontend/e2e/dashboard.spec.ts` (add new tests to existing file)
 
-**Step 1: Write basic E2E test**
+**Step 1: Add dashboard polish tests to existing E2E file**
+
+The existing `frontend/e2e/dashboard.spec.ts` already uses the fixture-based auth pattern.
+Add new tests to the existing file (do NOT create a new file with manual login).
+
+**IMPORTANT:** Use `import { expect, test } from "./fixtures"` — NOT `@playwright/test`.
+The fixture auto-injects auth via route interception (see `frontend/e2e/fixtures.ts`).
+
+Add these tests to the existing `dashboard.spec.ts`:
 
 ```typescript
-import { expect, test } from "@playwright/test";
+// Add to existing test.describe block in frontend/e2e/dashboard.spec.ts
 
-test.describe("Dashboard", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.fill('[id="email"]', "admin@localhost");
-    await page.fill('[id="password"]', "Changeme123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("/");
+  test("renders KPI strip with stats", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByText("Cost Today")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Active Runs")).toBeVisible();
+    await expect(page.getByText("Success Rate")).toBeVisible();
   });
 
-  test("renders KPI strip", async ({ page }) => {
-    await expect(page.locator("text=Cost Today")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator("text=Active Runs")).toBeVisible();
-    await expect(page.locator("text=Success Rate")).toBeVisible();
+  test("renders chart panel with tabs", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByText("Cost Trend")).toBeVisible({ timeout: 10_000 });
   });
 
-  test("renders project cards", async ({ page }) => {
-    // At minimum the "New Project" button should be visible
-    await expect(page.getByRole("button", { name: /New Project/i })).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("opens create project modal", async ({ page }) => {
+  test("opens create project modal via header button", async ({ page }) => {
+    await page.goto("/");
     await page.getByRole("button", { name: /New Project/i }).click();
-    await expect(page.locator("text=Create")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: "Create Project" })).toBeVisible({
+      timeout: 5_000,
+    });
   });
-});
 ```
 
 **Step 2: Commit**
