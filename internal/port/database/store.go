@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
+	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
@@ -35,7 +36,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
-	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 )
 
