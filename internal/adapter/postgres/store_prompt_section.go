@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 )
 
@@ -19,17 +21,11 @@ func (s *Store) ListPromptSections(ctx context.Context, scope string) ([]prompt.
 	if err != nil {
 		return nil, fmt.Errorf("list prompt sections: %w", err)
 	}
-	defer rows.Close()
-
-	var sections []prompt.SectionRow
-	for rows.Next() {
-		var r prompt.SectionRow
-		if err := rows.Scan(&r.ID, &r.Name, &r.Scope, &r.Content, &r.Priority, &r.SortOrder, &r.Enabled, &r.Merge); err != nil {
-			return nil, fmt.Errorf("scan prompt section: %w", err)
-		}
-		sections = append(sections, r)
-	}
-	return sections, rows.Err()
+	return scanRows(rows, func(r pgx.Rows) (prompt.SectionRow, error) {
+		var row prompt.SectionRow
+		err := r.Scan(&row.ID, &row.Name, &row.Scope, &row.Content, &row.Priority, &row.SortOrder, &row.Enabled, &row.Merge)
+		return row, err
+	})
 }
 
 // UpsertPromptSection creates or updates a prompt section.

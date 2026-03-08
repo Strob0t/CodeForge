@@ -58,6 +58,23 @@ func orEmpty[T any](items []T) []T {
 	return items
 }
 
+// scanRows iterates pgx.Rows, applying a scan function to each row.
+func scanRows[T any](rows pgx.Rows, scan func(pgx.Rows) (T, error)) ([]T, error) {
+	defer rows.Close()
+	var result []T
+	for rows.Next() {
+		item, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return orEmpty(result), nil
+}
+
 // notFoundWrap checks whether err is pgx.ErrNoRows and, if so, wraps
 // domain.ErrNotFound with the given message. Otherwise it wraps the
 // original error.

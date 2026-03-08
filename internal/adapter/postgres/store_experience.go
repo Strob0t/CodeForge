@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/experience"
 )
 
@@ -53,21 +55,15 @@ func (s *Store) ListExperienceEntries(ctx context.Context, projectID string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("list experience entries: %w", err)
 	}
-	defer rows.Close()
-
-	var result []experience.Entry
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (experience.Entry, error) {
 		var e experience.Entry
-		if err := rows.Scan(
+		err := r.Scan(
 			&e.ID, &e.TenantID, &e.ProjectID, &e.TaskDescription,
 			&e.ResultOutput, &e.ResultCost, &e.ResultStatus, &e.RunID,
 			&e.Confidence, &e.HitCount, &e.CreatedAt, &e.LastUsedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan experience entry: %w", err)
-		}
-		result = append(result, e)
-	}
-	return result, rows.Err()
+		)
+		return e, err
+	})
 }
 
 // DeleteExperienceEntry removes an experience entry by ID.

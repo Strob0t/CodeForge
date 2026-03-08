@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
 )
 
@@ -51,20 +53,14 @@ func (s *Store) ListSkills(ctx context.Context, projectID string) ([]skill.Skill
 	if err != nil {
 		return nil, fmt.Errorf("list skills: %w", err)
 	}
-	defer rows.Close()
-
-	var result []skill.Skill
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (skill.Skill, error) {
 		var sk skill.Skill
-		if err := rows.Scan(
+		err := r.Scan(
 			&sk.ID, &sk.TenantID, &sk.ProjectID, &sk.Name, &sk.Description,
 			&sk.Language, &sk.Code, &sk.Tags, &sk.Enabled, &sk.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan skill: %w", err)
-		}
-		result = append(result, sk)
-	}
-	return result, rows.Err()
+		)
+		return sk, err
+	})
 }
 
 // UpdateSkill updates a skill in the database.

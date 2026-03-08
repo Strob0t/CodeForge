@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 )
 
@@ -51,21 +53,15 @@ func (s *Store) ListMicroagents(ctx context.Context, projectID string) ([]microa
 	if err != nil {
 		return nil, fmt.Errorf("list microagents: %w", err)
 	}
-	defer rows.Close()
-
-	var result []microagent.Microagent
-	for rows.Next() {
+	return scanRows(rows, func(r pgx.Rows) (microagent.Microagent, error) {
 		var m microagent.Microagent
-		if err := rows.Scan(
+		err := r.Scan(
 			&m.ID, &m.TenantID, &m.ProjectID, &m.Name, &m.Type,
 			&m.TriggerPattern, &m.Description, &m.Prompt, &m.Enabled,
 			&m.CreatedAt, &m.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan microagent: %w", err)
-		}
-		result = append(result, m)
-	}
-	return result, rows.Err()
+		)
+		return m, err
+	})
 }
 
 // UpdateMicroagent updates a microagent in the database.
