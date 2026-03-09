@@ -44,6 +44,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/projects", h.ListProjects)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.CreateProject)
 		r.Get("/projects/remote-branches", h.ListRemoteBranches)
+
+		// Batch project operations
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/delete", h.BatchDeleteProjects)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/pull", h.BatchPullProjects)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/status", h.BatchStatusProjects)
+
 		r.Get("/projects/{id}", h.GetProject)
 		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.DeleteProject)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}", h.UpdateProject)
