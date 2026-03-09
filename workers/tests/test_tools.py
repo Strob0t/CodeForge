@@ -351,14 +351,24 @@ async def test_registry_execute_unknown_tool(workspace: Path) -> None:
 
 def test_build_default_registry_has_all_tools() -> None:
     registry = build_default_registry()
-    expected = {"bash", "edit_file", "glob_files", "list_directory", "read_file", "search_files", "write_file"}
+    expected = {
+        "bash",
+        "edit_file",
+        "glob_files",
+        "list_directory",
+        "read_file",
+        "search_files",
+        "write_file",
+        "search_skills",
+        "create_skill",
+    }
     assert set(registry.tool_names) == expected
 
 
 def test_build_default_registry_openai_format() -> None:
     registry = build_default_registry()
     tools = registry.get_openai_tools()
-    assert len(tools) == 7
+    assert len(tools) == 9
     for tool in tools:
         assert tool["type"] == "function"
         assert "name" in tool["function"]
