@@ -90,6 +90,7 @@ type Handlers struct {
 	Routing          *service.RoutingService
 	A2A              *service.A2AService
 	GoalDiscovery    *service.GoalDiscoveryService
+	Dashboard        *service.DashboardService
 	Limits           *config.Limits
 }
 

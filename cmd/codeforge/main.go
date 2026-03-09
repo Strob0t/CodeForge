@@ -460,6 +460,7 @@ func run() error {
 
 	// --- Cost Service (Phase 7) ---
 	costSvc := service.NewCostService(store)
+	dashboardSvc := service.NewDashboardService(store)
 
 	// --- Settings Service ---
 	settingsSvc := service.NewSettingsService(store)
@@ -660,6 +661,7 @@ func run() error {
 		ActiveWork:       activeWorkSvc,
 		Routing:          routingSvc,
 		GoalDiscovery:    goalSvc,
+		Dashboard:        dashboardSvc,
 		AutoAgent:        autoAgentSvc,
 		Limits:           &cfg.Limits,
 	}

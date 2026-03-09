@@ -219,6 +219,15 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/projects/{id}/costs/runs", h.ProjectRecentRuns)
 		r.Get("/runs/{id}/costs/by-tool", h.RunCostByTool)
 
+		// Dashboard aggregation
+		r.Get("/dashboard/stats", h.DashboardStats)
+		r.Get("/dashboard/charts/cost-trend", h.DashboardCostTrend)
+		r.Get("/dashboard/charts/run-outcomes", h.DashboardRunOutcomes)
+		r.Get("/dashboard/charts/agent-performance", h.DashboardAgentPerformance)
+		r.Get("/dashboard/charts/model-usage", h.DashboardModelUsage)
+		r.Get("/dashboard/charts/cost-by-project", h.DashboardCostByProject)
+		r.Get("/projects/{id}/health", h.ProjectHealth)
+
 		// Roadmap (nested under projects)
 		r.Get("/projects/{id}/roadmap", h.GetProjectRoadmap)
 		r.Post("/projects/{id}/roadmap", h.CreateProjectRoadmap)

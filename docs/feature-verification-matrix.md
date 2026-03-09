@@ -30,45 +30,45 @@ A feature is **partially verified** when:
 
 | # | Feature | Phase | Go Unit | Py Unit | E2E | Contract | Smoke | Verified | Last Checked |
 |---|---------|-------|---------|---------|-----|----------|-------|----------|--------------|
-| 1 | Project CRUD + Git Ops | 1-2 | FAIL | N/A | PASS | N/A | -- | NO | 2026-03-08 |
+| 1 | Project CRUD + Git Ops | 1-2 | PASS | N/A | PASS | N/A | -- | partial | 2026-03-08 |
 | 2 | Auth / JWT / RBAC | 10 | PASS | N/A | PASS | N/A | -- | partial | 2026-03-08 |
-| 3 | Multi-Tenancy (tenant isolation) | 4 | FAIL | N/A | PASS | N/A | -- | NO | 2026-03-08 |
+| 3 | Multi-Tenancy (tenant isolation) | 4 | PASS | N/A | PASS | N/A | -- | partial | 2026-03-08 |
 | 4 | LLM Model Registry + Auto-Discovery | 22 | PASS | PASS | PASS | N/A | -- | partial | 2026-03-08 |
 | 5 | LLM Key Management | 12B | PASS | PASS | PASS | N/A | -- | partial | 2026-03-08 |
-| 6 | Conversation (Simple Chat) | 17 | PASS | PASS | PASS | -- | -- | NO | 2026-03-08 |
-| 7 | Conversation (Agentic + Tools) | 17 | PASS | PASS | PASS | -- | -- | NO | 2026-03-08 |
-| 8 | Agent Tools (Read/Write/Edit/Bash/...) | 17 | N/A | NONE | N/A | N/A | -- | NO | 2026-03-08 |
+| 6 | Conversation (Simple Chat) | 17 | PASS | PASS | PASS | PASS | -- | partial | 2026-03-08 |
+| 7 | Conversation (Agentic + Tools) | 17 | PASS | PASS | PASS | PASS | -- | partial | 2026-03-08 |
+| 8 | Agent Tools (Read/Write/Edit/Bash/...) | 17 | N/A | PASS | N/A | N/A | -- | partial | 2026-03-08 |
 | 9 | HITL Approval Flow | 17 | PASS | NONE | NONE | N/A | -- | NO | 2026-03-08 |
 | 10 | Policy Layer | 4 | PASS | N/A | PASS | N/A | -- | partial | 2026-03-08 |
 | 11 | Modes System (21 built-in) | 5 | PASS | N/A | PASS | N/A | -- | partial | 2026-03-08 |
 | 12 | MCP Server Integration | 15 | PASS | PASS | PASS | N/A | -- | partial | 2026-03-08 |
 | 13 | LSP Code Intelligence | 15D | NONE | N/A | PASS | N/A | -- | NO | 2026-03-08 |
-| 14 | Retrieval (BM25 + Semantic) | 6B | PASS | PASS | PASS | -- | -- | NO | 2026-03-08 |
-| 15 | GraphRAG | 6D | PASS | PASS | PASS | -- | -- | NO | 2026-03-08 |
-| 16 | RepoMap (tree-sitter) | 6A | PASS | PASS | N/A | -- | -- | NO | 2026-03-08 |
+| 14 | Retrieval (BM25 + Semantic) | 6B | PASS | PASS | PASS | PASS | -- | partial | 2026-03-08 |
+| 15 | GraphRAG | 6D | PASS | PASS | PASS | PASS | -- | partial | 2026-03-08 |
+| 16 | RepoMap (tree-sitter) | 6A | PASS | PASS | N/A | PASS | -- | partial | 2026-03-08 |
 | 17 | Context Optimizer | 5D | PASS | NONE | N/A | N/A | -- | NO | 2026-03-08 |
-| 18 | Memory System (vector store) | 22B | PASS | NONE | N/A | -- | -- | NO | 2026-03-08 |
-| 19 | Experience Pool (@exp_cache) | 22B | PASS | NONE | N/A | N/A | -- | NO | 2026-03-08 |
+| 18 | Memory System (vector store) | 22B | PASS | PASS | N/A | PASS | -- | partial | 2026-03-08 |
+| 19 | Experience Pool (@exp_cache) | 22B | PASS | PASS | N/A | N/A | -- | partial | 2026-03-08 |
 | 20 | Microagent System | 22C | PASS | NONE | N/A | N/A | -- | NO | 2026-03-08 |
 | 21 | Skills System | 22D | PASS | NONE | N/A | N/A | -- | NO | 2026-03-08 |
 | 22 | Cost Tracking | 7 | PASS | PASS | PASS | N/A | -- | partial | 2026-03-08 |
-| 23 | Benchmark System | 26 | PASS | PASS | PASS | -- | -- | NO | 2026-03-08 |
-| 24 | Evaluation (GEMMAS, hybrid, rollout) | 28 | PASS | PASS | N/A | -- | -- | NO | 2026-03-08 |
+| 23 | Benchmark System | 26 | PASS | PASS | PASS | PASS | -- | partial | 2026-03-08 |
+| 24 | Evaluation (GEMMAS, hybrid, rollout) | 28 | PASS | PASS | N/A | PASS | -- | partial | 2026-03-08 |
 | 25 | Routing (Complexity/MAB/Meta) | 29 | PASS | PASS | PASS | N/A | -- | partial | 2026-03-08 |
 | 26 | Orchestration (Plan/Execute/Review) | 5 | PASS | NONE | N/A | N/A | -- | NO | 2026-03-08 |
 | 27 | Trust Annotations | 23A | PASS | PASS | N/A | N/A | -- | partial | 2026-03-08 |
 | 28 | Quarantine (risk scoring) | 23B | PASS | NONE | N/A | N/A | -- | NO | 2026-03-08 |
-| 29 | A2A Protocol (federation) | 27 | NONE | PASS | N/A | -- | -- | NO | 2026-03-08 |
-| 30 | Handoff (agent-to-agent) | 23B | PASS | PASS | N/A | -- | -- | NO | 2026-03-08 |
+| 29 | A2A Protocol (federation) | 27 | PASS | PASS | N/A | PASS | -- | partial | 2026-03-08 |
+| 30 | Handoff (agent-to-agent) | 23B | PASS | PASS | N/A | PASS | -- | partial | 2026-03-08 |
 
 ## Summary
 
 | Status | Count | Percentage |
 |--------|-------|------------|
 | Verified (all layers PASS) | 0 | 0% |
-| Partially verified | 9 | 30% |
-| Not verified | 21 | 70% |
-| Blocked by FAIL | 2 | 7% |
+| Partially verified | 24 | 80% |
+| Not verified | 6 | 20% |
+| Blocked by FAIL | 0 | 0% |
 
 ## Critical Features (must pass before release)
 
@@ -76,43 +76,43 @@ Features 1-10, 22-23 are critical. Current status:
 
 | # | Feature | Blocking Issue |
 |---|---------|---------------|
-| 1 | Project CRUD | Go Store tests FAILING |
-| 3 | Multi-Tenancy | Go Store tests FAILING |
-| 6 | Conversation (Simple) | No NATS contract tests |
-| 7 | Conversation (Agentic) | No NATS contract tests, no smoke test |
-| 8 | Agent Tools | Python: 0 tests for 13 tool files |
+| 1 | Project CRUD | No smoke test |
+| 3 | Multi-Tenancy | No smoke test |
+| 6 | Conversation (Simple) | No smoke test |
+| 7 | Conversation (Agentic) | No smoke test |
+| 8 | Agent Tools | No E2E tests |
 | 9 | HITL Approval | No Python tests, no E2E tests |
 | 22 | Cost Tracking | No smoke test |
-| 23 | Benchmarks | No NATS contract tests, no smoke test |
+| 23 | Benchmarks | No smoke test |
 
 ## NATS Contract Test Coverage
 
 | Subject | Go -> JSON | JSON -> Python | Python -> JSON | JSON -> Go | Status |
 |---------|-----------|----------------|----------------|-----------|--------|
-| conversation.run.start | -- | -- | -- | -- | not started |
-| conversation.run.complete | -- | -- | -- | -- | not started |
-| benchmark.run.request | -- | -- | -- | -- | not started |
-| benchmark.run.result | -- | -- | -- | -- | not started |
-| evaluation.gemmas.request | -- | -- | -- | -- | not started |
-| evaluation.gemmas.result | -- | -- | -- | -- | not started |
-| memory.store | -- | -- | -- | -- | not started |
-| memory.recall | -- | -- | -- | -- | not started |
-| memory.recall.result | -- | -- | -- | -- | not started |
-| repomap.generate.request | -- | -- | -- | -- | not started |
-| repomap.generate.result | -- | -- | -- | -- | not started |
-| retrieval.index.request | -- | -- | -- | -- | not started |
-| retrieval.index.result | -- | -- | -- | -- | not started |
-| retrieval.search.request | -- | -- | -- | -- | not started |
-| retrieval.search.result | -- | -- | -- | -- | not started |
-| retrieval.subagent.request | -- | -- | -- | -- | not started |
-| retrieval.subagent.result | -- | -- | -- | -- | not started |
-| graph.build.request | -- | -- | -- | -- | not started |
-| graph.build.result | -- | -- | -- | -- | not started |
-| graph.search.request | -- | -- | -- | -- | not started |
-| graph.search.result | -- | -- | -- | -- | not started |
-| a2a.task.created | -- | -- | -- | -- | not started |
-| a2a.task.complete | -- | -- | -- | -- | not started |
-| handoff.request | -- | -- | -- | -- | not started |
+| conversation.run.start | PASS | PASS | PASS | PASS | PASS |
+| conversation.run.complete | PASS | PASS | PASS | PASS | PASS |
+| benchmark.run.request | PASS | PASS | PASS | PASS | PASS |
+| benchmark.run.result | PASS | PASS | PASS | PASS | PASS |
+| evaluation.gemmas.request | PASS | PASS | PASS | PASS | PASS |
+| evaluation.gemmas.result | PASS | PASS | PASS | PASS | PASS |
+| memory.store | PASS | PASS | PASS | PASS | PASS |
+| memory.recall | PASS | PASS | PASS | PASS | PASS |
+| memory.recall.result | PASS | PASS | PASS | PASS | PASS |
+| repomap.generate.request | PASS | PASS | PASS | PASS | PASS |
+| repomap.generate.result | PASS | PASS | PASS | PASS | PASS |
+| retrieval.index.request | PASS | PASS | PASS | PASS | PASS |
+| retrieval.index.result | PASS | PASS | PASS | PASS | PASS |
+| retrieval.search.request | PASS | PASS | PASS | PASS | PASS |
+| retrieval.search.result | PASS | PASS | PASS | PASS | PASS |
+| retrieval.subagent.request | PASS | PASS | PASS | PASS | PASS |
+| retrieval.subagent.result | PASS | PASS | PASS | PASS | PASS |
+| graph.build.request | PASS | PASS | PASS | PASS | PASS |
+| graph.build.result | PASS | PASS | PASS | PASS | PASS |
+| graph.search.request | PASS | PASS | PASS | PASS | PASS |
+| graph.search.result | PASS | PASS | PASS | PASS | PASS |
+| a2a.task.created | PASS | PASS | PASS | PASS | PASS |
+| a2a.task.complete | PASS | PASS | PASS | PASS | PASS |
+| handoff.request | PASS | PASS | PASS | PASS | PASS |
 
 ## Smoke Test Flow Coverage
 

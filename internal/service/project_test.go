@@ -313,7 +313,7 @@ func (m *mockStore) DashboardStats(_ context.Context) (*dashboard.DashboardStats
 	return &dashboard.DashboardStats{}, nil
 }
 func (m *mockStore) ProjectHealth(_ context.Context, _ string) (*dashboard.ProjectHealth, error) {
-	return &dashboard.ProjectHealth{Sparkline: []float64{}}, nil
+	return &dashboard.ProjectHealth{Level: "critical", Sparkline: []float64{}}, nil
 }
 func (m *mockStore) DashboardRunOutcomes(_ context.Context, _ int) ([]dashboard.RunOutcome, error) {
 	return []dashboard.RunOutcome{}, nil
