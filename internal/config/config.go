@@ -104,7 +104,7 @@ type Config struct {
 
 // Routing holds intelligent model routing configuration (Phase 29).
 type Routing struct {
-	Enabled bool `yaml:"enabled"` // Enable intelligent three-layer routing cascade (default: false)
+	Enabled bool `yaml:"enabled"` // Enable intelligent three-layer routing cascade (default: true)
 }
 
 // Quarantine holds message quarantine system configuration (Phase 23B).
@@ -571,6 +571,9 @@ func Defaults() Config {
 			BlockThreshold:      0.95,
 			MinTrustBypass:      "verified",
 			ExpiryHours:         72,
+		},
+		Routing: Routing{
+			Enabled: true,
 		},
 		Limits: Limits{
 			MaxQueryLength:     2000,

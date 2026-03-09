@@ -248,17 +248,17 @@ func TestParseFlagsShorthand(t *testing.T) {
 
 func TestRoutingDefaults(t *testing.T) {
 	cfg := Defaults()
-	if cfg.Routing.Enabled {
-		t.Error("routing should be disabled by default")
+	if !cfg.Routing.Enabled {
+		t.Error("routing should be enabled by default")
 	}
 }
 
 func TestRoutingEnvOverride(t *testing.T) {
 	cfg := Defaults()
-	t.Setenv("CODEFORGE_ROUTING_ENABLED", "true")
+	t.Setenv("CODEFORGE_ROUTING_ENABLED", "false")
 	loadEnv(&cfg)
-	if !cfg.Routing.Enabled {
-		t.Error("expected routing.enabled=true from env override")
+	if cfg.Routing.Enabled {
+		t.Error("expected routing.enabled=false from env override")
 	}
 }
 
@@ -267,7 +267,7 @@ func TestRoutingYAMLOverride(t *testing.T) {
 	yamlPath := filepath.Join(dir, "test.yaml")
 	content := `
 routing:
-  enabled: true
+  enabled: false
 `
 	if err := os.WriteFile(yamlPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -276,8 +276,8 @@ routing:
 	if err := loadYAML(&cfg, yamlPath); err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Routing.Enabled {
-		t.Error("expected routing.enabled=true from YAML override")
+	if cfg.Routing.Enabled {
+		t.Error("expected routing.enabled=false from YAML override")
 	}
 }
 
