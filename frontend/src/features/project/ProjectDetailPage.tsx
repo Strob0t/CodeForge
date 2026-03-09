@@ -1,13 +1,5 @@
 import { useParams } from "@solidjs/router";
-import {
-  createEffect,
-  createResource,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
@@ -130,18 +122,8 @@ export default function ProjectDetailPage() {
     | "audit"
     | "sessions"
     | "trajectory";
-  const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
+  const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
-
-  // Auto-select "files" tab once on initial load when project has a workspace
-  let initialTabSet = false;
-  createEffect(() => {
-    const p = project();
-    if (!initialTabSet && p?.workspace_path) {
-      initialTabSet = true;
-      setLeftTab("files");
-    }
-  });
 
   // Resizable split + collapsible roadmap
   const [splitRatio, setSplitRatio] = createSignal(DEFAULT_SPLIT);
@@ -506,6 +488,24 @@ export default function ProjectDetailPage() {
                   >
                     <div class="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
                       <div class="flex items-center gap-1 overflow-x-auto scrollbar-none whitespace-nowrap">
+                        <Show when={p().workspace_path}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            class={leftTab() === "files" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                            onClick={() => setLeftTab("files")}
+                          >
+                            Files
+                          </Button>
+                        </Show>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "goals" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("goals")}
+                        >
+                          {t("goals.tab")}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -522,16 +522,6 @@ export default function ProjectDetailPage() {
                         >
                           {t("detail.tab.featuremap")}
                         </Button>
-                        <Show when={p().workspace_path}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            class={leftTab() === "files" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                            onClick={() => setLeftTab("files")}
-                          >
-                            Files
-                          </Button>
-                        </Show>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -539,22 +529,6 @@ export default function ProjectDetailPage() {
                           onClick={() => setLeftTab("warroom")}
                         >
                           War Room
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "goals" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("goals")}
-                        >
-                          {t("goals.tab")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "audit" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("audit")}
-                        >
-                          {t("audit.title")}
                         </Button>
                         <Button
                           variant="ghost"
@@ -571,6 +545,14 @@ export default function ProjectDetailPage() {
                           onClick={() => setLeftTab("trajectory")}
                         >
                           {t("detail.tab.trajectory")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "audit" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("audit")}
+                        >
+                          {t("audit.title")}
                         </Button>
                       </div>
                       <Button
@@ -594,6 +576,16 @@ export default function ProjectDetailPage() {
                         </svg>
                       </Button>
                     </div>
+                    <Show when={leftTab() === "files"}>
+                      <div class="flex-1 min-h-0">
+                        <FilePanel projectId={params.id} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "goals"}>
+                      <div class="flex-1 min-h-0">
+                        <GoalsPanel projectId={params.id} />
+                      </div>
+                    </Show>
                     <Show when={leftTab() === "roadmap"}>
                       <div class="flex-1 overflow-y-auto px-4 pb-4">
                         <RoadmapPanel projectId={params.id} onError={setError} />
@@ -604,24 +596,9 @@ export default function ProjectDetailPage() {
                         <FeatureMapPanel projectId={params.id} onError={setError} />
                       </div>
                     </Show>
-                    <Show when={leftTab() === "files"}>
-                      <div class="flex-1 min-h-0">
-                        <FilePanel projectId={params.id} />
-                      </div>
-                    </Show>
                     <Show when={leftTab() === "warroom"}>
                       <div class="flex-1 min-h-0">
                         <WarRoom projectId={params.id} />
-                      </div>
-                    </Show>
-                    <Show when={leftTab() === "goals"}>
-                      <div class="flex-1 min-h-0">
-                        <GoalsPanel projectId={params.id} />
-                      </div>
-                    </Show>
-                    <Show when={leftTab() === "audit"}>
-                      <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
-                        <AuditTable projectId={params.id} />
                       </div>
                     </Show>
                     <Show when={leftTab() === "sessions"}>
@@ -636,6 +613,11 @@ export default function ProjectDetailPage() {
                           selectedRunId={selectedRunId()}
                           onSelectRun={setSelectedRunId}
                         />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "audit"}>
+                      <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                        <AuditTable projectId={params.id} />
                       </div>
                     </Show>
                   </div>
