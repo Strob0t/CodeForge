@@ -24,6 +24,7 @@ import CompactSettingsPopover from "./CompactSettingsPopover";
 import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
+import OnboardingProgress from "./OnboardingProgress";
 import RoadmapPanel from "./RoadmapPanel";
 import SessionPanel from "./SessionPanel";
 import TrajectoryPanel from "./TrajectoryPanel";
@@ -112,6 +113,20 @@ export default function ProjectDetailPage() {
   const [, { refetch: refetchAgents }] = createResource(
     () => params.id,
     (id) => api.agents.list(id),
+  );
+
+  // Onboarding data
+  const [onboardGoals] = createResource(
+    () => params.id,
+    (pid) => api.goals.list(pid).catch(() => []),
+  );
+  const [onboardRoadmap] = createResource(
+    () => params.id,
+    (pid) => api.roadmap.get(pid).catch(() => null),
+  );
+  const [onboardSessions] = createResource(
+    () => params.id,
+    (pid) => api.sessions.list(pid).catch(() => []),
   );
 
   const [cloning, setCloning] = createSignal(false);
@@ -450,6 +465,17 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
+            {/* Onboarding Progress */}
+            <OnboardingProgress
+              projectId={params.id}
+              hasWorkspace={!!p().workspace_path}
+              hasStack={!!p().config?.detected_languages}
+              hasGoals={(onboardGoals() ?? []).length > 0}
+              hasRoadmap={(onboardRoadmap()?.milestones ?? []).length > 0}
+              hasRuns={(onboardSessions() ?? []).length > 0}
+              onNavigate={(tab) => setLeftTab(tab as LeftTab)}
+            />
+
             {/* Error Banner */}
             <Show when={error()}>
               <div class="mx-4 mt-2 flex-shrink-0">
@@ -727,7 +753,7 @@ export default function ProjectDetailPage() {
                     </div>
                   </Show>
                   <ActiveWorkPanel projectId={params.id} />
-                  <ChatPanel projectId={params.id} />
+                  <ChatPanel projectId={params.id} activeTab={leftTab()} />
                 </div>
               </Show>
 

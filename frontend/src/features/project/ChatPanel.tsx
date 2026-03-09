@@ -19,6 +19,7 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
+import ChatSuggestions from "./ChatSuggestions";
 import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
 import SessionPanel from "./SessionPanel";
@@ -26,6 +27,7 @@ import ToolCallCard from "./ToolCallCard";
 
 interface ChatPanelProps {
   projectId: string;
+  activeTab?: string;
 }
 
 interface ToolCallState {
@@ -727,6 +729,12 @@ export default function ChatPanel(props: ChatPanelProps) {
           </Show>
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Contextual suggestions */}
+        <ChatSuggestions
+          activeTab={props.activeTab ?? "files"}
+          onSelect={(text) => setInput(text)}
+        />
 
         {/* Input area */}
         <div class="border-t border-cf-border p-3 flex-shrink-0" data-shortcut-scope="chat">
