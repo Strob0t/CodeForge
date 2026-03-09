@@ -1680,16 +1680,87 @@ export interface BenchmarkResult {
   rollout_count?: number;
   is_best_rollout?: boolean;
   diversity_score?: number;
+  selected_model?: string;
+  routing_reason?: string;
+  fallback_chain?: string;
+  fallback_count?: number;
+  provider_errors?: string;
 }
 
 /** Matches Go domain/benchmark.CreateRunRequest */
 export interface CreateBenchmarkRunRequest {
-  dataset: string;
+  dataset?: string;
+  suite_id?: string;
   model: string;
   metrics: string[];
-  suite_id?: string;
   benchmark_type?: BenchmarkType;
   exec_mode?: BenchmarkExecMode;
+  provider_config?: ProviderConfig;
+}
+
+/** Universal + provider-specific benchmark task settings. */
+export interface ProviderConfig {
+  max_tasks?: number;
+  task_percentage?: number;
+  difficulty_filter?: string[];
+  shuffle?: boolean;
+  seed?: number;
+  [key: string]: unknown;
+}
+
+/** Model usage stats within a routing report. */
+export interface ModelUsageStats {
+  task_count: number;
+  task_percentage: number;
+  avg_score: number;
+  avg_cost_per_task: number;
+  difficulty_distribution: Record<string, number>;
+}
+
+/** Fallback event detail. */
+export interface FallbackEvent {
+  task_id: string;
+  primary: string;
+  fallback_to: string;
+  reason: string;
+}
+
+/** Provider availability status. */
+export interface ProviderStatus {
+  reachable: boolean;
+  errors: number;
+  error_types: string[];
+}
+
+/** Aggregated routing report for auto-model benchmark runs. */
+export interface RoutingReport {
+  models_used: Record<string, ModelUsageStats>;
+  fallback_events: number;
+  fallback_details: FallbackEvent[];
+  provider_availability: Record<string, ProviderStatus>;
+  system_score: number;
+  system_cost: number;
+}
+
+/** Prompt analysis report from optimization endpoint. */
+export interface PromptAnalysisReport {
+  run_id: string;
+  mode: string;
+  model_family: string;
+  total_tasks: number;
+  failed_tasks: number;
+  failure_rate: number;
+  tactical_fixes: TacticalFix[];
+  strategic_principles: string[];
+}
+
+/** Tactical fix suggestion. */
+export interface TacticalFix {
+  task_id: string;
+  failure_description: string;
+  root_cause: string;
+  proposed_addition: string;
+  confidence: number;
 }
 
 /** Matches Go domain/benchmark.CompareResult */
