@@ -1320,7 +1320,7 @@ export const api = {
       if (opts?.limit) params.set("limit", String(opts.limit));
       const qs = params.toString();
       return request<import("./types").AuditPage>(
-        url`/projects/${projectId}/audit${qs ? `?${qs}` : ""}`,
+        `${url`/projects/${projectId}/audit`}${qs ? `?${qs}` : ""}`,
       );
     },
   },
