@@ -179,6 +179,40 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   });
 
+  // Proactive greeting on first chat open for a project
+  const greetingKey = () => `codeforge:greeted:${props.projectId}`;
+  const [greeted, setGreeted] = createSignal(localStorage.getItem(greetingKey()) === "true");
+
+  createEffect(() => {
+    const convId = activeConversation();
+    const msgs = messages();
+    const key = greetingKey();
+    // Trigger greeting only when:
+    // 1. Conversation is loaded
+    // 2. No messages exist yet (fresh conversation)
+    // 3. Not already greeted for this project
+    // 4. Not currently sending
+    if (convId && msgs && msgs.length === 0 && !greeted() && !sending()) {
+      setGreeted(true);
+      localStorage.setItem(key, "true");
+      const greetingPrompt =
+        "[Project Onboarding] Please greet me and summarize what you know about this project " +
+        "(tech stack, structure, any detected specs or goals). " +
+        "Then help me define goals and create an MVP plan.";
+      setSending(true);
+      api.conversations
+        .send(convId, { content: greetingPrompt })
+        .then(() => refetchMessages())
+        .then(() => scrollToBottom())
+        .catch(() => {
+          // If greeting fails, allow retry next time
+          localStorage.removeItem(key);
+          setGreeted(false);
+        })
+        .finally(() => setSending(false));
+    }
+  });
+
   // --- AG-UI event subscriptions ---
 
   // When a run starts for the active conversation, show the thinking indicator
