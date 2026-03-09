@@ -21,7 +21,7 @@ func NewTaskStoreAdapter(store database.Store) *TaskStoreAdapter {
 }
 
 // Save persists a task via database.Store (implements a2asrv.TaskStore).
-func (a *TaskStoreAdapter) Save(ctx context.Context, task *sdka2a.Task, _ sdka2a.Event, prev sdka2a.TaskVersion) (sdka2a.TaskVersion, error) {
+func (a *TaskStoreAdapter) Save(ctx context.Context, task *sdka2a.Task, _ sdka2a.Event, _ *sdka2a.Task, prev sdka2a.TaskVersion) (sdka2a.TaskVersion, error) {
 	dt := sdkToDomainTask(task, "inbound")
 	if prev == sdka2a.TaskVersionMissing {
 		dt.Version = 1

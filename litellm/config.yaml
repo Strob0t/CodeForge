@@ -47,6 +47,37 @@ model_list:
       model: "mistral/*"
       api_key: "os.environ/MISTRAL_API_KEY"
 
+  # -- OpenRouter --
+  - model_name: "openrouter/*"
+    litellm_params:
+      model: "openrouter/*"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+
+  # -- Cerebras (fast inference) --
+  - model_name: "cerebras/*"
+    litellm_params:
+      model: "cerebras/*"
+      api_key: "os.environ/CEREBRAS_API_KEY"
+
+  # -- GitHub Copilot --
+  - model_name: "github_copilot/*"
+    litellm_params:
+      model: "github_copilot/*"
+
+  # -- Chutes (OpenAI-compatible) --
+  - model_name: "chutes/*"
+    litellm_params:
+      model: "openai/*"
+      api_base: "https://llm.chutes.ai/v1"
+      api_key: "os.environ/CHUTES_API_KEY"
+
+  # -- AihubMix (OpenAI-compatible) --
+  - model_name: "aihubmix/*"
+    litellm_params:
+      model: "openai/*"
+      api_base: "https://aihubmix.com/v1"
+      api_key: "os.environ/AIHUBMIX_API_KEY"
+
 router_settings:
   enable_tag_filtering: true
   # Reduced from 2: app-level retry in llm.py handles remaining retries

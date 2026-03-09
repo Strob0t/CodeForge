@@ -132,6 +132,11 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CHUTES_API_KEY: ${CHUTES_API_KEY:-}
+      AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_SERVICE_NAME: codeforge-litellm
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
@@ -155,10 +160,6 @@ volumes:
     name: codeforge-pgdata
   nats_data:
     name: codeforge-nats-data
-  litellm_data:
-    name: codeforge-litellm-data
-  docs_mcp_data:
-    name: codeforge-docs-mcp-data
 
 networks:
   codeforge:

@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose NO TRANSACTION
 -- Composite indexes on agent_events for multi-tenant queries.
 -- All queries filter by tenant_id; without it as prefix, PG does a full scan.
 
