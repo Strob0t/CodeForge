@@ -137,6 +137,22 @@ func PresetTrustedMountAutonomous() PolicyProfile {
 	}
 }
 
+// PresetSupervisedAskAll returns the "supervised-ask-all" preset.
+// Autonomy level 1 (supervised): all tools require user approval except Read.
+func PresetSupervisedAskAll() PolicyProfile {
+	return PolicyProfile{
+		Name:        "supervised-ask-all",
+		Description: "Supervised mode: all tools require user approval except Read.",
+		Mode:        ModeDefault,
+		Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
+		},
+		Termination: TerminationCondition{
+			MaxSteps: 50,
+		},
+	}
+}
+
 // PresetNames returns the names of all built-in presets.
 func PresetNames() []string {
 	return []string{
@@ -144,6 +160,7 @@ func PresetNames() []string {
 		"headless-safe-sandbox",
 		"headless-permissive-sandbox",
 		"trusted-mount-autonomous",
+		"supervised-ask-all",
 	}
 }
 
@@ -164,6 +181,8 @@ func PresetByName(name string) (PolicyProfile, bool) {
 		return PresetHeadlessPermissiveSandbox(), true
 	case "trusted-mount-autonomous":
 		return PresetTrustedMountAutonomous(), true
+	case "supervised-ask-all":
+		return PresetSupervisedAskAll(), true
 	default:
 		return PolicyProfile{}, false
 	}

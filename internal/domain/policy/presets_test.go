@@ -91,10 +91,56 @@ func TestPresetByNameUnknown(t *testing.T) {
 	}
 }
 
+func TestPresetSupervisedAskAll(t *testing.T) {
+	p := PresetSupervisedAskAll()
+	if p.Name != "supervised-ask-all" {
+		t.Errorf("expected name 'supervised-ask-all', got %q", p.Name)
+	}
+	if p.Mode != ModeDefault {
+		t.Errorf("expected mode %q, got %q", ModeDefault, p.Mode)
+	}
+	if len(p.Rules) != 1 {
+		t.Fatalf("expected exactly 1 rule, got %d", len(p.Rules))
+	}
+	if p.Rules[0].Specifier.Tool != "Read" {
+		t.Errorf("expected rule for tool 'Read', got %q", p.Rules[0].Specifier.Tool)
+	}
+	if p.Rules[0].Decision != DecisionAllow {
+		t.Errorf("expected decision %q, got %q", DecisionAllow, p.Rules[0].Decision)
+	}
+	if p.Termination.MaxSteps != 50 {
+		t.Errorf("expected max_steps 50, got %d", p.Termination.MaxSteps)
+	}
+}
+
+func TestPresetSupervisedAskAllByName(t *testing.T) {
+	p, ok := PresetByName("supervised-ask-all")
+	if !ok {
+		t.Fatal("expected preset 'supervised-ask-all' to be found")
+	}
+	if p.Name != "supervised-ask-all" {
+		t.Errorf("expected name 'supervised-ask-all', got %q", p.Name)
+	}
+}
+
+func TestPresetSupervisedAskAllInNames(t *testing.T) {
+	names := PresetNames()
+	found := false
+	for _, n := range names {
+		if n == "supervised-ask-all" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected 'supervised-ask-all' in PresetNames()")
+	}
+}
+
 func TestPresetNames(t *testing.T) {
 	names := PresetNames()
-	if len(names) != 4 {
-		t.Fatalf("expected 4 preset names, got %d", len(names))
+	if len(names) != 5 {
+		t.Fatalf("expected 5 preset names, got %d", len(names))
 	}
 }
 
