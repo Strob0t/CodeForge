@@ -260,17 +260,14 @@
   - Parse LiteLLM exceptions: `AuthenticationError` → "auth", `BudgetExceededError` / status 402 → "billing", `RateLimitError` → "rate_limit"
   - Feed classification to rate tracker on failure
 
-- [ ] F3.4: Add retry-with-fallback in agent loop LLM call path
+- [x] (2026-03-09) F3.4: Add retry-with-fallback in agent loop LLM call path
   - File: `workers/codeforge/agent_loop.py`
-  - When primary model fails with billing/auth error, call `rate_tracker.record_error()` and retry with next model from `fallback_models`
-  - Currently: exception propagates up and kills the conversation
-  - After fix: transparent fallback to next available provider
+  - Wired `classify_error_type()` + `get_tracker().record_error()` into `_try_model_fallback`
+  - Provider extracted from model string (e.g., "anthropic" from "anthropic/claude-sonnet-4")
 
-- [ ] F3.5: Enable routing by default when multiple providers are configured
-  - File: `internal/config/config.go` or env var default
-  - Current: `CODEFORGE_ROUTING_ENABLED` defaults to `false`
-  - Change: Default to `true` when LiteLLM has 2+ providers configured
-  - Alternatively: add `CODEFORGE_ROUTING_AUTO=true` to enable auto-detection
+- [x] (2026-03-09) F3.5: Enable routing by default when multiple providers are configured
+  - File: `internal/config/config.go` — `Defaults()` now sets `Routing.Enabled: true`
+  - Override: `CODEFORGE_ROUTING_ENABLED=false` or YAML `routing.enabled: false`
 
 - [ ] F3.6: Run test — verify fallback works when primary provider has billing error
   - Setup: Configure Anthropic (exhausted) + Mistral (working)
@@ -294,12 +291,10 @@
   - Call: `api.files.write(projectId, path, content)` on submit
   - Show: toast on success/error
 
-- [ ] F1.3: Add "Upload File" button with native file picker
+- [x] (2026-03-09) F1.3: Add "Upload File" button with native file picker
   - File: `frontend/src/features/project/FilePanel.tsx`
-  - Add: Button next to "Create File"
-  - Use: `<input type="file">` with `FileReader` to read content
-  - Call: `api.files.write(projectId, fileName, fileContent)` on upload
-  - Show: toast on success/error, refresh file tree
+  - Upload button with SVG icon in SidebarHeader, hidden `<input type="file">`, FileReader handler
+  - Calls `api.files.write()`, shows toast, opens uploaded file in editor
 
 - [ ] F1.4: Test file creation and upload via browser
   - Manual: Create a file via the new UI button, verify it appears in file tree
@@ -746,5 +741,6 @@
 
 - [x] Define critical feature set: features 1-10 + 22-23 (in `scripts/verify-features.sh`)
 - [x] (2026-03-09) Add verification gate as CI job (can be set as required check)
-- [ ] Non-critical features (A2A, LSP, Handoff, etc.): warn but don't block (future enhancement)
+- [x] (2026-03-09) Non-critical features (A2A, LSP, Handoff, etc.): warn but don't block
+  - Added `warn_non_critical()` to `scripts/verify-features.sh` — emits `::warning::` GitHub Actions annotations
 - [ ] Store historical verification results for trend tracking (future enhancement)
