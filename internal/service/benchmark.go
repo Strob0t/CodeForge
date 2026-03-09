@@ -150,6 +150,22 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 		}
 	}
 
+	// Resolve provider info from suite (if suite-based run).
+	var providerName string
+	var providerConfig json.RawMessage
+	if run.SuiteID != "" {
+		suite, sErr := s.store.GetBenchmarkSuite(ctx, run.SuiteID)
+		if sErr != nil {
+			slog.Warn("failed to load suite for run, falling back to dataset path", "suite_id", run.SuiteID, "error", sErr)
+		} else {
+			providerName = suite.ProviderName
+			providerConfig = mergeProviderConfig(suite.Config, req.ProviderConfig)
+			if run.BenchmarkType == "" {
+				run.BenchmarkType = suite.Type
+			}
+		}
+	}
+
 	payload := messagequeue.BenchmarkRunRequestPayload{
 		RunID:              run.ID,
 		TenantID:           tenantctx.FromContext(ctx),
@@ -163,6 +179,8 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 		HybridVerification: run.HybridVerification,
 		RolloutCount:       run.RolloutCount,
 		RolloutStrategy:    run.RolloutStrategy,
+		ProviderName:       providerName,
+		ProviderConfig:     providerConfig,
 	}
 
 	data, err := json.Marshal(payload)
@@ -180,6 +198,29 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 
 	slog.Info("benchmark run dispatched to worker", "run_id", run.ID, "model", run.Model, "dataset", run.Dataset)
 	return run, nil
+}
+
+// mergeProviderConfig merges suite-level config with request-level overrides.
+func mergeProviderConfig(suiteConfig, requestConfig json.RawMessage) json.RawMessage {
+	if len(requestConfig) == 0 || string(requestConfig) == "null" {
+		return suiteConfig
+	}
+	if len(suiteConfig) == 0 || string(suiteConfig) == "null" {
+		return requestConfig
+	}
+	var base map[string]json.RawMessage
+	if err := json.Unmarshal(suiteConfig, &base); err != nil {
+		return requestConfig
+	}
+	var override map[string]json.RawMessage
+	if err := json.Unmarshal(requestConfig, &override); err != nil {
+		return suiteConfig
+	}
+	for k, v := range override {
+		base[k] = v
+	}
+	merged, _ := json.Marshal(base) //nolint:errcheck // best effort
+	return merged
 }
 
 // GetRun retrieves a benchmark run by ID.
