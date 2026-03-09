@@ -16,7 +16,8 @@ export type AGUIEventType =
   | "agui.tool_result"
   | "agui.state_delta"
   | "agui.step_started"
-  | "agui.step_finished";
+  | "agui.step_finished"
+  | "agui.goal_proposal";
 
 export interface AGUIRunStarted {
   run_id: string;
@@ -60,6 +61,16 @@ export interface AGUIStepFinished {
   step_id: string;
   status: string;
 }
+export interface AGUIGoalProposal {
+  run_id: string;
+  proposal_id: string;
+  action: "create" | "update" | "delete";
+  kind: "vision" | "requirement" | "constraint" | "state" | "context";
+  title: string;
+  content: string;
+  priority: number;
+  goal_id?: string;
+}
 
 /** Discriminated map from AG-UI event type to its typed payload. */
 export interface AGUIEventMap {
@@ -71,6 +82,7 @@ export interface AGUIEventMap {
   "agui.state_delta": AGUIStateDelta;
   "agui.step_started": AGUIStepStarted;
   "agui.step_finished": AGUIStepFinished;
+  "agui.goal_proposal": AGUIGoalProposal;
 }
 
 function buildWSURL(): string {
