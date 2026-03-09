@@ -675,6 +675,21 @@ See `.env.example` for all configurable values.
 | CODEFORGE_LLM_BACKOFF_BASE | 2.0                                      | Exponential backoff base (sec)  |
 | CODEFORGE_LLM_BACKOFF_MAX  | 60.0                                     | Maximum backoff cap (sec)       |
 | CODEFORGE_LLM_TIMEOUT      | 120.0                                    | HTTP request timeout (sec)      |
+| CODEFORGE_AGENT_CONTEXT_ENABLED | false                                | Enable context optimizer for conversations |
+| CODEFORGE_AGENT_CONTEXT_BUDGET | 2048                                  | Token budget for context entries |
+| CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE | 512                           | Tokens reserved for prompt       |
+| CODEFORGE_QUARANTINE_ENABLED | false                                   | Enable message quarantine system |
+| CODEFORGE_QUARANTINE_THRESHOLD | 0.7                                  | Risk score for quarantine hold   |
+| CODEFORGE_QUARANTINE_BLOCK_THRESHOLD | 0.95                           | Risk score for immediate block   |
+| CODEFORGE_QUARANTINE_MIN_TRUST_BYPASS | verified                       | Min trust level to bypass quarantine |
+| CODEFORGE_QUARANTINE_EXPIRY_HOURS | 72                                | Hours until unreviewed messages expire |
+| CODEFORGE_LSP_ENABLED       | false                                    | Enable LSP integration           |
+| CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED | false                          | Enable confidence-based review routing |
+| CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD | 0.7                      | Steps below this get routed to review |
+| CODEFORGE_ORCH_REVIEW_ROUTER_MODEL |                                  | LLM model for review evaluation  |
+| CODEFORGE_COPILOT_ENABLED   | false                                    | Enable GitHub Copilot token exchange |
+| CODEFORGE_ROUTING_ENABLED   | false                                    | Enable hybrid intelligent routing |
+| CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable experience pool caching   |
 
 ### Distributed Tracing (OpenTelemetry)
 

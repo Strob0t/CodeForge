@@ -75,18 +75,30 @@ func (s *ConversationService) IsAgentic(ctx context.Context, conversationID stri
 }
 
 // buildConversationContextEntries assembles context entries for a conversation run
-// when ContextEnabled is true and the context optimizer is wired.
+// when ContextEnabled is true and the context optimizer is wired. The history
+// parameter drives the adaptive budget: early turns get the full budget, long
+// conversations get progressively less (or zero) injected context.
 func (s *ConversationService) buildConversationContextEntries(
 	ctx context.Context,
 	projectID, userMessage, conversationID string,
+	history []messagequeue.ConversationMessagePayload,
 ) []messagequeue.ContextEntryPayload {
 	if s.contextOpt == nil || s.agentCfg == nil || !s.agentCfg.ContextEnabled {
 		return nil
 	}
 
+	budget := AdaptiveContextBudget(s.agentCfg.ContextBudget, history)
+	if budget <= 0 {
+		slog.Debug("adaptive context budget is zero, skipping context injection",
+			"conversation_id", conversationID,
+			"history_messages", len(history),
+		)
+		return nil
+	}
+
 	entries, err := s.contextOpt.BuildConversationContext(ctx, projectID, userMessage, "",
 		ConversationContextOpts{
-			Budget:        s.agentCfg.ContextBudget,
+			Budget:        budget,
 			PromptReserve: s.agentCfg.ContextPromptReserve,
 		})
 	if err != nil {
@@ -104,6 +116,8 @@ func (s *ConversationService) buildConversationContextEntries(
 	slog.Info("conversation context entries built",
 		"conversation_id", conversationID,
 		"entries", len(entries),
+		"budget", budget,
+		"history_messages", len(history),
 	)
 	return toContextEntryPayloads(entries)
 }
@@ -238,7 +252,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	}
 
 	// Build context entries for the conversation run.
-	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, req.Content, conversationID)
+	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, req.Content, conversationID, protoMessages)
 
 	// Resolve per-user provider API key (if configured).
 	providerAPIKey := s.resolveProviderAPIKey(ctx, req.UserID, model)
@@ -418,7 +432,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 	}
 
 	// Build context entries for the conversation run.
-	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID)
+	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID, protoMessages)
 
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{

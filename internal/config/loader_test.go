@@ -281,6 +281,74 @@ routing:
 	}
 }
 
+func TestAgentContextEnvOverride(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_AGENT_CONTEXT_ENABLED", "true")
+	t.Setenv("CODEFORGE_AGENT_CONTEXT_BUDGET", "4096")
+	t.Setenv("CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE", "1024")
+	loadEnv(&cfg)
+	if !cfg.Agent.ContextEnabled {
+		t.Error("expected agent.context_enabled=true from env override")
+	}
+	if cfg.Agent.ContextBudget != 4096 {
+		t.Errorf("expected context_budget=4096, got %d", cfg.Agent.ContextBudget)
+	}
+	if cfg.Agent.ContextPromptReserve != 1024 {
+		t.Errorf("expected context_prompt_reserve=1024, got %d", cfg.Agent.ContextPromptReserve)
+	}
+}
+
+func TestQuarantineEnvOverride(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_QUARANTINE_ENABLED", "true")
+	t.Setenv("CODEFORGE_QUARANTINE_THRESHOLD", "0.5")
+	t.Setenv("CODEFORGE_QUARANTINE_BLOCK_THRESHOLD", "0.85")
+	t.Setenv("CODEFORGE_QUARANTINE_MIN_TRUST_BYPASS", "full")
+	t.Setenv("CODEFORGE_QUARANTINE_EXPIRY_HOURS", "48")
+	loadEnv(&cfg)
+	if !cfg.Quarantine.Enabled {
+		t.Error("expected quarantine.enabled=true from env override")
+	}
+	if cfg.Quarantine.QuarantineThreshold != 0.5 {
+		t.Errorf("expected quarantine_threshold=0.5, got %f", cfg.Quarantine.QuarantineThreshold)
+	}
+	if cfg.Quarantine.BlockThreshold != 0.85 {
+		t.Errorf("expected block_threshold=0.85, got %f", cfg.Quarantine.BlockThreshold)
+	}
+	if cfg.Quarantine.MinTrustBypass != "full" {
+		t.Errorf("expected min_trust_bypass=full, got %s", cfg.Quarantine.MinTrustBypass)
+	}
+	if cfg.Quarantine.ExpiryHours != 48 {
+		t.Errorf("expected expiry_hours=48, got %d", cfg.Quarantine.ExpiryHours)
+	}
+}
+
+func TestLSPEnvOverride(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_LSP_ENABLED", "true")
+	loadEnv(&cfg)
+	if !cfg.LSP.Enabled {
+		t.Error("expected lsp.enabled=true from env override")
+	}
+}
+
+func TestReviewRouterEnvOverride(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED", "true")
+	t.Setenv("CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD", "0.6")
+	t.Setenv("CODEFORGE_ORCH_REVIEW_ROUTER_MODEL", "gpt-4o")
+	loadEnv(&cfg)
+	if !cfg.Orchestrator.ReviewRouterEnabled {
+		t.Error("expected review_router_enabled=true from env override")
+	}
+	if cfg.Orchestrator.ReviewConfidenceThreshold != 0.6 {
+		t.Errorf("expected review_confidence_threshold=0.6, got %f", cfg.Orchestrator.ReviewConfidenceThreshold)
+	}
+	if cfg.Orchestrator.ReviewRouterModel != "gpt-4o" {
+		t.Errorf("expected review_router_model=gpt-4o, got %s", cfg.Orchestrator.ReviewRouterModel)
+	}
+}
+
 func TestParseFlagsInvalid(t *testing.T) {
 	_, err := ParseFlags([]string{"--unknown-flag"})
 	if err == nil {

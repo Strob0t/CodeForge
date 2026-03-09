@@ -431,3 +431,105 @@ func TestSendMessageAgenticWithMode_IncludesMicroagentsAndMCP(t *testing.T) {
 		t.Errorf("expected microagent prompt, got %q", payload.MicroagentPrompts[0])
 	}
 }
+
+func TestSendMessageAgentic_AdaptiveBudgetReducesContext(t *testing.T) {
+	dir := t.TempDir()
+	// Create a file that BM25 retrieval will match against the user message.
+	_ = os.WriteFile(filepath.Join(dir, "handler.go"),
+		[]byte("package main\n\nfunc handleAuth() {}\n"), 0o644)
+
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: dir},
+	}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+
+	agentCfg := &config.Agent{
+		MaxLoopIterations:    10,
+		MaxContextTokens:     120000,
+		ContextEnabled:       true,
+		ContextBudget:        2048,
+		ContextPromptReserve: 512,
+	}
+	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
+	limCfg := &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second}
+	ctxOpt := service.NewContextOptimizerService(store, orchCfg, limCfg)
+	ctx := context.Background()
+
+	// ---- Sub-test 1: fresh conversation (0 history) => context entries present ----
+	t.Run("fresh conversation gets context", func(t *testing.T) {
+		q := &captureQueue{}
+		svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+		svc.SetQueue(q)
+		svc.SetAgentConfig(agentCfg)
+		svc.SetContextOptimizer(ctxOpt)
+
+		conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Fresh"})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
+			Content: "Implement authentication handler",
+		})
+		if err != nil {
+			t.Fatalf("SendMessageAgentic: %v", err)
+		}
+
+		_, data := q.snapshot()
+		var payload messagequeue.ConversationRunStartPayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		if len(payload.Context) == 0 {
+			t.Fatal("expected non-empty context entries for fresh conversation")
+		}
+	})
+
+	// ---- Sub-test 2: 70+ messages => adaptive budget is 0 => no context entries ----
+	t.Run("long history skips context", func(t *testing.T) {
+		q := &captureQueue{}
+		svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+		svc.SetQueue(q)
+		svc.SetAgentConfig(agentCfg)
+		svc.SetContextOptimizer(ctxOpt)
+
+		conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Long"})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		// Seed 70+ messages so adaptive budget decays to 0 (threshold is 60).
+		for i := 0; i < 70; i++ {
+			role := "user"
+			if i%2 == 1 {
+				role = "assistant"
+			}
+			store.messages = append(store.messages, conversation.Message{
+				ConversationID: conv.ID,
+				Role:           role,
+				Content:        fmt.Sprintf("Message %d about handlers and authentication", i),
+			})
+		}
+
+		err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
+			Content: "Implement authentication handler",
+		})
+		if err != nil {
+			t.Fatalf("SendMessageAgentic: %v", err)
+		}
+
+		_, data := q.snapshot()
+		var payload messagequeue.ConversationRunStartPayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// With 70+ messages, adaptive budget should be 0, so no context entries.
+		if len(payload.Context) != 0 {
+			t.Errorf("expected zero context entries with 70+ message history, got %d", len(payload.Context))
+		}
+	})
+}

@@ -225,6 +225,9 @@ func loadEnv(cfg *Config) {
 	setInt(&cfg.Orchestrator.SubAgentMaxQueries, "CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES")
 	setBool(&cfg.Orchestrator.SubAgentRerank, "CODEFORGE_ORCH_SUBAGENT_RERANK")
 	setDuration(&cfg.Orchestrator.SubAgentTimeout, "CODEFORGE_ORCH_SUBAGENT_TIMEOUT")
+	setBool(&cfg.Orchestrator.ReviewRouterEnabled, "CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED")
+	setFloat64(&cfg.Orchestrator.ReviewConfidenceThreshold, "CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD")
+	setString(&cfg.Orchestrator.ReviewRouterModel, "CODEFORGE_ORCH_REVIEW_ROUTER_MODEL")
 
 	// GraphRAG
 	setBool(&cfg.Orchestrator.GraphEnabled, "CODEFORGE_ORCH_GRAPH_ENABLED")
@@ -270,6 +273,19 @@ func loadEnv(cfg *Config) {
 	setInt(&cfg.Agent.MaxLoopIterations, "CODEFORGE_AGENT_MAX_LOOP_ITERATIONS")
 	setBool(&cfg.Agent.AgenticByDefault, "CODEFORGE_AGENT_AGENTIC_BY_DEFAULT")
 	setInt(&cfg.Agent.ToolOutputMaxChars, "CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS")
+	setBool(&cfg.Agent.ContextEnabled, "CODEFORGE_AGENT_CONTEXT_ENABLED")
+	setInt(&cfg.Agent.ContextBudget, "CODEFORGE_AGENT_CONTEXT_BUDGET")
+	setInt(&cfg.Agent.ContextPromptReserve, "CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE")
+
+	// Quarantine
+	setBool(&cfg.Quarantine.Enabled, "CODEFORGE_QUARANTINE_ENABLED")
+	setFloat64(&cfg.Quarantine.QuarantineThreshold, "CODEFORGE_QUARANTINE_THRESHOLD")
+	setFloat64(&cfg.Quarantine.BlockThreshold, "CODEFORGE_QUARANTINE_BLOCK_THRESHOLD")
+	setString(&cfg.Quarantine.MinTrustBypass, "CODEFORGE_QUARANTINE_MIN_TRUST_BYPASS")
+	setInt(&cfg.Quarantine.ExpiryHours, "CODEFORGE_QUARANTINE_EXPIRY_HOURS")
+
+	// LSP
+	setBool(&cfg.LSP.Enabled, "CODEFORGE_LSP_ENABLED")
 
 	// Auth
 	setBool(&cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED")
