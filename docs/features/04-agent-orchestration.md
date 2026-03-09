@@ -845,5 +845,5 @@ Goals are injected into agent interactions through two complementary paths:
 | `internal/adapter/postgres/migrations/056_project_goals.sql` | DB migration |
 | `internal/adapter/http/handlers_goals.go` | REST API handlers |
 | `internal/service/context_optimizer.go` | Goal → ContextPack integration |
-| `workers/codeforge/tools/manage_goals.py` | Phase 30 goal management tool (create, update, track goals) |
+| `workers/codeforge/tools/propose_goal.py` | AG-UI event tool — proposes goals via trajectory events instead of HTTP callbacks |
 | `internal/service/conversation_agent.go` | Goal → system prompt injection |

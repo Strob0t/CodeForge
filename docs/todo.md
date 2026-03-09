@@ -162,6 +162,11 @@
 #### Phase 30 -- Goal Discovery & Adaptive Retry (COMPLETED)
 - [x] Auto-detection of project goals from workspace files, priority-based context injection
 - [x] LLMClientConfig with env-var-driven retry/timeout, HybridRouter skips exhausted providers
+- [x] Goal system redesign: replaced `manage_goals` HTTP-callback tool with `propose_goal` AG-UI event tool (2026-03-09)
+- [x] Rewritten goal-researcher mode with GSD questioning methodology (interview-first)
+- [x] GoalProposalCard UI for approve/reject of agent-proposed goals
+- [x] Context injection: docs/PROJECT.md, REQUIREMENTS.md, STATE.md passed to goal-researcher agent
+- [x] Functional options pattern (`AgenticOption`/`WithContextEntries`) for extensible agentic dispatch
 
 #### Unified LLM Path & Global Run Tracking (COMPLETED)
 - [x] Simple chat unified with agentic path through NATS dispatch
