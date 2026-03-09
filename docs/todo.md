@@ -480,6 +480,16 @@
 - [x] T16.4: Mark completed tasks in `docs/todo.md` (2026-03-09)
 - [x] T16.5: Final commit (2026-03-09)
 
+#### Feature Activation Sweep (COMPLETED)
+- [x] (2026-03-09) Activate Context Optimizer by default (ContextEnabled=true in Go config)
+- [x] (2026-03-09) Add 16 missing env-var bindings in loader.go (agent context, quarantine, LSP, review router, copilot, routing, experience)
+- [x] (2026-03-09) Add tenant_id to ConversationRunStartPayload (Go NATS + Python Pydantic) for Experience Pool isolation
+- [x] (2026-03-09) Add max_entries eviction logic to Experience Pool store()
+- [x] (2026-03-09) Integrate Experience Pool into AgentLoopExecutor (pre-loop cache check + post-loop store)
+- [x] (2026-03-09) Enable OpenTelemetry tracing with Jaeger collector in codeforge.yaml
+- [x] (2026-03-09) Fix routing default inconsistency (config.py default aligned to True)
+- [x] (2026-03-09) Documentation updates (env vars in dev-setup.md, experience pool in agent-orchestration.md)
+
 ---
 
 ### Feature Roadmap -- Consolidated Open Items

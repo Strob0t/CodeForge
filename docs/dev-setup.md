@@ -656,7 +656,7 @@ See `.env.example` for all configurable values.
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
 | OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |
 | CODEFORGE_OTEL_ENABLED    | false                                    | Enable OpenTelemetry tracing    |
-| CODEFORGE_OTEL_ENDPOINT   | localhost:4317                            | OTLP gRPC endpoint              |
+| CODEFORGE_OTEL_ENDPOINT   | jaeger:4317                              | OTLP gRPC endpoint              |
 | CODEFORGE_OTEL_SERVICE_NAME | codeforge-core                          | OTEL service name               |
 | CODEFORGE_OTEL_SAMPLE_RATE | 1.0                                     | Trace sampling rate (0.0-1.0)   |
 | CODEFORGE_A2A_ENABLED     | false                                    | Enable A2A protocol endpoints   |
@@ -720,7 +720,7 @@ Both Go Core and Python Workers share the same environment variables:
 | ENV Variable | Default | Description |
 |---|---|---|
 | `CODEFORGE_OTEL_ENABLED` | `false` | Master switch for tracing + metrics |
-| `CODEFORGE_OTEL_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint |
+| `CODEFORGE_OTEL_ENDPOINT` | `jaeger:4317` | OTLP gRPC endpoint |
 | `CODEFORGE_OTEL_SERVICE_NAME` | `codeforge-core` / `codeforge-worker` | Service name in traces |
 | `CODEFORGE_OTEL_INSECURE` | `true` | Use insecure gRPC (set `false` for production TLS) |
 | `CODEFORGE_OTEL_SAMPLE_RATE` | `1.0` | Trace sampling rate (0.0-1.0) |
@@ -730,7 +730,7 @@ Or use the YAML config file (`codeforge.yaml`):
 ```yaml
 otel:
   enabled: true
-  endpoint: "localhost:4317"
+  endpoint: "jaeger:4317"
   service_name: "codeforge-core"
   insecure: true
   sample_rate: 1.0

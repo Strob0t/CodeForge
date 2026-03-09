@@ -138,6 +138,24 @@ YAML-configurable agent specializations. Built-in modes include architect, coder
 | Trajectory | Recording, replay, audit trail |
 | HITL | Human feedback provider protocol |
 
+### Experience Pool in Agentic Loop
+
+The Experience Pool (`workers/codeforge/memory/experience.py`) caches successful agent runs and reuses them for similar future tasks. It is integrated into the `AgentLoopExecutor` as a two-phase cache:
+
+1. **Pre-loop check:** Before starting the tool-use loop, the executor calls `experience_pool.lookup()` with the user prompt and project ID. If a cached result with sufficient similarity (default threshold: 0.85) is found, the cached output is returned immediately — skipping the LLM loop entirely.
+
+2. **Post-loop store:** After a successful loop completion (no error, non-empty output), the executor stores the result via `experience_pool.store()` for future reuse.
+
+**Tenant isolation:** The NATS `conversation.run.start` payload carries `tenant_id` (injected by Go Core via `tenantctx.FromContext(ctx)`). The Python consumer passes this to `ExperiencePool(tenant_id=...)`, and all queries filter by `AND tenant_id = %s`.
+
+**Eviction:** When `max_entries` is configured (default: 1000), the `store()` method evicts the oldest entries (by `last_used_at`) after each INSERT to keep the pool bounded per project+tenant.
+
+**Key files:**
+- `workers/codeforge/agent_loop.py` — cache check before loop, store after loop
+- `workers/codeforge/memory/experience.py` — `ExperiencePool` with `lookup()`, `store()`, tenant filtering, eviction
+- `workers/codeforge/consumer/_conversation.py` — passes `experience_pool` to `AgentLoopExecutor`
+- Config: `experience.enabled`, `experience.confidence_threshold`, `experience.max_entries` in `codeforge.yaml`
+
 ### Skills System (Auto-Agent)
 
 Reusable workflows and code patterns automatically injected into agent prompts.
