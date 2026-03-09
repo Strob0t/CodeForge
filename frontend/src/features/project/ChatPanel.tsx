@@ -11,7 +11,7 @@ import {
 
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage, Session } from "~/api/types";
-import type { AGUIGoalProposal } from "~/api/websocket";
+import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
@@ -22,6 +22,7 @@ import { Badge, Button, CostDisplay } from "~/ui";
 import ChatSuggestions from "./ChatSuggestions";
 import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
+import PermissionRequestCard from "./PermissionRequestCard";
 import SessionPanel from "./SessionPanel";
 import ToolCallCard from "./ToolCallCard";
 
@@ -127,6 +128,10 @@ export default function ChatPanel(props: ChatPanelProps) {
 
   // Goal proposals from AG-UI events (rendered inline as approval cards)
   const [goalProposals, setGoalProposals] = createSignal<AGUIGoalProposal[]>([]);
+
+  // Permission requests from AG-UI events (HITL approval cards)
+  const [permissionRequests, setPermissionRequests] = createSignal<AGUIPermissionRequest[]>([]);
+  const [resolvedPermissions, setResolvedPermissions] = createSignal<Set<string>>(new Set());
 
   // Agentic mode tracking: step counter and running cost
   const [stepCount, setStepCount] = createSignal(0);
@@ -300,6 +305,8 @@ export default function ChatPanel(props: ChatPanelProps) {
         setPlanSteps([]);
         setStepCount(0);
         setRunningCost(0);
+        setPermissionRequests([]);
+        setResolvedPermissions(new Set<string>());
 
         if (status === "failed" && errorMsg) {
           setRunError(errorMsg);
@@ -336,6 +343,15 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   });
 
+  // When the agent requests permission (HITL), show an approval card
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
+  const cleanupPermissionRequest = onAGUIEvent("agui.permission_request", (payload) => {
+    if (payload.run_id === activeConversation()) {
+      setPermissionRequests((prev) => [...prev, payload]);
+      scrollToBottom();
+    }
+  });
+
   onCleanup(() => {
     cleanupRunStarted();
     cleanupTextMessage();
@@ -345,6 +361,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     cleanupStepStarted();
     cleanupStepFinished();
     cleanupGoalProposal();
+    cleanupPermissionRequest();
   });
 
   // --- Handlers ---
@@ -694,6 +711,26 @@ export default function ChatPanel(props: ChatPanelProps) {
               </div>
             </div>
           </Show>
+
+          {/* Permission request cards from AG-UI events (HITL approval) */}
+          <For each={permissionRequests().filter((pr) => !resolvedPermissions().has(pr.call_id))}>
+            {(pr) => (
+              <div class="flex justify-start">
+                <div class="max-w-[90%] sm:max-w-[75%] w-full">
+                  <PermissionRequestCard
+                    runId={pr.run_id}
+                    callId={pr.call_id}
+                    tool={pr.tool}
+                    command={pr.command}
+                    path={pr.path}
+                    onResolved={() => {
+                      setResolvedPermissions((prev) => new Set([...prev, pr.call_id]));
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </For>
 
           {/* Streaming assistant message from AG-UI text_message events */}
           <Show when={streamingContent()}>
