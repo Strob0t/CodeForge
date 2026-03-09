@@ -1460,6 +1460,15 @@ const de: Translations = {
   "files.fileContentPlaceholder": "Dateiinhalt (optional)...",
   "files.createSuccess": "Datei erstellt",
   "files.createFailed": "Datei konnte nicht erstellt werden",
+  "files.uploadFile": "Datei hochladen",
+  "files.uploadSuccess": "Datei hochgeladen",
+  "files.uploadFailed": "Datei konnte nicht hochgeladen werden",
+  "files.textFilesOnly": "Nur Textdateien koennen hochgeladen werden",
+
+  // -- Chat-Anhaenge ----------------------------------------------------------
+  "chat.attachFile": "Datei anhaengen",
+  "chat.attachSuccess": "Datei in Workspace geschrieben",
+  "chat.attachFailed": "Datei konnte nicht angehangen werden",
 };
 
 export default de;

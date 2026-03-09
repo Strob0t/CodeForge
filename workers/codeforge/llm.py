@@ -64,8 +64,11 @@ _FALLBACK_KEYWORDS: tuple[str, ...] = (
 def is_fallback_eligible(exc: LLMError) -> bool:
     """Return True if the error warrants trying a different model.
 
-    Only billing/auth/quota errors qualify -- malformed-request 400s do not.
+    Only billing/auth/quota/rate-limit errors qualify -- malformed-request 400s do not.
     """
+    # 429 (rate limit) and 402 (payment required) are always fallback-eligible.
+    if exc.status_code in (429, 402):
+        return True
     if exc.status_code not in _FALLBACK_CODES:
         return False
     body = exc.body.lower()
@@ -77,7 +80,9 @@ _AUTH_KEYWORDS: tuple[str, ...] = ("unauthorized", "forbidden", "api key", "auth
 
 
 def classify_error_type(exc: LLMError) -> str | None:
-    """Classify an LLM error as billing, auth, or None."""
+    """Classify an LLM error as billing, auth, rate_limit, or None."""
+    if exc.status_code == 429:
+        return "rate_limit"
     if exc.status_code == 402:
         return "billing"
     body = exc.body.lower()
@@ -255,7 +260,7 @@ def load_routing_config() -> object | None:
     yaml_cfg = load_yaml_config()
     r: dict = yaml_cfg.get("routing", {}) if isinstance(yaml_cfg.get("routing"), dict) else {}
 
-    enabled = _resolve_bool("CODEFORGE_ROUTING_ENABLED", r.get("enabled"), False)
+    enabled = _resolve_bool("CODEFORGE_ROUTING_ENABLED", r.get("enabled"), True)
     if not enabled:
         return None
 

@@ -1442,6 +1442,15 @@ const en = {
   "files.fileContentPlaceholder": "File content (optional)...",
   "files.createSuccess": "File created",
   "files.createFailed": "Failed to create file",
+  "files.uploadFile": "Upload File",
+  "files.uploadSuccess": "File uploaded",
+  "files.uploadFailed": "Failed to upload file",
+  "files.textFilesOnly": "Only text files can be uploaded",
+
+  // -- Chat attachments -------------------------------------------------------
+  "chat.attachFile": "Attach file",
+  "chat.attachSuccess": "File written to workspace",
+  "chat.attachFailed": "Failed to attach file",
 } as const;
 
 export type TranslationKey = keyof typeof en;

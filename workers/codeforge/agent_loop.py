@@ -319,7 +319,9 @@ class AgentLoopExecutor:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
                 llm_span.record_exception(exc)
                 logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
-                return f"LLM call failed: {exc}"
+                # Wrap unexpected errors as LLMError so fallback logic can try another model.
+                wrapped = LLMError(status_code=500, model=model_name, body=str(exc))
+                return await self._handle_llm_error(cfg, state, wrapped, iteration)
 
             llm_span.set_attribute("gen_ai.usage.input_tokens", response.tokens_in)
             llm_span.set_attribute("gen_ai.usage.output_tokens", response.tokens_out)

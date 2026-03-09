@@ -63,6 +63,35 @@ export default function ChatPanel(props: ChatPanelProps) {
   );
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
+  const [attaching, setAttaching] = createSignal(false);
+  let chatFileInputRef: HTMLInputElement | undefined;
+
+  function handleAttachChange(e: Event) {
+    const fileInput = e.target as HTMLInputElement;
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    fileInput.value = "";
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const content = reader.result as string;
+      setAttaching(true);
+      try {
+        await api.files.write(props.projectId, file.name, content);
+        toast("success", t("chat.attachSuccess"));
+        const ref = `[Attached: ${file.name}]\n`;
+        setInput((prev) => ref + prev);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast("error", t("chat.attachFailed") + ": " + msg);
+      } finally {
+        setAttaching(false);
+      }
+    };
+    reader.onerror = () => {
+      toast("error", t("chat.attachFailed"));
+    };
+    reader.readAsText(file);
+  }
 
   // Streaming text from AG-UI text_message events, appended to the bottom of the chat
   const [streamingContent, setStreamingContent] = createSignal("");
@@ -514,7 +543,29 @@ export default function ChatPanel(props: ChatPanelProps) {
 
         {/* Input area */}
         <div class="border-t border-cf-border p-3 flex-shrink-0" data-shortcut-scope="chat">
+          <input ref={chatFileInputRef} type="file" class="hidden" onChange={handleAttachChange} />
           <div class="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="self-end flex-shrink-0"
+              onClick={() => chatFileInputRef?.click()}
+              disabled={attaching()}
+              title={t("chat.attachFile")}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                class="w-4 h-4"
+              >
+                <path
+                  fill-rule="evenodd"
+                  d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243l7-7a1.5 1.5 0 0 0-2.121-2.122l-7 7a.5.5 0 1 1-.707-.707l7-7a3 3 0 0 1 4.242 4.243l-7 7a5 5 0 0 1-7.071-7.071l7-7a1 1 0 0 1 1.414 1.414l-7 7a3 3 0 1 0 4.243 4.243l7-7a1.5 1.5 0 0 0 0-2.122Z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </Button>
             <textarea
               class="flex-1 rounded-cf-md border border-cf-border bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder-cf-text-muted focus:border-cf-accent focus:ring-1 focus:ring-cf-accent resize-none"
               rows={2}

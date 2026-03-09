@@ -1,4 +1,4 @@
-"""Tests for Phase 26L — routing integration with llm.py, conversation, executor."""
+"""Tests for routing integration with llm.py, conversation, executor."""
 
 from __future__ import annotations
 
@@ -24,9 +24,6 @@ def _make_router(
     )
 
 
-# -- resolve_model_with_routing -----------------------------------------------
-
-
 class TestResolveModelWithRouting:
     def test_with_router_returns_model(self) -> None:
         router = _make_router(enabled=True, available=["groq/llama-3.1-8b-instant"])
@@ -49,7 +46,7 @@ class TestResolveModelWithRouting:
     def test_temperature_from_scenario(self) -> None:
         router = _make_router(enabled=True, available=["groq/llama-3.1-8b-instant"])
         result = resolve_model_with_routing("Hello", "plan", router=router)
-        assert result.temperature == 0.3  # plan scenario temperature
+        assert result.temperature == 0.3
 
     def test_unknown_scenario_defaults(self) -> None:
         result = resolve_model_with_routing("Hello", "unknown_scenario", router=None)
@@ -70,15 +67,12 @@ class TestResolveModelWithRouting:
         )
         result = resolve_model_with_routing(prompt, "default", router=router)
         assert result.model in ("openai/gpt-4o", "groq/llama-3.1-8b-instant")
-        assert result.model != ""  # Should always return a model when router is enabled
+        assert result.model != ""
 
     def test_non_router_object_ignored(self) -> None:
         result = resolve_model_with_routing("Hello", "think", router="not_a_router")
         assert result.model == ""
         assert result.tags == ["think"]
-
-
-# -- resolve_scenario ----------------------------------------------------------
 
 
 class TestResolveScenario:
@@ -98,22 +92,35 @@ class TestResolveScenario:
         assert cfg.tag == ""
 
 
-# -- load_routing_config -------------------------------------------------------
-
-
 class TestLoadRoutingConfig:
-    def test_disabled_by_default(self) -> None:
+    def test_enabled_by_default(self) -> None:
+        """Routing is ON by default when no env var is set."""
         import os
         from unittest.mock import patch
 
         os.environ.pop("CODEFORGE_ROUTING_ENABLED", None)
         from codeforge.llm import load_routing_config
 
-        # Patch YAML config to ensure no file-based override activates routing.
         with patch("codeforge.config.load_yaml_config", return_value={}):
-            assert load_routing_config() is None
+            config = load_routing_config()
+            assert config is not None
+            assert config.enabled is True
 
-    def test_enabled_returns_config(self, monkeypatch: object) -> None:
+    def test_explicit_disable(self) -> None:
+        """Explicit CODEFORGE_ROUTING_ENABLED=false overrides the default."""
+        import os
+        from unittest.mock import patch
+
+        os.environ["CODEFORGE_ROUTING_ENABLED"] = "false"
+        try:
+            from codeforge.llm import load_routing_config
+
+            with patch("codeforge.config.load_yaml_config", return_value={}):
+                assert load_routing_config() is None
+        finally:
+            os.environ.pop("CODEFORGE_ROUTING_ENABLED", None)
+
+    def test_explicit_enable_returns_config(self) -> None:
         import os
 
         os.environ["CODEFORGE_ROUTING_ENABLED"] = "true"

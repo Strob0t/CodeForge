@@ -46,6 +46,7 @@ class RateLimitTracker:
     _ERROR_COOLDOWNS: ClassVar[dict[str, float]] = {
         "billing": 3600.0,  # 1 hour
         "auth": 300.0,  # 5 minutes
+        "rate_limit": 60.0,  # 1 minute
     }
 
     # -- mutations -----------------------------------------------------------

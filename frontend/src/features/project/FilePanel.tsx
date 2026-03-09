@@ -74,7 +74,11 @@ function CollapseAllIcon(): JSX.Element {
 // Sidebar header (needs FileTreeContext)
 // ---------------------------------------------------------------------------
 
-function SidebarHeader(props: { projectId: string; onCreateClick?: () => void }): JSX.Element {
+function SidebarHeader(props: {
+  projectId: string;
+  onCreateClick?: () => void;
+  onUploadClick?: () => void;
+}): JSX.Element {
   const [, actions] = useFileTree();
 
   return (
@@ -94,6 +98,19 @@ function SidebarHeader(props: { projectId: string; onCreateClick?: () => void })
         <Button variant="icon" size="xs" onClick={() => actions.collapseAll()} title="Collapse All">
           <CollapseAllIcon />
         </Button>
+        <Show when={props.onUploadClick}>
+          <Button variant="icon" size="xs" onClick={props.onUploadClick} title="Upload File">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              class="w-3.5 h-3.5"
+            >
+              <path d="M7.25 10.25a.75.75 0 0 0 1.5 0V4.56l1.72 1.72a.75.75 0 1 0 1.06-1.06l-3-3a.75.75 0 0 0-1.06 0l-3 3a.75.75 0 0 0 1.06 1.06l1.72-1.72v5.69Z" />
+              <path d="M3.5 9.75a.75.75 0 0 0-1.5 0v1.5A2.75 2.75 0 0 0 4.75 14h6.5A2.75 2.75 0 0 0 14 11.25v-1.5a.75.75 0 0 0-1.5 0v1.5c0 .69-.56 1.25-1.25 1.25h-6.5c-.69 0-1.25-.56-1.25-1.25v-1.5Z" />
+            </svg>
+          </Button>
+        </Show>
         <Show when={props.onCreateClick}>
           <Button variant="icon" size="xs" onClick={props.onCreateClick} title="New File">
             <svg
@@ -176,8 +193,38 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       setNewFileContent("");
       openFile(filePath);
     },
-    { onError: (err) => toast("error", t("files.createFailed") + ": " + getErrorMessage(err)) },
+    {
+      onError: (err) =>
+        toast("error", t("files.createFailed") + ": " + getErrorMessage(err, "Create failed")),
+    },
   );
+
+  // --- File upload ---
+  let uploadInputRef: HTMLInputElement | undefined;
+
+  function handleUploadChange(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    // Reset so the same file can be re-selected.
+    input.value = "";
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const content = reader.result as string;
+      try {
+        await api.files.write(props.projectId, file.name, content);
+        toast("success", t("files.uploadSuccess"));
+        openFile(file.name);
+      } catch (err) {
+        toast("error", t("files.uploadFailed") + ": " + getErrorMessage(err, "Upload failed"));
+      }
+    };
+    reader.onerror = () => {
+      toast("error", t("files.textFilesOnly"));
+    };
+    reader.readAsText(file);
+  }
 
   const [tabs, setTabs] = createSignal<OpenTab[]>([]);
   const [activeTab, setActiveTab] = createSignal<string | null>(null);
@@ -297,7 +344,9 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
             <SidebarHeader
               projectId={props.projectId}
               onCreateClick={() => setShowCreateModal(true)}
+              onUploadClick={() => uploadInputRef?.click()}
             />
+            <input ref={uploadInputRef} type="file" class="hidden" onChange={handleUploadChange} />
             <SearchInput />
             <div class="flex-1 overflow-y-auto">
               <FileTree
