@@ -29,19 +29,21 @@ def workspace(tmp_path: Path) -> Path:
 class TestBuildDefaultRegistry:
     """Tests for the build_default_registry() factory."""
 
-    def test_returns_registry_with_seven_tools(self) -> None:
+    def test_returns_registry_with_all_builtin_tools(self) -> None:
         registry = build_default_registry()
-        assert len(registry.tool_names) == 7
+        assert len(registry.tool_names) == 9
 
     def test_contains_expected_tool_names(self) -> None:
         registry = build_default_registry()
         expected = {
             "bash",
+            "create_skill",
             "edit_file",
             "glob_files",
             "list_directory",
             "read_file",
             "search_files",
+            "search_skills",
             "write_file",
         }
         assert set(registry.tool_names) == expected
@@ -51,10 +53,10 @@ class TestBuildDefaultRegistry:
         names = registry.tool_names
         assert names == sorted(names)
 
-    def test_get_definitions_returns_all_seven(self) -> None:
+    def test_get_definitions_returns_all_builtin(self) -> None:
         registry = build_default_registry()
         defs = registry.get_definitions()
-        assert len(defs) == 7
+        assert len(defs) == 9
 
     def test_get_definitions_sorted_by_name(self) -> None:
         registry = build_default_registry()
@@ -109,7 +111,7 @@ class TestGetOpenAITools:
     def test_returns_correct_count(self) -> None:
         registry = build_default_registry()
         tools = registry.get_openai_tools()
-        assert len(tools) == 7
+        assert len(tools) == 9
 
     def test_empty_registry_returns_empty_list(self) -> None:
         registry = ToolRegistry()
@@ -271,7 +273,7 @@ class TestMergeMcpTools:
         registry.merge_mcp_tools(mock_wb)
         assert "mcp__ext__fetch" in registry.tool_names
         assert "read_file" in registry.tool_names
-        assert len(registry.tool_names) == 8
+        assert len(registry.tool_names) == 10
 
     async def test_mcp_proxy_delegates_to_workbench(self) -> None:
         registry = ToolRegistry()

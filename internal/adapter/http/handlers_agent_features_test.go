@@ -97,7 +97,7 @@ func TestHandleCreateSkill(t *testing.T) {
 		Name:        "git-helper",
 		Description: "Git command skills",
 		Language:    "python",
-		Code:        "def git_status(): ...",
+		Content:     "def git_status(): ...",
 		Tags:        []string{"git", "vcs"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/projects/test-proj/skills", bytes.NewReader(body))

@@ -339,6 +339,8 @@ type Store interface {
 	ListSkills(ctx context.Context, projectID string) ([]skill.Skill, error)
 	UpdateSkill(ctx context.Context, s *skill.Skill) error
 	DeleteSkill(ctx context.Context, id string) error
+	IncrementSkillUsage(ctx context.Context, id string) error
+	ListActiveSkills(ctx context.Context, projectID string) ([]skill.Skill, error)
 
 	// Feedback Audit (Phase 22D)
 	CreateFeedbackAudit(ctx context.Context, a *feedback.AuditEntry) error

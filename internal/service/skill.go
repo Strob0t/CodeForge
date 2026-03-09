@@ -8,7 +8,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
-// SkillService manages reusable code snippets for agent prompt injection.
+// SkillService manages reusable skills (workflows and code patterns) for agent prompt injection.
 type SkillService struct {
 	db database.Store
 }
@@ -23,14 +23,34 @@ func (s *SkillService) Create(ctx context.Context, req *skill.CreateRequest) (*s
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
+
+	skillType := req.Type
+	if skillType == "" {
+		skillType = skill.TypePattern
+	}
+	source := req.Source
+	if source == "" {
+		source = skill.SourceUser
+	}
+	formatOrigin := req.FormatOrigin
+	if formatOrigin == "" {
+		formatOrigin = "codeforge"
+	}
+
 	sk := &skill.Skill{
-		ProjectID:   req.ProjectID,
-		Name:        req.Name,
-		Description: req.Description,
-		Language:    req.Language,
-		Code:        req.Code,
-		Tags:        req.Tags,
-		Enabled:     true,
+		ProjectID:    req.ProjectID,
+		Name:         req.Name,
+		Type:         skillType,
+		Description:  req.Description,
+		Language:     req.Language,
+		Content:      req.Content,
+		Code:         req.Content, // backwards compat: also populate Code
+		Tags:         req.Tags,
+		Source:       source,
+		SourceURL:    req.SourceURL,
+		FormatOrigin: formatOrigin,
+		Status:       skill.StatusActive,
+		Enabled:      true, // backwards compat
 	}
 	if err := s.db.CreateSkill(ctx, sk); err != nil {
 		return nil, fmt.Errorf("create skill: %w", err)
@@ -48,6 +68,16 @@ func (s *SkillService) List(ctx context.Context, projectID string) ([]skill.Skil
 	return s.db.ListSkills(ctx, projectID)
 }
 
+// ListActive returns only active skills for a project (including global ones).
+func (s *SkillService) ListActive(ctx context.Context, projectID string) ([]skill.Skill, error) {
+	return s.db.ListActiveSkills(ctx, projectID)
+}
+
+// IncrementUsage atomically increments a skill's usage counter.
+func (s *SkillService) IncrementUsage(ctx context.Context, id string) error {
+	return s.db.IncrementSkillUsage(ctx, id)
+}
+
 // Update updates a skill.
 func (s *SkillService) Update(ctx context.Context, id string, req *skill.UpdateRequest) (*skill.Skill, error) {
 	sk, err := s.db.GetSkill(ctx, id)
@@ -57,20 +87,23 @@ func (s *SkillService) Update(ctx context.Context, id string, req *skill.UpdateR
 	if req.Name != "" {
 		sk.Name = req.Name
 	}
+	if req.Type != "" {
+		sk.Type = req.Type
+	}
 	if req.Description != "" {
 		sk.Description = req.Description
 	}
 	if req.Language != "" {
 		sk.Language = req.Language
 	}
-	if req.Code != "" {
-		sk.Code = req.Code
+	if req.Content != "" {
+		sk.Content = req.Content
 	}
 	if req.Tags != nil {
 		sk.Tags = req.Tags
 	}
-	if req.Enabled != nil {
-		sk.Enabled = *req.Enabled
+	if req.Status != nil {
+		sk.Status = *req.Status
 	}
 	if err := s.db.UpdateSkill(ctx, sk); err != nil {
 		return nil, err

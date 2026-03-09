@@ -841,6 +841,10 @@ func (m *mockStore) GetSkill(_ context.Context, _ string) (*skill.Skill, error) 
 func (m *mockStore) ListSkills(_ context.Context, _ string) ([]skill.Skill, error) { return nil, nil }
 func (m *mockStore) UpdateSkill(_ context.Context, _ *skill.Skill) error           { return nil }
 func (m *mockStore) DeleteSkill(_ context.Context, _ string) error                 { return nil }
+func (m *mockStore) IncrementSkillUsage(_ context.Context, _ string) error         { return nil }
+func (m *mockStore) ListActiveSkills(_ context.Context, _ string) ([]skill.Skill, error) {
+	return nil, nil
+}
 
 // Feedback Audit stubs.
 func (m *mockStore) CreateFeedbackAudit(_ context.Context, _ *feedback.AuditEntry) error {

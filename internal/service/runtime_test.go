@@ -902,8 +902,12 @@ func (m *runtimeMockStore) GetSkill(_ context.Context, _ string) (*skill.Skill, 
 func (m *runtimeMockStore) ListSkills(_ context.Context, _ string) ([]skill.Skill, error) {
 	return nil, nil
 }
-func (m *runtimeMockStore) UpdateSkill(_ context.Context, _ *skill.Skill) error { return nil }
-func (m *runtimeMockStore) DeleteSkill(_ context.Context, _ string) error       { return nil }
+func (m *runtimeMockStore) UpdateSkill(_ context.Context, _ *skill.Skill) error   { return nil }
+func (m *runtimeMockStore) DeleteSkill(_ context.Context, _ string) error         { return nil }
+func (m *runtimeMockStore) IncrementSkillUsage(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) ListActiveSkills(_ context.Context, _ string) ([]skill.Skill, error) {
+	return nil, nil
+}
 
 // Feedback Audit stubs
 func (m *runtimeMockStore) CreateFeedbackAudit(_ context.Context, _ *feedback.AuditEntry) error {

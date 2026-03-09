@@ -97,6 +97,9 @@ const (
 
 	// Trajectory events
 	EventTrajectoryEvent = "trajectory.event"
+
+	// Auto-Agent Skills: skill draft notification
+	EventSkillDraft = "skill.draft"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -404,6 +407,15 @@ type A2ATaskStatusEvent struct {
 	Direction     string `json:"direction"`
 	ProjectID     string `json:"project_id,omitempty"`
 	RemoteAgentID string `json:"remote_agent_id,omitempty"`
+}
+
+// SkillDraftEvent is broadcast when an agent creates a skill as a draft for user review.
+type SkillDraftEvent struct {
+	SkillID     string `json:"skill_id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	ProjectID   string `json:"project_id"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

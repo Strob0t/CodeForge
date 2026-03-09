@@ -357,128 +357,128 @@
 > Goal: Auto-agent automatically selects and uses relevant skills via LLM, with multi-format import, agent-generated skills, and prompt injection protection.
 
 #### Task 1: DB Migration — Extend skills table (Priority: CRITICAL)
-- [ ] T1.1: Write migration 067 — add type, source, source_url, format_origin, status, usage_count, content columns
+- [x] T1.1: Write migration 067 — add type, source, source_url, format_origin, status, usage_count, content columns (2026-03-09)
   - File: `internal/adapter/postgres/migrations/067_extend_skills.sql`
   - Includes: check constraints, status index, data migration (code → content)
-- [ ] T1.2: Verify migration applies cleanly
-- [ ] T1.3: Commit
+- [x] T1.2: Verify migration applies cleanly (2026-03-09)
+- [x] T1.3: Commit (2026-03-09)
 
 #### Task 2: Go Domain Model — Extend Skill struct (Priority: CRITICAL)
-- [ ] T2.1: Write failing tests for new fields and validation (content required, invalid type, valid workflow, status/source constants)
+- [x] T2.1: Write failing tests for new fields and validation (content required, invalid type, valid workflow, status/source constants) (2026-03-09)
   - File: `internal/domain/skill/skill_test.go`
-- [ ] T2.2: Implement extended Skill struct with Type, Source, SourceURL, FormatOrigin, Status, UsageCount, Content fields
+- [x] T2.2: Implement extended Skill struct with Type, Source, SourceURL, FormatOrigin, Status, UsageCount, Content fields (2026-03-09)
   - File: `internal/domain/skill/skill.go`
-- [ ] T2.3: Run tests — all pass
-- [ ] T2.4: Commit
+- [x] T2.3: Run tests — all pass (2026-03-09)
+- [x] T2.4: Commit (2026-03-09)
 
 #### Task 3: Go Postgres Store — Update SQL queries (Priority: CRITICAL)
-- [ ] T3.1: Add `IncrementSkillUsage` and `ListActiveSkills` to store interface
+- [x] T3.1: Add `IncrementSkillUsage` and `ListActiveSkills` to store interface (2026-03-09)
   - File: `internal/port/database/store.go`
-- [ ] T3.2: Update all SQL queries in store for new columns, status-based filtering
+- [x] T3.2: Update all SQL queries in store for new columns, status-based filtering (2026-03-09)
   - File: `internal/adapter/postgres/store_skill.go`
-- [ ] T3.3: Run existing store tests — backwards compat passes
-- [ ] T3.4: Commit
+- [x] T3.3: Run existing store tests — backwards compat passes (2026-03-09)
+- [x] T3.4: Commit (2026-03-09)
 
 #### Task 4: Go Service — Update SkillService (Priority: HIGH)
-- [ ] T4.1: Update Create (defaults: type=pattern, source=user, status=active), Update (handle status), List (active-only)
+- [x] T4.1: Update Create (defaults: type=pattern, source=user, status=active), Update (handle status), List (active-only) (2026-03-09)
   - File: `internal/service/skill.go`
-- [ ] T4.2: Run tests — pass
-- [ ] T4.3: Commit
+- [x] T4.2: Run tests — pass (2026-03-09)
+- [x] T4.3: Commit (2026-03-09)
 
 #### Task 5: Python Model — Extend Pydantic Skill (Priority: CRITICAL)
-- [ ] T5.1: Write tests for new fields and defaults
+- [x] T5.1: Write tests for new fields and defaults (2026-03-09)
   - File: `workers/tests/test_skill_models.py`
-- [ ] T5.2: Update Pydantic Skill model with type, source, status, format_origin, usage_count, content, source_url
+- [x] T5.2: Update Pydantic Skill model with type, source, status, format_origin, usage_count, content, source_url (2026-03-09)
   - File: `workers/codeforge/skills/models.py`
-- [ ] T5.3: Run tests — all pass
-- [ ] T5.4: Commit
+- [x] T5.3: Run tests — all pass (2026-03-09)
+- [x] T5.4: Commit (2026-03-09)
 
 #### Task 6: Quarantine Scorer — Add prompt injection patterns (Priority: HIGH)
-- [ ] T6.1: Write failing tests for prompt override, role hijack, exfiltration detection
+- [x] T6.1: Write failing tests for prompt override, role hijack, exfiltration detection (2026-03-09)
   - File: `internal/domain/quarantine/scorer_test.go`
-- [ ] T6.2: Add 3 new regex patterns (promptOverridePattern, roleHijackPattern, exfilPattern) and scoring blocks
+- [x] T6.2: Add 3 new regex patterns (promptOverridePattern, roleHijackPattern, exfilPattern) and scoring blocks (2026-03-09)
   - File: `internal/domain/quarantine/scorer.go`
-- [ ] T6.3: Run all quarantine tests — all pass
-- [ ] T6.4: Commit
+- [x] T6.3: Run all quarantine tests — all pass (2026-03-09)
+- [x] T6.4: Commit (2026-03-09)
 
 #### Task 7: Python Format Parsers — Multi-format skill import (Priority: HIGH)
-- [ ] T7.1: Write tests for CodeForge YAML, Claude Skills, Cursor Rules, plain Markdown, .mdc, unknown format
+- [x] T7.1: Write tests for CodeForge YAML, Claude Skills, Cursor Rules, plain Markdown, .mdc, unknown format (2026-03-09)
   - File: `workers/tests/test_skill_parsers.py`
-- [ ] T7.2: Implement `parse_skill_file()` with format detection and 4 parsers
+- [x] T7.2: Implement `parse_skill_file()` with format detection and 4 parsers (2026-03-09)
   - File: `workers/codeforge/skills/parsers.py`
-- [ ] T7.3: Run tests — all pass
-- [ ] T7.4: Commit
+- [x] T7.3: Run tests — all pass (2026-03-09)
+- [x] T7.4: Commit (2026-03-09)
 
 #### Task 8: Python Skill Selector — LLM-based pre-loop selection (Priority: CRITICAL)
-- [ ] T8.1: Write tests for `resolve_skill_selection_model()` (cheapest, fallback) and `select_skills_for_task()` (LLM match, BM25 fallback)
+- [x] T8.1: Write tests for `resolve_skill_selection_model()` (cheapest, fallback) and `select_skills_for_task()` (LLM match, BM25 fallback) (2026-03-09)
   - File: `workers/tests/test_skill_selector.py`
-- [ ] T8.2: Implement selector with LLM selection + BM25 fallback + design decision docs
+- [x] T8.2: Implement selector with LLM selection + BM25 fallback + design decision docs (2026-03-09)
   - File: `workers/codeforge/skills/selector.py`
-- [ ] T8.3: Run tests — all pass
-- [ ] T8.4: Commit
+- [x] T8.3: Run tests — all pass (2026-03-09)
+- [x] T8.4: Commit (2026-03-09)
 
 #### Task 9: Python `search_skills` Tool (Priority: HIGH)
-- [ ] T9.1: Write tests for BM25 search, empty results, type filtering
+- [x] T9.1: Write tests for BM25 search, empty results, type filtering (2026-03-09)
   - File: `workers/tests/test_tool_search_skills.py`
-- [ ] T9.2: Implement SearchSkillsTool (ToolDefinition + ToolExecutor)
+- [x] T9.2: Implement SearchSkillsTool (ToolDefinition + ToolExecutor) (2026-03-09)
   - File: `workers/codeforge/tools/search_skills.py`
-- [ ] T9.3: Register in `build_default_registry()` in `workers/codeforge/tools/__init__.py`
-- [ ] T9.4: Run tests — all pass
-- [ ] T9.5: Commit
+- [x] T9.3: Register in `build_default_registry()` in `workers/codeforge/tools/__init__.py` (2026-03-09)
+- [x] T9.4: Run tests — all pass (2026-03-09)
+- [x] T9.5: Commit (2026-03-09)
 
 #### Task 10: Python `create_skill` Tool (Priority: HIGH)
-- [ ] T10.1: Write tests for validation, draft save, injection rejection, content length limit
+- [x] T10.1: Write tests for validation, draft save, injection rejection, content length limit (2026-03-09)
   - File: `workers/tests/test_tool_create_skill.py`
-- [ ] T10.2: Implement CreateSkillTool with validation, regex safety check, DB save as draft
+- [x] T10.2: Implement CreateSkillTool with validation, regex safety check, DB save as draft (2026-03-09)
   - File: `workers/codeforge/tools/create_skill.py`
-- [ ] T10.3: Register in `build_default_registry()`
-- [ ] T10.4: Run tests — all pass
-- [ ] T10.5: Commit
+- [x] T10.3: Register in `build_default_registry()` (2026-03-09)
+- [x] T10.4: Run tests — all pass (2026-03-09)
+- [x] T10.5: Commit (2026-03-09)
 
 #### Task 11: Python Safety Check — LLM-based injection detection (Priority: MEDIUM)
-- [ ] T11.1: Write tests for safe content, unsafe content, LLM error fallback
+- [x] T11.1: Write tests for safe content, unsafe content, LLM error fallback (2026-03-09)
   - File: `workers/tests/test_skill_safety.py`
-- [ ] T11.2: Implement `check_skill_safety()` with LLM call using cheapest model
+- [x] T11.2: Implement `check_skill_safety()` with LLM call using cheapest model (2026-03-09)
   - File: `workers/codeforge/skills/safety.py`
-- [ ] T11.3: Run tests — all pass
-- [ ] T11.4: Commit
+- [x] T11.3: Run tests — all pass (2026-03-09)
+- [x] T11.4: Commit (2026-03-09)
 
 #### Task 12: Update Conversation Consumer — LLM skill selection (Priority: CRITICAL)
-- [ ] T12.1: Write test for new injection flow (LLM selection, sandboxed `<skill>` tags, workflow/pattern separation)
-- [ ] T12.2: Replace `_inject_skill_recommendations()` with `_inject_skills()` in `_build_system_prompt()`
+- [x] T12.1: Write test for new injection flow (LLM selection, sandboxed `<skill>` tags, workflow/pattern separation) (2026-03-09)
+- [x] T12.2: Replace `_inject_skill_recommendations()` with `_inject_skills()` in `_build_system_prompt()` (2026-03-09)
   - File: `workers/codeforge/consumer/_conversation.py`
-- [ ] T12.3: Add sandboxing instruction to system prompt
-- [ ] T12.4: Run full conversation consumer tests — all pass
-- [ ] T12.5: Commit
+- [x] T12.3: Add sandboxing instruction to system prompt (2026-03-09)
+- [x] T12.4: Run full conversation consumer tests — all pass (2026-03-09)
+- [x] T12.5: Commit (2026-03-09)
 
 #### Task 13: Meta-Skill — Built-in skill creator (Priority: MEDIUM)
-- [ ] T13.1: Write test that meta-skill YAML parses correctly
+- [x] T13.1: Write test that meta-skill YAML parses correctly (2026-03-09)
   - File: `workers/tests/test_builtin_skills.py`
-- [ ] T13.2: Create meta-skill YAML with schema docs, examples, quality criteria
+- [x] T13.2: Create meta-skill YAML with schema docs, examples, quality criteria (2026-03-09)
   - File: `workers/codeforge/skills/builtins/codeforge-skill-creator.yaml`
-- [ ] T13.3: Add builtin loader to SkillRegistry
+- [x] T13.3: Add builtin loader to SkillRegistry (2026-03-09)
   - File: `workers/codeforge/skills/registry.py`
-- [ ] T13.4: Run tests — all pass
-- [ ] T13.5: Commit
+- [x] T13.4: Run tests — all pass (2026-03-09)
+- [x] T13.5: Commit (2026-03-09)
 
 #### Task 14: Go Import Handler — HTTP endpoint (Priority: MEDIUM)
-- [ ] T14.1: Implement `POST /api/v1/skills/import` handler (URL fetch, format detect, safety score, save)
+- [x] T14.1: Implement `POST /api/v1/skills/import` handler (URL fetch, format detect, safety score, save) (2026-03-09)
   - File: `internal/adapter/http/handlers_skill_import.go`
-- [ ] T14.2: Add route to `routes.go`
-- [ ] T14.3: Write handler tests
-- [ ] T14.4: Commit
+- [x] T14.2: Add route to `routes.go` (2026-03-09)
+- [x] T14.3: Write handler tests (2026-03-09)
+- [x] T14.4: Commit (2026-03-09)
 
 #### Task 15: WebSocket Skill Draft Notification (Priority: LOW)
-- [ ] T15.1: Add `SkillDraftEvent` struct to `internal/adapter/ws/events.go`
-- [ ] T15.2: Emit WebSocket event when agent creates a skill draft (via NATS → Go → WS broadcast)
-- [ ] T15.3: Commit
+- [x] T15.1: Add `SkillDraftEvent` struct to `internal/adapter/ws/events.go` (2026-03-09)
+- [x] T15.2: Emit WebSocket event when agent creates a skill draft (via NATS → Go → WS broadcast) (2026-03-09)
+- [x] T15.3: Commit (2026-03-09)
 
 #### Task 16: Documentation and Exports (Priority: LOW)
-- [ ] T16.1: Update `workers/codeforge/skills/__init__.py` exports
-- [ ] T16.2: Update `CLAUDE.md` with skills system references
-- [ ] T16.3: Update `docs/features/04-agent-orchestration.md`
-- [ ] T16.4: Mark completed tasks in `docs/todo.md`
-- [ ] T16.5: Final commit
+- [x] T16.1: Update `workers/codeforge/skills/__init__.py` exports (2026-03-09)
+- [x] T16.2: Update `CLAUDE.md` with skills system references (2026-03-09)
+- [x] T16.3: Update `docs/features/04-agent-orchestration.md` (2026-03-09)
+- [x] T16.4: Mark completed tasks in `docs/todo.md` (2026-03-09)
+- [x] T16.5: Final commit (2026-03-09)
 
 ---
 
