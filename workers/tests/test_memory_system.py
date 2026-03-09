@@ -262,10 +262,12 @@ class TestExperiencePoolStore:
             )
 
         assert result == str(entry_id)
-        # Verify INSERT was called
-        mock_cursor.execute.assert_called_once()
-        sql_arg = mock_cursor.execute.call_args[0][0]
-        assert "INSERT INTO experience_entries" in sql_arg
+        # Verify INSERT + eviction DELETE were called
+        assert mock_cursor.execute.call_count == 2
+        insert_sql = mock_cursor.execute.call_args_list[0][0][0]
+        assert "INSERT INTO experience_entries" in insert_sql
+        eviction_sql = mock_cursor.execute.call_args_list[1][0][0]
+        assert "DELETE FROM experience_entries" in eviction_sql
 
     async def test_store_with_embedding_failure_stores_null(self) -> None:
         """When embedding fails, store should still succeed with null embedding."""
@@ -297,8 +299,8 @@ class TestExperiencePoolStore:
             )
 
         assert result == str(entry_id)
-        # Check that None was passed for embedding_bytes
-        insert_params = mock_cursor.execute.call_args[0][1]
+        # Check that None was passed for embedding_bytes (INSERT is first call)
+        insert_params = mock_cursor.execute.call_args_list[0][0][1]
         assert insert_params[3] is None  # embedding_bytes position
 
 
