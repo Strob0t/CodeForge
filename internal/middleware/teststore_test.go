@@ -638,6 +638,10 @@ func (s *testStore) GetSkill(_ context.Context, _ string) (*skill.Skill, error) 
 func (s *testStore) ListSkills(_ context.Context, _ string) ([]skill.Skill, error) { return nil, nil }
 func (s *testStore) UpdateSkill(_ context.Context, _ *skill.Skill) error           { return nil }
 func (s *testStore) DeleteSkill(_ context.Context, _ string) error                 { return nil }
+func (s *testStore) IncrementSkillUsage(_ context.Context, _ string) error         { return nil }
+func (s *testStore) ListActiveSkills(_ context.Context, _ string) ([]skill.Skill, error) {
+	return nil, nil
+}
 
 // Feedback stubs
 func (s *testStore) CreateFeedbackAudit(_ context.Context, _ *feedback.AuditEntry) error {

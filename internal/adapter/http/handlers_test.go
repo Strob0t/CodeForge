@@ -1389,6 +1389,11 @@ func (m *mockStore) DeleteSkill(_ context.Context, id string) error {
 	return errNotFound
 }
 
+func (m *mockStore) IncrementSkillUsage(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListActiveSkills(_ context.Context, _ string) ([]skill.Skill, error) {
+	return nil, nil
+}
+
 // Feedback Audit stubs
 func (m *mockStore) CreateFeedbackAudit(_ context.Context, _ *feedback.AuditEntry) error {
 	return nil
