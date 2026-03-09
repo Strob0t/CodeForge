@@ -1,6 +1,9 @@
 package policy
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestPresetPlanReadonly(t *testing.T) {
 	p := PresetPlanReadonly()
@@ -125,14 +128,7 @@ func TestPresetSupervisedAskAllByName(t *testing.T) {
 
 func TestPresetSupervisedAskAllInNames(t *testing.T) {
 	names := PresetNames()
-	found := false
-	for _, n := range names {
-		if n == "supervised-ask-all" {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(names, "supervised-ask-all") {
 		t.Error("expected 'supervised-ask-all' in PresetNames()")
 	}
 }
