@@ -965,3 +965,13 @@ Goal Discovery uses 1 PostgreSQL table (migration `056_project_goals.sql`): `pro
 | `workers/codeforge/routing/router.py` | HybridRouter cascade orchestrator |
 | `workers/codeforge/llm.py` | `resolve_model_with_routing()` integration |
 | `litellm/config.yaml` | Provider wildcard configuration |
+
+### Branch Protection (Recommended)
+
+For PRs to `main`, configure these required status checks in GitHub:
+
+- `test-go` -- Go unit tests
+- `test-python` -- Python tests + linting
+- `test-frontend` -- Frontend lint + build
+- `contract` -- NATS payload contract validation
+- `verify` -- Critical feature verification gate (staging/main only)

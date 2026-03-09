@@ -194,6 +194,162 @@
 
 ---
 
+### E2E Playwright Test Findings (2026-03-09)
+
+> Report: [docs/plans/2026-03-09-e2e-playwright-test-report.md](plans/2026-03-09-e2e-playwright-test-report.md)
+> 5 findings from interactive end-to-end Playwright MCP test of full agent evaluation workflow.
+
+#### F4: Workspace Path Resolution Bug (Priority: CRITICAL)
+
+> Python worker resolves workspace paths relative to its own CWD (`workers/`) instead of the
+> project root. Agent tools write files to `workers/data/workspaces/.../data/workspaces/.../`
+> (doubled path). This blocks ALL agent file operations end-to-end.
+
+- [ ] F4.1: Add integration test reproducing the bug — create a project, seed a file via API, then call `resolve_safe_path("data/workspaces/{tid}/{pid}", "lru_cache.py")` and assert the resolved path matches the actual file on disk
+  - File: `workers/tests/test_workspace_path_resolution.py`
+  - Run: `cd workers && poetry run pytest tests/test_workspace_path_resolution.py -v`
+  - Expected: FAIL (confirms bug exists)
+
+- [ ] F4.2: Fix `resolve_safe_path()` to resolve workspace paths against project root, not CWD
+  - File: `workers/codeforge/tools/_base.py:64`
+  - Current: `workspace = Path(workspace_path).resolve()` — resolves relative to CWD
+  - Fix option A (preferred): Make Go Core send **absolute** paths in NATS payload — change `proj.WorkspacePath` to `filepath.Join(cfg.DataDir, proj.WorkspacePath)` before publishing
+    - File: `internal/service/conversation_agent.go:255,433,698`
+    - Also update: `internal/service/auto_agent.go` (wherever it publishes workspace_path)
+  - Fix option B (fallback): In Python `_base.py`, detect relative paths and resolve against a known `CODEFORGE_ROOT` env var
+    - File: `workers/codeforge/tools/_base.py:64`
+    - Change: `workspace = Path(workspace_path) if Path(workspace_path).is_absolute() else (Path(os.environ.get("CODEFORGE_ROOT", "/workspaces/CodeForge")) / workspace_path)`
+
+- [ ] F4.3: Fix `bash.py` tool CWD — same relative path issue
+  - File: `workers/codeforge/tools/bash.py:81`
+  - Current: `cwd=workspace_path` (relative → wrong CWD)
+  - Fix: Same as F4.2 — if Go sends absolute path, this is automatically fixed
+
+- [ ] F4.4: Add NATS contract test for `workspace_path` field — assert it is an absolute path
+  - File: `internal/port/messagequeue/contract_test.go` (add assertion)
+  - File: `workers/tests/test_nats_contracts.py` (add assertion)
+  - Rule: `workspace_path` must start with `/` in all `conversation.run.start` payloads
+
+- [ ] F4.5: Run the integration test from F4.1 again — verify PASS
+  - Run: `cd workers && poetry run pytest tests/test_workspace_path_resolution.py -v`
+  - Expected: PASS
+
+- [ ] F4.6: Re-run agent-eval to verify end-to-end fix — all 3 features should produce code in correct workspace
+  - Run: `/agent-eval mistral/mistral-large-latest`
+  - Expected: 3/3 features produce test-passing implementations
+
+#### F3: Routing Does Not Fallback on Provider Billing Errors (Priority: HIGH)
+
+> When Anthropic credits are exhausted, the router selected `anthropic/claude-sonnet-4` and
+> failed without trying another provider. Rate tracker only handles 429 (rate limit), not
+> 401/402/billing errors.
+
+- [ ] F3.1: Add test for billing error classification in rate tracker
+  - File: `workers/tests/test_routing_rate_tracker.py` (new or extend existing)
+  - Test: Call `rate_tracker.record_error("anthropic", error_type="billing")` → `is_exhausted("anthropic")` returns `True`
+  - Test: Call `rate_tracker.record_error("anthropic", error_type="auth")` → `is_exhausted("anthropic")` returns `True`
+  - Run: `cd workers && poetry run pytest tests/test_routing_rate_tracker.py -v`
+
+- [ ] F3.2: Extend `RateTracker.record()` to accept error classification (billing, auth, rate_limit)
+  - File: `workers/codeforge/routing/rate_tracker.py`
+  - Add: `record_error(provider, error_type)` method that marks provider as exhausted for longer duration (e.g. 1 hour for billing, 5 min for auth)
+  - Billing/auth errors should mark provider exhausted with longer cooldown than rate limits
+
+- [ ] F3.3: Classify LLM exceptions by error type in `llm.py`
+  - File: `workers/codeforge/llm.py`
+  - Parse LiteLLM exceptions: `AuthenticationError` → "auth", `BudgetExceededError` / status 402 → "billing", `RateLimitError` → "rate_limit"
+  - Feed classification to rate tracker on failure
+
+- [ ] F3.4: Add retry-with-fallback in agent loop LLM call path
+  - File: `workers/codeforge/agent_loop.py`
+  - When primary model fails with billing/auth error, call `rate_tracker.record_error()` and retry with next model from `fallback_models`
+  - Currently: exception propagates up and kills the conversation
+  - After fix: transparent fallback to next available provider
+
+- [ ] F3.5: Enable routing by default when multiple providers are configured
+  - File: `internal/config/config.go` or env var default
+  - Current: `CODEFORGE_ROUTING_ENABLED` defaults to `false`
+  - Change: Default to `true` when LiteLLM has 2+ providers configured
+  - Alternatively: add `CODEFORGE_ROUTING_AUTO=true` to enable auto-detection
+
+- [ ] F3.6: Run test — verify fallback works when primary provider has billing error
+  - Setup: Configure Anthropic (exhausted) + Mistral (working)
+  - Send a conversation message without specifying model
+  - Expected: Router selects Anthropic, fails, falls back to Mistral, succeeds
+
+#### F1: No File Upload/Create in Project UI (Priority: MEDIUM)
+
+> FilePanel only displays files — no buttons to create, upload, or edit files.
+> Users must use the REST API as workaround.
+
+- [ ] F1.1: Add i18n keys for file management actions
+  - File: `frontend/src/i18n/en.ts`
+  - Keys: `files.createFile`, `files.uploadFile`, `files.fileName`, `files.fileContent`, `files.createSuccess`, `files.uploadSuccess`, `files.createFailed`
+  - File: `frontend/src/i18n/locales/de.ts` (German translations)
+
+- [ ] F1.2: Add "Create File" button and modal to FilePanel
+  - File: `frontend/src/features/project/FilePanel.tsx`
+  - Add: Button in the file tree header (+ icon or "New File" text)
+  - Add: Modal with `path` (text input) and `content` (textarea) fields
+  - Call: `api.files.write(projectId, path, content)` on submit
+  - Show: toast on success/error
+
+- [ ] F1.3: Add "Upload File" button with native file picker
+  - File: `frontend/src/features/project/FilePanel.tsx`
+  - Add: Button next to "Create File"
+  - Use: `<input type="file">` with `FileReader` to read content
+  - Call: `api.files.write(projectId, fileName, fileContent)` on upload
+  - Show: toast on success/error, refresh file tree
+
+- [ ] F1.4: Test file creation and upload via browser
+  - Manual: Create a file via the new UI button, verify it appears in file tree
+  - Manual: Upload a file, verify content matches
+  - Consider: Add Playwright E2E test for file CRUD
+
+#### F2: No Feature Description Field in Create/Edit Modal (Priority: MEDIUM)
+
+> FeatureCardForm only has a title input — no description/body textarea.
+> Feature descriptions are critical for agent consumption (contain full problem specs).
+
+- [ ] F2.1: Add i18n keys for feature description
+  - File: `frontend/src/i18n/en.ts`
+  - Keys: `featuremap.description`, `featuremap.descriptionPlaceholder`
+  - File: `frontend/src/i18n/locales/de.ts`
+
+- [ ] F2.2: Extend `createFeature` and `updateFeature` API calls to include description
+  - File: `frontend/src/api/client.ts` (around line 1170)
+  - Check: Does `api.roadmap.createFeature()` accept a `description` field? If not, add it.
+  - Check: Does `api.roadmap.updateFeature()` accept a `description` field? If not, add it.
+
+- [ ] F2.3: Add textarea for description in FeatureCardForm
+  - File: `frontend/src/features/project/featuremap/FeatureCardForm.tsx`
+  - Add: `const [description, setDescription] = createSignal(props.feature?.description ?? "");`
+  - Add: `<textarea>` between the title input and status selector
+  - Pass: `description` to `createFeature()` and `updateFeature()` calls (lines 48, 41)
+  - Style: Match existing form patterns (rounded-cf-sm, border-cf-border, p-2)
+
+- [ ] F2.4: Test feature description via browser
+  - Manual: Create a feature with title + description, verify description persists
+  - Manual: Edit a feature, update description, verify changes saved
+  - Consider: Add Playwright E2E test
+
+#### F5: Playwright MCP Session Not Recoverable After Container Restart (Priority: LOW)
+
+> After `docker restart codeforge-playwright`, the MCP session ID becomes stale.
+> All subsequent browser_* calls return "Session not found".
+
+- [ ] F5.1: Document Playwright MCP session limitation in dev-setup.md
+  - File: `docs/dev-setup.md`
+  - Add section: "Playwright MCP Container" with note that session is lost on restart
+  - Workaround: Restart the Claude Code session (or MCP client) after container restart
+
+- [ ] F5.2: Add health check to Playwright Docker service
+  - File: `docker-compose.yml`
+  - Add: `healthcheck` to `codeforge-playwright` service (test: HTTP GET to :8001/mcp)
+  - Ensures container is only "healthy" when MCP server is accepting connections
+
+---
+
 ### Feature Roadmap -- Consolidated Open Items
 
 > Extracted from `docs/features/*.md` and centralized here per documentation policy.
@@ -387,8 +543,8 @@
 - [x] Add `contract` CI job: Go fixture generation + Python Pydantic validation (every push)
 - [x] Add `smoke` CI job: full stack with Postgres+NATS services (staging/main branches only)
 - [x] Configure smoke test skip env vars: `SMOKE_SKIP_LLM`, `SMOKE_SKIP_LITELLM`, `SMOKE_SKIP_NATS`
-- [ ] Upload verification matrix as CI artifact after smoke tests (future enhancement)
-- [ ] Add status badge to README: "Integration Tests: passing/failing" (future enhancement)
+- [x] (2026-03-09) Upload verification matrix as CI artifact after smoke tests
+- [x] (2026-03-09) Add CI status badge to README
 
 #### C1: Feature Verification Matrix (Priority: MEDIUM) -- DONE 2026-03-08
 
@@ -416,6 +572,6 @@
 > Block merges to main if critical features regress. Partially covered by A3 CI jobs.
 
 - [x] Define critical feature set: features 1-10 + 22-23 (in `scripts/verify-features.sh`)
-- [ ] Add verification reporter as required CI check on PRs to main (future enhancement)
+- [x] (2026-03-09) Add verification gate as CI job (can be set as required check)
 - [ ] Non-critical features (A2A, LSP, Handoff, etc.): warn but don't block (future enhancement)
 - [ ] Store historical verification results for trend tracking (future enhancement)
