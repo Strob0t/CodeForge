@@ -216,7 +216,7 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
           <For each={filteredGroups()}>
             {(group, groupIdx) => (
               <>
-                <div class="sticky top-0 bg-cf-bg-secondary px-3 py-1 text-xs font-semibold uppercase tracking-wider text-cf-text-muted">
+                <div class="bg-cf-bg-secondary px-3 py-1 text-xs font-semibold uppercase tracking-wider text-cf-text-muted">
                   {group.provider}
                 </div>
                 <For each={group.models}>

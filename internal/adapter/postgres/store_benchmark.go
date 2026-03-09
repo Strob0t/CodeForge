@@ -216,6 +216,7 @@ func scanBenchmarkRun(row scannable) (benchmark.Run, error) {
 		&r.SummaryScores, &r.TotalCost, &r.TotalTokens, &r.TotalDurationMs,
 		&r.CreatedAt, &r.CompletedAt,
 		&suiteID, &bmType, &execMode, &r.Config,
+		&r.HybridVerification, &r.RolloutCount, &r.RolloutStrategy,
 	)
 	if err != nil {
 		return r, err

@@ -251,9 +251,9 @@ func (s *Store) DashboardRunOutcomes(ctx context.Context, days int) ([]dashboard
 	tid := tenantFromCtx(ctx)
 	rows, err := s.pool.Query(ctx, `
 		SELECT status, COUNT(*)
-		FROM runs WHERE tenant_id = $1 AND created_at >= CURRENT_DATE - $2
+		FROM runs WHERE tenant_id = $1 AND created_at >= NOW() - ($2 || ' days')::interval
 		GROUP BY status ORDER BY COUNT(*) DESC
-	`, tid, days)
+	`, tid, fmt.Sprintf("%d", days))
 	if err != nil {
 		return nil, fmt.Errorf("dashboard run outcomes: %w", err)
 	}
