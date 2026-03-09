@@ -45,9 +45,10 @@ def _build_test_harness(entry_point: str, test_code: str, solution: str) -> str:
 class HumanEvalProvider:
     """Loads HumanEval tasks and converts them to TaskSpec."""
 
-    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None) -> None:
+    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None, config: dict | None = None) -> None:
         self._cache_dir = cache_dir
         self._tasks_raw = tasks  # Allow injection for testing
+        self._config = config or {}
 
     @property
     def name(self) -> str:

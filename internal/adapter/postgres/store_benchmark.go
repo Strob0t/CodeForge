@@ -19,7 +19,8 @@ const benchmarkRunColumns = `id, tenant_id, dataset, model, metrics, status, sum
 const benchmarkResultColumns = `id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
 		evaluator_scores, files_changed, functional_test_output,
-		rollout_id, rollout_count, is_best_rollout, diversity_score`
+		rollout_id, rollout_count, is_best_rollout, diversity_score,
+		selected_model, routing_reason, fallback_chain, fallback_count, provider_errors`
 
 // CreateBenchmarkRun inserts a new benchmark run.
 func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error {
@@ -175,14 +176,17 @@ func (s *Store) CreateBenchmarkResult(ctx context.Context, res *benchmark.Result
 		(id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		 tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
 		 evaluator_scores, files_changed, functional_test_output,
-		 rollout_id, rollout_count, is_best_rollout, diversity_score)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
+		 rollout_id, rollout_count, is_best_rollout, diversity_score,
+		 selected_model, routing_reason, fallback_chain, fallback_count, provider_errors)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+		        $21, $22, $23, $24, $25)`
 	_, err := s.pool.Exec(ctx, q,
 		res.ID, tenantFromCtx(ctx), res.RunID, res.TaskID, res.TaskName,
 		scores, res.ActualOutput, res.ExpectedOutput,
 		toolCalls, res.CostUSD, res.TokensIn, res.TokensOut, res.DurationMs,
 		evalScores, filesChanged, res.FunctionalTestOutput,
 		res.RolloutID, res.RolloutCount, res.IsBestRollout, res.DiversityScore,
+		res.SelectedModel, res.RoutingReason, res.FallbackChain, res.FallbackCount, res.ProviderErrors,
 	)
 	if err != nil {
 		return fmt.Errorf("create benchmark result: %w", err)
@@ -238,6 +242,8 @@ func scanBenchmarkResult(row scannable) (benchmark.Result, error) {
 		&res.Scores, &res.ActualOutput, &res.ExpectedOutput,
 		&res.ToolCalls, &res.CostUSD, &res.TokensIn, &res.TokensOut, &res.DurationMs,
 		&res.EvaluatorScores, &filesChanged, &res.FunctionalTestOutput,
+		&res.RolloutID, &res.RolloutCount, &res.IsBestRollout, &res.DiversityScore,
+		&res.SelectedModel, &res.RoutingReason, &res.FallbackChain, &res.FallbackCount, &res.ProviderErrors,
 	)
 	if err != nil {
 		return res, err

@@ -87,9 +87,10 @@ def _convert_swebench_task(raw: dict) -> TaskSpec:
 class SWEBenchProvider:
     """Full SWE-bench dataset (2294 tasks)."""
 
-    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None) -> None:
+    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None, config: dict | None = None) -> None:
         self._cache_dir = cache_dir
         self._tasks_raw = tasks
+        self._config = config or {}
 
     @property
     def name(self) -> str:
@@ -129,9 +130,10 @@ class SWEBenchProvider:
 class SWEBenchLiteProvider:
     """SWE-bench Lite: curated 300-task subset."""
 
-    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None) -> None:
+    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None, config: dict | None = None) -> None:
         self._cache_dir = cache_dir
         self._tasks_raw = tasks
+        self._config = config or {}
 
     @property
     def name(self) -> str:
@@ -171,9 +173,10 @@ class SWEBenchLiteProvider:
 class SWEBenchVerifiedProvider:
     """SWE-bench Verified: 500-task human-verified subset."""
 
-    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None) -> None:
+    def __init__(self, cache_dir: str = "", tasks: list[dict] | None = None, config: dict | None = None) -> None:
         self._cache_dir = cache_dir
         self._tasks_raw = tasks
+        self._config = config or {}
 
     @property
     def name(self) -> str:
