@@ -53,18 +53,20 @@ class SkillRegistry:
         self._db = db
         self._skills: list[Skill] = []
 
-    async def load_skills(self, project_id: str) -> list[Skill]:
+    async def load_skills(self, project_id: str, tenant_id: str) -> list[Skill]:
         """Load skills from the database for a project (including global)."""
         if self._db is None:
             return self._skills
 
         async with self._db.cursor() as cur:
             await cur.execute(
-                """SELECT id, tenant_id, project_id, name, description, language, code, tags, enabled
+                """SELECT id, tenant_id, project_id, name, type, description,
+                          language, content, code, tags, source, status
                    FROM skills
-                   WHERE (project_id = %s OR project_id = '') AND enabled = TRUE
+                   WHERE (project_id = %s OR project_id = '' OR project_id IS NULL)
+                     AND status = 'active' AND tenant_id = %s
                    ORDER BY created_at ASC""",
-                (project_id,),
+                (project_id, tenant_id),
             )
             rows = await cur.fetchall()
 
@@ -74,11 +76,14 @@ class SkillRegistry:
                 tenant_id=str(row[1]),
                 project_id=row[2] or "",
                 name=row[3],
-                description=row[4] or "",
-                language=row[5] or "",
-                code=row[6],
-                tags=row[7] or [],
-                enabled=row[8],
+                type=row[4] or "pattern",
+                description=row[5] or "",
+                language=row[6] or "",
+                content=row[7] or row[8] or "",
+                code=row[8] or "",
+                tags=row[9] or [],
+                source=row[10] or "user",
+                status=row[11] or "active",
             )
             for row in rows
         ]

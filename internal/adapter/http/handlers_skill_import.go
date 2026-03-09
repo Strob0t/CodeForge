@@ -18,6 +18,12 @@ type importSkillRequest struct {
 	ProjectID string `json:"project_id"`
 }
 
+type skillRejection struct {
+	Error   string   `json:"error"`
+	Score   float64  `json:"score"`
+	Factors []string `json:"factors"`
+}
+
 // ImportSkill handles POST /api/v1/skills/import.
 // Fetches content from a URL, checks for injection, and creates the skill.
 func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
@@ -41,10 +47,10 @@ func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
 	// Run quarantine scorer on content to detect prompt injection.
 	score, factors := quarantine.ScoreMessage(nil, []byte(content))
 	if score > 0.5 {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-			"error":   "skill content rejected due to safety concerns",
-			"score":   score,
-			"factors": factors,
+		writeJSON(w, http.StatusUnprocessableEntity, skillRejection{
+			Error:   "skill content rejected due to safety concerns",
+			Score:   score,
+			Factors: factors,
 		})
 		return
 	}

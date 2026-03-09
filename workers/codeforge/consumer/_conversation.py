@@ -96,7 +96,10 @@ class ConversationHandlerMixin:
                 registry.merge_mcp_tools(workbench)
                 log.info("mcp tools merged", count=len(workbench.get_tools_for_llm()))
 
-            system_prompt = await self._build_system_prompt(run_msg, registry, log)
+            system_prompt, loaded_skills = await self._build_system_prompt(run_msg, registry, log)
+
+            # Populate in-loop skill tools with loaded skills
+            self._wire_skill_tools(registry, loaded_skills, run_msg.project_id, log)
 
             self._register_handoff_tool(registry, run_msg.run_id)
             self._register_goals_tool(registry, run_msg.project_id)
@@ -307,8 +310,12 @@ class ConversationHandlerMixin:
         run_msg: ConversationRunStartMessage,
         registry: object,
         log: structlog.stdlib.BoundLogger,
-    ) -> str:
-        """Assemble the full system prompt with microagents, skills, and tool guide."""
+    ) -> tuple[str, list]:
+        """Assemble the full system prompt with microagents, skills, and tool guide.
+
+        Returns (system_prompt, loaded_skills) so the caller can populate
+        in-loop tools like search_skills with the full skill list.
+        """
         system_prompt = run_msg.system_prompt
         if run_msg.microagent_prompts:
             max_len = 10_000
@@ -329,7 +336,7 @@ class ConversationHandlerMixin:
 
         tenant_id = getattr(run_msg, "tenant_id", DEFAULT_TENANT_ID) or DEFAULT_TENANT_ID
 
-        system_prompt = await self._inject_skills(
+        system_prompt, loaded_skills = await self._inject_skills(
             system_prompt,
             run_msg.project_id,
             run_msg.messages,
@@ -338,7 +345,8 @@ class ConversationHandlerMixin:
         )
 
         # Inject adaptive tool-usage guide for weaker models.
-        return self._inject_tool_guide(system_prompt, registry, run_msg.model, log)
+        prompt = self._inject_tool_guide(system_prompt, registry, run_msg.model, log)
+        return prompt, loaded_skills
 
     async def _inject_skills(
         self,
@@ -347,12 +355,18 @@ class ConversationHandlerMixin:
         messages: list[dict],
         tenant_id: str,
         log: structlog.stdlib.BoundLogger,
-    ) -> str:
-        """Augment system prompt with LLM-selected skills (BM25 fallback)."""
+    ) -> tuple[str, list]:
+        """Augment system prompt with LLM-selected skills (BM25 fallback).
+
+        Returns (augmented_prompt, all_loaded_skills) so callers can populate
+        the search_skills tool with the full skill list.
+        """
+        all_skills: list = []
         try:
             import psycopg
 
             from codeforge.skills.models import Skill
+            from codeforge.skills.registry import load_builtin_skills
             from codeforge.skills.selector import select_skills_for_task
 
             async with await psycopg.AsyncConnection.connect(self._db_url) as conn, conn.cursor() as cur:
@@ -364,9 +378,6 @@ class ConversationHandlerMixin:
                     (project_id, tenant_id),
                 )
                 rows = await cur.fetchall()
-
-            if not rows:
-                return system_prompt
 
             skills = [
                 Skill(
@@ -384,14 +395,24 @@ class ConversationHandlerMixin:
                 for r in rows
             ]
 
+            # Merge built-in skills (e.g. codeforge-skill-creator meta-skill)
+            builtins = load_builtin_skills()
+            existing_ids = {s.id for s in skills}
+            skills.extend(b for b in builtins if b.id not in existing_ids)
+
+            all_skills = skills
+
+            if not skills:
+                return system_prompt, all_skills
+
             task_ctx = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
             if not task_ctx:
-                return system_prompt
+                return system_prompt, all_skills
 
             selected = await select_skills_for_task(skills, task_ctx, self._llm)
 
             if not selected:
-                return system_prompt
+                return system_prompt, all_skills
 
             # Build skill injection blocks
             workflow_blocks: list[str] = []
@@ -426,7 +447,7 @@ class ConversationHandlerMixin:
 
         except Exception as exc:
             log.warning("skill injection failed, continuing without", exc_info=True, error=str(exc))
-        return system_prompt
+        return system_prompt, all_skills
 
     @staticmethod
     def _inject_tool_guide(
@@ -449,6 +470,63 @@ class ConversationHandlerMixin:
 
         log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
         return f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
+
+    def _wire_skill_tools(
+        self,
+        registry: object,
+        skills: list,
+        project_id: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Populate search_skills and create_skill tools with loaded data."""
+        from codeforge.tools.create_skill import CreateSkillTool
+        from codeforge.tools.search_skills import SearchSkillsTool
+
+        for _defn, executor in registry._tools.values():  # type: ignore[attr-defined]
+            if isinstance(executor, SearchSkillsTool):
+                executor.set_skills(skills)
+                log.debug("search_skills tool populated", skill_count=len(skills))
+            elif isinstance(executor, CreateSkillTool) and executor._save_fn is None:
+                executor._save_fn = self._make_skill_save_fn(project_id)
+                log.debug("create_skill tool save_fn wired")
+
+    def _make_skill_save_fn(self, project_id: str):
+        """Create an async callback that saves a skill draft to the database."""
+        import psycopg
+
+        db_url = self._db_url
+
+        async def save_fn(skill_data: dict) -> str:
+            import uuid
+
+            skill_id = str(uuid.uuid4())
+            async with await psycopg.AsyncConnection.connect(db_url) as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "INSERT INTO skills (id, tenant_id, project_id, name, type, description,"
+                        " language, content, code, tags, source, source_url, format_origin, status)"
+                        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            skill_id,
+                            "",  # tenant_id set by trigger or default
+                            project_id,
+                            skill_data["name"],
+                            skill_data["type"],
+                            skill_data["description"],
+                            skill_data.get("language", ""),
+                            skill_data["content"],
+                            skill_data["content"],  # backwards compat: also populate code
+                            skill_data.get("tags", []),
+                            "agent",
+                            "",
+                            skill_data.get("format_origin", "codeforge"),
+                            "draft",
+                        ),
+                    )
+                await conn.commit()
+            return skill_id
+
+        return save_fn
 
     async def _get_hybrid_router(self) -> HybridRouter | None:  # noqa: C901
         """Build a HybridRouter if routing is enabled. Returns None otherwise."""
