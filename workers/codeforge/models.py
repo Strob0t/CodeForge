@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -523,6 +524,8 @@ class BenchmarkRunRequest(BaseModel):
     hybrid_verification: bool = False
     rollout_count: int = 1
     rollout_strategy: str = "best"
+    provider_name: str = ""
+    provider_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class BenchmarkTaskResult(BaseModel):
@@ -546,6 +549,11 @@ class BenchmarkTaskResult(BaseModel):
     rollout_count: int = 1
     is_best_rollout: bool = True
     diversity_score: float = 0.0
+    selected_model: str = ""
+    routing_reason: str = ""
+    fallback_chain: str = ""
+    fallback_count: int = 0
+    provider_errors: str = ""
 
 
 class BenchmarkRunResult(BaseModel):

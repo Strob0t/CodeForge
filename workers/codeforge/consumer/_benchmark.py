@@ -255,12 +255,26 @@ def _dataset_to_task_specs(dataset_path: str) -> list:
     ]
 
 
+async def _load_tasks_for_run(req) -> list:
+    """Load tasks from provider registry or legacy YAML dataset."""
+    from codeforge.evaluation.providers import get_provider
+    from codeforge.evaluation.task_filter import apply_task_filters
+
+    if req.provider_name:
+        provider_cls = get_provider(req.provider_name)
+        provider = provider_cls(config=req.provider_config)
+        tasks = await provider.load_tasks()
+        return apply_task_filters(tasks, req.provider_config)
+
+    return _dataset_to_task_specs(req.dataset_path)
+
+
 async def _run_simple_benchmark(req, llm, pipeline) -> list:
     """Run a simple prompt -> LLM -> compare benchmark."""
     from codeforge.evaluation.runners.simple import SimpleBenchmarkRunner
 
     runner = SimpleBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
-    tasks = _dataset_to_task_specs(req.dataset_path)
+    tasks = await _load_tasks_for_run(req)
     return await _run_with_optional_rollout(runner, tasks, req, pipeline)
 
 
@@ -269,20 +283,28 @@ async def _run_tool_use_benchmark(req, llm, pipeline) -> list:
     from codeforge.evaluation.runners.tool_use import ToolUseBenchmarkRunner
 
     runner = ToolUseBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
-    tasks = _dataset_to_task_specs(req.dataset_path)
+    tasks = await _load_tasks_for_run(req)
     return await _run_with_optional_rollout(runner, tasks, req, pipeline)
 
 
 async def _run_agent_benchmark(req, llm, pipeline) -> list:
     """Run an agent benchmark using the full agent loop."""
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
-    from codeforge.evaluation.providers.codeforge_agent import CodeForgeAgentProvider
     from codeforge.evaluation.runners.agent import AgentBenchmarkRunner
 
-    config = LoopConfig(model=req.model, max_cost=req.config.get("max_cost", 1.0) if hasattr(req, "config") else 1.0)
+    if req.provider_name:
+        tasks = await _load_tasks_for_run(req)
+    else:
+        from codeforge.evaluation.providers.codeforge_agent import CodeForgeAgentProvider
+
+        provider = CodeForgeAgentProvider(datasets_dir=req.dataset_path)
+        tasks = await provider.load_tasks()
+
+    config = LoopConfig(
+        model=req.model,
+        max_cost=req.provider_config.get("max_cost", 1.0) if req.provider_config else 1.0,
+    )
     executor = AgentLoopExecutor(llm=llm, tools=None, runtime=None)
-    provider = CodeForgeAgentProvider(datasets_dir=req.dataset_path)
-    tasks = await provider.load_tasks()
     runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline, loop_config=config)
     return await _run_with_optional_rollout(runner, tasks, req, pipeline)
 
