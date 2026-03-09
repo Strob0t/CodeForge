@@ -1523,6 +1523,49 @@ const en = {
   "chat.attachFile": "Attach file",
   "chat.attachSuccess": "File written to workspace",
   "chat.attachFailed": "Failed to attach file",
+
+  // -- Onboarding progress ---------------------------------------------------
+  "onboarding.repoCloned": "Repo cloned",
+  "onboarding.stackDetected": "Stack detected",
+  "onboarding.goalsDefined": "Goals defined",
+  "onboarding.roadmapCreated": "Roadmap created",
+  "onboarding.firstRun": "First agent run",
+  "onboarding.dismiss": "Dismiss",
+
+  // -- Empty states ----------------------------------------------------------
+  "empty.files": "No workspace linked. Clone a repo or adopt a local directory.",
+  "empty.files.action": "Setup Workspace",
+  "empty.goals": "No goals defined yet.",
+  "empty.goals.action": "Start a chat to define goals together",
+  "empty.roadmap": "Define goals first, then the agent can create a roadmap.",
+  "empty.roadmap.action": "Go to Goals",
+  "empty.featuremap": "Create a roadmap first to visualize features.",
+  "empty.featuremap.action": "Go to Roadmap",
+  "empty.warroom": "No active agents. Start a conversation to begin.",
+  "empty.warroom.action": "Open Chat",
+  "empty.sessions": "No agent sessions yet. Start a chat to get going.",
+  "empty.sessions.action": "Open Chat",
+  "empty.trajectory": "No trajectory data. Run an agent first.",
+  "empty.trajectory.action": "Go to Sessions",
+  "empty.audit": "No audit events recorded yet.",
+
+  // -- Chat suggestions ------------------------------------------------------
+  "chat.suggestion.explainStructure": "Explain the project structure",
+  "chat.suggestion.findEntryPoints": "Find entry points",
+  "chat.suggestion.defineGoals": "Help me define goals",
+  "chat.suggestion.setPriorities": "Set priorities",
+  "chat.suggestion.createRoadmap": "Create roadmap from goals",
+  "chat.suggestion.planMvp": "Plan MVP",
+  "chat.suggestion.analyzeFeatures": "Analyze features",
+  "chat.suggestion.showDeps": "Show dependencies",
+  "chat.suggestion.startAgent": "Start an agent",
+  "chat.suggestion.explainStatus": "Explain current status",
+  "chat.suggestion.summarizeSession": "Summarize last session",
+  "chat.suggestion.continueWork": "Continue where we left off",
+  "chat.suggestion.explainTrajectory": "Explain this trajectory",
+  "chat.suggestion.whatWentWrong": "What went wrong?",
+  "chat.suggestion.summarizeChanges": "Summarize recent changes",
+  "chat.suggestion.showSecurityEvents": "Show security events",
 } as const;
 
 export type TranslationKey = keyof typeof en;

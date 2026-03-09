@@ -1542,6 +1542,50 @@ const de: Translations = {
   "chat.attachFile": "Datei anhaengen",
   "chat.attachSuccess": "Datei in Workspace geschrieben",
   "chat.attachFailed": "Datei konnte nicht angehangen werden",
+
+  // -- Onboarding-Fortschritt ------------------------------------------------
+  "onboarding.repoCloned": "Repo geklont",
+  "onboarding.stackDetected": "Stack erkannt",
+  "onboarding.goalsDefined": "Ziele definiert",
+  "onboarding.roadmapCreated": "Roadmap erstellt",
+  "onboarding.firstRun": "Erster Agent-Lauf",
+  "onboarding.dismiss": "Ausblenden",
+
+  // -- Leere Zustaende -------------------------------------------------------
+  "empty.files":
+    "Kein Workspace verknuepft. Klone ein Repo oder uebernimm ein lokales Verzeichnis.",
+  "empty.files.action": "Workspace einrichten",
+  "empty.goals": "Noch keine Ziele definiert.",
+  "empty.goals.action": "Starte einen Chat um gemeinsam Ziele zu definieren",
+  "empty.roadmap": "Definiere zuerst Ziele, dann kann der Agent eine Roadmap erstellen.",
+  "empty.roadmap.action": "Zu Zielen",
+  "empty.featuremap": "Erstelle zuerst eine Roadmap um Features zu visualisieren.",
+  "empty.featuremap.action": "Zur Roadmap",
+  "empty.warroom": "Keine aktiven Agenten. Starte eine Konversation.",
+  "empty.warroom.action": "Chat oeffnen",
+  "empty.sessions": "Noch keine Agent-Sitzungen. Starte einen Chat.",
+  "empty.sessions.action": "Chat oeffnen",
+  "empty.trajectory": "Keine Trajectory-Daten. Fuehre zuerst einen Agenten aus.",
+  "empty.trajectory.action": "Zu Sitzungen",
+  "empty.audit": "Noch keine Audit-Ereignisse aufgezeichnet.",
+
+  // -- Chat-Vorschlaege ------------------------------------------------------
+  "chat.suggestion.explainStructure": "Projektstruktur erklaeren",
+  "chat.suggestion.findEntryPoints": "Einstiegspunkte finden",
+  "chat.suggestion.defineGoals": "Hilf mir Ziele zu definieren",
+  "chat.suggestion.setPriorities": "Prioritaeten setzen",
+  "chat.suggestion.createRoadmap": "Roadmap aus Zielen erstellen",
+  "chat.suggestion.planMvp": "MVP planen",
+  "chat.suggestion.analyzeFeatures": "Features analysieren",
+  "chat.suggestion.showDeps": "Abhaengigkeiten anzeigen",
+  "chat.suggestion.startAgent": "Einen Agenten starten",
+  "chat.suggestion.explainStatus": "Aktuellen Status erklaeren",
+  "chat.suggestion.summarizeSession": "Letzte Sitzung zusammenfassen",
+  "chat.suggestion.continueWork": "Dort weitermachen wo wir aufgehoert haben",
+  "chat.suggestion.explainTrajectory": "Diese Trajectory erklaeren",
+  "chat.suggestion.whatWentWrong": "Was ist schiefgelaufen?",
+  "chat.suggestion.summarizeChanges": "Letzte Aenderungen zusammenfassen",
+  "chat.suggestion.showSecurityEvents": "Sicherheitsereignisse anzeigen",
 };
 
 export default de;
