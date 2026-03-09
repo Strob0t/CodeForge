@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
@@ -188,5 +190,95 @@ func TestHandleDetectProjectGoals(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleAIDiscoverProjectGoals_InjectsDocsContext(t *testing.T) {
+	// Create a temp workspace with some goal doc files.
+	tmpDir := t.TempDir()
+	docsDir := filepath.Join(tmpDir, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	projectMD := "# My Project\nBuild a great tool."
+	stateMD := "## State\nEarly stage."
+	if err := os.WriteFile(filepath.Join(docsDir, "PROJECT.md"), []byte(projectMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "STATE.md"), []byte(stateMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately do NOT create REQUIREMENTS.md to test the skip path.
+
+	store := &mockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "Test", WorkspacePath: tmpDir},
+		},
+	}
+	r := newTestRouterWithModelAndStore(store, "gpt-4o")
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/goals/ai-discover", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["status"] != "started" {
+		t.Fatalf("expected status=started, got %q", resp["status"])
+	}
+	if resp["conversation_id"] == "" {
+		t.Fatal("expected non-empty conversation_id")
+	}
+}
+
+func TestHandleAIDiscoverProjectGoals_NoDocsFiles(t *testing.T) {
+	// Create a temp workspace with no docs/ directory at all.
+	tmpDir := t.TempDir()
+
+	store := &mockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "Test", WorkspacePath: tmpDir},
+		},
+	}
+	r := newTestRouterWithModelAndStore(store, "gpt-4o")
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/goals/ai-discover", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["status"] != "started" {
+		t.Fatalf("expected status=started, got %q", resp["status"])
+	}
+}
+
+func TestHandleAIDiscoverProjectGoals_NoWorkspace(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{
+			{ID: "proj-1", Name: "Test", WorkspacePath: ""},
+		},
+	}
+	r := newTestRouterWithStore(store)
+
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/goals/ai-discover", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }

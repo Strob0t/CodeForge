@@ -325,9 +325,25 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	return nil
 }
 
+// AgenticOption configures optional behaviour for SendMessageAgenticWithMode.
+type AgenticOption func(*agenticOpts)
+
+type agenticOpts struct {
+	extraContext []messagequeue.ContextEntryPayload
+}
+
+// WithContextEntries appends additional context entries to the NATS payload.
+// These are merged with the automatically built conversation context entries.
+func WithContextEntries(entries []messagequeue.ContextEntryPayload) AgenticOption {
+	return func(o *agenticOpts) {
+		o.extraContext = append(o.extraContext, entries...)
+	}
+}
+
 // SendMessageAgenticWithMode is like SendMessageAgentic but accepts a mode ID override
 // instead of defaulting to "coder". Used for specialized agent flows like goal discovery.
-func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, conversationID, content, modeID string) error {
+// Optional AgenticOption values can inject extra context entries into the NATS payload.
+func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, conversationID, content, modeID string, opts ...AgenticOption) error {
 	if content == "" {
 		return errors.New("content is required")
 	}
@@ -444,6 +460,15 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 
 	// Build context entries for the conversation run.
 	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID, protoMessages)
+
+	// Apply functional options (e.g. extra context entries from the caller).
+	var applied agenticOpts
+	for _, o := range opts {
+		o(&applied)
+	}
+	if len(applied.extraContext) > 0 {
+		contextEntries = append(contextEntries, applied.extraContext...)
+	}
 
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{

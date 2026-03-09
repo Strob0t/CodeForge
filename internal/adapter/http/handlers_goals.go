@@ -3,11 +3,15 @@ package http
 import (
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // ListProjectGoals handles GET /api/v1/projects/{id}/goals.
@@ -125,12 +129,32 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Inject existing goal/project doc files as context for the agent.
+	var contextEntries []messagequeue.ContextEntryPayload
+	for _, name := range []string{"docs/PROJECT.md", "docs/REQUIREMENTS.md", "docs/STATE.md"} {
+		docPath := filepath.Join(proj.WorkspacePath, name) //nolint:gosec // name is a hardcoded constant
+		docContent, readErr := os.ReadFile(docPath)        //nolint:gosec // path constructed from constant names
+		if readErr != nil {
+			continue // File doesn't exist yet -- that's fine.
+		}
+		contextEntries = append(contextEntries, messagequeue.ContextEntryPayload{
+			Kind:    "file",
+			Path:    name,
+			Content: string(docContent),
+		})
+	}
+
 	// Dispatch an agentic run with the goal-researcher mode.
 	initialPrompt := "Analyze this repository and help me define project goals. " +
 		"Start by exploring the codebase structure, then ask me targeted questions."
 
+	var agenticOpts []service.AgenticOption
+	if len(contextEntries) > 0 {
+		agenticOpts = append(agenticOpts, service.WithContextEntries(contextEntries))
+	}
+
 	if err := h.Conversations.SendMessageAgenticWithMode(
-		r.Context(), conv.ID, initialPrompt, "goal-researcher",
+		r.Context(), conv.ID, initialPrompt, "goal-researcher", agenticOpts...,
 	); err != nil {
 		slog.Warn("failed to dispatch goal discovery run",
 			"conversation_id", conv.ID,

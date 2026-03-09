@@ -533,3 +533,118 @@ func TestSendMessageAgentic_AdaptiveBudgetReducesContext(t *testing.T) {
 		}
 	})
 }
+
+func TestSendMessageAgenticWithMode_WithContextEntries(t *testing.T) {
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Context Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Provide extra context entries via the option.
+	extraEntries := []messagequeue.ContextEntryPayload{
+		{Kind: "file", Path: "docs/PROJECT.md", Content: "# My Project\nGoal: build something."},
+		{Kind: "file", Path: "docs/STATE.md", Content: "## State\nIn progress."},
+	}
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "discover goals", "goal-researcher",
+		service.WithContextEntries(extraEntries),
+	)
+	if err != nil {
+		t.Fatalf("SendMessageAgenticWithMode: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Verify the extra context entries appear in the payload.
+	if len(payload.Context) < 2 {
+		t.Fatalf("expected at least 2 context entries, got %d", len(payload.Context))
+	}
+
+	// Find our injected entries by path.
+	foundProject := false
+	foundState := false
+	for _, ce := range payload.Context {
+		switch ce.Path {
+		case "docs/PROJECT.md":
+			foundProject = true
+			if ce.Kind != "file" {
+				t.Errorf("expected Kind=file for PROJECT.md, got %q", ce.Kind)
+			}
+			if ce.Content != "# My Project\nGoal: build something." {
+				t.Errorf("unexpected PROJECT.md content: %q", ce.Content)
+			}
+		case "docs/STATE.md":
+			foundState = true
+			if ce.Content != "## State\nIn progress." {
+				t.Errorf("unexpected STATE.md content: %q", ce.Content)
+			}
+		}
+	}
+	if !foundProject {
+		t.Error("docs/PROJECT.md context entry not found in payload")
+	}
+	if !foundState {
+		t.Error("docs/STATE.md context entry not found in payload")
+	}
+}
+
+func TestSendMessageAgenticWithMode_WithoutOptions_NoExtraContext(t *testing.T) {
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "No Context Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Call without options -- backward compatibility.
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "do something", "coder")
+	if err != nil {
+		t.Fatalf("SendMessageAgenticWithMode: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Without context optimizer, Context should be nil/empty.
+	if len(payload.Context) != 0 {
+		t.Fatalf("expected 0 context entries without options, got %d", len(payload.Context))
+	}
+}
