@@ -14,18 +14,19 @@ var BuiltinToolNames = []string{"Read", "Write", "Edit", "Bash", "Search", "Glob
 
 // Mode represents an agent specialization with its own tools, LLM scenario, and autonomy level.
 type Mode struct {
-	ID               string   `json:"id" yaml:"id"`
-	Name             string   `json:"name" yaml:"name"`
-	Description      string   `json:"description" yaml:"description"`
-	Builtin          bool     `json:"builtin" yaml:"-"`
-	Tools            []string `json:"tools" yaml:"tools"`
-	DeniedTools      []string `json:"denied_tools" yaml:"denied_tools"`
-	DeniedActions    []string `json:"denied_actions" yaml:"denied_actions"`
-	RequiredArtifact string   `json:"required_artifact" yaml:"required_artifact"`
-	LLMScenario      string   `json:"llm_scenario" yaml:"llm_scenario"`
-	Autonomy         int      `json:"autonomy" yaml:"autonomy"`
-	PromptPrefix     string   `json:"prompt_prefix" yaml:"prompt_prefix"`
-	OutputSchema     string   `json:"output_schema,omitempty" yaml:"output_schema"`
+	ID               string            `json:"id" yaml:"id"`
+	Name             string            `json:"name" yaml:"name"`
+	Description      string            `json:"description" yaml:"description"`
+	Builtin          bool              `json:"builtin" yaml:"-"`
+	Tools            []string          `json:"tools" yaml:"tools"`
+	DeniedTools      []string          `json:"denied_tools" yaml:"denied_tools"`
+	DeniedActions    []string          `json:"denied_actions" yaml:"denied_actions"`
+	RequiredArtifact string            `json:"required_artifact" yaml:"required_artifact"`
+	LLMScenario      string            `json:"llm_scenario" yaml:"llm_scenario"`
+	Autonomy         int               `json:"autonomy" yaml:"autonomy"`
+	PromptPrefix     string            `json:"prompt_prefix" yaml:"prompt_prefix"`
+	OutputSchema     string            `json:"output_schema,omitempty" yaml:"output_schema"`
+	ModelAdaptations map[string]string `json:"model_adaptations,omitempty" yaml:"model_adaptations"`
 }
 
 // Validate checks that a Mode has all required fields and valid values.

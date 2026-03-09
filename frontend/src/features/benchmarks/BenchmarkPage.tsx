@@ -11,12 +11,14 @@ import {
 
 import { api } from "~/api/client";
 import type {
-  BenchmarkDatasetInfo,
   BenchmarkExecMode,
   BenchmarkRun,
+  BenchmarkSuite,
   BenchmarkType,
   CreateBenchmarkRunRequest,
+  ProviderConfig,
 } from "~/api/types";
+import type { RoutingReport as RoutingReportType } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
@@ -26,10 +28,10 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   CostDisplay,
   EmptyState,
   FormField,
-  Input,
   LoadingState,
   ModelCombobox,
   PageLayout,
@@ -42,7 +44,10 @@ import { BenchmarkRunDetail } from "./BenchmarkRunDetail";
 import { CostAnalysisView } from "./CostAnalysisView";
 import { LeaderboardView } from "./LeaderboardView";
 import { MultiCompareView } from "./MultiCompareView";
+import { PromptOptimizationPanel } from "./PromptOptimizationPanel";
+import { RoutingReport } from "./RoutingReport";
 import { SuiteManagement } from "./SuiteManagement";
+import { TaskSettings } from "./TaskSettings";
 
 const METRIC_OPTIONS = [
   "correctness",
@@ -60,12 +65,25 @@ const TABS = [
   { value: "suites", label: "" },
 ] as const;
 
+/** Map provider names to default benchmark types. */
+const PROVIDER_TYPE_MAP: Record<string, BenchmarkType> = {
+  deepeval: "simple",
+  swebench: "agent",
+  bigcodebench: "simple",
+  humaneval: "simple",
+  mbpp: "simple",
+  cruxeval: "simple",
+  livecodebench: "simple",
+  sparcbench: "agent",
+  aider_polyglot: "agent",
+};
+
 export default function BenchmarkPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { onMessage } = useWebSocket();
   const [runs, { refetch }] = createResource(() => api.benchmarks.listRuns());
-  const [datasets] = createResource(() => api.benchmarks.listDatasets());
+  const [suites] = createResource(() => api.benchmarks.listSuites());
 
   // Tab persistence via URL search params
   const initialTab = new URLSearchParams(window.location.search).get("tab") || "runs";
@@ -88,11 +106,12 @@ export default function BenchmarkPage() {
   // New run form
   const [showForm, setShowForm] = createSignal(false);
   const formDefaults = {
-    dataset: "",
+    suiteId: "",
     model: "",
     metrics: ["correctness"] as string[],
     benchmarkType: "simple" as BenchmarkType,
     execMode: "mount" as BenchmarkExecMode,
+    providerConfig: {} as ProviderConfig,
   };
   const form = useFormState(formDefaults);
 
@@ -113,12 +132,14 @@ export default function BenchmarkPage() {
 
   const handleCreate = async (e: SubmitEvent) => {
     e.preventDefault();
+    const hasProviderConfig = Object.keys(form.state.providerConfig).length > 0;
     const req: CreateBenchmarkRunRequest = {
-      dataset: form.state.dataset,
+      suite_id: form.state.suiteId || undefined,
       model: form.state.model,
       metrics: form.state.metrics,
       benchmark_type: form.state.benchmarkType,
       exec_mode: form.state.benchmarkType === "agent" ? form.state.execMode : undefined,
+      provider_config: hasProviderConfig ? form.state.providerConfig : undefined,
     };
     try {
       await api.benchmarks.createRun(req);
@@ -162,6 +183,21 @@ export default function BenchmarkPage() {
     form.setState("metrics", prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]);
   };
 
+  const selectedSuite = (): BenchmarkSuite | undefined =>
+    suites()?.find((s) => s.id === form.state.suiteId);
+
+  const localSuites = () => suites()?.filter((s) => s.type === "deepeval") ?? [];
+  const externalSuites = () => suites()?.filter((s) => s.type !== "deepeval") ?? [];
+
+  const handleSuiteChange = (suiteId: string) => {
+    form.setState("suiteId", suiteId);
+    form.setState("providerConfig", {} as ProviderConfig);
+    const suite = suites()?.find((s) => s.id === suiteId);
+    if (suite) {
+      form.setState("benchmarkType", PROVIDER_TYPE_MAP[suite.provider_name] ?? "simple");
+    }
+  };
+
   return (
     <PageLayout title={t("benchmark.title")} description={t("benchmark.subtitle")}>
       {/* Tab navigation */}
@@ -180,41 +216,64 @@ export default function BenchmarkPage() {
           <Show when={showForm()}>
             <Card class="mb-6 p-4">
               <form onSubmit={handleCreate} class="space-y-4">
-                <FormField label={t("benchmark.dataset")} id="benchmark-dataset">
-                  <Show
-                    when={datasets()?.length}
-                    fallback={
-                      <Input
-                        value={form.state.dataset}
-                        onInput={(e) => form.setState("dataset", e.currentTarget.value)}
-                        placeholder="basic-coding"
-                        required
-                      />
-                    }
+                <FormField label={t("benchmark.suite")} id="benchmark-suite">
+                  <Select
+                    value={form.state.suiteId}
+                    onChange={(e) => handleSuiteChange(e.currentTarget.value)}
                   >
-                    <Select
-                      value={form.state.dataset}
-                      onChange={(e) => form.setState("dataset", e.currentTarget.value)}
-                    >
-                      <option value="">{t("common.select")}</option>
-                      <For each={datasets()}>
-                        {(d: BenchmarkDatasetInfo) => (
-                          <option value={d.path}>
-                            {d.name} ({d.task_count} tasks)
-                          </option>
-                        )}
-                      </For>
-                    </Select>
-                  </Show>
+                    <option value="">{t("common.select")}</option>
+                    <Show when={localSuites().length}>
+                      <optgroup label={t("benchmark.suiteLocal")}>
+                        <For each={localSuites()}>
+                          {(s: BenchmarkSuite) => (
+                            <option value={s.id}>
+                              {s.name} ({s.task_count} tasks)
+                            </option>
+                          )}
+                        </For>
+                      </optgroup>
+                    </Show>
+                    <Show when={externalSuites().length}>
+                      <optgroup label={t("benchmark.suiteExternal")}>
+                        <For each={externalSuites()}>
+                          {(s: BenchmarkSuite) => (
+                            <option value={s.id}>
+                              {s.name} ({s.task_count} tasks)
+                            </option>
+                          )}
+                        </For>
+                      </optgroup>
+                    </Show>
+                  </Select>
                 </FormField>
 
+                <Show when={selectedSuite()}>
+                  {(suite) => (
+                    <TaskSettings
+                      providerName={suite().provider_name}
+                      config={form.state.providerConfig}
+                      onChange={(c) => form.setState("providerConfig", c)}
+                      taskCount={suite().task_count}
+                    />
+                  )}
+                </Show>
+
                 <FormField label={t("benchmark.model")} id="benchmark-model">
-                  <ModelCombobox
-                    id="benchmark-model"
-                    value={form.state.model}
-                    onInput={(v) => form.setState("model", v)}
-                    required
-                  />
+                  <div class="space-y-2">
+                    <Checkbox
+                      label={t("benchmark.modelAuto")}
+                      checked={form.state.model === "auto"}
+                      onChange={(v) => form.setState("model", v ? "auto" : "")}
+                    />
+                    <Show when={form.state.model !== "auto"}>
+                      <ModelCombobox
+                        id="benchmark-model"
+                        value={form.state.model}
+                        onInput={(v) => form.setState("model", v)}
+                        required
+                      />
+                    </Show>
+                  </div>
                 </FormField>
 
                 <FormField label={t("benchmark.benchmarkType")} id="benchmark-type">
@@ -224,7 +283,7 @@ export default function BenchmarkPage() {
                       form.setState("benchmarkType", e.currentTarget.value as BenchmarkType)
                     }
                   >
-                    <option value="simple">Simple (prompt → output)</option>
+                    <option value="simple">{`Simple (prompt \u2192 output)`}</option>
                     <option value="tool_use">Tool Use (with tool calling)</option>
                     <option value="agent">Agent (multi-turn, exec modes)</option>
                   </Select>
@@ -397,6 +456,22 @@ export default function BenchmarkPage() {
                             loading={results.loading}
                             formatDuration={formatDuration}
                           />
+                          <Show
+                            when={
+                              run.model === "auto" &&
+                              run.status === "completed" &&
+                              run.summary_scores?.routing_report
+                            }
+                          >
+                            <RoutingReport
+                              report={
+                                run.summary_scores.routing_report as unknown as RoutingReportType
+                              }
+                            />
+                          </Show>
+                          <Show when={run.status === "completed"}>
+                            <PromptOptimizationPanel runId={run.id} suiteId={run.suite_id ?? ""} />
+                          </Show>
                         </Show>
                       </Card>
                     </div>
@@ -408,30 +483,6 @@ export default function BenchmarkPage() {
 
           {/* Compare Section (2-run) */}
           <BenchmarkCompare runs={runs() ?? []} />
-
-          {/* Datasets Info */}
-          <Show when={datasets()?.length}>
-            <Card class="mt-6 p-4">
-              <h3 class="mb-3 text-sm font-semibold">{t("benchmark.datasets")}</h3>
-              <div class="space-y-2">
-                <For each={datasets()}>
-                  {(d: BenchmarkDatasetInfo) => (
-                    <div class="flex items-center justify-between text-sm">
-                      <div>
-                        <span class="font-medium">{d.name}</span>
-                        <Show when={d.description}>
-                          <span class="ml-2 text-gray-500">{d.description}</span>
-                        </Show>
-                      </div>
-                      <Badge variant="default">
-                        {d.task_count} {t("benchmark.tasks")}
-                      </Badge>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Card>
-          </Show>
         </Match>
 
         {/* ============ LEADERBOARD TAB ============ */}

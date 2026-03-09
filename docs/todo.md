@@ -498,6 +498,31 @@
 
 ---
 
+### Benchmark External Providers, Auto-Routing & Prompt Optimization (COMPLETED)
+
+> Design: [docs/plans/2026-03-09-benchmark-external-providers-design.md](plans/2026-03-09-benchmark-external-providers-design.md)
+> Plan: [docs/plans/2026-03-09-benchmark-external-providers-plan.md](plans/2026-03-09-benchmark-external-providers-plan.md)
+
+- [x] (2026-03-09) Migration 068: routing tracking columns (selected_model, routing_reason, fallback_chain, fallback_count, provider_errors)
+- [x] (2026-03-09) Domain: routing fields on Result, ProviderConfig on CreateRunRequest, ModelFamily utility
+- [x] (2026-03-09) Store: updated INSERT/scan for 5 new routing columns
+- [x] (2026-03-09) NATS payloads: provider_name/config on BenchmarkRunRequestPayload, routing fields on BenchmarkTaskResult, ModelAdaptations on ModePayload
+- [x] (2026-03-09) Service: suite-based StartRun with provider_name resolution, mergeProviderConfig, SeedDefaultSuites (11 suites)
+- [x] (2026-03-09) Python: universal task filter with difficulty/shuffle/seed/max_tasks/task_percentage (9 tests)
+- [x] (2026-03-09) Python: config parameter on all 8 external provider constructors, auto-import in __init__.py
+- [x] (2026-03-09) Python consumer: provider-based task loading with legacy fallback, _RoutingLLMWrapper for auto-model, routing report
+- [x] (2026-03-09) Python: prompt optimizer with LLM-as-Critic failure analysis (9 tests)
+- [x] (2026-03-09) Go: POST /runs/{id}/analyze endpoint for prompt optimization
+- [x] (2026-03-09) Mode: ModelAdaptations map on Mode struct, appendModelAdaptation in conversation_agent.go
+- [x] (2026-03-09) Frontend types: ProviderConfig, RoutingReport, PromptAnalysisReport, TacticalFix interfaces
+- [x] (2026-03-09) Frontend: suite dropdown with optgroup Local/External, TaskSettings component, auto-model checkbox
+- [x] (2026-03-09) Frontend: RoutingReport (model distribution, fallback timeline, provider status), SuiteManagement provider dropdown
+- [x] (2026-03-09) Frontend: PromptOptimizationPanel with analyze/accept/reject
+- [x] (2026-03-09) Frontend: analyzeRun API client method
+- [x] (2026-03-09) i18n: 27+ benchmark keys in EN + DE
+
+---
+
 ### Feature Roadmap -- Consolidated Open Items
 
 > Extracted from `docs/features/*.md` and centralized here per documentation policy.

@@ -32,11 +32,13 @@ class LiveCodeBenchProvider:
         after_date: str = "",
         before_date: str = "",
         tasks: list[dict] | None = None,
+        config: dict | None = None,
     ) -> None:
         self._cache_dir = cache_dir
         self._after_date = after_date
         self._before_date = before_date
         self._tasks_raw = tasks
+        self._config = config or {}
 
     @property
     def name(self) -> str:

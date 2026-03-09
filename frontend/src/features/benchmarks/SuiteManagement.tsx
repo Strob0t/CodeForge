@@ -14,7 +14,31 @@ import {
   Input,
   LoadingState,
   ResourceView,
+  Select,
 } from "~/ui";
+
+const KNOWN_PROVIDERS: { value: string; label: string; type: string }[] = [
+  { value: "codeforge_simple", label: "CodeForge Simple", type: "simple" },
+  { value: "codeforge_tool_use", label: "CodeForge Tool Use", type: "tool_use" },
+  { value: "codeforge_agent", label: "CodeForge Agent", type: "agent" },
+  { value: "humaneval", label: "HumanEval", type: "simple" },
+  { value: "mbpp", label: "MBPP", type: "simple" },
+  { value: "swebench", label: "SWE-bench", type: "agent" },
+  { value: "bigcodebench", label: "BigCodeBench", type: "simple" },
+  { value: "cruxeval", label: "CRUXEval", type: "simple" },
+  { value: "livecodebench", label: "LiveCodeBench", type: "simple" },
+  { value: "sparcbench", label: "SPARCBench", type: "agent" },
+  { value: "aider_polyglot", label: "Aider Polyglot", type: "agent" },
+];
+
+/** External provider names that indicate a seeded/built-in suite. */
+const SEEDED_PROVIDERS = new Set<string>(
+  KNOWN_PROVIDERS.filter((p) => !p.value.startsWith("codeforge_")).map((p) => p.value),
+);
+
+function isSeededSuite(providerName: string): boolean {
+  return SEEDED_PROVIDERS.has(providerName);
+}
 
 export function SuiteManagement() {
   const { t } = useI18n();
@@ -25,15 +49,15 @@ export function SuiteManagement() {
   const [editingSuite, setEditingSuite] = createSignal<BenchmarkSuite | null>(null);
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
-  const [type, setType] = createSignal("deepeval");
-  const [provider, setProvider] = createSignal("deepeval");
+  const [type, setType] = createSignal(KNOWN_PROVIDERS[0].type);
+  const [provider, setProvider] = createSignal(KNOWN_PROVIDERS[0].value);
 
   const resetForm = () => {
     batch(() => {
       setName("");
       setDescription("");
-      setType("deepeval");
-      setProvider("deepeval");
+      setType(KNOWN_PROVIDERS[0].type);
+      setProvider(KNOWN_PROVIDERS[0].value);
       setEditingSuite(null);
     });
   };
@@ -151,19 +175,29 @@ export function SuiteManagement() {
                 placeholder="Optional description"
               />
             </FormField>
+            <FormField label={t("benchmark.suites.provider")} id="suite-provider">
+              <Select
+                value={provider()}
+                onChange={(e) => {
+                  const val = e.currentTarget.value;
+                  setProvider(val);
+                  const known = KNOWN_PROVIDERS.find((p) => p.value === val);
+                  if (known) {
+                    setType(known.type);
+                  }
+                }}
+                required
+              >
+                <For each={KNOWN_PROVIDERS}>
+                  {(p) => <option value={p.value}>{p.label}</option>}
+                </For>
+              </Select>
+            </FormField>
             <FormField label={t("benchmark.suites.type")} id="suite-type">
               <Input
                 value={type()}
                 onInput={(e) => setType(e.currentTarget.value)}
-                placeholder="deepeval"
-                required
-              />
-            </FormField>
-            <FormField label={t("benchmark.suites.provider")} id="suite-provider">
-              <Input
-                value={provider()}
-                onInput={(e) => setProvider(e.currentTarget.value)}
-                placeholder="deepeval"
+                placeholder="simple"
                 required
               />
             </FormField>
@@ -183,29 +217,48 @@ export function SuiteManagement() {
         {(items) => (
           <div class="space-y-2">
             <For each={items}>
-              {(suite: BenchmarkSuite) => (
-                <Card class="flex items-center justify-between p-4">
-                  <div>
-                    <div class="font-medium">{suite.name}</div>
-                    <Show when={suite.description}>
-                      <div class="text-sm text-gray-500">{suite.description}</div>
-                    </Show>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <Badge variant="default">{suite.type}</Badge>
-                    <span class="text-xs text-gray-500">{suite.provider_name}</span>
-                    <Badge variant="default">
-                      {suite.task_count} {t("benchmark.tasks")}
-                    </Badge>
-                    <Button size="sm" variant="secondary" onClick={() => startEdit(suite)}>
-                      {t("common.edit")}
-                    </Button>
-                    <Button size="sm" variant="danger" onClick={() => handleDelete(suite.id)}>
-                      {t("common.delete")}
-                    </Button>
-                  </div>
-                </Card>
-              )}
+              {(suite: BenchmarkSuite) => {
+                const seeded = isSeededSuite(suite.provider_name);
+                return (
+                  <Card class="flex items-center justify-between p-4">
+                    <div class="flex items-center gap-2">
+                      <Show when={seeded}>
+                        <svg
+                          class="h-4 w-4 shrink-0 text-gray-400"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-label="Built-in suite"
+                        >
+                          <path
+                            fill-rule="evenodd"
+                            d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z"
+                            clip-rule="evenodd"
+                          />
+                        </svg>
+                      </Show>
+                      <div>
+                        <div class="font-medium">{suite.name}</div>
+                        <Show when={suite.description}>
+                          <div class="text-sm text-gray-500">{suite.description}</div>
+                        </Show>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <Badge variant="default">{suite.type}</Badge>
+                      <span class="text-xs text-gray-500">{suite.provider_name}</span>
+                      <Badge variant="default">
+                        {suite.task_count} {t("benchmark.tasks")}
+                      </Badge>
+                      <Button size="sm" variant="secondary" onClick={() => startEdit(suite)}>
+                        {t("common.edit")}
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => handleDelete(suite.id)}>
+                        {t("common.delete")}
+                      </Button>
+                    </div>
+                  </Card>
+                );
+              }}
             </For>
           </div>
         )}

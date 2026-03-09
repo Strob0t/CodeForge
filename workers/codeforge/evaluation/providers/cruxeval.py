@@ -34,10 +34,12 @@ class CRUXEvalProvider:
         cache_dir: str = "",
         mode: str = "output_prediction",
         tasks: list[dict] | None = None,
+        config: dict | None = None,
     ) -> None:
         self._cache_dir = cache_dir
         self._mode = mode
         self._tasks_raw = tasks
+        self._config = config or {}
 
     @property
     def name(self) -> str:

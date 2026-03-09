@@ -1210,6 +1210,12 @@ export const api = {
     // Training data export (Phase 26G)
     exportTrainingUrl: (runId: string, format: "json" | "jsonl" = "json") =>
       `${BASE}/benchmarks/runs/${encodeURIComponent(runId)}/export/training?format=${format}`,
+
+    // Prompt optimization analysis
+    analyzeRun: (runId: string) =>
+      request<import("./types").PromptAnalysisReport>(url`/benchmarks/runs/${runId}/analyze`, {
+        method: "POST",
+      }),
   },
 
   files: {

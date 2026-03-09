@@ -28,5 +28,13 @@ __all__ = [
     "register_provider",
 ]
 
-# Phase 28F: Self-register synthetic benchmark provider.
+# Self-register all benchmark providers on import.
+import codeforge.evaluation.providers.aider_polyglot as _ap  # noqa: F401
+import codeforge.evaluation.providers.bigcodebench as _b  # noqa: F401
 import codeforge.evaluation.providers.codeforge_synthetic as _  # noqa: F401
+import codeforge.evaluation.providers.cruxeval as _cr  # noqa: F401
+import codeforge.evaluation.providers.humaneval as _h  # noqa: F401
+import codeforge.evaluation.providers.livecodebench as _l  # noqa: F401
+import codeforge.evaluation.providers.mbpp as _m  # noqa: F401
+import codeforge.evaluation.providers.sparcbench as _sp  # noqa: F401
+import codeforge.evaluation.providers.swebench as _s  # noqa: F401

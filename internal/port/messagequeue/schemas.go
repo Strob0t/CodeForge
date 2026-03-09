@@ -52,14 +52,15 @@ type AgentStatusPayload struct {
 
 // ModePayload carries agent mode metadata to the Python worker.
 type ModePayload struct {
-	ID               string   `json:"id"`
-	PromptPrefix     string   `json:"prompt_prefix"`
-	Tools            []string `json:"tools"`
-	DeniedTools      []string `json:"denied_tools,omitempty"`
-	DeniedActions    []string `json:"denied_actions,omitempty"`
-	RequiredArtifact string   `json:"required_artifact,omitempty"`
-	LLMScenario      string   `json:"llm_scenario,omitempty"`
-	OutputSchema     string   `json:"output_schema,omitempty"`
+	ID               string            `json:"id"`
+	PromptPrefix     string            `json:"prompt_prefix"`
+	Tools            []string          `json:"tools"`
+	DeniedTools      []string          `json:"denied_tools,omitempty"`
+	DeniedActions    []string          `json:"denied_actions,omitempty"`
+	RequiredArtifact string            `json:"required_artifact,omitempty"`
+	LLMScenario      string            `json:"llm_scenario,omitempty"`
+	OutputSchema     string            `json:"output_schema,omitempty"`
+	ModelAdaptations map[string]string `json:"model_adaptations,omitempty"`
 }
 
 // RunStartPayload is the schema for runs.start messages.
@@ -504,18 +505,20 @@ type GemmasEvalResultPayload struct {
 
 // BenchmarkRunRequestPayload is published to trigger benchmark execution in Python.
 type BenchmarkRunRequestPayload struct {
-	RunID              string   `json:"run_id"`
-	TenantID           string   `json:"tenant_id,omitempty"`
-	DatasetPath        string   `json:"dataset_path"`
-	Model              string   `json:"model"`
-	Metrics            []string `json:"metrics,omitempty"`
-	BenchmarkType      string   `json:"benchmark_type,omitempty"`
-	SuiteID            string   `json:"suite_id,omitempty"`
-	ExecMode           string   `json:"exec_mode,omitempty"`
-	Evaluators         []string `json:"evaluators,omitempty"`
-	HybridVerification bool     `json:"hybrid_verification,omitempty"`
-	RolloutCount       int      `json:"rollout_count,omitempty"`
-	RolloutStrategy    string   `json:"rollout_strategy,omitempty"`
+	RunID              string          `json:"run_id"`
+	TenantID           string          `json:"tenant_id,omitempty"`
+	DatasetPath        string          `json:"dataset_path"`
+	Model              string          `json:"model"`
+	Metrics            []string        `json:"metrics,omitempty"`
+	BenchmarkType      string          `json:"benchmark_type,omitempty"`
+	SuiteID            string          `json:"suite_id,omitempty"`
+	ExecMode           string          `json:"exec_mode,omitempty"`
+	Evaluators         []string        `json:"evaluators,omitempty"`
+	HybridVerification bool            `json:"hybrid_verification,omitempty"`
+	RolloutCount       int             `json:"rollout_count,omitempty"`
+	RolloutStrategy    string          `json:"rollout_strategy,omitempty"`
+	ProviderName       string          `json:"provider_name,omitempty"`
+	ProviderConfig     json.RawMessage `json:"provider_config,omitempty"`
 }
 
 // BenchmarkSummary holds aggregate statistics computed by the Python worker.
@@ -560,6 +563,11 @@ type BenchmarkTaskResult struct {
 	RolloutCount         int                           `json:"rollout_count"`
 	IsBestRollout        bool                          `json:"is_best_rollout"`
 	DiversityScore       float64                       `json:"diversity_score"`
+	SelectedModel        string                        `json:"selected_model,omitempty"`
+	RoutingReason        string                        `json:"routing_reason,omitempty"`
+	FallbackChain        string                        `json:"fallback_chain,omitempty"`
+	FallbackCount        int                           `json:"fallback_count,omitempty"`
+	ProviderErrors       string                        `json:"provider_errors,omitempty"`
 }
 
 // A2ATaskCreatedPayload is published when an inbound A2A task is received.

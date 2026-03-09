@@ -43,10 +43,12 @@ class AiderPolyglotProvider:
         cache_dir: str = "",
         language: str = "",
         tasks: list[dict] | None = None,
+        config: dict | None = None,
     ) -> None:
         self._cache_dir = cache_dir
         self._language_filter = language.lower()
         self._tasks_raw = tasks
+        self._config = config or {}
 
     @property
     def name(self) -> str:

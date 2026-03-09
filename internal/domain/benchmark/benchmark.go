@@ -145,19 +145,27 @@ type Result struct {
 	RolloutCount   int     `json:"rollout_count"`
 	IsBestRollout  bool    `json:"is_best_rollout"`
 	DiversityScore float64 `json:"diversity_score"`
+
+	// Routing tracking fields (auto-model mode).
+	SelectedModel  string `json:"selected_model,omitempty"`
+	RoutingReason  string `json:"routing_reason,omitempty"`
+	FallbackChain  string `json:"fallback_chain,omitempty"`
+	FallbackCount  int    `json:"fallback_count,omitempty"`
+	ProviderErrors string `json:"provider_errors,omitempty"`
 }
 
 // CreateRunRequest is the payload for creating a new benchmark run.
 type CreateRunRequest struct {
-	Dataset            string        `json:"dataset"`
-	SuiteID            string        `json:"suite_id,omitempty"`
-	Model              string        `json:"model"`
-	Metrics            []string      `json:"metrics"`
-	BenchmarkType      BenchmarkType `json:"benchmark_type,omitempty"`
-	ExecMode           ExecMode      `json:"exec_mode,omitempty"`
-	HybridVerification bool          `json:"hybrid_verification,omitempty"`
-	RolloutCount       int           `json:"rollout_count,omitempty"`
-	RolloutStrategy    string        `json:"rollout_strategy,omitempty"`
+	Dataset            string          `json:"dataset"`
+	SuiteID            string          `json:"suite_id,omitempty"`
+	Model              string          `json:"model"`
+	Metrics            []string        `json:"metrics"`
+	BenchmarkType      BenchmarkType   `json:"benchmark_type,omitempty"`
+	ExecMode           ExecMode        `json:"exec_mode,omitempty"`
+	HybridVerification bool            `json:"hybrid_verification,omitempty"`
+	RolloutCount       int             `json:"rollout_count,omitempty"`
+	RolloutStrategy    string          `json:"rollout_strategy,omitempty"`
+	ProviderConfig     json.RawMessage `json:"provider_config,omitempty"`
 }
 
 // Validate checks required fields on a CreateRunRequest.

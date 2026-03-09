@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -201,13 +202,17 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		}
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
 			resolvedMode = &messagequeue.ModePayload{
-				ID:          m.ID,
-				LLMScenario: m.LLMScenario,
-				Tools:       m.Tools,
-				DeniedTools: m.DeniedTools,
+				ID:               m.ID,
+				LLMScenario:      m.LLMScenario,
+				Tools:            m.Tools,
+				DeniedTools:      m.DeniedTools,
+				ModelAdaptations: m.ModelAdaptations,
 			}
 		}
 	}
+
+	// Inject model-family prompt adaptation from mode config.
+	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
 
 	// Termination config.
 	termination := messagequeue.TerminationPayload{
@@ -386,13 +391,17 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 	if s.modeSvc != nil {
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
 			resolvedMode = &messagequeue.ModePayload{
-				ID:          m.ID,
-				LLMScenario: m.LLMScenario,
-				Tools:       m.Tools,
-				DeniedTools: m.DeniedTools,
+				ID:               m.ID,
+				LLMScenario:      m.LLMScenario,
+				Tools:            m.Tools,
+				DeniedTools:      m.DeniedTools,
+				ModelAdaptations: m.ModelAdaptations,
 			}
 		}
 	}
+
+	// Inject model-family prompt adaptation from mode config.
+	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
 
 	termination := messagequeue.TerminationPayload{
 		MaxSteps:       50,
@@ -696,6 +705,20 @@ func (s *ConversationService) historyToPayload(messages []conversation.Message) 
 		result = append(result, pm)
 	}
 	return result
+}
+
+// appendModelAdaptation appends a model-family-specific prompt adaptation from the
+// mode's ModelAdaptations map. This allows modes to carry per-family instructions
+// (e.g. "For OpenAI models, prefer function-calling over raw JSON").
+func appendModelAdaptation(systemPrompt, model string, mode *messagequeue.ModePayload) string {
+	if mode == nil || len(mode.ModelAdaptations) == 0 || model == "" {
+		return systemPrompt
+	}
+	family := benchmark.ModelFamily(model)
+	if adaptation, ok := mode.ModelAdaptations[family]; ok && adaptation != "" {
+		return systemPrompt + "\n\n" + adaptation
+	}
+	return systemPrompt
 }
 
 // buildSystemPrompt assembles the system prompt for a conversation using the

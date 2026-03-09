@@ -422,6 +422,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Get("/leaderboard", h.BenchmarkLeaderboard)
 			r.Get("/datasets", h.ListBenchmarkDatasets)
 			r.Put("/suites/{id}", h.UpdateBenchmarkSuite)
+			r.Post("/runs/{id}/analyze", h.AnalyzeBenchmarkRun)
 		})
 
 		// Model Registry (Phase 22)
