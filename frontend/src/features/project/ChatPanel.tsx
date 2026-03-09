@@ -11,6 +11,7 @@ import {
 
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage, Session } from "~/api/types";
+import type { AGUIGoalProposal } from "~/api/websocket";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
@@ -18,6 +19,7 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
+import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
 import SessionPanel from "./SessionPanel";
 import ToolCallCard from "./ToolCallCard";
@@ -121,6 +123,9 @@ export default function ChatPanel(props: ChatPanelProps) {
   // Plan step tracking from AG-UI events
   const [planSteps, setPlanSteps] = createSignal<PlanStepState[]>([]);
 
+  // Goal proposals from AG-UI events (rendered inline as approval cards)
+  const [goalProposals, setGoalProposals] = createSignal<AGUIGoalProposal[]>([]);
+
   // Agentic mode tracking: step counter and running cost
   const [stepCount, setStepCount] = createSignal(0);
   const [runningCost, setRunningCost] = createSignal(0);
@@ -187,6 +192,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         setRunError(null);
         setStepCount(0);
         setRunningCost(0);
+        setGoalProposals([]);
       });
     }
   });
@@ -285,6 +291,15 @@ export default function ChatPanel(props: ChatPanelProps) {
     setPlanSteps((prev) => prev.map((s) => (s.stepId === stepId ? { ...s, status } : s)));
   });
 
+  // When the agent proposes a goal, add it to the proposal list for user approval
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
+  const cleanupGoalProposal = onAGUIEvent("agui.goal_proposal", (payload) => {
+    if (payload.run_id === activeConversation()) {
+      setGoalProposals((prev) => [...prev, payload]);
+      scrollToBottom();
+    }
+  });
+
   onCleanup(() => {
     cleanupRunStarted();
     cleanupTextMessage();
@@ -293,9 +308,23 @@ export default function ChatPanel(props: ChatPanelProps) {
     cleanupRunFinished();
     cleanupStepStarted();
     cleanupStepFinished();
+    cleanupGoalProposal();
   });
 
   // --- Handlers ---
+
+  /** Send a chat message with explicit content (used by goal proposal callbacks). */
+  const sendChatMessage = (content: string): void => {
+    const convId = activeConversation();
+    if (!convId || !content) return;
+    void api.conversations
+      .send(convId, { content })
+      .then(() => refetchMessages())
+      .then(() => scrollToBottom())
+      .catch(() => {
+        // toast handled by API layer
+      });
+  };
 
   const handleSend = async () => {
     const content = input().trim();
@@ -605,6 +634,24 @@ export default function ChatPanel(props: ChatPanelProps) {
                       args={tc.args}
                       result={tc.result}
                       status={tc.status}
+                    />
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
+          {/* Goal proposals from AG-UI events — inline approval cards */}
+          <Show when={goalProposals().length > 0}>
+            <div class="flex justify-start">
+              <div class="max-w-[90%] sm:max-w-[75%] w-full">
+                <For each={goalProposals()}>
+                  {(proposal) => (
+                    <GoalProposalCard
+                      proposal={proposal}
+                      projectId={props.projectId}
+                      onApprove={(title) => sendChatMessage(`[Goal approved: ${title}]`)}
+                      onReject={(title) => sendChatMessage(`[Goal rejected: ${title}]`)}
                     />
                   )}
                 </For>
