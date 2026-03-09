@@ -111,7 +111,17 @@ class _McpToolProxy:
 
 def build_default_registry() -> ToolRegistry:
     """Create a ToolRegistry with all built-in tools registered."""
-    from codeforge.tools import bash, edit_file, glob_files, list_directory, read_file, search_files, write_file
+    from codeforge.tools import (
+        bash,
+        create_skill,
+        edit_file,
+        glob_files,
+        list_directory,
+        read_file,
+        search_files,
+        search_skills,
+        write_file,
+    )
 
     registry = ToolRegistry()
     registry.register(read_file.DEFINITION, read_file.ReadFileTool())
@@ -121,4 +131,6 @@ def build_default_registry() -> ToolRegistry:
     registry.register(search_files.DEFINITION, search_files.SearchFilesTool())
     registry.register(glob_files.DEFINITION, glob_files.GlobFilesTool())
     registry.register(list_directory.DEFINITION, list_directory.ListDirectoryTool())
+    registry.register(search_skills.DEFINITION, search_skills.SearchSkillsTool())
+    registry.register(create_skill.DEFINITION, create_skill.CreateSkillTool())
     return registry
