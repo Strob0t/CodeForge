@@ -9,6 +9,7 @@ import { Badge, Button } from "~/ui";
 interface Props {
   projectId: string;
   onAIDiscoverStarted?: (conversationId: string) => void;
+  onNavigate?: (target: string) => void;
 }
 
 const KIND_ORDER: GoalKind[] = ["vision", "requirement", "constraint", "state", "context"];
@@ -194,7 +195,15 @@ export default function GoalsPanel(props: Props) {
         <Show
           when={(goals() ?? []).length > 0}
           fallback={
-            <p class="text-sm text-cf-text-tertiary py-4 text-center">{t("goals.empty")}</p>
+            <div class="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <p class="text-sm text-cf-text-muted">{t("empty.goals")}</p>
+              <button
+                class="text-sm text-cf-accent hover:underline"
+                onClick={() => props.onNavigate?.("chat")}
+              >
+                {t("empty.goals.action")}
+              </button>
+            </div>
           }
         >
           <For each={KIND_ORDER}>

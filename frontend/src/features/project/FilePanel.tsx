@@ -28,6 +28,7 @@ interface OpenTab {
 
 export interface FilePanelProps {
   projectId: string;
+  onNavigate?: (target: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -472,8 +473,14 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
           <Show
             when={currentTab()}
             fallback={
-              <div class="flex items-center justify-center h-full text-cf-text-muted text-sm">
-                Select a file to edit
+              <div class="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                <p class="text-sm text-cf-text-muted">{t("empty.files")}</p>
+                <button
+                  class="text-sm text-cf-accent hover:underline"
+                  onClick={() => props.onNavigate?.("setup")}
+                >
+                  {t("empty.files.action")}
+                </button>
               </div>
             }
           >

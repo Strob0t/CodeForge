@@ -8,6 +8,7 @@ import { Badge, Card } from "~/ui";
 
 interface SessionPanelProps {
   projectId: string;
+  onNavigate?: (target: string) => void;
 }
 
 interface SessionTreeNode {
@@ -108,7 +109,15 @@ export default function SessionPanel(props: SessionPanelProps) {
               when={!sessions.loading}
               fallback={<p class="text-sm text-cf-text-muted">Loading...</p>}
             >
-              <p class="text-sm text-cf-text-muted">{t("session.empty")}</p>
+              <div class="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                <p class="text-sm text-cf-text-muted">{t("empty.sessions")}</p>
+                <button
+                  class="text-sm text-cf-accent hover:underline"
+                  onClick={() => props.onNavigate?.("chat")}
+                >
+                  {t("empty.sessions.action")}
+                </button>
+              </div>
             </Show>
           }
         >

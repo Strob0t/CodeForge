@@ -111,7 +111,9 @@ export default function AuditTable(props: AuditTableProps) {
 
       {/* Empty */}
       <Show when={initialLoaded() && entries().length === 0 && !loading()}>
-        <p class="py-8 text-center text-sm text-cf-text-muted">{t("audit.empty")}</p>
+        <div class="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <p class="text-sm text-cf-text-muted">{t("empty.audit")}</p>
+        </div>
       </Show>
 
       {/* Table */}

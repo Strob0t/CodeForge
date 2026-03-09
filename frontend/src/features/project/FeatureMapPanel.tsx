@@ -11,6 +11,7 @@ import MilestoneForm from "./featuremap/MilestoneForm";
 interface FeatureMapPanelProps {
   projectId: string;
   onError: (msg: string) => void;
+  onNavigate?: (target: string) => void;
 }
 
 export default function FeatureMapPanel(props: FeatureMapPanelProps) {
@@ -85,8 +86,14 @@ export default function FeatureMapPanel(props: FeatureMapPanelProps) {
     <Show
       when={roadmap() !== undefined && roadmap() !== null}
       fallback={
-        <div class="flex items-center justify-center h-full p-8">
-          <p class="text-sm text-cf-text-tertiary">{t("featuremap.empty")}</p>
+        <div class="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <p class="text-sm text-cf-text-muted">{t("empty.featuremap")}</p>
+          <button
+            class="text-sm text-cf-accent hover:underline"
+            onClick={() => props.onNavigate?.("roadmap")}
+          >
+            {t("empty.featuremap.action")}
+          </button>
         </div>
       }
     >

@@ -34,6 +34,7 @@ function TrajectoryTabContent(props: {
   projectId: string;
   selectedRunId: string | null;
   onSelectRun: (id: string | null) => void;
+  onNavigate?: (target: string) => void;
 }) {
   const { t } = useI18n();
   const [runs] = createResource(
@@ -50,7 +51,15 @@ function TrajectoryTabContent(props: {
             when={!runs.loading}
             fallback={<p class="text-sm text-cf-text-muted">Loading...</p>}
           >
-            <p class="text-sm text-cf-text-muted">{t("trajectory.noRuns")}</p>
+            <div class="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <p class="text-sm text-cf-text-muted">{t("empty.trajectory")}</p>
+              <button
+                class="text-sm text-cf-accent hover:underline"
+                onClick={() => props.onNavigate?.("sessions")}
+              >
+                {t("empty.trajectory.action")}
+              </button>
+            </div>
           </Show>
         }
       >
@@ -578,32 +587,76 @@ export default function ProjectDetailPage() {
                     </div>
                     <Show when={leftTab() === "files"}>
                       <div class="flex-1 min-h-0">
-                        <FilePanel projectId={params.id} />
+                        <FilePanel
+                          projectId={params.id}
+                          onNavigate={(target) => {
+                            if (target !== "chat") {
+                              setLeftTab(target as LeftTab);
+                            }
+                          }}
+                        />
                       </div>
                     </Show>
                     <Show when={leftTab() === "goals"}>
                       <div class="flex-1 min-h-0">
-                        <GoalsPanel projectId={params.id} />
+                        <GoalsPanel
+                          projectId={params.id}
+                          onNavigate={(target) => {
+                            if (target !== "chat") {
+                              setLeftTab(target as LeftTab);
+                            }
+                          }}
+                        />
                       </div>
                     </Show>
                     <Show when={leftTab() === "roadmap"}>
                       <div class="flex-1 overflow-y-auto px-4 pb-4">
-                        <RoadmapPanel projectId={params.id} onError={setError} />
+                        <RoadmapPanel
+                          projectId={params.id}
+                          onError={setError}
+                          onNavigate={(target) => {
+                            if (target !== "chat") {
+                              setLeftTab(target as LeftTab);
+                            }
+                          }}
+                        />
                       </div>
                     </Show>
                     <Show when={leftTab() === "featuremap"}>
                       <div class="flex-1 min-h-0">
-                        <FeatureMapPanel projectId={params.id} onError={setError} />
+                        <FeatureMapPanel
+                          projectId={params.id}
+                          onError={setError}
+                          onNavigate={(target) => {
+                            if (target !== "chat") {
+                              setLeftTab(target as LeftTab);
+                            }
+                          }}
+                        />
                       </div>
                     </Show>
                     <Show when={leftTab() === "warroom"}>
                       <div class="flex-1 min-h-0">
-                        <WarRoom projectId={params.id} />
+                        <WarRoom
+                          projectId={params.id}
+                          onNavigate={(target) => {
+                            if (target !== "chat") {
+                              setLeftTab(target as LeftTab);
+                            }
+                          }}
+                        />
                       </div>
                     </Show>
                     <Show when={leftTab() === "sessions"}>
                       <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
-                        <SessionPanel projectId={params.id} />
+                        <SessionPanel
+                          projectId={params.id}
+                          onNavigate={(target) => {
+                            if (target !== "chat") {
+                              setLeftTab(target as LeftTab);
+                            }
+                          }}
+                        />
                       </div>
                     </Show>
                     <Show when={leftTab() === "trajectory"}>
@@ -612,6 +665,11 @@ export default function ProjectDetailPage() {
                           projectId={params.id}
                           selectedRunId={selectedRunId()}
                           onSelectRun={setSelectedRunId}
+                          onNavigate={(target) => {
+                            if (target !== "chat") {
+                              setLeftTab(target as LeftTab);
+                            }
+                          }}
                         />
                       </div>
                     </Show>

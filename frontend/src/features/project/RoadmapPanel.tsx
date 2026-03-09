@@ -18,6 +18,7 @@ import DragList, { type DragHandleProps } from "./DragList";
 interface RoadmapPanelProps {
   projectId: string;
   onError: (msg: string) => void;
+  onNavigate?: (target: string) => void;
 }
 
 export default function RoadmapPanel(props: RoadmapPanelProps) {
@@ -217,7 +218,15 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
         when={roadmap()}
         fallback={
           <div>
-            <p class="mb-3 text-sm text-cf-text-tertiary">{t("roadmap.empty")}</p>
+            <div class="flex flex-col items-center justify-center gap-3 py-8 text-center">
+              <p class="text-sm text-cf-text-muted">{t("empty.roadmap")}</p>
+              <button
+                class="text-sm text-cf-accent hover:underline"
+                onClick={() => props.onNavigate?.("goals")}
+              >
+                {t("empty.roadmap.action")}
+              </button>
+            </div>
             <div class="flex flex-col gap-2">
               <div>
                 <label for="roadmap-title" class="sr-only">
