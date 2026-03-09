@@ -165,20 +165,19 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
   const [newFilePath, setNewFilePath] = createSignal("");
   const [newFileContent, setNewFileContent] = createSignal("");
 
-  async function handleCreateFile() {
-    const filePath = newFilePath().trim();
-    if (!filePath) return;
-    try {
+  const { run: handleCreateFile, loading: creating } = useAsyncAction(
+    async () => {
+      const filePath = newFilePath().trim();
+      if (!filePath) return;
       await api.files.write(props.projectId, filePath, newFileContent());
       toast("success", t("files.createSuccess"));
       setShowCreateModal(false);
       setNewFilePath("");
       setNewFileContent("");
       openFile(filePath);
-    } catch (err) {
-      toast("error", t("files.createFailed") + ": " + getErrorMessage(err));
-    }
-  }
+    },
+    { onError: (err) => toast("error", t("files.createFailed") + ": " + getErrorMessage(err)) },
+  );
 
   const [tabs, setTabs] = createSignal<OpenTab[]>([]);
   const [activeTab, setActiveTab] = createSignal<string | null>(null);
@@ -477,6 +476,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
               placeholder={t("files.fileNamePlaceholder")}
               value={newFilePath()}
               onInput={(e) => setNewFilePath(e.currentTarget.value)}
+              autofocus
             />
           </FormField>
           <FormField label={t("files.fileContent")}>
@@ -491,7 +491,11 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
             <Button variant="ghost" onClick={() => setShowCreateModal(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={handleCreateFile} disabled={!newFilePath().trim()}>
+            <Button
+              onClick={handleCreateFile}
+              disabled={!newFilePath().trim() || creating()}
+              loading={creating()}
+            >
               {t("files.createFile")}
             </Button>
           </div>
