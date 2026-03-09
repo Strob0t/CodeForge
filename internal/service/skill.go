@@ -28,7 +28,7 @@ func (s *SkillService) Create(ctx context.Context, req *skill.CreateRequest) (*s
 		Name:        req.Name,
 		Description: req.Description,
 		Language:    req.Language,
-		Code:        req.Code,
+		Content:     req.Content,
 		Tags:        req.Tags,
 		Enabled:     true,
 	}
@@ -63,14 +63,14 @@ func (s *SkillService) Update(ctx context.Context, id string, req *skill.UpdateR
 	if req.Language != "" {
 		sk.Language = req.Language
 	}
-	if req.Code != "" {
-		sk.Code = req.Code
+	if req.Content != "" {
+		sk.Content = req.Content
 	}
 	if req.Tags != nil {
 		sk.Tags = req.Tags
 	}
-	if req.Enabled != nil {
-		sk.Enabled = *req.Enabled
+	if req.Status != nil {
+		sk.Status = *req.Status
 	}
 	if err := s.db.UpdateSkill(ctx, sk); err != nil {
 		return nil, err

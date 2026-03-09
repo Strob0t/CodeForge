@@ -18,7 +18,7 @@ func TestCreateRequestValidate(t *testing.T) {
 			req: CreateRequest{
 				Name:        "http-client",
 				Description: "HTTP client helper for making API calls",
-				Code:        "def make_request(url): ...",
+				Content:     "def make_request(url): ...",
 			},
 			wantErr: "",
 		},
@@ -29,7 +29,7 @@ func TestCreateRequestValidate(t *testing.T) {
 				Name:        "db-query",
 				Description: "Database query helper",
 				Language:    "python",
-				Code:        "def query_db(sql): ...",
+				Content:     "def query_db(sql): ...",
 				Tags:        []string{"database", "sql"},
 			},
 			wantErr: "",
@@ -38,23 +38,23 @@ func TestCreateRequestValidate(t *testing.T) {
 			name: "missing name",
 			req: CreateRequest{
 				Description: "some description",
-				Code:        "some code",
+				Content:     "some content",
 			},
 			wantErr: "name is required",
 		},
 		{
-			name: "missing code",
+			name: "missing content",
 			req: CreateRequest{
 				Name:        "test",
 				Description: "some description",
 			},
-			wantErr: "code is required",
+			wantErr: "content is required",
 		},
 		{
 			name: "missing description",
 			req: CreateRequest{
-				Name: "test",
-				Code: "some code",
+				Name:    "test",
+				Content: "some content",
 			},
 			wantErr: "description is required",
 		},
@@ -68,7 +68,7 @@ func TestCreateRequestValidate(t *testing.T) {
 			req: CreateRequest{
 				Name:        "",
 				Description: "desc",
-				Code:        "code",
+				Content:     "content",
 			},
 			wantErr: "name is required",
 		},
@@ -102,12 +102,17 @@ func TestSkillFields(t *testing.T) {
 		TenantID:    "tenant-1",
 		ProjectID:   "proj-1",
 		Name:        "git-helper",
+		Type:        TypePattern,
 		Description: "Git operations helper",
 		Language:    "python",
-		Code:        "def git_status(): subprocess.run(['git', 'status'])",
+		Content:     "def git_status(): subprocess.run(['git', 'status'])",
 		Tags:        []string{"git", "vcs"},
-		Enabled:     true,
+		Source:      SourceUser,
+		Status:      StatusActive,
 		CreatedAt:   now,
+		// Deprecated fields still accessible for backwards compat.
+		Code:    "def git_status(): subprocess.run(['git', 'status'])",
+		Enabled: true,
 	}
 
 	if s.ID != "skill-1" {
@@ -122,8 +127,24 @@ func TestSkillFields(t *testing.T) {
 	if len(s.Tags) != 2 {
 		t.Errorf("len(Tags) = %d, want 2", len(s.Tags))
 	}
+	if s.Type != TypePattern {
+		t.Errorf("Type = %q, want %q", s.Type, TypePattern)
+	}
+	if s.Content != "def git_status(): subprocess.run(['git', 'status'])" {
+		t.Errorf("Content = %q, want git_status code", s.Content)
+	}
+	if s.Source != SourceUser {
+		t.Errorf("Source = %q, want %q", s.Source, SourceUser)
+	}
+	if s.Status != StatusActive {
+		t.Errorf("Status = %q, want %q", s.Status, StatusActive)
+	}
+	// Backwards compat: Code and Enabled still work.
 	if !s.Enabled {
 		t.Error("Enabled = false, want true")
+	}
+	if s.Code != s.Content {
+		t.Errorf("Code = %q, want same as Content", s.Code)
 	}
 }
 
@@ -145,21 +166,24 @@ func TestSkillGlobalScope(t *testing.T) {
 func TestUpdateRequestFields(t *testing.T) {
 	t.Parallel()
 
-	enabled := true
+	status := StatusActive
 	u := UpdateRequest{
 		Name:        "updated-name",
 		Description: "updated description",
 		Language:    "go",
-		Code:        "func helper() {}",
+		Content:     "func helper() {}",
 		Tags:        []string{"updated"},
-		Enabled:     &enabled,
+		Status:      &status,
 	}
 
 	if u.Name != "updated-name" {
 		t.Errorf("Name = %q, want %q", u.Name, "updated-name")
 	}
-	if u.Enabled == nil || !*u.Enabled {
-		t.Error("Enabled should be true")
+	if u.Content != "func helper() {}" {
+		t.Errorf("Content = %q, want %q", u.Content, "func helper() {}")
+	}
+	if u.Status == nil || *u.Status != StatusActive {
+		t.Errorf("Status should be %q", StatusActive)
 	}
 }
 
@@ -177,14 +201,14 @@ func TestUpdateRequestPartial(t *testing.T) {
 	if u.Description != "" {
 		t.Errorf("Description = %q, want empty", u.Description)
 	}
-	if u.Code != "" {
-		t.Errorf("Code = %q, want empty", u.Code)
+	if u.Content != "" {
+		t.Errorf("Content = %q, want empty", u.Content)
 	}
 	if u.Tags != nil {
 		t.Errorf("Tags = %v, want nil", u.Tags)
 	}
-	if u.Enabled != nil {
-		t.Errorf("Enabled = %v, want nil", u.Enabled)
+	if u.Status != nil {
+		t.Errorf("Status = %v, want nil", u.Status)
 	}
 }
 
@@ -199,5 +223,61 @@ func TestCreateRequestValidateOrder(t *testing.T) {
 	}
 	if err.Error() != "name is required" {
 		t.Errorf("Validate() = %q, want first validation to be name", err.Error())
+	}
+}
+
+// --- New tests for extended skill model ---
+
+func TestCreateRequest_Validate_ContentRequired(t *testing.T) {
+	t.Parallel()
+
+	req := CreateRequest{Name: "test", Description: "desc", Content: ""}
+	err := req.Validate()
+	if err == nil || err.Error() != "content is required" {
+		t.Errorf("expected content required error, got %v", err)
+	}
+}
+
+func TestCreateRequest_Validate_InvalidType(t *testing.T) {
+	t.Parallel()
+
+	req := CreateRequest{Name: "test", Description: "desc", Content: "x", Type: "invalid"}
+	err := req.Validate()
+	if err == nil {
+		t.Error("expected error for invalid type")
+	}
+}
+
+func TestCreateRequest_Validate_ValidWorkflow(t *testing.T) {
+	t.Parallel()
+
+	req := CreateRequest{Name: "test", Description: "desc", Content: "steps", Type: "workflow"}
+	if err := req.Validate(); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateRequest_Validate_DefaultType(t *testing.T) {
+	t.Parallel()
+
+	req := CreateRequest{Name: "test", Description: "desc", Content: "code"}
+	if err := req.Validate(); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSkillStatus_Constants(t *testing.T) {
+	t.Parallel()
+
+	if StatusDraft != "draft" || StatusActive != "active" || StatusDisabled != "disabled" {
+		t.Error("status constants don't match expected values")
+	}
+}
+
+func TestSkillSource_Constants(t *testing.T) {
+	t.Parallel()
+
+	if SourceBuiltin != "builtin" || SourceImport != "import" || SourceUser != "user" || SourceAgent != "agent" {
+		t.Error("source constants don't match expected values")
 	}
 }
