@@ -308,6 +308,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/auth/setup", h.InitialSetup)
 		r.Post("/auth/forgot-password", h.RequestPasswordReset)
 		r.Post("/auth/reset-password", h.ConfirmPasswordReset)
+		r.Get("/auth/github", h.StartGitHubOAuth)
+		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 
 		// Auth (authenticated)
 		r.Post("/auth/logout", h.Logout)

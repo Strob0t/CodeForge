@@ -91,6 +91,7 @@ type Handlers struct {
 	A2A              *service.A2AService
 	GoalDiscovery    *service.GoalDiscoveryService
 	Dashboard        *service.DashboardService
+	GitHubOAuth      *service.GitHubOAuthService
 	Limits           *config.Limits
 }
 

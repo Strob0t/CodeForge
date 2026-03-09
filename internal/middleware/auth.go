@@ -34,6 +34,8 @@ var publicPaths = map[string]bool{
 	"/api/v1/auth/setup":           true,
 	"/api/v1/auth/forgot-password": true,
 	"/api/v1/auth/reset-password":  true,
+	"/api/v1/auth/github":          true,
+	"/api/v1/auth/github/callback": true,
 }
 
 // publicPrefixes are path prefixes exempt from authentication.
