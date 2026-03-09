@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, cast
 
 import httpx
 
+from codeforge.routing.rate_tracker import get_tracker
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -79,9 +81,9 @@ def classify_error_type(exc: LLMError) -> str | None:
     if exc.status_code == 402:
         return "billing"
     body = exc.body.lower()
-    if exc.status_code in (401, 403) or any(kw in body for kw in _BILLING_KEYWORDS):
-        if any(kw in body for kw in _BILLING_KEYWORDS):
-            return "billing"
+    if any(kw in body for kw in _BILLING_KEYWORDS):
+        return "billing"
+    if exc.status_code in (401, 403) or any(kw in body for kw in _AUTH_KEYWORDS):
         return "auth"
     return None
 
@@ -377,8 +379,6 @@ class LiteLLMClient:
                 last_exc = exc
                 err_type = classify_error_type(exc)
                 if err_type is not None:
-                    from codeforge.routing.rate_tracker import get_tracker
-
                     get_tracker().record_error(
                         _extract_provider(exc.model),
                         error_type=err_type,
