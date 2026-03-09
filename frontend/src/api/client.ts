@@ -441,6 +441,15 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data ?? {}),
       }),
+
+    approve: (runId: string, callId: string, decision: "allow" | "deny") =>
+      request<{ status: string; run_id: string; call_id: string; decision: string }>(
+        url`/runs/${runId}/approve/${callId}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ decision }),
+        },
+      ),
   },
 
   sessions: {

@@ -17,7 +17,8 @@ export type AGUIEventType =
   | "agui.state_delta"
   | "agui.step_started"
   | "agui.step_finished"
-  | "agui.goal_proposal";
+  | "agui.goal_proposal"
+  | "agui.permission_request";
 
 export interface AGUIRunStarted {
   run_id: string;
@@ -71,6 +72,13 @@ export interface AGUIGoalProposal {
   priority: number;
   goal_id?: string;
 }
+export interface AGUIPermissionRequest {
+  run_id: string;
+  call_id: string;
+  tool: string;
+  command?: string;
+  path?: string;
+}
 
 /** Discriminated map from AG-UI event type to its typed payload. */
 export interface AGUIEventMap {
@@ -83,6 +91,7 @@ export interface AGUIEventMap {
   "agui.step_started": AGUIStepStarted;
   "agui.step_finished": AGUIStepFinished;
   "agui.goal_proposal": AGUIGoalProposal;
+  "agui.permission_request": AGUIPermissionRequest;
 }
 
 function buildWSURL(): string {

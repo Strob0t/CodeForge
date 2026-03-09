@@ -124,6 +124,18 @@ func (s *ConversationService) buildConversationContextEntries(
 	return toContextEntryPayloads(entries)
 }
 
+// policyForAutonomy maps an autonomy level (1-5) to a policy preset name.
+func policyForAutonomy(autonomy int) string {
+	switch autonomy {
+	case 1:
+		return "supervised-ask-all"
+	case 4, 5:
+		return "trusted-mount-autonomous"
+	default:
+		return "headless-safe-sandbox"
+	}
+}
+
 // SendMessageAgentic stores the user message and dispatches an agentic run to the
 // Python worker via NATS. Streaming results arrive asynchronously via WebSocket.
 // The method returns immediately after dispatch.
@@ -187,13 +199,8 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		return fmt.Errorf("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
 	}
 
-	// Resolve policy profile.
-	policyProfile := ""
-	if s.policySvc != nil {
-		policyProfile = s.policySvc.ResolveProfile("", proj.PolicyProfile)
-	}
-
 	// Resolve mode for scenario-based LLM routing.
+	var modeAutonomy int
 	var resolvedMode *messagequeue.ModePayload
 	if s.modeSvc != nil {
 		modeID := req.Mode
@@ -201,6 +208,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 			modeID = "coder" // Conversations default to coder mode.
 		}
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
+			modeAutonomy = m.Autonomy
 			resolvedMode = &messagequeue.ModePayload{
 				ID:               m.ID,
 				LLMScenario:      m.LLMScenario,
@@ -209,6 +217,16 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 				ModelAdaptations: m.ModelAdaptations,
 			}
 		}
+	}
+
+	// Resolve policy profile using the mode's autonomy level.
+	policyProfile := ""
+	if s.policySvc != nil {
+		modePolicy := ""
+		if modeAutonomy > 0 {
+			modePolicy = policyForAutonomy(modeAutonomy)
+		}
+		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
 	}
 
 	// Inject model-family prompt adaptation from mode config.
@@ -397,15 +415,12 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		return fmt.Errorf("no LLM model configured")
 	}
 
-	policyProfile := ""
-	if s.policySvc != nil {
-		policyProfile = s.policySvc.ResolveProfile("", proj.PolicyProfile)
-	}
-
 	// Resolve the requested mode.
+	var modeAutonomy int
 	var resolvedMode *messagequeue.ModePayload
 	if s.modeSvc != nil {
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
+			modeAutonomy = m.Autonomy
 			resolvedMode = &messagequeue.ModePayload{
 				ID:               m.ID,
 				LLMScenario:      m.LLMScenario,
@@ -414,6 +429,16 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 				ModelAdaptations: m.ModelAdaptations,
 			}
 		}
+	}
+
+	// Resolve policy profile using the mode's autonomy level.
+	policyProfile := ""
+	if s.policySvc != nil {
+		modePolicy := ""
+		if modeAutonomy > 0 {
+			modePolicy = policyForAutonomy(modeAutonomy)
+		}
+		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
 	}
 
 	// Inject model-family prompt adaptation from mode config.
