@@ -75,6 +75,9 @@ SUBJECT_A2A_TASK_CANCEL = "a2a.task.cancel"
 # Handoff
 SUBJECT_HANDOFF_REQUEST = "handoff.request"
 
+# Trajectory events
+SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"
+
 # Headers
 HEADER_REQUEST_ID = "X-Request-ID"
 HEADER_RETRY_COUNT = "Retry-Count"

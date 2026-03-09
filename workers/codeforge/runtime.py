@@ -36,6 +36,7 @@ SUBJECT_RUN_OUTPUT = "runs.output"
 SUBJECT_RUN_CANCEL = "runs.cancel"
 SUBJECT_CONVERSATION_RUN_CANCEL = "conversation.run.cancel"
 SUBJECT_RUN_HEARTBEAT = "runs.heartbeat"
+SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"
 
 RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
 
@@ -334,3 +335,15 @@ class RuntimeClient:
             SUBJECT_RUN_OUTPUT,
             json.dumps(payload).encode(),
         )
+
+    async def publish_trajectory_event(self, event: dict[str, object]) -> None:
+        """Publish a trajectory event for recording and UI display."""
+        event["run_id"] = self.run_id
+        event["project_id"] = self.project_id
+        try:
+            await self._js.publish(
+                SUBJECT_TRAJECTORY_EVENT,
+                json.dumps(event, default=str).encode(),
+            )
+        except Exception as exc:
+            self._log.debug("trajectory event publish failed", error=str(exc))

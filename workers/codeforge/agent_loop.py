@@ -13,6 +13,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from opentelemetry import trace
@@ -205,6 +206,23 @@ class AgentLoopExecutor:
         if cfg.output_schema and state.final_content and not state.error:
             state = await self._validate_output_schema(cfg, state, messages)
 
+        try:
+            await self._runtime.publish_trajectory_event(
+                {
+                    "event_type": "finished",
+                    "final_content_length": len(state.final_content),
+                    "total_cost": state.total_cost,
+                    "total_tokens_in": state.total_tokens_in,
+                    "total_tokens_out": state.total_tokens_out,
+                    "step_count": state.step_count,
+                    "model": state.model,
+                    "error": state.error or None,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+        except Exception as exc:
+            logger.debug("failed to publish finished trajectory event: %s", exc)
+
         return AgentLoopResult(
             final_content=state.final_content,
             tool_messages=state.tool_messages,
@@ -368,6 +386,21 @@ class AgentLoopExecutor:
             model=response.model,
         )
 
+        try:
+            await self._runtime.publish_trajectory_event(
+                {
+                    "event_type": "step_done",
+                    "model": response.model,
+                    "tokens_in": response.tokens_in,
+                    "tokens_out": response.tokens_out,
+                    "cost_usd": cost,
+                    "has_tool_calls": bool(response.tool_calls),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+        except Exception as exc:
+            logger.debug("failed to publish step_done trajectory event: %s", exc)
+
         if cfg.routing_layer:
             await _record_routing_outcome(
                 model=response.model or cfg.model,
@@ -426,6 +459,21 @@ class AgentLoopExecutor:
                 success=False,
                 error=result_text,
             )
+            try:
+                await self._runtime.publish_trajectory_event(
+                    {
+                        "event_type": "tool_called",
+                        "tool_name": tc.name,
+                        "input": (tc.arguments or "")[:500],
+                        "output": result_text[:500],
+                        "success": False,
+                        "duration_ms": 0,
+                        "step": state.step_count,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+            except Exception as exc:
+                logger.debug("failed to publish tool_called trajectory event: %s", exc)
             return
 
         tracer = trace.get_tracer("codeforge")
@@ -451,6 +499,22 @@ class AgentLoopExecutor:
                     success=False,
                     error=result_text,
                 )
+                elapsed_ms = (time.monotonic() - tool_start) * 1000
+                try:
+                    await self._runtime.publish_trajectory_event(
+                        {
+                            "event_type": "tool_called",
+                            "tool_name": tc.name,
+                            "input": (tc.arguments or "")[:500],
+                            "output": result_text[:500],
+                            "success": False,
+                            "duration_ms": round(elapsed_ms, 1),
+                            "step": state.step_count,
+                            "timestamp": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                except Exception as traj_exc:
+                    logger.debug("failed to publish tool_called trajectory event: %s", traj_exc)
                 return
 
             if not result.success and result.error:
@@ -470,7 +534,23 @@ class AgentLoopExecutor:
                 output=result.output[:500] if result.output else "",
                 error=result.error,
             )
-            otel_metrics.tool_duration.record(time.monotonic() - tool_start)
+            elapsed_ms = (time.monotonic() - tool_start) * 1000
+            otel_metrics.tool_duration.record(elapsed_ms / 1000)
+            try:
+                await self._runtime.publish_trajectory_event(
+                    {
+                        "event_type": "tool_called",
+                        "tool_name": tc.name,
+                        "input": (tc.arguments or "")[:500],
+                        "output": result_text[:500],
+                        "success": result.success,
+                        "duration_ms": round(elapsed_ms, 1),
+                        "step": state.step_count,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+            except Exception as exc:
+                logger.debug("failed to publish tool_called trajectory event: %s", exc)
 
     @staticmethod
     def _append_tool_result(

@@ -85,6 +85,7 @@ def _make_runtime(*, allow_all: bool = True, cancelled: bool = False) -> MagicMo
         )
     )
     runtime.report_tool_result = AsyncMock()
+    runtime.publish_trajectory_event = AsyncMock()
     return runtime
 
 
