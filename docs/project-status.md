@@ -1,6 +1,6 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-03-08
+> Last update: 2026-03-09
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
 
@@ -194,3 +194,7 @@ KPI strip with 7 stat cards (cost, runs, success rate, agents, avg cost, tokens,
 ### Benchmark External Providers, Auto-Routing & Prompt Optimization (COMPLETED)
 
 Suite-based unified benchmark architecture: all benchmark sources (local datasets + 8 external providers) unified under `benchmark_suites` DB entity with `provider_name` + JSONB config. Universal task filter (`apply_task_filters()`) with difficulty, shuffle, seed, max_tasks, task_percentage. Full-auto model routing (`model: "auto"`) via `_RoutingLLMWrapper` that transparently intercepts LLM calls through the HybridRouter, with per-result routing metadata (selected_model, routing_reason, fallback_chain, fallback_count, provider_errors) and aggregated routing report (model distribution, fallback events, provider availability). ModelFamily utility classifying model names into provider families. Per-mode model-family prompt adaptations via `ModelAdaptations` map on Mode struct. Prompt optimization with LLM-as-Critic failure analysis (SICA+SCOPE+MIPROv2 hybrid) producing tactical fixes and strategic principles. Frontend: suite dropdown with optgroup Local/External replacing dataset dropdown, TaskSettings component with universal + provider-specific settings, auto-model checkbox, RoutingReport with model distribution bar and fallback timeline, PromptOptimizationPanel with analyze/accept/reject. Go: migration 068 (5 routing columns), suite seeding (11 defaults), `POST /runs/{id}/analyze` endpoint. Python: task filter (9 tests), prompt optimizer (9 tests), provider config params on all 8 external providers. i18n EN + DE (27+ keys).
+
+### Project Workflow Redesign (COMPLETED)
+
+UX improvements to project detail page workflow. Tab reorder to match natural project lifecycle: Files, Goals, Roadmap, Feature Map, War Room, Sessions, Trajectory, Audit (was Roadmap-first). Empty states with navigation action links added to all 8 tab panels -- each guides the user to the logical next step (e.g., Goals empty state links to Chat, Roadmap links to Goals). Proactive agent greeting on first chat open per project, stored in localStorage to fire only once. i18n keys for all new UI strings. 9 files modified across 4 commits.

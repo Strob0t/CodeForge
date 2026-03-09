@@ -749,3 +749,14 @@
 - [x] (2026-03-09) Non-critical features (A2A, LSP, Handoff, etc.): warn but don't block
   - Added `warn_non_critical()` to `scripts/verify-features.sh` — emits `::warning::` GitHub Actions annotations
 - [ ] Store historical verification results for trend tracking (future enhancement)
+
+#### Project Workflow Redesign (COMPLETED -- 2026-03-09)
+
+> Plan: `docs/plans/2026-03-09-project-workflow-impl-plan.md`
+> Design: `docs/plans/2026-03-09-project-workflow-redesign.md`
+
+- [x] Reorder project tabs: Files, Goals, Roadmap, Feature Map, War Room, Sessions, Trajectory, Audit (2026-03-09)
+- [x] Add i18n keys for onboarding, empty states, and chat suggestions (2026-03-09)
+- [x] Add empty states with navigation links to all 8 tab panels (2026-03-09)
+- [x] Proactive agent greeting on first chat open per project (localStorage-gated) (2026-03-09)
+- [x] Lint, TypeScript verify, pre-commit pass (2026-03-09)
