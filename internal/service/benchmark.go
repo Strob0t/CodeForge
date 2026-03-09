@@ -36,6 +36,45 @@ func NewBenchmarkService(store database.Store, datasetsDir string) *BenchmarkSer
 	return &BenchmarkService{store: store, datasetsDir: datasetsDir}
 }
 
+// defaultSuites defines built-in benchmark suites seeded on startup.
+var defaultSuites = []benchmark.CreateSuiteRequest{
+	{Name: "Basic Coding", Type: benchmark.TypeSimple, ProviderName: "codeforge_simple"},
+	{Name: "Agent Coding", Type: benchmark.TypeAgent, ProviderName: "codeforge_agent"},
+	{Name: "Tool Use Basic", Type: benchmark.TypeToolUse, ProviderName: "codeforge_tool_use"},
+	{Name: "HumanEval", Type: benchmark.TypeSimple, ProviderName: "humaneval"},
+	{Name: "MBPP", Type: benchmark.TypeSimple, ProviderName: "mbpp"},
+	{Name: "SWE-bench", Type: benchmark.TypeAgent, ProviderName: "swebench"},
+	{Name: "BigCodeBench", Type: benchmark.TypeSimple, ProviderName: "bigcodebench"},
+	{Name: "CRUXEval", Type: benchmark.TypeSimple, ProviderName: "cruxeval"},
+	{Name: "LiveCodeBench", Type: benchmark.TypeSimple, ProviderName: "livecodebench"},
+	{Name: "SPARCBench", Type: benchmark.TypeAgent, ProviderName: "sparcbench"},
+	{Name: "Aider Polyglot", Type: benchmark.TypeAgent, ProviderName: "aider_polyglot"},
+}
+
+// SeedDefaultSuites creates built-in benchmark suites if they don't exist.
+func (s *BenchmarkService) SeedDefaultSuites(ctx context.Context) {
+	existing, err := s.store.ListBenchmarkSuites(ctx)
+	if err != nil {
+		slog.Warn("failed to list suites for seeding", "error", err)
+		return
+	}
+	seen := make(map[string]bool, len(existing))
+	for i := range existing {
+		seen[existing[i].ProviderName] = true
+	}
+	for i := range defaultSuites {
+		def := defaultSuites[i]
+		if seen[def.ProviderName] {
+			continue
+		}
+		if _, err := s.RegisterSuite(ctx, &def); err != nil {
+			slog.Warn("failed to seed benchmark suite", "name", def.Name, "error", err)
+		} else {
+			slog.Info("seeded benchmark suite", "name", def.Name, "provider", def.ProviderName)
+		}
+	}
+}
+
 // SetRoutingService sets the routing service for benchmark → routing integration.
 func (s *BenchmarkService) SetRoutingService(routingSvc *RoutingService) {
 	s.routingSvc = routingSvc
@@ -656,6 +695,11 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 			RolloutCount:         tr.RolloutCount,
 			IsBestRollout:        tr.IsBestRollout,
 			DiversityScore:       tr.DiversityScore,
+			SelectedModel:        tr.SelectedModel,
+			RoutingReason:        tr.RoutingReason,
+			FallbackChain:        tr.FallbackChain,
+			FallbackCount:        tr.FallbackCount,
+			ProviderErrors:       tr.ProviderErrors,
 		}
 
 		if err := s.store.CreateBenchmarkResult(ctx, result); err != nil {

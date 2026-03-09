@@ -606,6 +606,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("benchmark run subscriber: %w", err)
 	}
+	benchmarkSvc.SeedDefaultSuites(ctx)
 	slog.Info("benchmark service initialized with NATS bridge")
 
 	handlers := &cfhttp.Handlers{
