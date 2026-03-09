@@ -75,9 +75,27 @@ class EditFileTool(ToolExecutor):
             return ToolResult(output="", error=f"old_text found {count} times (must be unique)", success=False)
 
         updated = content.replace(old_text, new_text, 1)
-
         target.write_text(updated, encoding="utf-8")
 
         old_lines = old_text.count("\n") + 1
         new_lines = new_text.count("\n") + 1
-        return ToolResult(output=f"replaced {old_lines} line(s) with {new_lines} line(s) in {rel}")
+        start_line = content[: content.index(old_text)].count("\n") + 1
+
+        diff_data = {
+            "path": rel,
+            "hunks": [
+                {
+                    "old_start": start_line,
+                    "old_lines": old_lines,
+                    "new_start": start_line,
+                    "new_lines": new_lines,
+                    "old_content": old_text,
+                    "new_content": new_text,
+                }
+            ],
+        }
+
+        return ToolResult(
+            output=f"replaced {old_lines} line(s) with {new_lines} line(s) in {rel}",
+            diff=diff_data,
+        )

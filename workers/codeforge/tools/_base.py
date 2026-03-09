@@ -40,6 +40,7 @@ class ToolResult:
     output: str
     error: str = ""
     success: bool = True
+    diff: dict[str, Any] | None = None
 
 
 class ToolExecutor(Protocol):

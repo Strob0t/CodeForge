@@ -56,7 +56,29 @@ class WriteFileTool(ToolExecutor):
 
         content = arguments.get("content", "")
 
+        # Snapshot before write for diff
+        old_content = ""
+        if target.is_file():
+            old_content = target.read_text(encoding="utf-8")
+
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
 
-        return ToolResult(output=f"wrote {len(content)} bytes to {rel}")
+        diff_data = {
+            "path": rel,
+            "hunks": [
+                {
+                    "old_start": 1,
+                    "old_lines": old_content.count("\n") + 1 if old_content else 0,
+                    "new_start": 1,
+                    "new_lines": content.count("\n") + 1 if content else 0,
+                    "old_content": old_content,
+                    "new_content": content,
+                }
+            ],
+        }
+
+        return ToolResult(
+            output=f"wrote {len(content)} bytes to {rel}",
+            diff=diff_data,
+        )
