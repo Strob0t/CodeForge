@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
+import yaml
 
 from codeforge.skills.models import Skill
 
@@ -12,6 +14,36 @@ if TYPE_CHECKING:
     import psycopg
 
 logger = structlog.get_logger()
+
+_BUILTINS_DIR = Path(__file__).parent / "builtins"
+
+
+def load_builtin_skills() -> list[Skill]:
+    """Load built-in skills from the builtins/ directory."""
+    skills: list[Skill] = []
+    if not _BUILTINS_DIR.exists():
+        return skills
+    for yaml_path in sorted(_BUILTINS_DIR.glob("*.yaml")):
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+        if not data or not isinstance(data, dict):
+            continue
+        name = data.get("name", yaml_path.stem)
+        skills.append(
+            Skill(
+                id=f"builtin:{name}",
+                name=name,
+                type=data.get("type", "workflow"),
+                description=data.get("description", ""),
+                content=data.get("content", ""),
+                tags=data.get("tags", []),
+                source="builtin",
+                format_origin="codeforge",
+                status="active",
+            )
+        )
+    logger.debug("builtin skills loaded", count=len(skills))
+    return skills
 
 
 class SkillRegistry:

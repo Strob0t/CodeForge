@@ -130,12 +130,45 @@ YAML-configurable agent specializations. Built-in modes include architect, coder
 | Safety | Command evaluation, blocklists, policies |
 | Execution | Sandbox/mount management, tool provisioning |
 | Memory | Composite scoring, context strategies, experience pool |
+| Skills | LLM-based skill selection, multi-format import, agent-generated drafts |
 | History | Context window optimization pipeline |
 | Events | Event bus for observability |
 | Orchestration | DAG flow, termination conditions, handoff, planning loop |
 | Hooks | Agent/environment lifecycle observer |
 | Trajectory | Recording, replay, audit trail |
 | HITL | Human feedback provider protocol |
+
+### Skills System (Auto-Agent)
+
+Reusable workflows and code patterns automatically injected into agent prompts.
+
+| Component | File | Purpose |
+|---|---|---|
+| Skill Model | `internal/domain/skill/skill.go` | Domain model with type, source, status, content |
+| Skill Service | `internal/service/skill.go` | CRUD, ListActive, IncrementUsage |
+| Skill Selector | `workers/codeforge/skills/selector.py` | LLM-based pre-loop selection with BM25 fallback |
+| Format Parsers | `workers/codeforge/skills/parsers.py` | Import from CodeForge YAML, Claude, Cursor, Markdown |
+| Safety Check | `workers/codeforge/skills/safety.py` | LLM-based injection detection at import time |
+| Search Tool | `workers/codeforge/tools/search_skills.py` | In-loop BM25 skill discovery for agents |
+| Create Tool | `workers/codeforge/tools/create_skill.py` | Agent-proposed skill drafts with injection guard |
+| Import Handler | `internal/adapter/http/handlers_skill_import.go` | `POST /api/v1/skills/import` URL fetch + safety |
+| Meta-Skill | `workers/codeforge/skills/builtins/codeforge-skill-creator.yaml` | Built-in skill teaching agents how to create skills |
+| Builtin Loader | `workers/codeforge/skills/registry.py` | Auto-loads YAML skills from `builtins/` directory |
+
+**Two skill types:**
+- **Workflow** -- Step-by-step behavioral instructions (e.g., TDD debugging workflow)
+- **Pattern** -- Reusable code templates (e.g., NATS handler pattern)
+
+**Three-layer prompt injection protection:**
+1. Regex scorer (Go quarantine scorer + Python regex check)
+2. LLM safety check at import time (fail-open)
+3. Runtime sandboxing via `<skill>` tags with trust levels
+
+**Skill selection flow:**
+1. Pre-loop: `select_skills_for_task()` uses cheapest tool-capable model
+2. Fallback: BM25 text similarity if no LLM available
+3. In-loop: `search_skills` tool for on-demand discovery
+4. Agent creation: `create_skill` tool proposes drafts (requires user approval)
 
 ### Policy System
 

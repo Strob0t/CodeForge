@@ -1,0 +1,73 @@
+name: codeforge-skill-creator
+type: workflow
+description: >
+  Teaches the agent how to create well-structured CodeForge skills.
+  Use when you discover a reusable pattern or workflow during a task.
+tags: [meta, skill-creation, internal]
+content: |
+  ## Creating a CodeForge Skill
+
+  A skill is a reusable piece of knowledge -- either a **workflow** (step-by-step
+  behavioral instructions) or a **pattern** (reference code template).
+
+  ### When to Create a Skill
+  - You solved a recurring problem and the solution is generalizable
+  - You followed a multi-step workflow that other tasks would benefit from
+  - You used a code pattern that is project-specific and worth preserving
+  - Do NOT create skills for one-off solutions or trivial tasks
+
+  ### Skill Schema
+  Required fields:
+  - `name`: Short, descriptive, kebab-case (e.g., "nats-error-handling")
+  - `type`: "workflow" (behavioral steps) or "pattern" (code template)
+  - `description`: One sentence explaining what this skill does
+  - `content`: The full skill body (Markdown)
+  - `tags`: 2-5 relevant keywords
+
+  Optional:
+  - `language`: Programming language (only for type=pattern)
+
+  ### Quality Criteria
+  - Is it reusable across multiple tasks? (not one-off)
+  - Is the content self-contained? (no external dependencies)
+  - Is it concise? (under 10,000 characters)
+  - Does it avoid sensitive data? (no API keys, passwords, internal URLs)
+
+  ### Examples
+
+  **Workflow skill:**
+  ```
+  name: tdd-debugging
+  type: workflow
+  description: Debug bugs using test-driven approach
+  content: |
+    1. Reproduce the bug with a minimal test case
+    2. Write a failing test that captures the exact bug
+    3. Fix the code -- minimal change only
+    4. Run the full test suite
+    5. Commit with descriptive message
+  tags: [debugging, tdd, testing]
+  ```
+
+  **Pattern skill:**
+  ```
+  name: nats-handler-template
+  type: pattern
+  description: Standard error-handling pattern for NATS JetStream handlers
+  language: python
+  content: |
+    async def handle(msg: nats.Msg) -> None:
+        try:
+            payload = json.loads(msg.data)
+            # ... process ...
+            await msg.ack()
+        except Exception as exc:
+            logger.error("handler failed", error=str(exc))
+            await msg.ack()  # Always ack to prevent infinite redelivery
+  tags: [nats, error-handling, python]
+  ```
+
+  ### Important
+  - Skills you create are saved as **drafts** and require user approval
+  - Use the `create_skill` tool to propose a new skill
+  - The user will review and activate or reject your proposal
