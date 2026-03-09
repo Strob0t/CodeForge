@@ -18,6 +18,7 @@ STREAM_SUBJECTS = [
     "a2a.>",
     "memory.>",
     "handoff.>",
+    "backends.>",
 ]
 
 # Task subjects
@@ -74,6 +75,10 @@ SUBJECT_A2A_TASK_CANCEL = "a2a.task.cancel"
 
 # Handoff
 SUBJECT_HANDOFF_REQUEST = "handoff.request"
+
+# Backend health
+SUBJECT_BACKEND_HEALTH_REQUEST = "backends.health.request"
+SUBJECT_BACKEND_HEALTH_RESULT = "backends.health.result"
 
 # Trajectory events
 SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"

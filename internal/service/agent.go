@@ -235,6 +235,19 @@ func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func()
 	})
 }
 
+// StartAgentOutputSubscriber subscribes to agent backend output and forwards to WebSocket.
+func (s *AgentService) StartAgentOutputSubscriber(ctx context.Context) (cancel func(), err error) {
+	return s.queue.Subscribe(ctx, messagequeue.SubjectAgentOutput, func(msgCtx context.Context, _ string, data []byte) error {
+		var output ws.AgentOutputEvent
+		if err := json.Unmarshal(data, &output); err != nil {
+			slog.Error("malformed agent output message", "error", err)
+			return nil // log and skip, don't fail subscription
+		}
+		s.hub.BroadcastEvent(msgCtx, ws.EventAgentOutput, output)
+		return nil
+	})
+}
+
 // SendMessage validates and stores an inbox message, then broadcasts a WS event.
 func (s *AgentService) SendMessage(ctx context.Context, msg *agent.InboxMessage) error {
 	if err := msg.Validate(); err != nil {

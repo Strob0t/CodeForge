@@ -92,6 +92,7 @@ type Handlers struct {
 	GoalDiscovery    *service.GoalDiscoveryService
 	Dashboard        *service.DashboardService
 	GitHubOAuth      *service.GitHubOAuthService
+	BackendHealth    *service.BackendHealthService
 	Limits           *config.Limits
 }
 

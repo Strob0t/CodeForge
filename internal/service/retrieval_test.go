@@ -299,6 +299,161 @@ func TestRetrievalService_HandleSubAgentSearchResult_NoWaiter(t *testing.T) {
 	})
 }
 
+// --- GlobalSearch tests (Task 4.2) ---
+
+// autoReplyQueue intercepts search requests and delivers mock results automatically.
+type autoReplyQueue struct {
+	svc    *service.RetrievalService
+	mu     sync.Mutex
+	hits   map[string][]messagequeue.RetrievalSearchHitPayload // projectID -> hits
+	callCt int
+}
+
+func (q *autoReplyQueue) Publish(_ context.Context, subject string, data []byte) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.callCt++
+
+	if subject == messagequeue.SubjectRetrievalSearchRequest {
+		var req messagequeue.RetrievalSearchRequestPayload
+		if err := json.Unmarshal(data, &req); err != nil {
+			return err
+		}
+		hits := q.hits[req.ProjectID]
+		go q.svc.HandleSearchResult(context.Background(), &messagequeue.RetrievalSearchResultPayload{
+			ProjectID: req.ProjectID,
+			Query:     req.Query,
+			RequestID: req.RequestID,
+			Results:   hits,
+		})
+	}
+	return nil
+}
+func (q *autoReplyQueue) PublishWithDedup(ctx context.Context, subj string, data []byte, _ string) error {
+	return q.Publish(ctx, subj, data)
+}
+func (q *autoReplyQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
+	return func() {}, nil
+}
+func (q *autoReplyQueue) Drain() error      { return nil }
+func (q *autoReplyQueue) Close() error      { return nil }
+func (q *autoReplyQueue) IsConnected() bool { return true }
+
+func TestGlobalSearch_MultipleProjects(t *testing.T) {
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "p1", Name: "Alpha"},
+			{ID: "p2", Name: "Beta"},
+		},
+	}
+	arq := &autoReplyQueue{
+		hits: map[string][]messagequeue.RetrievalSearchHitPayload{
+			"p1": {{Filepath: "a.go", Score: 0.8, Content: "func a()"}},
+			"p2": {{Filepath: "b.go", Score: 0.95, Content: "func b()"}},
+		},
+	}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{}
+	svc := service.NewRetrievalService(store, arq, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
+	arq.svc = svc
+
+	results, err := svc.GlobalSearch(context.Background(), "func", nil, 20)
+	if err != nil {
+		t.Fatalf("GlobalSearch error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	// Should be sorted by score descending: Beta (0.95) first, Alpha (0.8) second.
+	if results[0].ProjectID != "p2" {
+		t.Errorf("expected first result from p2, got %s", results[0].ProjectID)
+	}
+	if results[1].ProjectID != "p1" {
+		t.Errorf("expected second result from p1, got %s", results[1].ProjectID)
+	}
+	if results[0].Score != 0.95 {
+		t.Errorf("expected score 0.95, got %f", results[0].Score)
+	}
+}
+
+func TestGlobalSearch_ExplicitProjectIDs(t *testing.T) {
+	store := &runtimeMockStore{
+		projects: []project.Project{
+			{ID: "p1", Name: "Alpha"},
+			{ID: "p2", Name: "Beta"},
+			{ID: "p3", Name: "Gamma"},
+		},
+	}
+	arq := &autoReplyQueue{
+		hits: map[string][]messagequeue.RetrievalSearchHitPayload{
+			"p1": {{Filepath: "a.go", Score: 0.8, Content: "func a()"}},
+			"p3": {{Filepath: "c.go", Score: 0.7, Content: "func c()"}},
+		},
+	}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{}
+	svc := service.NewRetrievalService(store, arq, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
+	arq.svc = svc
+
+	// Only search p1 and p3, not p2.
+	results, err := svc.GlobalSearch(context.Background(), "func", []string{"p1", "p3"}, 20)
+	if err != nil {
+		t.Fatalf("GlobalSearch error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	for _, r := range results {
+		if r.ProjectID == "p2" {
+			t.Fatal("p2 should not be in results when filtering by [p1, p3]")
+		}
+	}
+}
+
+func TestGlobalSearch_LimitRespected(t *testing.T) {
+	store := &runtimeMockStore{}
+	hits := make([]messagequeue.RetrievalSearchHitPayload, 10)
+	for i := range hits {
+		hits[i] = messagequeue.RetrievalSearchHitPayload{
+			Filepath: "file.go",
+			Score:    float64(10-i) / 10.0,
+			Content:  "line",
+		}
+	}
+	arq := &autoReplyQueue{
+		hits: map[string][]messagequeue.RetrievalSearchHitPayload{"p1": hits},
+	}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{}
+	svc := service.NewRetrievalService(store, arq, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
+	arq.svc = svc
+
+	results, err := svc.GlobalSearch(context.Background(), "query", []string{"p1"}, 3)
+	if err != nil {
+		t.Fatalf("GlobalSearch error: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results (limit), got %d", len(results))
+	}
+}
+
+func TestGlobalSearch_EmptyProjects(t *testing.T) {
+	store := &runtimeMockStore{projects: []project.Project{}}
+	arq := &autoReplyQueue{hits: map[string][]messagequeue.RetrievalSearchHitPayload{}}
+	bc := &runtimeMockBroadcaster{}
+	orchCfg := &config.Orchestrator{}
+	svc := service.NewRetrievalService(store, arq, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
+	arq.svc = svc
+
+	results, err := svc.GlobalSearch(context.Background(), "query", nil, 20)
+	if err != nil {
+		t.Fatalf("GlobalSearch error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results for empty projects, got %d", len(results))
+	}
+}
+
 // --- Error-in-payload tests (code review #11) ---
 
 func TestRetrievalService_SearchSync_ErrorInPayload(t *testing.T) {

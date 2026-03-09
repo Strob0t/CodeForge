@@ -31,6 +31,7 @@ import {
   ModesIcon,
   PromptsIcon,
   ScopesIcon,
+  SearchIcon,
   SettingsIcon,
 } from "~/ui/layout/NavIcons";
 
@@ -142,6 +143,9 @@ function AppShell(props: {
               </NavLink>
               <NavLink href="/prompts" icon={<PromptsIcon />} label={t("app.nav.prompts")}>
                 {t("app.nav.prompts")}
+              </NavLink>
+              <NavLink href="/search" icon={<SearchIcon />} label={t("app.nav.search")}>
+                {t("app.nav.search")}
               </NavLink>
               <NavLink href="/settings" icon={<SettingsIcon />} label={t("app.nav.settings")}>
                 {t("app.nav.settings")}
@@ -289,6 +293,7 @@ const KNOWN_ROUTES = new Set([
   "/prompts",
   "/settings",
   "/audit",
+  "/search",
   "/benchmarks",
 ]);
 

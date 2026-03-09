@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -365,6 +366,89 @@ func (s *RetrievalService) GetIndexStatus(projectID string) *RetrievalIndexInfo 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.indexes[projectID]
+}
+
+// GlobalSearchResult represents a single hit from a cross-project search.
+type GlobalSearchResult struct {
+	ProjectID  string  `json:"project_id"`
+	File       string  `json:"file"`
+	StartLine  int     `json:"start_line"`
+	EndLine    int     `json:"end_line"`
+	Snippet    string  `json:"snippet"`
+	Language   string  `json:"language,omitempty"`
+	SymbolName string  `json:"symbol_name,omitempty"`
+	Score      float64 `json:"score"`
+}
+
+// GlobalSearch searches across multiple projects concurrently and returns merged results.
+// If projectIDs is empty, all tenant projects are searched.
+func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, projectIDs []string, limit int) ([]GlobalSearchResult, error) {
+	if len(projectIDs) == 0 {
+		projects, err := s.store.ListProjects(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list projects for global search: %w", err)
+		}
+		for i := range projects {
+			projectIDs = append(projectIDs, projects[i].ID)
+		}
+	}
+	if len(projectIDs) == 0 {
+		return []GlobalSearchResult{}, nil
+	}
+
+	type result struct {
+		hits []GlobalSearchResult
+	}
+	results := make([]result, len(projectIDs))
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10) // max 10 concurrent searches
+
+	for i, pid := range projectIDs {
+		wg.Add(1)
+		go func(idx int, projectID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			resp, err := s.SearchSync(ctx, projectID, query, limit, 0.5, 0.5)
+			if err != nil || resp == nil {
+				return
+			}
+			hits := make([]GlobalSearchResult, 0, len(resp.Results))
+			for _, h := range resp.Results {
+				hits = append(hits, GlobalSearchResult{
+					ProjectID:  projectID,
+					File:       h.Filepath,
+					StartLine:  h.StartLine,
+					EndLine:    h.EndLine,
+					Snippet:    h.Content,
+					Language:   h.Language,
+					SymbolName: h.SymbolName,
+					Score:      h.Score,
+				})
+			}
+			results[idx] = result{hits: hits}
+		}(i, pid)
+	}
+	wg.Wait()
+
+	var merged []GlobalSearchResult
+	for _, r := range results {
+		merged = append(merged, r.hits...)
+	}
+
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Score > merged[j].Score
+	})
+
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+	if merged == nil {
+		merged = []GlobalSearchResult{}
+	}
+	return merged, nil
 }
 
 // StartSubscribers subscribes to retrieval result subjects and returns cancel funcs.

@@ -21,6 +21,7 @@ import structlog
 
 from codeforge.config import WorkerSettings
 from codeforge.consumer._a2a import A2AHandlerMixin
+from codeforge.consumer._backend_health import BackendHealthHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._benchmark import BenchmarkHandlerMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
@@ -37,6 +38,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_A2A_TASK_CANCEL,
     SUBJECT_A2A_TASK_CREATED,
     SUBJECT_AGENT,
+    SUBJECT_BACKEND_HEALTH_REQUEST,
     SUBJECT_BENCHMARK_RUN_REQUEST,
     SUBJECT_CONVERSATION_RUN_START,
     SUBJECT_EVAL_GEMMAS_REQUEST,
@@ -90,6 +92,7 @@ class TaskConsumer(
     MemoryHandlerMixin,
     HandoffHandlerMixin,
     A2AHandlerMixin,
+    BackendHealthHandlerMixin,
 ):
     """Consumes task messages from NATS JetStream and dispatches them to the executor."""
 
@@ -161,6 +164,7 @@ class TaskConsumer(
             (SUBJECT_HANDOFF_REQUEST, self._handle_handoff_request),
             (SUBJECT_A2A_TASK_CREATED, self._handle_a2a_task_created),
             (SUBJECT_A2A_TASK_CANCEL, self._handle_a2a_task_cancel),
+            (SUBJECT_BACKEND_HEALTH_REQUEST, self._handle_backend_health),
         ]
 
         loops = []

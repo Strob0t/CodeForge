@@ -19,6 +19,7 @@ import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
 import Markdown from "./Markdown";
+import SessionPanel from "./SessionPanel";
 import ToolCallCard from "./ToolCallCard";
 
 interface ChatPanelProps {
@@ -47,6 +48,8 @@ export default function ChatPanel(props: ChatPanelProps) {
 
   const [forkLoading, setForkLoading] = createSignal(false);
   const [rewindLoading, setRewindLoading] = createSignal(false);
+  const [resumeLoading, setResumeLoading] = createSignal(false);
+  const [showSessionHistory, setShowSessionHistory] = createSignal(false);
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
@@ -56,6 +59,18 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [messages, { refetch: refetchMessages }] = createResource(activeConversation, (cid) =>
     cid ? api.conversations.messages(cid) : Promise.resolve([] as ConversationMessage[]),
   );
+  // All sessions for this project — used to show status dots on conversation selector
+  const [projectSessions] = createResource(
+    () => props.projectId,
+    (pid) => api.sessions.list(pid).catch(() => [] as Session[]),
+  );
+  const sessionByConv = () => {
+    const map = new Map<string, Session>();
+    for (const s of projectSessions() ?? []) {
+      if (s.conversation_id) map.set(s.conversation_id, s);
+    }
+    return map;
+  };
   const [session, { refetch: refetchSession }] = createResource(activeConversation, (cid) =>
     cid
       ? api.conversations.session(cid).catch(() => null as Session | null)
@@ -424,6 +439,53 @@ export default function ChatPanel(props: ChatPanelProps) {
                 {rewindLoading() ? "..." : t("session.rewind")}
               </Button>
             </Show>
+            {/* Resume button (paused/completed session with a run to resume) */}
+            <Show
+              when={
+                !agentRunning() &&
+                session()?.current_run_id &&
+                (session()?.status === "paused" || session()?.status === "completed")
+              }
+            >
+              <Button
+                variant="secondary"
+                size="sm"
+                class="text-xs px-2 py-0.5"
+                disabled={resumeLoading()}
+                onClick={() => {
+                  const runId = session()?.current_run_id;
+                  if (!runId) return;
+                  setResumeLoading(true);
+                  void api.runs
+                    .resume(runId)
+                    .then(
+                      () => {
+                        void refetchSession();
+                        toast("success", t("session.resumeSuccess"));
+                      },
+                      () => {
+                        toast("error", t("session.resumeFailed"));
+                      },
+                    )
+                    .finally(() => {
+                      setResumeLoading(false);
+                    });
+                }}
+              >
+                {resumeLoading() ? "..." : t("session.resume")}
+              </Button>
+            </Show>
+            {/* Session History toggle */}
+            <Show when={session()}>
+              <Button
+                variant="secondary"
+                size="sm"
+                class="text-xs px-2 py-0.5"
+                onClick={() => setShowSessionHistory((v) => !v)}
+              >
+                {showSessionHistory() ? "\u25B2" : "\u25BC"} {t("session.title")}
+              </Button>
+            </Show>
             {/* Step counter during agentic turns */}
             <Show when={agentRunning() && stepCount() > 0}>
               <span class="text-xs text-cf-text-muted">Step {stepCount()}</span>
@@ -445,6 +507,50 @@ export default function ChatPanel(props: ChatPanelProps) {
             </Show>
           </div>
         </div>
+
+        {/* Conversation selector with session status dots */}
+        <Show when={(conversations() ?? []).length > 1}>
+          <div class="flex items-center gap-1 border-b border-cf-border px-3 py-1.5 overflow-x-auto scrollbar-none">
+            <For each={conversations() ?? []}>
+              {(conv) => {
+                const convSession = () => sessionByConv().get(conv.id);
+                const dotColor = () => {
+                  const s = convSession();
+                  if (!s) return "";
+                  if (s.status === "active") return "bg-green-500";
+                  if (s.status === "paused") return "bg-yellow-500";
+                  return "bg-gray-400";
+                };
+                return (
+                  <button
+                    type="button"
+                    class={`flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-1 text-xs transition-colors ${
+                      activeConversation() === conv.id
+                        ? "bg-cf-accent/15 text-cf-accent font-medium"
+                        : "text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-hover"
+                    }`}
+                    onClick={() => setActiveConversation(conv.id)}
+                    title={convSession() ? `Session: ${convSession()?.status}` : undefined}
+                  >
+                    <Show when={convSession()}>
+                      <span
+                        class={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${dotColor()}`}
+                      />
+                    </Show>
+                    {conv.title || conv.id.slice(0, 8)}
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
+
+        {/* Inline Session History (collapsible) */}
+        <Show when={showSessionHistory()}>
+          <div class="border-b border-cf-border">
+            <SessionPanel projectId={props.projectId} />
+          </div>
+        </Show>
 
         {/* Messages */}
         <div class="flex-1 overflow-y-auto p-4 space-y-4">

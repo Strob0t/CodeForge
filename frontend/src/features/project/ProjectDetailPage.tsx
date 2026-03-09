@@ -1,5 +1,13 @@
 import { useParams } from "@solidjs/router";
-import { createEffect, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 
 import { api } from "~/api/client";
 import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
@@ -26,7 +34,56 @@ import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
 import RoadmapPanel from "./RoadmapPanel";
 import SessionPanel from "./SessionPanel";
+import TrajectoryPanel from "./TrajectoryPanel";
 import WarRoom from "./WarRoom";
+
+/** Inline trajectory tab content with run selector + TrajectoryPanel */
+function TrajectoryTabContent(props: {
+  projectId: string;
+  selectedRunId: string | null;
+  onSelectRun: (id: string | null) => void;
+}) {
+  const { t } = useI18n();
+  const [runs] = createResource(
+    () => props.projectId,
+    (pid) => api.costs.recentRuns(pid, 50),
+  );
+
+  return (
+    <div class="space-y-3">
+      <Show
+        when={!runs.loading && (runs() ?? []).length > 0}
+        fallback={
+          <Show
+            when={!runs.loading}
+            fallback={<p class="text-sm text-cf-text-muted">Loading...</p>}
+          >
+            <p class="text-sm text-cf-text-muted">{t("trajectory.noRuns")}</p>
+          </Show>
+        }
+      >
+        <label class="flex items-center gap-2">
+          <span class="text-sm font-medium text-cf-text-primary">{t("trajectory.runLabel")}:</span>
+          <select
+            class="rounded border border-cf-border bg-cf-bg-surface px-2 py-1 text-sm text-cf-text-primary"
+            value={props.selectedRunId ?? ""}
+            onChange={(e) => props.onSelectRun(e.currentTarget.value || null)}
+          >
+            <option value="">{t("trajectory.selectRun")}</option>
+            <For each={runs() ?? []}>
+              {(run) => (
+                <option value={run.id}>
+                  {run.id.slice(0, 8)} — {run.status} ({run.model || "?"})
+                </option>
+              )}
+            </For>
+          </select>
+        </label>
+        <Show when={props.selectedRunId}>{(runId) => <TrajectoryPanel runId={runId()} />}</Show>
+      </Show>
+    </div>
+  );
+}
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
@@ -64,8 +121,17 @@ export default function ProjectDetailPage() {
   const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
 
   // Left panel tab
-  type LeftTab = "roadmap" | "featuremap" | "files" | "warroom" | "goals" | "audit" | "sessions";
+  type LeftTab =
+    | "roadmap"
+    | "featuremap"
+    | "files"
+    | "warroom"
+    | "goals"
+    | "audit"
+    | "sessions"
+    | "trajectory";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
+  const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
 
   // Auto-select "files" tab once on initial load when project has a workspace
   let initialTabSet = false;
@@ -426,7 +492,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" || leftTab() === "trajectory" ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
@@ -498,6 +564,14 @@ export default function ProjectDetailPage() {
                         >
                           {t("session.tab")}
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "trajectory" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("trajectory")}
+                        >
+                          {t("detail.tab.trajectory")}
+                        </Button>
                       </div>
                       <Button
                         variant="ghost"
@@ -553,6 +627,15 @@ export default function ProjectDetailPage() {
                     <Show when={leftTab() === "sessions"}>
                       <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                         <SessionPanel projectId={params.id} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "trajectory"}>
+                      <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                        <TrajectoryTabContent
+                          projectId={params.id}
+                          selectedRunId={selectedRunId()}
+                          onSelectRun={setSelectedRunId}
+                        />
                       </div>
                     </Show>
                   </div>

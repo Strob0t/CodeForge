@@ -125,6 +125,61 @@ class BackendRouter:
         finally:
             self._active.pop(task_id, None)
 
+    async def check_all_health(self) -> list[dict[str, object]]:
+        """Check availability of all registered backends concurrently.
+
+        Returns a list of dicts with keys: name, display_name, available, error,
+        capabilities, config_schema.
+        """
+        import asyncio
+
+        async def _check_one(executor: BackendExecutor) -> dict[str, object]:
+            info = executor.info
+            try:
+                available = await executor.check_available()
+                return {
+                    "name": info.name,
+                    "display_name": info.display_name,
+                    "available": available,
+                    "error": "" if available else f"{info.cli_command} not found",
+                    "capabilities": info.capabilities,
+                }
+            except Exception as exc:
+                return {
+                    "name": info.name,
+                    "display_name": info.display_name,
+                    "available": False,
+                    "error": str(exc),
+                    "capabilities": info.capabilities,
+                }
+
+        results = await asyncio.gather(*[_check_one(ex) for ex in self._executors.values()])
+        return list(results)
+
+    def get_config_schemas(self) -> list[dict[str, object]]:
+        """Return config schemas for all registered backends."""
+        schemas: list[dict[str, object]] = []
+        for executor in self._executors.values():
+            info = executor.info
+            fields = [
+                {
+                    "key": f.key,
+                    "type": f.type.__name__,
+                    "default": f.default,
+                    "description": f.description,
+                    "required": f.required,
+                }
+                for f in info.config_schema
+            ]
+            schemas.append(
+                {
+                    "name": info.name,
+                    "display_name": info.display_name,
+                    "config_fields": fields,
+                }
+            )
+        return schemas
+
     async def cancel(self, task_id: str) -> None:
         """Cancel a running task by routing to the correct backend."""
         backend_name = self._active.get(task_id)

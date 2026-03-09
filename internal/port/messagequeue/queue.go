@@ -40,6 +40,7 @@ const (
 	SubjectTaskOutput  = "tasks.output" // streaming output lines from workers
 	SubjectTaskCancel  = "tasks.cancel" // cancel a running task
 	SubjectAgentStatus = "agents.status"
+	SubjectAgentOutput = "agents.output" // Python → Go: per-line backend output
 
 	// Run protocol subjects (Phase 4B step-by-step execution)
 	SubjectRunStart            = "runs.start"             // Go → Python: start a new run
@@ -116,4 +117,8 @@ const (
 
 	// Trajectory subjects (Phase 6.1)
 	SubjectTrajectoryEvent = "runs.trajectory.event" // Python → Go: granular trajectory events
+
+	// Backend health subjects (Phase 5.4)
+	SubjectBackendHealthRequest = "backends.health.request" // Go → Python: check backend availability
+	SubjectBackendHealthResult  = "backends.health.result"  // Python → Go: health check results
 )

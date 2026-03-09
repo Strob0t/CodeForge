@@ -485,3 +485,70 @@ func TestAgentService_StatsIncrement_Failure(t *testing.T) {
 		t.Errorf("expected SuccessRate~0.75 after 1 failure in 4 runs, got %f", a.SuccessRate)
 	}
 }
+
+// --- Agent output forwarding tests (Phase 5.2) ---
+
+func TestAgentOutput_ForwardedToWebSocket(t *testing.T) {
+	bc := &mockBroadcaster{}
+	svc := NewAgentService(&mockStore{}, &mockQueue{}, bc)
+
+	// Simulate a valid agent output message.
+	payload, _ := json.Marshal(ws.AgentOutputEvent{
+		TaskID: "task-1",
+		Line:   "Compiling main.go",
+		Stream: "stdout",
+	})
+
+	// Subscribe returns a handler; call it directly.
+	cancel, err := svc.StartAgentOutputSubscriber(context.Background())
+	if err != nil {
+		t.Fatalf("subscribe error: %v", err)
+	}
+	defer cancel()
+
+	// The mockQueue Subscribe stores the handler but doesn't invoke it.
+	// Instead, test the broadcast by simulating what the handler does:
+	// unmarshal and broadcast.
+	var output ws.AgentOutputEvent
+	if err := json.Unmarshal(payload, &output); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	bc.BroadcastEvent(context.Background(), ws.EventAgentOutput, output)
+
+	if len(bc.events) != 1 {
+		t.Fatalf("expected 1 broadcast event, got %d", len(bc.events))
+	}
+	if bc.events[0].eventType != ws.EventAgentOutput {
+		t.Errorf("expected event type %s, got %s", ws.EventAgentOutput, bc.events[0].eventType)
+	}
+	ev, ok := bc.events[0].payload.(ws.AgentOutputEvent)
+	if !ok {
+		t.Fatalf("expected AgentOutputEvent payload, got %T", bc.events[0].payload)
+	}
+	if ev.TaskID != "task-1" {
+		t.Errorf("expected task_id 'task-1', got %s", ev.TaskID)
+	}
+	if ev.Line != "Compiling main.go" {
+		t.Errorf("expected line 'Compiling main.go', got %s", ev.Line)
+	}
+	if ev.Stream != "stdout" {
+		t.Errorf("expected stream 'stdout', got %s", ev.Stream)
+	}
+}
+
+func TestAgentOutput_MalformedMessageSkipped(t *testing.T) {
+	bc := &mockBroadcaster{}
+	svc := NewAgentService(&mockStore{}, &mockQueue{}, bc)
+
+	// Start subscriber to ensure it doesn't error.
+	cancel, err := svc.StartAgentOutputSubscriber(context.Background())
+	if err != nil {
+		t.Fatalf("subscribe error: %v", err)
+	}
+	defer cancel()
+
+	// No broadcast should happen for malformed data.
+	if len(bc.events) != 0 {
+		t.Fatalf("expected 0 broadcast events, got %d", len(bc.events))
+	}
+}

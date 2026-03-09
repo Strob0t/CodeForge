@@ -44,6 +44,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
@@ -264,6 +265,11 @@ func run() error {
 	cancelOutput, err := agentSvc.StartOutputSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("output subscriber: %w", err)
+	}
+
+	cancelAgentOutput, err := agentSvc.StartAgentOutputSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("agent output subscriber: %w", err)
 	}
 
 	// --- Secrets Vault ---
@@ -608,6 +614,16 @@ func run() error {
 	}
 	slog.Info("benchmark service initialized with NATS bridge")
 
+	// --- Backend Health Service (Phase 5.4) ---
+	backendHealthSvc := service.NewBackendHealthService(queue)
+	backendHealthCancel, err := queue.Subscribe(ctx, messagequeue.SubjectBackendHealthResult, func(_ context.Context, _ string, data []byte) error {
+		return backendHealthSvc.HandleHealthResult(ctx, data)
+	})
+	if err != nil {
+		return fmt.Errorf("backend health subscriber: %w", err)
+	}
+	slog.Info("backend health service initialized")
+
 	handlers := &cfhttp.Handlers{
 		Projects:         projectSvc,
 		Tasks:            taskSvc,
@@ -663,6 +679,7 @@ func run() error {
 		GoalDiscovery:    goalSvc,
 		Dashboard:        dashboardSvc,
 		AutoAgent:        autoAgentSvc,
+		BackendHealth:    backendHealthSvc,
 		Limits:           &cfg.Limits,
 	}
 
@@ -866,6 +883,7 @@ func run() error {
 	}
 	cancelResults()
 	cancelOutput()
+	cancelAgentOutput()
 	repoMapCancel()
 	convRunCancel()
 	benchmarkRunCancel()
@@ -878,6 +896,7 @@ func run() error {
 	for _, cancel := range memoryCancels {
 		cancel()
 	}
+	backendHealthCancel()
 
 	// Phase 3: Drain NATS (flush pending publishes, wait for acks)
 	slog.Info("shutdown phase 3: draining NATS connection")

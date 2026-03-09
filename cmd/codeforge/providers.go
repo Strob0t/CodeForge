@@ -7,6 +7,7 @@ import (
 	_ "github.com/Strob0t/CodeForge/internal/adapter/autospec"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/discord"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/gitea"
+	_ "github.com/Strob0t/CodeForge/internal/adapter/github"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/githubpm"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/gitlab"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/gitlocal"

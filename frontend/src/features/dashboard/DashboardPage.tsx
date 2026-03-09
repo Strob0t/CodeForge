@@ -21,6 +21,9 @@ export default function DashboardPage() {
   const [projects, { refetch }] = createResource(() => api.projects.list());
   const [stats] = createResource(() => api.dashboard.stats());
   const [showModal, setShowModal] = createSignal(false);
+  const [batchMode, setBatchMode] = createSignal(false);
+  const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
+  const [batchLoading, setBatchLoading] = createSignal(false);
 
   // Fetch health for each project in parallel once the project list loads
   const [healthMap] = createResource(
@@ -62,13 +65,101 @@ export default function DashboardPage() {
     window.location.href = `/projects/${id}`;
   }
 
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    const all = projects() ?? [];
+    setSelectedIds(new Set(all.map((p) => p.id)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set<string>());
+  }
+
+  function exitBatchMode() {
+    setBatchMode(false);
+    setSelectedIds(new Set<string>());
+  }
+
+  async function handleBatchDelete() {
+    const ids = [...selectedIds()];
+    if (ids.length === 0) return;
+    const ok = await confirm({
+      title: t("dashboard.batch.delete"),
+      message: t("dashboard.batch.confirmDelete", { count: ids.length }),
+      variant: "danger",
+      confirmLabel: t("common.delete"),
+    });
+    if (!ok) return;
+    setBatchLoading(true);
+    try {
+      await api.batch.deleteProjects(ids);
+      toast("success", t("dashboard.batch.deleteSuccess"));
+      exitBatchMode();
+      await refetch();
+    } catch {
+      toast("error", t("dashboard.batch.failed"));
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  async function handleBatchPull() {
+    const ids = [...selectedIds()];
+    if (ids.length === 0) return;
+    setBatchLoading(true);
+    try {
+      await api.batch.pullProjects(ids);
+      toast("success", t("dashboard.batch.pullSuccess"));
+    } catch {
+      toast("error", t("dashboard.batch.failed"));
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  async function handleBatchStatus() {
+    const ids = [...selectedIds()];
+    if (ids.length === 0) return;
+    setBatchLoading(true);
+    try {
+      await api.batch.statusProjects(ids);
+      toast("info", t("dashboard.batch.statusSuccess"));
+    } catch {
+      toast("error", t("dashboard.batch.failed"));
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
   return (
     <PageLayout
       title={t("dashboard.title")}
       action={
-        <Button variant="primary" onClick={() => setShowModal(true)}>
-          {t("dashboard.newProject")}
-        </Button>
+        <div class="flex items-center gap-2">
+          <Show
+            when={batchMode()}
+            fallback={
+              <Button variant="secondary" size="sm" onClick={() => setBatchMode(true)}>
+                {t("dashboard.batch.select")}
+              </Button>
+            }
+          >
+            <Button variant="ghost" size="sm" onClick={exitBatchMode}>
+              {t("dashboard.batch.cancel")}
+            </Button>
+          </Show>
+          <Button variant="primary" onClick={() => setShowModal(true)}>
+            {t("dashboard.newProject")}
+          </Button>
+        </div>
       }
     >
       {/* KPI Strip */}
@@ -85,6 +176,50 @@ export default function DashboardPage() {
 
       <Show when={!projects.loading && !projects.error}>
         <Show when={projects()?.length} fallback={<EmptyState title={t("dashboard.empty")} />}>
+          {/* Batch action bar */}
+          <Show when={batchMode()}>
+            <div class="mt-3 flex flex-wrap items-center gap-2 rounded-cf-sm bg-cf-bg-inset px-4 py-2">
+              <span class="text-sm text-cf-text-primary font-medium">
+                {t("dashboard.batch.selected", { count: selectedIds().size })}
+              </span>
+              <span class="flex-1" />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={selectedIds().size === (projects()?.length ?? 0) ? deselectAll : selectAll}
+              >
+                {selectedIds().size === (projects()?.length ?? 0)
+                  ? t("dashboard.batch.deselectAll")
+                  : t("dashboard.batch.selectAll")}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={selectedIds().size === 0 || batchLoading()}
+                onClick={() => void handleBatchStatus()}
+              >
+                {t("dashboard.batch.status")}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={selectedIds().size === 0 || batchLoading()}
+                onClick={() => void handleBatchPull()}
+              >
+                {t("dashboard.batch.pull")}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                class="bg-red-600 hover:bg-red-700 text-white"
+                disabled={selectedIds().size === 0 || batchLoading()}
+                onClick={() => void handleBatchDelete()}
+              >
+                {t("dashboard.batch.delete")}
+              </Button>
+            </div>
+          </Show>
+
           <div class="mt-4">
             <GridLayout>
               <For each={projects()}>
@@ -94,6 +229,9 @@ export default function DashboardPage() {
                     health={healthMap()?.[p.id]}
                     onDelete={handleDelete}
                     onEdit={handleEdit}
+                    batchMode={batchMode()}
+                    selected={selectedIds().has(p.id)}
+                    onToggleSelect={toggleSelect}
                   />
                 )}
               </For>

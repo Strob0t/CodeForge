@@ -23,6 +23,7 @@ import NotFoundPage from "./features/NotFoundPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import PromptEditorPage from "./features/prompts/PromptEditorPage.tsx";
 import ScopesPage from "./features/scopes/ScopesPage.tsx";
+import SearchPage from "./features/search/SearchPage.tsx";
 import SettingsPage from "./features/settings/SettingsPage.tsx";
 
 const root = document.getElementById("root");
@@ -52,6 +53,7 @@ render(
       <Route path="/prompts" component={PromptEditorPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/audit" component={AuditTrailPage} />
+      <Route path="/search" component={SearchPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />
       <Route path="*404" component={NotFoundPage} />
     </Router>

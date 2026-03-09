@@ -1673,6 +1673,29 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	return r
 }
 
+func newTestRouterWithBackendHealth(bhSvc *service.BackendHealthService) chi.Router {
+	r := newTestRouterWithStore(&mockStore{})
+	// The default test router doesn't set BackendHealth; re-mount with it.
+	// Instead of re-building, just use a minimal chi.Router with the handler.
+	rr := chi.NewRouter()
+	rr.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), &user.User{
+				ID:   "test-admin",
+				Name: "Test Admin",
+				Role: user.RoleAdmin,
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
+	h := &cfhttp.Handlers{
+		BackendHealth: bhSvc,
+	}
+	rr.Get("/api/v1/backends/health", h.CheckBackendHealth)
+	_ = r // suppress unused
+	return rr
+}
+
 func TestListProjectsEmpty(t *testing.T) {
 	r := newTestRouter()
 	req := httptest.NewRequest("GET", "/api/v1/projects", http.NoBody)

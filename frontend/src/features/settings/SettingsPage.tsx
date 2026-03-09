@@ -441,9 +441,25 @@ export default function SettingsPage() {
               class="flex-1"
             />
           </div>
-          <Button onClick={handleCreateVCS} disabled={!vcsLabel().trim() || !vcsToken().trim()}>
-            {t("settings.vcs.add")}
-          </Button>
+          <div class="flex items-center gap-2">
+            <Button onClick={handleCreateVCS} disabled={!vcsLabel().trim() || !vcsToken().trim()}>
+              {t("settings.vcs.add")}
+            </Button>
+            <span class="text-xs text-cf-text-muted">{t("settings.vcs.orOAuth")}</span>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  const { url } = await api.auth.githubOAuth();
+                  window.location.href = url;
+                } catch {
+                  toast("error", t("settings.vcs.oauthFailed"));
+                }
+              }}
+            >
+              {t("settings.vcs.connectGitHub")}
+            </Button>
+          </div>
         </div>
 
         {/* Account list */}

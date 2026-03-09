@@ -309,6 +309,24 @@ export const api = {
       ),
   },
 
+  batch: {
+    deleteProjects: (ids: string[]) =>
+      request<{ id: string; ok: boolean; error?: string }[]>("/projects/batch/delete", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    pullProjects: (ids: string[]) =>
+      request<{ id: string; ok: boolean; error?: string }[]>("/projects/batch/pull", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    statusProjects: (ids: string[]) =>
+      request<{ id: string; ok: boolean; error?: string; status?: import("./types").GitStatus }[]>(
+        "/projects/batch/status",
+        { method: "POST", body: JSON.stringify({ ids }) },
+      ),
+  },
+
   agents: {
     list: (projectId: string) => request<Agent[]>(url`/projects/${projectId}/agents`),
 
@@ -693,6 +711,31 @@ export const api = {
       `${BASE}/runs/${encodeURIComponent(runId)}/trajectory/export?format=json`,
   },
 
+  search: {
+    global: (query: string, projectIds?: string[], limit?: number) =>
+      request<{
+        query: string;
+        total: number;
+        results: {
+          project_id: string;
+          file: string;
+          start_line: number;
+          end_line: number;
+          snippet: string;
+          language?: string;
+          symbol_name?: string;
+          score: number;
+        }[];
+      }>("/search", {
+        method: "POST",
+        body: JSON.stringify({
+          query,
+          project_ids: projectIds,
+          limit: limit ?? 20,
+        }),
+      }),
+  },
+
   providers: {
     git: () => request<ProviderList>("/providers/git"),
     agent: () => request<BackendList>("/providers/agent"),
@@ -756,6 +799,8 @@ export const api = {
       request<undefined>(url`/auth/api-keys/${id}`, {
         method: "DELETE",
       }),
+
+    githubOAuth: () => request<{ url: string; state: string }>("/auth/github"),
   },
 
   users: {

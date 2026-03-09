@@ -12,12 +12,13 @@ Management of multiple repositories across different SCM platforms. Users can ad
 
 | Provider | Adapter | Key Capabilities |
 |---|---|---|
-| GitHub | `adapter/githubpm/` | Clone, PR, Webhooks, Issues, Actions |
+| GitHub (PM) | `adapter/githubpm/` | Issues, PRs, Webhooks, Actions |
+| GitHub (API) | `adapter/github/` | Clone (token-auth), ListRepos, Push, PRs, Issues |
 | GitLab | `adapter/gitlab/` | Clone, MR, Webhooks, Issues, CI |
 | Git (local) | `adapter/gitlocal/` | Clone, Branch, Diff, Commit |
 | SVN | `adapter/svn/` | Checkout, Update, Diff, Commit |
-| Gitea/Forgejo | `adapter/githubpm/` (compatible) | Same as GitHub with minor adjustments |
-| Codeberg | `adapter/githubpm/` (compatible) | Forgejo instance, same adapter as Gitea/Forgejo |
+| Gitea/Forgejo | `adapter/gitea/` | Issues, PRs (via Gitea REST API) |
+| Codeberg | `adapter/gitea/` (variant) | Forgejo instance, same adapter as Gitea/Forgejo |
 
 All providers implement the `gitprovider.Provider` interface with capability declarations. See [architecture.md -- Provider Registry Pattern](../architecture.md#provider-registry-pattern).
 
@@ -86,6 +87,12 @@ POST   /api/v1/projects/{id}/checkout      # Switch branch
 - [x] Optimistic locking (version field) on projects.
 - [x] Multi-tenancy preparation (tenant_id on projects).
 - [x] Dashboard Polish: KPI strip (7 stats), HealthDot (weighted composite), ChartsPanel (5 Unovis charts), ActivityTimeline (WS 5-tier), ProjectCard enhanced, CreateProjectModal extracted.
+- [x] GitHub OAuth: domain model (`vcsaccount`), OAuth state store, service (`GitHubOAuthService`), HTTP handlers (`/api/v1/auth/github`, `/api/v1/auth/github/callback`).
+- [x] GitHub API git provider (`adapter/github/`): token-auth clone URLs, ListRepos via REST API with pagination, self-registering as `github-api`.
+- [x] Frontend OAuth: "Connect GitHub" button in Settings > VCS Accounts, redirects to GitHub OAuth flow.
+- [x] Forgejo/Codeberg compatibility: Gitea adapter with variant config, `DetectForgejo()`, provider aliases (`forgejo`, `codeberg`), frontend dropdown in CreateProjectModal.
+- [x] Batch operations: `POST /projects/batch/{delete,pull,status}` endpoints, concurrent fan-out, frontend multi-select with batch action bar.
+- [x] Cross-repo search: `POST /search` aggregation endpoint, frontend SearchPage with debounced input, project filter, results with code snippets.
 
 ### Open Items
 

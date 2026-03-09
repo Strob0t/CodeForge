@@ -153,6 +153,20 @@ const de: Translations = {
   "dashboard.timeline.title": "Aktivität",
   "dashboard.timeline.showMore": "Mehr anzeigen...",
   "dashboard.newProject": "Neues Projekt",
+  "dashboard.batch.select": "Auswaehlen",
+  "dashboard.batch.cancel": "Abbrechen",
+  "dashboard.batch.selectAll": "Alle auswaehlen",
+  "dashboard.batch.deselectAll": "Alle abwaehlen",
+  "dashboard.batch.delete": "Ausgewaehlte loeschen",
+  "dashboard.batch.pull": "Ausgewaehlte pullen",
+  "dashboard.batch.status": "Status pruefen",
+  "dashboard.batch.selected": "{{count}} ausgewaehlt",
+  "dashboard.batch.confirmDelete":
+    "{{count}} ausgewaehlte Projekte loeschen? Dies kann nicht rueckgaengig gemacht werden.",
+  "dashboard.batch.deleteSuccess": "Batch-Loeschung abgeschlossen.",
+  "dashboard.batch.pullSuccess": "Batch-Pull abgeschlossen.",
+  "dashboard.batch.statusSuccess": "Statuspruefung abgeschlossen.",
+  "dashboard.batch.failed": "Batch-Operation fehlgeschlagen.",
 
   // -- Project card ---------------------------------------------------------
   "project.delete": "L\u00f6schen",
@@ -648,6 +662,10 @@ const de: Translations = {
   "detail.tab.settings": "Einstellungen",
   "detail.tab.roadmap": "Roadmap",
   "detail.tab.featuremap": "Feature Map",
+  "detail.tab.trajectory": "Trajektorie",
+  "trajectory.selectRun": "Waehle einen Lauf, um die Trajektorie anzuzeigen",
+  "trajectory.noRuns": "Keine Laeufe fuer dieses Projekt gefunden.",
+  "trajectory.runLabel": "Lauf",
   "detail.settings.title": "Projekteinstellungen",
   "detail.settings.autonomyLevel": "Autonomie-Stufe",
   "detail.settings.autonomyPlaceholder": "Stufe auswahlen...",
@@ -855,6 +873,10 @@ const de: Translations = {
   "trajectory.input": "Eingabe",
   "trajectory.output": "Ausgabe",
   "trajectory.errorOutput": "Fehler",
+  "trajectory.rewindConfirm":
+    "Zu diesem Event zurueckspulen? Dies erstellt eine neue Session ab diesem Punkt.",
+  "trajectory.rewindConfirmBtn": "Zurueckspulen",
+  "trajectory.cancel": "Abbrechen",
 
   // -- Diff preview --------------------------------------------------------
   "diff.title": "Code\u00e4nderungen",
@@ -1089,6 +1111,9 @@ const de: Translations = {
   "settings.vcs.serverUrl": "Server-URL (optional)",
   "settings.vcs.serverUrlPlaceholder": "https://gitlab.example.com",
   "settings.vcs.add": "Konto hinzuf\u00fcgen",
+  "settings.vcs.orOAuth": "oder",
+  "settings.vcs.connectGitHub": "GitHub verbinden",
+  "settings.vcs.oauthFailed": "GitHub OAuth fehlgeschlagen",
   "settings.vcs.test": "Testen",
   "settings.vcs.testing": "Teste...",
   "settings.vcs.testSuccess": "Verbindung erfolgreich",
@@ -1464,6 +1489,17 @@ const de: Translations = {
   "files.uploadSuccess": "Datei hochgeladen",
   "files.uploadFailed": "Datei konnte nicht hochgeladen werden",
   "files.textFilesOnly": "Nur Textdateien koennen hochgeladen werden",
+
+  // -- Suche (Search) ---------------------------------------------------------
+  "app.nav.search": "Suche",
+  "search.title": "Projektübergreifende Suche",
+  "search.placeholder": "In allen Projekten suchen\u2026",
+  "search.filterProjects": "Projekte filtern",
+  "search.allProjects": "Alle Projekte",
+  "search.noResults": "Keine Ergebnisse gefunden.",
+  "search.error": "Suche fehlgeschlagen.",
+  "search.results": "{{count}} Ergebnisse",
+  "search.line": "Z{{line}}",
 
   // -- Chat-Anhaenge ----------------------------------------------------------
   "chat.attachFile": "Datei anhaengen",

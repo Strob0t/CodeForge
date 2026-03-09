@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 from codeforge.backends._base import BackendInfo, ConfigField, OutputCallback, TaskResult, parse_extra_args
@@ -34,6 +35,8 @@ class OpenCodeExecutor:
                 ConfigField(key="model", type=str, description="LLM model name"),
                 ConfigField(key="timeout", type=int, default=_DEFAULT_TIMEOUT, description="Timeout in seconds"),
                 ConfigField(key="extra_args", type=list, description="Extra CLI arguments"),
+                ConfigField(key="extra_env", type=dict, description="Extra environment variables for subprocess"),
+                ConfigField(key="working_dir_override", type=str, description="Override workspace path"),
             ),
         )
 
@@ -51,6 +54,8 @@ class OpenCodeExecutor:
         """Run opencode with the given prompt in the workspace directory."""
         config = config or {}
         timeout = config.get("timeout", _DEFAULT_TIMEOUT)
+        cwd = config.get("working_dir_override") or workspace_path
+        extra_env: dict[str, str] = config.get("extra_env") or {}
 
         # opencode run --prompt "<prompt>" runs a single-shot task.
         cmd = [self._cli_path, "run", "--prompt", prompt]
@@ -61,14 +66,17 @@ class OpenCodeExecutor:
 
         cmd.extend(parse_extra_args(config))
 
-        logger.info("opencode exec task=%s cmd=%s cwd=%s", task_id, cmd[:4], workspace_path)
+        logger.info("opencode exec task=%s cmd=%s cwd=%s", task_id, cmd[:4], cwd)
+
+        merged_env = {**os.environ, **extra_env} if extra_env else None
 
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd=workspace_path or None,
+                cwd=cwd or None,
+                env=merged_env,
             )
         except OSError as exc:
             return TaskResult(status="failed", error=f"Failed to start opencode: {exc}")

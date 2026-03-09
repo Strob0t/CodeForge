@@ -2,10 +2,8 @@ package http
 
 import (
 	"net/http"
-	"sort"
-	"sync"
 
-	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 type globalSearchRequest struct {
@@ -15,9 +13,9 @@ type globalSearchRequest struct {
 }
 
 type globalSearchResponse struct {
-	Query   string                                   `json:"query"`
-	Total   int                                      `json:"total"`
-	Results []messagequeue.RetrievalSearchHitPayload `json:"results"`
+	Query   string                       `json:"query"`
+	Total   int                          `json:"total"`
+	Results []service.GlobalSearchResult `json:"results"`
 }
 
 // GlobalSearch handles POST /api/v1/search.
@@ -41,72 +39,15 @@ func (h *Handlers) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 
-	// Determine which projects to search.
-	projectIDs := req.ProjectIDs
-	if len(projectIDs) == 0 {
-		projects, err := h.Projects.List(r.Context())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list projects")
-			return
-		}
-		for i := range projects {
-			projectIDs = append(projectIDs, projects[i].ID)
-		}
-	}
-
-	if len(projectIDs) == 0 {
-		writeJSON(w, http.StatusOK, globalSearchResponse{Query: req.Query, Results: []messagequeue.RetrievalSearchHitPayload{}})
+	results, err := h.Retrieval.GlobalSearch(r.Context(), req.Query, req.ProjectIDs, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "search failed: "+err.Error())
 		return
-	}
-
-	// Search each project concurrently.
-	type projectResult struct {
-		hits []messagequeue.RetrievalSearchHitPayload
-	}
-
-	results := make([]projectResult, len(projectIDs))
-	var wg sync.WaitGroup
-
-	for i, pid := range projectIDs {
-		wg.Add(1)
-		go func(idx int, projectID string) {
-			defer wg.Done()
-			resp, err := h.Retrieval.SearchSync(r.Context(), projectID, req.Query, limit, 0.5, 0.5)
-			if err != nil || resp == nil {
-				return // skip failed projects silently
-			}
-			// Tag each hit with its project ID.
-			for j := range resp.Results {
-				resp.Results[j].ProjectID = projectID
-			}
-			results[idx] = projectResult{hits: resp.Results}
-		}(i, pid)
-	}
-	wg.Wait()
-
-	// Merge all results.
-	var allHits []messagequeue.RetrievalSearchHitPayload
-	for _, res := range results {
-		allHits = append(allHits, res.hits...)
-	}
-
-	// Sort by score descending.
-	sort.Slice(allHits, func(i, j int) bool {
-		return allHits[i].Score > allHits[j].Score
-	})
-
-	// Apply limit.
-	if len(allHits) > limit {
-		allHits = allHits[:limit]
-	}
-
-	if allHits == nil {
-		allHits = []messagequeue.RetrievalSearchHitPayload{}
 	}
 
 	writeJSON(w, http.StatusOK, globalSearchResponse{
 		Query:   req.Query,
-		Total:   len(allHits),
-		Results: allHits,
+		Total:   len(results),
+		Results: results,
 	})
 }

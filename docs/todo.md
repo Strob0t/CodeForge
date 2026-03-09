@@ -523,16 +523,16 @@
 
 #### Pillar 1: Project Dashboard
 
-- [ ] Implement GitHub adapter with OAuth flow -- only Copilot token exchange exists (`internal/adapter/copilot/`), no full GitHub OAuth integration
+- [x] (2026-03-09) Implement GitHub adapter with OAuth flow -- domain model, state store, service, HTTP handlers, `github-api` git provider, frontend OAuth connect button
 - [x] (2026-03-09) Verify GitHub adapter compatibility with Forgejo/Codeberg -- provider aliases, variant config, detection, tests
-- [ ] Batch operations across selected repos -- UI and service layer
-- [ ] Cross-repo search (code, issues) -- requires indexing infrastructure
+- [x] (2026-03-09) Batch operations across selected repos -- batch API endpoints, store methods, frontend multi-select UI
+- [x] (2026-03-09) Cross-repo search (code, issues) -- Go aggregation endpoint, frontend SearchPage with debounced input + project filter
 
 #### Pillar 4: Agent Orchestration
 
-- [ ] Enhance CLI wrappers for Goose, OpenHands, OpenCode, Plandex -- basic wrappers exist in `workers/codeforge/backends/`, needs advanced features (streaming, interactive mode, config passthrough)
-- [ ] Trajectory replay UI and audit trail -- event store + service exist (`internal/port/eventstore/`, `internal/service/agent.go`), frontend UI missing
-- [ ] Session events as source of truth (Resume/Fork/Rewind) -- domain model + service exist (`internal/service/session.go`), full integration TBD
+- [x] (2026-03-09) Enhance CLI wrappers for Goose, OpenHands, OpenCode, Plandex -- streaming via NATS bridge, config passthrough, health check endpoints
+- [x] (2026-03-09) Trajectory replay UI and audit trail -- TrajectoryPanel with event timeline, rewind with confirmation, export button, trajectory tab in ProjectDetailPage
+- [x] (2026-03-09) Session events as source of truth (Resume/Fork/Rewind) -- session controls in ChatPanel, session indicators in conversation list, rewind with event picker UX
 
 ---
 

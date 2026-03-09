@@ -12,17 +12,30 @@ interface ProjectCardProps {
   health: ProjectHealth | undefined;
   onDelete: (id: string) => void;
   onEdit: (id: string) => void;
+  batchMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
 export default function ProjectCard(props: ProjectCardProps) {
   const { t, fmt } = useI18n();
 
   return (
-    <Card class="transition-shadow hover:shadow-md">
+    <Card
+      class={`transition-shadow hover:shadow-md ${props.selected ? "ring-2 ring-cf-accent" : ""}`}
+    >
       <Card.Body>
         {/* Header row: name + health dot */}
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-2">
+            <Show when={props.batchMode}>
+              <input
+                type="checkbox"
+                checked={props.selected}
+                onChange={() => props.onToggleSelect?.(props.project.id)}
+                class="h-4 w-4 rounded border-cf-border text-cf-accent accent-cf-accent"
+              />
+            </Show>
             <Show when={props.health}>
               {(h) => <HealthDot score={h().score} level={h().level} factors={h().factors} />}
             </Show>

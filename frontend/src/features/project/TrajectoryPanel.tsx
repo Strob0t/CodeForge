@@ -150,6 +150,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
   const [forking, setForking] = createSignal(false);
   const [rewinding, setRewinding] = createSignal(false);
   const [resuming, setResuming] = createSignal(false);
+  const [rewindConfirmId, setRewindConfirmId] = createSignal<string | null>(null);
 
   const handleFork = async (eventId: string) => {
     setForking(true);
@@ -166,9 +167,10 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
 
   const handleRewind = async (eventId: string) => {
     setRewinding(true);
+    setRewindConfirmId(null);
     try {
       const session = await api.runs.rewind(props.runId, { to_event_id: eventId });
-      toast("success", t("session.rewindSuccess"));
+      toast("success", `${t("session.rewindSuccess")} (${session.id.slice(0, 8)})`);
       props.onSessionCreated?.(session);
     } catch {
       toast("error", t("session.rewindFailed"));
@@ -176,6 +178,12 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       setRewinding(false);
     }
   };
+
+  /** Request rewind with confirmation */
+  const requestRewind = (eventId: string) => {
+    setRewindConfirmId(eventId);
+  };
+  const cancelRewind = () => setRewindConfirmId(null);
 
   const handleResume = async () => {
     setResuming(true);
@@ -520,13 +528,25 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
                       }
                     }}
                   >
-                    <div class="flex items-center gap-2 px-3 py-2">
+                    <div class="group flex items-center gap-2 px-3 py-2">
                       <span
                         class={`h-2.5 w-2.5 rounded-full ${EVENT_COLORS[ev.type] ?? "bg-cf-border-input"}`}
                         aria-hidden="true"
                       />
                       <span class="font-mono text-xs text-cf-text-tertiary">{ev.type}</span>
                       <span class="flex-1" />
+                      {/* Hover-visible rewind button */}
+                      <button
+                        type="button"
+                        class="hidden group-hover:inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-cf-text-muted hover:text-cf-accent hover:bg-cf-accent/10 transition-colors"
+                        title={t("session.rewindToHere")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          requestRewind(ev.id);
+                        }}
+                      >
+                        {"\u21A9"} {t("session.rewind")}
+                      </button>
                       <span class="text-xs text-cf-text-muted">{fmt.time(ev.created_at)}</span>
                       <span class="text-xs text-cf-text-muted">v{ev.version}</span>
                     </div>
@@ -547,7 +567,7 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
                           <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => void handleRewind(ev.id)}
+                            onClick={() => requestRewind(ev.id)}
                             disabled={rewinding()}
                             aria-label={t("session.rewindToHere")}
                           >
@@ -582,6 +602,31 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
           </Show>
         </Show>
       </Card.Body>
+
+      {/* Rewind confirmation dialog */}
+      <Show when={rewindConfirmId()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div class="rounded-cf-md bg-cf-bg-surface border border-cf-border shadow-lg p-5 max-w-sm mx-4">
+            <p class="text-sm text-cf-text-primary mb-4">{t("trajectory.rewindConfirm")}</p>
+            <div class="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={cancelRewind}>
+                {t("trajectory.cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={rewinding()}
+                onClick={() => {
+                  const id = rewindConfirmId();
+                  if (id) void handleRewind(id);
+                }}
+              >
+                {rewinding() ? "..." : t("trajectory.rewindConfirmBtn")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Show>
     </Card>
   );
 }

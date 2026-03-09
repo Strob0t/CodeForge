@@ -134,6 +134,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/providers/spec", h.ListSpecProviders)
 		r.Get("/providers/pm", h.ListPMProviders)
 
+		// Backend health
+		r.Get("/backends/health", h.CheckBackendHealth)
+
 		// Parse repo URL
 		r.Post("/parse-repo-url", h.ParseRepoURL)
 

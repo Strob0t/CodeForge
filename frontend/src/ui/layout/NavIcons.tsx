@@ -125,6 +125,15 @@ export function AuditIcon(): JSX.Element {
   );
 }
 
+export function SearchIcon(): JSX.Element {
+  return (
+    <svg {...svgBase}>
+      <circle cx="9" cy="9" r="5" />
+      <path d="M13 13l4 4" />
+    </svg>
+  );
+}
+
 export function BenchmarksIcon(): JSX.Element {
   return (
     <svg {...svgBase}>

@@ -100,6 +100,9 @@ const (
 
 	// Auto-Agent Skills: skill draft notification
 	EventSkillDraft = "skill.draft"
+
+	// Phase 5.2: agent backend output streaming
+	EventAgentOutput = "agent.output"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -115,6 +118,14 @@ type TaskOutputEvent struct {
 	TaskID string `json:"task_id"`
 	Line   string `json:"line"`
 	Stream string `json:"stream"` // "stdout" or "stderr"
+}
+
+// AgentOutputEvent is broadcast when an agent backend produces streaming output.
+type AgentOutputEvent struct {
+	TaskID    string `json:"task_id"`
+	Line      string `json:"line"`
+	Stream    string `json:"stream"`              // "stdout" or "stderr"
+	Timestamp string `json:"timestamp,omitempty"` // ISO 8601
 }
 
 // AgentStatusEvent is broadcast when an agent's status changes.

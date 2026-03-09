@@ -457,6 +457,9 @@ Example:
 | `auth.default_admin_email` | `CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
 | `auth.default_admin_pass` | `CODEFORGE_AUTH_DEFAULT_ADMIN_PASS` | `changeme123` | Seed admin password |
 | `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
+| `github.client_id` | `GITHUB_CLIENT_ID` | `` | GitHub OAuth App Client ID |
+| `github.client_secret` | `GITHUB_CLIENT_SECRET` | `` | GitHub OAuth App Client Secret |
+| `github.callback_url` | `GITHUB_CALLBACK_URL` | `http://localhost:8080/api/v1/auth/github/callback` | GitHub OAuth callback URL |
 
 #### Python Worker Config (`workers/codeforge/config.py`)
 
