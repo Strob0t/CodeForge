@@ -209,7 +209,7 @@ class AgentLoopExecutor:
         try:
             await self._runtime.publish_trajectory_event(
                 {
-                    "event_type": "finished",
+                    "event_type": "agent.finished",
                     "final_content_length": len(state.final_content),
                     "total_cost": state.total_cost,
                     "total_tokens_in": state.total_tokens_in,
@@ -389,7 +389,7 @@ class AgentLoopExecutor:
         try:
             await self._runtime.publish_trajectory_event(
                 {
-                    "event_type": "step_done",
+                    "event_type": "agent.step_done",
                     "model": response.model,
                     "tokens_in": response.tokens_in,
                     "tokens_out": response.tokens_out,
@@ -462,7 +462,7 @@ class AgentLoopExecutor:
             try:
                 await self._runtime.publish_trajectory_event(
                     {
-                        "event_type": "tool_called",
+                        "event_type": "agent.tool_called",
                         "tool_name": tc.name,
                         "input": (tc.arguments or "")[:500],
                         "output": result_text[:500],
@@ -503,7 +503,7 @@ class AgentLoopExecutor:
                 try:
                     await self._runtime.publish_trajectory_event(
                         {
-                            "event_type": "tool_called",
+                            "event_type": "agent.tool_called",
                             "tool_name": tc.name,
                             "input": (tc.arguments or "")[:500],
                             "output": result_text[:500],
@@ -539,7 +539,7 @@ class AgentLoopExecutor:
             try:
                 await self._runtime.publish_trajectory_event(
                     {
-                        "event_type": "tool_called",
+                        "event_type": "agent.tool_called",
                         "tool_name": tc.name,
                         "input": (tc.arguments or "")[:500],
                         "output": result_text[:500],

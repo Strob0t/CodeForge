@@ -113,4 +113,7 @@ const (
 
 	// Handoff subjects (Phase 23B)
 	SubjectHandoffRequest = "handoff.request" // Go → Python: agent-to-agent handoff
+
+	// Trajectory subjects (Phase 6.1)
+	SubjectTrajectoryEvent = "runs.trajectory.event" // Python → Go: granular trajectory events
 )

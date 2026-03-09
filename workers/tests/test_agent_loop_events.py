@@ -135,7 +135,7 @@ async def test_tool_called_event_published() -> None:
     executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/workspace")
     await executor.run([{"role": "user", "content": "test"}])
 
-    tool_events = _extract_events(runtime, "tool_called")
+    tool_events = _extract_events(runtime, "agent.tool_called")
     assert len(tool_events) >= 1, (
         f"Expected at least 1 tool_called event, got {runtime.publish_trajectory_event.call_args_list}"
     )
@@ -159,7 +159,7 @@ async def test_step_done_event_published() -> None:
         config=LoopConfig(model="test-model"),
     )
 
-    step_events = _extract_events(runtime, "step_done")
+    step_events = _extract_events(runtime, "agent.step_done")
     assert len(step_events) >= 1
     evt = step_events[0]
     assert evt["model"] == "fake-model"
@@ -181,7 +181,7 @@ async def test_finished_event_published() -> None:
         config=LoopConfig(model="test-model"),
     )
 
-    finished_events = _extract_events(runtime, "finished")
+    finished_events = _extract_events(runtime, "agent.finished")
     assert len(finished_events) == 1
     evt = finished_events[0]
     assert evt["step_count"] == 0
@@ -222,7 +222,7 @@ async def test_tool_denied_event_published() -> None:
         config=LoopConfig(model="test-model", max_iterations=5),
     )
 
-    tool_events = _extract_events(runtime, "tool_called")
+    tool_events = _extract_events(runtime, "agent.tool_called")
     assert len(tool_events) >= 1
     denied_evt = tool_events[0]
     assert denied_evt["success"] is False
@@ -259,7 +259,7 @@ async def test_tool_exception_event_published() -> None:
     executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/workspace")
     await executor.run([{"role": "user", "content": "test"}])
 
-    tool_events = _extract_events(runtime, "tool_called")
+    tool_events = _extract_events(runtime, "agent.tool_called")
     assert len(tool_events) >= 1
     evt = tool_events[0]
     assert evt["success"] is False
@@ -296,9 +296,9 @@ async def test_multiple_events_across_iterations() -> None:
     executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/workspace")
     await executor.run([{"role": "user", "content": "test"}])
 
-    step_events = _extract_events(runtime, "step_done")
-    tool_events = _extract_events(runtime, "tool_called")
-    finished_events = _extract_events(runtime, "finished")
+    step_events = _extract_events(runtime, "agent.step_done")
+    tool_events = _extract_events(runtime, "agent.tool_called")
+    finished_events = _extract_events(runtime, "agent.finished")
 
     assert len(step_events) == 2  # One per LLM call
     assert len(tool_events) == 1  # One tool call
@@ -342,7 +342,7 @@ async def test_input_output_truncated() -> None:
     executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/workspace")
     await executor.run([{"role": "user", "content": "test"}])
 
-    tool_events = _extract_events(runtime, "tool_called")
+    tool_events = _extract_events(runtime, "agent.tool_called")
     assert len(tool_events) >= 1
     evt = tool_events[0]
     assert len(evt["input"]) <= 500
