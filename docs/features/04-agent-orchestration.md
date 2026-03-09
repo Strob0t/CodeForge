@@ -390,12 +390,9 @@ agent:
   max_loop_iterations: 50
   agentic_by_default: false
   tool_output_max_chars: 10000
-  context_enabled: false        # Enable proactive context injection for conversations
-  context_budget: 2048          # Token budget for conversation context
-  context_prompt_reserve: 512   # Tokens reserved for prompt in conversation context
-  context_enabled: false       # Enable proactive context injection for conversations
-  context_budget: 2048         # Token budget for conversation context (smaller than orchestration's 4096)
-  context_prompt_reserve: 512  # Tokens reserved for prompt overhead
+  context_enabled: true         # Enable proactive context injection for conversations (default: true)
+  context_budget: 2048          # Base token budget for conversation context (adaptive: decays with history length)
+  context_prompt_reserve: 512   # Tokens reserved for prompt overhead
 
 runtime:
   approval_timeout_seconds: 60
@@ -405,20 +402,33 @@ Environment overrides: `CODEFORGE_AGENT_DEFAULT_MODEL`, `CODEFORGE_AGENT_MAX_CON
 
 #### Proactive Context Injection for Conversations
 
-When `context_enabled: true`, the conversation agent receives pre-packed codebase context in the NATS payload before the agent loop begins. This reuses the same `ContextOptimizerService` pipeline used by orchestration runs (workspace scan, hybrid retrieval, GraphRAG, repo map, shared context, LSP diagnostics, goals) but with a smaller token budget (2048 vs 4096) to leave room for conversation history.
+Context injection is **enabled by default** (`context_enabled: true`). The conversation agent receives pre-packed codebase context in the NATS payload before the agent loop begins. This reuses the same `ContextOptimizerService` pipeline used by orchestration runs (workspace scan, hybrid retrieval, GraphRAG, repo map, shared context, LSP diagnostics, goals).
+
+**Adaptive Budget:** The token budget decays linearly based on conversation history length via `AdaptiveContextBudget()` (`internal/service/context_budget.go`):
+- Turn 1 (0 history): full budget (2048 tokens) — agent needs orientation
+- Turn 10 (~20 messages): ~1365 tokens — still useful for focused retrieval
+- Turn 30 (~60 messages): 0 tokens — agent has built its own context through tool calls
+- Threshold: 60 messages. Formula: `budget * (60 - len(history)) / 60`
+
+**Auto-Indexing:** Clone, Adopt, and Setup handlers auto-trigger all three index builds (`autoIndexProject()` in `internal/adapter/http/handlers.go`):
+- RepoMap (tree-sitter + PageRank)
+- Retrieval Index (BM25S + semantic embeddings)
+- GraphRAG (AST adjacency graph)
 
 **Benefits:**
 - Agents start with relevant file context instead of discovering it reactively via tool calls
 - Reduces initial tool-call overhead by 2-3x (fewer `Read`/`Search`/`Glob` calls)
 - Especially impactful for weaker LLMs that struggle with multi-step context discovery
+- Token-efficient: budget shrinks automatically as the agent learns the codebase
 
 **How it works:**
 1. `ConversationService.buildConversationContextEntries()` checks `ContextEnabled` flag
-2. Calls `ContextOptimizerService.BuildConversationContext()` with the user message as the relevance query
-3. Entries are packed within the conversation-specific budget and added to `ConversationRunStartPayload.Context`
-4. Python worker's `_build_system_content()` injects these entries into the system prompt (existing pipeline, no Python changes needed)
+2. `AdaptiveContextBudget()` computes the effective budget based on history length
+3. `ContextOptimizerService.BuildConversationContext()` runs the parallel pipeline (workspace scan, retrieval, GraphRAG, repo map, LSP, goals)
+4. Entries packed by priority within the adaptive budget and added to `ConversationRunStartPayload.Context`
+5. Python worker's `_build_system_content()` injects these entries into the system prompt (no Python changes needed)
 
-**Key difference from orchestration:** No persistence — conversation context is ephemeral (assembled per-message, not stored as a `ContextPack` in the database).
+**Key difference from orchestration:** No persistence — conversation context is ephemeral (assembled per-message, not stored as a `ContextPack` in the database). Budget is adaptive (shrinks with history) vs. fixed for orchestration tasks.
 
 #### Frontend
 

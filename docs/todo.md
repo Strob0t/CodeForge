@@ -480,6 +480,12 @@
 - [x] T16.4: Mark completed tasks in `docs/todo.md` (2026-03-09)
 - [x] T16.5: Final commit (2026-03-09)
 
+#### Adaptive Context Injection (COMPLETED)
+- [x] (2026-03-09) AdaptiveContextBudget function: linear decay from base budget to 0 over 60 messages
+- [x] (2026-03-09) Wire adaptive budget into conversation dispatch (buildConversationContextEntries)
+- [x] (2026-03-09) Auto-trigger all indexes (RepoMap, Retrieval, GraphRAG) after clone/adopt/setup
+- [x] (2026-03-09) Update documentation (CLAUDE.md, feature spec, todo)
+
 #### Feature Activation Sweep (COMPLETED)
 - [x] (2026-03-09) Activate Context Optimizer by default (ContextEnabled=true in Go config)
 - [x] (2026-03-09) Add 16 missing env-var bindings in loader.go (agent context, quarantine, LSP, review router, copilot, routing, experience)

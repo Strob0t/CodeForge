@@ -102,7 +102,9 @@ Detailed analysis: docs/research/market-analysis.md
   - `AgentLoopExecutor` (Python): streaming LLM calls, per-tool policy enforcement, cost tracking
   - `ConversationHistoryManager` (Python): head-and-tail token budget, tool result truncation
   - HITL approval: `DecisionAsk` → WS `permission_request` → HTTP approve/deny → channel resume
-  - Config: `Agent.MaxLoopIterations` (50), `Agent.MaxContextTokens` (120K), `Agent.ContextEnabled` (false), `Agent.ContextBudget` (2048), `Agent.ContextPromptReserve` (512), `Runtime.ApprovalTimeoutSeconds` (60)
+  - Config: `Agent.MaxLoopIterations` (50), `Agent.MaxContextTokens` (120K), `Agent.ContextEnabled` (true), `Agent.ContextBudget` (2048), `Agent.ContextPromptReserve` (512), `Runtime.ApprovalTimeoutSeconds` (60)
+  - **Adaptive Context Budget:** Budget decays linearly from `ContextBudget` to 0 over 60 history messages (`AdaptiveContextBudget()` in `internal/service/context_budget.go`). Early turns get full context; later turns get less as the agent builds its own context through tool calls.
+  - **Auto-Indexing:** Clone, Adopt, and Setup handlers auto-trigger RepoMap + Retrieval Index + GraphRAG build (`autoIndexProject()` in `internal/adapter/http/handlers.go`)
   - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
   > Reference patterns from framework analysis.
