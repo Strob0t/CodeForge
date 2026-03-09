@@ -11,13 +11,16 @@ ALTER TABLE skills ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
 -- Migrate existing data: copy code -> content, keep code for backwards compat
 UPDATE skills SET content = code WHERE content = '' AND code != '';
 
+-- Sync status from existing enabled column
+UPDATE skills SET status = 'disabled' WHERE enabled = FALSE;
+
 -- Add check constraints
 ALTER TABLE skills ADD CONSTRAINT chk_skill_type CHECK (type IN ('workflow', 'pattern'));
 ALTER TABLE skills ADD CONSTRAINT chk_skill_source CHECK (source IN ('builtin', 'import', 'user', 'agent'));
 ALTER TABLE skills ADD CONSTRAINT chk_skill_status CHECK (status IN ('draft', 'active', 'disabled'));
 ALTER TABLE skills ADD CONSTRAINT chk_skill_format CHECK (format_origin IN ('claude', 'cursor', 'markdown', 'codeforge'));
 
--- Index for status filtering (replaces enabled-only index)
+-- Index for status filtering (supplements idx_skills_enabled until code migrates to status)
 CREATE INDEX IF NOT EXISTS idx_skills_status ON skills(tenant_id, status) WHERE status = 'active';
 
 -- +goose Down
