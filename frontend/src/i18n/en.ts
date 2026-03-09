@@ -1367,6 +1367,33 @@ const en = {
   "benchmark.suites.toast.updated": "Suite updated",
   "benchmark.suites.toast.updateError": "Failed to update suite",
 
+  // Suite picker & task settings
+  "benchmark.suite": "Benchmark Suite",
+  "benchmark.suiteLocal": "Local",
+  "benchmark.suiteExternal": "External",
+  "benchmark.taskSettings": "Task Settings",
+  "benchmark.allTasks": "All ({count})",
+  "benchmark.limitTasks": "Limit to",
+  "benchmark.percentTasks": "Percentage",
+  "benchmark.difficulty": "Difficulty",
+  "benchmark.shuffle": "Shuffle",
+  "benchmark.seed": "Random Seed",
+  "benchmark.estimatedCost": "Estimated: ~{tasks} tasks x ~${cost}/task = ${total}",
+  "benchmark.providerSettings": "Provider Settings",
+  "benchmark.modelAuto": "Auto (intelligent routing)",
+  "benchmark.routingReport": "Routing Report",
+  "benchmark.modelDistribution": "Model Distribution",
+  "benchmark.fallbackEvents": "Fallback Events",
+  "benchmark.providerStatus": "Provider Availability",
+  "benchmark.promptOptimization": "Prompt Optimization",
+  "benchmark.analyzePrompts": "Analyze & Suggest Improvements",
+  "benchmark.promptDiff": "Suggested Changes",
+  "benchmark.acceptPatch": "Accept",
+  "benchmark.rejectPatch": "Reject",
+  "benchmark.rerunBenchmark": "Re-Run to Validate",
+  "benchmark.scoreImproved": "Score improved: {before} -> {after} (+{delta})",
+  "benchmark.scoreRegressed": "Score regressed: {before} -> {after} ({delta})",
+
   // Export
   "benchmark.export.training": "Export Training Data",
 

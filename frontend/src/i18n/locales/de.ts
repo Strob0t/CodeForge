@@ -1384,6 +1384,33 @@ const de: Translations = {
   "benchmark.suites.toast.updated": "Suite aktualisiert",
   "benchmark.suites.toast.updateError": "Suite konnte nicht aktualisiert werden",
 
+  // Suite-Auswahl & Aufgaben-Einstellungen
+  "benchmark.suite": "Benchmark-Suite",
+  "benchmark.suiteLocal": "Lokal",
+  "benchmark.suiteExternal": "Extern",
+  "benchmark.taskSettings": "Aufgaben-Einstellungen",
+  "benchmark.allTasks": "Alle ({count})",
+  "benchmark.limitTasks": "Begrenzen auf",
+  "benchmark.percentTasks": "Prozent",
+  "benchmark.difficulty": "Schwierigkeit",
+  "benchmark.shuffle": "Mischen",
+  "benchmark.seed": "Zufalls-Seed",
+  "benchmark.estimatedCost": "Geschaetzt: ~{tasks} Aufgaben x ~${cost}/Aufgabe = ${total}",
+  "benchmark.providerSettings": "Provider-Einstellungen",
+  "benchmark.modelAuto": "Auto (intelligentes Routing)",
+  "benchmark.routingReport": "Routing-Bericht",
+  "benchmark.modelDistribution": "Modellverteilung",
+  "benchmark.fallbackEvents": "Fallback-Ereignisse",
+  "benchmark.providerStatus": "Provider-Verfuegbarkeit",
+  "benchmark.promptOptimization": "Prompt-Optimierung",
+  "benchmark.analyzePrompts": "Analysieren & Verbesserungen vorschlagen",
+  "benchmark.promptDiff": "Vorgeschlagene Aenderungen",
+  "benchmark.acceptPatch": "Akzeptieren",
+  "benchmark.rejectPatch": "Ablehnen",
+  "benchmark.rerunBenchmark": "Erneut ausfuehren zur Validierung",
+  "benchmark.scoreImproved": "Verbesserung: {before} -> {after} (+{delta})",
+  "benchmark.scoreRegressed": "Verschlechterung: {before} -> {after} ({delta})",
+
   // Export
   "benchmark.export.training": "Trainingsdaten exportieren",
 
