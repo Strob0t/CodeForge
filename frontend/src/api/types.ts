@@ -1399,7 +1399,7 @@ export interface SendMessageRequest {
 // --- VCS Account types ---
 
 /** VCS provider type */
-export type VCSProvider = "github" | "gitlab" | "gitea" | "bitbucket";
+export type VCSProvider = "github" | "gitlab" | "gitea" | "bitbucket" | "forgejo" | "codeberg";
 
 /** Matches Go domain/vcsaccount.VCSAccount */
 export interface VCSAccount {

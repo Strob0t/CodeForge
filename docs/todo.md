@@ -392,7 +392,7 @@
 #### Pillar 1: Project Dashboard
 
 - [ ] Implement GitHub adapter with OAuth flow -- only Copilot token exchange exists (`internal/adapter/copilot/`), no full GitHub OAuth integration
-- [ ] Verify GitHub adapter compatibility with Forgejo/Codeberg -- base URL override, API differences untested
+- [x] (2026-03-09) Verify GitHub adapter compatibility with Forgejo/Codeberg -- provider aliases, variant config, detection, tests
 - [ ] Batch operations across selected repos -- UI and service layer
 - [ ] Cross-repo search (code, issues) -- requires indexing infrastructure
 

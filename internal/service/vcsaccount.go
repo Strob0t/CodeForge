@@ -27,6 +27,8 @@ var validProviders = map[string]bool{
 	"github":    true,
 	"gitlab":    true,
 	"gitea":     true,
+	"forgejo":   true,
+	"codeberg":  true,
 	"bitbucket": true,
 }
 
@@ -42,7 +44,7 @@ func (s *VCSAccountService) Create(ctx context.Context, req *vcsaccount.CreateRe
 		return nil, errors.New("label is required")
 	}
 	if !validProviders[req.Provider] {
-		return nil, fmt.Errorf("invalid provider %q: must be github, gitlab, gitea, or bitbucket", req.Provider)
+		return nil, fmt.Errorf("invalid provider %q: must be github, gitlab, gitea, forgejo, codeberg, or bitbucket", req.Provider)
 	}
 	if req.Token == "" {
 		return nil, errors.New("token is required")
@@ -121,7 +123,7 @@ func testProviderConnection(ctx context.Context, provider, serverURL, token stri
 		} else {
 			apiURL = "https://gitlab.com/api/v4/user"
 		}
-	case "gitea":
+	case "gitea", "forgejo", "codeberg":
 		if serverURL == "" {
 			return errors.New("server_url is required for gitea")
 		}

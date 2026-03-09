@@ -580,6 +580,7 @@ const de: Translations = {
   "featuremap.editFeature": "Bearbeiten",
   "featuremap.deleteFeature": "Löschen",
   "featuremap.featurePlaceholder": "Feature-Titel...",
+  "featuremap.descriptionPlaceholder": "Feature-Beschreibung (optional)...",
   "featuremap.milestonePlaceholder": "Meilenstein-Titel...",
   "featuremap.save": "Speichern",
   "featuremap.cancel": "Abbrechen",
@@ -1099,6 +1100,8 @@ const de: Translations = {
   "settings.vcs.deleteConfirm": "Dieses VCS-Konto l\u00f6schen?",
   "settings.vcs.deleteAria": "VCS-Konto {{name}} l\u00f6schen",
   "settings.vcs.testAria": "Verbindung f\u00fcr {{name}} testen",
+  "settings.vcs.providerForgejo": "Forgejo",
+  "settings.vcs.providerCodeberg": "Codeberg",
 
   // -- Dashboard Edit --
   "dashboard.toast.updated": "Projekt aktualisiert",
@@ -1448,6 +1451,15 @@ const de: Translations = {
   "session.current": "Aktuell",
   "session.createdAt": "Erstellt {{date}}",
   "session.forkedNote": "Konversation abgezweigt. Senden Sie eine Nachricht zum Fortfahren.",
+
+  // -- Files ------------------------------------------------------------------
+  "files.createFile": "Neue Datei",
+  "files.fileName": "Dateipfad",
+  "files.fileNamePlaceholder": "z.B. src/main.py",
+  "files.fileContent": "Inhalt",
+  "files.fileContentPlaceholder": "Dateiinhalt (optional)...",
+  "files.createSuccess": "Datei erstellt",
+  "files.createFailed": "Datei konnte nicht erstellt werden",
 };
 
 export default de;

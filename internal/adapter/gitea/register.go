@@ -3,7 +3,10 @@ package gitea
 import "github.com/Strob0t/CodeForge/internal/port/pmprovider"
 
 func init() {
-	pmprovider.Register(providerName, func(cfg map[string]string) (pmprovider.Provider, error) {
-		return NewProvider(cfg["base_url"], cfg["token"]), nil
-	})
+	factory := func(cfg map[string]string) (pmprovider.Provider, error) {
+		return NewProviderFromConfig(cfg)
+	}
+	for _, name := range []string{"gitea", "forgejo", "codeberg"} {
+		pmprovider.Register(name, factory)
+	}
 }

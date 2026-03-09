@@ -174,6 +174,16 @@ export default function SettingsPage() {
       setVcsProvider(providers[0] as VCSProvider);
     }
   });
+
+  // Auto-fill server_url based on selected VCS provider
+  createEffect(() => {
+    const provider = vcsProvider();
+    if (provider === "codeberg") {
+      setVcsServerUrl("https://codeberg.org");
+    } else if (provider === "forgejo") {
+      setVcsServerUrl("");
+    }
+  });
   const [testingId, setTestingId] = createSignal<string | null>(null);
   const [vcsDeleteId, setVcsDeleteId] = createSignal<string | null>(null);
 
@@ -319,6 +329,8 @@ export default function SettingsPage() {
       case "gitlab":
         return "warning" as const;
       case "gitea":
+      case "forgejo":
+      case "codeberg":
         return "success" as const;
       default:
         return "info" as const;
@@ -399,6 +411,8 @@ export default function SettingsPage() {
               class="w-auto"
             >
               <For each={gitProviders() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
+              <option value="forgejo">{t("settings.vcs.providerForgejo")}</option>
+              <option value="codeberg">{t("settings.vcs.providerCodeberg")}</option>
             </Select>
             <Input
               type="text"

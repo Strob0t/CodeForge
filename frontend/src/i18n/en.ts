@@ -575,6 +575,7 @@ const en = {
   "featuremap.editFeature": "Edit",
   "featuremap.deleteFeature": "Delete",
   "featuremap.featurePlaceholder": "Feature title...",
+  "featuremap.descriptionPlaceholder": "Feature description (optional)...",
   "featuremap.milestonePlaceholder": "Milestone title...",
   "featuremap.save": "Save",
   "featuremap.cancel": "Cancel",
@@ -1084,6 +1085,8 @@ const en = {
   "settings.vcs.deleteConfirm": "Delete this VCS account?",
   "settings.vcs.deleteAria": "Delete VCS account {{name}}",
   "settings.vcs.testAria": "Test connection for {{name}}",
+  "settings.vcs.providerForgejo": "Forgejo",
+  "settings.vcs.providerCodeberg": "Codeberg",
 
   // -- Dashboard Edit --
   "dashboard.toast.updated": "Project updated",
@@ -1430,6 +1433,15 @@ const en = {
   "session.current": "Current",
   "session.createdAt": "Created {{date}}",
   "session.forkedNote": "Conversation forked. Send a message to continue.",
+
+  // -- Files ------------------------------------------------------------------
+  "files.createFile": "New File",
+  "files.fileName": "File path",
+  "files.fileNamePlaceholder": "e.g. src/main.py",
+  "files.fileContent": "Content",
+  "files.fileContentPlaceholder": "File content (optional)...",
+  "files.createSuccess": "File created",
+  "files.createFailed": "Failed to create file",
 } as const;
 
 export type TranslationKey = keyof typeof en;

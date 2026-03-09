@@ -6,11 +6,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
+
+// validVariants lists the accepted values for the variant field.
+var validVariants = map[string]bool{
+	"gitea":    true,
+	"forgejo":  true,
+	"codeberg": true,
+}
 
 const providerName = "gitea"
 
@@ -18,16 +28,38 @@ const providerName = "gitea"
 type Provider struct {
 	baseURL    string
 	token      string
+	variant    string // "gitea" (default), "forgejo", "codeberg"
 	httpClient *http.Client
 }
 
 // NewProvider creates a Gitea provider with the given base URL and token.
+// The variant defaults to "gitea".
 func NewProvider(baseURL, token string) *Provider {
 	return &Provider{
 		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		token:      token,
+		variant:    "gitea",
 		httpClient: http.DefaultClient,
 	}
+}
+
+// NewProviderFromConfig creates a Gitea provider from a config map.
+// Supported keys: "base_url", "token", "variant" ("gitea", "forgejo", "codeberg").
+func NewProviderFromConfig(cfg map[string]string) (*Provider, error) {
+	variant := cfg["variant"]
+	if variant == "" {
+		variant = "gitea"
+	}
+	if !validVariants[variant] {
+		return nil, fmt.Errorf("gitea: invalid variant %q (valid: gitea, forgejo, codeberg)", variant)
+	}
+
+	return &Provider{
+		baseURL:    strings.TrimSuffix(cfg["base_url"], "/"),
+		token:      cfg["token"],
+		variant:    variant,
+		httpClient: http.DefaultClient,
+	}, nil
 }
 
 func (p *Provider) Name() string { return providerName }
@@ -57,7 +89,8 @@ type giteaLabel struct {
 }
 
 type giteaUser struct {
-	Login string `json:"login"`
+	Login    string `json:"login"`
+	FullName string `json:"full_name"`
 }
 
 func (p *Provider) ListItems(ctx context.Context, projectRef string) ([]pmprovider.Item, error) {
@@ -187,11 +220,75 @@ func (p *Provider) doRequest(ctx context.Context, method, reqURL string, body io
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
+	checkRateLimitAndLog(resp)
+
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("gitea API %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return respBody, nil
+}
+
+// DetectForgejo probes the Forgejo-specific version endpoint.
+// Returns true if the server responds with HTTP 200, indicating it is a Forgejo instance.
+// Uses a 5-second timeout derived from the parent context.
+func (p *Provider) DetectForgejo(ctx context.Context) bool {
+	const detectTimeout = 5 * time.Second
+	ctx, cancel := context.WithTimeout(ctx, detectTimeout)
+	defer cancel()
+
+	url := p.baseURL + "/api/forgejo/v1/version"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return false
+	}
+	if p.token != "" {
+		req.Header.Set("Authorization", "token "+p.token)
+	}
+
+	resp, err := p.httpClient.Do(req) //nolint:gosec // URL is constructed from trusted baseURL
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return resp.StatusCode == http.StatusOK
+}
+
+// checkRateLimit parses X-RateLimit-Remaining and X-RateLimit-Reset headers.
+// Returns remaining (-1 if header is absent) and resetAt (zero time if absent).
+func checkRateLimit(resp *http.Response) (remaining int, resetAt time.Time) {
+	remainingStr := resp.Header.Get("X-RateLimit-Remaining")
+	if remainingStr == "" {
+		return -1, time.Time{}
+	}
+
+	remaining64, err := strconv.ParseInt(remainingStr, 10, 64)
+	if err != nil {
+		return -1, time.Time{}
+	}
+	remaining = int(remaining64)
+
+	resetStr := resp.Header.Get("X-RateLimit-Reset")
+	if resetStr != "" {
+		resetUnix, err := strconv.ParseInt(resetStr, 10, 64)
+		if err == nil {
+			resetAt = time.Unix(resetUnix, 0)
+		}
+	}
+
+	return remaining, resetAt
+}
+
+// checkRateLimitAndLog calls checkRateLimit and logs a warning if remaining <= 1.
+func checkRateLimitAndLog(resp *http.Response) {
+	remaining, resetAt := checkRateLimit(resp)
+	if remaining >= 0 && remaining <= 1 {
+		slog.Warn("gitea API rate limit nearly exhausted",
+			"remaining", remaining,
+			"reset_at", resetAt.UTC().Format(time.RFC3339),
+		)
+	}
 }
 
 func issueToItem(issue *giteaIssue, projectRef string) pmprovider.Item {
@@ -202,7 +299,11 @@ func issueToItem(issue *giteaIssue, projectRef string) pmprovider.Item {
 
 	assignee := ""
 	if len(issue.Assignees) > 0 {
-		assignee = issue.Assignees[0].Login
+		u := issue.Assignees[0]
+		assignee = u.Login
+		if assignee == "" {
+			assignee = u.FullName
+		}
 	}
 
 	return pmprovider.Item{
