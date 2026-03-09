@@ -357,8 +357,8 @@ func (s *AutoAgentService) pendingFeatures(ctx context.Context, projectID string
 	}
 
 	var recovered int
-	for _, f := range pending {
-		if f.Status == roadmap.FeatureInProgress {
+	for i := range pending {
+		if pending[i].Status == roadmap.FeatureInProgress {
 			recovered++
 		}
 	}
