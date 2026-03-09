@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
-from codeforge.llm import ChatCompletionResponse, ToolCallPart
+from codeforge.llm import ChatCompletionResponse, LLMError, ToolCallPart
 from codeforge.models import ToolCallDecision
 from codeforge.tools import ToolRegistry, ToolResult
 
@@ -387,3 +387,29 @@ async def test_cancellation_appends_placeholder_results() -> None:
     assert tool_results[1].tool_call_id == "c2"
     assert tool_results[2].tool_call_id == "c3"
     assert tool_results[2].content == "Cancelled"
+
+
+async def test_fallback_records_error_in_rate_tracker() -> None:
+    """When a billing error triggers fallback, the provider should be marked exhausted."""
+    from codeforge.agent_loop import _LoopState
+
+    llm = MagicMock()
+    tools = MagicMock()
+    tools.get_openai_tools.return_value = []
+    runtime = _make_runtime()
+
+    executor = AgentLoopExecutor(llm, tools, runtime, "/tmp/ws")
+
+    cfg = LoopConfig(model="anthropic/claude-sonnet-4", fallback_models=["mistral/mistral-large-latest"])
+    state = _LoopState(model="anthropic/claude-sonnet-4")
+    exc = LLMError(status_code=402, model="anthropic/claude-sonnet-4", body="credits exhausted")
+
+    with patch("codeforge.agent_loop.get_tracker") as mock_get_tracker:
+        tracker = MagicMock()
+        mock_get_tracker.return_value = tracker
+
+        result = await executor._try_model_fallback(cfg, state, exc)
+
+    assert result is None  # None means "retry with new model"
+    assert cfg.model == "mistral/mistral-large-latest"
+    tracker.record_error.assert_called_once_with("anthropic", error_type="billing")

@@ -20,7 +20,7 @@ from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
 from codeforge.json_utils import safe_json_loads
-from codeforge.llm import LLMError, is_fallback_eligible
+from codeforge.llm import LLMError, classify_error_type, is_fallback_eligible
 from codeforge.model_resolver import resolve_model
 from codeforge.models import (
     AgentLoopResult,
@@ -31,6 +31,7 @@ from codeforge.models import (
 )
 from codeforge.pricing import resolve_cost
 from codeforge.routing.blocklist import get_blocklist
+from codeforge.routing.rate_tracker import get_tracker
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
@@ -131,6 +132,12 @@ class AgentLoopExecutor:
             return f"LLM call failed: {exc}"
         failed_model = cfg.model
         state.failed_models.add(failed_model)
+        # Mark the provider as exhausted in the rate tracker so the HybridRouter
+        # skips it on subsequent calls within the same conversation.
+        error_type = classify_error_type(exc)
+        if error_type:
+            provider = failed_model.split("/", 1)[0] if "/" in failed_model else failed_model
+            get_tracker().record_error(provider, error_type=error_type)
         if exc.status_code in (401, 403):
             get_blocklist().block_auth(failed_model, reason=f"HTTP {exc.status_code}")
         next_model = self._pick_next_fallback(cfg, state)
@@ -171,6 +178,36 @@ class AgentLoopExecutor:
             )
         return await self._try_model_fallback(cfg, state, exc)
 
+    async def _check_experience_cache(
+        self,
+        user_prompt: str,
+        model: str,
+    ) -> AgentLoopResult | None:
+        """Return a cached result from the experience pool, or None."""
+        if not self._experience_pool or not user_prompt:
+            return None
+        try:
+            cached = await self._experience_pool.lookup(user_prompt, self._runtime.project_id)
+            if cached:
+                logger.info(
+                    "experience cache hit in agent loop, entry_id=%s similarity=%.3f",
+                    cached["id"],
+                    cached["similarity"],
+                )
+                return AgentLoopResult(
+                    final_content=cached["result_output"],
+                    tool_messages=[],
+                    total_cost=0.0,
+                    total_tokens_in=0,
+                    total_tokens_out=0,
+                    step_count=0,
+                    model=model,
+                    error="",
+                )
+        except Exception as exc:
+            logger.warning("experience pool lookup failed, continuing: %s", exc)
+        return None
+
     @_tracer.trace_agent("agent_loop")
     async def run(
         self,
@@ -190,27 +227,9 @@ class AgentLoopExecutor:
 
         # Check experience pool cache before starting the loop
         user_prompt = self._extract_user_prompt(messages)
-        if self._experience_pool and user_prompt:
-            try:
-                cached = await self._experience_pool.lookup(user_prompt, self._runtime.project_id)
-                if cached:
-                    logger.info(
-                        "experience cache hit in agent loop, entry_id=%s similarity=%.3f",
-                        cached["id"],
-                        cached["similarity"],
-                    )
-                    return AgentLoopResult(
-                        final_content=cached["result_output"],
-                        tool_messages=[],
-                        total_cost=0.0,
-                        total_tokens_in=0,
-                        total_tokens_out=0,
-                        step_count=0,
-                        model=cfg.model,
-                        error="",
-                    )
-            except Exception as exc:
-                logger.warning("experience pool lookup failed, continuing: %s", exc)
+        cached_result = await self._check_experience_cache(user_prompt, cfg.model)
+        if cached_result is not None:
+            return cached_result
 
         tools_array = self._tools.get_openai_tools()
         loop_start = time.monotonic()
