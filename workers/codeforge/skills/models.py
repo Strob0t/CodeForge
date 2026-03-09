@@ -6,16 +6,26 @@ from pydantic import BaseModel, Field
 
 
 class Skill(BaseModel):
-    """A reusable code snippet with metadata for BM25 matching."""
+    """A reusable workflow or code pattern for agent prompt injection."""
 
     id: str = ""
     tenant_id: str = ""
     project_id: str = ""
     name: str
+    type: str = "pattern"  # workflow | pattern
     description: str = ""
     language: str = ""
-    code: str
+    content: str = ""  # primary field - markdown body
     tags: list[str] = Field(default_factory=list)
+    source: str = "user"  # builtin | import | user | agent
+    source_url: str = ""
+    format_origin: str = "codeforge"  # claude | cursor | markdown | codeforge
+    status: str = "active"  # draft | active | disabled
+    usage_count: int = 0
+
+    # Deprecated: use content. Kept for DB rows that still use code.
+    code: str = ""
+    # Deprecated: use status.
     enabled: bool = True
 
 
