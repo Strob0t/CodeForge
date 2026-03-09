@@ -18,6 +18,7 @@ import type {
   CreateBenchmarkRunRequest,
   ProviderConfig,
 } from "~/api/types";
+import type { RoutingReport as RoutingReportType } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
@@ -43,6 +44,8 @@ import { BenchmarkRunDetail } from "./BenchmarkRunDetail";
 import { CostAnalysisView } from "./CostAnalysisView";
 import { LeaderboardView } from "./LeaderboardView";
 import { MultiCompareView } from "./MultiCompareView";
+import { PromptOptimizationPanel } from "./PromptOptimizationPanel";
+import { RoutingReport } from "./RoutingReport";
 import { SuiteManagement } from "./SuiteManagement";
 import { TaskSettings } from "./TaskSettings";
 
@@ -453,6 +456,22 @@ export default function BenchmarkPage() {
                             loading={results.loading}
                             formatDuration={formatDuration}
                           />
+                          <Show
+                            when={
+                              run.model === "auto" &&
+                              run.status === "completed" &&
+                              run.summary_scores?.routing_report
+                            }
+                          >
+                            <RoutingReport
+                              report={
+                                run.summary_scores.routing_report as unknown as RoutingReportType
+                              }
+                            />
+                          </Show>
+                          <Show when={run.status === "completed"}>
+                            <PromptOptimizationPanel runId={run.id} suiteId={run.suite_id ?? ""} />
+                          </Show>
                         </Show>
                       </Card>
                     </div>
