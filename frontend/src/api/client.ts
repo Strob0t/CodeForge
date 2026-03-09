@@ -4,6 +4,7 @@ import type {
   AddModelRequest,
   Agent,
   AgentEvent,
+  AgentPerf,
   AIRoadmapView,
   ApiError,
   APIKeyInfo,
@@ -24,6 +25,7 @@ import type {
   CreateTaskRequest,
   CreateUserRequest,
   DailyCost,
+  DashboardStats,
   DecomposeRequest,
   DetectionResult,
   EvaluationResult,
@@ -50,13 +52,16 @@ import type {
   Milestone,
   Mode,
   ModelCostSummary,
+  ModelUsage,
   PlanFeatureRequest,
   PlanGraph,
   PMImportRequest,
   PolicyProfile,
   PolicyToolCall,
   Project,
+  ProjectCostBar,
   ProjectCostSummary,
+  ProjectHealth,
   ProviderInfo,
   ProviderList,
   RepoInfo,
@@ -68,6 +73,7 @@ import type {
   Roadmap,
   RoadmapFeature,
   Run,
+  RunOutcome,
   SearchRequest,
   SetupStatusResponse,
   StartRunRequest,
@@ -399,6 +405,31 @@ export const api = {
       }),
 
     listByTask: (taskId: string) => request<Run[]>(url`/tasks/${taskId}/runs`),
+
+    resume: (id: string, data?: { prompt?: string }) =>
+      request<import("./types").Session>(url`/runs/${id}/resume`, {
+        method: "POST",
+        body: JSON.stringify(data ?? {}),
+      }),
+
+    fork: (id: string, data?: { from_event_id?: string; prompt?: string }) =>
+      request<import("./types").Session>(url`/runs/${id}/fork`, {
+        method: "POST",
+        body: JSON.stringify(data ?? {}),
+      }),
+
+    rewind: (id: string, data?: { to_event_id?: string }) =>
+      request<import("./types").Session>(url`/runs/${id}/rewind`, {
+        method: "POST",
+        body: JSON.stringify(data ?? {}),
+      }),
+  },
+
+  sessions: {
+    list: (projectId: string) =>
+      request<import("./types").Session[]>(url`/projects/${projectId}/sessions`),
+
+    get: (id: string) => request<import("./types").Session>(url`/sessions/${id}`),
   },
 
   plans: {
@@ -553,6 +584,23 @@ export const api = {
     byTool: (id: string) => request<ToolCostSummary[]>(url`/projects/${id}/costs/by-tool`),
 
     byToolForRun: (runId: string) => request<ToolCostSummary[]>(url`/runs/${runId}/costs/by-tool`),
+  },
+
+  dashboard: {
+    stats: () => request<DashboardStats>("/dashboard/stats"),
+
+    projectHealth: (id: string) => request<ProjectHealth>(url`/projects/${id}/health`),
+
+    costTrend: (days = 30) => request<DailyCost[]>(url`/dashboard/charts/cost-trend?days=${days}`),
+
+    runOutcomes: (days = 7) =>
+      request<RunOutcome[]>(url`/dashboard/charts/run-outcomes?days=${days}`),
+
+    agentPerformance: () => request<AgentPerf[]>("/dashboard/charts/agent-performance"),
+
+    modelUsage: () => request<ModelUsage[]>("/dashboard/charts/model-usage"),
+
+    costByProject: () => request<ProjectCostBar[]>("/dashboard/charts/cost-by-project"),
   },
 
   roadmap: {

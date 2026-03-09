@@ -1900,3 +1900,71 @@ export interface GoalDiscoveryResult {
   skipped: number;
   sources: string[];
 }
+
+// --- Dashboard ---
+
+export interface DashboardStats {
+  cost_today_usd: number;
+  cost_today_delta_pct: number;
+  active_runs: number;
+  success_rate_7d_pct: number;
+  success_rate_delta_pct: number;
+  active_agents: number;
+  avg_cost_per_run_usd: number;
+  avg_cost_delta_pct: number;
+  token_usage_today: number;
+  token_usage_delta_pct: number;
+  error_rate_24h_pct: number;
+  error_rate_delta_pct: number;
+}
+
+export interface HealthFactors {
+  success_rate: number;
+  error_rate_inv: number;
+  activity_freshness: number;
+  task_velocity: number;
+  cost_stability: number;
+}
+
+export interface ProjectHealthStats {
+  success_rate_pct: number;
+  total_runs_7d: number;
+  total_cost_usd: number;
+  cost_delta_pct: number;
+  active_agents: number;
+  running_tasks: number;
+  tasks_completed: number;
+  tasks_total: number;
+  last_activity: string;
+  last_activity_at: string;
+}
+
+export interface ProjectHealth {
+  score: number;
+  level: "healthy" | "warning" | "critical";
+  factors: HealthFactors;
+  sparkline_7d: number[];
+  stats: ProjectHealthStats;
+}
+
+export interface RunOutcome {
+  status: string;
+  count: number;
+}
+
+export interface AgentPerf {
+  agent_name: string;
+  success_rate: number;
+  total_runs: number;
+}
+
+export interface ModelUsage {
+  model: string;
+  cost_usd: number;
+}
+
+export interface ProjectCostBar {
+  project_id: string;
+  project_name: string;
+  cost_usd: number;
+}
