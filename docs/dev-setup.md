@@ -252,6 +252,14 @@ CodeForge/
 | 8222 | NATS Monitoring      | NATS HTTP monitoring dashboard   |
 | 3001 | MCP Server           | MCP Streamable HTTP (when enabled)|
 
+### Playwright MCP Container
+
+The `codeforge-playwright` container provides browser automation via Model Context Protocol.
+
+**Important:** The MCP session is ephemeral -- if the container restarts, all active MCP
+sessions become invalid ("Session not found"). You must reconnect from the MCP client
+(e.g., restart Claude Code or the MCP client process) after a container restart.
+
 ### Running Linting Manually
 
 ```bash
