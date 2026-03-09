@@ -439,6 +439,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/skills/{id}", h.GetSkill)
 		r.Put("/skills/{id}", h.UpdateSkill)
 		r.Delete("/skills/{id}", h.DeleteSkill)
+		r.Post("/skills/import", h.ImportSkill)
 
 		// Human Feedback (Phase 22D)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/feedback/{run_id}/{call_id}", h.HandleFeedbackCallback)
