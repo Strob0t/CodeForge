@@ -32,6 +32,7 @@ COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ],
     ComplexityTier.MEDIUM: [
         "groq/llama-3.3-70b-versatile",
+        "gemini/gemini-2.5-flash",
         "openai/gpt-4o-mini",
         "gemini/gemini-2.0-flash",
     ],

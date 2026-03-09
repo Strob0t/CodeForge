@@ -80,8 +80,11 @@ _AUTH_KEYWORDS: tuple[str, ...] = ("unauthorized", "forbidden", "api key", "auth
 
 
 def classify_error_type(exc: LLMError) -> str | None:
-    """Classify an LLM error as billing, auth, rate_limit, or None."""
+    """Classify an LLM error as billing, auth, tpm_exceeded, rate_limit, or None."""
     if exc.status_code == 429:
+        body = exc.body.lower()
+        if "tokens per minute" in body or "tpm" in body:
+            return "tpm_exceeded"
         return "rate_limit"
     if exc.status_code == 402:
         return "billing"

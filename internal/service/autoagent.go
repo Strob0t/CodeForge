@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -263,6 +267,44 @@ func (s *AutoAgentService) processFeature(
 		return fmt.Errorf("wait for completion: %w", err)
 	}
 
+	// Post-completion verification: run associated tests and send a fix prompt if they fail.
+	testFile := extractTestFile(feat.Description)
+	if testFile != "" {
+		result, testErr := s.runWorkspaceTest(ctx, projectID, testFile)
+		if testErr != nil || !result.AllPassed {
+			passed := result.Passed
+			total := result.Total
+			output := result.Output
+			if testErr != nil && total == 0 {
+				output = testErr.Error()
+			}
+
+			slog.Info("auto-agent post-verification failed, sending fix prompt",
+				"project_id", projectID,
+				"feature_id", feat.ID,
+				"test_file", testFile,
+				"passed", passed,
+				"total", total,
+			)
+
+			fixPrompt := fmt.Sprintf(
+				"The tests are failing. %d/%d tests passed.\n\nTest output:\n```\n%s\n```\n\nPlease fix the implementation to make all tests pass.",
+				passed, total, strings.TrimSpace(output),
+			)
+			err = s.conversations.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
+				Content: fixPrompt,
+			})
+			if err != nil {
+				return fmt.Errorf("send fix prompt: %w", err)
+			}
+
+			err = s.waitForCompletion(ctx, conv.ID, aa)
+			if err != nil {
+				return fmt.Errorf("wait for fix completion: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -293,7 +335,8 @@ func (s *AutoAgentService) waitForCompletion(
 	return nil
 }
 
-// pendingFeatures returns all features with backlog or planned status.
+// pendingFeatures returns all features with backlog, planned, or in_progress status.
+// In-progress features are included so that interrupted runs are recovered on restart.
 func (s *AutoAgentService) pendingFeatures(ctx context.Context, projectID string) ([]roadmap.Feature, error) {
 	rm, err := s.db.GetRoadmapByProject(ctx, projectID)
 	if err != nil {
@@ -307,10 +350,25 @@ func (s *AutoAgentService) pendingFeatures(ctx context.Context, projectID string
 
 	var pending []roadmap.Feature
 	for i := range allFeatures {
-		if allFeatures[i].Status == roadmap.FeatureBacklog || allFeatures[i].Status == roadmap.FeaturePlanned {
+		switch allFeatures[i].Status {
+		case roadmap.FeatureBacklog, roadmap.FeaturePlanned, roadmap.FeatureInProgress:
 			pending = append(pending, allFeatures[i])
 		}
 	}
+
+	var recovered int
+	for _, f := range pending {
+		if f.Status == roadmap.FeatureInProgress {
+			recovered++
+		}
+	}
+	if recovered > 0 {
+		slog.Info("auto-agent recovering interrupted features",
+			"project_id", rm.ProjectID,
+			"recovered_count", recovered,
+		)
+	}
+
 	return pending, nil
 }
 
@@ -322,6 +380,61 @@ func (s *AutoAgentService) updateFeatureStatus(ctx context.Context, featureID st
 	}
 	feat.Status = status
 	return s.db.UpdateFeature(ctx, feat)
+}
+
+// extractTestFile extracts the test filename from a feature description.
+// Looks for patterns like "Tests: test_lru_cache.py" or "Tests: test_lru_cache.py (25 tests)".
+func extractTestFile(description string) string {
+	re := regexp.MustCompile(`Tests:\s+(test_\w+\.py)`)
+	matches := re.FindStringSubmatch(description)
+	if len(matches) >= 2 {
+		return matches[1]
+	}
+	return ""
+}
+
+// testResult holds parsed pytest output.
+type testResult struct {
+	Passed    int
+	Failed    int
+	Total     int
+	AllPassed bool
+	Output    string
+}
+
+// runWorkspaceTest runs pytest for a test file inside the project workspace
+// and parses the output for pass/fail counts.
+func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, testFile string) (testResult, error) {
+	proj, err := s.db.GetProject(ctx, projectID)
+	if err != nil {
+		return testResult{}, fmt.Errorf("get project for test: %w", err)
+	}
+	if proj.WorkspacePath == "" {
+		return testResult{}, fmt.Errorf("project has no workspace path")
+	}
+
+	//nolint:gosec // testFile is extracted via regex from trusted feature descriptions.
+	cmd := exec.CommandContext(ctx, "python", "-m", "pytest", testFile, "-v", "--tb=short")
+	cmd.Dir = proj.WorkspacePath
+
+	out, runErr := cmd.CombinedOutput()
+	output := string(out)
+
+	result := testResult{Output: output}
+
+	// Parse "X passed" from pytest summary line.
+	if m := regexp.MustCompile(`(\d+)\s+passed`).FindStringSubmatch(output); len(m) >= 2 {
+		result.Passed, _ = strconv.Atoi(m[1])
+	}
+	// Parse "X failed" from pytest summary line.
+	if m := regexp.MustCompile(`(\d+)\s+failed`).FindStringSubmatch(output); len(m) >= 2 {
+		result.Failed, _ = strconv.Atoi(m[1])
+	}
+
+	result.Total = result.Passed + result.Failed
+	result.AllPassed = result.Failed == 0 && result.Passed > 0 && runErr == nil
+
+	return result, nil
 }
 
 // broadcastStatus sends the current auto-agent state to connected clients.

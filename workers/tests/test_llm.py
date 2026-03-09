@@ -254,6 +254,23 @@ async def test_backoff_uses_retry_after(client: LiteLLMClient) -> None:
     assert result.content == "Hello"
 
 
+def test_compute_backoff_uses_retry_hint_without_excessive_buffer() -> None:
+    """When Gemini says 'retry in 9.27s', backoff should be ~14s (hint + 5s buffer), not 32s exponential."""
+    config = LLMClientConfig(max_retries=5, backoff_base=2.0, backoff_max=90.0)
+    client = LiteLLMClient(config=config)
+
+    # Simulate a Gemini 429 with retry hint at attempt 4 (would normally be 2^5=32s).
+    exc = LLMError(
+        429,
+        "gemini/gemini-2.5-flash",
+        "retry in 9.273757488s.",
+    )
+    backoff = client._compute_backoff(exc, attempt=4)
+    # Should use the hint (9.27s) + 5s buffer = ~14.27s, NOT the exponential 32s.
+    assert backoff >= 9.27, f"Backoff {backoff}s is less than the hint"
+    assert backoff < 20.0, f"Backoff {backoff}s is too high, hint was 9.27s"
+
+
 async def test_chat_completion_retries_on_429(client: LiteLLMClient) -> None:
     """chat_completion() should also retry on 429."""
     responses = [_error_response(429), _ok_response()]

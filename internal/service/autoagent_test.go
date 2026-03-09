@@ -447,9 +447,9 @@ func TestAutoAgentStart_FiltersOnlyPendingFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Only backlog and planned features should be included.
-	if aa.FeaturesTotal != 2 {
-		t.Errorf("expected 2 pending features, got %d", aa.FeaturesTotal)
+	// Backlog, planned, and in-progress features should be included.
+	if aa.FeaturesTotal != 3 {
+		t.Errorf("expected 3 pending features, got %d", aa.FeaturesTotal)
 	}
 
 	_ = svc.Stop(context.Background(), "proj-1")
@@ -847,7 +847,7 @@ func TestAutoAgentPendingFeatures(t *testing.T) {
 	}{
 		{
 			name:      "all statuses mixed",
-			wantCount: 2,
+			wantCount: 3,
 			features: []roadmap.Feature{
 				{ID: "f1", Status: roadmap.FeatureBacklog},
 				{ID: "f2", Status: roadmap.FeaturePlanned},
@@ -877,7 +877,7 @@ func TestAutoAgentPendingFeatures(t *testing.T) {
 			wantCount: 0,
 			features: []roadmap.Feature{
 				{ID: "f1", Status: roadmap.FeatureDone},
-				{ID: "f2", Status: roadmap.FeatureInProgress},
+				{ID: "f2", Status: roadmap.FeatureCancelled},
 			},
 		},
 		{
@@ -912,6 +912,32 @@ func TestAutoAgentPendingFeatures_NoRoadmap(t *testing.T) {
 	_, err := svc.pendingFeatures(context.Background(), "proj-missing")
 	if err == nil {
 		t.Fatal("expected error when roadmap not found")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: extractTestFile
+// ---------------------------------------------------------------------------
+
+func TestExtractTestFile(t *testing.T) {
+	tests := []struct {
+		desc string
+		want string
+	}{
+		{"Tests: test_lru_cache.py (25 tests)", "test_lru_cache.py"},
+		{"Tests: test_diff_analyzer.py", "test_diff_analyzer.py"},
+		{"No tests mentioned here", ""},
+		{"File: foo.py\nTests: test_foo.py\nMore text", "test_foo.py"},
+		{"", ""},
+		{"Tests: not_a_test.py", ""},
+		{"Tests:test_no_space.py", ""},
+		{"Tests: test_with_numbers_123.py (10 tests)", "test_with_numbers_123.py"},
+	}
+	for _, tt := range tests {
+		got := extractTestFile(tt.desc)
+		if got != tt.want {
+			t.Errorf("extractTestFile(%q) = %q, want %q", tt.desc, got, tt.want)
+		}
 	}
 }
 

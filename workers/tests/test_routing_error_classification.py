@@ -93,6 +93,16 @@ class TestClassifyErrorType:
         exc = LLMError(status_code=429, model="gpt-4", body="Rate limited")
         assert classify_error_type(exc) == "rate_limit"
 
+    def test_classify_tpm_exceeded(self) -> None:
+        """429 with 'tokens per minute' body should classify as tpm_exceeded."""
+        exc = LLMError(429, "groq/llama-3.1-8b-instant", "Rate limit reached: 6000 tokens per minute")
+        assert classify_error_type(exc) == "tpm_exceeded"
+
+    def test_classify_tpm_keyword(self) -> None:
+        """429 with 'tpm' abbreviation in body should classify as tpm_exceeded."""
+        exc = LLMError(429, "groq/llama-3.1-8b-instant", "TPM limit exceeded")
+        assert classify_error_type(exc) == "tpm_exceeded"
+
 
 class TestIsFallbackEligible:
     """Verify is_fallback_eligible identifies fallback-worthy errors."""
@@ -139,4 +149,24 @@ class TestRateLimitCooldown:
         now = 1000.0 + 59.0
         assert tracker.is_exhausted("groq")
         now = 1000.0 + 61.0
+        assert not tracker.is_exhausted("groq")
+
+
+class TestTPMExceededCooldown:
+    """Verify tpm_exceeded error type marks provider exhausted with 300s cooldown."""
+
+    def test_tpm_exceeded_marks_exhausted(self) -> None:
+        tracker = RateLimitTracker()
+        tracker.record_error("groq", error_type="tpm_exceeded")
+        assert tracker.is_exhausted("groq")
+
+    def test_tpm_exceeded_cooldown_300s(self) -> None:
+        tracker = RateLimitTracker()
+        now = 1000.0
+        tracker._now = lambda: now  # type: ignore[assignment]
+        tracker.record_error("groq", error_type="tpm_exceeded")
+        assert tracker.is_exhausted("groq")
+        now = 1000.0 + 299.0
+        assert tracker.is_exhausted("groq")
+        now = 1000.0 + 301.0
         assert not tracker.is_exhausted("groq")

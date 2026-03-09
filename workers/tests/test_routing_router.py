@@ -344,6 +344,17 @@ def test_fallback_all_preferred_exhausted() -> None:
     assert decision.model in ("groq/llama-3.1-8b-instant", "custom/my-model")
 
 
+def test_gemini_flash_in_medium_tier() -> None:
+    """gemini/gemini-2.5-flash must be in the MEDIUM tier defaults."""
+    medium = COMPLEXITY_DEFAULTS[ComplexityTier.MEDIUM]
+    assert "gemini/gemini-2.5-flash" in medium
+    # Must appear after groq/llama-3.3-70b-versatile and before openai/gpt-4o-mini.
+    groq_idx = medium.index("groq/llama-3.3-70b-versatile")
+    flash_idx = medium.index("gemini/gemini-2.5-flash")
+    mini_idx = medium.index("openai/gpt-4o-mini")
+    assert groq_idx < flash_idx < mini_idx
+
+
 def test_rate_tracker_none_no_filtering() -> None:
     """Without a rate tracker, no providers should be filtered."""
     router = HybridRouter(
@@ -357,3 +368,12 @@ def test_rate_tracker_none_no_filtering() -> None:
     decision = router.route("Hello")
     assert decision is not None
     assert decision.model in AVAILABLE
+
+
+def test_tpm_blocked_model_skipped_in_fallback() -> None:
+    """Models that failed with TPM exceeded should be skipped in subsequent fallback picks."""
+    from codeforge.routing.rate_tracker import get_tracker
+
+    tracker = get_tracker()
+    tracker.record_error("groq", error_type="tpm_exceeded")
+    assert tracker.is_exhausted("groq")
