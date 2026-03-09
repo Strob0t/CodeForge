@@ -5,7 +5,7 @@ import type { FeatureStatus, RoadmapFeature } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
-import { Button, Input, Select } from "~/ui";
+import { Button, Input, Select, Textarea } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 interface FeatureCardFormProps {
@@ -31,6 +31,8 @@ export default function FeatureCardForm(props: FeatureCardFormProps) {
   const [title, setTitle] = createSignal(props.feature?.title ?? "");
   // eslint-disable-next-line solid/reactivity -- intentional one-time initialization
   const [status, setStatus] = createSignal<FeatureStatus>(props.feature?.status ?? "backlog");
+  // eslint-disable-next-line solid/reactivity -- intentional one-time initialization
+  const [description, setDescription] = createSignal(props.feature?.description ?? "");
 
   const { run: handleSave, loading: saving } = useAsyncAction(
     async () => {
@@ -40,6 +42,7 @@ export default function FeatureCardForm(props: FeatureCardFormProps) {
       if (props.feature) {
         await api.roadmap.updateFeature(props.feature.id, {
           title: trimmed,
+          description: description().trim(),
           status: status(),
           version: props.feature.version,
         });
@@ -47,6 +50,7 @@ export default function FeatureCardForm(props: FeatureCardFormProps) {
       } else {
         await api.roadmap.createFeature(props.milestoneId, {
           title: trimmed,
+          description: description().trim() || undefined,
         });
         toast("success", t("featuremap.featureCreated"));
       }
@@ -77,6 +81,12 @@ export default function FeatureCardForm(props: FeatureCardFormProps) {
         onInput={(e) => setTitle(e.currentTarget.value)}
         onKeyDown={handleKeyDown}
         autofocus
+      />
+      <Textarea
+        placeholder={t("featuremap.descriptionPlaceholder")}
+        value={description()}
+        onInput={(e) => setDescription(e.currentTarget.value)}
+        rows={3}
       />
       {/* Status selector only shown in edit mode (backend create has no status field) */}
       <Show when={props.feature}>

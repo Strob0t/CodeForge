@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,12 +43,31 @@ class RateLimitTracker:
         self._state: dict[str, RateLimitInfo] = {}
         self._now: Callable[[], float] = time.monotonic
 
+    _ERROR_COOLDOWNS: ClassVar[dict[str, float]] = {
+        "billing": 3600.0,  # 1 hour
+        "auth": 300.0,  # 5 minutes
+    }
+
     # -- mutations -----------------------------------------------------------
 
     def update(self, provider: str, info: RateLimitInfo) -> None:
         """Record the latest rate-limit state for *provider*."""
         with self._lock:
             self._state[provider] = info
+
+    def record_error(self, provider: str, *, error_type: str) -> None:
+        """Mark *provider* as exhausted due to a billing or auth error."""
+        cooldown = self._ERROR_COOLDOWNS.get(error_type)
+        if cooldown is None:
+            return
+        now = self._now()
+        with self._lock:
+            self._state[provider] = RateLimitInfo(
+                remaining_requests=0,
+                reset_after_seconds=cooldown,
+                provider=provider,
+                timestamp=now,
+            )
 
     # -- queries -------------------------------------------------------------
 

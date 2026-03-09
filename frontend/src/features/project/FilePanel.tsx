@@ -5,8 +5,9 @@ import type { FileContent } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
+import { useI18n } from "~/i18n";
 import { fileIconUrl } from "~/lib/file-icon";
-import { Button, Spinner } from "~/ui";
+import { Button, FormField, Input, Modal, Spinner, Textarea } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import CodeEditor from "./CodeEditor";
@@ -73,7 +74,7 @@ function CollapseAllIcon(): JSX.Element {
 // Sidebar header (needs FileTreeContext)
 // ---------------------------------------------------------------------------
 
-function SidebarHeader(props: { projectId: string }): JSX.Element {
+function SidebarHeader(props: { projectId: string; onCreateClick?: () => void }): JSX.Element {
   const [, actions] = useFileTree();
 
   return (
@@ -93,6 +94,18 @@ function SidebarHeader(props: { projectId: string }): JSX.Element {
         <Button variant="icon" size="xs" onClick={() => actions.collapseAll()} title="Collapse All">
           <CollapseAllIcon />
         </Button>
+        <Show when={props.onCreateClick}>
+          <Button variant="icon" size="xs" onClick={props.onCreateClick} title="New File">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              class="w-3.5 h-3.5"
+            >
+              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z" />
+            </svg>
+          </Button>
+        </Show>
       </div>
     </div>
   );
@@ -146,6 +159,27 @@ function TreeLoadingOverlay(): JSX.Element {
 
 export default function FilePanel(props: FilePanelProps): JSX.Element {
   const { show: toast } = useToast();
+
+  const { t } = useI18n();
+  const [showCreateModal, setShowCreateModal] = createSignal(false);
+  const [newFilePath, setNewFilePath] = createSignal("");
+  const [newFileContent, setNewFileContent] = createSignal("");
+
+  async function handleCreateFile() {
+    const filePath = newFilePath().trim();
+    if (!filePath) return;
+    try {
+      await api.files.write(props.projectId, filePath, newFileContent());
+      toast("success", t("files.createSuccess"));
+      setShowCreateModal(false);
+      setNewFilePath("");
+      setNewFileContent("");
+      openFile(filePath);
+    } catch (err) {
+      toast("error", t("files.createFailed") + ": " + getErrorMessage(err));
+    }
+  }
+
   const [tabs, setTabs] = createSignal<OpenTab[]>([]);
   const [activeTab, setActiveTab] = createSignal<string | null>(null);
 
@@ -261,7 +295,10 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
             style={{ width: `${sidebarWidth()}px` }}
           >
             <TreeLoadingOverlay />
-            <SidebarHeader projectId={props.projectId} />
+            <SidebarHeader
+              projectId={props.projectId}
+              onCreateClick={() => setShowCreateModal(true)}
+            />
             <SearchInput />
             <div class="flex-1 overflow-y-auto">
               <FileTree
@@ -427,6 +464,39 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
           )}
         </Show>
       </div>
+
+      {/* Create File Modal */}
+      <Modal
+        open={showCreateModal()}
+        onClose={() => setShowCreateModal(false)}
+        title={t("files.createFile")}
+      >
+        <div class="flex flex-col gap-3 p-4">
+          <FormField label={t("files.fileName")}>
+            <Input
+              placeholder={t("files.fileNamePlaceholder")}
+              value={newFilePath()}
+              onInput={(e) => setNewFilePath(e.currentTarget.value)}
+            />
+          </FormField>
+          <FormField label={t("files.fileContent")}>
+            <Textarea
+              placeholder={t("files.fileContentPlaceholder")}
+              value={newFileContent()}
+              onInput={(e) => setNewFileContent(e.currentTarget.value)}
+              rows={8}
+            />
+          </FormField>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowCreateModal(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleCreateFile} disabled={!newFilePath().trim()}>
+              {t("files.createFile")}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

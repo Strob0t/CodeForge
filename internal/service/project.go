@@ -37,8 +37,14 @@ type ProjectService struct {
 }
 
 // NewProjectService creates a new ProjectService.
+// workspaceRoot is resolved to an absolute path so that all downstream paths
+// (NATS payloads, tool execution) are independent of the working directory.
 func NewProjectService(store database.Store, workspaceRoot string) *ProjectService {
-	return &ProjectService{store: store, workspaceRoot: workspaceRoot}
+	absRoot, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		absRoot = workspaceRoot
+	}
+	return &ProjectService{store: store, workspaceRoot: absRoot}
 }
 
 // SetSpecDetector sets the optional spec detector for automated setup.

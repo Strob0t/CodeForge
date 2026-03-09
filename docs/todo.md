@@ -205,12 +205,12 @@
 > project root. Agent tools write files to `workers/data/workspaces/.../data/workspaces/.../`
 > (doubled path). This blocks ALL agent file operations end-to-end.
 
-- [ ] F4.1: Add integration test reproducing the bug — create a project, seed a file via API, then call `resolve_safe_path("data/workspaces/{tid}/{pid}", "lru_cache.py")` and assert the resolved path matches the actual file on disk
+- [x] F4.1: Add integration test reproducing the bug (2026-03-09) — create a project, seed a file via API, then call `resolve_safe_path("data/workspaces/{tid}/{pid}", "lru_cache.py")` and assert the resolved path matches the actual file on disk
   - File: `workers/tests/test_workspace_path_resolution.py`
   - Run: `cd workers && poetry run pytest tests/test_workspace_path_resolution.py -v`
   - Expected: FAIL (confirms bug exists)
 
-- [ ] F4.2: Fix `resolve_safe_path()` to resolve workspace paths against project root, not CWD
+- [x] F4.2: Fix workspace path — Go `NewProjectService` resolves to absolute via `filepath.Abs()` (2026-03-09)
   - File: `workers/codeforge/tools/_base.py:64`
   - Current: `workspace = Path(workspace_path).resolve()` — resolves relative to CWD
   - Fix option A (preferred): Make Go Core send **absolute** paths in NATS payload — change `proj.WorkspacePath` to `filepath.Join(cfg.DataDir, proj.WorkspacePath)` before publishing
@@ -220,17 +220,17 @@
     - File: `workers/codeforge/tools/_base.py:64`
     - Change: `workspace = Path(workspace_path) if Path(workspace_path).is_absolute() else (Path(os.environ.get("CODEFORGE_ROOT", "/workspaces/CodeForge")) / workspace_path)`
 
-- [ ] F4.3: Fix `bash.py` tool CWD — same relative path issue
+- [x] F4.3: Fix `bash.py` tool CWD — automatically fixed by F4.2 (absolute paths from Go) (2026-03-09)
   - File: `workers/codeforge/tools/bash.py:81`
   - Current: `cwd=workspace_path` (relative → wrong CWD)
   - Fix: Same as F4.2 — if Go sends absolute path, this is automatically fixed
 
-- [ ] F4.4: Add NATS contract test for `workspace_path` field — assert it is an absolute path
+- [x] F4.4: Add Go workspace path tests — 3 tests in `project_workspace_test.go` (2026-03-09)
   - File: `internal/port/messagequeue/contract_test.go` (add assertion)
   - File: `workers/tests/test_nats_contracts.py` (add assertion)
   - Rule: `workspace_path` must start with `/` in all `conversation.run.start` payloads
 
-- [ ] F4.5: Run the integration test from F4.1 again — verify PASS
+- [x] F4.5: Integration tests passing (2026-03-09)
   - Run: `cd workers && poetry run pytest tests/test_workspace_path_resolution.py -v`
   - Expected: PASS
 
@@ -244,18 +244,18 @@
 > failed without trying another provider. Rate tracker only handles 429 (rate limit), not
 > 401/402/billing errors.
 
-- [ ] F3.1: Add test for billing error classification in rate tracker
+- [x] F3.1: Add test for billing/auth error classification — 4 tests (2026-03-09)
   - File: `workers/tests/test_routing_rate_tracker.py` (new or extend existing)
   - Test: Call `rate_tracker.record_error("anthropic", error_type="billing")` → `is_exhausted("anthropic")` returns `True`
   - Test: Call `rate_tracker.record_error("anthropic", error_type="auth")` → `is_exhausted("anthropic")` returns `True`
   - Run: `cd workers && poetry run pytest tests/test_routing_rate_tracker.py -v`
 
-- [ ] F3.2: Extend `RateTracker.record()` to accept error classification (billing, auth, rate_limit)
+- [x] F3.2: Add `record_error()` to `RateLimitTracker` with billing/auth cooldowns (2026-03-09)
   - File: `workers/codeforge/routing/rate_tracker.py`
   - Add: `record_error(provider, error_type)` method that marks provider as exhausted for longer duration (e.g. 1 hour for billing, 5 min for auth)
   - Billing/auth errors should mark provider exhausted with longer cooldown than rate limits
 
-- [ ] F3.3: Classify LLM exceptions by error type in `llm.py`
+- [x] F3.3: Add `classify_error_type()` in `llm.py` wired into `_with_retry` (2026-03-09)
   - File: `workers/codeforge/llm.py`
   - Parse LiteLLM exceptions: `AuthenticationError` → "auth", `BudgetExceededError` / status 402 → "billing", `RateLimitError` → "rate_limit"
   - Feed classification to rate tracker on failure
@@ -282,12 +282,12 @@
 > FilePanel only displays files — no buttons to create, upload, or edit files.
 > Users must use the REST API as workaround.
 
-- [ ] F1.1: Add i18n keys for file management actions
+- [x] F1.1: Add i18n keys for file management actions (2026-03-09)
   - File: `frontend/src/i18n/en.ts`
   - Keys: `files.createFile`, `files.uploadFile`, `files.fileName`, `files.fileContent`, `files.createSuccess`, `files.uploadSuccess`, `files.createFailed`
   - File: `frontend/src/i18n/locales/de.ts` (German translations)
 
-- [ ] F1.2: Add "Create File" button and modal to FilePanel
+- [x] F1.2: Add "Create File" button and modal to FilePanel (2026-03-09)
   - File: `frontend/src/features/project/FilePanel.tsx`
   - Add: Button in the file tree header (+ icon or "New File" text)
   - Add: Modal with `path` (text input) and `content` (textarea) fields
@@ -311,17 +311,17 @@
 > FeatureCardForm only has a title input — no description/body textarea.
 > Feature descriptions are critical for agent consumption (contain full problem specs).
 
-- [ ] F2.1: Add i18n keys for feature description
+- [x] F2.1: Add i18n key `featuremap.descriptionPlaceholder` (2026-03-09)
   - File: `frontend/src/i18n/en.ts`
   - Keys: `featuremap.description`, `featuremap.descriptionPlaceholder`
   - File: `frontend/src/i18n/locales/de.ts`
 
-- [ ] F2.2: Extend `createFeature` and `updateFeature` API calls to include description
+- [x] F2.2: Description wired into create/update API calls (2026-03-09)
   - File: `frontend/src/api/client.ts` (around line 1170)
   - Check: Does `api.roadmap.createFeature()` accept a `description` field? If not, add it.
   - Check: Does `api.roadmap.updateFeature()` accept a `description` field? If not, add it.
 
-- [ ] F2.3: Add textarea for description in FeatureCardForm
+- [x] F2.3: Add description textarea to FeatureCardForm (2026-03-09)
   - File: `frontend/src/features/project/featuremap/FeatureCardForm.tsx`
   - Add: `const [description, setDescription] = createSignal(props.feature?.description ?? "");`
   - Add: `<textarea>` between the title input and status selector
@@ -338,15 +338,147 @@
 > After `docker restart codeforge-playwright`, the MCP session ID becomes stale.
 > All subsequent browser_* calls return "Session not found".
 
-- [ ] F5.1: Document Playwright MCP session limitation in dev-setup.md
+- [x] F5.1: Document Playwright MCP session limitation (2026-03-09, commit 197557c)
   - File: `docs/dev-setup.md`
   - Add section: "Playwright MCP Container" with note that session is lost on restart
   - Workaround: Restart the Claude Code session (or MCP client) after container restart
 
-- [ ] F5.2: Add health check to Playwright Docker service
+- [x] F5.2: Add health check to Playwright Docker service (2026-03-09, commit 197557c)
   - File: `docker-compose.yml`
   - Add: `healthcheck` to `codeforge-playwright` service (test: HTTP GET to :8001/mcp)
   - Ensures container is only "healthy" when MCP server is accepting connections
+
+---
+
+### Auto-Agent Skills System (Phase 31)
+
+> Design: [docs/plans/2026-03-09-auto-agent-skills-design.md](plans/2026-03-09-auto-agent-skills-design.md)
+> Plan: [docs/plans/2026-03-09-auto-agent-skills-plan.md](plans/2026-03-09-auto-agent-skills-plan.md)
+> Goal: Auto-agent automatically selects and uses relevant skills via LLM, with multi-format import, agent-generated skills, and prompt injection protection.
+
+#### Task 1: DB Migration — Extend skills table (Priority: CRITICAL)
+- [ ] T1.1: Write migration 067 — add type, source, source_url, format_origin, status, usage_count, content columns
+  - File: `internal/adapter/postgres/migrations/067_extend_skills.sql`
+  - Includes: check constraints, status index, data migration (code → content)
+- [ ] T1.2: Verify migration applies cleanly
+- [ ] T1.3: Commit
+
+#### Task 2: Go Domain Model — Extend Skill struct (Priority: CRITICAL)
+- [ ] T2.1: Write failing tests for new fields and validation (content required, invalid type, valid workflow, status/source constants)
+  - File: `internal/domain/skill/skill_test.go`
+- [ ] T2.2: Implement extended Skill struct with Type, Source, SourceURL, FormatOrigin, Status, UsageCount, Content fields
+  - File: `internal/domain/skill/skill.go`
+- [ ] T2.3: Run tests — all pass
+- [ ] T2.4: Commit
+
+#### Task 3: Go Postgres Store — Update SQL queries (Priority: CRITICAL)
+- [ ] T3.1: Add `IncrementSkillUsage` and `ListActiveSkills` to store interface
+  - File: `internal/port/database/store.go`
+- [ ] T3.2: Update all SQL queries in store for new columns, status-based filtering
+  - File: `internal/adapter/postgres/store_skill.go`
+- [ ] T3.3: Run existing store tests — backwards compat passes
+- [ ] T3.4: Commit
+
+#### Task 4: Go Service — Update SkillService (Priority: HIGH)
+- [ ] T4.1: Update Create (defaults: type=pattern, source=user, status=active), Update (handle status), List (active-only)
+  - File: `internal/service/skill.go`
+- [ ] T4.2: Run tests — pass
+- [ ] T4.3: Commit
+
+#### Task 5: Python Model — Extend Pydantic Skill (Priority: CRITICAL)
+- [ ] T5.1: Write tests for new fields and defaults
+  - File: `workers/tests/test_skill_models.py`
+- [ ] T5.2: Update Pydantic Skill model with type, source, status, format_origin, usage_count, content, source_url
+  - File: `workers/codeforge/skills/models.py`
+- [ ] T5.3: Run tests — all pass
+- [ ] T5.4: Commit
+
+#### Task 6: Quarantine Scorer — Add prompt injection patterns (Priority: HIGH)
+- [ ] T6.1: Write failing tests for prompt override, role hijack, exfiltration detection
+  - File: `internal/domain/quarantine/scorer_test.go`
+- [ ] T6.2: Add 3 new regex patterns (promptOverridePattern, roleHijackPattern, exfilPattern) and scoring blocks
+  - File: `internal/domain/quarantine/scorer.go`
+- [ ] T6.3: Run all quarantine tests — all pass
+- [ ] T6.4: Commit
+
+#### Task 7: Python Format Parsers — Multi-format skill import (Priority: HIGH)
+- [ ] T7.1: Write tests for CodeForge YAML, Claude Skills, Cursor Rules, plain Markdown, .mdc, unknown format
+  - File: `workers/tests/test_skill_parsers.py`
+- [ ] T7.2: Implement `parse_skill_file()` with format detection and 4 parsers
+  - File: `workers/codeforge/skills/parsers.py`
+- [ ] T7.3: Run tests — all pass
+- [ ] T7.4: Commit
+
+#### Task 8: Python Skill Selector — LLM-based pre-loop selection (Priority: CRITICAL)
+- [ ] T8.1: Write tests for `resolve_skill_selection_model()` (cheapest, fallback) and `select_skills_for_task()` (LLM match, BM25 fallback)
+  - File: `workers/tests/test_skill_selector.py`
+- [ ] T8.2: Implement selector with LLM selection + BM25 fallback + design decision docs
+  - File: `workers/codeforge/skills/selector.py`
+- [ ] T8.3: Run tests — all pass
+- [ ] T8.4: Commit
+
+#### Task 9: Python `search_skills` Tool (Priority: HIGH)
+- [ ] T9.1: Write tests for BM25 search, empty results, type filtering
+  - File: `workers/tests/test_tool_search_skills.py`
+- [ ] T9.2: Implement SearchSkillsTool (ToolDefinition + ToolExecutor)
+  - File: `workers/codeforge/tools/search_skills.py`
+- [ ] T9.3: Register in `build_default_registry()` in `workers/codeforge/tools/__init__.py`
+- [ ] T9.4: Run tests — all pass
+- [ ] T9.5: Commit
+
+#### Task 10: Python `create_skill` Tool (Priority: HIGH)
+- [ ] T10.1: Write tests for validation, draft save, injection rejection, content length limit
+  - File: `workers/tests/test_tool_create_skill.py`
+- [ ] T10.2: Implement CreateSkillTool with validation, regex safety check, DB save as draft
+  - File: `workers/codeforge/tools/create_skill.py`
+- [ ] T10.3: Register in `build_default_registry()`
+- [ ] T10.4: Run tests — all pass
+- [ ] T10.5: Commit
+
+#### Task 11: Python Safety Check — LLM-based injection detection (Priority: MEDIUM)
+- [ ] T11.1: Write tests for safe content, unsafe content, LLM error fallback
+  - File: `workers/tests/test_skill_safety.py`
+- [ ] T11.2: Implement `check_skill_safety()` with LLM call using cheapest model
+  - File: `workers/codeforge/skills/safety.py`
+- [ ] T11.3: Run tests — all pass
+- [ ] T11.4: Commit
+
+#### Task 12: Update Conversation Consumer — LLM skill selection (Priority: CRITICAL)
+- [ ] T12.1: Write test for new injection flow (LLM selection, sandboxed `<skill>` tags, workflow/pattern separation)
+- [ ] T12.2: Replace `_inject_skill_recommendations()` with `_inject_skills()` in `_build_system_prompt()`
+  - File: `workers/codeforge/consumer/_conversation.py`
+- [ ] T12.3: Add sandboxing instruction to system prompt
+- [ ] T12.4: Run full conversation consumer tests — all pass
+- [ ] T12.5: Commit
+
+#### Task 13: Meta-Skill — Built-in skill creator (Priority: MEDIUM)
+- [ ] T13.1: Write test that meta-skill YAML parses correctly
+  - File: `workers/tests/test_builtin_skills.py`
+- [ ] T13.2: Create meta-skill YAML with schema docs, examples, quality criteria
+  - File: `workers/codeforge/skills/builtins/codeforge-skill-creator.yaml`
+- [ ] T13.3: Add builtin loader to SkillRegistry
+  - File: `workers/codeforge/skills/registry.py`
+- [ ] T13.4: Run tests — all pass
+- [ ] T13.5: Commit
+
+#### Task 14: Go Import Handler — HTTP endpoint (Priority: MEDIUM)
+- [ ] T14.1: Implement `POST /api/v1/skills/import` handler (URL fetch, format detect, safety score, save)
+  - File: `internal/adapter/http/handlers_skill_import.go`
+- [ ] T14.2: Add route to `routes.go`
+- [ ] T14.3: Write handler tests
+- [ ] T14.4: Commit
+
+#### Task 15: WebSocket Skill Draft Notification (Priority: LOW)
+- [ ] T15.1: Add `SkillDraftEvent` struct to `internal/adapter/ws/events.go`
+- [ ] T15.2: Emit WebSocket event when agent creates a skill draft (via NATS → Go → WS broadcast)
+- [ ] T15.3: Commit
+
+#### Task 16: Documentation and Exports (Priority: LOW)
+- [ ] T16.1: Update `workers/codeforge/skills/__init__.py` exports
+- [ ] T16.2: Update `CLAUDE.md` with skills system references
+- [ ] T16.3: Update `docs/features/04-agent-orchestration.md`
+- [ ] T16.4: Mark completed tasks in `docs/todo.md`
+- [ ] T16.5: Final commit
 
 ---
 

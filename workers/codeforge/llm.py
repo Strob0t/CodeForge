@@ -70,6 +70,22 @@ def is_fallback_eligible(exc: LLMError) -> bool:
     return any(kw in body for kw in _FALLBACK_KEYWORDS)
 
 
+_BILLING_KEYWORDS: tuple[str, ...] = ("credit", "balance", "billing", "exceeded", "insufficient", "quota")
+_AUTH_KEYWORDS: tuple[str, ...] = ("unauthorized", "forbidden", "api key", "authentication", "permission")
+
+
+def classify_error_type(exc: LLMError) -> str | None:
+    """Classify an LLM error as billing, auth, or None."""
+    if exc.status_code == 402:
+        return "billing"
+    body = exc.body.lower()
+    if exc.status_code in (401, 403) or any(kw in body for kw in _BILLING_KEYWORDS):
+        if any(kw in body for kw in _BILLING_KEYWORDS):
+            return "billing"
+        return "auth"
+    return None
+
+
 @dataclass(frozen=True)
 class CompletionResponse:
     """Parsed response from an LLM completion call."""
@@ -359,6 +375,14 @@ class LiteLLMClient:
                 return await fn(*args, **kwargs)
             except LLMError as exc:
                 last_exc = exc
+                err_type = classify_error_type(exc)
+                if err_type is not None:
+                    from codeforge.routing.rate_tracker import get_tracker
+
+                    get_tracker().record_error(
+                        _extract_provider(exc.model),
+                        error_type=err_type,
+                    )
                 if not self._is_retryable(exc) or attempt == self._config.max_retries:
                     raise
                 wait = self._compute_backoff(exc, attempt)

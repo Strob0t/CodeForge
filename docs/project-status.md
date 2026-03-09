@@ -183,6 +183,10 @@ Systematic cleanup of code duplicates, stubs, hardcoded constants, and code smel
 
 **TypeScript (4 tasks):** `cx()` class-name utility, `getErrorMessage()` error helper, `StatCard`/`ResourceView`/`GridLayout` shared components, `useFocusTrap`/`useFormState`/`useAsyncAction` hooks, `CHART_COLORS`/`RADAR_DEFAULTS` design constants. Adopted across 10+ pages.
 
+### E2E Findings Fix — F1-F5 (COMPLETED)
+
+F4: Workspace path resolution (`filepath.Abs` in `NewProjectService`). F3: Routing fallback (`record_error` + `classify_error_type`). F2: Feature description textarea in `FeatureCardForm`. F1: Create File modal in `FilePanel`. F5: Playwright Docker healthcheck + session recovery docs.
+
 ### Dashboard Polish (COMPLETED)
 
 KPI strip with 7 stat cards (cost, runs, success rate, agents, avg cost, tokens, error rate) with trend deltas and inverted-delta logic. HealthDot traffic-light indicator per project (weighted composite: success_rate 0.30, error_rate 0.25, activity_freshness 0.20, task_velocity 0.15, cost_stability 0.10) with hover tooltip showing factor breakdown bars. ChartsPanel tabbed container with 5 Unovis charts (CostTrend area, RunOutcomes donut, AgentPerformance grouped bars, ModelUsage pie, CostByProject stacked bars) and 7d/30d period toggle. ActivityTimeline WebSocket-fed with 5-tier priority system, auto-sorted, max 100 events. ProjectCard enhanced with HealthDot, stats row, compact footer. CreateProjectModal extracted from inline form. Full Go backend: dashboard service, store queries, HTTP handlers (7 endpoints), domain types. Unovis CSS variable integration for theme support. i18n keys for EN + DE.
