@@ -150,6 +150,16 @@
   --cf-status-planning: #c586c0; /* terminal magenta */
 }
 
+/* Unovis chart theme integration */
+:root {
+  --vis-color0: var(--cf-accent);
+  --vis-color1: var(--cf-success);
+  --vis-color2: var(--cf-danger);
+  --vis-color3: var(--cf-warning);
+  --vis-color4: var(--cf-text-muted);
+  --vis-font-family: inherit;
+}
+
 /* ---------------------------------------------------------------------------
    Focus-visible — consistent keyboard focus indicator (WCAG 2.4.7)
    --------------------------------------------------------------------------- */
