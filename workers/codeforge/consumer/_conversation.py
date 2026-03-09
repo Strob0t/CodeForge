@@ -102,7 +102,7 @@ class ConversationHandlerMixin:
             self._wire_skill_tools(registry, loaded_skills, run_msg.project_id, log)
 
             self._register_handoff_tool(registry, run_msg.run_id)
-            self._register_goals_tool(registry, run_msg.project_id)
+            self._register_propose_goal_tool(registry, runtime)
 
             history_mgr = ConversationHistoryManager(HistoryConfig())
             messages = history_mgr.build_messages(
@@ -746,8 +746,8 @@ class ConversationHandlerMixin:
             _HandoffProxy(self._js, run_id),
         )
 
-    def _register_goals_tool(self, registry: object, project_id: str) -> None:
-        """Register the manage_goals tool for agent-driven goal creation."""
-        from codeforge.tools.manage_goals import MANAGE_GOALS_DEFINITION, ManageGoalsExecutor
+    def _register_propose_goal_tool(self, registry: object, runtime: object) -> None:
+        """Register the propose_goal tool for agent-driven goal proposals."""
+        from codeforge.tools.propose_goal import PROPOSE_GOAL_DEFINITION, ProposeGoalExecutor
 
-        registry.register(MANAGE_GOALS_DEFINITION, ManageGoalsExecutor(project_id))
+        registry.register(PROPOSE_GOAL_DEFINITION, ProposeGoalExecutor(runtime))
