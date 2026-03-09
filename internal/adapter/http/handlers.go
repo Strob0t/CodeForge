@@ -250,6 +250,35 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
+// autoIndexProject triggers background indexing for all context sources.
+// Called after clone, adopt, or setup to ensure agents get full context.
+// Each index build is independent — failures are logged but don't block.
+func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
+	if h.RepoMap != nil {
+		go func() {
+			if err := h.RepoMap.RequestGeneration(context.Background(), projectID, nil); err != nil {
+				slog.Error("auto repomap generation failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
+
+	if h.Retrieval != nil {
+		go func() {
+			if err := h.Retrieval.RequestIndex(context.Background(), projectID, workspacePath, ""); err != nil {
+				slog.Error("auto retrieval index failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
+
+	if h.Graph != nil {
+		go func() {
+			if err := h.Graph.RequestBuild(context.Background(), projectID, workspacePath); err != nil {
+				slog.Error("auto graph build failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
+}
+
 // CloneProject handles POST /api/v1/projects/{id}/clone
 func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -268,14 +297,7 @@ func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-trigger repo map generation after successful clone.
-	if h.RepoMap != nil {
-		go func() {
-			if err := h.RepoMap.RequestGeneration(context.Background(), id, nil); err != nil {
-				slog.Error("auto repomap generation failed", "project_id", id, "error", err)
-			}
-		}()
-	}
+	h.autoIndexProject(id, p.WorkspacePath)
 
 	writeJSON(w, http.StatusOK, p)
 }
@@ -309,6 +331,8 @@ func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "adopt failed")
 		return
 	}
+
+	h.autoIndexProject(id, p.WorkspacePath)
 
 	writeJSON(w, http.StatusOK, p)
 }
@@ -344,6 +368,12 @@ func (h *Handlers) SetupProject(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "setup failed")
 		return
 	}
+
+	// Trigger background indexing if the project now has a workspace.
+	if p, pErr := h.Projects.Get(r.Context(), id); pErr == nil && p.WorkspacePath != "" {
+		h.autoIndexProject(id, p.WorkspacePath)
+	}
+
 	writeJSON(w, http.StatusOK, result)
 }
 
