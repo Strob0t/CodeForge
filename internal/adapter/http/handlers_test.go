@@ -1080,6 +1080,16 @@ func (m *mockStore) DeleteVCSAccount(_ context.Context, id string) error {
 	return errNotFound
 }
 
+// OAuth State stubs
+func (m *mockStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
+	return nil
+}
+func (m *mockStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+	return nil, errNotFound
+}
+func (m *mockStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
+func (m *mockStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) { return 0, nil }
+
 // Conversation methods
 func (m *mockStore) CreateConversation(_ context.Context, c *conversation.Conversation) (*conversation.Conversation, error) {
 	if c.ID == "" {

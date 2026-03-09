@@ -709,6 +709,16 @@ func (m *mockStore) GetVCSAccount(_ context.Context, _ string) (*vcsaccount.VCSA
 }
 func (m *mockStore) DeleteVCSAccount(_ context.Context, _ string) error { return nil }
 
+// OAuth State stubs
+func (m *mockStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
+	return nil
+}
+func (m *mockStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
+func (m *mockStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) { return 0, nil }
+
 // Conversation stubs
 func (m *mockStore) CreateConversation(_ context.Context, _ *conversation.Conversation) (*conversation.Conversation, error) {
 	return nil, nil

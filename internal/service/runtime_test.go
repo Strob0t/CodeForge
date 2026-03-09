@@ -712,6 +712,16 @@ func (m *runtimeMockStore) GetVCSAccount(_ context.Context, _ string) (*vcsaccou
 }
 func (m *runtimeMockStore) DeleteVCSAccount(_ context.Context, _ string) error { return nil }
 
+// OAuth State stubs
+func (m *runtimeMockStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
+	return nil
+}
+func (m *runtimeMockStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
+func (m *runtimeMockStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) { return 0, nil }
+
 // Project repo lookup
 func (m *runtimeMockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
 	return nil, nil

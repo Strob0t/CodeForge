@@ -255,6 +255,12 @@ type Store interface {
 	CreateVCSAccount(ctx context.Context, a *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error)
 	DeleteVCSAccount(ctx context.Context, id string) error
 
+	// OAuth State (CSRF protection for OAuth flows)
+	CreateOAuthState(ctx context.Context, state *vcsaccount.OAuthState) error
+	GetOAuthState(ctx context.Context, stateToken string) (*vcsaccount.OAuthState, error)
+	DeleteOAuthState(ctx context.Context, stateToken string) error
+	DeleteExpiredOAuthStates(ctx context.Context) (int64, error)
+
 	// LLM Keys (per-user provider API keys)
 	CreateLLMKey(ctx context.Context, k *llmkey.LLMKey) error
 	ListLLMKeysByUser(ctx context.Context, userID string) ([]llmkey.LLMKey, error)

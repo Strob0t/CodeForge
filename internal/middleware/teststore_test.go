@@ -514,6 +514,16 @@ func (s *testStore) GetVCSAccount(_ context.Context, _ string) (*vcsaccount.VCSA
 }
 func (s *testStore) DeleteVCSAccount(_ context.Context, _ string) error { return nil }
 
+// OAuth State stubs
+func (s *testStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
+	return nil
+}
+func (s *testStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+	return nil, domain.ErrNotFound
+}
+func (s *testStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
+func (s *testStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) { return 0, nil }
+
 // Conversation stubs
 func (s *testStore) CreateConversation(_ context.Context, _ *conversation.Conversation) (*conversation.Conversation, error) {
 	return nil, nil
