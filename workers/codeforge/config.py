@@ -137,7 +137,7 @@ class WorkerSettings:
         self.log_service = _resolve_str("CODEFORGE_WORKER_LOG_SERVICE", None, "codeforge-worker")
         self.health_port = _resolve_int("CODEFORGE_WORKER_HEALTH_PORT", None, 8081)
 
-        self.routing_enabled = _resolve_bool("CODEFORGE_ROUTING_ENABLED", routing_cfg.get("enabled"), False)
+        self.routing_enabled = _resolve_bool("CODEFORGE_ROUTING_ENABLED", routing_cfg.get("enabled"), True)
         self.trust_min_level = _resolve_str("CODEFORGE_TRUST_MIN_LEVEL", trust_cfg.get("min_level"), "untrusted")
 
         # Go Core connection (for routing stats/outcomes API calls)

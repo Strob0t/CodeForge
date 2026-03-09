@@ -36,6 +36,7 @@ from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
+    from codeforge.memory.experience import ExperiencePool
     from codeforge.runtime import RuntimeClient
     from codeforge.tools import ToolRegistry
 
@@ -94,11 +95,22 @@ class AgentLoopExecutor:
         tool_registry: ToolRegistry,
         runtime: RuntimeClient,
         workspace_path: str,
+        experience_pool: ExperiencePool | None = None,
     ) -> None:
         self._llm = llm
         self._tools = tool_registry
         self._runtime = runtime
         self._workspace = workspace_path
+        self._experience_pool = experience_pool
+
+    @staticmethod
+    def _extract_user_prompt(messages: list[dict[str, object]]) -> str:
+        """Extract the last user message content from the conversation."""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                return content if isinstance(content, str) else str(content)
+        return ""
 
     @staticmethod
     def _pick_next_fallback(cfg: LoopConfig, state: _LoopState) -> str | None:
@@ -175,6 +187,31 @@ class AgentLoopExecutor:
         """
         cfg = config or LoopConfig()
         state = _LoopState(model=cfg.model)
+
+        # Check experience pool cache before starting the loop
+        user_prompt = self._extract_user_prompt(messages)
+        if self._experience_pool and user_prompt:
+            try:
+                cached = await self._experience_pool.lookup(user_prompt, self._runtime.project_id)
+                if cached:
+                    logger.info(
+                        "experience cache hit in agent loop, entry_id=%s similarity=%.3f",
+                        cached["id"],
+                        cached["similarity"],
+                    )
+                    return AgentLoopResult(
+                        final_content=cached["result_output"],
+                        tool_messages=[],
+                        total_cost=0.0,
+                        total_tokens_in=0,
+                        total_tokens_out=0,
+                        step_count=0,
+                        model=cfg.model,
+                        error="",
+                    )
+            except Exception as exc:
+                logger.warning("experience pool lookup failed, continuing: %s", exc)
+
         tools_array = self._tools.get_openai_tools()
         loop_start = time.monotonic()
 
@@ -205,6 +242,20 @@ class AgentLoopExecutor:
         # validate/reparse it through the StructuredOutputParser.
         if cfg.output_schema and state.final_content and not state.error:
             state = await self._validate_output_schema(cfg, state, messages)
+
+        # Store successful result in experience pool
+        if self._experience_pool and not state.error and state.final_content and user_prompt:
+            try:
+                await self._experience_pool.store(
+                    task_desc=user_prompt,
+                    project_id=self._runtime.project_id,
+                    result_output=state.final_content,
+                    result_cost=state.total_cost,
+                    result_status="completed",
+                    run_id=self._runtime.run_id,
+                )
+            except Exception as exc:
+                logger.warning("experience pool store failed: %s", exc)
 
         try:
             await self._runtime.publish_trajectory_event(

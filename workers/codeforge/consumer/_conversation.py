@@ -247,6 +247,7 @@ class ConversationHandlerMixin:
             tool_registry=registry,
             runtime=runtime,
             workspace_path=run_msg.workspace_path,
+            experience_pool=getattr(self, "_experience_pool", None),
         )
         loop_cfg = LoopConfig(
             max_iterations=run_msg.termination.max_steps or 50,
