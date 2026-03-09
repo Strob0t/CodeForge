@@ -447,6 +447,7 @@ type ConversationRunStartPayload struct {
 	RoutingEnabled    bool                         `json:"routing_enabled,omitempty"`    // Intelligent routing enabled (Phase 29)
 	Agentic           bool                         `json:"agentic"`                      // true = multi-turn tool loop, false = single-turn chat
 	ProviderAPIKey    string                       `json:"provider_api_key,omitempty"`   // Per-user provider API key (overrides global)
+	TenantID          string                       `json:"tenant_id,omitempty"`          // Tenant isolation for background jobs
 	SessionMeta       *SessionMetaPayload          `json:"session_meta,omitempty"`       // Session operation context (Phase B2/B3)
 }
 

@@ -446,6 +446,7 @@ class ConversationRunStartMessage(BaseModel):
     routing_enabled: bool = False
     agentic: bool = True
     provider_api_key: str = ""
+    tenant_id: str = ""
     session_meta: SessionMetaPayload | None = None
 
     @field_validator("mcp_servers", mode="before")

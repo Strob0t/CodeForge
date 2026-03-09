@@ -32,11 +32,15 @@ class ExperiencePool:
         llm: LiteLLMClient,
         scorer: CompositeScorer | None = None,
         confidence_threshold: float = 0.85,
+        max_entries: int = 1000,
+        tenant_id: str = "00000000-0000-0000-0000-000000000000",
     ) -> None:
         self._db_url = db_url
         self._llm = llm
         self._scorer = scorer or CompositeScorer()
         self._threshold = confidence_threshold
+        self._max_entries = max_entries
+        self._tenant_id = tenant_id
 
     async def lookup(
         self,
@@ -57,10 +61,10 @@ class ExperiencePool:
                 """SELECT id, task_description, task_embedding, result_output,
                           result_cost, result_status, confidence, created_at
                    FROM experience_entries
-                   WHERE project_id = %s
+                   WHERE project_id = %s AND tenant_id = %s
                    ORDER BY last_used_at DESC
                    LIMIT 200""",
-                (project_id,),
+                (project_id, self._tenant_id),
             )
             rows = await cur.fetchall()
 
@@ -127,7 +131,7 @@ class ExperiencePool:
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
-                    "00000000-0000-0000-0000-000000000000",
+                    self._tenant_id,
                     project_id,
                     task_desc,
                     embedding_bytes,
@@ -141,6 +145,25 @@ class ExperiencePool:
             row = await cur.fetchone()
             await conn.commit()
             entry_id = str(row[0]) if row else ""
+
+            # Evict oldest entries if over max_entries limit
+            if self._max_entries > 0:
+                await cur.execute(
+                    """DELETE FROM experience_entries
+                       WHERE id IN (
+                           SELECT id FROM experience_entries
+                           WHERE project_id = %s AND tenant_id = %s
+                           ORDER BY last_used_at ASC
+                           LIMIT GREATEST(
+                               (SELECT COUNT(*) FROM experience_entries
+                                WHERE project_id = %s AND tenant_id = %s) - %s,
+                               0
+                           )
+                       )""",
+                    (project_id, self._tenant_id, project_id, self._tenant_id, self._max_entries),
+                )
+                await conn.commit()
+
             logger.info("experience stored", entry_id=entry_id)
             return entry_id
 

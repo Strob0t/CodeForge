@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // buildSessionMeta extracts session operation metadata (resume/fork/rewind) from a Session's
@@ -275,6 +276,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		Context:           contextEntries,
 		Agentic:           true,
 		ProviderAPIKey:    providerAPIKey,
+		TenantID:          tenantctx.FromContext(ctx),
 		SessionMeta:       sessionMeta,
 	}
 
@@ -452,6 +454,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:           contextEntries,
 		Agentic:           true,
+		TenantID:          tenantctx.FromContext(ctx),
 		SessionMeta:       sessionMeta,
 	}
 

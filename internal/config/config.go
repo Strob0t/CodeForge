@@ -145,7 +145,7 @@ type Agent struct {
 	MaxLoopIterations    int      `yaml:"max_loop_iterations"`    // Max tool-use loop iterations (default: 50)
 	AgenticByDefault     bool     `yaml:"agentic_by_default"`     // Enable agentic mode by default for conversations
 	ToolOutputMaxChars   int      `yaml:"tool_output_max_chars"`  // Max chars for tool output before truncation (default: 10000)
-	ContextEnabled       bool     `yaml:"context_enabled"`        // Enable context optimizer for conversations (default: false)
+	ContextEnabled       bool     `yaml:"context_enabled"`        // Enable context optimizer for conversations (default: true)
 	ContextBudget        int      `yaml:"context_budget"`         // Token budget for conversation context (default: 2048)
 	ContextPromptReserve int      `yaml:"context_prompt_reserve"` // Tokens reserved for prompt in conversation context (default: 512)
 }
@@ -547,7 +547,7 @@ func Defaults() Config {
 			MaxLoopIterations:    50,
 			AgenticByDefault:     true,
 			ToolOutputMaxChars:   10_000,
-			ContextEnabled:       false,
+			ContextEnabled:       true,
 			ContextBudget:        2048,
 			ContextPromptReserve: 512,
 		},
