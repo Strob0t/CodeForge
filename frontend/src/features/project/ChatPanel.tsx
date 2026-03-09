@@ -12,8 +12,10 @@ import {
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage, Session } from "~/api/types";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
+import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
+import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
 import Markdown from "./Markdown";
@@ -39,8 +41,12 @@ interface PlanStepState {
 
 export default function ChatPanel(props: ChatPanelProps) {
   const { t } = useI18n();
+  const { show: toast } = useToast();
   const { onAGUIEvent } = useWebSocket();
   const { isRunActive } = useConversationRuns();
+
+  const [forkLoading, setForkLoading] = createSignal(false);
+  const [rewindLoading, setRewindLoading] = createSignal(false);
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
@@ -327,7 +333,7 @@ export default function ChatPanel(props: ChatPanelProps) {
                   }
                   pill
                 >
-                  Session: {sess().status}
+                  {t(("session.status." + sess().status) as TranslationKey)}
                 </Badge>
               )}
             </Show>
@@ -337,28 +343,56 @@ export default function ChatPanel(props: ChatPanelProps) {
                 variant="secondary"
                 size="sm"
                 class="text-xs px-2 py-0.5"
+                disabled={forkLoading()}
                 onClick={() => {
                   const convId = activeConversation();
                   if (!convId) return;
-                  void api.conversations.fork(convId).then(() => refetchSession());
+                  setForkLoading(true);
+                  void api.conversations
+                    .fork(convId)
+                    .then(
+                      () => {
+                        void refetchSession();
+                        toast("success", t("session.forkSuccess"));
+                      },
+                      () => {
+                        toast("error", t("session.forkFailed"));
+                      },
+                    )
+                    .finally(() => {
+                      setForkLoading(false);
+                    });
                 }}
               >
-                Fork
+                {forkLoading() ? "..." : t("session.fork")}
               </Button>
               <Button
                 variant="secondary"
                 size="sm"
                 class="text-xs px-2 py-0.5"
+                disabled={rewindLoading()}
                 onClick={() => {
                   const convId = activeConversation();
                   if (!convId) return;
-                  void api.conversations.rewind(convId).then(() => {
-                    void refetchSession();
-                    void refetchMessages();
-                  });
+                  setRewindLoading(true);
+                  void api.conversations
+                    .rewind(convId)
+                    .then(
+                      () => {
+                        void refetchSession();
+                        void refetchMessages();
+                        toast("success", t("session.rewindSuccess"));
+                      },
+                      () => {
+                        toast("error", t("session.rewindFailed"));
+                      },
+                    )
+                    .finally(() => {
+                      setRewindLoading(false);
+                    });
                 }}
               >
-                Rewind
+                {rewindLoading() ? "..." : t("session.rewind")}
               </Button>
             </Show>
             {/* Step counter during agentic turns */}

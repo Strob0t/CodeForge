@@ -414,6 +414,16 @@ class ConversationMessagePayload(BaseModel):
     name: str = ""
 
 
+class SessionMetaPayload(BaseModel):
+    """Session operation context for resumed/forked/rewound sessions."""
+
+    parent_session_id: str = ""
+    parent_run_id: str = ""
+    fork_event_id: str = ""
+    rewind_event_id: str = ""
+    operation: str = ""  # "resume" | "fork" | "rewind" | ""
+
+
 class ConversationRunStartMessage(BaseModel):
     """Message received from NATS when a conversation run is started."""
 
@@ -436,6 +446,7 @@ class ConversationRunStartMessage(BaseModel):
     routing_enabled: bool = False
     agentic: bool = True
     provider_api_key: str = ""
+    session_meta: SessionMetaPayload | None = None
 
     @field_validator("mcp_servers", mode="before")
     @classmethod

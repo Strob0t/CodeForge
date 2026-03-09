@@ -1425,6 +1425,29 @@ const de: Translations = {
   "audit.expandRow": "Details anzeigen",
   "audit.collapseRow": "Details ausblenden",
   "app.nav.audit": "Pruefprotokoll",
+
+  // -- Sitzungen (Sessions) ---------------------------------------------------
+  "session.title": "Sitzungen",
+  "session.tab": "Sitzungen",
+  "session.fork": "Abzweigen",
+  "session.rewind": "Zurueckspulen",
+  "session.resume": "Fortsetzen",
+  "session.forkFromHere": "Von diesem Punkt abzweigen",
+  "session.rewindToHere": "Zu diesem Punkt zurueckspulen",
+  "session.forkSuccess": "Konversation erfolgreich abgezweigt.",
+  "session.rewindSuccess": "Konversation erfolgreich zurueckgespult.",
+  "session.resumeSuccess": "Ausfuehrung erfolgreich fortgesetzt.",
+  "session.forkFailed": "Konversation konnte nicht abgezweigt werden.",
+  "session.rewindFailed": "Konversation konnte nicht zurueckgespult werden.",
+  "session.resumeFailed": "Ausfuehrung konnte nicht fortgesetzt werden.",
+  "session.status.active": "Aktiv",
+  "session.status.paused": "Pausiert",
+  "session.status.completed": "Abgeschlossen",
+  "session.status.forked": "Abgezweigt",
+  "session.empty": "Keine Sitzungen gefunden.",
+  "session.current": "Aktuell",
+  "session.createdAt": "Erstellt {{date}}",
+  "session.forkedNote": "Konversation abgezweigt. Senden Sie eine Nachricht zum Fortfahren.",
 };
 
 export default de;

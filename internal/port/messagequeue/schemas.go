@@ -447,6 +447,16 @@ type ConversationRunStartPayload struct {
 	RoutingEnabled    bool                         `json:"routing_enabled,omitempty"`    // Intelligent routing enabled (Phase 29)
 	Agentic           bool                         `json:"agentic"`                      // true = multi-turn tool loop, false = single-turn chat
 	ProviderAPIKey    string                       `json:"provider_api_key,omitempty"`   // Per-user provider API key (overrides global)
+	SessionMeta       *SessionMetaPayload          `json:"session_meta,omitempty"`       // Session operation context (Phase B2/B3)
+}
+
+// SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.
+type SessionMetaPayload struct {
+	ParentSessionID string `json:"parent_session_id,omitempty"`
+	ParentRunID     string `json:"parent_run_id,omitempty"`
+	ForkEventID     string `json:"fork_event_id,omitempty"`
+	RewindEventID   string `json:"rewind_event_id,omitempty"`
+	Operation       string `json:"operation,omitempty"` // "resume" | "fork" | "rewind" | ""
 }
 
 // ConversationRunCompletePayload is the schema for conversation.run.complete messages.

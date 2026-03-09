@@ -1,13 +1,16 @@
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { AgentEvent, AgentEventType, TrajectorySummary } from "~/api/types";
+import type { AgentEvent, AgentEventType, Session, TrajectorySummary } from "~/api/types";
 import { DiffPreview } from "~/components/DiffPreview";
+import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import { Button, Card } from "~/ui";
 
 interface TrajectoryPanelProps {
   runId: string;
+  conversationId?: string;
+  onSessionCreated?: (session: Session) => void;
 }
 
 const EVENT_COLORS: Record<string, string> = {
@@ -141,8 +144,51 @@ function EventDetail(props: { event: AgentEvent }) {
 
 export default function TrajectoryPanel(props: TrajectoryPanelProps) {
   const { t, tp, fmt } = useI18n();
+  const { show: toast } = useToast();
   const [typeFilter, setTypeFilter] = createSignal("");
   const [cursor, setCursor] = createSignal("");
+  const [forking, setForking] = createSignal(false);
+  const [rewinding, setRewinding] = createSignal(false);
+  const [resuming, setResuming] = createSignal(false);
+
+  const handleFork = async (eventId: string) => {
+    setForking(true);
+    try {
+      const session = await api.runs.fork(props.runId, { from_event_id: eventId });
+      toast("success", t("session.forkSuccess"));
+      props.onSessionCreated?.(session);
+    } catch {
+      toast("error", t("session.forkFailed"));
+    } finally {
+      setForking(false);
+    }
+  };
+
+  const handleRewind = async (eventId: string) => {
+    setRewinding(true);
+    try {
+      const session = await api.runs.rewind(props.runId, { to_event_id: eventId });
+      toast("success", t("session.rewindSuccess"));
+      props.onSessionCreated?.(session);
+    } catch {
+      toast("error", t("session.rewindFailed"));
+    } finally {
+      setRewinding(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setResuming(true);
+    try {
+      const session = await api.runs.resume(props.runId);
+      toast("success", t("session.resumeSuccess"));
+      props.onSessionCreated?.(session);
+    } catch {
+      toast("error", t("session.resumeFailed"));
+    } finally {
+      setResuming(false);
+    }
+  };
 
   // Replay mode state
   const [replayMode, setReplayMode] = createSignal(false);
@@ -268,6 +314,15 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
             </Button>
             <Button variant="secondary" size="sm" onClick={handleExport}>
               {t("trajectory.exportJson")}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleResume()}
+              disabled={resuming()}
+              aria-label={t("session.resume")}
+            >
+              {resuming() ? "..." : t("session.resume")}
             </Button>
           </div>
         </div>
@@ -479,6 +534,26 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
                     <Show when={expandedId() === ev.id}>
                       <div class="border-t border-cf-border-subtle bg-cf-bg-inset px-3 py-2">
                         <EventDetail event={ev} />
+                        <div class="flex gap-2 mt-2 pt-2 border-t border-cf-border-subtle">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void handleFork(ev.id)}
+                            disabled={forking()}
+                            aria-label={t("session.forkFromHere")}
+                          >
+                            {forking() ? "..." : t("session.fork")}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void handleRewind(ev.id)}
+                            disabled={rewinding()}
+                            aria-label={t("session.rewindToHere")}
+                          >
+                            {rewinding() ? "..." : t("session.rewind")}
+                          </Button>
+                        </div>
                       </div>
                     </Show>
                   </div>

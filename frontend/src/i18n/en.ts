@@ -1407,6 +1407,29 @@ const en = {
   "audit.expandRow": "Show details",
   "audit.collapseRow": "Hide details",
   "app.nav.audit": "Audit Trail",
+
+  // -- Sessions ---------------------------------------------------------------
+  "session.title": "Sessions",
+  "session.tab": "Sessions",
+  "session.fork": "Fork",
+  "session.rewind": "Rewind",
+  "session.resume": "Resume",
+  "session.forkFromHere": "Fork from this point",
+  "session.rewindToHere": "Rewind to this point",
+  "session.forkSuccess": "Conversation forked successfully.",
+  "session.rewindSuccess": "Conversation rewound successfully.",
+  "session.resumeSuccess": "Run resumed successfully.",
+  "session.forkFailed": "Failed to fork conversation.",
+  "session.rewindFailed": "Failed to rewind conversation.",
+  "session.resumeFailed": "Failed to resume run.",
+  "session.status.active": "Active",
+  "session.status.paused": "Paused",
+  "session.status.completed": "Completed",
+  "session.status.forked": "Forked",
+  "session.empty": "No sessions found.",
+  "session.current": "Current",
+  "session.createdAt": "Created {{date}}",
+  "session.forkedNote": "Conversation forked. Send a message to continue.",
 } as const;
 
 export type TranslationKey = keyof typeof en;

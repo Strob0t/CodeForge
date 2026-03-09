@@ -5,16 +5,7 @@ import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useFormState } from "~/hooks/useFormState";
 import { useI18n } from "~/i18n";
-import {
-  Button,
-  ErrorBanner,
-  FormField,
-  Input,
-  Modal,
-  Select,
-  Tabs,
-  Textarea,
-} from "~/ui";
+import { Button, ErrorBanner, FormField, Input, Modal, Select, Tabs, Textarea } from "~/ui";
 
 const AUTONOMY_LEVELS = [
   { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
@@ -325,10 +316,7 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
 
           {/* Branch selector (visible when branches loaded or loading) */}
           <Show
-            when={
-              form.state.formMode === "remote" &&
-              (branches().length > 0 || loadingBranches())
-            }
+            when={form.state.formMode === "remote" && (branches().length > 0 || loadingBranches())}
           >
             <FormField
               label={t("dashboard.form.branch")}
@@ -404,9 +392,7 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
           <Button variant="secondary" onClick={handleClose}>
             {t("common.cancel")}
           </Button>
-          <Button type="submit">
-            {t("dashboard.form.create")}
-          </Button>
+          <Button type="submit">{t("dashboard.form.create")}</Button>
         </div>
       </form>
     </Modal>

@@ -1,5 +1,6 @@
-import { createSignal, onCleanup, For, Show, type Component } from "solid-js";
 import { useNavigate } from "@solidjs/router";
+import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
+
 import { useWebSocket } from "~/components/WebSocketProvider";
 
 interface TimelineEvent {

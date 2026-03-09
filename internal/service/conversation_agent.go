@@ -15,8 +15,40 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
+
+// buildSessionMeta extracts session operation metadata (resume/fork/rewind) from a Session's
+// Metadata JSON field and returns a SessionMetaPayload for the NATS payload. Returns nil
+// if there is no meaningful session operation context.
+func buildSessionMeta(sess *run.Session) *messagequeue.SessionMetaPayload {
+	if sess.Metadata == "" || sess.Metadata == "{}" {
+		return nil
+	}
+	var meta map[string]string
+	if err := json.Unmarshal([]byte(sess.Metadata), &meta); err != nil {
+		return nil
+	}
+	sm := &messagequeue.SessionMetaPayload{
+		ParentSessionID: sess.ParentSessionID,
+		ParentRunID:     sess.ParentRunID,
+	}
+	switch {
+	case meta["resumed_from"] != "":
+		sm.Operation = "resume"
+	case meta["forked_from"] != "" || meta["forked_from_conversation"] != "":
+		sm.Operation = "fork"
+		sm.ForkEventID = meta["from_event"]
+	case meta["rewound_from"] != "":
+		sm.Operation = "rewind"
+		sm.RewindEventID = meta["to_event"]
+	}
+	if sm.Operation == "" {
+		return nil
+	}
+	return sm
+}
 
 func (s *ConversationService) IsAgentic(ctx context.Context, conversationID string, req conversation.SendMessageRequest) bool {
 	if req.Agentic != nil {
@@ -116,12 +148,14 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 
 	// Ensure a session exists for this conversation.
 	var sessionID string
+	var sessionMeta *messagequeue.SessionMetaPayload
 	if s.sessionSvc != nil {
 		sess, sessErr := s.sessionSvc.EnsureConversationSession(ctx, proj.ID, conversationID)
 		if sessErr != nil {
 			slog.Warn("failed to ensure conversation session", "conversation_id", conversationID, "error", sessErr)
 		} else {
 			sessionID = sess.ID
+			sessionMeta = buildSessionMeta(sess)
 		}
 	}
 
@@ -227,6 +261,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		Context:           contextEntries,
 		Agentic:           true,
 		ProviderAPIKey:    providerAPIKey,
+		SessionMeta:       sessionMeta,
 	}
 
 	data, err := json.Marshal(payload)
@@ -307,12 +342,14 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 
 	// Ensure a session exists for this conversation.
 	var sessionID string
+	var sessionMeta *messagequeue.SessionMetaPayload
 	if s.sessionSvc != nil {
 		sess, sessErr := s.sessionSvc.EnsureConversationSession(ctx, proj.ID, conversationID)
 		if sessErr != nil {
 			slog.Warn("failed to ensure conversation session", "conversation_id", conversationID, "error", sessErr)
 		} else {
 			sessionID = sess.ID
+			sessionMeta = buildSessionMeta(sess)
 		}
 	}
 
@@ -401,6 +438,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:           contextEntries,
 		Agentic:           true,
+		SessionMeta:       sessionMeta,
 	}
 
 	data, err := json.Marshal(payload)

@@ -27,6 +27,27 @@ class ConversationHandlerMixin:
     # Track in-progress run IDs to skip NATS redeliveries of the same message.
     _active_runs: ClassVar[set[str]] = set()
 
+    _SESSION_CONTEXT_NOTES: ClassVar[dict[str, str]] = {
+        "resume": "This conversation is being resumed from a previous session. Continue where you left off.",
+        "fork": "This conversation was forked from a previous point. The message history above represents the state at the fork point. Continue from here.",
+        "rewind": "This conversation was rewound to an earlier state. Some later messages have been removed. Continue from this point.",
+    }
+
+    @staticmethod
+    def _inject_session_context(
+        messages: list[dict[str, str]],
+        run_msg: ConversationRunStartMessage,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Append a system note when the session is a resume/fork/rewind."""
+        if not run_msg.session_meta or not run_msg.session_meta.operation:
+            return
+        op = run_msg.session_meta.operation
+        note = ConversationHandlerMixin._SESSION_CONTEXT_NOTES.get(op)
+        if note:
+            messages.append({"role": "system", "content": note})
+            log.info("injected session context note", operation=op)
+
     async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
         """Process a conversation run: agentic loop with tool calling."""
         from codeforge.history import ConversationHistoryManager, HistoryConfig
@@ -87,6 +108,8 @@ class ConversationHandlerMixin:
                 context_entries=run_msg.context,
             )
 
+            self._inject_session_context(messages, run_msg, log)
+
             from codeforge.llm import resolve_model_with_routing
 
             # Extract user prompt for routing analysis.
@@ -126,26 +149,7 @@ class ConversationHandlerMixin:
                 fallback_models=fallback_models,
             )
 
-            complete_msg = ConversationRunCompleteMessage(
-                run_id=run_msg.run_id,
-                conversation_id=run_msg.conversation_id,
-                session_id=run_msg.session_id,
-                assistant_content=result.final_content,
-                tool_messages=result.tool_messages,
-                status="failed" if result.error else "completed",
-                error=result.error,
-                cost_usd=result.total_cost,
-                tokens_in=result.total_tokens_in,
-                tokens_out=result.total_tokens_out,
-                step_count=result.step_count,
-                model=result.model,
-            )
-            stamped = self._stamp_trust(complete_msg.model_dump())
-            await self._js.publish(
-                SUBJECT_CONVERSATION_RUN_COMPLETE,
-                json.dumps(stamped).encode(),
-                headers={"Nats-Msg-Id": f"conv-complete-{run_msg.run_id}"},
-            )
+            await self._publish_completion(run_msg, result)
 
             await msg.ack()
             log.info(
@@ -157,22 +161,7 @@ class ConversationHandlerMixin:
 
         except Exception as exc:
             logger.exception("failed to process conversation run", error=str(exc))
-            try:
-                run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
-                if self._js is not None:
-                    error_complete = ConversationRunCompleteMessage(
-                        run_id=run_msg.run_id,
-                        conversation_id=run_msg.conversation_id,
-                        status="failed",
-                        error="internal worker error",
-                    )
-                    await self._js.publish(
-                        SUBJECT_CONVERSATION_RUN_COMPLETE,
-                        error_complete.model_dump_json().encode(),
-                        headers={"Nats-Msg-Id": f"conv-error-{run_msg.run_id}"},
-                    )
-            except Exception as exc:
-                logger.exception("failed to publish conversation error result", error=str(exc))
+            await self._publish_error_result(msg)
             await msg.ack()
         finally:
             if workbench is not None:
@@ -180,6 +169,53 @@ class ConversationHandlerMixin:
             # Clean up active run tracking.
             if run_id is not None:
                 self._active_runs.discard(run_id)
+
+    async def _publish_completion(
+        self,
+        run_msg: ConversationRunStartMessage,
+        result: AgentLoopResult,
+    ) -> None:
+        """Publish a conversation run completion message to NATS."""
+        complete_msg = ConversationRunCompleteMessage(
+            run_id=run_msg.run_id,
+            conversation_id=run_msg.conversation_id,
+            session_id=run_msg.session_id,
+            assistant_content=result.final_content,
+            tool_messages=result.tool_messages,
+            status="failed" if result.error else "completed",
+            error=result.error,
+            cost_usd=result.total_cost,
+            tokens_in=result.total_tokens_in,
+            tokens_out=result.total_tokens_out,
+            step_count=result.step_count,
+            model=result.model,
+        )
+        stamped = self._stamp_trust(complete_msg.model_dump())
+        await self._js.publish(
+            SUBJECT_CONVERSATION_RUN_COMPLETE,
+            json.dumps(stamped).encode(),
+            headers={"Nats-Msg-Id": f"conv-complete-{run_msg.run_id}"},
+        )
+
+    async def _publish_error_result(self, msg: nats.aio.msg.Msg) -> None:
+        """Best-effort publish of an error completion when the main handler fails."""
+        try:
+            run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
+            if self._js is not None:
+                error_complete = ConversationRunCompleteMessage(
+                    run_id=run_msg.run_id,
+                    conversation_id=run_msg.conversation_id,
+                    session_id=run_msg.session_id,
+                    status="failed",
+                    error="internal worker error",
+                )
+                await self._js.publish(
+                    SUBJECT_CONVERSATION_RUN_COMPLETE,
+                    error_complete.model_dump_json().encode(),
+                    headers={"Nats-Msg-Id": f"conv-error-{run_msg.run_id}"},
+                )
+        except Exception as exc:
+            logger.exception("failed to publish conversation error result", error=str(exc))
 
     async def _execute_conversation_run(
         self,

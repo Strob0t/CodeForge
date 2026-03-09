@@ -25,6 +25,7 @@ import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
 import RoadmapPanel from "./RoadmapPanel";
+import SessionPanel from "./SessionPanel";
 import WarRoom from "./WarRoom";
 
 export default function ProjectDetailPage() {
@@ -63,7 +64,7 @@ export default function ProjectDetailPage() {
   const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
 
   // Left panel tab
-  type LeftTab = "roadmap" | "featuremap" | "files" | "warroom" | "goals" | "audit";
+  type LeftTab = "roadmap" | "featuremap" | "files" | "warroom" | "goals" | "audit" | "sessions";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("roadmap");
 
   // Auto-select "files" tab once on initial load when project has a workspace
@@ -425,7 +426,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
@@ -489,6 +490,14 @@ export default function ProjectDetailPage() {
                         >
                           {t("audit.title")}
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class={leftTab() === "sessions" ? "bg-cf-accent/15 text-cf-accent" : ""}
+                          onClick={() => setLeftTab("sessions")}
+                        >
+                          {t("session.tab")}
+                        </Button>
                       </div>
                       <Button
                         variant="ghost"
@@ -539,6 +548,11 @@ export default function ProjectDetailPage() {
                     <Show when={leftTab() === "audit"}>
                       <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                         <AuditTable projectId={params.id} />
+                      </div>
+                    </Show>
+                    <Show when={leftTab() === "sessions"}>
+                      <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                        <SessionPanel projectId={params.id} />
                       </div>
                     </Show>
                   </div>
