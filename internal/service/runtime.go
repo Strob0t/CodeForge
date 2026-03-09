@@ -651,6 +651,33 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			"model":      payload.Model,
 		})
 
+		// Goal proposal events get a dedicated AG-UI broadcast.
+		if payload.EventType == "agent.goal_proposed" {
+			var proposal struct {
+				Data struct {
+					ProposalID string `json:"proposal_id"`
+					Action     string `json:"action"`
+					Kind       string `json:"kind"`
+					Title      string `json:"title"`
+					Content    string `json:"content"`
+					Priority   int    `json:"priority"`
+					GoalID     string `json:"goal_id"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(data, &proposal); err == nil {
+				s.hub.BroadcastEvent(msgCtx, ws.AGUIGoalProposal, ws.AGUIGoalProposalEvent{
+					RunID:      payload.RunID,
+					ProposalID: proposal.Data.ProposalID,
+					Action:     proposal.Data.Action,
+					Kind:       proposal.Data.Kind,
+					Title:      proposal.Data.Title,
+					Content:    proposal.Data.Content,
+					Priority:   proposal.Data.Priority,
+					GoalID:     proposal.Data.GoalID,
+				})
+			}
+		}
+
 		return nil
 	})
 	if err != nil {

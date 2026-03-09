@@ -75,6 +75,9 @@ type AGUIStepFinishedEvent struct {
 // AGUIPermissionRequest event type constant.
 const AGUIPermissionRequest = "agui.permission_request"
 
+// AGUIGoalProposal event type constant.
+const AGUIGoalProposal = "agui.goal_proposal"
+
 // AGUIPermissionRequestEvent signals that a tool call requires user approval.
 type AGUIPermissionRequestEvent struct {
 	RunID   string `json:"run_id"`
@@ -82,4 +85,16 @@ type AGUIPermissionRequestEvent struct {
 	Tool    string `json:"tool"`
 	Command string `json:"command,omitempty"`
 	Path    string `json:"path,omitempty"`
+}
+
+// AGUIGoalProposalEvent is sent when the agent proposes a goal for user review.
+type AGUIGoalProposalEvent struct {
+	RunID      string `json:"run_id"`
+	ProposalID string `json:"proposal_id"`
+	Action     string `json:"action"`
+	Kind       string `json:"kind"`
+	Title      string `json:"title"`
+	Content    string `json:"content"`
+	Priority   int    `json:"priority"`
+	GoalID     string `json:"goal_id,omitempty"`
 }
