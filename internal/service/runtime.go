@@ -611,5 +611,53 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 	}
 	cancels = append(cancels, cancel)
 
+	// Trajectory events from Python workers
+	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectTrajectoryEvent, func(msgCtx context.Context, _ string, data []byte) error {
+		var payload struct {
+			EventType string  `json:"event_type"`
+			RunID     string  `json:"run_id"`
+			ProjectID string  `json:"project_id"`
+			ToolName  string  `json:"tool_name,omitempty"`
+			Model     string  `json:"model,omitempty"`
+			TokensIn  int64   `json:"tokens_in,omitempty"`
+			TokensOut int64   `json:"tokens_out,omitempty"`
+			CostUSD   float64 `json:"cost_usd,omitempty"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return fmt.Errorf("unmarshal trajectory event: %w", err)
+		}
+
+		ev := &event.AgentEvent{
+			RunID:     payload.RunID,
+			ProjectID: payload.ProjectID,
+			Type:      event.Type(payload.EventType),
+			Payload:   data,
+			ToolName:  payload.ToolName,
+			Model:     payload.Model,
+			TokensIn:  payload.TokensIn,
+			TokensOut: payload.TokensOut,
+			CostUSD:   payload.CostUSD,
+		}
+
+		if err := s.events.Append(msgCtx, ev); err != nil {
+			slog.Error("failed to persist trajectory event", "run_id", payload.RunID, "type", payload.EventType, "error", err)
+			return nil // Log and continue, don't fail the subscription
+		}
+
+		s.hub.BroadcastEvent(msgCtx, ws.EventTrajectoryEvent, map[string]string{
+			"run_id":     payload.RunID,
+			"event_type": payload.EventType,
+			"tool_name":  payload.ToolName,
+			"model":      payload.Model,
+		})
+
+		return nil
+	})
+	if err != nil {
+		cancelAll(cancels)
+		return nil, fmt.Errorf("subscribe trajectory events: %w", err)
+	}
+	cancels = append(cancels, cancel)
+
 	return cancels, nil
 }

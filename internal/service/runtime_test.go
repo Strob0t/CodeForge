@@ -85,6 +85,12 @@ func (m *runtimeMockStore) CreateProject(_ context.Context, req *project.CreateR
 }
 func (m *runtimeMockStore) UpdateProject(_ context.Context, _ *project.Project) error { return nil }
 func (m *runtimeMockStore) DeleteProject(_ context.Context, _ string) error           { return nil }
+func (m *runtimeMockStore) BatchDeleteProjects(_ context.Context, _ []string) ([]string, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) BatchGetProjects(_ context.Context, _ []string) ([]project.Project, error) {
+	return nil, nil
+}
 
 func (m *runtimeMockStore) ListAgents(_ context.Context, _ string) ([]agent.Agent, error) {
 	return m.agents, nil

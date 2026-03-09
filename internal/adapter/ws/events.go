@@ -94,6 +94,9 @@ const (
 	EventA2ATaskCreated  = "a2a.task.created"
 	EventA2ATaskStatus   = "a2a.task.status"
 	EventA2ATaskComplete = "a2a.task.complete"
+
+	// Trajectory events
+	EventTrajectoryEvent = "trajectory.event"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.

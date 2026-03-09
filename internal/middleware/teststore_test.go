@@ -183,6 +183,12 @@ func (s *testStore) CreateProject(_ context.Context, _ *project.CreateRequest) (
 }
 func (s *testStore) UpdateProject(_ context.Context, _ *project.Project) error { return nil }
 func (s *testStore) DeleteProject(_ context.Context, _ string) error           { return nil }
+func (s *testStore) BatchDeleteProjects(_ context.Context, _ []string) ([]string, error) {
+	return nil, nil
+}
+func (s *testStore) BatchGetProjects(_ context.Context, _ []string) ([]project.Project, error) {
+	return nil, nil
+}
 func (s *testStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
 	return nil, nil
 }

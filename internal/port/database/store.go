@@ -49,6 +49,8 @@ type Store interface {
 	UpdateProject(ctx context.Context, p *project.Project) error
 	DeleteProject(ctx context.Context, id string) error
 	GetProjectByRepoName(ctx context.Context, repoName string) (*project.Project, error)
+	BatchDeleteProjects(ctx context.Context, ids []string) ([]string, error)
+	BatchGetProjects(ctx context.Context, ids []string) ([]project.Project, error)
 
 	// Agents
 	ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error)

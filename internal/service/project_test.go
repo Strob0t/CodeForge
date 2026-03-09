@@ -131,6 +131,12 @@ func (m *mockStore) DeleteProject(_ context.Context, id string) error {
 	}
 	return domain.ErrNotFound
 }
+func (m *mockStore) BatchDeleteProjects(_ context.Context, _ []string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockStore) BatchGetProjects(_ context.Context, _ []string) ([]project.Project, error) {
+	return nil, nil
+}
 
 func (m *mockStore) ListAgents(_ context.Context, _ string) ([]agent.Agent, error) {
 	return m.agents, nil
