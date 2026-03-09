@@ -85,6 +85,7 @@ POST   /api/v1/projects/{id}/checkout      # Switch branch
 - [x] Frontend: Project status card with git operations UI.
 - [x] Optimistic locking (version field) on projects.
 - [x] Multi-tenancy preparation (tenant_id on projects).
+- [x] Dashboard Polish: KPI strip (7 stats), HealthDot (weighted composite), ChartsPanel (5 Unovis charts), ActivityTimeline (WS 5-tier), ProjectCard enhanced, CreateProjectModal extracted.
 
 ### Open Items
 
