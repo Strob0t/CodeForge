@@ -406,7 +406,7 @@ class ConversationHandlerMixin:
             if not skills:
                 return system_prompt, all_skills
 
-            task_ctx = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+            task_ctx = next((m.content for m in messages if m.role == "user"), "")
             if not task_ctx:
                 return system_prompt, all_skills
 

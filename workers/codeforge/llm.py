@@ -713,6 +713,15 @@ class LiteLLMClient:
 
         return cast("ChatCompletionResponse", await self._with_retry(_inner))
 
+    async def embedding(self, text: str, model: str = "text-embedding-3-small") -> list[float]:
+        """Compute an embedding vector via the LiteLLM Proxy."""
+        payload = {"model": model, "input": text}
+        resp = await self._client.post("/v1/embeddings", json=payload)
+        if resp.status_code != 200:
+            raise LLMError(resp.status_code, model, resp.text)
+        data = resp.json()
+        return data["data"][0]["embedding"]
+
     async def health(self) -> bool:
         """Check if the LiteLLM Proxy is healthy."""
         try:
