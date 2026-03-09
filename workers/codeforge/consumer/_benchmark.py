@@ -9,6 +9,7 @@ Routes benchmark requests to the appropriate runner based on benchmark_type:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from typing import TYPE_CHECKING
 
@@ -84,15 +85,25 @@ class BenchmarkHandlerMixin:
             # Phase 28A: Split evaluators by stage for hybrid verification.
             pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else EvaluationPipeline(evaluators)
 
+            # Auto-routing: wrap LLM with routing for per-task model selection.
+            effective_llm = await self._resolve_effective_llm(req, log)
+
             if benchmark_type == "tool_use":
-                results = await _run_tool_use_benchmark(req, self._llm, pipeline)
+                results = await _run_tool_use_benchmark(req, effective_llm, pipeline)
             elif benchmark_type == "agent":
-                results = await _run_agent_benchmark(req, self._llm, pipeline)
+                results = await _run_agent_benchmark(req, effective_llm, pipeline)
             else:
-                results = await _run_simple_benchmark(req, self._llm, pipeline)
+                results = await _run_simple_benchmark(req, effective_llm, pipeline)
+
+            # Annotate results with routing metadata.
+            if req.model == "auto" and hasattr(effective_llm, "routing_log"):
+                _annotate_routing(results, effective_llm.routing_log)
 
             elapsed_ms = int((time.monotonic() - start) * 1000)
             summary = _compute_summary(results, elapsed_ms)
+
+            if req.model == "auto":
+                summary["routing_report"] = _compute_routing_report(results)
 
             result = BenchmarkRunResult(
                 run_id=req.run_id,
@@ -131,6 +142,19 @@ class BenchmarkHandlerMixin:
                     error_result.model_dump_json().encode(),
                 )
             await msg.ack()
+
+    async def _resolve_effective_llm(self, req: object, log: structlog.BoundLogger) -> object:
+        """Resolve the effective LLM client, wrapping with router for auto mode."""
+        if req.model != "auto":
+            return self._llm
+        try:
+            router = await self._get_hybrid_router()
+            if router is not None:
+                log.info("auto-routing enabled for benchmark run")
+                return _RoutingLLMWrapper(self._llm, router)
+        except Exception:
+            log.warning("HybridRouter not available, using default model for auto routing")
+        return self._llm
 
     async def _handle_gemmas_eval(self, msg: nats.aio.msg.Msg) -> None:
         """Process a GEMMAS scoring request: compute IDS + UPR and publish result."""
@@ -474,4 +498,118 @@ def _compute_summary(results: list, elapsed_ms: int) -> dict[str, object]:
         "total_tokens_in": total_tokens_in,
         "total_tokens_out": total_tokens_out,
         "elapsed_ms": elapsed_ms,
+    }
+
+
+# --- Auto-routing support (Tasks 19 & 20) ---
+
+
+class _RoutingLLMWrapper:
+    """Transparent LLM wrapper that routes each call through HybridRouter.
+
+    Delegates all attributes to the underlying LLM client, but intercepts
+    ``chat_completion`` to select the model via the router before forwarding.
+    Records routing decisions in ``routing_log`` for post-run annotation.
+    """
+
+    def __init__(self, llm: object, router: object) -> None:
+        self._llm = llm
+        self._router = router
+        self.routing_log: list[dict[str, str]] = []
+
+    async def chat_completion(self, **kwargs: object) -> object:
+        """Route, then delegate to the real LLM client."""
+        messages = kwargs.get("messages", [])
+        # Build a prompt snippet for the router from the last user message.
+        prompt = ""
+        for m in reversed(messages):  # type: ignore[arg-type]
+            role = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
+            if role == "user":
+                prompt = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
+                break
+
+        decision = None
+        if prompt:
+            with contextlib.suppress(Exception):
+                decision = self._router.route(prompt)
+
+        if decision is not None and decision.model:
+            kwargs["model"] = decision.model
+            self.routing_log.append(
+                {
+                    "model": decision.model,
+                    "layer": getattr(decision, "routing_layer", "unknown"),
+                    "reasoning": getattr(decision, "reasoning", ""),
+                }
+            )
+        else:
+            # No routing decision — record fallback.
+            fallback_model = kwargs.get("model", "default")
+            self.routing_log.append(
+                {
+                    "model": str(fallback_model),
+                    "layer": "fallback",
+                    "reasoning": "router returned no decision",
+                }
+            )
+
+        return await self._llm.chat_completion(**kwargs)
+
+    def __getattr__(self, name: str) -> object:
+        """Proxy all other attributes to the underlying LLM client."""
+        return getattr(self._llm, name)
+
+
+def _annotate_routing(results: list, routing_log: list[dict[str, str]]) -> None:
+    """Stamp routing metadata onto each BenchmarkTaskResult from the routing log.
+
+    Matches results to log entries by position (1:1 correspondence between
+    tasks and LLM calls). Extra log entries or results are silently ignored.
+    """
+    for i, result in enumerate(results):
+        if i >= len(routing_log):
+            break
+        entry = routing_log[i]
+        result.selected_model = entry.get("model", "")
+        result.routing_reason = entry.get("reasoning", "")
+
+
+def _compute_routing_report(results: list) -> dict[str, object]:
+    """Aggregate routing metadata from annotated results into a summary report.
+
+    Returns a dict with:
+    - models_used: list of distinct models selected
+    - model_distribution: {model: count}
+    - layer_distribution: {layer: count}
+    - avg_score_by_model: {model: average_score}
+    """
+    model_counts: dict[str, int] = {}
+    layer_counts: dict[str, int] = {}
+    model_scores: dict[str, list[float]] = {}
+
+    for r in results:
+        model = getattr(r, "selected_model", "") or "unknown"
+        layer = getattr(r, "routing_reason", "") or "unknown"
+
+        model_counts[model] = model_counts.get(model, 0) + 1
+
+        # Routing reason may contain the layer info; use it as-is.
+        layer_counts[layer] = layer_counts.get(layer, 0) + 1
+
+        scores = list(r.scores.values()) if r.scores else []
+        if scores:
+            avg = sum(scores) / len(scores)
+            if model not in model_scores:
+                model_scores[model] = []
+            model_scores[model].append(avg)
+
+    avg_by_model: dict[str, float] = {}
+    for model, score_list in model_scores.items():
+        avg_by_model[model] = round(sum(score_list) / len(score_list), 4) if score_list else 0.0
+
+    return {
+        "models_used": sorted(model_counts.keys()),
+        "model_distribution": model_counts,
+        "layer_distribution": layer_counts,
+        "avg_score_by_model": avg_by_model,
     }

@@ -52,14 +52,15 @@ type AgentStatusPayload struct {
 
 // ModePayload carries agent mode metadata to the Python worker.
 type ModePayload struct {
-	ID               string   `json:"id"`
-	PromptPrefix     string   `json:"prompt_prefix"`
-	Tools            []string `json:"tools"`
-	DeniedTools      []string `json:"denied_tools,omitempty"`
-	DeniedActions    []string `json:"denied_actions,omitempty"`
-	RequiredArtifact string   `json:"required_artifact,omitempty"`
-	LLMScenario      string   `json:"llm_scenario,omitempty"`
-	OutputSchema     string   `json:"output_schema,omitempty"`
+	ID               string            `json:"id"`
+	PromptPrefix     string            `json:"prompt_prefix"`
+	Tools            []string          `json:"tools"`
+	DeniedTools      []string          `json:"denied_tools,omitempty"`
+	DeniedActions    []string          `json:"denied_actions,omitempty"`
+	RequiredArtifact string            `json:"required_artifact,omitempty"`
+	LLMScenario      string            `json:"llm_scenario,omitempty"`
+	OutputSchema     string            `json:"output_schema,omitempty"`
+	ModelAdaptations map[string]string `json:"model_adaptations,omitempty"`
 }
 
 // RunStartPayload is the schema for runs.start messages.

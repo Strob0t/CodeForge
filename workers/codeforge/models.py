@@ -81,6 +81,7 @@ class ModeConfig(BaseModel):
     required_artifact: str = ""
     llm_scenario: str = ""
     output_schema: str = ""
+    model_adaptations: dict[str, str] = Field(default_factory=dict)
 
 
 class TrustAnnotation(BaseModel):
