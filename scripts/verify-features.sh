@@ -524,6 +524,27 @@ check_critical() {
 }
 
 # ---------------------------------------------------------------------------
+# Warn about non-critical feature regressions (GitHub Actions annotations)
+# ---------------------------------------------------------------------------
+warn_non_critical() {
+  local non_critical_failures=0
+  for feat_id in 11 12 13 14 15 16 17 18 19 20 21 24 25 26 27 28 29 30; do
+    local idx=$((feat_id - 1))
+    if [ "${RES_GO[$idx]}" = "FAIL" ] || [ "${RES_PY[$idx]}" = "FAIL" ]; then
+      echo "::warning::Non-critical feature ${feat_id} (${FEAT_NAME[$idx]}) has regressions"
+      non_critical_failures=$((non_critical_failures + 1))
+    fi
+  done
+  if [ "$non_critical_failures" -gt 0 ]; then
+    echo ">>> $non_critical_failures non-critical feature(s) have regressions (warnings only)." >&2
+  fi
+  # Output for GitHub Actions
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "non_critical_failures=$non_critical_failures" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -547,6 +568,8 @@ main() {
 
   generate_markdown
   generate_json
+
+  warn_non_critical
 
   if check_critical; then
     echo ">>> All critical features OK (no FAIL results)." >&2
