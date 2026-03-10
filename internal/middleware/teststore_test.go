@@ -11,6 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
+	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
@@ -550,6 +551,12 @@ func (s *testStore) CreateToolMessages(_ context.Context, _ string, _ []conversa
 func (s *testStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
 	return nil, nil
 }
+func (s *testStore) DeleteConversationMessages(_ context.Context, _ string) error { return nil }
+func (s *testStore) UpdateConversationMode(_ context.Context, _, _ string) error  { return nil }
+func (s *testStore) UpdateConversationModel(_ context.Context, _, _ string) error { return nil }
+func (s *testStore) SearchConversationMessages(_ context.Context, _ string, _ []string, _ int) ([]conversation.Message, error) {
+	return nil, nil
+}
 
 // MCP stubs
 func (s *testStore) CreateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
@@ -783,3 +790,25 @@ func (s *testStore) GetLLMKeyByUserProvider(_ context.Context, _, _ string) (*ll
 	return nil, nil
 }
 func (s *testStore) DeleteLLMKey(_ context.Context, _, _ string) error { return nil }
+
+// Channel stubs
+func (s *testStore) CreateChannel(_ context.Context, _ *channel.Channel) (*channel.Channel, error) {
+	return nil, nil
+}
+func (s *testStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
+	return nil, nil
+}
+func (s *testStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+func (s *testStore) DeleteChannel(_ context.Context, _ string) error { return nil }
+func (s *testStore) CreateChannelMessage(_ context.Context, _ *channel.Message) (*channel.Message, error) {
+	return nil, nil
+}
+func (s *testStore) ListChannelMessages(_ context.Context, _, _ string, _ int) ([]channel.Message, error) {
+	return nil, nil
+}
+func (s *testStore) AddChannelMember(_ context.Context, _ *channel.Member) error { return nil }
+func (s *testStore) UpdateChannelMemberNotify(_ context.Context, _, _ string, _ channel.NotifySetting) error {
+	return nil
+}

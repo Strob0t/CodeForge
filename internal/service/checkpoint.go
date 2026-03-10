@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -21,11 +22,21 @@ type Checkpoint struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// CheckpointService manages git-based shadow checkpoints for agent runs.
+// fileSnapshot holds a snapshot of a file's content before modification.
+type fileSnapshot struct {
+	Path    string
+	Content []byte
+}
+
+// CheckpointService manages git-based shadow checkpoints for agent runs
+// and file-content snapshots for per-tool-call revert.
 type CheckpointService struct {
 	mu          sync.Mutex
 	checkpoints map[string][]Checkpoint // runID -> ordered list
 	pool        *git.Pool
+
+	snapshotMu sync.RWMutex
+	snapshots  map[string]map[string]fileSnapshot // runID -> callID -> snapshot
 }
 
 // NewCheckpointService creates a new CheckpointService with a shared git pool.
@@ -33,6 +44,7 @@ func NewCheckpointService(pool *git.Pool) *CheckpointService {
 	return &CheckpointService{
 		checkpoints: make(map[string][]Checkpoint),
 		pool:        pool,
+		snapshots:   make(map[string]map[string]fileSnapshot),
 	}
 }
 
@@ -142,6 +154,58 @@ func (s *CheckpointService) CleanupCheckpoints(ctx context.Context, runID, works
 		}
 		return nil
 	})
+}
+
+// Store reads the current content of path and saves it under runID/callID.
+// This captures a pre-edit snapshot for per-tool-call revert.
+func (s *CheckpointService) Store(runID, callID, path string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // path is validated by caller (workspace-scoped)
+	if err != nil {
+		return fmt.Errorf("checkpoint read: %w", err)
+	}
+
+	s.snapshotMu.Lock()
+	defer s.snapshotMu.Unlock()
+
+	if s.snapshots[runID] == nil {
+		s.snapshots[runID] = make(map[string]fileSnapshot)
+	}
+	s.snapshots[runID][callID] = fileSnapshot{Path: path, Content: data}
+	return nil
+}
+
+// Revert restores the file to its checkpointed content and removes the snapshot.
+func (s *CheckpointService) Revert(runID, callID string) error {
+	s.snapshotMu.RLock()
+	calls, ok := s.snapshots[runID]
+	if !ok {
+		s.snapshotMu.RUnlock()
+		return fmt.Errorf("no checkpoints for run %s", runID)
+	}
+	snap, ok := calls[callID]
+	if !ok {
+		s.snapshotMu.RUnlock()
+		return fmt.Errorf("no checkpoint for call %s in run %s", callID, runID)
+	}
+	s.snapshotMu.RUnlock()
+
+	if err := os.WriteFile(snap.Path, snap.Content, 0o600); err != nil {
+		return fmt.Errorf("checkpoint revert: %w", err)
+	}
+
+	// Remove the used snapshot
+	s.snapshotMu.Lock()
+	delete(s.snapshots[runID], callID)
+	s.snapshotMu.Unlock()
+
+	return nil
+}
+
+// ClearRun removes all file snapshots for a given run.
+func (s *CheckpointService) ClearRun(runID string) {
+	s.snapshotMu.Lock()
+	delete(s.snapshots, runID)
+	s.snapshotMu.Unlock()
 }
 
 // runCheckpointGit executes a git command in the given directory.

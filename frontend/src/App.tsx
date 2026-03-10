@@ -1,6 +1,6 @@
 import type { RouteSectionProps } from "@solidjs/router";
 import { useLocation } from "@solidjs/router";
-import { createResource, ErrorBoundary, type JSX, Show } from "solid-js";
+import { createEffect, createResource, ErrorBoundary, type JSX, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { HealthStatus } from "~/api/types";
@@ -14,6 +14,9 @@ import { SidebarProvider, useSidebar } from "~/components/SidebarProvider";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
 import { ToastProvider } from "~/components/Toast";
 import { useWebSocket, WebSocketProvider } from "~/components/WebSocketProvider";
+import ChannelList from "~/features/channels/ChannelList";
+import NotificationBell from "~/features/notifications/NotificationBell";
+import { addNotification, getUnreadCount } from "~/features/notifications/notificationStore";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
@@ -34,6 +37,7 @@ import {
   SearchIcon,
   SettingsIcon,
 } from "~/ui/layout/NavIcons";
+import { updateTabBadge } from "~/utils/tabBadge";
 
 // ---------------------------------------------------------------------------
 // Error fallback (rendered when an uncaught error bubbles up)
@@ -95,6 +99,36 @@ function AppShell(props: {
   const { collapsed, openMobile } = useSidebar();
   const { isMobile } = useBreakpoint();
   const { activeRuns } = useConversationRuns();
+  const { onAGUIEvent } = useWebSocket();
+
+  // Subscribe to AG-UI events and feed the notification store
+  const offPermission = onAGUIEvent("agui.permission_request", (ev) => {
+    addNotification({
+      type: "permission_request",
+      title: "Approval Required",
+      message: `Agent requests permission for: ${ev.tool || "action"}`,
+      metadata: { run_id: ev.run_id, call_id: ev.call_id },
+    });
+  });
+
+  const offRunFinished = onAGUIEvent("agui.run_finished", (ev) => {
+    const failed = ev.status === "failed" || ev.status === "error";
+    addNotification({
+      type: failed ? "run_failed" : "run_complete",
+      title: failed ? "Run Failed" : "Run Complete",
+      message: ev.error ? `Run ${ev.run_id}: ${ev.error}` : `Run ${ev.run_id} ${ev.status}`,
+    });
+  });
+
+  onCleanup(() => {
+    offPermission();
+    offRunFinished();
+  });
+
+  // Sync tab badge with unread notification count
+  createEffect(() => {
+    updateTabBadge(getUnreadCount());
+  });
 
   return (
     <>
@@ -108,8 +142,13 @@ function AppShell(props: {
         <div class="flex flex-1 overflow-hidden">
           <Sidebar>
             <Sidebar.Header>
-              <h1 class="text-xl font-bold">{t("app.title")}</h1>
-              <p class="mt-1 text-xs text-cf-text-muted">{t("app.version")}</p>
+              <div class="flex items-center justify-between">
+                <div>
+                  <h1 class="text-xl font-bold">{t("app.title")}</h1>
+                  <p class="mt-1 text-xs text-cf-text-muted">{t("app.version")}</p>
+                </div>
+                <NotificationBell />
+              </div>
             </Sidebar.Header>
             <UserInfo />
 
@@ -160,6 +199,8 @@ function AppShell(props: {
                 </NavLink>
               </Show>
             </Sidebar.Nav>
+
+            <ChannelList />
 
             <Sidebar.Footer>
               <Show

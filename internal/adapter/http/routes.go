@@ -52,6 +52,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Global search
 		r.Post("/search", h.GlobalSearch)
+		r.Post("/search/conversations", h.SearchConversations)
 
 		r.Get("/projects/{id}", h.GetProject)
 		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.DeleteProject)
@@ -353,9 +354,14 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/conversations/{id}/session", h.GetConversationSession)
 		r.Post("/conversations/{id}/fork", h.ForkConversation)
 		r.Post("/conversations/{id}/rewind", h.RewindConversation)
+		r.Post("/conversations/{id}/compact", h.CompactConversation)
+		r.Post("/conversations/{id}/clear", h.ClearConversation)
+		r.Post("/conversations/{id}/mode", h.SetConversationMode)
+		r.Post("/conversations/{id}/model", h.SetConversationModel)
 
 		// HITL (Human-in-the-Loop) Approval
 		r.Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)
+		r.Post("/runs/{id}/revert/{callId}", h.RevertToolCall)
 
 		// LSP (Language Server Protocol)
 		r.Post("/projects/{id}/lsp/start", h.StartLSP)
@@ -389,6 +395,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Delete("/{id}", h.DeleteUserHandler)
 			r.Post("/{id}/force-password-change", h.AdminForcePasswordChange)
 		})
+
+		// Commands (slash commands for chat)
+		r.Get("/commands", h.ListCommands)
 
 		// Prompt Sections
 		r.Get("/prompt-sections", h.ListPromptSections)
@@ -505,6 +514,19 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Put("/goals/{id}", h.UpdateProjectGoal)
 			r.Delete("/goals/{id}", h.DeleteProjectGoal)
 		}
+
+		// Channels
+		r.Route("/channels", func(r chi.Router) {
+			r.Get("/", h.ListChannels)
+			r.Post("/", h.CreateChannel)
+			r.Get("/{id}", h.GetChannel)
+			r.Delete("/{id}", h.DeleteChannel)
+			r.Get("/{id}/messages", h.ListChannelMessages)
+			r.Post("/{id}/messages", h.SendChannelMessage)
+			r.Post("/{id}/messages/{mid}/thread", h.SendThreadReply)
+			r.Put("/{id}/members/{uid}", h.UpdateMemberNotify)
+			r.Post("/{id}/webhook", h.WebhookMessage)
+		})
 
 		// Quarantine (Phase 23B — admin only)
 		r.Route("/quarantine", func(r chi.Router) {

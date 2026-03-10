@@ -603,6 +603,7 @@ class AgentLoopExecutor:
                 success=result.success,
                 output=result.output[:500] if result.output else "",
                 error=result.error,
+                diff=result.diff,
             )
             elapsed_ms = (time.monotonic() - tool_start) * 1000
             otel_metrics.tool_duration.record(elapsed_ms / 1000)
@@ -621,6 +622,20 @@ class AgentLoopExecutor:
                 )
             except Exception as exc:
                 logger.debug("failed to publish tool_called trajectory event: %s", exc)
+
+            # Emit action suggestion after file-modifying tool calls.
+            if result.success and tc.name in ("edit_file", "write_file"):
+                try:
+                    await self._runtime.publish_trajectory_event(
+                        {
+                            "event_type": "agent.action_suggestion",
+                            "label": "Run tests",
+                            "action": "send_message",
+                            "value": "Run the test suite to verify the changes",
+                        }
+                    )
+                except Exception as exc:
+                    logger.debug("failed to publish action_suggestion event: %s", exc)
 
     @staticmethod
     def _append_tool_result(

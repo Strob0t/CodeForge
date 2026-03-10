@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
+	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
@@ -786,6 +787,18 @@ func (m *runtimeMockStore) CreateToolMessages(_ context.Context, _ string, _ []c
 	return nil
 }
 func (m *runtimeMockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteConversationMessages(_ context.Context, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) UpdateConversationMode(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) UpdateConversationModel(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) SearchConversationMessages(_ context.Context, _ string, _ []string, _ int) ([]conversation.Message, error) {
 	return nil, nil
 }
 
@@ -2439,3 +2452,25 @@ func (m *runtimeMockStore) GetLLMKeyByUserProvider(_ context.Context, _, _ strin
 	return nil, nil
 }
 func (m *runtimeMockStore) DeleteLLMKey(_ context.Context, _, _ string) error { return nil }
+
+// Channel stubs
+func (m *runtimeMockStore) CreateChannel(_ context.Context, _ *channel.Channel) (*channel.Channel, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteChannel(_ context.Context, _ string) error { return nil }
+func (m *runtimeMockStore) CreateChannelMessage(_ context.Context, _ *channel.Message) (*channel.Message, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListChannelMessages(_ context.Context, _, _ string, _ int) ([]channel.Message, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) AddChannelMember(_ context.Context, _ *channel.Member) error { return nil }
+func (m *runtimeMockStore) UpdateChannelMemberNotify(_ context.Context, _, _ string, _ channel.NotifySetting) error {
+	return nil
+}

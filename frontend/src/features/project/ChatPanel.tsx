@@ -11,7 +11,7 @@ import {
 
 import { api } from "~/api/client";
 import type { Conversation, ConversationMessage, Session } from "~/api/types";
-import type { AGUIGoalProposal } from "~/api/websocket";
+import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
@@ -19,9 +19,16 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
+import ChatInput from "../chat/ChatInput";
+import ActionBar from "./ActionBar";
+import type { ActionRule } from "./actionRules";
+import { deriveActions } from "./actionRules";
 import ChatSuggestions from "./ChatSuggestions";
 import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
+import MessageBadge from "./MessageBadge";
+import PermissionRequestCard from "./PermissionRequestCard";
+import SessionFooter from "./SessionFooter";
 import SessionPanel from "./SessionPanel";
 import ToolCallCard from "./ToolCallCard";
 
@@ -36,6 +43,17 @@ interface ToolCallState {
   args?: Record<string, unknown>;
   result?: string;
   status: "pending" | "running" | "completed" | "failed";
+  diff?: {
+    path: string;
+    hunks: {
+      old_start: number;
+      old_lines: number;
+      new_start: number;
+      new_lines: number;
+      old_content: string;
+      new_content: string;
+    }[];
+  };
 }
 
 interface PlanStepState {
@@ -128,9 +146,23 @@ export default function ChatPanel(props: ChatPanelProps) {
   // Goal proposals from AG-UI events (rendered inline as approval cards)
   const [goalProposals, setGoalProposals] = createSignal<AGUIGoalProposal[]>([]);
 
+  // Permission requests from AG-UI events (HITL approval cards)
+  const [permissionRequests, setPermissionRequests] = createSignal<AGUIPermissionRequest[]>([]);
+  const [resolvedPermissions, setResolvedPermissions] = createSignal<Set<string>>(new Set());
+
+  // Action suggestions from AG-UI events and rule-based derivation
+  const [actionSuggestions, setActionSuggestions] = createSignal<ActionRule[]>([]);
+
   // Agentic mode tracking: step counter and running cost
   const [stepCount, setStepCount] = createSignal(0);
   const [runningCost, setRunningCost] = createSignal(0);
+
+  // Session-level cumulative usage (persists across runs, shown in SessionFooter)
+  const [sessionModel, setSessionModel] = createSignal("");
+  const [sessionCostUsd, setSessionCostUsd] = createSignal(0);
+  const [sessionTokensIn, setSessionTokensIn] = createSignal(0);
+  const [sessionTokensOut, setSessionTokensOut] = createSignal(0);
+  const [sessionSteps, setSessionSteps] = createSignal(0);
 
   let messagesEndRef: HTMLDivElement | undefined;
 
@@ -229,6 +261,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         setStepCount(0);
         setRunningCost(0);
         setGoalProposals([]);
+        setActionSuggestions([]);
       });
     }
   });
@@ -272,16 +305,33 @@ export default function ChatPanel(props: ChatPanelProps) {
     if (runId === activeConversation()) {
       const callId = payload.call_id as string;
       const error = payload.error as string | undefined;
+      const diff = payload.diff as ToolCallState["diff"] | undefined;
       setToolCalls((prev) =>
         prev.map((tc) =>
           tc.callId === callId
-            ? { ...tc, result: payload.result as string, status: error ? "failed" : "completed" }
+            ? {
+                ...tc,
+                result: payload.result as string,
+                status: error ? "failed" : "completed",
+                diff,
+              }
             : tc,
         ),
       );
       // Track running cost if the event carries it
       if (typeof payload.cost_usd === "number") {
         setRunningCost((prev) => prev + (payload.cost_usd as number));
+      }
+      // Derive rule-based action suggestions from tool result
+      const tc = toolCalls().find((t) => t.callId === callId);
+      if (tc) {
+        const derived = deriveActions(tc.name, (payload.result as string) ?? "");
+        if (derived.length > 0) {
+          setActionSuggestions((prev) => {
+            const labels = new Set(prev.map((a) => a.label));
+            return [...prev, ...derived.filter((d) => !labels.has(d.label))];
+          });
+        }
       }
     }
   });
@@ -293,6 +343,13 @@ export default function ChatPanel(props: ChatPanelProps) {
     if (runId === activeConversation()) {
       const status = payload.status as string;
       const errorMsg = payload.error as string | undefined;
+      // Extract usage data from run_finished payload
+      const model = (payload.model as string) || "";
+      const costUsd = (payload.cost_usd as number) || 0;
+      const tokensIn = (payload.tokens_in as number) || 0;
+      const tokensOut = (payload.tokens_out as number) || 0;
+      const steps = (payload.steps as number) || 0;
+
       batch(() => {
         setAgentRunning(false);
         setStreamingContent("");
@@ -300,6 +357,15 @@ export default function ChatPanel(props: ChatPanelProps) {
         setPlanSteps([]);
         setStepCount(0);
         setRunningCost(0);
+        setPermissionRequests([]);
+        setResolvedPermissions(new Set<string>());
+
+        // Accumulate session-level usage
+        if (model) setSessionModel(model);
+        setSessionCostUsd((prev) => prev + costUsd);
+        setSessionTokensIn((prev) => prev + tokensIn);
+        setSessionTokensOut((prev) => prev + tokensOut);
+        setSessionSteps((prev) => prev + steps);
 
         if (status === "failed" && errorMsg) {
           setRunError(errorMsg);
@@ -336,6 +402,28 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   });
 
+  // When the agent requests permission (HITL), show an approval card
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
+  const cleanupPermissionRequest = onAGUIEvent("agui.permission_request", (payload) => {
+    if (payload.run_id === activeConversation()) {
+      setPermissionRequests((prev) => [...prev, payload]);
+      scrollToBottom();
+    }
+  });
+
+  // When the agent suggests a follow-up action
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
+  const cleanupActionSuggestion = onAGUIEvent("agui.action_suggestion", (payload) => {
+    if (payload.run_id === activeConversation()) {
+      const suggestion: ActionRule = {
+        label: payload.label as string,
+        action: payload.action as ActionRule["action"],
+        value: payload.value as string,
+      };
+      setActionSuggestions((prev) => [...prev, suggestion]);
+    }
+  });
+
   onCleanup(() => {
     cleanupRunStarted();
     cleanupTextMessage();
@@ -345,6 +433,8 @@ export default function ChatPanel(props: ChatPanelProps) {
     cleanupStepStarted();
     cleanupStepFinished();
     cleanupGoalProposal();
+    cleanupPermissionRequest();
+    cleanupActionSuggestion();
   });
 
   // --- Handlers ---
@@ -383,13 +473,6 @@ export default function ChatPanel(props: ChatPanelProps) {
       // toast handled by API layer
     } finally {
       setSending(false);
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
     }
   };
 
@@ -632,9 +715,11 @@ export default function ChatPanel(props: ChatPanelProps) {
                   <Show when={msg.role === "assistant"} fallback={msg.content}>
                     <Markdown content={msg.content} />
                   </Show>
-                  <Show when={msg.model}>
-                    <div class="mt-1 text-xs opacity-60">{msg.model}</div>
-                  </Show>
+                  <MessageBadge
+                    model={msg.model || undefined}
+                    tokensIn={msg.tokens_in || undefined}
+                    tokensOut={msg.tokens_out || undefined}
+                  />
                 </div>
               </div>
             )}
@@ -670,6 +755,9 @@ export default function ChatPanel(props: ChatPanelProps) {
                       args={tc.args}
                       result={tc.result}
                       status={tc.status}
+                      diff={tc.diff}
+                      runId={activeConversation() ?? undefined}
+                      callId={tc.callId}
                     />
                   )}
                 </For>
@@ -695,6 +783,26 @@ export default function ChatPanel(props: ChatPanelProps) {
             </div>
           </Show>
 
+          {/* Permission request cards from AG-UI events (HITL approval) */}
+          <For each={permissionRequests().filter((pr) => !resolvedPermissions().has(pr.call_id))}>
+            {(pr) => (
+              <div class="flex justify-start">
+                <div class="max-w-[90%] sm:max-w-[75%] w-full">
+                  <PermissionRequestCard
+                    runId={pr.run_id}
+                    callId={pr.call_id}
+                    tool={pr.tool}
+                    command={pr.command}
+                    path={pr.path}
+                    onResolved={() => {
+                      setResolvedPermissions((prev) => new Set([...prev, pr.call_id]));
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </For>
+
           {/* Streaming assistant message from AG-UI text_message events */}
           <Show when={streamingContent()}>
             {(content) => (
@@ -717,6 +825,19 @@ export default function ChatPanel(props: ChatPanelProps) {
                 </div>
               </div>
             )}
+          </Show>
+
+          {/* Action suggestions — shown when agent is idle and suggestions exist */}
+          <Show when={!agentRunning() && actionSuggestions().length > 0}>
+            <ActionBar
+              rules={actionSuggestions()}
+              onAction={(action) => {
+                setActionSuggestions([]);
+                if (action.action === "send_message") {
+                  sendChatMessage(action.value);
+                }
+              }}
+            />
           </Show>
 
           {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
@@ -761,13 +882,11 @@ export default function ChatPanel(props: ChatPanelProps) {
                 />
               </svg>
             </Button>
-            <textarea
-              class="flex-1 rounded-cf-md border border-cf-border bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder-cf-text-muted focus:border-cf-accent focus:ring-1 focus:ring-cf-accent resize-none"
-              rows={2}
-              placeholder={t("chat.placeholder")}
+            <ChatInput
               value={input()}
-              onInput={(e) => setInput(e.currentTarget.value)}
-              onKeyDown={handleKeyDown}
+              onInput={setInput}
+              onSubmit={handleSend}
+              placeholder={t("chat.placeholder")}
               disabled={sending()}
             />
             <Button
@@ -781,6 +900,16 @@ export default function ChatPanel(props: ChatPanelProps) {
             </Button>
           </div>
         </div>
+
+        {/* Session usage footer */}
+        <SessionFooter
+          model={sessionModel() || undefined}
+          steps={sessionSteps()}
+          costUsd={sessionCostUsd()}
+          tokensUsed={sessionTokensIn() + sessionTokensOut()}
+          tokensTotal={120000}
+          visible={sessionCostUsd() > 0 || sessionSteps() > 0}
+        />
       </Show>
     </div>
   );

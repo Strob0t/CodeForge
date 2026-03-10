@@ -13,6 +13,126 @@ import (
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
+// --- File snapshot (Store/Revert/ClearRun) tests ---
+
+func TestCheckpointService_StoreAndRevert(t *testing.T) {
+	svc := service.NewCheckpointService(git.NewPool(1))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Store("run-1", "call-1", path); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+
+	// Modify file
+	if err := os.WriteFile(path, []byte("modified"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify modified
+	data, _ := os.ReadFile(path) //nolint:gosec // test file with known path
+	if string(data) != "modified" {
+		t.Fatalf("expected 'modified', got %q", string(data))
+	}
+
+	// Revert
+	if err := svc.Revert("run-1", "call-1"); err != nil {
+		t.Fatalf("Revert: %v", err)
+	}
+
+	// Verify restored
+	data, _ = os.ReadFile(path) //nolint:gosec // test file with known path
+	if string(data) != "original" {
+		t.Fatalf("expected 'original' after revert, got %q", string(data))
+	}
+}
+
+func TestCheckpointService_RevertNotFound(t *testing.T) {
+	svc := service.NewCheckpointService(git.NewPool(1))
+
+	err := svc.Revert("nonexistent-run", "nonexistent-call")
+	if err == nil {
+		t.Fatal("expected error for nonexistent run")
+	}
+
+	// Add a run but try nonexistent call
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Store("run-2", "call-1", path); err != nil {
+		t.Fatal(err)
+	}
+
+	err = svc.Revert("run-2", "nonexistent-call")
+	if err == nil {
+		t.Fatal("expected error for nonexistent call")
+	}
+}
+
+func TestCheckpointService_ClearRun(t *testing.T) {
+	svc := service.NewCheckpointService(git.NewPool(1))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+
+	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Store("run-3", "call-1", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Store("run-3", "call-2", path); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.ClearRun("run-3")
+
+	err := svc.Revert("run-3", "call-1")
+	if err == nil {
+		t.Fatal("expected error after ClearRun")
+	}
+}
+
+func TestCheckpointService_StoreNonexistentFile(t *testing.T) {
+	svc := service.NewCheckpointService(git.NewPool(1))
+	err := svc.Store("run-4", "call-1", "/nonexistent/path/file.txt")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestCheckpointService_RevertRemovesSnapshot(t *testing.T) {
+	svc := service.NewCheckpointService(git.NewPool(1))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Store("run-5", "call-1", path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("modified"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// First revert should succeed
+	if err := svc.Revert("run-5", "call-1"); err != nil {
+		t.Fatalf("first Revert: %v", err)
+	}
+
+	// Second revert should fail (snapshot consumed)
+	err := svc.Revert("run-5", "call-1")
+	if err == nil {
+		t.Fatal("expected error on second revert (snapshot should be consumed)")
+	}
+}
+
 func initCheckpointTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

@@ -18,7 +18,8 @@ export type AGUIEventType =
   | "agui.step_started"
   | "agui.step_finished"
   | "agui.goal_proposal"
-  | "agui.permission_request";
+  | "agui.permission_request"
+  | "agui.action_suggestion";
 
 export interface AGUIRunStarted {
   run_id: string;
@@ -29,6 +30,11 @@ export interface AGUIRunFinished {
   run_id: string;
   status: string;
   error?: string;
+  model?: string;
+  cost_usd?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  steps?: number;
 }
 export interface AGUITextMessage {
   run_id: string;
@@ -47,6 +53,17 @@ export interface AGUIToolResult {
   result: string;
   error?: string;
   cost_usd?: number;
+  diff?: {
+    path: string;
+    hunks: {
+      old_start: number;
+      old_lines: number;
+      new_start: number;
+      new_lines: number;
+      old_content: string;
+      new_content: string;
+    }[];
+  };
 }
 export interface AGUIStateDelta {
   run_id: string;
@@ -79,6 +96,12 @@ export interface AGUIPermissionRequest {
   command?: string;
   path?: string;
 }
+export interface AGUIActionSuggestion {
+  run_id: string;
+  label: string;
+  action: string; // "send_message", "run_tool", "navigate"
+  value: string;
+}
 
 /** Discriminated map from AG-UI event type to its typed payload. */
 export interface AGUIEventMap {
@@ -92,6 +115,7 @@ export interface AGUIEventMap {
   "agui.step_finished": AGUIStepFinished;
   "agui.goal_proposal": AGUIGoalProposal;
   "agui.permission_request": AGUIPermissionRequest;
+  "agui.action_suggestion": AGUIActionSuggestion;
 }
 
 function buildWSURL(): string {

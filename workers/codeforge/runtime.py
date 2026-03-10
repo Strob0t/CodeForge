@@ -269,12 +269,13 @@ class RuntimeClient:
         tokens_in: int = 0,
         tokens_out: int = 0,
         model: str = "",
+        diff: dict[str, object] | None = None,
     ) -> None:
         """Report the outcome of an executed tool call back to the control plane."""
         self._metrics.step_count += 1
         self._metrics.record(cost=cost_usd, tokens_in=tokens_in, tokens_out=tokens_out, model=model)
 
-        result = {
+        result: dict[str, object] = {
             "run_id": self.run_id,
             "call_id": call_id,
             "tool": tool,
@@ -286,6 +287,8 @@ class RuntimeClient:
             "tokens_out": tokens_out,
             "model": model,
         }
+        if diff is not None:
+            result["diff"] = diff
         await self._js.publish(
             SUBJECT_TOOLCALL_RESULT,
             json.dumps(result).encode(),

@@ -24,6 +24,7 @@ from codeforge.consumer._a2a import A2AHandlerMixin
 from codeforge.consumer._backend_health import BackendHealthHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._benchmark import BenchmarkHandlerMixin
+from codeforge.consumer._compact import CompactHandlerMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.consumer._graph import GraphHandlerMixin
 from codeforge.consumer._handoff import HandoffHandlerMixin
@@ -40,6 +41,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_AGENT,
     SUBJECT_BACKEND_HEALTH_REQUEST,
     SUBJECT_BENCHMARK_RUN_REQUEST,
+    SUBJECT_CONVERSATION_COMPACT_REQUEST,
     SUBJECT_CONVERSATION_RUN_START,
     SUBJECT_EVAL_GEMMAS_REQUEST,
     SUBJECT_GRAPH_BUILD_REQUEST,
@@ -88,6 +90,7 @@ class TaskConsumer(
     RetrievalHandlerMixin,
     GraphHandlerMixin,
     ConversationHandlerMixin,
+    CompactHandlerMixin,
     BenchmarkHandlerMixin,
     MemoryHandlerMixin,
     HandoffHandlerMixin,
@@ -157,6 +160,7 @@ class TaskConsumer(
             (SUBJECT_GRAPH_BUILD_REQUEST, self._handle_graph_build),
             (SUBJECT_GRAPH_SEARCH_REQUEST, self._handle_graph_search),
             (SUBJECT_CONVERSATION_RUN_START, self._handle_conversation_run),
+            (SUBJECT_CONVERSATION_COMPACT_REQUEST, self._handle_conversation_compact),
             (SUBJECT_BENCHMARK_RUN_REQUEST, self._handle_benchmark_run),
             (SUBJECT_EVAL_GEMMAS_REQUEST, self._handle_gemmas_eval),
             (SUBJECT_MEMORY_STORE, self._handle_memory_store),

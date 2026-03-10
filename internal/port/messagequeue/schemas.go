@@ -111,16 +111,17 @@ type ToolCallResponsePayload struct {
 
 // ToolCallResultPayload is the schema for runs.toolcall.result messages.
 type ToolCallResultPayload struct {
-	RunID     string  `json:"run_id"`
-	CallID    string  `json:"call_id"`
-	Tool      string  `json:"tool"`
-	Success   bool    `json:"success"`
-	Output    string  `json:"output"`
-	Error     string  `json:"error"`
-	CostUSD   float64 `json:"cost_usd"`
-	TokensIn  int64   `json:"tokens_in"`
-	TokensOut int64   `json:"tokens_out"`
-	Model     string  `json:"model,omitempty"`
+	RunID     string          `json:"run_id"`
+	CallID    string          `json:"call_id"`
+	Tool      string          `json:"tool"`
+	Success   bool            `json:"success"`
+	Output    string          `json:"output"`
+	Error     string          `json:"error"`
+	CostUSD   float64         `json:"cost_usd"`
+	TokensIn  int64           `json:"tokens_in"`
+	TokensOut int64           `json:"tokens_out"`
+	Model     string          `json:"model,omitempty"`
+	Diff      json.RawMessage `json:"diff,omitempty"`
 }
 
 // RunCompletePayload is the schema for runs.complete messages.

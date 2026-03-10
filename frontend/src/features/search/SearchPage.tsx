@@ -3,7 +3,11 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { Project } from "~/api/types";
 import { useI18n } from "~/i18n";
-import { Badge, Card, LoadingState, PageLayout } from "~/ui";
+import { Badge, Card, LoadingState, PageLayout, Tabs } from "~/ui";
+
+import ConversationResults from "./ConversationResults";
+
+type SearchTab = "code" | "conversations";
 
 export default function SearchPage() {
   const { t } = useI18n();
@@ -11,19 +15,34 @@ export default function SearchPage() {
   const [query, setQuery] = createSignal("");
   const [debouncedQuery, setDebouncedQuery] = createSignal("");
   const [selectedProjectIds, setSelectedProjectIds] = createSignal<string[]>([]);
+  const [activeTab, setActiveTab] = createSignal<SearchTab>("code");
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [projects] = createResource(() => api.projects.list());
 
-  const [results] = createResource(
+  // Code search resource — fires when tab is "code" and query is non-empty
+  const [codeResults] = createResource(
     () => {
       const q = debouncedQuery();
-      if (!q.trim()) return null;
+      if (!q.trim() || activeTab() !== "code") return null;
       return { q, pids: selectedProjectIds().length > 0 ? selectedProjectIds() : undefined };
     },
     (params) => {
       if (!params) return null;
       return api.search.global(params.q, params.pids, 30);
+    },
+  );
+
+  // Conversation search resource — fires when tab is "conversations" and query is non-empty
+  const [convResults] = createResource(
+    () => {
+      const q = debouncedQuery();
+      if (!q.trim() || activeTab() !== "conversations") return null;
+      return { q, pids: selectedProjectIds().length > 0 ? selectedProjectIds() : undefined };
+    },
+    (params) => {
+      if (!params) return null;
+      return api.search.conversations(params.q, params.pids, 30);
     },
   );
 
@@ -42,6 +61,15 @@ export default function SearchPage() {
   function projectName(id: string): string {
     return (projects() ?? []).find((p: Project) => p.id === id)?.name ?? id.slice(0, 8);
   }
+
+  const tabItems = [
+    { value: "code", label: t("search.tabCode") },
+    { value: "conversations", label: t("search.tabConversations") },
+  ];
+
+  // Derived active resource for loading/error display
+  const isLoading = () => (activeTab() === "code" ? codeResults.loading : convResults.loading);
+  const hasError = () => (activeTab() === "code" ? codeResults.error : convResults.error);
 
   return (
     <PageLayout title={t("search.title")}>
@@ -93,22 +121,39 @@ export default function SearchPage() {
         </div>
       </Show>
 
+      {/* Tabs */}
+      <div class="mt-4">
+        <Tabs
+          items={tabItems}
+          value={activeTab()}
+          onChange={(v) => setActiveTab(v as SearchTab)}
+          variant="pills"
+        />
+      </div>
+
       {/* Loading */}
-      <Show when={results.loading}>
+      <Show when={isLoading()}>
         <div class="mt-6">
           <LoadingState message={t("common.loading")} />
         </div>
       </Show>
 
       {/* Error */}
-      <Show when={results.error}>
+      <Show when={hasError()}>
         <p class="mt-6 text-sm text-cf-danger-fg">{t("search.error")}</p>
       </Show>
 
-      {/* Results */}
-      <Show when={!results.loading && !results.error && results() !== undefined}>
+      {/* Code results */}
+      <Show
+        when={
+          activeTab() === "code" &&
+          !codeResults.loading &&
+          !codeResults.error &&
+          codeResults() !== undefined
+        }
+      >
         <Show
-          when={results()?.results?.length}
+          when={codeResults()?.results?.length}
           fallback={
             <Show when={debouncedQuery().trim()}>
               <p class="mt-6 text-sm text-cf-text-muted">{t("search.noResults")}</p>
@@ -116,10 +161,10 @@ export default function SearchPage() {
           }
         >
           <p class="mt-4 text-xs text-cf-text-secondary">
-            {t("search.results", { count: results()?.total ?? 0 })}
+            {t("search.results", { count: codeResults()?.total ?? 0 })}
           </p>
           <div class="mt-2 space-y-2">
-            <For each={results()?.results}>
+            <For each={codeResults()?.results}>
               {(hit) => (
                 <a href={`/projects/${hit.project_id}`} class="block">
                   <Card class="transition-shadow hover:shadow-md">
@@ -145,6 +190,30 @@ export default function SearchPage() {
               )}
             </For>
           </div>
+        </Show>
+      </Show>
+
+      {/* Conversation results */}
+      <Show
+        when={
+          activeTab() === "conversations" &&
+          !convResults.loading &&
+          !convResults.error &&
+          convResults() !== undefined
+        }
+      >
+        <Show
+          when={convResults()?.results?.length}
+          fallback={
+            <Show when={debouncedQuery().trim()}>
+              <p class="mt-6 text-sm text-cf-text-muted">{t("search.noResults")}</p>
+            </Show>
+          }
+        >
+          <p class="mt-4 text-xs text-cf-text-secondary">
+            {t("search.results", { count: convResults()?.total ?? 0 })}
+          </p>
+          <ConversationResults results={convResults()?.results ?? []} />
         </Show>
       </Show>
     </PageLayout>

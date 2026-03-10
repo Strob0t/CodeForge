@@ -1537,6 +1537,8 @@ const de: Translations = {
   "search.error": "Suche fehlgeschlagen.",
   "search.results": "{{count}} Ergebnisse",
   "search.line": "Z{{line}}",
+  "search.tabCode": "Code",
+  "search.tabConversations": "Konversationen",
 
   // -- Chat-Anhaenge ----------------------------------------------------------
   "chat.attachFile": "Datei anhaengen",

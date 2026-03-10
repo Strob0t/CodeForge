@@ -197,8 +197,13 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		aguiStatus = "cancelled"
 	}
 	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
-		RunID:  r.ID,
-		Status: aguiStatus,
+		RunID:     r.ID,
+		Status:    aguiStatus,
+		Model:     payload.Model,
+		CostUSD:   payload.CostUSD,
+		TokensIn:  int(payload.TokensIn),
+		TokensOut: int(payload.TokensOut),
+		Steps:     payload.StepCount,
 	})
 
 	// Clean up checkpoints (remove shadow commits, keep working state)

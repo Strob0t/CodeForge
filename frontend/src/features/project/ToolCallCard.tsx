@@ -1,12 +1,25 @@
 import { createSignal, Show } from "solid-js";
 
+import { api } from "~/api/client";
 import { Button, Card } from "~/ui";
+
+import DiffModal from "./DiffModal";
+import type { DiffHunk } from "./DiffView";
+import DiffView from "./DiffView";
+
+interface ToolCallDiff {
+  path: string;
+  hunks: DiffHunk[];
+}
 
 interface ToolCallCardProps {
   name: string;
   args?: Record<string, unknown>;
   result?: string;
   status: "pending" | "running" | "completed" | "failed";
+  diff?: ToolCallDiff;
+  runId?: string;
+  callId?: string;
 }
 
 /** Map tool names to Unicode icon categories */
@@ -57,6 +70,10 @@ export default function ToolCallCard(props: ToolCallCardProps) {
   const [argsExpanded, setArgsExpanded] = createSignal(false);
   const [resultExpanded, setResultExpanded] = createSignal(false);
   const [resultFullyShown, setResultFullyShown] = createSignal(false);
+  const [showSideBySide, setShowSideBySide] = createSignal(false);
+  const [revertStatus, setRevertStatus] = createSignal<"idle" | "reverting" | "reverted" | "error">(
+    "idle",
+  );
 
   const argsText = () => (props.args ? JSON.stringify(props.args, null, 2) : "");
   const isLongArgs = () => argsText().length > COLLAPSE_THRESHOLD;
@@ -95,6 +112,17 @@ export default function ToolCallCard(props: ToolCallCardProps) {
     return raw.slice(0, TRUNCATE_THRESHOLD);
   };
 
+  async function handleRevert() {
+    if (!props.runId || !props.callId || revertStatus() !== "idle") return;
+    setRevertStatus("reverting");
+    try {
+      await api.runs.revert(props.runId, props.callId);
+      setRevertStatus("reverted");
+    } catch {
+      setRevertStatus("error");
+    }
+  }
+
   return (
     <Card class="my-1 text-sm">
       <Button
@@ -115,6 +143,13 @@ export default function ToolCallCard(props: ToolCallCardProps) {
         <Show when={hasPermissionDenied(props.result)}>
           <span class="ml-1 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
             Permission Denied
+          </span>
+        </Show>
+
+        {/* Diff indicator badge */}
+        <Show when={props.diff}>
+          <span class="ml-1 rounded-full bg-cf-accent/20 text-cf-accent px-1.5 py-0.5 text-[10px] font-semibold leading-none">
+            Diff
           </span>
         </Show>
 
@@ -148,8 +183,65 @@ export default function ToolCallCard(props: ToolCallCardProps) {
             </div>
           </Show>
 
-          {/* Result section */}
-          <Show when={props.result}>
+          {/* Diff section — shown instead of plain result when diff data exists */}
+          <Show when={props.diff}>
+            {(diff) => (
+              <div>
+                <DiffView path={diff().path} hunks={diff().hunks} />
+                <div class="flex items-center gap-2 mt-2">
+                  <Show when={revertStatus() === "idle"}>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      class="text-green-500 hover:text-green-400"
+                      onClick={() => setExpanded(false)}
+                    >
+                      {"\u2713"} Accept
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      class="text-red-500 hover:text-red-400"
+                      onClick={handleRevert}
+                    >
+                      {"\u2717"} Reject
+                    </Button>
+                  </Show>
+                  <Show when={revertStatus() === "reverting"}>
+                    <span class="text-xs text-cf-text-muted animate-pulse">Reverting...</span>
+                  </Show>
+                  <Show when={revertStatus() === "reverted"}>
+                    <span class="text-xs text-green-500">{"\u2713"} Reverted</span>
+                  </Show>
+                  <Show when={revertStatus() === "error"}>
+                    <span class="text-xs text-red-500">Revert failed</span>
+                  </Show>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    class="ml-auto text-cf-text-muted hover:text-cf-text-primary"
+                    onClick={() => setShowSideBySide(true)}
+                  >
+                    Side-by-Side
+                  </Button>
+                </div>
+                <DiffModal
+                  path={diff().path}
+                  hunks={diff().hunks}
+                  open={showSideBySide()}
+                  onClose={() => setShowSideBySide(false)}
+                  onAccept={() => setShowSideBySide(false)}
+                  onReject={() => {
+                    handleRevert();
+                    setShowSideBySide(false);
+                  }}
+                />
+              </div>
+            )}
+          </Show>
+
+          {/* Plain result section — shown when no diff data */}
+          <Show when={!props.diff && props.result}>
             <div>
               <Button
                 variant="ghost"

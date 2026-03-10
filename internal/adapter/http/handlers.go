@@ -93,6 +93,9 @@ type Handlers struct {
 	Dashboard        *service.DashboardService
 	GitHubOAuth      *service.GitHubOAuthService
 	BackendHealth    *service.BackendHealthService
+	Checkpoint       *service.CheckpointService
+	Commands         *service.CommandService
+	Channels         *service.ChannelService
 	Limits           *config.Limits
 }
 

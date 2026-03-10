@@ -13,6 +13,7 @@ import LoginPage from "./features/auth/LoginPage.tsx";
 import ResetPasswordPage from "./features/auth/ResetPasswordPage.tsx";
 import SetupPage from "./features/auth/SetupPage.tsx";
 import BenchmarkPage from "./features/benchmarks/BenchmarkPage.tsx";
+import ChannelView from "./features/channels/ChannelView.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
 import KnowledgeBasesPage from "./features/knowledgebases/KnowledgeBasesPage.tsx";
@@ -55,6 +56,7 @@ render(
       <Route path="/audit" component={AuditTrailPage} />
       <Route path="/search" component={SearchPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />
+      <Route path="/channels/:id" component={ChannelView} />
       <Route path="*404" component={NotFoundPage} />
     </Router>
   ),

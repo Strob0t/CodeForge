@@ -87,9 +87,10 @@ const (
 	SubjectMCPToolDiscovery = "mcp.tools.discovered" // Python → Go: tools found on server
 
 	// Conversation run subjects (Phase 17C)
-	SubjectConversationRunStart    = "conversation.run.start"    // Go → Python: start a conversation run
-	SubjectConversationRunComplete = "conversation.run.complete" // Python → Go: conversation run finished
-	SubjectConversationRunCancel   = "conversation.run.cancel"   // Go → Python: cancel a conversation run
+	SubjectConversationRunStart       = "conversation.run.start"       // Go → Python: start a conversation run
+	SubjectConversationRunComplete    = "conversation.run.complete"    // Python → Go: conversation run finished
+	SubjectConversationRunCancel      = "conversation.run.cancel"      // Go → Python: cancel a conversation run
+	SubjectConversationCompactRequest = "conversation.compact.request" // Go → Python: compact conversation history
 
 	// Evaluation subjects (Phase 20G — GEMMAS)
 	SubjectEvalGemmasRequest = "evaluation.gemmas.request" // Go → Python: compute GEMMAS metrics

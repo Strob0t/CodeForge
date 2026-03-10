@@ -368,6 +368,16 @@ func (s *RetrievalService) GetIndexStatus(projectID string) *RetrievalIndexInfo 
 	return s.indexes[projectID]
 }
 
+// ConversationSearchResult represents a single hit from a conversation message search.
+type ConversationSearchResult struct {
+	ConversationID string `json:"conversation_id"`
+	MessageID      string `json:"message_id"`
+	Role           string `json:"role"`
+	Content        string `json:"content"`
+	Model          string `json:"model,omitempty"`
+	CreatedAt      string `json:"created_at"`
+}
+
 // GlobalSearchResult represents a single hit from a cross-project search.
 type GlobalSearchResult struct {
 	ProjectID  string  `json:"project_id"`

@@ -24,6 +24,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
+	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
@@ -1148,6 +1149,21 @@ func (m *mockStore) ListMessages(_ context.Context, conversationID string) ([]co
 		}
 	}
 	return result, nil
+}
+func (m *mockStore) DeleteConversationMessages(_ context.Context, conversationID string) error {
+	filtered := m.messages[:0]
+	for i := range m.messages {
+		if m.messages[i].ConversationID != conversationID {
+			filtered = append(filtered, m.messages[i])
+		}
+	}
+	m.messages = filtered
+	return nil
+}
+func (m *mockStore) UpdateConversationMode(_ context.Context, _, _ string) error  { return nil }
+func (m *mockStore) UpdateConversationModel(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) SearchConversationMessages(_ context.Context, _ string, _ []string, _ int) ([]conversation.Message, error) {
+	return nil, nil
 }
 
 // MCP Server methods
@@ -3372,6 +3388,28 @@ func (m *mockStore) GetLLMKeyByUserProvider(_ context.Context, _, _ string) (*ll
 	return nil, nil
 }
 func (m *mockStore) DeleteLLMKey(_ context.Context, _, _ string) error { return nil }
+
+// Channel stubs
+func (m *mockStore) CreateChannel(_ context.Context, _ *channel.Channel) (*channel.Channel, error) {
+	return nil, nil
+}
+func (m *mockStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
+	return nil, nil
+}
+func (m *mockStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteChannel(_ context.Context, _ string) error { return nil }
+func (m *mockStore) CreateChannelMessage(_ context.Context, _ *channel.Message) (*channel.Message, error) {
+	return nil, nil
+}
+func (m *mockStore) ListChannelMessages(_ context.Context, _, _ string, _ int) ([]channel.Message, error) {
+	return nil, nil
+}
+func (m *mockStore) AddChannelMember(_ context.Context, _ *channel.Member) error { return nil }
+func (m *mockStore) UpdateChannelMemberNotify(_ context.Context, _, _ string, _ channel.NotifySetting) error {
+	return nil
+}
 
 func TestListRemoteBranches_URLValidation(t *testing.T) {
 	tests := []struct {
