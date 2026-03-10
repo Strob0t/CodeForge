@@ -429,6 +429,22 @@ type SkillDraftEvent struct {
 	ProjectID   string `json:"project_id"`
 }
 
+// TrajectoryEventPayload is broadcast with enriched trajectory data for live feeds.
+type TrajectoryEventPayload struct {
+	RunID     string  `json:"run_id"`
+	ProjectID string  `json:"project_id"`
+	EventType string  `json:"event_type"`
+	ToolName  string  `json:"tool_name,omitempty"`
+	Model     string  `json:"model,omitempty"`
+	Input     string  `json:"input,omitempty"`
+	Output    string  `json:"output,omitempty"`
+	Success   *bool   `json:"success,omitempty"`
+	Step      int     `json:"step,omitempty"`
+	CostUSD   float64 `json:"cost_usd,omitempty"`
+	TokensIn  int64   `json:"tokens_in,omitempty"`
+	TokensOut int64   `json:"tokens_out,omitempty"`
+}
+
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.
 func (h *Hub) BroadcastEvent(ctx context.Context, eventType string, payload any) {
 	data, err := json.Marshal(payload)

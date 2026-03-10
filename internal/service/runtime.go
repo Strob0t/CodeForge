@@ -619,6 +619,10 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			ProjectID string  `json:"project_id"`
 			ToolName  string  `json:"tool_name,omitempty"`
 			Model     string  `json:"model,omitempty"`
+			Input     string  `json:"input,omitempty"`
+			Output    string  `json:"output,omitempty"`
+			Success   *bool   `json:"success,omitempty"`
+			Step      int     `json:"step,omitempty"`
 			TokensIn  int64   `json:"tokens_in,omitempty"`
 			TokensOut int64   `json:"tokens_out,omitempty"`
 			CostUSD   float64 `json:"cost_usd,omitempty"`
@@ -644,11 +648,19 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			return nil // Log and continue, don't fail the subscription
 		}
 
-		s.hub.BroadcastEvent(msgCtx, ws.EventTrajectoryEvent, map[string]string{
-			"run_id":     payload.RunID,
-			"event_type": payload.EventType,
-			"tool_name":  payload.ToolName,
-			"model":      payload.Model,
+		s.hub.BroadcastEvent(msgCtx, ws.EventTrajectoryEvent, ws.TrajectoryEventPayload{
+			RunID:     payload.RunID,
+			ProjectID: payload.ProjectID,
+			EventType: payload.EventType,
+			ToolName:  payload.ToolName,
+			Model:     payload.Model,
+			Input:     payload.Input,
+			Output:    payload.Output,
+			Success:   payload.Success,
+			Step:      payload.Step,
+			CostUSD:   payload.CostUSD,
+			TokensIn:  payload.TokensIn,
+			TokensOut: payload.TokensOut,
 		})
 
 		// Goal proposal events get a dedicated AG-UI broadcast.
