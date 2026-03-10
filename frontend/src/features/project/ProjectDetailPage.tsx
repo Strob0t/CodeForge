@@ -522,7 +522,7 @@ export default function ProjectDetailPage() {
                     }
                   >
                     <div class="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0">
-                      <div class="flex items-center gap-1 overflow-x-auto scrollbar-none whitespace-nowrap">
+                      <div class="flex items-center gap-1.5">
                         <Show when={p().workspace_path}>
                           <Button
                             variant="ghost"
@@ -533,62 +533,30 @@ export default function ProjectDetailPage() {
                             Files
                           </Button>
                         </Show>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "goals" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("goals")}
+                        <select
+                          class="h-8 rounded-md border border-cf-border bg-cf-bg px-2 pr-7 text-sm text-cf-text appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-cf-accent"
+                          style={{
+                            "background-image": `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                            "background-repeat": "no-repeat",
+                            "background-position": "right 0.5rem center",
+                          }}
+                          value={leftTab() === "files" ? "" : leftTab()}
+                          onChange={(e) => {
+                            const val = e.currentTarget.value;
+                            if (val) setLeftTab(val as LeftTab);
+                          }}
                         >
-                          {t("goals.tab")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "roadmap" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("roadmap")}
-                        >
-                          {t("detail.tab.roadmap")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "featuremap" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("featuremap")}
-                        >
-                          {t("detail.tab.featuremap")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "warroom" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("warroom")}
-                        >
-                          War Room
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "sessions" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("sessions")}
-                        >
-                          {t("session.tab")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "trajectory" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("trajectory")}
-                        >
-                          {t("detail.tab.trajectory")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class={leftTab() === "audit" ? "bg-cf-accent/15 text-cf-accent" : ""}
-                          onClick={() => setLeftTab("audit")}
-                        >
-                          {t("audit.title")}
-                        </Button>
+                          <option value="" disabled>
+                            More panels...
+                          </option>
+                          <option value="goals">{t("goals.tab")}</option>
+                          <option value="roadmap">{t("detail.tab.roadmap")}</option>
+                          <option value="featuremap">{t("detail.tab.featuremap")}</option>
+                          <option value="warroom">War Room</option>
+                          <option value="sessions">{t("session.tab")}</option>
+                          <option value="trajectory">{t("detail.tab.trajectory")}</option>
+                          <option value="audit">{t("audit.title")}</option>
+                        </select>
                       </div>
                       <Button
                         variant="ghost"

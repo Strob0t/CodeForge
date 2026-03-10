@@ -11,6 +11,7 @@ export interface FileTreeProps {
   projectId: string;
   onFileSelect: (path: string) => void;
   selectedPath?: string;
+  onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,7 @@ interface TreeNodeProps {
   onFileSelect: (path: string) => void;
   selectedPath?: string;
   depth: number;
+  onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
 }
 
 function TreeNode(props: TreeNodeProps): JSX.Element {
@@ -176,6 +178,13 @@ function TreeNode(props: TreeNodeProps): JSX.Element {
         }`}
         style={{ "padding-left": `${props.depth * 12}px` }}
         onClick={toggle}
+        onContextMenu={(e: MouseEvent) => {
+          if (props.onContextMenu) {
+            e.preventDefault();
+            e.stopPropagation();
+            props.onContextMenu(props.entry, e.clientX, e.clientY);
+          }
+        }}
         title={props.entry.path}
       >
         <Show when={props.entry.is_dir}>
@@ -204,6 +213,7 @@ function TreeNode(props: TreeNodeProps): JSX.Element {
                 onFileSelect={props.onFileSelect}
                 selectedPath={props.selectedPath}
                 depth={props.depth + 1}
+                onContextMenu={props.onContextMenu}
               />
             )}
           </For>
@@ -222,6 +232,7 @@ interface FilteredNodeProps {
   onFileSelect: (path: string) => void;
   selectedPath?: string;
   query: { regex: RegExp | null; plain: string };
+  onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
 }
 
 function FilteredTreeNode(props: FilteredNodeProps): JSX.Element {
@@ -249,6 +260,13 @@ function FilteredTreeNode(props: FilteredNodeProps): JSX.Element {
       }`}
       style={{ "padding-left": `${depth() * 12}px` }}
       onClick={toggle}
+      onContextMenu={(e: MouseEvent) => {
+        if (props.onContextMenu) {
+          e.preventDefault();
+          e.stopPropagation();
+          props.onContextMenu(props.entry, e.clientX, e.clientY);
+        }
+      }}
       title={props.entry.path}
     >
       <Show when={props.entry.is_dir}>
@@ -331,7 +349,18 @@ export default function FileTree(props: FileTreeProps): JSX.Element {
   void _autoExpand;
 
   return (
-    <div class="overflow-y-auto text-sm">
+    <div
+      class="overflow-y-auto text-sm"
+      onContextMenu={(e: MouseEvent) => {
+        // Right-click on empty area triggers root-level context menu
+        if (props.onContextMenu && e.target === e.currentTarget) {
+          e.preventDefault();
+          // Pass a synthetic root entry so FilePanel knows it is root-level
+          const rootEntry: FileEntry = { name: "", path: "", is_dir: true, size: 0, mod_time: "" };
+          props.onContextMenu(rootEntry, e.clientX, e.clientY);
+        }
+      }}
+    >
       <Show
         when={searchActive()}
         fallback={
@@ -362,6 +391,7 @@ export default function FileTree(props: FileTreeProps): JSX.Element {
                     onFileSelect={props.onFileSelect}
                     selectedPath={props.selectedPath}
                     depth={0}
+                    onContextMenu={props.onContextMenu}
                   />
                 )}
               </For>
@@ -385,6 +415,7 @@ export default function FileTree(props: FileTreeProps): JSX.Element {
                   onFileSelect={props.onFileSelect}
                   selectedPath={props.selectedPath}
                   query={parsedQuery()}
+                  onContextMenu={props.onContextMenu}
                 />
               )}
             </For>

@@ -147,12 +147,12 @@ export default function DashboardPage() {
           <Show
             when={batchMode()}
             fallback={
-              <Button variant="secondary" size="sm" onClick={() => setBatchMode(true)}>
+              <Button variant="secondary" onClick={() => setBatchMode(true)}>
                 {t("dashboard.batch.select")}
               </Button>
             }
           >
-            <Button variant="ghost" size="sm" onClick={exitBatchMode}>
+            <Button variant="ghost" onClick={exitBatchMode}>
               {t("dashboard.batch.cancel")}
             </Button>
           </Show>

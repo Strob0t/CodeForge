@@ -484,44 +484,48 @@ export default function SettingsPage() {
       {/* VCS Accounts Section */}
       <Section title={t("settings.vcs.title")} class="mb-8">
         {/* Add new account form */}
-        <div class="mb-4 space-y-3">
-          <div class="flex gap-2">
-            <Select
-              value={vcsProvider()}
-              onChange={(e) => setVcsProvider(e.currentTarget.value as VCSProvider)}
-              aria-label={t("settings.vcs.provider")}
-              class="w-auto"
-            >
-              <For each={gitProviders() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
-              <option value="forgejo">{t("settings.vcs.providerForgejo")}</option>
-              <option value="codeberg">{t("settings.vcs.providerCodeberg")}</option>
-            </Select>
-            <Input
-              type="text"
-              value={vcsLabel()}
-              onInput={(e) => setVcsLabel(e.currentTarget.value)}
-              placeholder={t("settings.vcs.labelPlaceholder")}
-              aria-label={t("settings.vcs.label")}
-              class="flex-1"
-            />
+        <div class="mb-4 space-y-3 max-w-2xl">
+          <div class="grid grid-cols-[180px_1fr] gap-3">
+            <FormField label={t("settings.vcs.provider")} id="vcs-provider">
+              <Select
+                id="vcs-provider"
+                value={vcsProvider()}
+                onChange={(e) => setVcsProvider(e.currentTarget.value as VCSProvider)}
+              >
+                <For each={gitProviders() ?? []}>{(p) => <option value={p}>{p}</option>}</For>
+                <option value="forgejo">{t("settings.vcs.providerForgejo")}</option>
+                <option value="codeberg">{t("settings.vcs.providerCodeberg")}</option>
+              </Select>
+            </FormField>
+            <FormField label={t("settings.vcs.label")} id="vcs-label">
+              <Input
+                id="vcs-label"
+                type="text"
+                value={vcsLabel()}
+                onInput={(e) => setVcsLabel(e.currentTarget.value)}
+                placeholder={t("settings.vcs.labelPlaceholder")}
+              />
+            </FormField>
           </div>
-          <div class="flex gap-2">
-            <Input
-              type="password"
-              value={vcsToken()}
-              onInput={(e) => setVcsToken(e.currentTarget.value)}
-              placeholder={t("settings.vcs.tokenPlaceholder")}
-              aria-label={t("settings.vcs.token")}
-              class="flex-1"
-            />
-            <Input
-              type="text"
-              value={vcsServerUrl()}
-              onInput={(e) => setVcsServerUrl(e.currentTarget.value)}
-              placeholder={t("settings.vcs.serverUrlPlaceholder")}
-              aria-label={t("settings.vcs.serverUrl")}
-              class="flex-1"
-            />
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <FormField label={t("settings.vcs.token")} id="vcs-token">
+              <Input
+                id="vcs-token"
+                type="password"
+                value={vcsToken()}
+                onInput={(e) => setVcsToken(e.currentTarget.value)}
+                placeholder={t("settings.vcs.tokenPlaceholder")}
+              />
+            </FormField>
+            <FormField label={t("settings.vcs.serverUrl")} id="vcs-server-url">
+              <Input
+                id="vcs-server-url"
+                type="text"
+                value={vcsServerUrl()}
+                onInput={(e) => setVcsServerUrl(e.currentTarget.value)}
+                placeholder={t("settings.vcs.serverUrlPlaceholder")}
+              />
+            </FormField>
           </div>
           <div class="flex items-center gap-2">
             <Button onClick={handleCreateVCS} disabled={!vcsLabel().trim() || !vcsToken().trim()}>

@@ -62,6 +62,10 @@ export default function MCPServersPage() {
   const [testFailError, setTestFailError] = createSignal("");
   const [pendingRequest, setPendingRequest] = createSignal<CreateMCPServerRequest | null>(null);
 
+  // In-form test state
+  const [formTestResult, setFormTestResult] = createSignal<MCPTestResult | null>(null);
+  const [formTesting, setFormTesting] = createSignal(false);
+
   const form = useFormState(FORM_DEFAULTS);
 
   const del = useConfirmAction(async (server: MCPServer) => {
@@ -78,7 +82,31 @@ export default function MCPServersPage() {
     setShowForm(false);
     form.reset();
     setEditingId(null);
+    setFormTestResult(null);
+    setFormTesting(false);
     clearError();
+  }
+
+  async function handleFormTest(): Promise<void> {
+    const req = buildRequest();
+    if (!req) return;
+    setFormTesting(true);
+    setFormTestResult(null);
+    try {
+      const result = await api.mcp.testConnection(req);
+      setFormTestResult(result);
+      if (result.success) {
+        const toolCount = result.tools?.length ?? 0;
+        toast("success", t("mcp.testSuccessTools", { count: String(toolCount) }));
+      } else {
+        toast("error", result.error ?? t("mcp.testFailed"));
+      }
+    } catch {
+      setFormTestResult({ success: false, error: t("mcp.testFailed") });
+      toast("error", t("mcp.testFailed"));
+    } finally {
+      setFormTesting(false);
+    }
   }
 
   function handleEdit(server: MCPServer): void {
@@ -443,9 +471,35 @@ export default function MCPServersPage() {
                 </div>
               </div>
 
+              {/* In-form test result banner */}
+              <Show when={formTestResult()}>
+                {(result) => (
+                  <div class="mt-3">
+                    <Alert
+                      variant={result().success ? "success" : "error"}
+                      onDismiss={() => setFormTestResult(null)}
+                    >
+                      {result().success
+                        ? t("mcp.testSuccessTools", {
+                            count: String(result().tools?.length ?? 0),
+                          })
+                        : (result().error ?? t("mcp.testFailed"))}
+                    </Alert>
+                  </div>
+                )}
+              </Show>
+
               <div class="mt-4 flex justify-end gap-2">
                 <Button variant="secondary" onClick={handleCancelForm}>
                   {t("common.cancel")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => void handleFormTest()}
+                  disabled={formTesting() || !form.state.name.trim()}
+                  loading={formTesting()}
+                >
+                  {formTesting() ? t("mcp.testing") : t("mcp.test")}
                 </Button>
                 <Button type="submit" disabled={testingConnection()} loading={testingConnection()}>
                   {testingConnection()

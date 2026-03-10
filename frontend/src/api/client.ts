@@ -1274,6 +1274,18 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ path, content }),
       }),
+
+    delete: (projectId: string, path: string) =>
+      request<undefined>(
+        `/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(path)}`,
+        { method: "DELETE" },
+      ),
+
+    rename: (projectId: string, oldPath: string, newPath: string) =>
+      request<{ status: string }>(url`/projects/${projectId}/files/rename`, {
+        method: "PATCH",
+        body: JSON.stringify({ old_path: oldPath, new_path: newPath }),
+      }),
   },
 
   autoAgent: {

@@ -37,6 +37,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   user: "@",
   agent: "@",
   mode: "/",
+  conversation: "#",
 };
 
 // ---------------------------------------------------------------------------
@@ -166,7 +167,7 @@ const AutocompletePopover: Component<AutocompletePopoverProps> = (props) => {
   // ---- Render --------------------------------------------------------------
 
   return (
-    <Show when={props.visible && totalCount() > 0}>
+    <Show when={props.visible}>
       <div
         ref={containerRef}
         class="z-50 min-w-[200px] max-w-[320px] max-h-[280px] overflow-y-auto rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg"
@@ -174,41 +175,48 @@ const AutocompletePopover: Component<AutocompletePopoverProps> = (props) => {
         role="listbox"
         aria-label="Autocomplete suggestions"
       >
-        <For each={groups()}>
-          {(group) => (
-            <>
-              <Show when={group.category}>
-                <div class="px-3 py-1 text-xs uppercase text-cf-text-muted">{group.category}</div>
-              </Show>
-              <For each={group.items}>
-                {(item, itemIndex) => {
-                  const flatIndex = () => group.startIndex + itemIndex();
-                  return (
-                    <div
-                      data-idx={flatIndex()}
-                      class={`flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm ${
-                        flatIndex() === selectedIndex()
-                          ? "bg-cf-accent/10 text-cf-text-primary"
-                          : "text-cf-text-secondary hover:bg-cf-bg-surface-alt"
-                      }`}
-                      role="option"
-                      aria-selected={flatIndex() === selectedIndex()}
-                      onMouseEnter={() => setSelectedIndex(flatIndex())}
-                      onClick={() => props.onSelect(item)}
-                    >
-                      <Show when={item.category ? CATEGORY_ICONS[item.category] : undefined}>
-                        {(icon) => (
-                          <span class="w-4 shrink-0 text-center text-cf-text-muted">{icon()}</span>
-                        )}
-                      </Show>
-                      <span class="truncate">{item.label}</span>
-                    </div>
-                  );
-                }}
-              </For>
-            </>
-          )}
-        </For>
+        <Show
+          when={totalCount() > 0}
+          fallback={<div class="px-3 py-2 text-sm text-cf-text-muted">No results</div>}
+        >
+          <For each={groups()}>
+            {(group) => (
+              <>
+                <Show when={group.category}>
+                  <div class="px-3 py-1 text-xs uppercase text-cf-text-muted">{group.category}</div>
+                </Show>
+                <For each={group.items}>
+                  {(item, itemIndex) => {
+                    const flatIndex = () => group.startIndex + itemIndex();
+                    return (
+                      <div
+                        data-idx={flatIndex()}
+                        class={`flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm ${
+                          flatIndex() === selectedIndex()
+                            ? "bg-cf-accent/10 text-cf-text-primary"
+                            : "text-cf-text-secondary hover:bg-cf-bg-surface-alt"
+                        }`}
+                        role="option"
+                        aria-selected={flatIndex() === selectedIndex()}
+                        onMouseEnter={() => setSelectedIndex(flatIndex())}
+                        onClick={() => props.onSelect(item)}
+                      >
+                        <Show when={item.category ? CATEGORY_ICONS[item.category] : undefined}>
+                          {(icon) => (
+                            <span class="w-4 shrink-0 text-center text-cf-text-muted">
+                              {icon()}
+                            </span>
+                          )}
+                        </Show>
+                        <span class="truncate">{item.label}</span>
+                      </div>
+                    );
+                  }}
+                </For>
+              </>
+            )}
+          </For>
+        </Show>
       </div>
     </Show>
   );

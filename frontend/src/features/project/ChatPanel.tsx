@@ -860,11 +860,11 @@ export default function ChatPanel(props: ChatPanelProps) {
         {/* Input area */}
         <div class="border-t border-cf-border p-3 flex-shrink-0" data-shortcut-scope="chat">
           <input ref={chatFileInputRef} type="file" class="hidden" onChange={handleAttachChange} />
-          <div class="flex gap-2">
+          <div class="flex gap-2 items-end">
             <Button
               variant="ghost"
               size="sm"
-              class="self-end flex-shrink-0"
+              class="flex-shrink-0"
               onClick={() => chatFileInputRef?.click()}
               disabled={attaching()}
               title={t("chat.attachFile")}
@@ -882,17 +882,21 @@ export default function ChatPanel(props: ChatPanelProps) {
                 />
               </svg>
             </Button>
-            <ChatInput
-              value={input()}
-              onInput={setInput}
-              onSubmit={handleSend}
-              placeholder={t("chat.placeholder")}
-              disabled={sending()}
-            />
+            <div class="flex-1 min-w-0">
+              <ChatInput
+                value={input()}
+                onInput={setInput}
+                onSubmit={handleSend}
+                placeholder={t("chat.placeholder")}
+                disabled={sending()}
+                projectId={props.projectId}
+                conversations={(conversations() ?? []).map((c) => ({ id: c.id, title: c.title }))}
+              />
+            </div>
             <Button
               variant="primary"
               size="sm"
-              class="self-end"
+              class="flex-shrink-0"
               onClick={handleSend}
               disabled={sending() || !input().trim()}
             >

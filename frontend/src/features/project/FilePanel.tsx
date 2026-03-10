@@ -1,7 +1,7 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { FileContent } from "~/api/types";
+import type { FileContent, FileEntry } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
@@ -11,6 +11,7 @@ import { Button, FormField, Input, Modal, Spinner, Textarea } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import CodeEditor from "./CodeEditor";
+import FileContextMenu from "./FileContextMenu";
 import FileTree from "./FileTree";
 import { FileTreeProvider, useFileTree } from "./FileTreeContext";
 
@@ -87,20 +88,33 @@ function SidebarHeader(props: {
       <span class="text-xs font-semibold text-cf-text-secondary uppercase tracking-wide">
         Files
       </span>
-      <div class="flex items-center gap-0.5">
+      <div class="flex items-center gap-0.5 h-7">
         <Button
           variant="icon"
           size="xs"
+          class="!p-1 !min-h-[28px] !min-w-[28px]"
           onClick={() => actions.expandAll(props.projectId)}
           title="Expand All"
         >
           <ExpandAllIcon />
         </Button>
-        <Button variant="icon" size="xs" onClick={() => actions.collapseAll()} title="Collapse All">
+        <Button
+          variant="icon"
+          size="xs"
+          class="!p-1 !min-h-[28px] !min-w-[28px]"
+          onClick={() => actions.collapseAll()}
+          title="Collapse All"
+        >
           <CollapseAllIcon />
         </Button>
         <Show when={props.onUploadClick}>
-          <Button variant="icon" size="xs" onClick={props.onUploadClick} title="Upload File">
+          <Button
+            variant="icon"
+            size="xs"
+            class="!p-1 !min-h-[28px] !min-w-[28px]"
+            onClick={props.onUploadClick}
+            title="Upload File"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 16 16"
@@ -113,7 +127,13 @@ function SidebarHeader(props: {
           </Button>
         </Show>
         <Show when={props.onCreateClick}>
-          <Button variant="icon" size="xs" onClick={props.onCreateClick} title="New File">
+          <Button
+            variant="icon"
+            size="xs"
+            class="!p-1 !min-h-[28px] !min-w-[28px]"
+            onClick={props.onCreateClick}
+            title="New File"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 16 16"
@@ -332,6 +352,197 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
     setSidebarWidth(SIDEBAR_DEFAULT);
   }
 
+  // -- Context menu state ---------------------------------------------------
+  const [ctxMenuVisible, setCtxMenuVisible] = createSignal(false);
+  const [ctxMenuX, setCtxMenuX] = createSignal(0);
+  const [ctxMenuY, setCtxMenuY] = createSignal(0);
+  const [ctxMenuEntry, setCtxMenuEntry] = createSignal<FileEntry | null>(null);
+  const ctxMenuIsRoot = () => {
+    const entry = ctxMenuEntry();
+    return entry !== null && entry.path === "" && entry.is_dir;
+  };
+
+  function handleContextMenu(entry: FileEntry, x: number, y: number) {
+    setCtxMenuEntry(entry);
+    setCtxMenuX(x);
+    setCtxMenuY(y);
+    setCtxMenuVisible(true);
+  }
+
+  function closeContextMenu() {
+    setCtxMenuVisible(false);
+  }
+
+  // -- Upload to specific folder (context menu) -----------------------------
+  let ctxUploadInputRef: HTMLInputElement | undefined;
+  const [uploadTargetFolder, setUploadTargetFolder] = createSignal("");
+
+  function handleCtxUploadChange(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = "";
+
+    const targetFolder = uploadTargetFolder();
+    const targetPath = targetFolder ? `${targetFolder}/${file.name}` : file.name;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const content = reader.result as string;
+      try {
+        await api.files.write(props.projectId, targetPath, content);
+        toast("success", t("files.uploadSuccess"));
+        openFile(targetPath);
+      } catch (err) {
+        toast("error", t("files.uploadFailed") + ": " + getErrorMessage(err, "Upload failed"));
+      }
+    };
+    reader.onerror = () => {
+      toast("error", t("files.textFilesOnly"));
+    };
+    reader.readAsText(file);
+  }
+
+  // -- Rename modal ---------------------------------------------------------
+  const [showRenameModal, setShowRenameModal] = createSignal(false);
+  const [renameOldPath, setRenameOldPath] = createSignal("");
+  const [renameNewName, setRenameNewName] = createSignal("");
+
+  const { run: handleRename, loading: renaming } = useAsyncAction(
+    async () => {
+      const oldPath = renameOldPath();
+      const newName = renameNewName().trim();
+      if (!oldPath || !newName) return;
+
+      const parentDir = oldPath.includes("/") ? oldPath.substring(0, oldPath.lastIndexOf("/")) : "";
+      const newPath = parentDir ? `${parentDir}/${newName}` : newName;
+
+      await api.files.rename(props.projectId, oldPath, newPath);
+      toast("success", `Renamed to ${newName}`);
+
+      // Update open tabs that match old path (or start with old path for folder renames)
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.path === oldPath) {
+            return { ...tab, path: newPath };
+          }
+          if (tab.path.startsWith(oldPath + "/")) {
+            return { ...tab, path: newPath + tab.path.substring(oldPath.length) };
+          }
+          return tab;
+        }),
+      );
+      if (activeTab() === oldPath) {
+        setActiveTab(newPath);
+      } else {
+        const current = activeTab();
+        if (current?.startsWith(oldPath + "/")) {
+          setActiveTab(newPath + current.substring(oldPath.length));
+        }
+      }
+
+      setShowRenameModal(false);
+      setRenameOldPath("");
+      setRenameNewName("");
+    },
+    {
+      onError: (err) => toast("error", "Rename failed: " + getErrorMessage(err, "Rename failed")),
+    },
+  );
+
+  // -- Delete confirmation --------------------------------------------------
+  const [showDeleteModal, setShowDeleteModal] = createSignal(false);
+  const [deletePath, setDeletePath] = createSignal("");
+  const [deleteIsDir, setDeleteIsDir] = createSignal(false);
+
+  const { run: handleDelete, loading: deleting } = useAsyncAction(
+    async () => {
+      const path = deletePath();
+      if (!path) return;
+
+      await api.files.delete(props.projectId, path);
+      toast("success", `Deleted ${path}`);
+
+      // Close any open tabs for deleted file or files inside deleted folder
+      setTabs((prev) =>
+        prev.filter((tab) => tab.path !== path && !tab.path.startsWith(path + "/")),
+      );
+      if (activeTab() === path || activeTab()?.startsWith(path + "/")) {
+        const remaining = tabs().filter(
+          (tab) => tab.path !== path && !tab.path.startsWith(path + "/"),
+        );
+        setActiveTab(remaining.length > 0 ? remaining[remaining.length - 1].path : null);
+      }
+
+      setShowDeleteModal(false);
+      setDeletePath("");
+      setDeleteIsDir(false);
+    },
+    {
+      onError: (err) => toast("error", "Delete failed: " + getErrorMessage(err, "Delete failed")),
+    },
+  );
+
+  // -- Context menu action dispatcher ---------------------------------------
+  function handleContextMenuAction(action: string) {
+    const entry = ctxMenuEntry();
+    closeContextMenu();
+
+    // Determine the folder prefix for new file / new folder / upload
+    const folderPrefix = entry
+      ? entry.is_dir
+        ? entry.path
+        : entry.path.includes("/")
+          ? entry.path.substring(0, entry.path.lastIndexOf("/"))
+          : ""
+      : "";
+
+    switch (action) {
+      case "new-file": {
+        setNewFilePath(folderPrefix ? folderPrefix + "/" : "");
+        setNewFileContent("");
+        setShowCreateModal(true);
+        break;
+      }
+      case "new-folder": {
+        const folderName = prompt("New folder name:");
+        if (!folderName?.trim()) return;
+        const folderPath = folderPrefix
+          ? `${folderPrefix}/${folderName.trim()}`
+          : folderName.trim();
+        api.files
+          .write(props.projectId, `${folderPath}/.gitkeep`, "")
+          .then(() => toast("success", `Created folder ${folderName.trim()}`))
+          .catch((err: unknown) =>
+            toast(
+              "error",
+              "Failed to create folder: " + getErrorMessage(err, "Create folder failed"),
+            ),
+          );
+        break;
+      }
+      case "upload": {
+        setUploadTargetFolder(folderPrefix);
+        ctxUploadInputRef?.click();
+        break;
+      }
+      case "rename": {
+        if (!entry || entry.path === "") return;
+        setRenameOldPath(entry.path);
+        setRenameNewName(entry.name);
+        setShowRenameModal(true);
+        break;
+      }
+      case "delete": {
+        if (!entry || entry.path === "") return;
+        setDeletePath(entry.path);
+        setDeleteIsDir(entry.is_dir);
+        setShowDeleteModal(true);
+        break;
+      }
+    }
+  }
+
   return (
     <div class="flex h-full min-h-0" style={{ cursor: dragging() ? "col-resize" : undefined }}>
       {/* File Tree Sidebar (desktop/tablet) */}
@@ -348,12 +559,19 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
               onUploadClick={() => uploadInputRef?.click()}
             />
             <input ref={uploadInputRef} type="file" class="hidden" onChange={handleUploadChange} />
+            <input
+              ref={ctxUploadInputRef}
+              type="file"
+              class="hidden"
+              onChange={handleCtxUploadChange}
+            />
             <SearchInput />
             <div class="flex-1 overflow-y-auto">
               <FileTree
                 projectId={props.projectId}
                 onFileSelect={openFile}
                 selectedPath={activeTab() ?? undefined}
+                onContextMenu={handleContextMenu}
               />
             </div>
           </div>
@@ -419,6 +637,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
                     setFileDrawerOpen(false);
                   }}
                   selectedPath={activeTab() ?? undefined}
+                  onContextMenu={handleContextMenu}
                 />
               </div>
             </FileTreeProvider>
@@ -553,6 +772,76 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
               loading={creating()}
             >
               {t("files.createFile")}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* File Context Menu */}
+      <FileContextMenu
+        visible={ctxMenuVisible()}
+        x={ctxMenuX()}
+        y={ctxMenuY()}
+        entry={ctxMenuEntry()}
+        isRootArea={ctxMenuIsRoot()}
+        onAction={handleContextMenuAction}
+        onClose={closeContextMenu}
+      />
+
+      {/* Rename Modal */}
+      <Modal open={showRenameModal()} onClose={() => setShowRenameModal(false)} title="Rename">
+        <div class="flex flex-col gap-3 p-4">
+          <FormField label="New name">
+            <Input
+              placeholder="Enter new name"
+              value={renameNewName()}
+              onInput={(e) => setRenameNewName(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && renameNewName().trim()) {
+                  handleRename();
+                }
+              }}
+              autofocus
+            />
+          </FormField>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowRenameModal(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={handleRename}
+              disabled={!renameNewName().trim() || renaming()}
+              loading={renaming()}
+            >
+              Rename
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={showDeleteModal()}
+        onClose={() => setShowDeleteModal(false)}
+        title={deleteIsDir() ? "Delete Folder" : "Delete File"}
+      >
+        <div class="flex flex-col gap-3 p-4">
+          <p class="text-sm text-cf-text-secondary">
+            Are you sure you want to delete{" "}
+            <span class="font-medium text-cf-text-primary">{deletePath()}</span>?
+            {deleteIsDir() ? " This will delete all files inside the folder." : ""}
+          </p>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={handleDelete}
+              disabled={deleting()}
+              loading={deleting()}
+              class="!bg-red-600 hover:!bg-red-700 !text-white"
+            >
+              Delete
             </Button>
           </div>
         </div>

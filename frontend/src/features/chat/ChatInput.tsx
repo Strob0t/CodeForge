@@ -1,6 +1,7 @@
 import type { Component } from "solid-js";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
+import { api } from "~/api/client";
 import { useFrequencyTracker } from "~/hooks/useFrequencyTracker";
 
 import AutocompletePopover from "./AutocompletePopover";
@@ -18,6 +19,11 @@ export interface SelectedReference {
   label: string;
 }
 
+interface ConversationRef {
+  id: string;
+  title: string;
+}
+
 interface ChatInputProps {
   value: string;
   onInput: (value: string) => void;
@@ -25,6 +31,10 @@ interface ChatInputProps {
   disabled?: boolean;
   placeholder?: string;
   onReferencesChange?: (refs: SelectedReference[]) => void;
+  /** Project ID used to fetch file list for @ autocomplete. */
+  projectId?: string;
+  /** Conversations available for # autocomplete. */
+  conversations?: ConversationRef[];
 }
 
 type TriggerChar = "@" | "#" | "/";
@@ -93,6 +103,39 @@ const ChatInput: Component<ChatInputProps> = (props) => {
 
   let textareaRef: HTMLTextAreaElement | undefined;
 
+  // --- Project files for @ autocomplete (cached per projectId) ---
+
+  const [fileItems] = createResource(
+    () => props.projectId,
+    async (pid): Promise<Item[]> => {
+      if (!pid) return [];
+      try {
+        const entries = await api.files.list(pid, ".");
+        return entries.map(
+          (entry): Item => ({
+            id: entry.path,
+            label: entry.name,
+            category: "file",
+          }),
+        );
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  // --- Conversation items for # autocomplete ---
+
+  const conversationItems = createMemo((): Item[] =>
+    (props.conversations ?? []).map(
+      (conv): Item => ({
+        id: conv.id,
+        label: conv.title,
+        category: "conversation",
+      }),
+    ),
+  );
+
   // --- Items for the current trigger ---
 
   const autocompleteItems = createMemo((): Item[] => {
@@ -103,11 +146,9 @@ const ChatInput: Component<ChatInputProps> = (props) => {
       case "/":
         return commands();
       case "@":
-        // Will be wired to project files later.
-        return [];
+        return fileItems() ?? [];
       case "#":
-        // Will be wired to issue references later.
-        return [];
+        return conversationItems();
       default:
         return [];
     }
@@ -224,7 +265,7 @@ const ChatInput: Component<ChatInputProps> = (props) => {
         <AutocompletePopover
           items={autocompleteItems()}
           query={trigger()?.query ?? ""}
-          visible={trigger() !== null && autocompleteItems().length > 0}
+          visible={trigger() !== null}
           frequencyMap={frequencyMap()}
           onSelect={handleSelect}
           onClose={handleAutocompleteClose}
