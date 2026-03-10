@@ -1,13 +1,6 @@
 import { For, Show } from "solid-js";
 
-export interface DiffHunk {
-  old_start: number;
-  old_lines: number;
-  new_start: number;
-  new_lines: number;
-  old_content: string;
-  new_content: string;
-}
+import type { DiffHunk } from "./DiffView";
 
 interface DiffModalProps {
   path: string;
