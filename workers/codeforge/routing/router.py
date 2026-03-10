@@ -27,21 +27,23 @@ logger = logging.getLogger(__name__)
 COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ComplexityTier.SIMPLE: [
         "github_copilot/gpt-4o-mini",
+        "gemini/gemini-2.0-flash",
         "groq/llama-3.1-8b-instant",
         "openai/gpt-4o-mini",
         "anthropic/claude-haiku-3.5",
     ],
     ComplexityTier.MEDIUM: [
         "github_copilot/gpt-4o",
-        "groq/llama-3.3-70b-versatile",
         "gemini/gemini-2.5-flash",
+        "anthropic/claude-haiku-3.5",
         "openai/gpt-4o-mini",
+        "groq/llama-3.3-70b-versatile",
         "gemini/gemini-2.0-flash",
     ],
     ComplexityTier.COMPLEX: [
         "github_copilot/gpt-4o",
-        "openai/gpt-4o",
         "anthropic/claude-sonnet-4",
+        "openai/gpt-4o",
         "gemini/gemini-2.5-pro",
     ],
     ComplexityTier.REASONING: [

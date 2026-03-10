@@ -347,14 +347,13 @@ def test_fallback_all_preferred_exhausted() -> None:
 
 
 def test_gemini_flash_in_medium_tier() -> None:
-    """gemini/gemini-2.5-flash must be in the MEDIUM tier defaults."""
+    """gemini/gemini-2.5-flash must be in the MEDIUM tier defaults, before groq."""
     medium = COMPLEXITY_DEFAULTS[ComplexityTier.MEDIUM]
     assert "gemini/gemini-2.5-flash" in medium
-    # Must appear after groq/llama-3.3-70b-versatile and before openai/gpt-4o-mini.
-    groq_idx = medium.index("groq/llama-3.3-70b-versatile")
+    # Tool-capable models (gemini) come before groq (unreliable function calling).
     flash_idx = medium.index("gemini/gemini-2.5-flash")
-    mini_idx = medium.index("openai/gpt-4o-mini")
-    assert groq_idx < flash_idx < mini_idx
+    groq_idx = medium.index("groq/llama-3.3-70b-versatile")
+    assert flash_idx < groq_idx
 
 
 def test_rate_tracker_none_no_filtering() -> None:
