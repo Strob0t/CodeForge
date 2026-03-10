@@ -14,7 +14,7 @@ Source: https://huggingface.co/datasets/princeton-nlp/SWE-bench
 
 from __future__ import annotations
 
-from codeforge.evaluation.cache import download_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -22,9 +22,9 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_FULL_URL = "https://huggingface.co/api/datasets/princeton-nlp/SWE-bench/parquet/default/test"
-_LITE_URL = "https://huggingface.co/api/datasets/princeton-nlp/SWE-bench_Lite/parquet/default/test"
-_VERIFIED_URL = "https://huggingface.co/api/datasets/princeton-nlp/SWE-bench_Verified/parquet/default/test"
+_DATASET_FULL = "princeton-nlp/SWE-bench"
+_DATASET_LITE = "princeton-nlp/SWE-bench_Lite"
+_DATASET_VERIFIED = "princeton-nlp/SWE-bench_Verified"
 
 _FILENAME_FULL = "swebench_full.jsonl"
 _FILENAME_LITE = "swebench_lite.jsonl"
@@ -117,8 +117,9 @@ class SWEBenchProvider:
         return len(raw)
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_dataset(
-            url=_FULL_URL,
+        path = await download_hf_dataset(
+            dataset=_DATASET_FULL,
+            split="test",
             provider_name="swebench",
             filename=_FILENAME_FULL,
             base_dir=self._cache_dir,
@@ -160,8 +161,9 @@ class SWEBenchLiteProvider:
         return len(raw)
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_dataset(
-            url=_LITE_URL,
+        path = await download_hf_dataset(
+            dataset=_DATASET_LITE,
+            split="test",
             provider_name="swebench",
             filename=_FILENAME_LITE,
             base_dir=self._cache_dir,
@@ -203,8 +205,9 @@ class SWEBenchVerifiedProvider:
         return len(raw)
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_dataset(
-            url=_VERIFIED_URL,
+        path = await download_hf_dataset(
+            dataset=_DATASET_VERIFIED,
+            split="test",
             provider_name="swebench",
             filename=_FILENAME_VERIFIED,
             base_dir=self._cache_dir,

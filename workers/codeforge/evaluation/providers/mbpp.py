@@ -9,7 +9,7 @@ Source: https://huggingface.co/datasets/google-research-datasets/mbpp
 
 from __future__ import annotations
 
-from codeforge.evaluation.cache import download_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -17,8 +17,7 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_JSONL_URL = "https://huggingface.co/api/datasets/google-research-datasets/mbpp/parquet/sanitized/test"
-_FULL_URL = "https://huggingface.co/api/datasets/google-research-datasets/mbpp/parquet/full/test"
+_DATASET = "google-research-datasets/mbpp"
 _FILENAME_SANITIZED = "mbpp_sanitized.jsonl"
 _FILENAME_FULL = "mbpp_full.jsonl"
 
@@ -60,15 +59,17 @@ class MBPPProvider:
 
     async def _fetch_tasks(self) -> list[dict]:
         if self._split == "full":
-            url, filename = _FULL_URL, _FILENAME_FULL
+            config, filename = "full", _FILENAME_FULL
         else:
-            url, filename = _JSONL_URL, _FILENAME_SANITIZED
+            config, filename = "sanitized", _FILENAME_SANITIZED
 
-        path = await download_dataset(
-            url=url,
+        path = await download_hf_dataset(
+            dataset=_DATASET,
+            split="test",
             provider_name="mbpp",
             filename=filename,
             base_dir=self._cache_dir,
+            config=config,
         )
         self._tasks_raw = load_jsonl(path)
         return self._tasks_raw

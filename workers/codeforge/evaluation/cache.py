@@ -125,3 +125,85 @@ def load_json(path: Path) -> list[dict] | dict:
     """Load a JSON file."""
     with open(path, encoding="utf-8") as f:
         return json.loads(f.read())
+
+
+async def download_hf_dataset(
+    dataset: str,
+    split: str,
+    provider_name: str,
+    filename: str,
+    base_dir: str = "",
+    config: str = "default",
+) -> Path:
+    """Download a HuggingFace dataset via the rows API and cache as JSONL.
+
+    The HuggingFace parquet API only returns parquet file URLs, not actual
+    data.  This function uses the datasets-server rows API which returns
+    JSON rows directly, handles pagination (100 rows per request), and
+    caches the result locally as JSONL.
+
+    Args:
+        dataset: HuggingFace dataset identifier (e.g. "princeton-nlp/SWE-bench_Lite").
+        split: Dataset split (e.g. "test").
+        provider_name: Provider name (used as cache subdirectory).
+        filename: Local filename to save as.
+        base_dir: Override base cache directory.
+        config: Dataset config name (default "default").
+
+    Returns:
+        Path to the cached JSONL file.
+
+    Raises:
+        RuntimeError: If download fails.
+    """
+    cached = get_cached_path(provider_name, filename, base_dir)
+    if cached is not None:
+        logger.debug("using cached dataset", path=str(cached))
+        return cached
+
+    cache_dir = get_cache_dir(provider_name, base_dir)
+    target = cache_dir / filename
+    tmp_path = target.with_suffix(".tmp")
+
+    log = logger.bind(dataset=dataset, split=split, target=str(target))
+    log.info("downloading HuggingFace dataset via rows API")
+
+    base_url = "https://datasets-server.huggingface.co/rows"
+    page_size = 100
+    offset = 0
+    all_rows: list[dict] = []
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+            while True:
+                params = {
+                    "dataset": dataset,
+                    "config": config,
+                    "split": split,
+                    "offset": str(offset),
+                    "length": str(page_size),
+                }
+                resp = await client.get(base_url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                rows = data.get("rows", [])
+                if not rows:
+                    break
+                all_rows.extend(rw.get("row", rw) for rw in rows)
+                if len(rows) < page_size:
+                    break
+                offset += page_size
+
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.writelines(json.dumps(record) + "\n" for record in all_rows)
+
+        tmp_path.rename(target)
+        log.info("dataset downloaded", rows=len(all_rows), size_bytes=target.stat().st_size)
+        return target
+
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        msg = f"failed to download dataset {dataset}/{split}: {exc}"
+        raise RuntimeError(msg) from exc

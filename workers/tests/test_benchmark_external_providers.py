@@ -129,6 +129,103 @@ class TestLoadJson:
         assert data["key"] == "value"
 
 
+class TestDownloadHfDataset:
+    """Tests for download_hf_dataset (HuggingFace rows API with pagination)."""
+
+    @pytest.mark.asyncio
+    async def test_caches_result_as_jsonl(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from codeforge.evaluation.cache import download_hf_dataset
+
+        page_response = {
+            "rows": [
+                {"row": {"instance_id": "test/1", "repo": "test/repo", "base_commit": "abc"}},
+                {"row": {"instance_id": "test/2", "repo": "test/repo", "base_commit": "def"}},
+            ]
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = page_response
+        mock_response.raise_for_status = lambda: None
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await download_hf_dataset(
+                dataset="test/dataset",
+                split="test",
+                provider_name="test_hf",
+                filename="data.jsonl",
+                base_dir=str(tmp_path),
+            )
+
+        assert result.exists()
+        records = load_jsonl(result)
+        assert len(records) == 2
+        assert records[0]["instance_id"] == "test/1"
+        assert records[1]["instance_id"] == "test/2"
+
+    @pytest.mark.asyncio
+    async def test_uses_cache_when_available(self, tmp_path: Path) -> None:
+        from codeforge.evaluation.cache import download_hf_dataset
+
+        cache_dir = tmp_path / "test_hf"
+        cache_dir.mkdir()
+        cached_file = cache_dir / "data.jsonl"
+        cached_file.write_text('{"cached": true}\n')
+
+        result = await download_hf_dataset(
+            dataset="test/dataset",
+            split="test",
+            provider_name="test_hf",
+            filename="data.jsonl",
+            base_dir=str(tmp_path),
+        )
+        assert result == cached_file
+        records = load_jsonl(result)
+        assert records[0]["cached"] is True
+
+    @pytest.mark.asyncio
+    async def test_paginates_correctly(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from codeforge.evaluation.cache import download_hf_dataset
+
+        # First page: full (100 rows), second page: partial (1 row)
+        page1_rows = [{"row": {"id": i}} for i in range(100)]
+        page2_rows = [{"row": {"id": 100}}]
+
+        resp1 = MagicMock()
+        resp1.json.return_value = {"rows": page1_rows}
+        resp1.raise_for_status = lambda: None
+
+        resp2 = MagicMock()
+        resp2.json.return_value = {"rows": page2_rows}
+        resp2.raise_for_status = lambda: None
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=[resp1, resp2])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await download_hf_dataset(
+                dataset="test/dataset",
+                split="test",
+                provider_name="test_hf_pag",
+                filename="paginated.jsonl",
+                base_dir=str(tmp_path),
+            )
+
+        records = load_jsonl(result)
+        assert len(records) == 101
+        assert records[100]["id"] == 100
+
+
 class TestDownloadDataset:
     @pytest.mark.asyncio
     async def test_uses_cache_when_available(self, tmp_path: Path) -> None:

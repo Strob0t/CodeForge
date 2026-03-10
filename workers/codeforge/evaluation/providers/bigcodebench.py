@@ -8,7 +8,7 @@ Source: https://huggingface.co/datasets/bigcode/bigcodebench
 
 from __future__ import annotations
 
-from codeforge.evaluation.cache import download_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -16,7 +16,8 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_JSONL_URL = "https://huggingface.co/api/datasets/bigcode/bigcodebench/parquet/v0.1.2/default/test"
+_DATASET = "bigcode/bigcodebench"
+_CONFIG = "v0.1.2"
 _FILENAME = "bigcodebench.jsonl"
 
 
@@ -49,11 +50,13 @@ class BigCodeBenchProvider:
         return len(raw)
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_dataset(
-            url=_JSONL_URL,
+        path = await download_hf_dataset(
+            dataset=_DATASET,
+            split="test",
             provider_name="bigcodebench",
             filename=_FILENAME,
             base_dir=self._cache_dir,
+            config=_CONFIG,
         )
         self._tasks_raw = load_jsonl(path)
         return self._tasks_raw

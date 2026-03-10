@@ -12,7 +12,7 @@ Source: Uses SWE-bench data with SPARC evaluation methodology.
 
 from __future__ import annotations
 
-from codeforge.evaluation.cache import download_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -20,8 +20,8 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_LITE_URL = "https://huggingface.co/api/datasets/princeton-nlp/SWE-bench_Lite/parquet/default/test"
-_FILENAME = "swebench_lite.jsonl"
+_DATASET = "princeton-nlp/SWE-bench_Lite"
+_FILENAME = "sparcbench_lite.jsonl"
 
 
 class SPARCBenchProvider:
@@ -63,8 +63,9 @@ class SPARCBenchProvider:
         return len(raw)
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_dataset(
-            url=_LITE_URL,
+        path = await download_hf_dataset(
+            dataset=_DATASET,
+            split="test",
             provider_name="sparcbench",
             filename=_FILENAME,
             base_dir=self._cache_dir,

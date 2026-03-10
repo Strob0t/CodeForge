@@ -9,7 +9,7 @@ Source: https://huggingface.co/datasets/cruxeval/cruxeval
 
 from __future__ import annotations
 
-from codeforge.evaluation.cache import download_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -17,7 +17,7 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_JSONL_URL = "https://huggingface.co/api/datasets/cruxeval/cruxeval/parquet/default/test"
+_DATASET = "cruxeval/cruxeval"
 _FILENAME = "cruxeval.jsonl"
 
 
@@ -62,8 +62,9 @@ class CRUXEvalProvider:
         return len(raw)
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_dataset(
-            url=_JSONL_URL,
+        path = await download_hf_dataset(
+            dataset=_DATASET,
+            split="test",
             provider_name="cruxeval",
             filename=_FILENAME,
             base_dir=self._cache_dir,

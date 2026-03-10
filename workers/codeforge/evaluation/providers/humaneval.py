@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import textwrap
 
-from codeforge.evaluation.cache import download_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -19,11 +19,8 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_DATASET_URL = (
-    "https://huggingface.co/datasets/openai/openai_humaneval/resolve/main/openai_humaneval/test-00000-of-00001.parquet"
-)
-# HuggingFace also provides raw JSONL via the API
-_JSONL_URL = "https://huggingface.co/api/datasets/openai/openai_humaneval/parquet/openai_humaneval/test"
+_DATASET = "openai/openai_humaneval"
+_CONFIG = "openai_humaneval"
 _FILENAME = "humaneval.jsonl"
 
 
@@ -71,12 +68,14 @@ class HumanEvalProvider:
         return len(raw)
 
     async def _fetch_tasks(self) -> list[dict]:
-        """Download and cache the HumanEval JSONL dataset."""
-        path = await download_dataset(
-            url=_JSONL_URL,
+        """Download and cache the HumanEval dataset."""
+        path = await download_hf_dataset(
+            dataset=_DATASET,
+            split="test",
             provider_name="humaneval",
             filename=_FILENAME,
             base_dir=self._cache_dir,
+            config=_CONFIG,
         )
         self._tasks_raw = load_jsonl(path)
         return self._tasks_raw

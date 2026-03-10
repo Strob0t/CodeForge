@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from codeforge.evaluation.cache import download_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -19,7 +19,8 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_JSONL_URL = "https://huggingface.co/api/datasets/livecodebench/code_generation_lite/parquet/release_v5/test"
+_DATASET = "livecodebench/code_generation_lite"
+_CONFIG = "release_v5"
 _FILENAME = "livecodebench.jsonl"
 
 
@@ -62,11 +63,13 @@ class LiveCodeBenchProvider:
         return len(self._apply_date_filter(raw))
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_dataset(
-            url=_JSONL_URL,
+        path = await download_hf_dataset(
+            dataset=_DATASET,
+            split="test",
             provider_name="livecodebench",
             filename=_FILENAME,
             base_dir=self._cache_dir,
+            config=_CONFIG,
         )
         self._tasks_raw = load_jsonl(path)
         return self._tasks_raw
