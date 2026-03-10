@@ -48,6 +48,13 @@ class LLMJudgeEvaluator:
 
     async def evaluate(self, task: TaskSpec, result: ExecutionResult) -> list[EvalDimension]:
         """Run configured LLM-judge metrics on the task result."""
+        if not result.actual_output or not result.actual_output.strip():
+            return [
+                EvalDimension(name=m, score=0.0, details={"error": "empty actual_output"})
+                for m in self._metrics
+                if m in SUPPORTED_METRICS
+            ]
+
         dimensions: list[EvalDimension] = []
         for metric_name in self._metrics:
             if metric_name not in SUPPORTED_METRICS:

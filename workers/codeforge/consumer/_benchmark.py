@@ -544,7 +544,8 @@ class _RoutingLLMWrapper:
     """Transparent LLM wrapper that routes each call through HybridRouter.
 
     Delegates all attributes to the underlying LLM client, but intercepts
-    ``chat_completion`` to select the model via the router before forwarding.
+    ``chat_completion`` and ``chat_completion_stream`` to select the model
+    via the router before forwarding.
     Records routing decisions in ``routing_log`` for post-run annotation.
     """
 
@@ -553,10 +554,9 @@ class _RoutingLLMWrapper:
         self._router = router
         self.routing_log: list[dict[str, str]] = []
 
-    async def chat_completion(self, **kwargs: object) -> object:
-        """Route, then delegate to the real LLM client."""
+    def _route_model(self, kwargs: dict[str, object]) -> None:
+        """Extract user prompt from messages, route, and replace model in kwargs."""
         messages = kwargs.get("messages", [])
-        # Build a prompt snippet for the router from the last user message.
         prompt = ""
         for m in reversed(messages):  # type: ignore[arg-type]
             role = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
@@ -579,17 +579,28 @@ class _RoutingLLMWrapper:
                 }
             )
         else:
-            # No routing decision — record fallback.
-            fallback_model = kwargs.get("model", "default")
+            # No routing decision — resolve a real model instead of passing "auto".
+            from codeforge.model_resolver import resolve_model
+
+            fallback_model = resolve_model()
+            kwargs["model"] = fallback_model
             self.routing_log.append(
                 {
-                    "model": str(fallback_model),
+                    "model": fallback_model,
                     "layer": "fallback",
                     "reasoning": "router returned no decision",
                 }
             )
 
+    async def chat_completion(self, **kwargs: object) -> object:
+        """Route, then delegate to the real LLM client."""
+        self._route_model(kwargs)
         return await self._llm.chat_completion(**kwargs)
+
+    async def chat_completion_stream(self, **kwargs: object) -> object:
+        """Route, then delegate to the real LLM client (streaming)."""
+        self._route_model(kwargs)
+        return await self._llm.chat_completion_stream(**kwargs)
 
     def __getattr__(self, name: str) -> object:
         """Proxy all other attributes to the underlying LLM client."""
