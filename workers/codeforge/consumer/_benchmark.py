@@ -592,14 +592,25 @@ class _RoutingLLMWrapper:
                 }
             )
 
+    @staticmethod
+    def _sanitize_messages(kwargs: dict[str, object]) -> None:
+        """Ensure tool messages have required fields for all providers."""
+        from codeforge.agent_loop import sanitize_tool_messages
+
+        messages = kwargs.get("messages")
+        if isinstance(messages, list):
+            sanitize_tool_messages(messages)
+
     async def chat_completion(self, **kwargs: object) -> object:
-        """Route, then delegate to the real LLM client."""
+        """Route, sanitize, then delegate to the real LLM client."""
         self._route_model(kwargs)
+        self._sanitize_messages(kwargs)
         return await self._llm.chat_completion(**kwargs)
 
     async def chat_completion_stream(self, **kwargs: object) -> object:
-        """Route, then delegate to the real LLM client (streaming)."""
+        """Route, sanitize, then delegate to the real LLM client (streaming)."""
         self._route_model(kwargs)
+        self._sanitize_messages(kwargs)
         return await self._llm.chat_completion_stream(**kwargs)
 
     def __getattr__(self, name: str) -> object:

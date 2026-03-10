@@ -195,16 +195,15 @@ def test_resolve_scenario_temperatures() -> None:
 # -- Retry tests --
 
 
-async def test_retry_on_429(client: LiteLLMClient) -> None:
-    """completion() should retry on 429 and succeed on the second attempt."""
-    responses = [_error_response(429), _ok_response()]
-    mock_post = AsyncMock(side_effect=responses)
+async def test_no_retry_on_429(client: LiteLLMClient) -> None:
+    """completion() should NOT retry on 429 — let the agent loop handle model fallback."""
+    mock_post = AsyncMock(return_value=_error_response(429))
 
-    with patch.object(client._client, "post", mock_post):
-        result = await client.completion(prompt="test", model="test-model")
+    with patch.object(client._client, "post", mock_post), pytest.raises(LLMError) as exc_info:
+        await client.completion(prompt="test", model="test-model")
 
-    assert result.content == "Hello"
-    assert mock_post.call_count == 2
+    assert exc_info.value.status_code == 429
+    assert mock_post.call_count == 1
 
 
 async def test_retry_on_502(client: LiteLLMClient) -> None:
@@ -231,21 +230,21 @@ async def test_no_retry_on_400(client: LiteLLMClient) -> None:
 
 
 async def test_max_retries_exhausted(client: LiteLLMClient) -> None:
-    """completion() should raise after max retries are exhausted."""
-    mock_post = AsyncMock(return_value=_error_response(429))
+    """completion() should raise after max retries are exhausted (for retryable codes)."""
+    mock_post = AsyncMock(return_value=_error_response(502))
 
     with patch.object(client._client, "post", mock_post), pytest.raises(LLMError) as exc_info:
         await client.completion(prompt="test", model="test-model")
 
-    assert exc_info.value.status_code == 429
+    assert exc_info.value.status_code == 502
     # 1 initial + 2 retries = 3 calls
     assert mock_post.call_count == 3
 
 
 async def test_backoff_uses_retry_after(client: LiteLLMClient) -> None:
-    """completion() should use Retry-After from error body when available."""
-    error_body = '{"error": "rate limited", "retry_after": 0.01}'
-    responses = [_error_response(429, body=error_body), _ok_response()]
+    """completion() should use Retry-After from error body when available (for retryable codes)."""
+    error_body = '{"error": "server error", "retry_after": 0.01}'
+    responses = [_error_response(502, body=error_body), _ok_response()]
     mock_post = AsyncMock(side_effect=responses)
 
     with patch.object(client._client, "post", mock_post):
@@ -271,19 +270,18 @@ def test_compute_backoff_uses_retry_hint_without_excessive_buffer() -> None:
     assert backoff < 20.0, f"Backoff {backoff}s is too high, hint was 9.27s"
 
 
-async def test_chat_completion_retries_on_429(client: LiteLLMClient) -> None:
-    """chat_completion() should also retry on 429."""
-    responses = [_error_response(429), _ok_response()]
-    mock_post = AsyncMock(side_effect=responses)
+async def test_chat_completion_no_retry_on_429(client: LiteLLMClient) -> None:
+    """chat_completion() should NOT retry on 429 — propagate for model fallback."""
+    mock_post = AsyncMock(return_value=_error_response(429))
 
-    with patch.object(client._client, "post", mock_post):
-        result = await client.chat_completion(
+    with patch.object(client._client, "post", mock_post), pytest.raises(LLMError) as exc_info:
+        await client.chat_completion(
             messages=[{"role": "user", "content": "test"}],
             model="test-model",
         )
 
-    assert result.content == "Hello"
-    assert mock_post.call_count == 2
+    assert exc_info.value.status_code == 429
+    assert mock_post.call_count == 1
 
 
 # -- Config tests --

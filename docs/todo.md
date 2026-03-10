@@ -319,6 +319,62 @@
   - Tests: billing error classification, fallback chain filtering, agent loop model fallback, all fallbacks exhausted, auth error trigger, rate limit short cooldown
   - Run: `cd workers && poetry run pytest tests/test_routing_fallback_e2e.py -v`
 
+#### F6: Tool-Message Format Incompatibility on Mid-Conversation Model Switch (Priority: HIGH)
+
+> When `_RoutingLLMWrapper` routes to different models per-iteration within the same agent loop
+> (e.g. Gemini → Groq), the message history accumulates tool-result messages in one provider's
+> format that the new provider rejects. Groq requires `content` on `role:tool` messages, but
+> Gemini may omit it.
+>
+> Error: `'messages.3' : for 'role:tool' the following must be satisfied[('messages.3.content' : property 'content' is missing)]`
+
+- [x] (2026-03-10) F6.1: Add test reproducing tool-message format rejection on model switch — 12 tests
+  - File: `workers/tests/test_tool_message_compat.py`
+  - Tests: empty content, missing content, None content, missing tool_call_id, mixed messages, routing wrapper sanitization
+  - Run: `cd workers && poetry run pytest tests/test_tool_message_compat.py -v`
+
+- [x] (2026-03-10) F6.2: Add `sanitize_tool_messages()` normalizer in `agent_loop.py`
+  - File: `workers/codeforge/agent_loop.py`
+  - Ensures all `role:tool` messages have `content` (defaults to `""`) and `tool_call_id`
+  - Also fixed `_payload_to_dict()` to always include `content` for `role:tool` messages
+
+- [x] (2026-03-10) F6.3: Wire sanitizer into `_RoutingLLMWrapper` and `AgentLoopExecutor`
+  - File: `workers/codeforge/consumer/_benchmark.py` — `_RoutingLLMWrapper._sanitize_messages()` called before forwarding
+  - File: `workers/codeforge/agent_loop.py` — `sanitize_tool_messages(messages)` called before `chat_completion_stream`
+
+- [x] (2026-03-10) F6.4: Integration test — routing wrapper with tool message sanitization
+  - File: `workers/tests/test_tool_message_compat.py` (`TestSanitizeWiredIntoLLMCall`)
+  - Verifies `_RoutingLLMWrapper` sanitizes messages before forwarding to real LLM
+
+#### F7: 429 Rate-Limit Should Trigger Immediate Model Fallback (Priority: HIGH)
+
+> The `_with_retry` logic in `llm.py` retries the same rate-limited model 2 times with
+> exponential backoff (20s + 58s waits) before failing, instead of immediately switching
+> to a fallback model. This wastes ~78+ seconds per task on exhausted providers (e.g.
+> Gemini free-tier 20 req/min limit).
+>
+> Expected: On first 429, immediately try the next fallback model from the routing plan.
+> Current: Retries same exhausted model 2x, then fails the entire call.
+
+- [x] (2026-03-10) F7.1: Add test for immediate-fallback-on-429 behavior — 8 tests
+  - File: `workers/tests/test_llm_retry_fallback.py`
+  - Tests: 429 raises immediately (no retry), 502/503/504 still retried, model fallback on 429, fallback chain exhausted, 429 total time <2s, rate tracker integration
+  - Run: `cd workers && poetry run pytest tests/test_llm_retry_fallback.py -v`
+
+- [x] (2026-03-10) F7.2: Remove 429 from `retryable_codes` in `LLMClientConfig`
+  - File: `workers/codeforge/llm.py` (line 184)
+  - Changed: `retryable_codes` from `(429, 502, 503, 504)` to `(502, 503, 504)`
+  - 429 now propagates immediately to agent loop's `_try_model_fallback` which switches models
+  - No refactoring of `_with_retry` needed — existing agent loop fallback logic handles everything
+
+- [x] (2026-03-10) F7.3: No additional wiring needed
+  - Agent loop's `_handle_llm_error` → `_try_model_fallback` → `_pick_next_fallback` already handles model switching via `LoopConfig.fallback_models`
+  - The fix in F7.2 (removing 429 from retryable) is sufficient to trigger this existing path
+
+- [x] (2026-03-10) F7.4: Integration tests verify full fallback chain
+  - File: `workers/tests/test_llm_retry_fallback.py` (`TestFallbackChain`, `TestRateLimitTrackerIntegration`)
+  - 429 resolves to fallback model in <2s, rate tracker records exhausted providers
+
 #### F1: No File Upload/Create in Project UI (Priority: MEDIUM)
 
 > FilePanel only displays files — no buttons to create, upload, or edit files.

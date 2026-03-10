@@ -389,6 +389,7 @@ class AgentLoopExecutor:
                 "gen_ai.system": model_name.split("/")[0] if "/" in model_name else "unknown",
             },
         ) as llm_span:
+            sanitize_tool_messages(messages)
             try:
                 response = await self._llm.chat_completion_stream(
                     messages=messages,
@@ -783,7 +784,11 @@ def _build_tool_result_message(tc: ToolCallPart, content: str) -> ConversationMe
 def _payload_to_dict(msg: ConversationMessagePayload) -> dict[str, object]:
     """Convert a ConversationMessagePayload to an OpenAI-compatible message dict."""
     d: dict[str, object] = {"role": msg.role}
-    if msg.content:
+    if msg.role == "tool":
+        # Tool messages MUST always include 'content' — some providers (e.g. Groq)
+        # reject messages with role:tool missing the content field.
+        d["content"] = msg.content or ""
+    elif msg.content:
         d["content"] = msg.content
     if msg.tool_calls:
         d["tool_calls"] = [
@@ -799,3 +804,21 @@ def _payload_to_dict(msg: ConversationMessagePayload) -> dict[str, object]:
     if msg.name:
         d["name"] = msg.name
     return d
+
+
+def sanitize_tool_messages(messages: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Normalize tool messages for cross-provider compatibility.
+
+    Ensures every ``role:tool`` message has a non-empty ``content`` field and
+    a ``tool_call_id``.  Some providers (e.g. Groq) reject tool messages that
+    are missing these fields, even though other providers (e.g. Gemini) may
+    omit them.
+    """
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        if "content" not in msg or msg["content"] is None:
+            msg["content"] = ""
+        if "tool_call_id" not in msg or not msg["tool_call_id"]:
+            msg["tool_call_id"] = f"_sanitized_{id(msg)}"
+    return messages

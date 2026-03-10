@@ -181,7 +181,10 @@ class LLMClientConfig:
     backoff_base: float = 2.0
     backoff_max: float = 60.0
     timeout: float = 120.0
-    retryable_codes: tuple[int, ...] = (429, 502, 503, 504)
+    # 429 is intentionally excluded: rate-limit errors should propagate immediately
+    # so the agent loop's fallback logic can switch to a different model instead of
+    # wasting time retrying the same exhausted provider.
+    retryable_codes: tuple[int, ...] = (502, 503, 504)
 
 
 def load_llm_client_config() -> LLMClientConfig:
