@@ -17,6 +17,16 @@ model_list:
       api_base: "http://host.docker.internal:11434"
       tags: ["background"]
 
+  # -- Local Models (LM Studio) --
+  # LM Studio exposes an OpenAI-compatible API on port 1234.
+  # Use model names like: lm_studio/qwen2.5-coder-32b-instruct
+  - model_name: "lm_studio/*"
+    litellm_params:
+      model: "openai/*"
+      api_base: "http://192.168.88.21:1234/v1"
+      api_key: "lm-studio"
+      tags: ["background"]
+
   # -- OpenAI --
   - model_name: "openai/*"
     litellm_params:

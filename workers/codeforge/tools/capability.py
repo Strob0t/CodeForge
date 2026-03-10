@@ -34,13 +34,26 @@ _API_WITH_TOOLS_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 # Models that typically lack function-calling support entirely.
+# NOTE: ollama/ and lm_studio/ are local provider prefixes.
+# Some local models (e.g. Qwen2.5-Coder) DO support function calling.
+# The classify_model() logic only applies these patterns when litellm
+# has NOT confirmed FC support (supports_fc is not True).
 _PURE_COMPLETION_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"ollama/", re.IGNORECASE),
-    re.compile(r"lm[-_]studio", re.IGNORECASE),
+    re.compile(r"lm[-_]studio/", re.IGNORECASE),
     re.compile(r"llama[-.]?[23]", re.IGNORECASE),
     re.compile(r"codellama", re.IGNORECASE),
     re.compile(r"phi[-.]?[23]", re.IGNORECASE),
     re.compile(r"starcoder", re.IGNORECASE),
+]
+
+# Local models known to support function calling reliably.
+# These override the pure-completion classification for local prefixes.
+_LOCAL_FC_CAPABLE_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"qwen2\.5.*(?:coder|instruct)", re.IGNORECASE),
+    re.compile(r"mistral.*instruct", re.IGNORECASE),
+    re.compile(r"functionary", re.IGNORECASE),
+    re.compile(r"hermes.*pro", re.IGNORECASE),
 ]
 
 
@@ -69,9 +82,12 @@ def classify_model(model: str) -> CapabilityLevel:
 
     # Check explicit pure-completion patterns first (most restrictive).
     # Even if litellm says it supports FC, local model prefixes (ollama/)
-    # override because they rarely support tools reliably.
+    # override because they rarely support tools reliably — UNLESS the
+    # model name matches a known FC-capable local model.
     for pat in _PURE_COMPLETION_PATTERNS:
         if pat.search(model) and supports_fc is not True:
+            if any(fc_pat.search(model) for fc_pat in _LOCAL_FC_CAPABLE_PATTERNS):
+                return CapabilityLevel.API_WITH_TOOLS
             return CapabilityLevel.PURE_COMPLETION
 
     # Check full capability patterns.
