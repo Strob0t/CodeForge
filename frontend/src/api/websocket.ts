@@ -47,6 +47,17 @@ export interface AGUIToolResult {
   result: string;
   error?: string;
   cost_usd?: number;
+  diff?: {
+    path: string;
+    hunks: {
+      old_start: number;
+      old_lines: number;
+      new_start: number;
+      new_lines: number;
+      old_content: string;
+      new_content: string;
+    }[];
+  };
 }
 export interface AGUIStateDelta {
   run_id: string;

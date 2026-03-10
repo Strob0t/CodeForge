@@ -37,6 +37,17 @@ interface ToolCallState {
   args?: Record<string, unknown>;
   result?: string;
   status: "pending" | "running" | "completed" | "failed";
+  diff?: {
+    path: string;
+    hunks: {
+      old_start: number;
+      old_lines: number;
+      new_start: number;
+      new_lines: number;
+      old_content: string;
+      new_content: string;
+    }[];
+  };
 }
 
 interface PlanStepState {
@@ -277,10 +288,16 @@ export default function ChatPanel(props: ChatPanelProps) {
     if (runId === activeConversation()) {
       const callId = payload.call_id as string;
       const error = payload.error as string | undefined;
+      const diff = payload.diff as ToolCallState["diff"] | undefined;
       setToolCalls((prev) =>
         prev.map((tc) =>
           tc.callId === callId
-            ? { ...tc, result: payload.result as string, status: error ? "failed" : "completed" }
+            ? {
+                ...tc,
+                result: payload.result as string,
+                status: error ? "failed" : "completed",
+                diff,
+              }
             : tc,
         ),
       );
@@ -687,6 +704,9 @@ export default function ChatPanel(props: ChatPanelProps) {
                       args={tc.args}
                       result={tc.result}
                       status={tc.status}
+                      diff={tc.diff}
+                      runId={activeConversation() ?? undefined}
+                      callId={tc.callId}
                     />
                   )}
                 </For>

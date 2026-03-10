@@ -450,6 +450,11 @@ export const api = {
           body: JSON.stringify({ decision }),
         },
       ),
+
+    revert: (runId: string, callId: string) =>
+      request<{ status: string }>(url`/runs/${runId}/revert/${callId}`, {
+        method: "POST",
+      }),
   },
 
   sessions: {
