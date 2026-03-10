@@ -70,12 +70,14 @@ model_list:
       api_key: "os.environ/CEREBRAS_API_KEY"
 
   # -- GitHub Copilot --
-  - model_name: "github_copilot/*"
-    litellm_params:
-      model: "github_copilot/*"
-      extra_headers:
-        Editor-Version: "vscode/1.88.0"
-        Copilot-Integration-Id: "vscode-chat"
+  # Disabled: device-code auth blocks LiteLLM startup synchronously.
+  # Copilot token exchange is handled by Go Core (internal/adapter/copilot/client.go).
+  # - model_name: "github_copilot/*"
+  #   litellm_params:
+  #     model: "github_copilot/*"
+  #     extra_headers:
+  #       Editor-Version: "vscode/1.88.0"
+  #       Copilot-Integration-Id: "vscode-chat"
 
   # -- Chutes (OpenAI-compatible) --
   - model_name: "chutes/*"
@@ -102,6 +104,10 @@ litellm_settings:
   request_timeout: 120
   # Reduced from 2: app-level retry in llm.py handles remaining retries
   num_retries: 1
+  # Query actual provider endpoints for wildcard model discovery.
+  # Without this, LiteLLM expands wildcards from its internal model cost map,
+  # showing hundreds of phantom models that providers don't actually offer.
+  check_provider_endpoint: true
 
 general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"
