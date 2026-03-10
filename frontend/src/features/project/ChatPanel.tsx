@@ -25,7 +25,9 @@ import { deriveActions } from "./actionRules";
 import ChatSuggestions from "./ChatSuggestions";
 import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
+import MessageBadge from "./MessageBadge";
 import PermissionRequestCard from "./PermissionRequestCard";
+import SessionFooter from "./SessionFooter";
 import SessionPanel from "./SessionPanel";
 import ToolCallCard from "./ToolCallCard";
 
@@ -153,6 +155,13 @@ export default function ChatPanel(props: ChatPanelProps) {
   // Agentic mode tracking: step counter and running cost
   const [stepCount, setStepCount] = createSignal(0);
   const [runningCost, setRunningCost] = createSignal(0);
+
+  // Session-level cumulative usage (persists across runs, shown in SessionFooter)
+  const [sessionModel, setSessionModel] = createSignal("");
+  const [sessionCostUsd, setSessionCostUsd] = createSignal(0);
+  const [sessionTokensIn, setSessionTokensIn] = createSignal(0);
+  const [sessionTokensOut, setSessionTokensOut] = createSignal(0);
+  const [sessionSteps, setSessionSteps] = createSignal(0);
 
   let messagesEndRef: HTMLDivElement | undefined;
 
@@ -333,6 +342,13 @@ export default function ChatPanel(props: ChatPanelProps) {
     if (runId === activeConversation()) {
       const status = payload.status as string;
       const errorMsg = payload.error as string | undefined;
+      // Extract usage data from run_finished payload
+      const model = (payload.model as string) || "";
+      const costUsd = (payload.cost_usd as number) || 0;
+      const tokensIn = (payload.tokens_in as number) || 0;
+      const tokensOut = (payload.tokens_out as number) || 0;
+      const steps = (payload.steps as number) || 0;
+
       batch(() => {
         setAgentRunning(false);
         setStreamingContent("");
@@ -342,6 +358,13 @@ export default function ChatPanel(props: ChatPanelProps) {
         setRunningCost(0);
         setPermissionRequests([]);
         setResolvedPermissions(new Set<string>());
+
+        // Accumulate session-level usage
+        if (model) setSessionModel(model);
+        setSessionCostUsd((prev) => prev + costUsd);
+        setSessionTokensIn((prev) => prev + tokensIn);
+        setSessionTokensOut((prev) => prev + tokensOut);
+        setSessionSteps((prev) => prev + steps);
 
         if (status === "failed" && errorMsg) {
           setRunError(errorMsg);
@@ -698,9 +721,11 @@ export default function ChatPanel(props: ChatPanelProps) {
                   <Show when={msg.role === "assistant"} fallback={msg.content}>
                     <Markdown content={msg.content} />
                   </Show>
-                  <Show when={msg.model}>
-                    <div class="mt-1 text-xs opacity-60">{msg.model}</div>
-                  </Show>
+                  <MessageBadge
+                    model={msg.model || undefined}
+                    tokensIn={msg.tokens_in || undefined}
+                    tokensOut={msg.tokens_out || undefined}
+                  />
                 </div>
               </div>
             )}
@@ -883,6 +908,16 @@ export default function ChatPanel(props: ChatPanelProps) {
             </Button>
           </div>
         </div>
+
+        {/* Session usage footer */}
+        <SessionFooter
+          model={sessionModel() || undefined}
+          steps={sessionSteps()}
+          costUsd={sessionCostUsd()}
+          tokensUsed={sessionTokensIn() + sessionTokensOut()}
+          tokensTotal={120000}
+          visible={sessionCostUsd() > 0 || sessionSteps() > 0}
+        />
       </Show>
     </div>
   );
