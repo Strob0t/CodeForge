@@ -682,6 +682,7 @@ func run() error {
 		AutoAgent:        autoAgentSvc,
 		BackendHealth:    backendHealthSvc,
 		Checkpoint:       checkpointSvc,
+		Commands:         service.NewCommandService(),
 		Limits:           &cfg.Limits,
 	}
 

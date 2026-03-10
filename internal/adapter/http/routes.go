@@ -391,6 +391,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Post("/{id}/force-password-change", h.AdminForcePasswordChange)
 		})
 
+		// Commands (slash commands for chat)
+		r.Get("/commands", h.ListCommands)
+
 		// Prompt Sections
 		r.Get("/prompt-sections", h.ListPromptSections)
 		r.Put("/prompt-sections", h.UpsertPromptSection)

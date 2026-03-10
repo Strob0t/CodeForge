@@ -94,6 +94,7 @@ type Handlers struct {
 	GitHubOAuth      *service.GitHubOAuthService
 	BackendHealth    *service.BackendHealthService
 	Checkpoint       *service.CheckpointService
+	Commands         *service.CommandService
 	Limits           *config.Limits
 }
 
