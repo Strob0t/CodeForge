@@ -98,6 +98,26 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string) ([]conv
 	})
 }
 
+func (s *Store) DeleteConversationMessages(ctx context.Context, conversationID string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM conversation_messages WHERE conversation_id = $1`,
+		conversationID)
+	if err != nil {
+		return fmt.Errorf("delete conversation messages: %w", err)
+	}
+	return nil
+}
+
+// UpdateConversationMode is a stub — the conversations table does not yet have a mode column.
+func (s *Store) UpdateConversationMode(_ context.Context, _, _ string) error {
+	return nil
+}
+
+// UpdateConversationModel is a stub — the conversations table does not yet have a model column.
+func (s *Store) UpdateConversationModel(_ context.Context, _, _ string) error {
+	return nil
+}
+
 // CreateToolMessages inserts multiple tool-related messages (assistant messages
 // with tool_calls and tool result messages) in a single batch operation.
 func (s *Store) CreateToolMessages(ctx context.Context, conversationID string, msgs []conversation.Message) error {

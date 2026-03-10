@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 //go:embed templates/conversation_system.tmpl
@@ -297,6 +298,56 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 	)
 
 	return nil, nil
+}
+
+// CompactConversation publishes a compaction request to the Python worker via NATS.
+// The worker will summarise the conversation history to reduce token usage.
+func (s *ConversationService) CompactConversation(ctx context.Context, conversationID string) error {
+	_, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if s.queue == nil {
+		return errors.New("message queue not configured")
+	}
+	payload := map[string]string{
+		"conversation_id": conversationID,
+		"tenant_id":       tenantctx.FromContext(ctx),
+	}
+	data, _ := json.Marshal(payload)
+	return s.queue.Publish(ctx, messagequeue.SubjectConversationCompactRequest, data)
+}
+
+// ClearConversation deletes all messages from a conversation.
+func (s *ConversationService) ClearConversation(ctx context.Context, conversationID string) error {
+	_, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	return s.db.DeleteConversationMessages(ctx, conversationID)
+}
+
+// SetMode validates and stores the mode for a conversation.
+func (s *ConversationService) SetMode(ctx context.Context, conversationID, mode string) error {
+	_, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if s.modeSvc != nil {
+		if _, modeErr := s.modeSvc.Get(mode); modeErr != nil {
+			return fmt.Errorf("unknown mode: %s", mode)
+		}
+	}
+	return s.db.UpdateConversationMode(ctx, conversationID, mode)
+}
+
+// SetModel stores a model override for a conversation.
+func (s *ConversationService) SetModel(ctx context.Context, conversationID, model string) error {
+	_, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	return s.db.UpdateConversationModel(ctx, conversationID, model)
 }
 
 // IsAgentic determines whether a conversation message should use the agentic loop.

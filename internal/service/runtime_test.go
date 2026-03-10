@@ -788,6 +788,15 @@ func (m *runtimeMockStore) CreateToolMessages(_ context.Context, _ string, _ []c
 func (m *runtimeMockStore) ListMessages(_ context.Context, _ string) ([]conversation.Message, error) {
 	return nil, nil
 }
+func (m *runtimeMockStore) DeleteConversationMessages(_ context.Context, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) UpdateConversationMode(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *runtimeMockStore) UpdateConversationModel(_ context.Context, _, _ string) error {
+	return nil
+}
 
 // MCP Server stubs
 func (m *runtimeMockStore) CreateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }

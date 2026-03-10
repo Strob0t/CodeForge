@@ -1149,6 +1149,18 @@ func (m *mockStore) ListMessages(_ context.Context, conversationID string) ([]co
 	}
 	return result, nil
 }
+func (m *mockStore) DeleteConversationMessages(_ context.Context, conversationID string) error {
+	filtered := m.messages[:0]
+	for i := range m.messages {
+		if m.messages[i].ConversationID != conversationID {
+			filtered = append(filtered, m.messages[i])
+		}
+	}
+	m.messages = filtered
+	return nil
+}
+func (m *mockStore) UpdateConversationMode(_ context.Context, _, _ string) error  { return nil }
+func (m *mockStore) UpdateConversationModel(_ context.Context, _, _ string) error { return nil }
 
 // MCP Server methods
 func (m *mockStore) CreateMCPServer(_ context.Context, s *mcp.ServerDef) error {

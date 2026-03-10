@@ -353,6 +353,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/conversations/{id}/session", h.GetConversationSession)
 		r.Post("/conversations/{id}/fork", h.ForkConversation)
 		r.Post("/conversations/{id}/rewind", h.RewindConversation)
+		r.Post("/conversations/{id}/compact", h.CompactConversation)
+		r.Post("/conversations/{id}/clear", h.ClearConversation)
+		r.Post("/conversations/{id}/mode", h.SetConversationMode)
+		r.Post("/conversations/{id}/model", h.SetConversationModel)
 
 		// HITL (Human-in-the-Loop) Approval
 		r.Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)

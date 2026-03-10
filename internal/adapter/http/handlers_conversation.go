@@ -149,6 +149,92 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// CompactConversation handles POST /api/v1/conversations/{id}/compact.
+// Dispatches a compaction request to summarise the conversation history.
+func (h *Handlers) CompactConversation(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Conversations.CompactConversation(r.Context(), id); err != nil {
+		writeDomainError(w, err, "compact conversation")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":          "compacting",
+		"conversation_id": id,
+	})
+}
+
+// ClearConversation handles POST /api/v1/conversations/{id}/clear.
+// Deletes all messages from the conversation.
+func (h *Handlers) ClearConversation(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.Conversations.ClearConversation(r.Context(), id); err != nil {
+		writeDomainError(w, err, "clear conversation")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":          "cleared",
+		"conversation_id": id,
+	})
+}
+
+// SetConversationMode handles POST /api/v1/conversations/{id}/mode.
+// Sets the agent mode for a conversation.
+func (h *Handlers) SetConversationMode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	type modeRequest struct {
+		Mode string `json:"mode"`
+	}
+
+	req, ok := readJSON[modeRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	if req.Mode == "" {
+		writeError(w, http.StatusBadRequest, "mode is required")
+		return
+	}
+
+	if err := h.Conversations.SetMode(r.Context(), id, req.Mode); err != nil {
+		writeDomainError(w, err, "set conversation mode")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":          "mode_changed",
+		"conversation_id": id,
+		"mode":            req.Mode,
+	})
+}
+
+// SetConversationModel handles POST /api/v1/conversations/{id}/model.
+// Sets a model override for a conversation.
+func (h *Handlers) SetConversationModel(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	type modelRequest struct {
+		Model string `json:"model"`
+	}
+
+	req, ok := readJSON[modelRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	if req.Model == "" {
+		writeError(w, http.StatusBadRequest, "model is required")
+		return
+	}
+
+	if err := h.Conversations.SetModel(r.Context(), id, req.Model); err != nil {
+		writeDomainError(w, err, "set conversation model")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":          "model_changed",
+		"conversation_id": id,
+		"model":           req.Model,
+	})
+}
+
 // RevertToolCall reverts a file edit to its pre-change state.
 // POST /api/v1/runs/{id}/revert/{callId}
 func (h *Handlers) RevertToolCall(w http.ResponseWriter, r *http.Request) {

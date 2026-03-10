@@ -54,6 +54,8 @@ SUBJECT_GRAPH_SEARCH_RESULT = "graph.search.result"
 # Conversation
 SUBJECT_CONVERSATION_RUN_START = "conversation.run.start"
 SUBJECT_CONVERSATION_RUN_COMPLETE = "conversation.run.complete"
+SUBJECT_CONVERSATION_COMPACT_REQUEST = "conversation.compact.request"
+SUBJECT_CONVERSATION_COMPACT_COMPLETE = "conversation.compact.complete"
 
 # Benchmark
 SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"

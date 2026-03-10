@@ -277,6 +277,9 @@ type Store interface {
 	CreateMessage(ctx context.Context, m *conversation.Message) (*conversation.Message, error)
 	CreateToolMessages(ctx context.Context, conversationID string, msgs []conversation.Message) error
 	ListMessages(ctx context.Context, conversationID string) ([]conversation.Message, error)
+	DeleteConversationMessages(ctx context.Context, conversationID string) error
+	UpdateConversationMode(ctx context.Context, conversationID, mode string) error
+	UpdateConversationModel(ctx context.Context, conversationID, model string) error
 
 	// MCP Servers
 	CreateMCPServer(ctx context.Context, s *mcp.ServerDef) error
