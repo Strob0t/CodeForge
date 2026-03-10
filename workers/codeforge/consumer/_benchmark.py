@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import tempfile
 import time
 from typing import TYPE_CHECKING
 
@@ -311,10 +312,38 @@ async def _run_tool_use_benchmark(req, llm, pipeline) -> list:
     return await _run_with_optional_rollout(runner, tasks, req, pipeline)
 
 
+class _BenchmarkRuntime:
+    """Lightweight runtime stub for benchmark runs (no NATS dependency).
+
+    Auto-approves all tool calls and silently discards output/trajectory
+    events that would normally be published to the Go control plane.
+    """
+
+    def __init__(self, run_id: str = "benchmark") -> None:
+        self.run_id = run_id
+        self.project_id = ""
+        self.is_cancelled = False
+
+    async def send_output(self, _text: str) -> None:
+        pass
+
+    async def request_tool_call(self, **_kwargs: object) -> object:
+        from codeforge.models import ToolCallDecision
+
+        return ToolCallDecision(call_id="bench", decision="allow")
+
+    async def report_tool_result(self, **_kwargs: object) -> None:
+        pass
+
+    async def publish_trajectory_event(self, **_kwargs: object) -> None:
+        pass
+
+
 async def _run_agent_benchmark(req, llm, pipeline) -> list:
     """Run an agent benchmark using the full agent loop."""
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
     from codeforge.evaluation.runners.agent import AgentBenchmarkRunner
+    from codeforge.tools import build_default_registry
 
     if req.provider_name:
         tasks = await _load_tasks_for_run(req)
@@ -328,7 +357,14 @@ async def _run_agent_benchmark(req, llm, pipeline) -> list:
         model=req.model,
         max_cost=req.provider_config.get("max_cost", 1.0) if req.provider_config else 1.0,
     )
-    executor = AgentLoopExecutor(llm=llm, tools=None, runtime=None)
+    registry = build_default_registry()
+    runtime = _BenchmarkRuntime(run_id=req.run_id)
+    executor = AgentLoopExecutor(
+        llm=llm,
+        tool_registry=registry,
+        runtime=runtime,
+        workspace_path=tempfile.gettempdir(),
+    )
     runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline, loop_config=config)
     return await _run_with_optional_rollout(runner, tasks, req, pipeline)
 
