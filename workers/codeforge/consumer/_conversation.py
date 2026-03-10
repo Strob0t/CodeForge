@@ -588,6 +588,9 @@ class ConversationHandlerMixin:
                         )
                         for s in data
                     ]
+                except httpx.ConnectError:
+                    logger.warning("routing stats unavailable (Go Core not reachable at %s)", core_url)
+                    return []
                 except Exception as exc:
                     logger.warning("failed to load routing stats", exc_info=True, error=str(exc))
                     return []
