@@ -1653,6 +1653,32 @@ export interface BenchmarkRun {
   rollout_strategy?: string;
 }
 
+/** A single event in the benchmark live feed, collected from WebSocket trajectory events. */
+export interface LiveFeedEvent {
+  id: string;
+  timestamp: number;
+  run_id: string;
+  project_id: string;
+  event_type: string;
+  tool_name?: string;
+  model?: string;
+  input?: string;
+  output?: string;
+  success?: boolean;
+  step?: number;
+  cost_usd?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+}
+
+/** Benchmark-specific progress tracked from WS events. */
+export interface BenchmarkLiveProgress {
+  completed_tasks: number;
+  total_tasks: number;
+  avg_score: number;
+  total_cost_usd: number;
+}
+
 /** Typed tool call entry for benchmark results. */
 export interface ToolCallEntry {
   name: string;
