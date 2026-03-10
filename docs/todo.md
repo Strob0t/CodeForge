@@ -197,6 +197,19 @@
 - [x] Benchmark E2E: 132 browser Playwright tests across 12 spec files
 - [x] Backend E2E: 88 pass / 0 fail / 3 skip (97% pass rate)
 
+#### Chat Enhancements (COMPLETED)
+- [x] (2026-03-10) Phase 1: HITL permission UI + `supervised-ask-all` preset + autonomy-to-preset mapping
+- [x] (2026-03-10) Phase 2: Inline diff review with DiffPreview component + file content endpoint
+- [x] (2026-03-10) Phase 3: Action buttons (copy, retry, apply, view diff) on agent messages
+- [x] (2026-03-10) Phase 4: Per-message cost tracking with MessageBadge + CostBreakdown
+- [x] (2026-03-10) Phase 5: Smart references with @/#// autocomplete popover + frequency tracker
+- [x] (2026-03-10) Phase 6: Slash commands (/compact, /rewind, /clear, /help, /mode, /model)
+- [x] (2026-03-10) Phase 7: Conversation full-text search with PostgreSQL FTS (GIN index, ts_rank)
+- [x] (2026-03-10) Phase 8: Notification center with browser push, sound, tab badge, AG-UI wiring
+- [x] (2026-03-10) Phase 9: Real-time channels with threads, domain model, sidebar integration
+- [x] (2026-03-10) Phase 10+11: Feature spec + documentation updates
+- Feature spec: [docs/features/05-chat-enhancements.md](features/05-chat-enhancements.md)
+
 ---
 
 ### E2E Playwright Test Findings (2026-03-09)

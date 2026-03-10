@@ -106,6 +106,17 @@ Detailed analysis: docs/research/market-analysis.md
   - **Adaptive Context Budget:** Budget decays linearly from `ContextBudget` to 0 over 60 history messages (`AdaptiveContextBudget()` in `internal/service/context_budget.go`). Early turns get full context; later turns get less as the agent builds its own context through tool calls.
   - **Auto-Indexing:** Clone, Adopt, and Setup handlers auto-trigger RepoMap + Retrieval Index + GraphRAG build (`autoIndexProject()` in `internal/adapter/http/handlers.go`)
   - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
+- **Chat Enhancements:** — **implemented**
+  - HITL Permission UI: `PermissionRequestCard` with approve/deny, countdown, `supervised-ask-all` preset, autonomy-to-preset mapping
+  - Inline Diff Review: `DiffPreview` component for write/edit tool calls
+  - Action Buttons: copy, retry, apply, view diff on agent messages
+  - Per-Message Cost: `MessageBadge` + `CostBreakdown` from AG-UI `state_delta`
+  - Smart References: `@/#//` autocomplete, `AutocompletePopover`, `useFrequencyTracker`
+  - Slash Commands: `/compact`, `/rewind`, `/clear`, `/help`, `/mode`, `/model` with `CommandRegistry`
+  - Conversation Search: PostgreSQL FTS (GIN index, `ts_rank`), `POST /search/conversations`
+  - Notification Center: `notificationStore`, browser push, Web Audio sounds, tab badge, AG-UI wiring
+  - Real-Time Channels: 3 tables, 9 endpoints, WebSocket events, `ChannelList`, `ChannelView`, `ThreadPanel`
+  - Feature spec: `docs/features/05-chat-enhancements.md`
 - **Framework Insights (LangGraph, CrewAI, AutoGen, MetaGPT):**
   > Reference patterns from framework analysis.
   - Composite Memory Scoring (Semantic + Recency + Importance) — `workers/codeforge/memory/scorer.py`, `internal/service/memory.go`
