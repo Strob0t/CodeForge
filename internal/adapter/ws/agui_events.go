@@ -3,6 +3,8 @@
 // When enabled, these events are emitted alongside native CodeForge WS events.
 package ws
 
+import "encoding/json"
+
 // AG-UI event type constants.
 const (
 	AGUIRunStarted   = "agui.run_started"
@@ -46,10 +48,11 @@ type AGUIToolCallEvent struct {
 
 // AGUIToolResultEvent carries the result of a tool invocation.
 type AGUIToolResultEvent struct {
-	RunID  string `json:"run_id"`
-	CallID string `json:"call_id"`
-	Result string `json:"result"` // JSON-encoded result
-	Error  string `json:"error,omitempty"`
+	RunID  string          `json:"run_id"`
+	CallID string          `json:"call_id"`
+	Result string          `json:"result"` // JSON-encoded result
+	Error  string          `json:"error,omitempty"`
+	Diff   json.RawMessage `json:"diff,omitempty"`
 }
 
 // AGUIStateDeltaEvent carries a partial state update.

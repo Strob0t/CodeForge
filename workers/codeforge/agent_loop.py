@@ -603,6 +603,7 @@ class AgentLoopExecutor:
                 success=result.success,
                 output=result.output[:500] if result.output else "",
                 error=result.error,
+                diff=result.diff,
             )
             elapsed_ms = (time.monotonic() - tool_start) * 1000
             otel_metrics.tool_duration.record(elapsed_ms / 1000)

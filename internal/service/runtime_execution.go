@@ -381,6 +381,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		CallID: result.CallID,
 		Result: result.Output,
 		Error:  toolResultErr,
+		Diff:   result.Diff,
 	})
 
 	return nil
