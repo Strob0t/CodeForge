@@ -1659,7 +1659,7 @@ export interface LiveFeedEvent {
   timestamp: number;
   run_id: string;
   project_id: string;
-  event_type: string;
+  event_type: "agent.step_done" | "agent.tool_called" | "agent.finished" | (string & {});
   tool_name?: string;
   model?: string;
   input?: string;

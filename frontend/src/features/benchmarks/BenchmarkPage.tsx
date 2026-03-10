@@ -421,19 +421,16 @@ export default function BenchmarkPage() {
                           </div>
                         </Show>
 
-                        {/* Live feed for selected running runs, minimal pulse bar otherwise */}
-                        <Show when={run.status === "running" && selectedRun() === run.id}>
-                          <BenchmarkLiveFeed runId={run.id} startedAt={run.created_at} />
-                        </Show>
+                        {/* Minimal pulse bar for non-selected running runs */}
                         <Show when={run.status === "running" && selectedRun() !== run.id}>
                           <div class="mt-2">
-                            <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                            <div class="h-1.5 w-full overflow-hidden rounded-full bg-cf-bg-secondary">
                               <div
-                                class="h-1.5 animate-pulse rounded-full bg-blue-500"
+                                class="h-1.5 animate-pulse rounded-full bg-cf-accent"
                                 style={{ width: "100%" }}
                               />
                             </div>
-                            <span class="mt-1 text-xs text-gray-500">Running...</span>
+                            <span class="mt-1 text-xs text-cf-text-muted">Running...</span>
                           </div>
                         </Show>
 
@@ -455,6 +452,9 @@ export default function BenchmarkPage() {
 
                         {/* Expanded Results */}
                         <Show when={selectedRun() === run.id}>
+                          <Show when={run.status === "running"}>
+                            <BenchmarkLiveFeed runId={run.id} startedAt={run.created_at} />
+                          </Show>
                           <BenchmarkRunDetail
                             results={results()}
                             loading={results.loading}
