@@ -26,9 +26,14 @@ type AGUIRunStartedEvent struct {
 
 // AGUIRunFinishedEvent signals that an agent run has completed.
 type AGUIRunFinishedEvent struct {
-	RunID  string `json:"run_id"`
-	Status string `json:"status"`          // "completed", "failed", "cancelled"
-	Error  string `json:"error,omitempty"` // error message when status is "failed"
+	RunID     string  `json:"run_id"`
+	Status    string  `json:"status"`              // "completed", "failed", "cancelled"
+	Error     string  `json:"error,omitempty"`     // error message when status is "failed"
+	Model     string  `json:"model,omitempty"`     // LLM model used
+	CostUSD   float64 `json:"cost_usd,omitempty"`  // total cost in USD
+	TokensIn  int     `json:"tokens_in,omitempty"` // total input tokens
+	TokensOut int     `json:"tokens_out,omitempty"`
+	Steps     int     `json:"steps,omitempty"` // number of agent steps
 }
 
 // AGUITextMessageEvent carries a text chunk from the agent.

@@ -30,6 +30,11 @@ export interface AGUIRunFinished {
   run_id: string;
   status: string;
   error?: string;
+  model?: string;
+  cost_usd?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  steps?: number;
 }
 export interface AGUITextMessage {
   run_id: string;

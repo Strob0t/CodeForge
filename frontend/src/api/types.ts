@@ -1187,6 +1187,11 @@ export interface AGUIRunStartedEvent {
 export interface AGUIRunFinishedEvent {
   run_id: string;
   status: "completed" | "failed" | "cancelled";
+  model?: string;
+  cost_usd?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  steps?: number;
 }
 
 export interface AGUITextMessageEvent {

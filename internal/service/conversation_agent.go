@@ -649,9 +649,14 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	}
 
 	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
-		RunID:  payload.RunID,
-		Status: wsStatus,
-		Error:  payload.Error,
+		RunID:     payload.RunID,
+		Status:    wsStatus,
+		Error:     payload.Error,
+		Model:     payload.Model,
+		CostUSD:   payload.CostUSD,
+		TokensIn:  payload.TokensIn,
+		TokensOut: payload.TokensOut,
+		Steps:     payload.StepCount,
 	})
 
 	// Notify in-process waiters (e.g. autoagent).
