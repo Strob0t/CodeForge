@@ -170,7 +170,8 @@ Automatic retry with exponential backoff for transient LLM provider failures, pl
 | `CODEFORGE_LLM_MAX_RETRIES` | `2` | Max retry attempts per LLM call |
 | `CODEFORGE_LLM_BACKOFF_BASE` | `2.0` | Exponential backoff base (seconds) |
 | `CODEFORGE_LLM_BACKOFF_MAX` | `60.0` | Maximum backoff cap (seconds) |
-| `CODEFORGE_LLM_TIMEOUT` | `120.0` | HTTP request timeout (seconds) |
+| `CODEFORGE_LLM_CONNECT_TIMEOUT` | `10.0` | HTTP connect timeout (seconds) |
+| `CODEFORGE_LLM_READ_TIMEOUT` | `300.0` | HTTP read timeout (seconds) |
 
 - [x] `LLMClientConfig` dataclass + `load_llm_client_config()` env-var loader
 - [x] `_with_retry()` async retry wrapper in LiteLLMClient (all 3 methods)

@@ -284,6 +284,30 @@ async def test_chat_completion_no_retry_on_429(client: LiteLLMClient) -> None:
     assert mock_post.call_count == 1
 
 
+async def test_retry_on_read_timeout(client: LiteLLMClient) -> None:
+    """completion() should retry on httpx.ReadTimeout and wrap as LLMError(408)."""
+    responses = [httpx.ReadTimeout("read timed out"), _ok_response()]
+    mock_post = AsyncMock(side_effect=responses)
+
+    with patch.object(client._client, "post", mock_post):
+        result = await client.completion(prompt="test", model="test-model")
+
+    assert result.content == "Hello"
+    assert mock_post.call_count == 2
+
+
+async def test_read_timeout_exhausted(client: LiteLLMClient) -> None:
+    """completion() should raise LLMError(408) after retries exhausted on ReadTimeout."""
+    mock_post = AsyncMock(side_effect=httpx.ReadTimeout("read timed out"))
+
+    with patch.object(client._client, "post", mock_post), pytest.raises(LLMError) as exc_info:
+        await client.completion(prompt="test", model="test-model")
+
+    assert exc_info.value.status_code == 408
+    # 1 initial + 2 retries = 3 calls
+    assert mock_post.call_count == 3
+
+
 # -- Config tests --
 
 
@@ -293,14 +317,16 @@ def test_config_from_env() -> None:
         "CODEFORGE_LLM_MAX_RETRIES": "5",
         "CODEFORGE_LLM_BACKOFF_BASE": "3.0",
         "CODEFORGE_LLM_BACKOFF_MAX": "120.0",
-        "CODEFORGE_LLM_TIMEOUT": "300.0",
+        "CODEFORGE_LLM_CONNECT_TIMEOUT": "20.0",
+        "CODEFORGE_LLM_READ_TIMEOUT": "600.0",
     }
     with patch.dict(os.environ, env):
         cfg = load_llm_client_config()
     assert cfg.max_retries == 5
     assert cfg.backoff_base == pytest.approx(3.0)
     assert cfg.backoff_max == pytest.approx(120.0)
-    assert cfg.timeout == pytest.approx(300.0)
+    assert cfg.connect_timeout == pytest.approx(20.0)
+    assert cfg.read_timeout == pytest.approx(600.0)
 
 
 def test_config_defaults() -> None:
@@ -309,7 +335,8 @@ def test_config_defaults() -> None:
         "CODEFORGE_LLM_MAX_RETRIES",
         "CODEFORGE_LLM_BACKOFF_BASE",
         "CODEFORGE_LLM_BACKOFF_MAX",
-        "CODEFORGE_LLM_TIMEOUT",
+        "CODEFORGE_LLM_CONNECT_TIMEOUT",
+        "CODEFORGE_LLM_READ_TIMEOUT",
     ]
     clean_env = dict.fromkeys(env_keys, "")
     with patch.dict(os.environ, clean_env):
@@ -317,7 +344,8 @@ def test_config_defaults() -> None:
     assert cfg.max_retries == 2
     assert cfg.backoff_base == pytest.approx(2.0)
     assert cfg.backoff_max == pytest.approx(60.0)
-    assert cfg.timeout == pytest.approx(120.0)
+    assert cfg.connect_timeout == pytest.approx(10.0)
+    assert cfg.read_timeout == pytest.approx(300.0)
 
 
 # -- Rate-info extraction tests --

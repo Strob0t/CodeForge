@@ -674,7 +674,8 @@ See `.env.example` for all configurable values.
 | CODEFORGE_LLM_MAX_RETRIES  | 2                                        | Max retry attempts per LLM call |
 | CODEFORGE_LLM_BACKOFF_BASE | 2.0                                      | Exponential backoff base (sec)  |
 | CODEFORGE_LLM_BACKOFF_MAX  | 60.0                                     | Maximum backoff cap (sec)       |
-| CODEFORGE_LLM_TIMEOUT      | 120.0                                    | HTTP request timeout (sec)      |
+| CODEFORGE_LLM_CONNECT_TIMEOUT | 10.0                                  | HTTP connect timeout (sec)      |
+| CODEFORGE_LLM_READ_TIMEOUT | 300.0                                    | HTTP read timeout (sec)         |
 | CODEFORGE_AGENT_CONTEXT_ENABLED | false                                | Enable context optimizer for conversations |
 | CODEFORGE_AGENT_CONTEXT_BUDGET | 2048                                  | Token budget for context entries |
 | CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE | 512                           | Tokens reserved for prompt       |

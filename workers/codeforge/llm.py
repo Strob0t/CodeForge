@@ -66,8 +66,9 @@ def is_fallback_eligible(exc: LLMError) -> bool:
 
     Only billing/auth/quota/rate-limit errors qualify -- malformed-request 400s do not.
     """
-    # 429 (rate limit) and 402 (payment required) are always fallback-eligible.
-    if exc.status_code in (429, 402):
+    # 429 (rate limit), 402 (payment required), and 408 (request timeout /
+    # transport error) are always fallback-eligible.
+    if exc.status_code in (408, 429, 402):
         return True
     if exc.status_code not in _FALLBACK_CODES:
         return False
@@ -180,11 +181,13 @@ class LLMClientConfig:
     max_retries: int = 2
     backoff_base: float = 2.0
     backoff_max: float = 60.0
-    timeout: float = 120.0
+    connect_timeout: float = 10.0
+    read_timeout: float = 300.0
     # 429 is intentionally excluded: rate-limit errors should propagate immediately
     # so the agent loop's fallback logic can switch to a different model instead of
     # wasting time retrying the same exhausted provider.
-    retryable_codes: tuple[int, ...] = (502, 503, 504)
+    # 408 included: upstream request timeouts are transient and worth retrying.
+    retryable_codes: tuple[int, ...] = (408, 502, 503, 504)
 
 
 def load_llm_client_config() -> LLMClientConfig:
@@ -208,7 +211,8 @@ def load_llm_client_config() -> LLMClientConfig:
         max_retries=_int("CODEFORGE_LLM_MAX_RETRIES", 2),
         backoff_base=_float("CODEFORGE_LLM_BACKOFF_BASE", 2.0),
         backoff_max=_float("CODEFORGE_LLM_BACKOFF_MAX", 60.0),
-        timeout=_float("CODEFORGE_LLM_TIMEOUT", 120.0),
+        connect_timeout=_float("CODEFORGE_LLM_CONNECT_TIMEOUT", 10.0),
+        read_timeout=_float("CODEFORGE_LLM_READ_TIMEOUT", 300.0),
     )
 
 
@@ -335,7 +339,12 @@ class LiteLLMClient:
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             headers=headers,
-            timeout=self._config.timeout,
+            timeout=httpx.Timeout(
+                connect=self._config.connect_timeout,
+                read=self._config.read_timeout,
+                write=self._config.connect_timeout,
+                pool=self._config.connect_timeout,
+            ),
         )
 
     # -- retry / resilience helpers -----------------------------------------
@@ -386,6 +395,23 @@ class LiteLLMClient:
         for attempt in range(self._config.max_retries + 1):
             try:
                 return await fn(*args, **kwargs)
+            except httpx.TransportError as exc:
+                # Wrap transport-level errors (ReadTimeout, ConnectTimeout,
+                # ConnectError, etc.) as retryable LLMError so they participate
+                # in the retry + fallback logic instead of bubbling uncaught.
+                wrapped = LLMError(408, "unknown", str(exc))
+                last_exc = wrapped
+                if attempt == self._config.max_retries:
+                    raise wrapped from exc
+                wait = self._compute_backoff(wrapped, attempt)
+                logger.warning(
+                    "LLM transport error (%s), retry %d/%d in %.1fs",
+                    type(exc).__name__,
+                    attempt + 1,
+                    self._config.max_retries,
+                    wait,
+                )
+                await asyncio.sleep(wait)
             except LLMError as exc:
                 last_exc = exc
                 err_type = classify_error_type(exc)
