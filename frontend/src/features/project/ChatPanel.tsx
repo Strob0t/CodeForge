@@ -19,6 +19,9 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
+import ActionBar from "./ActionBar";
+import type { ActionRule } from "./actionRules";
+import { deriveActions } from "./actionRules";
 import ChatSuggestions from "./ChatSuggestions";
 import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
@@ -144,6 +147,9 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [permissionRequests, setPermissionRequests] = createSignal<AGUIPermissionRequest[]>([]);
   const [resolvedPermissions, setResolvedPermissions] = createSignal<Set<string>>(new Set());
 
+  // Action suggestions from AG-UI events and rule-based derivation
+  const [actionSuggestions, setActionSuggestions] = createSignal<ActionRule[]>([]);
+
   // Agentic mode tracking: step counter and running cost
   const [stepCount, setStepCount] = createSignal(0);
   const [runningCost, setRunningCost] = createSignal(0);
@@ -245,6 +251,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         setStepCount(0);
         setRunningCost(0);
         setGoalProposals([]);
+        setActionSuggestions([]);
       });
     }
   });
@@ -304,6 +311,17 @@ export default function ChatPanel(props: ChatPanelProps) {
       // Track running cost if the event carries it
       if (typeof payload.cost_usd === "number") {
         setRunningCost((prev) => prev + (payload.cost_usd as number));
+      }
+      // Derive rule-based action suggestions from tool result
+      const tc = toolCalls().find((t) => t.callId === callId);
+      if (tc) {
+        const derived = deriveActions(tc.name, (payload.result as string) ?? "");
+        if (derived.length > 0) {
+          setActionSuggestions((prev) => {
+            const labels = new Set(prev.map((a) => a.label));
+            return [...prev, ...derived.filter((d) => !labels.has(d.label))];
+          });
+        }
       }
     }
   });
@@ -369,6 +387,19 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   });
 
+  // When the agent suggests a follow-up action
+  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
+  const cleanupActionSuggestion = onAGUIEvent("agui.action_suggestion", (payload) => {
+    if (payload.run_id === activeConversation()) {
+      const suggestion: ActionRule = {
+        label: payload.label as string,
+        action: payload.action as ActionRule["action"],
+        value: payload.value as string,
+      };
+      setActionSuggestions((prev) => [...prev, suggestion]);
+    }
+  });
+
   onCleanup(() => {
     cleanupRunStarted();
     cleanupTextMessage();
@@ -379,6 +410,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     cleanupStepFinished();
     cleanupGoalProposal();
     cleanupPermissionRequest();
+    cleanupActionSuggestion();
   });
 
   // --- Handlers ---
@@ -774,6 +806,19 @@ export default function ChatPanel(props: ChatPanelProps) {
                 </div>
               </div>
             )}
+          </Show>
+
+          {/* Action suggestions — shown when agent is idle and suggestions exist */}
+          <Show when={!agentRunning() && actionSuggestions().length > 0}>
+            <ActionBar
+              rules={actionSuggestions()}
+              onAction={(action) => {
+                setActionSuggestions([]);
+                if (action.action === "send_message") {
+                  sendChatMessage(action.value);
+                }
+              }}
+            />
           </Show>
 
           {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
