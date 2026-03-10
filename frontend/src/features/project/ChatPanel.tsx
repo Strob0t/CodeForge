@@ -19,6 +19,7 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
+import ChatInput from "../chat/ChatInput";
 import ActionBar from "./ActionBar";
 import type { ActionRule } from "./actionRules";
 import { deriveActions } from "./actionRules";
@@ -475,13 +476,6 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   };
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   const handleStop = () => {
     const convId = activeConversation();
     if (!convId) return;
@@ -888,13 +882,11 @@ export default function ChatPanel(props: ChatPanelProps) {
                 />
               </svg>
             </Button>
-            <textarea
-              class="flex-1 rounded-cf-md border border-cf-border bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder-cf-text-muted focus:border-cf-accent focus:ring-1 focus:ring-cf-accent resize-none"
-              rows={2}
-              placeholder={t("chat.placeholder")}
+            <ChatInput
               value={input()}
-              onInput={(e) => setInput(e.currentTarget.value)}
-              onKeyDown={handleKeyDown}
+              onInput={setInput}
+              onSubmit={handleSend}
+              placeholder={t("chat.placeholder")}
               disabled={sending()}
             />
             <Button
