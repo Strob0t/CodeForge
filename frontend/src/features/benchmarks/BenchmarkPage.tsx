@@ -40,6 +40,7 @@ import {
 } from "~/ui";
 
 import { BenchmarkCompare } from "./BenchmarkCompare";
+import { BenchmarkLiveFeed } from "./BenchmarkLiveFeed";
 import { BenchmarkRunDetail } from "./BenchmarkRunDetail";
 import { CostAnalysisView } from "./CostAnalysisView";
 import { LeaderboardView } from "./LeaderboardView";
@@ -420,12 +421,15 @@ export default function BenchmarkPage() {
                           </div>
                         </Show>
 
-                        {/* Progress bar for running runs */}
-                        <Show when={run.status === "running"}>
+                        {/* Live feed for selected running runs, minimal pulse bar otherwise */}
+                        <Show when={run.status === "running" && selectedRun() === run.id}>
+                          <BenchmarkLiveFeed runId={run.id} startedAt={run.created_at} />
+                        </Show>
+                        <Show when={run.status === "running" && selectedRun() !== run.id}>
                           <div class="mt-2">
-                            <div class="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                            <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
                               <div
-                                class="h-2 animate-pulse rounded-full bg-blue-500"
+                                class="h-1.5 animate-pulse rounded-full bg-blue-500"
                                 style={{ width: "100%" }}
                               />
                             </div>
