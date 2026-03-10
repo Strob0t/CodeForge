@@ -2003,6 +2003,34 @@ export interface GoalDiscoveryResult {
   sources: string[];
 }
 
+// --- Subscription Providers (OAuth Device Flow) ---
+
+/** Matches Go domain/subscription provider info */
+export interface SubscriptionProvider {
+  name: string;
+  display_name: string;
+  description: string;
+  connected: boolean;
+  env_var: string;
+  models: string[];
+}
+
+export interface SubscriptionProvidersResponse {
+  providers: SubscriptionProvider[];
+}
+
+export interface DeviceFlowResponse {
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
+
+export interface ProviderStatusResponse {
+  status: "pending" | "complete" | "error";
+  error?: string;
+}
+
 // --- Dashboard ---
 
 export interface DashboardStats {

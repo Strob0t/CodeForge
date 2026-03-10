@@ -63,6 +63,9 @@ model_list:
   - model_name: "github_copilot/*"
     litellm_params:
       model: "github_copilot/*"
+      extra_headers:
+        Editor-Version: "vscode/1.88.0"
+        Copilot-Integration-Id: "vscode-chat"
 
   # -- Chutes (OpenAI-compatible) --
   - model_name: "chutes/*"

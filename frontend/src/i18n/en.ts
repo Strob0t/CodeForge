@@ -1158,6 +1158,26 @@ const en = {
   "modes.toast.deleted": "Mode deleted",
   "modes.toast.deleteFailed": "Failed to delete mode",
 
+  // -- Subscription Providers ---------------------------------------------------
+  "settings.subscriptionProviders.title": "Subscription Providers",
+  "settings.subscriptionProviders.subtitle": "Connect existing subscriptions to use their models",
+  "settings.subscriptionProviders.connect": "Connect",
+  "settings.subscriptionProviders.disconnect": "Disconnect",
+  "settings.subscriptionProviders.connected": "Connected",
+  "settings.subscriptionProviders.disconnected": "Disconnected",
+  "settings.subscriptionProviders.connecting": "Connecting...",
+  "settings.subscriptionProviders.deviceCode": "Enter this code",
+  "settings.subscriptionProviders.openBrowser": "Open in browser",
+  "settings.subscriptionProviders.waitingAuth": "Waiting for authorization...",
+  "settings.subscriptionProviders.connectSuccess": "Provider connected successfully",
+  "settings.subscriptionProviders.connectFailed": "Failed to connect provider",
+  "settings.subscriptionProviders.disconnectSuccess": "Provider disconnected",
+  "settings.subscriptionProviders.disconnectFailed": "Failed to disconnect provider",
+  "settings.subscriptionProviders.confirmDisconnect":
+    "This will remove the API key. You can reconnect later.",
+  "settings.subscriptionProviders.models": "Available models",
+  "settings.subscriptionProviders.empty": "No subscription providers available",
+
   // -- Developer Tools (Phase 13.7B) --
   "settings.devTools": "Developer Tools",
   "settings.benchmark.title": "Prompt Benchmark",

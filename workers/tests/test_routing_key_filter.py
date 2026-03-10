@@ -83,6 +83,15 @@ class TestFilterKeylessModels:
         assert len(warnings) == 1
         assert "openai" in warnings[0].message
 
+    def test_github_copilot_with_token_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "ghu_test-token")
+        result = filter_keyless_models(["github_copilot/gpt-4o"])
+        assert result == ["github_copilot/gpt-4o"]
+
+    def test_github_copilot_without_token(self) -> None:
+        result = filter_keyless_models(["github_copilot/gpt-4o"])
+        assert result == []
+
     def test_all_providers_mapped(self) -> None:
-        expected = {"openai", "anthropic", "gemini", "groq", "mistral"}
+        expected = {"openai", "anthropic", "gemini", "groq", "mistral", "github_copilot"}
         assert expected.issubset(PROVIDER_KEY_MAP.keys())

@@ -96,6 +96,7 @@ type Handlers struct {
 	Checkpoint       *service.CheckpointService
 	Commands         *service.CommandService
 	Channels         *service.ChannelService
+	Subscription     *service.SubscriptionService
 	Limits           *config.Limits
 }
 

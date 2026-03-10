@@ -15,6 +15,8 @@ from codeforge.routing.rate_tracker import RateLimitTracker
 from codeforge.routing.router import COMPLEXITY_DEFAULTS, HybridRouter
 
 AVAILABLE = [
+    "github_copilot/gpt-4o",
+    "github_copilot/gpt-4o-mini",
     "openai/gpt-4o",
     "openai/gpt-4o-mini",
     "groq/llama-3.1-8b-instant",
@@ -368,6 +370,40 @@ def test_rate_tracker_none_no_filtering() -> None:
     decision = router.route("Hello")
     assert decision is not None
     assert decision.model in AVAILABLE
+
+
+def test_complexity_fallback_prefers_copilot_simple() -> None:
+    """For SIMPLE tier, github_copilot/gpt-4o-mini is selected first when available."""
+    router = HybridRouter(
+        complexity=ComplexityAnalyzer(),
+        mab=None,
+        meta=None,
+        available_models=AVAILABLE,
+        config=_config(mab=False, meta=False),
+    )
+    decision = router.route("Hello")
+    assert decision is not None
+    assert decision.model == "github_copilot/gpt-4o-mini"
+
+
+def test_complexity_fallback_prefers_copilot_reasoning() -> None:
+    """For REASONING tier, github_copilot/o3-mini is preferred when available."""
+    available_with_o3 = [*AVAILABLE, "github_copilot/o3-mini"]
+    router = HybridRouter(
+        complexity=ComplexityAnalyzer(),
+        mab=None,
+        meta=None,
+        available_models=available_with_o3,
+        config=_config(mab=False, meta=False),
+    )
+    # Use a prompt the complexity analyzer classifies as REASONING tier.
+    decision = router.route(
+        "Prove that P != NP using a formal proof with mathematical induction "
+        "and analyze the computational complexity implications step by step"
+    )
+    assert decision is not None
+    if decision.complexity_tier == ComplexityTier.REASONING:
+        assert decision.model == "github_copilot/o3-mini"
 
 
 def test_tpm_blocked_model_skipped_in_fallback() -> None:

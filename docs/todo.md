@@ -210,6 +210,16 @@
 - [x] (2026-03-10) Phase 10+11: Feature spec + documentation updates
 - Feature spec: [docs/features/05-chat-enhancements.md](features/05-chat-enhancements.md)
 
+#### Subscription Provider Integration (COMPLETED)
+- [x] (2026-03-10) OAuth device flow adapters: Anthropic (Claude Max) + GitHub Copilot
+- [x] (2026-03-10) Atomic EnvWriter service for .env file management
+- [x] (2026-03-10) Subscription orchestration service (background polling, token exchange, .env persistence)
+- [x] (2026-03-10) HTTP endpoints: list/connect/status/disconnect providers
+- [x] (2026-03-10) Python routing: github_copilot in key_filter, router tiers, meta_router tiers
+- [x] (2026-03-10) LiteLLM config: extra_headers for github_copilot
+- [x] (2026-03-10) Frontend: Subscription Providers section in SettingsPage with device flow UI
+- [x] (2026-03-10) Tests: 22 auth adapter tests, 9 envwriter tests, 8 subscription tests, 48 Python routing tests
+
 ---
 
 ### E2E Playwright Test Findings (2026-03-09)

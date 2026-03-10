@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 	cfa2a "github.com/Strob0t/CodeForge/internal/adapter/a2a"
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
+	cfauth "github.com/Strob0t/CodeForge/internal/adapter/auth"
 	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
 	emailAdapter "github.com/Strob0t/CodeForge/internal/adapter/email"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
@@ -496,6 +498,17 @@ func run() error {
 		}
 	}
 
+	// --- Subscription Providers (OAuth device flow) ---
+	envPath := filepath.Join(cfg.Workspace.Root, "..", ".env")
+	if envOverride := os.Getenv("CODEFORGE_ENV_FILE"); envOverride != "" {
+		envPath = envOverride
+	}
+	subscriptionSvc := service.NewSubscriptionService(envPath,
+		cfauth.NewAnthropicProvider(),
+		cfauth.NewGitHubProvider(),
+	)
+	slog.Info("subscription provider service initialized", "env_path", envPath)
+
 	// --- Model Registry (Phase 22) ---
 	// Periodic polling of LiteLLM model health; first refresh is synchronous.
 	modelRegistry := service.NewModelRegistry(llmClient, hub, cfg.LiteLLM.HealthPollInterval)
@@ -683,6 +696,7 @@ func run() error {
 		BackendHealth:    backendHealthSvc,
 		Checkpoint:       checkpointSvc,
 		Commands:         service.NewCommandService(),
+		Subscription:     subscriptionSvc,
 		Limits:           &cfg.Limits,
 	}
 

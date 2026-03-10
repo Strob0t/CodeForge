@@ -1162,6 +1162,27 @@ const de: Translations = {
   "modes.toast.deleted": "Modus gelöscht",
   "modes.toast.deleteFailed": "Modus konnte nicht gelöscht werden",
 
+  // -- Subscription Providers ---------------------------------------------------
+  "settings.subscriptionProviders.title": "Abo-Anbieter",
+  "settings.subscriptionProviders.subtitle":
+    "Bestehende Abonnements verbinden, um deren Modelle zu nutzen",
+  "settings.subscriptionProviders.connect": "Verbinden",
+  "settings.subscriptionProviders.disconnect": "Trennen",
+  "settings.subscriptionProviders.connected": "Verbunden",
+  "settings.subscriptionProviders.disconnected": "Nicht verbunden",
+  "settings.subscriptionProviders.connecting": "Verbinde...",
+  "settings.subscriptionProviders.deviceCode": "Diesen Code eingeben",
+  "settings.subscriptionProviders.openBrowser": "Im Browser oeffnen",
+  "settings.subscriptionProviders.waitingAuth": "Warte auf Autorisierung...",
+  "settings.subscriptionProviders.connectSuccess": "Anbieter erfolgreich verbunden",
+  "settings.subscriptionProviders.connectFailed": "Verbindung zum Anbieter fehlgeschlagen",
+  "settings.subscriptionProviders.disconnectSuccess": "Anbieter getrennt",
+  "settings.subscriptionProviders.disconnectFailed": "Trennung fehlgeschlagen",
+  "settings.subscriptionProviders.confirmDisconnect":
+    "Dies entfernt den API-Schluessel. Sie koennen sich spaeter erneut verbinden.",
+  "settings.subscriptionProviders.models": "Verfuegbare Modelle",
+  "settings.subscriptionProviders.empty": "Keine Abo-Anbieter verfuegbar",
+
   // -- Developer Tools (Phase 13.7B) --
   "settings.devTools": "Entwicklerwerkzeuge",
   "settings.benchmark.title": "Prompt-Benchmark",

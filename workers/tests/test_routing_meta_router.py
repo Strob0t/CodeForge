@@ -147,3 +147,15 @@ def test_tier_to_model_economy() -> None:
 def test_tier_to_model_unknown_tier() -> None:
     result = LLMMetaRouter._tier_to_model("unknown", AVAILABLE)
     assert result is None
+
+
+def test_tier_models_economy_prefers_copilot() -> None:
+    from codeforge.routing.meta_router import _TIER_MODELS
+
+    assert _TIER_MODELS["economy"][0] == "github_copilot/gpt-4o-mini"
+
+
+def test_tier_models_reasoning_prefers_copilot() -> None:
+    from codeforge.routing.meta_router import _TIER_MODELS
+
+    assert _TIER_MODELS["reasoning"][0] == "github_copilot/o3-mini"

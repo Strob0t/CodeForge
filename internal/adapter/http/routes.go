@@ -332,6 +332,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/auth/api-keys", h.ListAPIKeysHandler)
 		r.Delete("/auth/api-keys/{id}", h.DeleteAPIKeyHandler)
 
+		// Subscription Providers (OAuth device flow connect)
+		r.Get("/auth/providers", h.ListSubscriptionProviders)
+		r.Post("/auth/providers/{provider}/connect", h.StartProviderConnect)
+		r.Get("/auth/providers/{provider}/status", h.GetProviderStatus)
+		r.Delete("/auth/providers/{provider}/disconnect", h.DisconnectProvider)
+
 		// VCS Accounts
 		r.Get("/vcs-accounts", h.ListVCSAccounts)
 		r.Post("/vcs-accounts", h.CreateVCSAccount)

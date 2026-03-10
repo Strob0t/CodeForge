@@ -1394,6 +1394,26 @@ export const api = {
       }),
   },
 
+  subscriptionProviders: {
+    list: () => request<import("./types").SubscriptionProvidersResponse>("/auth/providers"),
+
+    connect: (provider: string) =>
+      request<import("./types").DeviceFlowResponse>(
+        `/auth/providers/${encodeURIComponent(provider)}/connect`,
+        { method: "POST" },
+      ),
+
+    status: (provider: string) =>
+      request<import("./types").ProviderStatusResponse>(
+        `/auth/providers/${encodeURIComponent(provider)}/status`,
+      ),
+
+    disconnect: (provider: string) =>
+      request<undefined>(`/auth/providers/${encodeURIComponent(provider)}/disconnect`, {
+        method: "DELETE",
+      }),
+  },
+
   audit: {
     list: (opts?: { action?: string; cursor?: string; limit?: number }) => {
       const params = new URLSearchParams();

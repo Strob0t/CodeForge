@@ -34,6 +34,7 @@ CodeForge does not build its own LLM abstraction layer. LiteLLM Proxy handles 12
 | Cost Dashboard | Frontend | Queries LiteLLM Spend API. Visualization per project/user/agent. |
 | Local Model Discovery | Go Core | Auto-discover Ollama/LM Studio models, add to LiteLLM config. |
 | Copilot Token Exchange | Go Core | GitHub OAuth to Copilot bearer token for free model access. |
+| **Subscription Connect** | Go Core | OAuth device flow for Claude Max + GitHub Copilot. Produces API keys stored in `.env`. |
 
 ### Scenario-Based Routing
 

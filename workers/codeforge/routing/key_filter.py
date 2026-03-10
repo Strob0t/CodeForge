@@ -18,6 +18,7 @@ PROVIDER_KEY_MAP: dict[str, str] = {
     "cohere": "COHERE_API_KEY",
     "together_ai": "TOGETHERAI_API_KEY",
     "fireworks_ai": "FIREWORKS_API_KEY",
+    "github_copilot": "GITHUB_TOKEN",
 }
 
 # Providers that never need an API key.
