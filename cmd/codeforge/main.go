@@ -681,6 +681,7 @@ func run() error {
 		Dashboard:        dashboardSvc,
 		AutoAgent:        autoAgentSvc,
 		BackendHealth:    backendHealthSvc,
+		Checkpoint:       checkpointSvc,
 		Limits:           &cfg.Limits,
 	}
 

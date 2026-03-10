@@ -148,3 +148,26 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 		"decision": req.Decision,
 	})
 }
+
+// RevertToolCall reverts a file edit to its pre-change state.
+// POST /api/v1/runs/{id}/revert/{callId}
+func (h *Handlers) RevertToolCall(w http.ResponseWriter, r *http.Request) {
+	runID := chi.URLParam(r, "id")
+	callID := chi.URLParam(r, "callId")
+
+	if h.Checkpoint == nil {
+		writeError(w, http.StatusInternalServerError, "checkpoint service not available")
+		return
+	}
+
+	err := h.Checkpoint.Revert(runID, callID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "reverted",
+		"run_id":  runID,
+		"call_id": callID,
+	})
+}

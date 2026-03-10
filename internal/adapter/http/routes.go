@@ -356,6 +356,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// HITL (Human-in-the-Loop) Approval
 		r.Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)
+		r.Post("/runs/{id}/revert/{callId}", h.RevertToolCall)
 
 		// LSP (Language Server Protocol)
 		r.Post("/projects/{id}/lsp/start", h.StartLSP)
