@@ -5,10 +5,12 @@
 # Usage:
 #   ./scripts/verify-features.sh          Run all suites, print matrix + JSON summary
 #   ./scripts/verify-features.sh --quick  Skip test runs, parse existing results only
+#   ./scripts/verify-features.sh --trend  Show historical verification trend
 #
 # Output:
 #   stdout  -- Markdown table (same format as docs/feature-verification-matrix.md)
 #   /tmp/verification-summary.json -- machine-readable summary
+#   data/verification-history/     -- historical results (date_sha.json per run)
 #
 # Exit code:
 #   0 if all critical features (1-10, 22-23) pass
@@ -23,8 +25,10 @@ PY_RESULTS_FILE="/tmp/pytest-report.json"
 CONTRACT_RESULTS_FILE="/tmp/contract-test-results.txt"
 SMOKE_RESULTS_FILE="/tmp/smoke-test-results.txt"
 SUMMARY_FILE="/tmp/verification-summary.json"
+HISTORY_DIR="$ROOTDIR/data/verification-history"
 
 TODAY="$(date +%Y-%m-%d)"
+TIMESTAMP="$(date +%Y-%m-%dT%H:%M:%S)"
 
 # ---------------------------------------------------------------------------
 # Feature definitions: ID | Name | Go packages (grep patterns) | Py test files (grep patterns)
@@ -510,6 +514,117 @@ ENDJSON
 }
 
 # ---------------------------------------------------------------------------
+# Store historical results
+# ---------------------------------------------------------------------------
+store_history() {
+  mkdir -p "$HISTORY_DIR"
+  local git_sha
+  git_sha="$(git -C "$ROOTDIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+  local git_branch
+  git_branch="$(git -C "$ROOTDIR" branch --show-current 2>/dev/null || echo "unknown")"
+
+  # Add metadata to the summary and save to history
+  local history_file="$HISTORY_DIR/${TODAY}_${git_sha}.json"
+  if [ -f "$SUMMARY_FILE" ]; then
+    # Inject timestamp, git_sha, git_branch into the JSON
+    python3 -c "
+import json, sys
+with open('$SUMMARY_FILE') as f:
+    data = json.load(f)
+data['timestamp'] = '$TIMESTAMP'
+data['git_sha'] = '$git_sha'
+data['git_branch'] = '$git_branch'
+with open('$history_file', 'w') as f:
+    json.dump(data, f, indent=2)
+" 2>/dev/null || cp "$SUMMARY_FILE" "$history_file"
+    echo ">>> History saved to $history_file" >&2
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Show trend from historical results
+# ---------------------------------------------------------------------------
+show_trend() {
+  if [ ! -d "$HISTORY_DIR" ] || [ -z "$(ls -A "$HISTORY_DIR" 2>/dev/null)" ]; then
+    echo "No historical verification data found in $HISTORY_DIR" >&2
+    exit 0
+  fi
+
+  echo ""
+  echo "# Verification Trend"
+  echo ""
+  echo "| Date | SHA | Branch | Verified | Partial | Failing | Critical |"
+  echo "|------|-----|--------|----------|---------|---------|----------|"
+
+  # Process last 20 entries sorted by filename (date_sha)
+  for f in $(ls -1 "$HISTORY_DIR"/*.json 2>/dev/null | sort -r | head -20); do
+    python3 -c "
+import json, sys
+with open('$f') as fh:
+    d = json.load(fh)
+date = d.get('date', '?')
+sha = d.get('git_sha', '?')
+branch = d.get('git_branch', '?')
+verified = d.get('verified', 0)
+partial = d.get('partial', 0)
+not_v = d.get('not_verified', 0)
+crit = 'PASS' if d.get('critical_pass', False) else 'FAIL'
+print(f'| {date} | {sha} | {branch} | {verified} | {partial} | {not_v} | {crit} |')
+" 2>/dev/null || true
+  done
+
+  echo ""
+
+  # Show per-feature trend for the last 5 runs
+  echo "## Per-Feature Trend (last 5 runs)"
+  echo ""
+
+  local files
+  files="$(ls -1 "$HISTORY_DIR"/*.json 2>/dev/null | sort -r | head -5 | tac)"
+  if [ -z "$files" ]; then
+    echo "Not enough data for per-feature trend."
+    return
+  fi
+
+  # Header
+  local header="| Feature |"
+  for f in $files; do
+    local sha
+    sha="$(python3 -c "import json; print(json.load(open('$f')).get('git_sha','?'))" 2>/dev/null || echo "?")"
+    header+=" $sha |"
+  done
+  echo "$header"
+
+  local separator="| --- |"
+  for f in $files; do
+    separator+=" --- |"
+  done
+  echo "$separator"
+
+  # One row per feature (use first file to get feature list)
+  local first_file
+  first_file="$(echo "$files" | head -1)"
+  local feat_count
+  feat_count="$(python3 -c "import json; print(len(json.load(open('$first_file')).get('features',[])))" 2>/dev/null || echo 0)"
+
+  for (( i=0; i<feat_count; i++ )); do
+    local row=""
+    local feat_name
+    feat_name="$(python3 -c "import json; print(json.load(open('$first_file'))['features'][$i]['name'])" 2>/dev/null || echo "?")"
+    row="| $feat_name |"
+    for f in $files; do
+      local status
+      status="$(python3 -c "import json; print(json.load(open('$f'))['features'][$i]['verified'])" 2>/dev/null || echo "?")"
+      row+=" $status |"
+    done
+    echo "$row"
+  done
+
+  echo ""
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
 # Check critical features exit code
 # ---------------------------------------------------------------------------
 check_critical() {
@@ -548,6 +663,12 @@ warn_non_critical() {
 # Main
 # ---------------------------------------------------------------------------
 main() {
+  # Handle --trend flag: show historical trend and exit
+  if [ "$QUICK" = "--trend" ]; then
+    show_trend
+    exit 0
+  fi
+
   echo "=== CodeForge Feature Verification Reporter ===" >&2
   echo "Date: $TODAY" >&2
   echo "" >&2
@@ -568,6 +689,7 @@ main() {
 
   generate_markdown
   generate_json
+  store_history
 
   warn_non_critical
 

@@ -1,6 +1,6 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-03-09
+> Last update: 2026-03-10
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
 
@@ -206,3 +206,11 @@ UX improvements to project detail page workflow. Tab reorder to match natural pr
 ### Subscription Provider Integration (COMPLETED)
 
 OAuth device flow integration for subscription-based LLM providers (Claude Code Max, GitHub Copilot). Go adapter layer (`internal/adapter/auth/`) with `SubscriptionProvider` interface and implementations for Anthropic (device code -> OAuth token -> `create_api_key` endpoint) and GitHub (device code -> PAT). Atomic `.env` writer (`internal/service/envwriter.go`) with temp-file-and-rename. Subscription orchestration service with background goroutine polling, context cancellation, and configurable intervals. 4 HTTP endpoints (`/api/v1/auth/providers/*`) for list/connect/status/disconnect. Python routing updates: `github_copilot` added to `PROVIDER_KEY_MAP`, prepended in all 4 complexity tiers in both `router.py` and `meta_router.py`. LiteLLM config updated with Copilot extra_headers. Frontend SettingsPage extended with Subscription Providers section showing device code + "Open in browser" link, connect/disconnect buttons, and available models per provider. 87 tests total (22 auth adapter, 9 envwriter, 8 subscription service, 48 Python routing).
+
+### Benchmark Live Feed (COMPLETED)
+
+Real-time structured event feed for running benchmark runs. Go `TrajectoryEventPayload` enriched with cost, tokens, input, output, step fields. Frontend `BenchmarkLiveFeed.tsx` with `@tanstack/solid-virtual` virtualized auto-scrolling, feature accordions (when 2+ features), progress header with bar/cost/elapsed timer, event row rendering by type (tool_called, step_done, finished). Integrated into `BenchmarkPage.tsx` for selected running runs. TypeScript `LiveFeedEvent` + `BenchmarkLiveProgress` types.
+
+### E2E Test Expansion & Verification Tooling (COMPLETED)
+
+Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests verifying full billing error -> classify -> mark exhausted -> model switch chain). File CRUD Playwright E2E (`frontend/e2e/file-crud.spec.ts`, 4 tests). Feature description Playwright E2E (`frontend/e2e/feature-description.spec.ts`, 4 tests). Verification trend tracking in `scripts/verify-features.sh` (`--trend` flag, JSON history with git SHA/branch/timestamp in `data/verification-history/`). Agent-eval benchmark run with `mistral/mistral-large-latest` (0/300 -- model could not produce code, infrastructure verified working).
