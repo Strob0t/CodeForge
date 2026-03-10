@@ -118,6 +118,7 @@ def build_default_registry() -> ToolRegistry:
         glob_files,
         list_directory,
         read_file,
+        search_conversations,
         search_files,
         search_skills,
         write_file,
@@ -129,6 +130,7 @@ def build_default_registry() -> ToolRegistry:
     registry.register(edit_file.DEFINITION, edit_file.EditFileTool())
     registry.register(bash.DEFINITION, bash.BashTool())
     registry.register(search_files.DEFINITION, search_files.SearchFilesTool())
+    registry.register(search_conversations.DEFINITION, search_conversations.SearchConversationsTool())
     registry.register(glob_files.DEFINITION, glob_files.GlobFilesTool())
     registry.register(list_directory.DEFINITION, list_directory.ListDirectoryTool())
     registry.register(search_skills.DEFINITION, search_skills.SearchSkillsTool())

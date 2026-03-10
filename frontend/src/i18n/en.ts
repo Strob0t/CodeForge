@@ -173,6 +173,8 @@ const en = {
   "search.error": "Search failed.",
   "search.results": "{{count}} results",
   "search.line": "L{{line}}",
+  "search.tabCode": "Code",
+  "search.tabConversations": "Conversations",
 
   // -- Project card ---------------------------------------------------------
   "project.delete": "Delete",

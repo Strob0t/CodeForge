@@ -1161,6 +1161,9 @@ func (m *mockStore) DeleteConversationMessages(_ context.Context, conversationID
 }
 func (m *mockStore) UpdateConversationMode(_ context.Context, _, _ string) error  { return nil }
 func (m *mockStore) UpdateConversationModel(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) SearchConversationMessages(_ context.Context, _ string, _ []string, _ int) ([]conversation.Message, error) {
+	return nil, nil
+}
 
 // MCP Server methods
 func (m *mockStore) CreateMCPServer(_ context.Context, s *mcp.ServerDef) error {

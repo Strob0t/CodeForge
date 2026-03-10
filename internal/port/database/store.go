@@ -280,6 +280,7 @@ type Store interface {
 	DeleteConversationMessages(ctx context.Context, conversationID string) error
 	UpdateConversationMode(ctx context.Context, conversationID, mode string) error
 	UpdateConversationModel(ctx context.Context, conversationID, model string) error
+	SearchConversationMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error)
 
 	// MCP Servers
 	CreateMCPServer(ctx context.Context, s *mcp.ServerDef) error

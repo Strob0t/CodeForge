@@ -200,6 +200,11 @@ func (s *ConversationService) ListMessages(ctx context.Context, conversationID s
 	return s.db.ListMessages(ctx, conversationID)
 }
 
+// SearchMessages performs full-text search across conversation messages.
+func (s *ConversationService) SearchMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error) {
+	return s.db.SearchConversationMessages(ctx, query, projectIDs, limit)
+}
+
 // SendMessage stores the user message and dispatches a simple (non-agentic) chat run
 // to the Python worker via NATS. The result arrives asynchronously via WebSocket AG-UI
 // events and is stored by HandleConversationRunComplete.

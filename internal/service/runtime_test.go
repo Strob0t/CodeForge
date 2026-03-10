@@ -797,6 +797,9 @@ func (m *runtimeMockStore) UpdateConversationMode(_ context.Context, _, _ string
 func (m *runtimeMockStore) UpdateConversationModel(_ context.Context, _, _ string) error {
 	return nil
 }
+func (m *runtimeMockStore) SearchConversationMessages(_ context.Context, _ string, _ []string, _ int) ([]conversation.Message, error) {
+	return nil, nil
+}
 
 // MCP Server stubs
 func (m *runtimeMockStore) CreateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }

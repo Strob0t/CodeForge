@@ -52,6 +52,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 
 		// Global search
 		r.Post("/search", h.GlobalSearch)
+		r.Post("/search/conversations", h.SearchConversations)
 
 		r.Get("/projects/{id}", h.GetProject)
 		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.DeleteProject)

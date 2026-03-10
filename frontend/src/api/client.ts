@@ -748,6 +748,27 @@ export const api = {
           limit: limit ?? 20,
         }),
       }),
+
+    conversations: (query: string, projectIds?: string[], limit?: number) =>
+      request<{
+        query: string;
+        total: number;
+        results: {
+          conversation_id: string;
+          message_id: string;
+          role: string;
+          content: string;
+          model: string;
+          created_at: string;
+        }[];
+      }>("/search/conversations", {
+        method: "POST",
+        body: JSON.stringify({
+          query,
+          project_ids: projectIds,
+          limit: limit ?? 20,
+        }),
+      }),
   },
 
   providers: {

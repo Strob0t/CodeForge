@@ -118,6 +118,44 @@ func (s *Store) UpdateConversationModel(_ context.Context, _, _ string) error {
 	return nil
 }
 
+// SearchConversationMessages performs full-text search across conversation messages
+// within the tenant, optionally filtered by project IDs.
+func (s *Store) SearchConversationMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error) {
+	tid := tenantFromCtx(ctx)
+
+	baseQuery := `SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls,
+		m.tool_call_id, m.tool_name, m.tokens_in, m.tokens_out, m.model, m.created_at
+		FROM conversation_messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE c.tenant_id = $1
+		AND m.content IS NOT NULL AND m.content != ''
+		AND to_tsvector('english', m.content) @@ plainto_tsquery('english', $2)`
+
+	args := []any{tid, query}
+	argIdx := 3
+
+	if len(projectIDs) > 0 {
+		baseQuery += fmt.Sprintf(" AND c.project_id = ANY($%d)", argIdx)
+		args = append(args, projectIDs)
+		argIdx++
+	}
+
+	baseQuery += fmt.Sprintf(" ORDER BY ts_rank(to_tsvector('english', m.content), plainto_tsquery('english', $2)) DESC LIMIT $%d", argIdx)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("search conversation messages: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (conversation.Message, error) {
+		var m conversation.Message
+		err := r.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content,
+			&m.ToolCalls, &m.ToolCallID, &m.ToolName,
+			&m.TokensIn, &m.TokensOut, &m.Model, &m.CreatedAt)
+		return m, err
+	})
+}
+
 // CreateToolMessages inserts multiple tool-related messages (assistant messages
 // with tool_calls and tool result messages) in a single batch operation.
 func (s *Store) CreateToolMessages(ctx context.Context, conversationID string, msgs []conversation.Message) error {

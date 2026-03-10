@@ -748,6 +748,9 @@ func (m *mockStore) ListMessages(_ context.Context, _ string) ([]conversation.Me
 func (m *mockStore) DeleteConversationMessages(_ context.Context, _ string) error { return nil }
 func (m *mockStore) UpdateConversationMode(_ context.Context, _, _ string) error  { return nil }
 func (m *mockStore) UpdateConversationModel(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) SearchConversationMessages(_ context.Context, _ string, _ []string, _ int) ([]conversation.Message, error) {
+	return nil, nil
+}
 
 // MCP Servers
 func (m *mockStore) CreateMCPServer(_ context.Context, _ *mcp.ServerDef) error { return nil }
