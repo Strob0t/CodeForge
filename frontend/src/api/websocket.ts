@@ -18,7 +18,8 @@ export type AGUIEventType =
   | "agui.step_started"
   | "agui.step_finished"
   | "agui.goal_proposal"
-  | "agui.permission_request";
+  | "agui.permission_request"
+  | "agui.action_suggestion";
 
 export interface AGUIRunStarted {
   run_id: string;
@@ -90,6 +91,12 @@ export interface AGUIPermissionRequest {
   command?: string;
   path?: string;
 }
+export interface AGUIActionSuggestion {
+  run_id: string;
+  label: string;
+  action: string; // "send_message", "run_tool", "navigate"
+  value: string;
+}
 
 /** Discriminated map from AG-UI event type to its typed payload. */
 export interface AGUIEventMap {
@@ -103,6 +110,7 @@ export interface AGUIEventMap {
   "agui.step_finished": AGUIStepFinished;
   "agui.goal_proposal": AGUIGoalProposal;
   "agui.permission_request": AGUIPermissionRequest;
+  "agui.action_suggestion": AGUIActionSuggestion;
 }
 
 function buildWSURL(): string {

@@ -651,6 +651,23 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			"model":      payload.Model,
 		})
 
+		// Action suggestion events get a dedicated AG-UI broadcast.
+		if payload.EventType == "agent.action_suggestion" {
+			var suggestion struct {
+				Label  string `json:"label"`
+				Action string `json:"action"`
+				Value  string `json:"value"`
+			}
+			if err := json.Unmarshal(data, &suggestion); err == nil {
+				s.hub.BroadcastEvent(msgCtx, ws.AGUIActionSuggestion, ws.AGUIActionSuggestionEvent{
+					RunID:  payload.RunID,
+					Label:  suggestion.Label,
+					Action: suggestion.Action,
+					Value:  suggestion.Value,
+				})
+			}
+		}
+
 		// Goal proposal events get a dedicated AG-UI broadcast.
 		if payload.EventType == "agent.goal_proposed" {
 			var proposal struct {

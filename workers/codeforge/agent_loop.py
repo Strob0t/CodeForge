@@ -623,6 +623,20 @@ class AgentLoopExecutor:
             except Exception as exc:
                 logger.debug("failed to publish tool_called trajectory event: %s", exc)
 
+            # Emit action suggestion after file-modifying tool calls.
+            if result.success and tc.name in ("edit_file", "write_file"):
+                try:
+                    await self._runtime.publish_trajectory_event(
+                        {
+                            "event_type": "agent.action_suggestion",
+                            "label": "Run tests",
+                            "action": "send_message",
+                            "value": "Run the test suite to verify the changes",
+                        }
+                    )
+                except Exception as exc:
+                    logger.debug("failed to publish action_suggestion event: %s", exc)
+
     @staticmethod
     def _append_tool_result(
         tc: ToolCallPart,
