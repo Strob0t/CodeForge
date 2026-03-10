@@ -13,7 +13,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
-
 // --- File snapshot (Store/Revert/ClearRun) tests ---
 
 func TestCheckpointService_StoreAndRevert(t *testing.T) {

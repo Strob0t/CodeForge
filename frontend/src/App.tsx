@@ -14,6 +14,7 @@ import { SidebarProvider, useSidebar } from "~/components/SidebarProvider";
 import { ThemeProvider, ThemeToggle } from "~/components/ThemeProvider";
 import { ToastProvider } from "~/components/Toast";
 import { useWebSocket, WebSocketProvider } from "~/components/WebSocketProvider";
+import ChannelList from "~/features/channels/ChannelList";
 import NotificationBell from "~/features/notifications/NotificationBell";
 import { addNotification, getUnreadCount } from "~/features/notifications/notificationStore";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
@@ -198,6 +199,8 @@ function AppShell(props: {
                 </NavLink>
               </Show>
             </Sidebar.Nav>
+
+            <ChannelList />
 
             <Sidebar.Footer>
               <Show

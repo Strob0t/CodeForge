@@ -95,6 +95,7 @@ type Handlers struct {
 	BackendHealth    *service.BackendHealthService
 	Checkpoint       *service.CheckpointService
 	Commands         *service.CommandService
+	Channels         *service.ChannelService
 	Limits           *config.Limits
 }
 

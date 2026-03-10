@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 )
 
@@ -103,6 +104,11 @@ const (
 
 	// Phase 5.2: agent backend output streaming
 	EventAgentOutput = "agent.output"
+
+	// Channel events
+	EventChannelMessage = "channel.message"
+	EventChannelTyping  = "channel.typing"
+	EventChannelRead    = "channel.read"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -427,6 +433,26 @@ type SkillDraftEvent struct {
 	Type        string `json:"type"`
 	Description string `json:"description"`
 	ProjectID   string `json:"project_id"`
+}
+
+// ChannelMessageEvent is broadcast when a new message is posted in a channel.
+type ChannelMessageEvent struct {
+	ChannelID string          `json:"channel_id"`
+	Message   channel.Message `json:"message"`
+}
+
+// ChannelTypingEvent is broadcast when a user starts or stops typing in a channel.
+type ChannelTypingEvent struct {
+	ChannelID string `json:"channel_id"`
+	User      string `json:"user"`
+	Typing    bool   `json:"typing"`
+}
+
+// ChannelReadEvent is broadcast when a user marks messages as read in a channel.
+type ChannelReadEvent struct {
+	ChannelID string `json:"channel_id"`
+	User      string `json:"user"`
+	LastRead  string `json:"last_read"`
 }
 
 // BroadcastEvent is a convenience method that marshals a typed event and broadcasts it.

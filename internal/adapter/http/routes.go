@@ -515,6 +515,19 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Delete("/goals/{id}", h.DeleteProjectGoal)
 		}
 
+		// Channels
+		r.Route("/channels", func(r chi.Router) {
+			r.Get("/", h.ListChannels)
+			r.Post("/", h.CreateChannel)
+			r.Get("/{id}", h.GetChannel)
+			r.Delete("/{id}", h.DeleteChannel)
+			r.Get("/{id}/messages", h.ListChannelMessages)
+			r.Post("/{id}/messages", h.SendChannelMessage)
+			r.Post("/{id}/messages/{mid}/thread", h.SendThreadReply)
+			r.Put("/{id}/members/{uid}", h.UpdateMemberNotify)
+			r.Post("/{id}/webhook", h.WebhookMessage)
+		})
+
 		// Quarantine (Phase 23B — admin only)
 		r.Route("/quarantine", func(r chi.Router) {
 			r.Use(middleware.RequireRole(user.RoleAdmin))

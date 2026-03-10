@@ -1326,6 +1326,74 @@ export const api = {
         { method: "POST" },
       ),
   },
+  channels: {
+    list: () =>
+      request<
+        {
+          id: string;
+          tenant_id: string;
+          project_id: string;
+          name: string;
+          type: "project" | "bot";
+          description: string;
+          created_by: string;
+          created_at: string;
+        }[]
+      >("/channels"),
+
+    get: (id: string) =>
+      request<{
+        id: string;
+        name: string;
+        type: string;
+        description: string;
+        project_id: string;
+        created_at: string;
+      }>(url`/channels/${id}`),
+
+    messages: (id: string, cursor?: string, limit?: number) => {
+      const params = new URLSearchParams();
+      if (cursor) params.set("cursor", cursor);
+      if (limit) params.set("limit", String(limit));
+      const qs = params.toString();
+      return request<
+        {
+          id: string;
+          channel_id: string;
+          sender_type: string;
+          sender_name: string;
+          content: string;
+          parent_id: string;
+          created_at: string;
+        }[]
+      >(`/channels/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ""}`);
+    },
+
+    send: (id: string, content: string, senderName: string) =>
+      request<{ id: string }>(url`/channels/${id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ content, sender_name: senderName, sender_type: "user" }),
+      }),
+
+    sendThreadReply: (
+      channelId: string,
+      parentId: string,
+      data: { sender_name: string; sender_type: string; content: string },
+    ) =>
+      request<{
+        id: string;
+        channel_id: string;
+        sender_type: string;
+        sender_name: string;
+        content: string;
+        parent_id: string;
+        created_at: string;
+      }>(url`/channels/${channelId}/messages/${parentId}/thread`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
+
   audit: {
     list: (opts?: { action?: string; cursor?: string; limit?: number }) => {
       const params = new URLSearchParams();
