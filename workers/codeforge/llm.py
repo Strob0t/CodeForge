@@ -38,9 +38,10 @@ class LLMError(Exception):
         super().__init__(f"LiteLLM {status_code} for model={model}: {short}")
 
 
-# Status codes that may indicate the model is fundamentally unavailable
-# (billing, auth, quota) rather than a transient server error.
-_FALLBACK_CODES: frozenset[int] = frozenset({400, 401, 403, 404})
+# Status codes that may warrant trying a different model. 400-404 require
+# keyword matching (billing/auth). 500 is included because LiteLLM wraps
+# upstream timeouts and transient failures as 500.
+_FALLBACK_CODES: frozenset[int] = frozenset({400, 401, 403, 404, 500})
 
 _FALLBACK_KEYWORDS: tuple[str, ...] = (
     "credit",
@@ -58,6 +59,9 @@ _FALLBACK_KEYWORDS: tuple[str, ...] = (
     "not found",
     "does not exist",
     "model_not_found",
+    "timeout",
+    "timed out",
+    "reading data from socket",
 )
 
 
@@ -187,7 +191,9 @@ class LLMClientConfig:
     # so the agent loop's fallback logic can switch to a different model instead of
     # wasting time retrying the same exhausted provider.
     # 408 included: upstream request timeouts are transient and worth retrying.
-    retryable_codes: tuple[int, ...] = (408, 502, 503, 504)
+    # 500 included: LiteLLM returns 500 for upstream provider timeouts and
+    # transient failures (e.g. "Timeout on reading data from socket").
+    retryable_codes: tuple[int, ...] = (408, 500, 502, 503, 504)
 
 
 def load_llm_client_config() -> LLMClientConfig:

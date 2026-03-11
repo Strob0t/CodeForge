@@ -206,6 +206,18 @@ async def test_no_retry_on_429(client: LiteLLMClient) -> None:
     assert mock_post.call_count == 1
 
 
+async def test_retry_on_500(client: LiteLLMClient) -> None:
+    """completion() should retry on 500 (LiteLLM upstream timeout)."""
+    body = '{"error":{"message":"Timeout on reading data from socket"}}'
+    c = LiteLLMClient(base_url="http://test:4000", api_key="k", config=_TEST_CONFIG)
+    responses = [_error_response(500, body=body), _ok_response()]
+    mock_post = AsyncMock(side_effect=responses)
+    with patch.object(c._client, "post", mock_post):
+        result = await c.completion(prompt="test", model="test-model")
+    assert result.content == "Hello"
+    assert mock_post.call_count == 2
+
+
 async def test_retry_on_502(client: LiteLLMClient) -> None:
     """completion() should retry on 502/503/504."""
     for code in (502, 503, 504):

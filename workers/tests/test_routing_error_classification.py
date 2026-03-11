@@ -127,9 +127,17 @@ class TestIsFallbackEligible:
         exc = LLMError(status_code=400, model="gpt-4", body="Bad request")
         assert is_fallback_eligible(exc) is False
 
-    def test_500_not_eligible(self) -> None:
+    def test_500_without_keywords_not_eligible(self) -> None:
         exc = LLMError(status_code=500, model="gpt-4", body="Internal error")
         assert is_fallback_eligible(exc) is False
+
+    def test_500_with_timeout_keyword_eligible(self) -> None:
+        exc = LLMError(
+            status_code=500,
+            model="lm_studio/qwen2.5-coder-32b-instruct",
+            body='{"error":{"message":"Timeout on reading data from socket"}}',
+        )
+        assert is_fallback_eligible(exc) is True
 
 
 class TestRateLimitCooldown:
