@@ -86,3 +86,43 @@ func (h *Handlers) WriteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// DeleteFile handles DELETE /api/v1/projects/{id}/files?path=src/old.go
+func (h *Handlers) DeleteFile(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter is required")
+		return
+	}
+
+	if err := h.Files.DeleteFile(r.Context(), projectID, path); err != nil {
+		writeDomainError(w, err, "delete file failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// RenameFile handles PATCH /api/v1/projects/{id}/files/rename
+func (h *Handlers) RenameFile(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	body, ok := readJSON[struct {
+		OldPath string `json:"old_path"`
+		NewPath string `json:"new_path"`
+	}](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+
+	if body.OldPath == "" || body.NewPath == "" {
+		writeError(w, http.StatusBadRequest, "old_path and new_path are required")
+		return
+	}
+
+	if err := h.Files.RenameFile(r.Context(), projectID, body.OldPath, body.NewPath); err != nil {
+		writeDomainError(w, err, "rename file failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}

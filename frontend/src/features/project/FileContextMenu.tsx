@@ -31,11 +31,13 @@ const FOLDER_ACTIONS: ContextMenuAction[] = [
   { label: "New File", icon: "+", action: "new-file" },
   { label: "New Folder", icon: "\u25A1", action: "new-folder" },
   { label: "Upload File", icon: "\u2191", action: "upload" },
+  { label: "Add to Context", icon: "\u2795", action: "add-to-context" },
   { label: "Rename", icon: "\u270E", action: "rename" },
   { label: "Delete Folder", icon: "\u2716", action: "delete" },
 ];
 
 const FILE_ACTIONS: ContextMenuAction[] = [
+  { label: "Add to Context", icon: "\u2795", action: "add-to-context" },
   { label: "Rename", icon: "\u270E", action: "rename" },
   { label: "Delete File", icon: "\u2716", action: "delete" },
 ];

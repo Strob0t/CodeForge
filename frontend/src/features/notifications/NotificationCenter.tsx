@@ -60,7 +60,7 @@ export default function NotificationCenter(props: NotificationCenterProps): JSX.
       <div class="fixed inset-0 z-40" onClick={() => props.onClose()} />
 
       {/* Dropdown panel */}
-      <div class="fixed right-4 top-14 z-50 w-80 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg">
+      <div class="absolute right-0 top-full z-50 mt-2 w-80 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg">
         {/* Header */}
         <div class="flex items-center justify-between border-b border-cf-border px-3 py-2">
           <h3 class="text-sm font-semibold text-cf-text-primary">Notifications</h3>

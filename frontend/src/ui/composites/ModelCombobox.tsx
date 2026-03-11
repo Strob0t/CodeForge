@@ -212,11 +212,11 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
             <div class="px-3 py-2 text-sm text-cf-text-muted">No models found</div>
           </Show>
 
-          {/* Grouped results */}
+          {/* Grouped results — each group is a self-contained sticky scope */}
           <For each={filteredGroups()}>
             {(group, groupIdx) => (
-              <>
-                <div class="sticky top-0 z-10 bg-cf-bg-secondary px-3 py-1 text-xs font-semibold uppercase tracking-wider text-cf-text-muted">
+              <div>
+                <div class="sticky top-0 z-10 bg-cf-bg-secondary px-3 py-1 text-xs font-semibold uppercase tracking-wider text-cf-text-muted border-y border-cf-border">
                   {group.provider}
                 </div>
                 <For each={group.models}>
@@ -262,7 +262,7 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
                     );
                   }}
                 </For>
-              </>
+              </div>
             )}
           </For>
         </div>

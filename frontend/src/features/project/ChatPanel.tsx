@@ -20,10 +20,12 @@ import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
 import ChatInput from "../chat/ChatInput";
+import TokenBadge from "../chat/TokenBadge";
 import ActionBar from "./ActionBar";
 import type { ActionRule } from "./actionRules";
 import { deriveActions } from "./actionRules";
 import ChatSuggestions from "./ChatSuggestions";
+import { clearContextFiles, contextFiles, removeContextFile } from "./contextFilesStore";
 import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
 import MessageBadge from "./MessageBadge";
@@ -456,6 +458,11 @@ export default function ChatPanel(props: ChatPanelProps) {
     const content = input().trim();
     if (!content || !activeConversation() || sending()) return;
 
+    // Prepend context files as file references.
+    const ctxPaths = contextFiles();
+    const prefix = ctxPaths.length > 0 ? ctxPaths.map((p) => `@${p}`).join(" ") + "\n" : "";
+    const fullContent = prefix + content;
+
     setInput("");
     setSending(true);
     setRunError(null);
@@ -465,10 +472,12 @@ export default function ChatPanel(props: ChatPanelProps) {
       // All paths now dispatch via NATS (202 Accepted).
       // Results stream via AG-UI WebSocket events; messages are
       // refetched when run_finished arrives.
-      await api.conversations.send(convId, { content });
+      await api.conversations.send(convId, { content: fullContent });
       // User message is now persisted in DB — show it immediately.
       await refetchMessages();
       scrollToBottom();
+      // Clear context files after sending.
+      if (ctxPaths.length > 0) clearContextFiles();
     } catch {
       // toast handled by API layer
     } finally {
@@ -856,6 +865,17 @@ export default function ChatPanel(props: ChatPanelProps) {
           activeTab={props.activeTab ?? "files"}
           onSelect={(text) => setInput(text)}
         />
+
+        {/* Context files badges */}
+        <Show when={contextFiles().length > 0}>
+          <div class="flex flex-wrap gap-1 border-t border-cf-border px-3 pt-2">
+            <For each={contextFiles()}>
+              {(path) => (
+                <TokenBadge type="@" label={path} onRemove={() => removeContextFile(path)} />
+              )}
+            </For>
+          </div>
+        </Show>
 
         {/* Input area */}
         <div class="border-t border-cf-border p-3 flex-shrink-0" data-shortcut-scope="chat">

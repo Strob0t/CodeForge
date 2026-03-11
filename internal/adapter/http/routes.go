@@ -70,6 +70,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/projects/{id}/files/tree", h.ListTree)
 		r.Get("/projects/{id}/files/content", h.ReadFile)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}/files/content", h.WriteFile)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Delete("/projects/{id}/files", h.DeleteFile)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Patch("/projects/{id}/files/rename", h.RenameFile)
 
 		// Stack Detection
 		r.Get("/projects/{id}/detect-stack", h.DetectProjectStack)

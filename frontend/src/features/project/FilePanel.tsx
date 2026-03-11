@@ -11,6 +11,7 @@ import { Button, FormField, Input, Modal, Spinner, Textarea } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import CodeEditor from "./CodeEditor";
+import { addContextFile } from "./contextFilesStore";
 import FileContextMenu from "./FileContextMenu";
 import FileTree from "./FileTree";
 import { FileTreeProvider, useFileTree } from "./FileTreeContext";
@@ -30,6 +31,8 @@ interface OpenTab {
 export interface FilePanelProps {
   projectId: string;
   onNavigate?: (target: string) => void;
+  /** Called when user right-clicks a file/folder and selects "Add to Context". */
+  onAddToContext?: (path: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,30 +91,27 @@ function SidebarHeader(props: {
       <span class="text-xs font-semibold text-cf-text-secondary uppercase tracking-wide">
         Files
       </span>
-      <div class="flex items-center gap-0.5 h-7">
-        <Button
-          variant="icon"
-          size="xs"
-          class="!p-1 !min-h-[28px] !min-w-[28px]"
+      <div class="flex items-center gap-0.5">
+        <button
+          type="button"
+          class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
           onClick={() => actions.expandAll(props.projectId)}
           title="Expand All"
         >
           <ExpandAllIcon />
-        </Button>
-        <Button
-          variant="icon"
-          size="xs"
-          class="!p-1 !min-h-[28px] !min-w-[28px]"
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
           onClick={() => actions.collapseAll()}
           title="Collapse All"
         >
           <CollapseAllIcon />
-        </Button>
+        </button>
         <Show when={props.onUploadClick}>
-          <Button
-            variant="icon"
-            size="xs"
-            class="!p-1 !min-h-[28px] !min-w-[28px]"
+          <button
+            type="button"
+            class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
             onClick={props.onUploadClick}
             title="Upload File"
           >
@@ -124,13 +124,12 @@ function SidebarHeader(props: {
               <path d="M7.25 10.25a.75.75 0 0 0 1.5 0V4.56l1.72 1.72a.75.75 0 1 0 1.06-1.06l-3-3a.75.75 0 0 0-1.06 0l-3 3a.75.75 0 0 0 1.06 1.06l1.72-1.72v5.69Z" />
               <path d="M3.5 9.75a.75.75 0 0 0-1.5 0v1.5A2.75 2.75 0 0 0 4.75 14h6.5A2.75 2.75 0 0 0 14 11.25v-1.5a.75.75 0 0 0-1.5 0v1.5c0 .69-.56 1.25-1.25 1.25h-6.5c-.69 0-1.25-.56-1.25-1.25v-1.5Z" />
             </svg>
-          </Button>
+          </button>
         </Show>
         <Show when={props.onCreateClick}>
-          <Button
-            variant="icon"
-            size="xs"
-            class="!p-1 !min-h-[28px] !min-w-[28px]"
+          <button
+            type="button"
+            class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
             onClick={props.onCreateClick}
             title="New File"
           >
@@ -142,7 +141,7 @@ function SidebarHeader(props: {
             >
               <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z" />
             </svg>
-          </Button>
+          </button>
         </Show>
       </div>
     </div>
@@ -538,6 +537,15 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
         setDeletePath(entry.path);
         setDeleteIsDir(entry.is_dir);
         setShowDeleteModal(true);
+        break;
+      }
+      case "add-to-context": {
+        if (!entry || entry.path === "") return;
+        addContextFile(entry.path);
+        toast("success", `Added to context: ${entry.path}`);
+        if (props.onAddToContext) {
+          props.onAddToContext(entry.path);
+        }
         break;
       }
     }

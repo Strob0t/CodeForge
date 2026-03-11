@@ -103,21 +103,23 @@ const ChatInput: Component<ChatInputProps> = (props) => {
 
   let textareaRef: HTMLTextAreaElement | undefined;
 
-  // --- Project files for @ autocomplete (cached per projectId) ---
+  // --- Project files for @ autocomplete (full tree, cached per projectId) ---
 
   const [fileItems] = createResource(
     () => props.projectId,
     async (pid): Promise<Item[]> => {
       if (!pid) return [];
       try {
-        const entries = await api.files.list(pid, ".");
-        return entries.map(
-          (entry): Item => ({
-            id: entry.path,
-            label: entry.name,
-            category: "file",
-          }),
-        );
+        const entries = await api.files.tree(pid, 10000);
+        return entries
+          .filter((entry) => !entry.is_dir)
+          .map(
+            (entry): Item => ({
+              id: entry.path,
+              label: entry.path,
+              category: "file",
+            }),
+          );
       } catch {
         return [];
       }
@@ -164,6 +166,16 @@ const ChatInput: Component<ChatInputProps> = (props) => {
 
     const cursorPos = e.currentTarget.selectionStart ?? value.length;
     setTrigger(detectTrigger(value, cursorPos));
+
+    // Sync references: remove badges whose trigger+label no longer appears in text.
+    const current = references();
+    if (current.length > 0) {
+      const kept = current.filter((ref) => value.includes(`${ref.type}${ref.label}`));
+      if (kept.length !== current.length) {
+        setReferences(kept);
+        props.onReferencesChange?.(kept);
+      }
+    }
   }
 
   // --- Autocomplete selection ---

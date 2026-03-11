@@ -180,6 +180,49 @@ func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content
 	return nil
 }
 
+// DeleteFile removes a file or directory within a project workspace.
+func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath string) error {
+	absPath, err := s.resolveProjectPath(ctx, projectID, relPath)
+	if err != nil {
+		return err
+	}
+
+	if _, statErr := os.Stat(absPath); statErr != nil {
+		return fmt.Errorf("path does not exist: %w", statErr)
+	}
+
+	if err := os.RemoveAll(absPath); err != nil {
+		return fmt.Errorf("delete failed: %w", err)
+	}
+	return nil
+}
+
+// RenameFile moves/renames a file or directory within a project workspace.
+func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, newRelPath string) error {
+	oldAbs, err := s.resolveProjectPath(ctx, projectID, oldRelPath)
+	if err != nil {
+		return fmt.Errorf("resolve old path: %w", err)
+	}
+	newAbs, err := s.resolveProjectPath(ctx, projectID, newRelPath)
+	if err != nil {
+		return fmt.Errorf("resolve new path: %w", err)
+	}
+
+	if _, statErr := os.Stat(oldAbs); statErr != nil {
+		return fmt.Errorf("source does not exist: %w", statErr)
+	}
+
+	// Ensure parent directory of destination exists
+	if mkErr := os.MkdirAll(filepath.Dir(newAbs), 0o750); mkErr != nil {
+		return fmt.Errorf("create parent directory: %w", mkErr)
+	}
+
+	if err := os.Rename(oldAbs, newAbs); err != nil {
+		return fmt.Errorf("rename failed: %w", err)
+	}
+	return nil
+}
+
 // resolveProjectPath resolves a relative path to an absolute path within a project workspace,
 // with path traversal protection.
 func (s *FileService) resolveProjectPath(ctx context.Context, projectID, relPath string) (string, error) {
