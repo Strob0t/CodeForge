@@ -1,0 +1,11 @@
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440005",
+  "task_id": "task-001",
+  "task_name": "fibonacci",
+  "score": 0.85,
+  "cost_usd": 0.02,
+  "completed_tasks": 1,
+  "total_tasks": 5,
+  "avg_score": 0.85,
+  "total_cost_usd": 0.02
+}

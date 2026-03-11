@@ -44,6 +44,14 @@ func Validate(subject string, data []byte) error {
 		target = &GemmasEvalRequestPayload{}
 	case subject == SubjectEvalGemmasResult:
 		target = &GemmasEvalResultPayload{}
+	case subject == SubjectBenchmarkRunRequest:
+		target = &BenchmarkRunRequestPayload{}
+	case subject == SubjectBenchmarkRunResult:
+		target = &BenchmarkRunResultPayload{}
+	case subject == SubjectBenchmarkTaskStarted:
+		target = &BenchmarkTaskStartedPayload{}
+	case subject == SubjectBenchmarkTaskProgress:
+		target = &BenchmarkTaskProgressPayload{}
 	case strings.HasPrefix(subject, SubjectTaskAgent+"."):
 		// tasks.agent.{backend} — the payload is a Task, not a custom schema.
 		// Accept any valid JSON.

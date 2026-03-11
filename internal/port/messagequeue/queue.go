@@ -105,8 +105,10 @@ const (
 	SubjectA2ATaskCancel   = "a2a.task.cancel"   // Go → Python: cancel A2A task
 
 	// Benchmark subjects (Phase 26/28)
-	SubjectBenchmarkRunRequest = "benchmark.run.request" // Go → Python: start benchmark execution
-	SubjectBenchmarkRunResult  = "benchmark.run.result"  // Python → Go: benchmark execution results
+	SubjectBenchmarkRunRequest   = "benchmark.run.request"   // Go → Python: start benchmark execution
+	SubjectBenchmarkRunResult    = "benchmark.run.result"    // Python → Go: benchmark execution results
+	SubjectBenchmarkTaskStarted  = "benchmark.task.started"  // Python → Go: per-task start event
+	SubjectBenchmarkTaskProgress = "benchmark.task.progress" // Python → Go: per-task completion + running totals
 
 	// Memory subjects (Phase 23)
 	SubjectMemoryStore        = "memory.store"         // Go → Python: store agent memory

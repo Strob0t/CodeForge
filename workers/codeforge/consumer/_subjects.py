@@ -60,6 +60,8 @@ SUBJECT_CONVERSATION_COMPACT_COMPLETE = "conversation.compact.complete"
 # Benchmark
 SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"
 SUBJECT_BENCHMARK_RUN_RESULT = "benchmark.run.result"
+SUBJECT_BENCHMARK_TASK_STARTED = "benchmark.task.started"
+SUBJECT_BENCHMARK_TASK_PROGRESS = "benchmark.task.progress"
 
 # Evaluation
 SUBJECT_EVAL_GEMMAS_REQUEST = "evaluation.gemmas.request"

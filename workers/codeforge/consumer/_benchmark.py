@@ -19,6 +19,8 @@ import structlog
 from codeforge.consumer._subjects import (
     HEADER_REQUEST_ID,
     SUBJECT_BENCHMARK_RUN_RESULT,
+    SUBJECT_BENCHMARK_TASK_PROGRESS,
+    SUBJECT_BENCHMARK_TASK_STARTED,
     SUBJECT_EVAL_GEMMAS_RESULT,
 )
 from codeforge.models import GemmasEvalRequest, GemmasEvalResult
@@ -89,12 +91,15 @@ class BenchmarkHandlerMixin:
             # Auto-routing: wrap LLM with routing for per-task model selection.
             effective_llm = await self._resolve_effective_llm(req, log)
 
+            # Build per-task progress callbacks for real-time WS updates.
+            on_start, on_complete = _build_progress_callbacks(self._js, req.run_id)
+
             if benchmark_type == "tool_use":
-                results = await _run_tool_use_benchmark(req, effective_llm, pipeline)
+                results = await _run_tool_use_benchmark(req, effective_llm, pipeline, on_start, on_complete)
             elif benchmark_type == "agent":
-                results = await _run_agent_benchmark(req, effective_llm, pipeline)
+                results = await _run_agent_benchmark(req, effective_llm, pipeline, on_start, on_complete)
             else:
-                results = await _run_simple_benchmark(req, effective_llm, pipeline)
+                results = await _run_simple_benchmark(req, effective_llm, pipeline, on_start, on_complete)
 
             # Annotate results with routing metadata.
             if req.model == "auto" and hasattr(effective_llm, "routing_log"):
@@ -287,29 +292,34 @@ async def _load_tasks_for_run(req) -> list:
 
     if req.provider_name:
         provider_cls = get_provider(req.provider_name)
-        provider = provider_cls(config=req.provider_config)
+        try:
+            provider = provider_cls(config=req.provider_config)
+        except TypeError:
+            # Built-in providers (codeforge_simple/agent/tool_use) accept
+            # dataset_path instead of config.
+            provider = provider_cls(dataset_path=req.dataset_path)
         tasks = await provider.load_tasks()
         return apply_task_filters(tasks, req.provider_config)
 
     return _dataset_to_task_specs(req.dataset_path)
 
 
-async def _run_simple_benchmark(req, llm, pipeline) -> list:
+async def _run_simple_benchmark(req, llm, pipeline, on_start=None, on_complete=None) -> list:
     """Run a simple prompt -> LLM -> compare benchmark."""
     from codeforge.evaluation.runners.simple import SimpleBenchmarkRunner
 
     runner = SimpleBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
     tasks = await _load_tasks_for_run(req)
-    return await _run_with_optional_rollout(runner, tasks, req, pipeline)
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete)
 
 
-async def _run_tool_use_benchmark(req, llm, pipeline) -> list:
+async def _run_tool_use_benchmark(req, llm, pipeline, on_start=None, on_complete=None) -> list:
     """Run a tool-use benchmark with tools in task metadata."""
     from codeforge.evaluation.runners.tool_use import ToolUseBenchmarkRunner
 
     runner = ToolUseBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
     tasks = await _load_tasks_for_run(req)
-    return await _run_with_optional_rollout(runner, tasks, req, pipeline)
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete)
 
 
 class _BenchmarkRuntime:
@@ -339,7 +349,7 @@ class _BenchmarkRuntime:
         pass
 
 
-async def _run_agent_benchmark(req, llm, pipeline) -> list:
+async def _run_agent_benchmark(req, llm, pipeline, on_start=None, on_complete=None) -> list:
     """Run an agent benchmark using the full agent loop."""
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
     from codeforge.evaluation.runners.agent import AgentBenchmarkRunner
@@ -366,10 +376,10 @@ async def _run_agent_benchmark(req, llm, pipeline) -> list:
         workspace_path=tempfile.gettempdir(),
     )
     runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline, loop_config=config)
-    return await _run_with_optional_rollout(runner, tasks, req, pipeline)
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete)
 
 
-async def _run_with_optional_rollout(runner, tasks, req, pipeline) -> list:
+async def _run_with_optional_rollout(runner, tasks, req, pipeline, on_start=None, on_complete=None) -> list:
     """Wrap runner in MultiRolloutRunner when rollout_count > 1."""
     from codeforge.models import BenchmarkRunRequest
 
@@ -384,12 +394,18 @@ async def _run_with_optional_rollout(runner, tasks, req, pipeline) -> list:
             strategy=req.rollout_strategy,
         )
         results: list = []
-        for task in tasks:
+        total = len(tasks)
+        for i, task in enumerate(tasks):
+            if on_start is not None:
+                await on_start(task, i, total)
             outcomes = await multi_runner.run_task(task)
-            results.extend(_convert_rollout_outcome(task, outcome, req.rollout_count) for outcome in outcomes)
+            converted = [_convert_rollout_outcome(task, outcome, req.rollout_count) for outcome in outcomes]
+            results.extend(converted)
+            if on_complete is not None and converted:
+                await on_complete(task, converted[0], i, total)
         return results
 
-    run_results = await runner.run_tasks(tasks)
+    run_results = await runner.run_tasks(tasks, on_task_start=on_start, on_task_complete=on_complete)
     return [_convert_result(r) for r in run_results]
 
 
@@ -453,6 +469,79 @@ def _convert_result(r) -> object:
         files_changed=r.execution.files_changed,
         functional_test_output=r.execution.test_output,
     )
+
+
+def _build_progress_callbacks(js: object, run_id: str) -> tuple:
+    """Create NATS publishing callbacks for per-task progress events.
+
+    Returns (on_task_start, on_task_complete) callables suitable for
+    BaseBenchmarkRunner.run_tasks().
+    """
+    import json as _json
+
+    accumulated_cost = 0.0
+    accumulated_scores: list[float] = []
+
+    async def on_task_start(task: object, index: int, total: int) -> None:
+        if js is None:
+            return
+        payload = _json.dumps(
+            {
+                "run_id": run_id,
+                "task_id": task.id,
+                "task_name": task.name,
+                "index": index + 1,
+                "total": total,
+            }
+        ).encode()
+        try:
+            await js.publish(SUBJECT_BENCHMARK_TASK_STARTED, payload)
+        except Exception:
+            logger.debug("failed to publish benchmark.task.started", exc_info=True)
+
+    async def on_task_complete(task: object, result: object, index: int, total: int) -> None:
+        nonlocal accumulated_cost
+        if js is None:
+            return
+
+        # RunResult has .execution.cost_usd; BenchmarkTaskResult has .cost_usd directly.
+        cost = 0.0
+        avg_task_score = 0.0
+        if hasattr(result, "execution"):
+            cost = getattr(result.execution, "cost_usd", 0.0) or 0.0
+            if result.eval_score is not None:
+                dims = getattr(result.eval_score, "dimensions", [])
+                dim_scores = [d.score for d in dims if hasattr(d, "score")]
+                avg_task_score = sum(dim_scores) / len(dim_scores) if dim_scores else 0.0
+        else:
+            cost = getattr(result, "cost_usd", 0.0) or 0.0
+            scores = getattr(result, "scores", {}) or {}
+            score_vals = list(scores.values()) if isinstance(scores, dict) else []
+            avg_task_score = sum(score_vals) / len(score_vals) if score_vals else 0.0
+
+        accumulated_cost += cost
+        accumulated_scores.append(avg_task_score)
+        avg_score = sum(accumulated_scores) / len(accumulated_scores) if accumulated_scores else 0.0
+
+        payload = _json.dumps(
+            {
+                "run_id": run_id,
+                "task_id": task.id,
+                "task_name": task.name,
+                "score": round(avg_task_score, 4),
+                "cost_usd": round(cost, 6),
+                "completed_tasks": index + 1,
+                "total_tasks": total,
+                "avg_score": round(avg_score, 4),
+                "total_cost_usd": round(accumulated_cost, 6),
+            }
+        ).encode()
+        try:
+            await js.publish(SUBJECT_BENCHMARK_TASK_PROGRESS, payload)
+        except Exception:
+            logger.debug("failed to publish benchmark.task.progress", exc_info=True)
+
+    return on_task_start, on_task_complete
 
 
 def _build_evaluators(evaluator_names: list[str], model: str) -> list:

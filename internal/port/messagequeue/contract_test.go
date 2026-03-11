@@ -243,6 +243,30 @@ func sampleBenchmarkRunResultPayload() mq.BenchmarkRunResultPayload {
 	}
 }
 
+func sampleBenchmarkTaskStartedPayload() mq.BenchmarkTaskStartedPayload {
+	return mq.BenchmarkTaskStartedPayload{
+		RunID:    "550e8400-e29b-41d4-a716-446655440005",
+		TaskID:   "task-001",
+		TaskName: "fibonacci",
+		Index:    0,
+		Total:    5,
+	}
+}
+
+func sampleBenchmarkTaskProgressPayload() mq.BenchmarkTaskProgressPayload {
+	return mq.BenchmarkTaskProgressPayload{
+		RunID:          "550e8400-e29b-41d4-a716-446655440005",
+		TaskID:         "task-001",
+		TaskName:       "fibonacci",
+		Score:          0.85,
+		CostUSD:        0.02,
+		CompletedTasks: 1,
+		TotalTasks:     5,
+		AvgScore:       0.85,
+		TotalCostUSD:   0.02,
+	}
+}
+
 func sampleGemmasEvalRequestPayload() mq.GemmasEvalRequestPayload {
 	return mq.GemmasEvalRequestPayload{
 		PlanID:   "550e8400-e29b-41d4-a716-446655440008",
@@ -426,6 +450,8 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectConversationRunComplete, sampleConversationRunCompletePayload()},
 		{mq.SubjectBenchmarkRunRequest, sampleBenchmarkRunRequestPayload()},
 		{mq.SubjectBenchmarkRunResult, sampleBenchmarkRunResultPayload()},
+		{mq.SubjectBenchmarkTaskStarted, sampleBenchmarkTaskStartedPayload()},
+		{mq.SubjectBenchmarkTaskProgress, sampleBenchmarkTaskProgressPayload()},
 		{mq.SubjectEvalGemmasRequest, sampleGemmasEvalRequestPayload()},
 		{mq.SubjectEvalGemmasResult, sampleGemmasEvalResultPayload()},
 		{mq.SubjectRepoMapRequest, sampleRepoMapRequestPayload()},
@@ -505,6 +531,8 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectConversationRunComplete: {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model"},
 		mq.SubjectBenchmarkRunRequest:     {"run_id", "dataset_path", "model"},
 		mq.SubjectBenchmarkRunResult:      {"run_id", "status", "results", "summary"},
+		mq.SubjectBenchmarkTaskStarted:    {"run_id", "task_id", "task_name", "index", "total"},
+		mq.SubjectBenchmarkTaskProgress:   {"run_id", "task_id", "completed_tasks", "total_tasks"},
 		mq.SubjectEvalGemmasRequest:       {"plan_id", "messages"},
 		mq.SubjectEvalGemmasResult:        {"plan_id", "information_diversity_score", "unnecessary_path_ratio"},
 		mq.SubjectRepoMapRequest:          {"project_id", "workspace_path", "token_budget"},

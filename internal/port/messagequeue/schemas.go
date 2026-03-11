@@ -571,6 +571,28 @@ type BenchmarkTaskResult struct {
 	ProviderErrors       string                        `json:"provider_errors,omitempty"`
 }
 
+// BenchmarkTaskStartedPayload is published by Python when a benchmark task begins.
+type BenchmarkTaskStartedPayload struct {
+	RunID    string `json:"run_id"`
+	TaskID   string `json:"task_id"`
+	TaskName string `json:"task_name"`
+	Index    int    `json:"index"`
+	Total    int    `json:"total"`
+}
+
+// BenchmarkTaskProgressPayload is published by Python when a benchmark task completes.
+type BenchmarkTaskProgressPayload struct {
+	RunID          string  `json:"run_id"`
+	TaskID         string  `json:"task_id"`
+	TaskName       string  `json:"task_name"`
+	Score          float64 `json:"score"`
+	CostUSD        float64 `json:"cost_usd"`
+	CompletedTasks int     `json:"completed_tasks"`
+	TotalTasks     int     `json:"total_tasks"`
+	AvgScore       float64 `json:"avg_score"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+}
+
 // A2ATaskCreatedPayload is published when an inbound A2A task is received.
 type A2ATaskCreatedPayload struct {
 	TaskID   string `json:"task_id"`

@@ -793,13 +793,91 @@ type BenchmarkRunProgressPayload struct {
 	TotalCostUSD   float64 `json:"total_cost_usd"`
 }
 
-// StartResultSubscriber subscribes to benchmark.run.result on NATS.
-// Returns a cancel function to stop the subscription.
+// HandleBenchmarkTaskStarted processes a benchmark.task.started message from Python
+// and broadcasts it to the frontend via WebSocket.
+func (s *BenchmarkService) HandleBenchmarkTaskStarted(ctx context.Context, _ string, data []byte) error {
+	var payload messagequeue.BenchmarkTaskStartedPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("unmarshal benchmark task started: %w", err)
+	}
+
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, "benchmark.task.started", BenchmarkTaskCompletedPayload{
+			RunID:    payload.RunID,
+			TaskID:   payload.TaskID,
+			TaskName: payload.TaskName,
+			Index:    payload.Index,
+			Total:    payload.Total,
+		})
+	}
+
+	return nil
+}
+
+// HandleBenchmarkTaskProgress processes a benchmark.task.progress message from Python
+// and broadcasts task completion + run progress events to the frontend.
+func (s *BenchmarkService) HandleBenchmarkTaskProgress(ctx context.Context, _ string, data []byte) error {
+	var payload messagequeue.BenchmarkTaskProgressPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("unmarshal benchmark task progress: %w", err)
+	}
+
+	if s.hub != nil {
+		// Per-task completion event (for the feature list).
+		s.hub.BroadcastEvent(ctx, "benchmark.task.completed", BenchmarkTaskCompletedPayload{
+			RunID:    payload.RunID,
+			TaskID:   payload.TaskID,
+			TaskName: payload.TaskName,
+			Score:    payload.Score,
+			CostUSD:  payload.CostUSD,
+			Index:    payload.CompletedTasks,
+			Total:    payload.TotalTasks,
+		})
+
+		// Running progress event (for the progress bar).
+		s.hub.BroadcastEvent(ctx, "benchmark.run.progress", BenchmarkRunProgressPayload{
+			RunID:          payload.RunID,
+			Status:         "running",
+			CompletedTasks: payload.CompletedTasks,
+			TotalTasks:     payload.TotalTasks,
+			AvgScore:       payload.AvgScore,
+			TotalCostUSD:   payload.TotalCostUSD,
+		})
+	}
+
+	return nil
+}
+
+// StartResultSubscriber subscribes to benchmark NATS subjects.
+// Returns a cancel function to stop all subscriptions.
 func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), error) {
 	if s.queue == nil {
 		return func() {}, nil
 	}
-	return s.queue.Subscribe(ctx, messagequeue.SubjectBenchmarkRunResult, s.HandleBenchmarkRunResult)
+
+	cancelResult, err := s.queue.Subscribe(ctx, messagequeue.SubjectBenchmarkRunResult, s.HandleBenchmarkRunResult)
+	if err != nil {
+		return func() {}, fmt.Errorf("subscribe benchmark result: %w", err)
+	}
+
+	cancelStarted, err := s.queue.Subscribe(ctx, messagequeue.SubjectBenchmarkTaskStarted, s.HandleBenchmarkTaskStarted)
+	if err != nil {
+		cancelResult()
+		return func() {}, fmt.Errorf("subscribe benchmark task started: %w", err)
+	}
+
+	cancelProgress, err := s.queue.Subscribe(ctx, messagequeue.SubjectBenchmarkTaskProgress, s.HandleBenchmarkTaskProgress)
+	if err != nil {
+		cancelResult()
+		cancelStarted()
+		return func() {}, fmt.Errorf("subscribe benchmark task progress: %w", err)
+	}
+
+	return func() {
+		cancelResult()
+		cancelStarted()
+		cancelProgress()
+	}, nil
 }
 
 // avgFromMap computes the average of a float64 map's values.
