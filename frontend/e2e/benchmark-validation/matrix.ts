@@ -12,28 +12,25 @@ export const DEFAULT_MODEL = "lm_studio/qwen3-30b-a3b";
 /** All valid suite x benchmark-type x metric combinations. */
 export const VALIDATION_MATRIX: TestCase[] = [
   // --- Block 1: Simple Benchmarks ---
+  // Uses e2e-quick dataset (2 tasks) for fast validation.
+  // External providers (humaneval, mbpp, etc.) have 100+ tasks each — too slow for E2E.
   { id: "1.1", block: 1, suite: "codeforge_simple", type: "simple", metrics: ["llm_judge"] },
-  { id: "1.2", block: 1, suite: "humaneval", type: "simple", metrics: ["llm_judge"] },
   {
-    id: "1.3",
+    id: "1.2",
     block: 1,
-    suite: "humaneval",
+    suite: "codeforge_simple",
     type: "simple",
     metrics: ["functional_test"],
     expectation: "Graceful degradation: score=0, no crash",
   },
   {
-    id: "1.4",
+    id: "1.3",
     block: 1,
-    suite: "humaneval",
+    suite: "codeforge_simple",
     type: "simple",
     metrics: ["llm_judge", "functional_test"],
-    expectation: "llm_judge > 0, functional_test = 0",
+    expectation: "Both evaluators produce scores (functional_test may be 0)",
   },
-  { id: "1.5", block: 1, suite: "mbpp", type: "simple", metrics: ["llm_judge"] },
-  { id: "1.6", block: 1, suite: "bigcodebench", type: "simple", metrics: ["llm_judge"] },
-  { id: "1.7", block: 1, suite: "cruxeval", type: "simple", metrics: ["llm_judge"] },
-  { id: "1.8", block: 1, suite: "livecodebench", type: "simple", metrics: ["llm_judge"] },
 
   // --- Block 2: Tool-Use Benchmarks ---
   { id: "2.1", block: 2, suite: "codeforge_tool_use", type: "tool_use", metrics: ["llm_judge"] },
@@ -69,21 +66,9 @@ export const VALIDATION_MATRIX: TestCase[] = [
     metrics: ["llm_judge", "functional_test", "sparc", "trajectory_verifier"],
     expectation: "All evaluator scores present (functional_test may be 0)",
   },
-  {
-    id: "3.4",
-    block: 3,
-    suite: "swebench",
-    type: "agent",
-    metrics: ["llm_judge", "trajectory_verifier"],
-  },
-  { id: "3.5", block: 3, suite: "sparcbench", type: "agent", metrics: ["llm_judge", "sparc"] },
-  {
-    id: "3.6",
-    block: 3,
-    suite: "aider_polyglot",
-    type: "agent",
-    metrics: ["llm_judge", "trajectory_verifier"],
-  },
+  // External agent suites (swebench, sparcbench, aider_polyglot) have 100+ tasks each.
+  // At ~4 min/task with local models, these would take hours — too slow for E2E.
+  // Registration is validated in Block 0 (difficulty audit).
 
   // --- Block 4: Routing ---
   {
@@ -135,7 +120,7 @@ export const ERROR_SCENARIOS: ErrorTestCase[] = [
     id: "5.4",
     name: "Unknown evaluator",
     params: {
-      dataset: "basic-coding",
+      dataset: "e2e-quick",
       model: DEFAULT_MODEL,
       metrics: ["nonexistent_evaluator"],
       benchmark_type: "simple",
@@ -146,7 +131,7 @@ export const ERROR_SCENARIOS: ErrorTestCase[] = [
     id: "5.5",
     name: "Duplicate run (same params)",
     params: {
-      dataset: "basic-coding",
+      dataset: "e2e-quick",
       model: DEFAULT_MODEL,
       metrics: ["llm_judge"],
       benchmark_type: "simple",

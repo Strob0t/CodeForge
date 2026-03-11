@@ -49,10 +49,13 @@ test.describe("Block 0: Prerequisites", () => {
     const datasets = await listDatasets();
     await attachTestContext(testInfo, "response", { status_code: 200, body: datasets });
 
-    const names = datasets.map((d) => d.name);
-    expect(names).toContain("basic-coding");
-    expect(names).toContain("agent-coding");
-    expect(names).toContain("tool-use-basic");
+    // Dataset names may differ from file paths — check both name and path fields
+    const names = datasets.map((d) => d.name.toLowerCase());
+    const paths = datasets.map((d) => (d.path ?? "").replace(/\.yaml$/, ""));
+    const allIdentifiers = [...names, ...paths];
+    expect(allIdentifiers).toContain("basic coding"); // name: "Basic Coding"
+    expect(allIdentifiers).toContain("agent-coding");
+    expect(allIdentifiers).toContain("tool-use-basic");
   });
 
   test("[0.6] All 11 seeded benchmark suites are listed", async ({}, testInfo) => {

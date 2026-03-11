@@ -7,6 +7,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Reporter, FullConfig, Suite, TestCase, TestResult } from "@playwright/test/reporter";
 import type {
   BlockReport,
@@ -20,6 +21,8 @@ import type {
   TestStatus,
 } from "./types";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const REPORTS_DIR = path.resolve(__dirname, "reports");
 
 interface TestData {

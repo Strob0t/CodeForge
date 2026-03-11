@@ -1,0 +1,21 @@
+# Minimal E2E Test Dataset (2 tasks only)
+# Purpose: Fast validation of the benchmark pipeline without waiting for many LLM calls.
+name: E2E Quick
+description: Minimal dataset for E2E benchmark validation tests (2 tasks).
+
+tasks:
+  - id: e2e-001
+    name: Hello world function
+    input: |
+      Write a Python function `hello(name)` that returns "Hello, {name}!".
+    expected_output: |
+      def hello(name):
+          return f"Hello, {name}!"
+
+  - id: e2e-002
+    name: Add two numbers
+    input: |
+      Write a Python function `add(a, b)` that returns the sum of a and b.
+    expected_output: |
+      def add(a, b):
+          return a + b

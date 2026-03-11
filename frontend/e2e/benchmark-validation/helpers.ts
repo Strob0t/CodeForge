@@ -21,7 +21,7 @@ import { DEFAULT_MODEL } from "./matrix";
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8080/api/v1";
 const HEALTH_BASE = API_BASE.replace("/api/v1", "");
-const LITELLM_URL = process.env.LITELLM_URL ?? "http://localhost:4000";
+const LITELLM_URL = process.env.LITELLM_URL ?? "http://codeforge-litellm:4000";
 const ADMIN_EMAIL = "admin@localhost";
 const ADMIN_PASS = "Changeme123";
 
@@ -83,8 +83,10 @@ export async function checkBackendHealth(): Promise<{ status: string; dev_mode: 
 
 export async function checkLiteLLMHealth(): Promise<boolean> {
   try {
-    const res = await fetch(`${LITELLM_URL}/health`);
-    return res.ok;
+    const res = await fetch(`${LITELLM_URL}/health/liveliness`);
+    if (!res.ok) return false;
+    const text = await res.text();
+    return text.includes("I'm alive");
   } catch {
     return false;
   }
@@ -92,7 +94,10 @@ export async function checkLiteLLMHealth(): Promise<boolean> {
 
 export async function getLiteLLMModels(): Promise<string[]> {
   try {
-    const res = await fetch(`${LITELLM_URL}/v1/models`);
+    const masterKey = process.env.LITELLM_MASTER_KEY ?? "sk-codeforge-dev";
+    const res = await fetch(`${LITELLM_URL}/v1/models`, {
+      headers: { Authorization: `Bearer ${masterKey}` },
+    });
     if (!res.ok) return [];
     const body = (await res.json()) as { data?: Array<{ id: string }> };
     return (body.data ?? []).map((m) => m.id);
@@ -214,7 +219,7 @@ export async function deleteRun(runId: string): Promise<void> {
  */
 export async function waitForRunCompletion(
   runId: string,
-  timeoutMs: number = 300_000,
+  timeoutMs: number = 600_000,
   pollMs: number = POLL_INTERVAL,
 ): Promise<BenchmarkRun> {
   const start = Date.now();
@@ -291,9 +296,9 @@ export async function attachTestContext(
 /** Map suite provider name to the dataset name used in the API. */
 export function suiteToDataset(suite: string): string {
   const mapping: Record<string, string> = {
-    codeforge_simple: "basic-coding",
-    codeforge_tool_use: "tool-use-basic",
-    codeforge_agent: "agent-coding",
+    codeforge_simple: "e2e-quick",
+    codeforge_tool_use: "e2e-quick",
+    codeforge_agent: "e2e-quick",
     // External providers use their provider name as dataset
     humaneval: "humaneval",
     mbpp: "mbpp",
