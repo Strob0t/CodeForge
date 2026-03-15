@@ -11,6 +11,12 @@ export interface CodeEditorProps {
   onSave: () => void;
 }
 
+interface MonacoNamespace {
+  editor: {
+    setTheme(theme: string): void;
+  };
+}
+
 // Map language IDs to Monaco language identifiers
 function monacoLanguage(lang: string): string {
   const mapping: Record<string, string> = {
@@ -53,6 +59,15 @@ interface EditorInstance {
 export default function CodeEditor(props: CodeEditorProps): JSX.Element {
   const { resolved } = useTheme();
   const [editorRef, setEditorRef] = createSignal<EditorInstance | null>(null);
+  const [monacoRef, setMonacoRef] = createSignal<MonacoNamespace | null>(null);
+
+  // Explicitly sync Monaco theme whenever the app theme changes
+  createEffect(() => {
+    const m = monacoRef();
+    if (!m) return;
+    const theme = resolved() === "dark" ? "vs-dark" : "vs";
+    m.editor.setTheme(theme);
+  });
 
   // Register Ctrl+S keybinding when editor mounts
   createEffect(
@@ -73,7 +88,8 @@ export default function CodeEditor(props: CodeEditorProps): JSX.Element {
         value={props.value}
         theme={resolved() === "dark" ? "vs-dark" : "vs"}
         onChange={(val) => props.onChange(val ?? "")}
-        onMount={(_monaco, editor) => {
+        onMount={(monaco, editor) => {
+          setMonacoRef(monaco as unknown as MonacoNamespace);
           setEditorRef(editor as unknown as EditorInstance);
         }}
         options={{

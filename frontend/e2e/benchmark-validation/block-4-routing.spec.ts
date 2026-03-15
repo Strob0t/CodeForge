@@ -3,7 +3,6 @@ import {
   createBenchmarkRun,
   waitForRunCompletion,
   getRunResults,
-  verifyFrontendState,
   attachTestContext,
   collectEnvironmentInfo,
   suiteToDataset,

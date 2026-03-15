@@ -51,8 +51,8 @@ function ExpandAllIcon(): JSX.Element {
       stroke-linecap="round"
       stroke-linejoin="round"
     >
-      <polyline points="4 6 8 10 12 6" />
-      <polyline points="4 2 8 6 12 2" />
+      <polyline points="4 8 8 12 12 8" />
+      <polyline points="4 4 8 8 12 4" />
     </svg>
   );
 }
@@ -69,8 +69,8 @@ function CollapseAllIcon(): JSX.Element {
       stroke-linecap="round"
       stroke-linejoin="round"
     >
-      <polyline points="4 10 8 6 12 10" />
-      <polyline points="4 14 8 10 12 14" />
+      <polyline points="4 8 8 4 12 8" />
+      <polyline points="4 12 8 8 12 12" />
     </svg>
   );
 }
