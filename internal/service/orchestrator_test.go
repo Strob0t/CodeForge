@@ -768,3 +768,318 @@ func TestGetPlan(t *testing.T) {
 		t.Errorf("expected 2 steps, got %d", len(got.Steps))
 	}
 }
+
+// --- Phase 31: waiting_approval tests ---
+
+func TestSequential_WaitingApprovalBlocksAdvance(t *testing.T) {
+	store, orchSvc := newOrchTestSetup()
+	ctx := context.Background()
+
+	req := &plan.CreatePlanRequest{
+		Name:      "approval plan",
+		ProjectID: "proj-1",
+		Protocol:  plan.ProtocolSequential,
+		Steps: []plan.CreateStepRequest{
+			{TaskID: "t1", AgentID: "a1"},
+			{TaskID: "t2", AgentID: "a2"},
+		},
+	}
+
+	p, _ := orchSvc.CreatePlan(ctx, req)
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("start plan: %v", err)
+	}
+
+	// Manually set the running step to waiting_approval, bypassing HandleRunCompleted
+	store.mu.Lock()
+	var firstStepID string
+	for i, s := range store.steps {
+		if s.PlanID == p.ID && s.Status == plan.StepStatusRunning {
+			firstStepID = store.steps[i].ID
+			store.steps[i].Status = plan.StepStatusWaitingApproval
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if firstStepID == "" {
+		t.Fatal("no running step found after StartPlan")
+	}
+
+	// Second step should still be pending — advance is blocked
+	store.mu.Lock()
+	secondStepPending := false
+	for _, s := range store.steps {
+		if s.PlanID == p.ID && s.ID != firstStepID && s.Status == plan.StepStatusPending {
+			secondStepPending = true
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if !secondStepPending {
+		t.Error("second step should still be pending while first is waiting_approval")
+	}
+
+	// Now approve the step — plan should advance and second step should start
+	err := orchSvc.ApproveStep(ctx, p.ID, firstStepID)
+	if err != nil {
+		t.Fatalf("approve step: %v", err)
+	}
+
+	store.mu.Lock()
+	firstStepCompleted := false
+	secondStepStarted := false
+	for _, s := range store.steps {
+		if s.PlanID == p.ID {
+			if s.ID == firstStepID && s.Status == plan.StepStatusCompleted {
+				firstStepCompleted = true
+			}
+			if s.ID != firstStepID && s.Status == plan.StepStatusRunning {
+				secondStepStarted = true
+			}
+		}
+	}
+	store.mu.Unlock()
+
+	if !firstStepCompleted {
+		t.Error("first step should be completed after approve")
+	}
+	if !secondStepStarted {
+		t.Error("second step should be running after approve unblocked the plan")
+	}
+}
+
+func TestApproveStep_ResumesSequentialPlan(t *testing.T) {
+	store, orchSvc := newOrchTestSetup()
+	ctx := context.Background()
+
+	req := &plan.CreatePlanRequest{
+		Name:      "approve plan",
+		ProjectID: "proj-1",
+		Protocol:  plan.ProtocolSequential,
+		Steps: []plan.CreateStepRequest{
+			{TaskID: "t1", AgentID: "a1"},
+			{TaskID: "t2", AgentID: "a2"},
+		},
+	}
+
+	p, _ := orchSvc.CreatePlan(ctx, req)
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("start plan: %v", err)
+	}
+
+	// Set first step to waiting_approval
+	store.mu.Lock()
+	var firstStepID string
+	for i, s := range store.steps {
+		if s.PlanID == p.ID && s.Status == plan.StepStatusRunning {
+			firstStepID = store.steps[i].ID
+			store.steps[i].Status = plan.StepStatusWaitingApproval
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if firstStepID == "" {
+		t.Fatal("no running step found")
+	}
+
+	// Approve the step
+	err := orchSvc.ApproveStep(ctx, p.ID, firstStepID)
+	if err != nil {
+		t.Fatalf("approve step: %v", err)
+	}
+
+	// First step should be completed
+	store.mu.Lock()
+	var firstStepStatus plan.StepStatus
+	for _, s := range store.steps {
+		if s.ID == firstStepID {
+			firstStepStatus = s.Status
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if firstStepStatus != plan.StepStatusCompleted {
+		t.Errorf("expected first step completed, got %s", firstStepStatus)
+	}
+}
+
+func TestApproveStep_NotWaitingApproval_ReturnsError(t *testing.T) {
+	store, orchSvc := newOrchTestSetup()
+	ctx := context.Background()
+
+	req := &plan.CreatePlanRequest{
+		Name:      "approve error plan",
+		ProjectID: "proj-1",
+		Protocol:  plan.ProtocolSequential,
+		Steps:     []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}},
+	}
+
+	p, _ := orchSvc.CreatePlan(ctx, req)
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("start plan: %v", err)
+	}
+
+	// Find the running step ID
+	store.mu.Lock()
+	var runningStepID string
+	for _, s := range store.steps {
+		if s.PlanID == p.ID && s.Status == plan.StepStatusRunning {
+			runningStepID = s.ID
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	// Try to approve a step that is running (not waiting_approval)
+	err := orchSvc.ApproveStep(ctx, p.ID, runningStepID)
+	if err == nil {
+		t.Fatal("expected error when approving non-waiting_approval step")
+	}
+}
+
+func TestRejectStep_FailsPlan(t *testing.T) {
+	store, orchSvc := newOrchTestSetup()
+	ctx := context.Background()
+
+	req := &plan.CreatePlanRequest{
+		Name:      "reject plan",
+		ProjectID: "proj-1",
+		Protocol:  plan.ProtocolSequential,
+		Steps: []plan.CreateStepRequest{
+			{TaskID: "t1", AgentID: "a1"},
+			{TaskID: "t2", AgentID: "a2"},
+		},
+	}
+
+	p, _ := orchSvc.CreatePlan(ctx, req)
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("start plan: %v", err)
+	}
+
+	store.mu.Lock()
+	var firstStepID string
+	for i, s := range store.steps {
+		if s.PlanID == p.ID && s.Status == plan.StepStatusRunning {
+			firstStepID = store.steps[i].ID
+			store.steps[i].Status = plan.StepStatusWaitingApproval
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if firstStepID == "" {
+		t.Fatal("no running step found")
+	}
+
+	err := orchSvc.RejectStep(ctx, p.ID, firstStepID)
+	if err != nil {
+		t.Fatalf("reject step: %v", err)
+	}
+
+	// Plan should be failed
+	store.mu.Lock()
+	var planStatus plan.Status
+	for _, pl := range store.plans {
+		if pl.ID == p.ID {
+			planStatus = pl.Status
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if planStatus != plan.StatusFailed {
+		t.Errorf("expected plan failed after reject, got %s", planStatus)
+	}
+}
+
+func TestRejectStep_NotWaitingApproval_ReturnsError(t *testing.T) {
+	store, orchSvc := newOrchTestSetup()
+	ctx := context.Background()
+
+	req := &plan.CreatePlanRequest{
+		Name:      "reject error plan",
+		ProjectID: "proj-1",
+		Protocol:  plan.ProtocolSequential,
+		Steps:     []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}},
+	}
+
+	p, _ := orchSvc.CreatePlan(ctx, req)
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("start plan: %v", err)
+	}
+
+	store.mu.Lock()
+	var runningStepID string
+	for _, s := range store.steps {
+		if s.PlanID == p.ID && s.Status == plan.StepStatusRunning {
+			runningStepID = s.ID
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	err := orchSvc.RejectStep(ctx, p.ID, runningStepID)
+	if err == nil {
+		t.Fatal("expected error when rejecting non-waiting_approval step")
+	}
+}
+
+func TestCancelPlan_CancelsWaitingApprovalStep(t *testing.T) {
+	store, orchSvc := newOrchTestSetup()
+	ctx := context.Background()
+
+	req := &plan.CreatePlanRequest{
+		Name:      "cancel waiting plan",
+		ProjectID: "proj-1",
+		Protocol:  plan.ProtocolSequential,
+		Steps: []plan.CreateStepRequest{
+			{TaskID: "t1", AgentID: "a1"},
+			{TaskID: "t2", AgentID: "a2"},
+		},
+	}
+
+	p, _ := orchSvc.CreatePlan(ctx, req)
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("start plan: %v", err)
+	}
+
+	// Set first step to waiting_approval
+	store.mu.Lock()
+	var firstStepID string
+	for i, s := range store.steps {
+		if s.PlanID == p.ID && s.Status == plan.StepStatusRunning {
+			firstStepID = store.steps[i].ID
+			store.steps[i].Status = plan.StepStatusWaitingApproval
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if firstStepID == "" {
+		t.Fatal("no running step found")
+	}
+
+	err := orchSvc.CancelPlan(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("cancel plan: %v", err)
+	}
+
+	// The waiting_approval step should now be cancelled
+	store.mu.Lock()
+	var firstStepStatus plan.StepStatus
+	for _, s := range store.steps {
+		if s.ID == firstStepID {
+			firstStepStatus = s.Status
+			break
+		}
+	}
+	store.mu.Unlock()
+
+	if firstStepStatus != plan.StepStatusCancelled {
+		t.Errorf("expected waiting_approval step to be cancelled, got %s", firstStepStatus)
+	}
+}

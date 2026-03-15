@@ -187,6 +187,9 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 			}
 			_ = s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusCancelled, "", "plan cancelled")
 			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusCancelled)
+		case plan.StepStatusWaitingApproval:
+			_ = s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusCancelled, "", "plan cancelled")
+			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusCancelled)
 		}
 	}
 
@@ -198,6 +201,66 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 	s.broadcastPlanStatus(ctx, p)
 
 	slog.Info("plan cancelled", "plan_id", planID)
+	return nil
+}
+
+// ApproveStep transitions a step from waiting_approval to completed and resumes the plan.
+func (s *OrchestratorService) ApproveStep(ctx context.Context, planID, stepID string) error {
+	p, err := s.store.GetPlan(ctx, planID)
+	if err != nil {
+		return err
+	}
+
+	var step *plan.Step
+	for i := range p.Steps {
+		if p.Steps[i].ID == stepID {
+			step = &p.Steps[i]
+			break
+		}
+	}
+	if step == nil {
+		return fmt.Errorf("step %s not found in plan %s", stepID, planID)
+	}
+	if step.Status != plan.StepStatusWaitingApproval {
+		return fmt.Errorf("step %s is %s, not waiting_approval", stepID, step.Status)
+	}
+
+	if err := s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusCompleted, "", ""); err != nil {
+		return err
+	}
+
+	s.broadcastStepStatus(ctx, p, step, plan.StepStatusCompleted)
+	s.advancePlan(ctx, p)
+	return nil
+}
+
+// RejectStep transitions a step from waiting_approval to failed and fails the plan.
+func (s *OrchestratorService) RejectStep(ctx context.Context, planID, stepID string) error {
+	p, err := s.store.GetPlan(ctx, planID)
+	if err != nil {
+		return err
+	}
+
+	var step *plan.Step
+	for i := range p.Steps {
+		if p.Steps[i].ID == stepID {
+			step = &p.Steps[i]
+			break
+		}
+	}
+	if step == nil {
+		return fmt.Errorf("step %s not found in plan %s", stepID, planID)
+	}
+	if step.Status != plan.StepStatusWaitingApproval {
+		return fmt.Errorf("step %s is %s, not waiting_approval", stepID, step.Status)
+	}
+
+	if err := s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", "rejected by user"); err != nil {
+		return err
+	}
+
+	s.broadcastStepStatus(ctx, p, step, plan.StepStatusFailed)
+	s.advancePlan(ctx, p)
 	return nil
 }
 
@@ -296,6 +359,13 @@ func (s *OrchestratorService) advanceSequential(ctx context.Context, p *plan.Exe
 		return // wait for current step
 	}
 
+	// If any step is waiting for approval, do not advance
+	for i := range p.Steps {
+		if p.Steps[i].Status == plan.StepStatusWaitingApproval {
+			return // blocked, waiting for user decision
+		}
+	}
+
 	ready := plan.ReadySteps(p.Steps)
 	if len(ready) > 0 {
 		s.startStep(ctx, p, ready[0])
@@ -311,6 +381,13 @@ func (s *OrchestratorService) advanceParallel(ctx context.Context, p *plan.Execu
 			s.completePlan(ctx, p)
 		}
 		return
+	}
+
+	// If any step is waiting for approval, do not start new steps
+	for i := range p.Steps {
+		if p.Steps[i].Status == plan.StepStatusWaitingApproval {
+			return
+		}
 	}
 
 	running := plan.RunningCount(p.Steps)
