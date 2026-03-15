@@ -1,6 +1,6 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-03-10
+> Last update: 2026-03-15
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
 
@@ -201,7 +201,7 @@ UX improvements to project detail page workflow. Tab reorder to match natural pr
 
 ### Chat Enhancements (COMPLETED)
 
-10 features transforming the chat into a full-featured development workspace. HITL permission UI with approve/deny cards and countdown timer, `supervised-ask-all` policy preset, autonomy-to-preset auto-mapping. Inline diff review (DiffPreview component). Action buttons (copy, retry, apply, view diff). Per-message cost tracking (MessageBadge + CostBreakdown). Smart references with @/#// autocomplete popover and frequency tracker. Slash commands (/compact, /rewind, /clear, /help, /mode, /model) with rewind timeline picker. Conversation full-text search (PostgreSQL GIN index, ts_rank, SearchPage tabs). Notification center (browser push, Web Audio sounds, tab badge, AG-UI event wiring, notificationStore). Real-time channels with threads (3 tables, 9 endpoints, WebSocket events, sidebar ChannelList, ChannelView, ThreadPanel). Feature spec: `docs/features/05-chat-enhancements.md`.
+10 features transforming the chat into a full-featured development workspace. HITL permission UI with approve/deny cards and countdown timer, `supervised-ask-all` policy preset, autonomy-to-preset auto-mapping, "Allow Always" button with persistent policy rule creation (`POST /policies/allow-always` clones preset to custom profile, prepends allow rule, idempotent). Inline diff review (DiffPreview component). Action buttons (copy, retry, apply, view diff). Per-message cost tracking (MessageBadge + CostBreakdown). Smart references with @/#// autocomplete popover and frequency tracker. Slash commands (/compact, /rewind, /clear, /help, /mode, /model) with rewind timeline picker. Conversation full-text search (PostgreSQL GIN index, ts_rank, SearchPage tabs). Notification center (browser push, Web Audio sounds, tab badge, AG-UI event wiring, notificationStore). Real-time channels with threads (3 tables, 9 endpoints, WebSocket events, sidebar ChannelList, ChannelView, ThreadPanel). Feature spec: `docs/features/05-chat-enhancements.md`.
 
 ### Subscription Provider Integration (COMPLETED)
 
@@ -230,6 +230,10 @@ Real-time structured event feed for running benchmark runs. Go `TrajectoryEventP
 **Bug 5 (Low) — LLM Judge Context Overflow:** Added `compress_for_context()` head+tail truncation utility (`workers/codeforge/evaluation/evaluators/prompt_compressor.py`). LLM Judge and Trajectory Verifier compress inputs to conservative budgets (4K/2K chars). Error fallback distinguishes `context_overflow` from `evaluation_failed`. 18 tests.
 
 18 files changed, 2478 insertions, 109 deletions. Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`. Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`.
+
+### Allow Always Policy Persistence (COMPLETED)
+
+"Allow Always" button in HITL PermissionRequestCard now persists permanent policy rules. `POST /api/v1/policies/allow-always` endpoint: resolves project's effective profile, clones immutable presets to `{preset}-custom-{projectId}`, constructs `PermissionRule` from tool name + command glob pattern (e.g., `Bash/git*`), prepends to profile (first-match-wins), updates project association. Idempotent via `HasRuleForSpecifier` duplicate detection. Future identical tool calls auto-approve without HITL prompt. 12 files changed, 26 new tests across Go domain/service/HTTP layers + frontend wiring.
 
 ### E2E Test Expansion & Verification Tooling (COMPLETED)
 

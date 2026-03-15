@@ -17,10 +17,11 @@
 
 - `supervised-ask-all` policy preset (blocks all tool calls, requires explicit approval)
 - Auto-mapping of autonomy levels 1-5 to policy presets via `AutonomyToPreset()`
-- `PermissionRequestCard` component with approve/deny buttons, countdown bar, tool name display
+- `PermissionRequestCard` component with approve/deny/allow-always buttons, countdown bar, tool name display
 - WebSocket `permission_request` / `permission_response` events
+- **"Allow Always" persistence:** Clicking "Allow Always" approves the current call AND persists a permanent `allow` rule via `POST /api/v1/policies/allow-always`. Immutable presets are cloned to `{preset}-custom-{projectId}` on first use. Rule specifier: tool name + first word of command as glob pattern (e.g., `Bash/git*`). Idempotent — duplicate rules detected via `HasRuleForSpecifier()`. Future identical tool calls auto-approve without HITL prompt.
 
-**Files:** `internal/domain/policy/presets.go`, `frontend/src/features/project/PermissionRequestCard.tsx`
+**Files:** `internal/domain/policy/presets.go`, `internal/domain/policy/policy.go`, `internal/service/policy.go`, `internal/service/project.go`, `internal/adapter/http/handlers.go`, `frontend/src/features/project/PermissionRequestCard.tsx`, `frontend/src/features/project/ChatPanel.tsx`
 
 ### 2. Inline Diff Review (Phase 2)
 
@@ -137,6 +138,7 @@
 
 | Method | Path | Description |
 |--------|------|-------------|
+| POST | `/api/v1/policies/allow-always` | Persist "Allow Always" rule for a tool on a project |
 | POST | `/api/v1/search/conversations` | Full-text search across conversation messages |
 | POST | `/api/v1/conversations/{id}/compact` | Compact conversation context |
 | POST | `/api/v1/conversations/{id}/rewind` | Rewind conversation to checkpoint |

@@ -211,7 +211,7 @@
 - [x] (2026-03-15) **Monaco Theme Sync:** Editor now reactively follows dark/light theme toggle via `createEffect` + `monaco.editor.setTheme()`. File: `CodeEditor.tsx`.
 - [x] (2026-03-15) **File Panel Icon Alignment:** Expand/Collapse-all SVG polyline points centered in 16x16 viewBox. File: `FilePanel.tsx`.
 - [x] (2026-03-15) **i18n: ~40 hardcoded strings replaced** across `FilePanel.tsx`, `FileContextMenu.tsx`, `GoalProposalCard.tsx`, `KnowledgeBasesPage.tsx`. 28 new keys in `en.ts` + `de.ts` (`files.*`, `common.approve`, `common.reject`, `detail.tab.files`).
-- Remaining: `TODO` in `PermissionRequestCard.tsx:50` — "Allow Always" does not persist policy rule to backend (requires new API endpoint).
+- [x] (2026-03-15) **"Allow Always" Policy Persistence:** `PermissionRequestCard.tsx` TODO resolved. Clicking "Allow Always" now approves the current tool call AND persists a permanent `allow` rule to the project's policy profile via `POST /api/v1/policies/allow-always`. Preset profiles are cloned to `{preset}-custom-{projectId}` on first use. Rule construction: tool name + first word of command as glob pattern (e.g., `Bash/git*`). Idempotent (duplicate rules detected via `HasRuleForSpecifier`). 26 new tests across domain, service, and HTTP layers. Files: `internal/domain/policy/policy.go`, `internal/service/policy.go`, `internal/service/project.go`, `internal/adapter/http/handlers.go`, `internal/adapter/http/routes.go`, `frontend/src/api/client.ts`, `frontend/src/features/project/PermissionRequestCard.tsx`, `frontend/src/features/project/ChatPanel.tsx`.
 
 #### Benchmark Live Feed (COMPLETED)
 - [x] (2026-03-10) Go: `TrajectoryEventPayload` in `events.go` — enriched WS broadcast with cost, tokens, input, output, step fields

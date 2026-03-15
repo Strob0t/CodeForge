@@ -107,7 +107,7 @@ Detailed analysis: docs/research/market-analysis.md
   - **Auto-Indexing:** Clone, Adopt, and Setup handlers auto-trigger RepoMap + Retrieval Index + GraphRAG build (`autoIndexProject()` in `internal/adapter/http/handlers.go`)
   - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
 - **Chat Enhancements:** — **implemented**
-  - HITL Permission UI: `PermissionRequestCard` with approve/deny, countdown, `supervised-ask-all` preset, autonomy-to-preset mapping
+  - HITL Permission UI: `PermissionRequestCard` with approve/deny/allow-always, countdown, `supervised-ask-all` preset, autonomy-to-preset mapping, "Allow Always" persists policy rule via `POST /policies/allow-always` (preset cloning, rule prepend, idempotent)
   - Inline Diff Review: `DiffPreview` component for write/edit tool calls
   - Action Buttons: copy, retry, apply, view diff on agent messages
   - Per-Message Cost: `MessageBadge` + `CostBreakdown` from AG-UI `state_delta`
