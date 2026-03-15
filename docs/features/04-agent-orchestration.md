@@ -845,5 +845,49 @@ Goals are injected into agent interactions through two complementary paths:
 | `internal/adapter/postgres/migrations/056_project_goals.sql` | DB migration |
 | `internal/adapter/http/handlers_goals.go` | REST API handlers |
 | `internal/service/context_optimizer.go` | Goal → ContextPack integration |
-| `workers/codeforge/tools/propose_goal.py` | AG-UI event tool — proposes goals via trajectory events instead of HTTP callbacks |
-| `internal/service/conversation_agent.go` | Goal → system prompt injection |
+| `workers/codeforge/tools/propose_goal.py` | AG-UI event tool -- proposes goals via trajectory events instead of HTTP callbacks |
+| `internal/service/conversation_agent.go` | Goal -> system prompt injection |
+
+## Contract-First Review/Refactor Pipeline (Phase 31)
+
+Automated code review and refactoring cycle for orchestrated projects.
+
+### Pipeline: `review-refactor`
+
+4-step sequential pipeline:
+1. **Boundary Analysis** (`boundary-analyzer` mode) -- LLM identifies API, data, inter-service, and cross-language boundary files
+2. **Contract Review** (`contract-reviewer` mode) -- Cross-layer contract consistency checking
+3. **Intra-Layer Review** (`reviewer` mode) -- Standard code quality review within layers
+4. **Refactoring Proposals** (`refactorer` mode) -- Concrete refactoring suggestions with diffs
+
+### Cascade Trigger System
+
+`ReviewTriggerService` with 3 trigger sources:
+- **Pipeline-Completion** -- Auto-triggered after pipeline finishes (configurable)
+- **Branch-Merge** -- Webhook or polling for merges to configured branches
+- **Manual** -- `POST /api/v1/projects/{id}/review-refactor` or `/review` chat command
+
+Deduplication: Same commit SHA within 30min window -> skip (manual bypasses dedup).
+
+### Threshold-based HITL
+
+`DiffImpactScorer` evaluates refactoring diffs:
+- **Low** (< auto_apply_threshold): Auto-apply
+- **Medium** (>= auto_apply, < approval_threshold): Auto-apply + notification
+- **High** (>= approval_threshold, cross-layer, or structural): HITL pause
+
+`waiting_approval` step status pauses the pipeline. WebSocket event `refactor.approval_required` triggers frontend overlay. User can Approve/Reject via `POST /api/v1/runs/{id}/approve|reject`.
+
+### Boundary Management
+
+- `GET/PUT /api/v1/projects/{id}/boundaries` -- CRUD for boundary configuration
+- `POST /api/v1/projects/{id}/boundaries/analyze` -- Re-trigger boundary analysis
+- Auto-triggered during project indexing (clone/adopt/setup)
+
+### Phase-aware Context Budget
+
+Each pipeline step gets a scaled context budget:
+- boundary-analyzer: 100% (needs full project overview)
+- contract-reviewer: 60% (focused on boundary files)
+- reviewer: 50% (focused on changed layer)
+- refactorer: 70% (needs review context + code)
