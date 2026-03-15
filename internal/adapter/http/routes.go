@@ -149,6 +149,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Policy profiles
 		r.Get("/policies", h.ListPolicyProfiles)
 		r.Post("/policies", h.CreatePolicyProfile)
+		r.Post("/policies/allow-always", h.AllowAlwaysPolicy)
 		r.Get("/policies/{name}", h.GetPolicyProfile)
 		r.Delete("/policies/{name}", h.DeletePolicyProfile)
 		r.Post("/policies/{name}/evaluate", h.EvaluatePolicy)

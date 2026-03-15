@@ -3,6 +3,7 @@ import { createSignal, onCleanup, Show } from "solid-js";
 import { api } from "../../api/client";
 
 interface PermissionRequestCardProps {
+  projectId: string;
   runId: string;
   callId: string;
   tool: string;
@@ -47,7 +48,11 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
 
   async function handleAllowAlways() {
     await handleDecision("allow");
-    // TODO: persist policy rule for this tool via separate API call
+    try {
+      await api.policies.allowAlways(props.projectId, props.tool, props.command);
+    } catch {
+      // Best-effort: current call already approved, persistence failure is non-blocking
+    }
   }
 
   const progressPercent = () => (remaining() / timeout()) * 100;

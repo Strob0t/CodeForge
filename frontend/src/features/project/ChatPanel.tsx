@@ -798,6 +798,7 @@ export default function ChatPanel(props: ChatPanelProps) {
               <div class="flex justify-start">
                 <div class="max-w-[90%] sm:max-w-[75%] w-full">
                   <PermissionRequestCard
+                    projectId={props.projectId}
                     runId={pr.run_id}
                     callId={pr.call_id}
                     tool={pr.tool}

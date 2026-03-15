@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -853,6 +854,100 @@ func (h *Handlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// AllowAlwaysPolicy handles POST /api/v1/policies/allow-always.
+// It adds a persistent "allow" rule for a specific tool to a project's policy profile.
+// If the project uses a built-in preset, a custom clone is created first.
+func (h *Handlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectID string `json:"project_id"`
+		Tool      string `json:"tool"`
+		Command   string `json:"command,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.ProjectID == "" {
+		writeError(w, http.StatusBadRequest, "project_id is required")
+		return
+	}
+	if req.Tool == "" {
+		writeError(w, http.StatusBadRequest, "tool is required")
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get the project to resolve its policy profile.
+	proj, err := h.Projects.Get(ctx, req.ProjectID)
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+
+	// Resolve effective profile (project-level or service default).
+	effectiveProfile := h.Policies.ResolveProfile("", proj.PolicyProfile)
+
+	// If the resolved profile is a built-in preset, clone it to a custom profile.
+	if policy.IsPreset(effectiveProfile) {
+		source, _ := h.Policies.GetProfile(effectiveProfile)
+		cloneName := effectiveProfile + "-custom-" + req.ProjectID
+		clone := source
+		clone.Name = cloneName
+		clone.Description = fmt.Sprintf("Custom clone of %s for project %s", effectiveProfile, req.ProjectID)
+
+		// Check if clone already exists (from a previous "Allow Always" call).
+		if _, exists := h.Policies.GetProfile(cloneName); !exists {
+			if err := h.Policies.SaveProfile(&clone); err != nil {
+				writeInternalError(w, err)
+				return
+			}
+		}
+
+		// Update the project to use the custom clone.
+		if err := h.Projects.SetPolicyProfile(ctx, req.ProjectID, cloneName); err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		effectiveProfile = cloneName
+	}
+
+	// Construct the permission rule.
+	spec := policy.ToolSpecifier{Tool: req.Tool}
+	if req.Command != "" {
+		// Use first word as command prefix pattern (e.g., "git" from "git status").
+		parts := strings.SplitN(req.Command, " ", 2)
+		spec.SubPattern = parts[0] + "*"
+	}
+	rule := policy.PermissionRule{
+		Specifier: spec,
+		Decision:  policy.DecisionAllow,
+	}
+
+	// Prepend the rule (idempotent — no-op if same specifier already exists).
+	if err := h.Policies.PrependRule(effectiveProfile, &rule); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+
+	// Persist to disk if PolicyDir is configured.
+	if h.PolicyDir != "" {
+		updated, ok := h.Policies.GetProfile(effectiveProfile)
+		if ok {
+			path := filepath.Join(h.PolicyDir, effectiveProfile+".yaml")
+			if err := os.MkdirAll(h.PolicyDir, 0o750); err != nil {
+				slog.Error("failed to create policy directory", "error", err)
+			} else if err := policy.SaveToFile(path, &updated); err != nil {
+				slog.Error("failed to persist policy profile", "name", effectiveProfile, "error", err)
+			}
+		}
+	}
+
+	// Return the updated profile.
+	updated, _ := h.Policies.GetProfile(effectiveProfile)
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // --- Run Endpoints ---

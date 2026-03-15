@@ -598,6 +598,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(call),
       }),
+
+    allowAlways: (projectId: string, tool: string, command?: string) =>
+      request<PolicyProfile>("/policies/allow-always", {
+        method: "POST",
+        body: JSON.stringify({ project_id: projectId, tool, command }),
+      }),
   },
 
   costs: {

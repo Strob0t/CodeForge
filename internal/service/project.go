@@ -118,6 +118,16 @@ func (s *ProjectService) Update(ctx context.Context, id string, req project.Upda
 	return p, nil
 }
 
+// SetPolicyProfile assigns a policy profile name to a project.
+func (s *ProjectService) SetPolicyProfile(ctx context.Context, projectID, profileName string) error {
+	p, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	p.PolicyProfile = profileName
+	return s.store.UpdateProject(ctx, p)
+}
+
 // Delete removes a project and cleans up its workspace directory.
 func (s *ProjectService) Delete(ctx context.Context, id string) error {
 	p, err := s.store.GetProject(ctx, id)

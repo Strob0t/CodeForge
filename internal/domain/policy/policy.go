@@ -79,3 +79,14 @@ type ToolCall struct {
 	Command string `json:"command,omitempty"`
 	Path    string `json:"path,omitempty"`
 }
+
+// HasRuleForSpecifier returns true if the profile already contains a rule
+// with the given specifier (same Tool and SubPattern).
+func (p *PolicyProfile) HasRuleForSpecifier(spec ToolSpecifier) bool {
+	for i := range p.Rules {
+		if p.Rules[i].Specifier == spec {
+			return true
+		}
+	}
+	return false
+}

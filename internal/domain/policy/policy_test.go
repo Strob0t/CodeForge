@@ -495,3 +495,68 @@ func TestEvaluateNoTrustAnnotationBackwardsCompatible(t *testing.T) {
 		t.Errorf("expected rule index 0, got %d", result.RuleIndex)
 	}
 }
+
+// --- HasRuleForSpecifier tests ---
+
+func TestHasRuleForSpecifier(t *testing.T) {
+	bashSpec := ToolSpecifier{Tool: "Bash"}
+	readSpec := ToolSpecifier{Tool: "Read"}
+	bashGitSpec := ToolSpecifier{Tool: "Bash", SubPattern: "git*"}
+
+	profileWithRules := PolicyProfile{
+		Name: "test",
+		Mode: ModeDefault,
+		Rules: []PermissionRule{
+			{Specifier: bashSpec, Decision: DecisionDeny},
+			{Specifier: bashGitSpec, Decision: DecisionAllow},
+		},
+	}
+	emptyProfile := PolicyProfile{Name: "empty", Mode: ModeDefault}
+
+	tests := []struct {
+		name    string
+		profile PolicyProfile
+		spec    ToolSpecifier
+		want    bool
+	}{
+		{
+			name:    "found exact tool specifier",
+			profile: profileWithRules,
+			spec:    bashSpec,
+			want:    true,
+		},
+		{
+			name:    "found specifier with sub-pattern",
+			profile: profileWithRules,
+			spec:    bashGitSpec,
+			want:    true,
+		},
+		{
+			name:    "not found - different tool",
+			profile: profileWithRules,
+			spec:    readSpec,
+			want:    false,
+		},
+		{
+			name:    "not found - same tool different sub-pattern",
+			profile: profileWithRules,
+			spec:    ToolSpecifier{Tool: "Bash", SubPattern: "npm*"},
+			want:    false,
+		},
+		{
+			name:    "not found - empty profile rules",
+			profile: emptyProfile,
+			spec:    bashSpec,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.profile.HasRuleForSpecifier(tt.spec)
+			if got != tt.want {
+				t.Errorf("HasRuleForSpecifier(%v) = %v, want %v", tt.spec, got, tt.want)
+			}
+		})
+	}
+}

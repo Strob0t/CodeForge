@@ -490,3 +490,141 @@ func TestDeleteProfileNotFound(t *testing.T) {
 		t.Fatal("expected error for unknown profile")
 	}
 }
+
+// --- PrependRule tests ---
+
+func TestPrependRule_Basic(t *testing.T) {
+	custom := policy.PolicyProfile{
+		Name: "my-profile",
+		Mode: policy.ModeDefault,
+		Rules: []policy.PermissionRule{
+			{Specifier: policy.ToolSpecifier{Tool: "Read"}, Decision: policy.DecisionAllow},
+		},
+	}
+	svc := NewPolicyService("headless-safe-sandbox", []policy.PolicyProfile{custom})
+
+	rule := policy.PermissionRule{
+		Specifier: policy.ToolSpecifier{Tool: "Write"},
+		Decision:  policy.DecisionDeny,
+	}
+	if err := svc.PrependRule("my-profile", &rule); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	p, ok := svc.GetProfile("my-profile")
+	if !ok {
+		t.Fatal("profile not found")
+	}
+	if len(p.Rules) != 2 {
+		t.Fatalf("expected 2 rules, got %d", len(p.Rules))
+	}
+	if p.Rules[0].Specifier.Tool != "Write" {
+		t.Errorf("expected prepended rule at index 0 to be Write, got %q", p.Rules[0].Specifier.Tool)
+	}
+	if p.Rules[1].Specifier.Tool != "Read" {
+		t.Errorf("expected original rule at index 1 to be Read, got %q", p.Rules[1].Specifier.Tool)
+	}
+}
+
+func TestPrependRule_Idempotent(t *testing.T) {
+	custom := policy.PolicyProfile{
+		Name:  "my-profile",
+		Mode:  policy.ModeDefault,
+		Rules: []policy.PermissionRule{},
+	}
+	svc := NewPolicyService("headless-safe-sandbox", []policy.PolicyProfile{custom})
+
+	rule := policy.PermissionRule{
+		Specifier: policy.ToolSpecifier{Tool: "Bash"},
+		Decision:  policy.DecisionAllow,
+	}
+
+	// Prepend twice with identical specifier.
+	if err := svc.PrependRule("my-profile", &rule); err != nil {
+		t.Fatalf("first prepend: unexpected error: %v", err)
+	}
+	if err := svc.PrependRule("my-profile", &rule); err != nil {
+		t.Fatalf("second prepend: unexpected error: %v", err)
+	}
+
+	p, _ := svc.GetProfile("my-profile")
+	if len(p.Rules) != 1 {
+		t.Errorf("expected exactly 1 rule after idempotent prepend, got %d", len(p.Rules))
+	}
+}
+
+func TestPrependRule_UnknownProfile(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+
+	err := svc.PrependRule("does-not-exist", &policy.PermissionRule{
+		Specifier: policy.ToolSpecifier{Tool: "Read"},
+		Decision:  policy.DecisionAllow,
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown profile, got nil")
+	}
+}
+
+func TestPrependRule_BuiltinPreset(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+
+	err := svc.PrependRule("plan-readonly", &policy.PermissionRule{
+		Specifier: policy.ToolSpecifier{Tool: "Bash"},
+		Decision:  policy.DecisionAllow,
+	})
+	if err == nil {
+		t.Fatal("expected error when modifying built-in preset, got nil")
+	}
+}
+
+func TestPrependRule_InvalidRule(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	_ = svc.SaveProfile(&policy.PolicyProfile{Name: "test-validate", Mode: policy.ModeDefault})
+
+	// Rule with empty Tool should fail validation.
+	err := svc.PrependRule("test-validate", &policy.PermissionRule{Decision: policy.DecisionAllow})
+	if err == nil {
+		t.Fatal("expected validation error for rule with empty Tool")
+	}
+}
+
+func TestPrependRule_EvaluationAfterPrepend(t *testing.T) {
+	// Profile uses ModePlan (deny-by-default) with only Read allowed.
+	// Bash has no explicit rule, so it falls through to mode deny.
+	// After prepending an allow rule for Bash, Bash should be allowed.
+	custom := policy.PolicyProfile{
+		Name: "my-profile",
+		Mode: policy.ModePlan,
+		Rules: []policy.PermissionRule{
+			{Specifier: policy.ToolSpecifier{Tool: "Read"}, Decision: policy.DecisionAllow},
+		},
+	}
+	svc := NewPolicyService("headless-safe-sandbox", []policy.PolicyProfile{custom})
+
+	// Before prepend: Bash falls through to ModePlan default (deny).
+	d, err := svc.Evaluate(context.Background(), "my-profile", policy.ToolCall{Tool: "Bash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d != policy.DecisionDeny {
+		t.Errorf("before prepend: expected deny for Bash, got %q", d)
+	}
+
+	// Prepend an allow rule for Bash (no sub-pattern = matches all Bash calls).
+	allowBash := policy.PermissionRule{
+		Specifier: policy.ToolSpecifier{Tool: "Bash"},
+		Decision:  policy.DecisionAllow,
+	}
+	if err := svc.PrependRule("my-profile", &allowBash); err != nil {
+		t.Fatalf("PrependRule: %v", err)
+	}
+
+	// After prepend: Bash should now be allowed (first-match-wins).
+	d, err = svc.Evaluate(context.Background(), "my-profile", policy.ToolCall{Tool: "Bash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d != policy.DecisionAllow {
+		t.Errorf("after prepend: expected allow for Bash, got %q", d)
+	}
+}

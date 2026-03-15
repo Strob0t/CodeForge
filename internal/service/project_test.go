@@ -1432,6 +1432,34 @@ func TestProjectServiceInitWorkspaceUpdateFails(t *testing.T) {
 	}
 }
 
+func TestSetPolicyProfile_Success(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Test"}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	err := svc.SetPolicyProfile(context.Background(), "p1", "my-custom-policy")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Verify the project's PolicyProfile was updated in the store
+	if store.projects[0].PolicyProfile != "my-custom-policy" {
+		t.Errorf("expected PolicyProfile %q, got %q", "my-custom-policy", store.projects[0].PolicyProfile)
+	}
+}
+
+func TestSetPolicyProfile_ProjectNotFound(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	err := svc.SetPolicyProfile(context.Background(), "nonexistent", "my-custom-policy")
+	if err == nil {
+		t.Fatal("expected error for nonexistent project")
+	}
+}
+
 func TestIsAllowedGiteaHost(t *testing.T) {
 	tests := []struct {
 		name    string

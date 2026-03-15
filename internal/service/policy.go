@@ -114,6 +114,28 @@ func (s *PolicyService) DefaultProfile() string {
 	return s.defaultProfile
 }
 
+// PrependRule adds a PermissionRule to the front of a named profile's rule list.
+// Returns an error if the profile is unknown or a built-in preset.
+// If a rule with the same specifier already exists, it is a no-op (idempotent).
+func (s *PolicyService) PrependRule(profileName string, rule *policy.PermissionRule) error {
+	if policy.IsPreset(profileName) {
+		return fmt.Errorf("cannot modify built-in preset %q", profileName)
+	}
+	if err := rule.Validate(); err != nil {
+		return err
+	}
+	p, ok := s.profiles[profileName]
+	if !ok {
+		return fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, profileName)
+	}
+	if p.HasRuleForSpecifier(rule.Specifier) {
+		return nil // idempotent
+	}
+	p.Rules = append([]policy.PermissionRule{*rule}, p.Rules...)
+	s.profiles[profileName] = p
+	return nil
+}
+
 // evaluateWithReason performs first-match rule evaluation against a profile,
 // recording which rule matched and why.
 func evaluateWithReason(profile *policy.PolicyProfile, profileName string, call policy.ToolCall) *policy.EvaluationResult {
