@@ -211,6 +211,22 @@ OAuth device flow integration for subscription-based LLM providers (Claude Code 
 
 Real-time structured event feed for running benchmark runs. Go `TrajectoryEventPayload` enriched with cost, tokens, input, output, step fields. Frontend `BenchmarkLiveFeed.tsx` with `@tanstack/solid-virtual` virtualized auto-scrolling, feature accordions (when 2+ features), progress header with bar/cost/elapsed timer, event row rendering by type (tool_called, step_done, finished). Integrated into `BenchmarkPage.tsx` for selected running runs. TypeScript `LiveFeedEvent` + `BenchmarkLiveProgress` types.
 
+### Benchmark Validation E2E Bug Fixes (COMPLETED)
+
+5 backend bugs discovered by the 22-test benchmark validation E2E suite (`frontend/e2e/benchmark-validation/`) and fixed. Full pipeline: Go Core -> NATS JetStream -> Python Worker -> LiteLLM -> LM Studio -> Evaluators -> DB -> API.
+
+**Bug 1 (Medium) — Score Key Mismatch:** Evaluator dimension names (`correctness`, `sparc_*`) didn't match requested metric names (`llm_judge`, `sparc`). Fixed with `_aggregate_metric_scores()` + `_DIMENSION_TO_METRIC` mapping (17 entries) in `workers/codeforge/consumer/_benchmark.py`. 16 tests.
+
+**Bug 2 (High) — Stuck "running" Runs:** Two-tier fix. (2A) `StartRun()` validates dataset path and fails fast when no suite fallback exists. Added `ErrorMessage` field to `Run` struct with migration `072`. (2B) Watchdog goroutine in `internal/service/benchmark.go` scans every 5 min for runs stuck >15 min. 5 tests.
+
+**Bug 3 (Medium) — Invalid Model Silently Succeeds:** LiteLLM fell back to default model. Added `_validate_model_exists()` checking LiteLLM `/v1/models` before execution. 6 tests.
+
+**Bug 4 (Low) — `model=auto` Without Routing:** `_resolve_effective_llm()` now raises `ValueError` instead of passing `"auto"` literally to LiteLLM. 2 tests.
+
+**Bug 5 (Low) — LLM Judge Context Overflow:** Added `compress_for_context()` head+tail truncation utility (`workers/codeforge/evaluation/evaluators/prompt_compressor.py`). LLM Judge and Trajectory Verifier compress inputs to conservative budgets (4K/2K chars). Error fallback distinguishes `context_overflow` from `evaluation_failed`. 18 tests.
+
+18 files changed, 2478 insertions, 109 deletions. Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`. Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`.
+
 ### E2E Test Expansion & Verification Tooling (COMPLETED)
 
 Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests verifying full billing error -> classify -> mark exhausted -> model switch chain). File CRUD Playwright E2E (`frontend/e2e/file-crud.spec.ts`, 4 tests). Feature description Playwright E2E (`frontend/e2e/feature-description.spec.ts`, 4 tests). Verification trend tracking in `scripts/verify-features.sh` (`--trend` flag, JSON history with git SHA/branch/timestamp in `data/verification-history/`). Agent-eval benchmark run with `mistral/mistral-large-latest` (0/300 -- model could not produce code, infrastructure verified working).

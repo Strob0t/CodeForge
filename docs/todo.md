@@ -191,6 +191,16 @@
 #### Benchmark Cross-Layer Bug Fixes (COMPLETED)
 - [x] 7 bugs fixed: DB migration for rollout fields, cost population, NATS wiring, CSV export
 
+#### Benchmark Validation E2E Bug Fixes (COMPLETED)
+- [x] (2026-03-15) **Bug 1 — Score Key Mismatch (Medium):** Evaluator dimension names (`correctness`, `sparc_*`, `trajectory_*`) didn't match metric request names (`llm_judge`, `sparc`, `trajectory_verifier`). Added `_aggregate_metric_scores()` with `_DIMENSION_TO_METRIC` mapping (17 entries) in `workers/codeforge/consumer/_benchmark.py`. 16 tests in `workers/tests/test_score_key_normalization.py`.
+- [x] (2026-03-15) **Bug 2 — Stuck "running" Runs (High):** Runs with invalid params stayed `"running"` forever. Fix 2A: `StartRun()` returns error when dataset resolution fails and no suite fallback. Fix 2B: Watchdog goroutine scans every 5 min for runs stuck >15 min. Added `ErrorMessage` field to `Run` struct + DB migration `072`. Files: `internal/service/benchmark.go`, `internal/domain/benchmark/benchmark.go`, `internal/adapter/postgres/store_benchmark.go`, `cmd/codeforge/main.go`. 5 tests in `internal/service/benchmark_test.go`.
+- [x] (2026-03-15) **Bug 3 — Invalid Model Silently Succeeds (Medium):** LiteLLM fell back to default model. Added `_validate_model_exists()` checking `/v1/models` endpoint in `workers/codeforge/consumer/_benchmark.py`. 6 tests in `workers/tests/test_model_validation.py`.
+- [x] (2026-03-15) **Bug 4 — `model=auto` Without Routing (Low):** `_resolve_effective_llm()` silently passed `"auto"` to LiteLLM. Now raises `ValueError` when router unavailable. 2 tests in `workers/tests/test_model_validation.py`.
+- [x] (2026-03-15) **Bug 5 — LLM Judge Context Overflow (Low):** Evaluators exceeded local model context limits. Added `compress_for_context()` head+tail truncation in `workers/codeforge/evaluation/evaluators/prompt_compressor.py`. Enhanced error fallback distinguishes `context_overflow` from `evaluation_failed`. 18 tests in `workers/tests/test_prompt_compressor.py`.
+- [x] (2026-03-15) Updated E2E test assertions in `block-3-agent.spec.ts`, `block-4-routing.spec.ts`, `block-5-errors.spec.ts` to verify all fixes
+- Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
+- Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`
+
 #### Benchmark Live Feed (COMPLETED)
 - [x] (2026-03-10) Go: `TrajectoryEventPayload` in `events.go` — enriched WS broadcast with cost, tokens, input, output, step fields
 - [x] (2026-03-10) Go: Runtime trajectory subscription handler broadcasts enriched payload
@@ -210,7 +220,9 @@
 - [x] Browser E2E: 17 Playwright tests (health, navigation, projects, costs, models, a11y)
 - [x] LLM E2E: 95 API-level tests across 12 spec files
 - [x] Benchmark E2E: 132 browser Playwright tests across 12 spec files
+- [x] Benchmark Validation E2E: 22 API-level tests across 6 blocks (`frontend/e2e/benchmark-validation/`)
 - [x] Backend E2E: 88 pass / 0 fail / 3 skip (97% pass rate)
+- [x] Python unit tests: 107 pass (includes 40 new tests from benchmark validation bug fixes)
 
 #### Chat Enhancements (COMPLETED)
 - [x] (2026-03-10) Phase 1: HITL permission UI + `supervised-ask-all` preset + autonomy-to-preset mapping
