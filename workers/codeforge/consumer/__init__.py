@@ -32,6 +32,7 @@ from codeforge.consumer._memory import MemoryHandlerMixin
 from codeforge.consumer._quality_gate import QualityGateHandlerMixin
 from codeforge.consumer._repomap import RepoMapHandlerMixin
 from codeforge.consumer._retrieval import RetrievalHandlerMixin
+from codeforge.consumer._review import ReviewHandlerMixin
 from codeforge.consumer._runs import RunHandlerMixin
 from codeforge.consumer._subjects import (
     STREAM_NAME,
@@ -53,6 +54,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_REPOMAP_REQUEST,
     SUBJECT_RETRIEVAL_INDEX_REQUEST,
     SUBJECT_RETRIEVAL_SEARCH_REQUEST,
+    SUBJECT_REVIEW_TRIGGER_REQUEST,
     SUBJECT_RUN_START,
     SUBJECT_SUBAGENT_SEARCH_REQUEST,
     consumer_name,
@@ -96,6 +98,7 @@ class TaskConsumer(
     HandoffHandlerMixin,
     A2AHandlerMixin,
     BackendHealthHandlerMixin,
+    ReviewHandlerMixin,
 ):
     """Consumes task messages from NATS JetStream and dispatches them to the executor."""
 
@@ -169,6 +172,7 @@ class TaskConsumer(
             (SUBJECT_A2A_TASK_CREATED, self._handle_a2a_task_created),
             (SUBJECT_A2A_TASK_CANCEL, self._handle_a2a_task_cancel),
             (SUBJECT_BACKEND_HEALTH_REQUEST, self._handle_backend_health),
+            (SUBJECT_REVIEW_TRIGGER_REQUEST, self._handle_review_trigger),
         ]
 
         loops = []
