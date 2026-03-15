@@ -1076,5 +1076,32 @@ Loop until ready.
 `,
 	})
 
+	// Review-refactor pipeline modes (Phase 31).
+	modes = append(modes, Mode{
+		ID:               "boundary-analyzer",
+		Name:             "Boundary Analyzer",
+		Description:      "Analyzes project structure to identify boundary files between modules, services, and language layers.",
+		Builtin:          true,
+		Tools:            []string{"Read", "Glob", "Grep", "ListDir"},
+		DeniedTools:      []string{"Write", "Edit", "Bash"},
+		RequiredArtifact: "BOUNDARIES.json",
+		LLMScenario:      "plan",
+		Autonomy:         4,
+		PromptPrefix:     commonRules + "# Boundary Analyzer Mode\n\nYou analyze project structure to identify boundary files — files that define contracts between modules, services, or language layers.\n\n## What to look for:\n- API schemas: OpenAPI/Swagger specs, Protobuf (.proto), GraphQL schemas, JSON Schema\n- Data layer: ORM models, DB migration files, shared type definitions\n- Inter-service: Message queue schemas, event definitions, RPC/gRPC interfaces\n- Cross-language: Shared JSON contracts, TypeScript type files matching backend models\n\n## Output format:\nReturn a BOUNDARIES.json file with this structure:\n```json\n[\n  {\"path\": \"relative/path/to/file\", \"type\": \"api|data|inter-service|cross-language\", \"counterpart\": \"optional/counterpart/path\", \"auto_detected\": true}\n]\n```\n",
+	})
+
+	modes = append(modes, Mode{
+		ID:               "contract-reviewer",
+		Name:             "Contract Reviewer",
+		Description:      "Reviews cross-layer contracts for consistency between boundary files.",
+		Builtin:          true,
+		Tools:            []string{"Read", "Glob", "Grep"},
+		DeniedTools:      []string{"Write", "Edit", "Bash"},
+		RequiredArtifact: "CONTRACT_REVIEW.md",
+		LLMScenario:      "review",
+		Autonomy:         2,
+		PromptPrefix:     commonRules + "# Contract Reviewer Mode\n\nYou review cross-layer contracts for consistency. You receive a list of boundary files and their counterparts.\n\n## Your job:\n1. Read each boundary file and its counterpart\n2. Check for inconsistencies: mismatched field names, type drift, missing fields, deprecated fields still in use\n3. Report findings as a structured review\n\n## Output format:\nCreate CONTRACT_REVIEW.md with:\n- PASS or FAIL overall status\n- Per-boundary-pair findings with severity (critical/warning/info)\n- Specific line references where drift exists\n",
+	})
+
 	return modes
 }
