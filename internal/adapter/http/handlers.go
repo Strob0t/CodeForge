@@ -283,6 +283,14 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 			}
 		}()
 	}
+
+	if h.ReviewTrigger != nil {
+		go func() {
+			if _, err := h.ReviewTrigger.TriggerReview(context.Background(), projectID, "", "auto-index"); err != nil {
+				slog.Error("auto boundary analysis trigger failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
 }
 
 // CloneProject handles POST /api/v1/projects/{id}/clone

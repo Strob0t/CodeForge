@@ -441,6 +441,11 @@ func run() error {
 	defer reviewSvc.StopCron()
 	slog.Info("review service initialized")
 
+	// --- Boundary & Review Trigger Services (Phase 31) ---
+	boundarySvc := service.NewBoundaryService(store)
+	reviewTriggerSvc := service.NewReviewTriggerService(store, nil, 30*time.Minute)
+	slog.Info("boundary and review trigger services initialized")
+
 	// --- GEMMAS Evaluation Hook (Phase 20G) ---
 	evalSvc := service.NewEvaluationService(store, eventStore, queue)
 	orchSvc.AddOnPlanComplete(evalSvc.HandlePlanComplete)
@@ -700,6 +705,8 @@ func run() error {
 		Subscription:     subscriptionSvc,
 		Channels:         service.NewChannelService(store),
 		Limits:           &cfg.Limits,
+		Boundaries:       boundarySvc,
+		ReviewTrigger:    reviewTriggerSvc,
 	}
 
 	// A2A Client Service (Phase 27K + 27O) — outbound federation + push notifications.

@@ -2445,8 +2445,8 @@ func TestListPolicyProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	profiles := result["profiles"]
-	if len(profiles) != 4 {
-		t.Fatalf("expected 4 profiles (4 presets), got %d: %v", len(profiles), profiles)
+	if len(profiles) != 5 {
+		t.Fatalf("expected 5 profiles (5 presets), got %d: %v", len(profiles), profiles)
 	}
 }
 
@@ -2825,8 +2825,8 @@ func TestCreatePolicyProfile(t *testing.T) {
 
 	var result map[string][]string
 	_ = json.NewDecoder(w.Body).Decode(&result)
-	if len(result["profiles"]) != 5 {
-		t.Fatalf("expected 5 profiles (4 presets + 1 custom), got %d", len(result["profiles"]))
+	if len(result["profiles"]) != 6 {
+		t.Fatalf("expected 6 profiles (5 presets + 1 custom), got %d", len(result["profiles"]))
 	}
 }
 
