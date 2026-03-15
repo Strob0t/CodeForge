@@ -884,6 +884,354 @@ Available metrics: `correctness`, `tool_correctness`, `faithfulness`, `answer_re
 |---|---|---|---|
 | `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
 
+#### Interactive E2E Testing Guide
+
+This section provides a step-by-step walkthrough for manually testing the benchmark system end-to-end, covering infrastructure verification, API-level testing, frontend dashboard usage, and advanced features.
+
+##### Prerequisites
+
+1. **Start infrastructure services:**
+
+```bash
+docker compose up -d postgres nats litellm
+```
+
+2. **Start the Go backend in dev mode** (required for benchmark endpoints):
+
+```bash
+APP_ENV=development go run ./cmd/codeforge/
+```
+
+3. **Start the frontend dev server** (for dashboard testing):
+
+```bash
+cd frontend && npm run dev
+```
+
+4. **Verify dev mode is active:**
+
+```bash
+curl -s http://localhost:8080/health | jq '.dev_mode'
+# Must return: true
+```
+
+Without `APP_ENV=development`, all `/api/v1/benchmarks/*` endpoints return 403.
+
+5. **Log in and export the auth token** (all API calls require auth):
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@localhost","password":"Changeme123"}' | jq -r '.access_token')
+
+# Verify token works
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/health | jq
+```
+
+##### Step 1: Verify Infrastructure Health
+
+```bash
+# Backend health (includes NATS connectivity check)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/health | jq
+# Expected: {"status":"ok","dev_mode":true,...}
+
+# LiteLLM proxy health
+curl -s http://codeforge-litellm:4000/health/liveliness
+# Expected: "I'm alive!"
+
+# List available LLM models
+curl -s -H "Authorization: Bearer sk-codeforge-dev" \
+  http://codeforge-litellm:4000/v1/models | jq '.data[].id'
+# Should list your configured models (e.g. lm_studio/*, openai/*, etc.)
+```
+
+##### Step 2: List Available Datasets and Suites
+
+```bash
+# List built-in benchmark datasets (auto-discovered from configs/benchmarks/)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/datasets | jq
+```
+
+**Expected datasets** (4 built-in):
+
+| Dataset | Description | Tasks |
+|---|---|---|
+| `basic-coding` | FizzBuzz, bug fix, refactor, binary search, TS interface | 5 |
+| `tool-use-basic` | File read, web search, multi-tool operations | 3 |
+| `agent-coding` | FizzBuzz impl, bug fix, add tests, refactor, REST handler | 5 |
+| `e2e-quick` | Minimal hello-world + add (fast E2E validation) | 2 |
+
+```bash
+# List seeded benchmark suites (11 pre-registered providers)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/suites | jq '.[].provider_name'
+```
+
+**Expected suites:** `codeforge_simple`, `codeforge_agent`, `codeforge_tool_use`, `humaneval`, `mbpp`, `swebench`, `bigcodebench`, `cruxeval`, `livecodebench`, `sparcbench`, `aider_polyglot`.
+
+##### Step 3: Run a Simple Benchmark (Fastest Path)
+
+Use the `e2e-quick` dataset (2 trivial tasks) for the fastest E2E validation:
+
+```bash
+# Create a simple benchmark run
+RUN_ID=$(curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dataset": "e2e-quick",
+    "model": "openai/gpt-4o",
+    "metrics": ["llm_judge"],
+    "benchmark_type": "simple",
+    "exec_mode": "mount"
+  }' | jq -r '.id')
+
+echo "Run ID: $RUN_ID"
+```
+
+Replace the model name with your available model (e.g. `lm_studio/qwen3-30b-a3b` for local models).
+
+**Poll for completion:**
+
+```bash
+# Check run status (poll every 5 seconds until completed/failed)
+watch -n 5 "curl -s -H 'Authorization: Bearer $TOKEN' \
+  http://localhost:8080/api/v1/benchmarks/runs/$RUN_ID | jq '{status,total_cost,error_message}'"
+```
+
+**Get results when completed:**
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/runs/$RUN_ID/results | jq
+```
+
+Each result contains: `task_id`, `task_name`, `scores` (e.g. `{"llm_judge": 0.85}`), `cost_usd`, `tokens_in`, `tokens_out`, `duration_ms`.
+
+##### Step 4: Run All Three Benchmark Types
+
+Test each benchmark type to verify the full pipeline:
+
+```bash
+# A) Simple benchmark (direct prompt/response scoring)
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"basic-coding","model":"openai/gpt-4o","metrics":["llm_judge"],"benchmark_type":"simple","exec_mode":"mount"}'
+
+# B) Tool-use benchmark (validates tool invocation)
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"tool-use-basic","model":"openai/gpt-4o","metrics":["llm_judge"],"benchmark_type":"tool_use","exec_mode":"mount"}'
+
+# C) Agent benchmark (full workspace lifecycle: file creation, editing, test execution)
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"agent-coding","model":"openai/gpt-4o","metrics":["llm_judge","functional_test"],"benchmark_type":"agent","exec_mode":"mount"}'
+```
+
+Agent benchmarks take significantly longer (up to 5 min per task with local models).
+
+##### Step 5: Test Evaluator Combinations
+
+The system supports multiple evaluator plugins that can be combined:
+
+```bash
+# LLM Judge only (semantic scoring via a second LLM call)
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"e2e-quick","model":"openai/gpt-4o","metrics":["llm_judge"],"benchmark_type":"simple"}'
+
+# Functional Test only (runs test_command from dataset, agent type only)
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"agent-coding","model":"openai/gpt-4o","metrics":["functional_test"],"benchmark_type":"agent"}'
+
+# Combined: LLM Judge + SPARC + Trajectory Verifier (agent type)
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"agent-coding","model":"openai/gpt-4o","metrics":["llm_judge","sparc","trajectory_verifier"],"benchmark_type":"agent"}'
+```
+
+Note: `functional_test` on a `simple` benchmark returns score 0 (graceful degradation, no crash).
+
+##### Step 6: Compare Runs and Analyze Costs
+
+After running at least 2 benchmarks, test the comparison and analysis features:
+
+```bash
+# List all runs (grab IDs of completed runs)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/runs | jq '.[].id'
+
+# Two-run side-by-side comparison
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/compare \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"run_id_a":"<RUN_ID_1>","run_id_b":"<RUN_ID_2>"}'
+
+# Multi-run comparison (3+ runs)
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/compare-multi \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"run_ids":["<ID1>","<ID2>","<ID3>"]}'
+
+# Cost analysis for a specific run
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/runs/<RUN_ID>/cost-analysis | jq
+
+# Leaderboard (all models ranked by avg score)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/leaderboard | jq
+
+# Run analysis report (failure rate, model family detection)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/runs/<RUN_ID>/analyze | jq
+```
+
+##### Step 7: Export Results
+
+```bash
+# Export results as JSON
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/benchmarks/runs/<RUN_ID>/export/results" | jq
+
+# Export results as CSV
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/benchmarks/runs/<RUN_ID>/export/results?format=csv"
+
+# Export DPO training pairs (JSONL format, for multi-rollout runs)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/benchmarks/runs/<RUN_ID>/export/training"
+
+# Export training pairs as JSON
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/benchmarks/runs/<RUN_ID>/export/training?format=json" | jq
+```
+
+##### Step 8: Test the Frontend Dashboard
+
+1. Open the browser at `http://localhost:3000/benchmarks` (dev-mode only).
+
+2. **Runs tab** — Create a new run:
+   - Select a dataset from the dropdown (e.g. `basic-coding`)
+   - Select a model (must be available in LiteLLM)
+   - Pick metrics (e.g. `correctness`)
+   - Select benchmark type (`simple`, `tool_use`, or `agent`)
+   - Click "Start Run" and watch the live progress feed
+
+3. **Runs tab** — Inspect results:
+   - Click on a completed run to see per-task scores, costs, and duration
+   - Use the "Compare" button to compare two runs side-by-side
+
+4. **Leaderboard tab** — View model rankings:
+   - Shows avg score, total cost, cost-per-score-point, token efficiency
+   - Filter by suite for provider-specific leaderboards
+
+5. **Cost Analysis tab** — Drill into costs:
+   - Select a run to see task-level cost breakdown
+   - View tokens-in/out per task and total cost
+
+6. **Multi-Compare tab** — Compare N runs:
+   - Select 2+ completed runs from the list
+   - View side-by-side metric comparison with highlighting
+
+7. **Suites tab** — Manage benchmark suites:
+   - View all 11 seeded suites
+   - Create/edit/delete custom suites
+
+##### Step 9: Test Error Scenarios
+
+Verify the system handles invalid inputs gracefully:
+
+```bash
+# Invalid dataset name -> should fail with clear error
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"nonexistent","model":"openai/gpt-4o","metrics":["llm_judge"],"benchmark_type":"simple"}' | jq
+
+# Invalid model -> run created but transitions to "failed" with error_message
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"e2e-quick","model":"nonexistent/model","metrics":["llm_judge"],"benchmark_type":"simple"}' | jq
+
+# Missing required field (no model) -> 400 Bad Request
+curl -s -X POST http://localhost:8080/api/v1/benchmarks/runs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dataset":"e2e-quick","metrics":["llm_judge"]}' | jq
+
+# Cancel a running benchmark
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/benchmarks/runs/<RUNNING_RUN_ID> | jq
+```
+
+##### Step 10: Run Automated E2E Validation Suite
+
+The project includes a comprehensive automated test suite (22 tests across 6 blocks):
+
+```bash
+cd frontend
+
+# Run the full benchmark validation suite (requires backend + LiteLLM running)
+npx playwright test --config=e2e/benchmark-validation/playwright.validation.config.ts
+```
+
+**Test blocks:**
+- Block 0: Prerequisites (7 tests) — health checks, datasets, suites
+- Block 1: Simple benchmarks (3 tests) — llm_judge, functional_test, combined
+- Block 2: Tool-use benchmarks (3 tests) — same evaluator combinations
+- Block 3: Agent benchmarks (3 tests) — with trajectory_verifier and sparc
+- Block 4: Routing (1 test) — `model=auto` with intelligent routing
+- Block 5: Error scenarios (5 tests) — invalid dataset/model, empty dataset, unknown evaluator, duplicates
+
+Run individual blocks:
+
+```bash
+npx playwright test --config=e2e/benchmark-validation/playwright.validation.config.ts \
+  e2e/benchmark-validation/block-0-prerequisites.spec.ts
+
+npx playwright test --config=e2e/benchmark-validation/playwright.validation.config.ts \
+  e2e/benchmark-validation/block-1-simple.spec.ts
+```
+
+##### Troubleshooting
+
+| Problem | Cause | Fix |
+|---|---|---|
+| All benchmark endpoints return 403 | Missing `APP_ENV=development` | Restart backend with `APP_ENV=development go run ./cmd/codeforge/` |
+| Run stays "running" forever | Python worker not connected to NATS, or LiteLLM unreachable | Check `docker compose logs nats litellm`, verify NATS_URL and LITELLM_URL |
+| All scores are 0 | Local model context too small for LLM Judge | Expected with small local models; use a model with 32K+ context or a cloud provider |
+| "model not found" error | Model name not registered in LiteLLM | Check `litellm-config.yaml`, run `curl http://codeforge-litellm:4000/v1/models` |
+| "dataset not found" error | YAML file not in `configs/benchmarks/` | Verify the file exists and is valid YAML |
+| Benchmarks page not visible in UI | Frontend not detecting dev mode | Verify `/health` returns `dev_mode: true`, hard-refresh the browser |
+| `model=auto` fails | Routing not enabled | Set `CODEFORGE_ROUTING_ENABLED=true` or use an explicit model name |
+
+##### Creating Custom Datasets
+
+1. Create a new YAML file in `configs/benchmarks/`:
+
+```yaml
+name: My Custom Tasks
+description: Domain-specific code generation tests.
+
+tasks:
+  - id: custom-001
+    name: Generate REST handler
+    input: "Write a Go HTTP handler that returns JSON."
+    expected_output: |
+      func handler(w http.ResponseWriter, r *http.Request) {
+          w.Header().Set("Content-Type", "application/json")
+          json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+      }
+    difficulty: easy
+```
+
+2. The file is auto-discovered (no restart needed).
+
+3. Verify it appears: `curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/benchmarks/datasets | jq '.[].name'`
+
+4. Run a benchmark against it using the file name (without `.yaml` extension) as the dataset name.
+
+See `configs/benchmarks/README.md` for the full YAML schema and available fields.
+
 ### A2A Protocol (Phase 27)
 
 The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external AI agents. When enabled, CodeForge exposes an AgentCard at `/.well-known/agent.json` and can delegate tasks to remote A2A agents.

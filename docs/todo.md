@@ -188,6 +188,9 @@
 #### Documentation-Code Reconciliation (COMPLETED)
 - [x] Python trust/quarantine layer, A2A protocol expansion, handoff enrichment
 
+#### Benchmark Interactive Testing Guide (COMPLETED)
+- [x] (2026-03-15) Added step-by-step interactive E2E testing guide to `docs/dev-setup.md` — covers infrastructure verification, API-level testing (all 3 benchmark types, evaluator combinations, comparison, cost analysis, export), frontend dashboard walkthrough, error scenarios, automated E2E suite, troubleshooting table, custom dataset creation
+
 #### Benchmark Cross-Layer Bug Fixes (COMPLETED)
 - [x] 7 bugs fixed: DB migration for rollout fields, cost population, NATS wiring, CSV export
 
