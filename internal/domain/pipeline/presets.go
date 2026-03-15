@@ -8,6 +8,7 @@ func BuiltinTemplates() []Template {
 		standardDev(),
 		securityAudit(),
 		reviewOnly(),
+		reviewRefactor(),
 	}
 }
 
@@ -42,6 +43,24 @@ func securityAudit() Template {
 			{Name: "Plan", ModeID: "architect", DeliverMode: "append"},
 			{Name: "Implement", ModeID: "coder", DeliverMode: "diff", DependsOn: []int{0}},
 			{Name: "Audit", ModeID: "security", DeliverMode: "append", DependsOn: []int{1}},
+		},
+	}
+}
+
+// reviewRefactor defines a sequential 4-step contract-first review & refactor pipeline:
+// boundary-analyzer → contract-reviewer → reviewer → refactorer.
+func reviewRefactor() Template {
+	return Template{
+		ID:          "review-refactor",
+		Name:        "Contract-First Review & Refactor",
+		Description: "Four-step pipeline: analyze boundaries, review contracts, review code, propose refactorings.",
+		Builtin:     true,
+		Protocol:    plan.ProtocolSequential,
+		Steps: []Step{
+			{Name: "Boundary Analysis", ModeID: "boundary-analyzer", DeliverMode: "append"},
+			{Name: "Contract Review", ModeID: "contract-reviewer", DeliverMode: "append", DependsOn: []int{0}},
+			{Name: "Code Review", ModeID: "reviewer", DeliverMode: "append", DependsOn: []int{1}},
+			{Name: "Refactoring Proposals", ModeID: "refactorer", DeliverMode: "diff", DependsOn: []int{2}},
 		},
 	}
 }
