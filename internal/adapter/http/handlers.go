@@ -98,6 +98,8 @@ type Handlers struct {
 	Channels         *service.ChannelService
 	Subscription     *service.SubscriptionService
 	Limits           *config.Limits
+	Boundaries       *service.BoundaryService
+	ReviewTrigger    *service.ReviewTriggerService
 }
 
 // ListProjects handles GET /api/v1/projects
