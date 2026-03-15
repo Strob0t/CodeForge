@@ -117,6 +117,9 @@ type Run struct {
 	// Phase 28C: Multi-rollout fields.
 	RolloutCount    int    `json:"rollout_count,omitempty"`
 	RolloutStrategy string `json:"rollout_strategy,omitempty"`
+
+	// ErrorMessage stores a human-readable failure reason when Status is "failed".
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // Result stores evaluation output for a single task within a benchmark run.

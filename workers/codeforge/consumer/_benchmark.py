@@ -34,6 +34,43 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
+async def _fetch_available_models() -> list[str]:
+    """Fetch model IDs from LiteLLM /v1/models endpoint."""
+    import os
+
+    import httpx
+
+    litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+    api_key = os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{litellm_url}/v1/models", headers=headers)
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+    except Exception:
+        return []
+
+
+async def _validate_model_exists(model: str, available_models: list[str] | None = None) -> None:
+    """Validate model exists in LiteLLM. Raises ValueError if not found.
+
+    Skips for "auto" or if model list is empty (LiteLLM unreachable).
+    """
+    if model == "auto":
+        return
+    if available_models is None:
+        available_models = await _fetch_available_models()
+    if not available_models:
+        return  # Can't reach LiteLLM — skip validation, don't block
+    if model not in available_models:
+        raise ValueError(
+            f"model {model!r} not available in LiteLLM. Available: {', '.join(sorted(available_models)[:10])}"
+        )
+
+
 class BenchmarkHandlerMixin:
     """Handles benchmark.run.request and evaluation.gemmas.request messages."""
 
@@ -72,6 +109,7 @@ class BenchmarkHandlerMixin:
         try:
             req = BenchmarkRunRequest.model_validate_json(msg.data)
             run_id = req.run_id
+            await _validate_model_exists(req.model)
             benchmark_type = req.benchmark_type or "simple"
             log = log.bind(run_id=run_id, benchmark_type=benchmark_type, model=req.model)
 
@@ -159,8 +197,12 @@ class BenchmarkHandlerMixin:
                 log.info("auto-routing enabled for benchmark run")
                 return _RoutingLLMWrapper(self._llm, router)
         except Exception:
-            log.warning("HybridRouter not available, using default model for auto routing")
-        return self._llm
+            log.warning("HybridRouter initialization failed", exc_info=True)
+
+        raise ValueError(
+            "model='auto' requires intelligent routing, but routing is not enabled. "
+            "Set CODEFORGE_ROUTING_ENABLED=true or specify an explicit model name."
+        )
 
     async def _handle_gemmas_eval(self, msg: nats.aio.msg.Msg) -> None:
         """Process a GEMMAS scoring request: compute IDS + UPR and publish result."""
@@ -409,6 +451,56 @@ async def _run_with_optional_rollout(runner, tasks, req, pipeline, on_start=None
     return [_convert_result(r) for r in run_results]
 
 
+# ---------------------------------------------------------------------------
+# Score key normalization: map raw EvalDimension names to parent metric keys.
+# ---------------------------------------------------------------------------
+
+_DIMENSION_TO_METRIC: dict[str, str] = {
+    # LLMJudgeEvaluator dimensions -> "llm_judge"
+    "correctness": "llm_judge",
+    "faithfulness": "llm_judge",
+    "answer_relevancy": "llm_judge",
+    "tool_correctness": "llm_judge",
+    # SPARCEvaluator dimensions -> "sparc"
+    "sparc_steps": "sparc",
+    "sparc_time": "sparc",
+    "sparc_cost": "sparc",
+    "sparc_complexity": "sparc",
+    "sparc_code_quality": "sparc",
+    "sparc_security": "sparc",
+    # TrajectoryVerifierEvaluator dimensions -> "trajectory_verifier"
+    "trajectory_solution_quality": "trajectory_verifier",
+    "trajectory_approach_efficiency": "trajectory_verifier",
+    "trajectory_code_quality": "trajectory_verifier",
+    "trajectory_error_recovery": "trajectory_verifier",
+    "trajectory_completeness": "trajectory_verifier",
+    "trajectory_quality": "trajectory_verifier",  # error fallback
+    # FunctionalTestEvaluator -> identity (already matches)
+    "functional_test": "functional_test",
+}
+
+
+def _aggregate_metric_scores(scores: dict[str, float]) -> None:
+    """Add averaged parent-metric keys to scores dict in-place.
+
+    For each group of dimension keys that map to the same metric name,
+    compute the average and store it under the metric name.  Raw dimension
+    keys are preserved.  If the metric name already exists as a raw key
+    (e.g. ``functional_test``), it is not overwritten.
+    """
+    groups: dict[str, list[float]] = {}
+    for dim_name, value in scores.items():
+        metric = _DIMENSION_TO_METRIC.get(dim_name)
+        if metric is not None:
+            groups.setdefault(metric, []).append(value)
+
+    for metric, values in groups.items():
+        # Skip identity mappings where the metric key already exists as a raw dimension.
+        if metric in scores:
+            continue
+        scores[metric] = sum(values) / len(values)
+
+
 def _convert_rollout_outcome(task, outcome, rollout_count) -> object:
     """Convert a RolloutOutcome to a BenchmarkTaskResult with rollout fields."""
     from codeforge.models import BenchmarkTaskResult
@@ -417,6 +509,7 @@ def _convert_rollout_outcome(task, outcome, rollout_count) -> object:
     if outcome.eval_score:
         for dim in outcome.eval_score.dimensions:
             scores[dim.name] = dim.score
+    _aggregate_metric_scores(scores)
 
     return BenchmarkTaskResult(
         task_id=task.id,
@@ -453,6 +546,7 @@ def _convert_result(r) -> object:
                 evaluator_scores.setdefault(parts[0], {})[parts[1]] = dim.score
             else:
                 evaluator_scores.setdefault("default", {})[dim.name] = dim.score
+    _aggregate_metric_scores(scores)
 
     return BenchmarkTaskResult(
         task_id=r.task.id,

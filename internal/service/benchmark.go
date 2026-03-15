@@ -184,8 +184,14 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 		if _, statErr := os.Stat(absCandidate); statErr == nil {
 			datasetPath = absCandidate
 			slog.Info("resolved dataset path", "original", run.Dataset, "resolved", datasetPath)
+		} else if run.SuiteID == "" {
+			// No suite fallback — the dataset is mandatory and must exist.
+			run.Status = benchmark.StatusFailed
+			run.ErrorMessage = fmt.Sprintf("dataset %q not found", run.Dataset)
+			_ = s.store.UpdateBenchmarkRun(ctx, run) //nolint:errcheck // best effort
+			return nil, fmt.Errorf("dataset %q not found: %w", run.Dataset, statErr)
 		} else {
-			slog.Warn("dataset path resolution failed", "original", run.Dataset, "candidate", absCandidate, "error", statErr)
+			slog.Warn("dataset path resolution failed, relying on suite provider", "original", run.Dataset, "candidate", absCandidate, "error", statErr)
 		}
 	}
 
@@ -878,6 +884,50 @@ func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), e
 		cancelStarted()
 		cancelProgress()
 	}, nil
+}
+
+// RunWatchdogOnce scans for benchmark runs stuck in "running" state beyond the
+// given timeout and marks them as "failed". This prevents orphaned runs when
+// a Python worker crashes or a NATS message is lost.
+func (s *BenchmarkService) RunWatchdogOnce(ctx context.Context, timeout time.Duration) {
+	runs, err := s.store.ListBenchmarkRunsFiltered(ctx, &benchmark.RunFilter{Status: benchmark.StatusRunning})
+	if err != nil {
+		slog.Warn("watchdog: failed to list running benchmark runs", "error", err)
+		return
+	}
+	cutoff := time.Now().Add(-timeout)
+	for i := range runs {
+		run := &runs[i]
+		if run.CreatedAt.Before(cutoff) {
+			run.Status = benchmark.StatusFailed
+			run.ErrorMessage = fmt.Sprintf("watchdog timeout: run exceeded %s without completion", timeout)
+			if err := s.store.UpdateBenchmarkRun(ctx, run); err != nil {
+				slog.Warn("watchdog: failed to update stale run", "run_id", run.ID, "error", err)
+				continue
+			}
+			slog.Warn("watchdog: marked stale benchmark run as failed", "run_id", run.ID, "age", time.Since(run.CreatedAt))
+		}
+	}
+}
+
+// StartWatchdog launches a background goroutine that periodically calls
+// RunWatchdogOnce to detect and fail orphaned benchmark runs. Returns a
+// cancel function to stop the goroutine.
+func (s *BenchmarkService) StartWatchdog(interval, timeout time.Duration) context.CancelFunc {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.RunWatchdogOnce(ctx, timeout)
+			}
+		}
+	}()
+	return cancel
 }
 
 // avgFromMap computes the average of a float64 map's values.

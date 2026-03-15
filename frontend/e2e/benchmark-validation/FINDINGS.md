@@ -1,8 +1,8 @@
 # Benchmark Validation E2E Test — Findings
 
-**Date:** 2026-03-11
+**Date:** 2026-03-11 (discovered), 2026-03-15 (all fixed)
 **Model:** lm_studio/qwen3-30b-a3b (local)
-**Result:** 21/22 passed (after fixes), 1 remaining (5.2 — see below)
+**Result:** 22/22 passed, all 5 bugs fixed
 
 ## Summary
 
@@ -17,122 +17,106 @@ evaluator combinations, routing, and error handling.
 ## Bug 1: Score Key Names Don't Match Metric Request Names
 
 **Severity:** Medium
-**Status:** Open — test workaround applied
+**Status:** Fixed (2026-03-15)
 
 **Description:**
 When requesting metrics like `llm_judge`, `trajectory_verifier`, or `sparc`, the API
-returns scores under different key names:
+returned scores under different key names (e.g., `correctness` instead of `llm_judge`).
 
-| Requested Metric       | Actual Score Key(s)                                                        |
-|------------------------|---------------------------------------------------------------------------|
-| `llm_judge`            | `correctness`                                                             |
-| `trajectory_verifier`  | `trajectory_quality`                                                      |
-| `sparc`                | `sparc_cost`, `sparc_time`, `sparc_steps`, `sparc_security`, `sparc_complexity`, `sparc_code_quality` |
-| `functional_test`      | `functional_test` (matches)                                               |
+**Fix:** Added `_aggregate_metric_scores()` to `workers/codeforge/consumer/_benchmark.py`.
+After building raw dimension scores, aggregated metric-level keys are added as averages
+of their dimension group. Raw dimension keys are preserved for detailed analysis.
 
-**Impact:** Frontend code that maps requested metrics to score keys will break. Any consumer
-of the API must know the internal evaluator-to-score-key mapping.
-
-**Recommendation:** Either:
-- (a) Normalize score keys to match metric names in the Python evaluator output, OR
-- (b) Return a `metric_key_mapping` field in the run response so consumers can look up the mapping, OR
-- (c) Document the mapping as part of the API contract
-
-**Files to investigate:**
-- `workers/codeforge/evaluation/` — evaluator output formatting
-- `workers/codeforge/consumer/` — benchmark result publishing
+**Files changed:**
+- `workers/codeforge/consumer/_benchmark.py` — `_DIMENSION_TO_METRIC` mapping, `_aggregate_metric_scores()` helper
+- `workers/tests/test_score_key_normalization.py` — 16 tests
 
 ---
 
 ## Bug 2: Error Runs Stay "running" Instead of Transitioning to "failed"
 
 **Severity:** High
-**Status:** Open — test workaround applied
+**Status:** Fixed (2026-03-15) — three-tier fix
 
 **Description:**
-When a benchmark run is created with invalid parameters that pass API validation but fail
-during worker execution, the run stays in `"running"` status indefinitely:
+Benchmark runs with invalid parameters stayed in `"running"` status indefinitely.
 
-- **Invalid dataset** (`nonexistent-dataset-xyz`): Run created (201), stays `"running"` forever
-- **Empty dataset** (`empty-test`): Run created (201), stays `"running"` forever
-- **Invalid model** (`nonexistent/model-xyz`): Run created (201), sometimes completes (see Bug 3)
+**Fix (2A):** `StartRun()` now returns an error when dataset path resolution fails and
+no suite fallback exists. The run is marked `"failed"` with an `ErrorMessage` before
+the NATS message is published. Added `ErrorMessage` field to the `Run` struct with
+DB migration.
 
-The Python worker either:
-1. Never picks up the NATS message (dataset path resolution fails in Go before publishing?), or
-2. Encounters an error but doesn't publish a failure status back
+**Fix (2B):** Added a watchdog goroutine (`RunWatchdogOnce` + `StartWatchdog`) that
+scans every 5 minutes for runs stuck in `"running"` longer than 15 minutes and marks
+them `"failed"` with a timeout message.
 
-**Impact:** Orphaned runs accumulate in the database. Frontend shows runs that never finish.
-Users have no feedback that something went wrong.
-
-**Recommendation:**
-- Add a timeout watchdog in Go Core: if a run hasn't progressed after N minutes, mark it `"failed"`
-- Ensure the Python worker publishes `status=failed` with an error message for ALL exceptions
-- Add dataset existence validation at API level (before creating the run)
-
-**Files to investigate:**
-- `internal/service/benchmark.go` — `resolveDatasetPath()`, run creation
-- `workers/codeforge/consumer/` — benchmark run handler error paths
-- `internal/port/messagequeue/` — NATS publishing for benchmark runs
+**Files changed:**
+- `internal/domain/benchmark/benchmark.go` — `ErrorMessage` field
+- `internal/service/benchmark.go` — dataset validation in `StartRun()`, watchdog methods
+- `internal/adapter/postgres/store_benchmark.go` — SQL queries updated
+- `internal/adapter/postgres/migrations/072_benchmark_run_error_message.sql` — migration
+- `internal/service/benchmark_test.go` — 5 new tests (2 StartRun + 3 watchdog)
+- `cmd/codeforge/main.go` — watchdog wiring
 
 ---
 
 ## Bug 3: Invalid Model Silently Succeeds
 
 **Severity:** Medium
-**Status:** Open — documented
+**Status:** Fixed (2026-03-15)
 
 **Description:**
-A benchmark run with `model: "nonexistent/model-xyz"` and `dataset: "basic-coding"` was
-accepted (201) and eventually **completed** with actual results. The worker did not reject
-the invalid model name.
+A benchmark run with an invalid model name was accepted and completed with results
+because LiteLLM silently fell back to a default model.
 
-Possible causes:
-- LiteLLM proxy silently falls back to a default model
-- The model name resolution happens at a layer that doesn't validate
+**Fix:** Added `_validate_model_exists()` that checks the model against LiteLLM's
+`/v1/models` endpoint before execution. Unknown models raise `ValueError`, caught
+by the existing error handler and published as `status=failed`.
 
-**Impact:** Users may think they're benchmarking one model but actually using another.
-Results would be misleading.
-
-**Recommendation:**
-- Validate model existence against LiteLLM `/v1/models` before creating the run
-- Include the actual model used in the run results (not just the requested model)
+**Files changed:**
+- `workers/codeforge/consumer/_benchmark.py` — `_validate_model_exists()`, `_fetch_available_models()`
+- `workers/tests/test_model_validation.py` — 6 tests
 
 ---
 
 ## Bug 4: `model=auto` Routing Without CODEFORGE_ROUTING_ENABLED
 
 **Severity:** Low
-**Status:** Open — test accepts `failed` as valid
+**Status:** Fixed (2026-03-15)
 
 **Description:**
-When `model=auto` is sent and `CODEFORGE_ROUTING_ENABLED` is not set, the run transitions
-to `"failed"` quickly (46s). This is actually correct behavior — the system fails fast
-when routing is not configured.
+When `model=auto` was sent without routing enabled, `_resolve_effective_llm()` silently
+fell back to the raw LLM client, passing `"auto"` literally to LiteLLM.
 
-**Test behavior:** The test now accepts both `completed` and `failed` as valid outcomes,
-documenting that routing requires explicit enablement.
+**Fix:** `_resolve_effective_llm()` now raises `ValueError` when `model=auto` and the
+HybridRouter is not available. The error message instructs users to enable routing or
+specify an explicit model name.
 
-**Recommendation:** Consider returning a 400 error at API level when `model=auto` is
-requested but routing is not enabled, with a clear error message.
+**Files changed:**
+- `workers/codeforge/consumer/_benchmark.py` — `_resolve_effective_llm()` fix
+- `workers/tests/test_model_validation.py` — 2 additional tests
 
 ---
 
 ## Bug 5: LLM Judge Context Overflow with Local Models
 
-**Severity:** Low (expected limitation)
-**Status:** Documented — not a bug, known limitation
+**Severity:** Low
+**Status:** Fixed (2026-03-15)
 
 **Description:**
-The LLM Judge evaluator sends the task + model output + grading rubric to the LLM.
-With local models (context window ~8K-32K), this often exceeds the context limit,
-resulting in a 400 error from LM Studio. The evaluator catches this and returns
-`correctness: 0`.
+The LLM Judge and Trajectory Verifier exceeded local model context limits (8K-32K),
+causing 400 errors and `score: 0` for all evaluations.
 
-**Impact:** All `llm_judge` scores are 0 with local models. This is expected and
-documented in the test assertions (`>= 0` instead of `> 0`).
+**Fix:** Added prompt compression using head+tail truncation (`compress_for_context()`).
+Inputs are compressed to fit within conservative budgets (4K chars for input/output,
+2K for expected output). Uses `model_copy(update=...)` to preserve all Pydantic fields.
+Error fallback now distinguishes `context_overflow` from `evaluation_failed`.
 
-**Recommendation:** No fix needed for local model testing. For production, use models
-with larger context windows or implement prompt compression for the judge.
+**Files changed:**
+- `workers/codeforge/evaluation/evaluators/prompt_compressor.py` — new compression utility
+- `workers/codeforge/evaluation/evaluators/llm_judge.py` — compression integration + enhanced error fallback
+- `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` — compression integration
+- `workers/tests/test_prompt_compressor.py` — 18 tests
 
 ---
 

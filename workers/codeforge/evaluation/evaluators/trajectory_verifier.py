@@ -19,6 +19,7 @@ from typing import Any
 
 import structlog
 
+from codeforge.evaluation.evaluators.prompt_compressor import compress_for_context
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
 
 logger = structlog.get_logger()
@@ -63,6 +64,10 @@ Respond ONLY with a JSON object, no other text:
 # Max chars per individual message in the formatted trajectory.
 _MAX_MSG_CHARS = 500
 
+# Max character budgets for prompt compression (prevents context overflow on local models).
+_MAX_TRAJECTORY_CHARS = 4000
+_MAX_TASK_INPUT_CHARS = 2000
+
 
 class TrajectoryVerifierEvaluator:
     """Stage 2 (rank) evaluator that scores full agent trajectories."""
@@ -86,10 +91,13 @@ class TrajectoryVerifierEvaluator:
     async def evaluate(self, task: TaskSpec, result: ExecutionResult) -> list[EvalDimension]:
         """Score the full trajectory on 5 quality dimensions."""
         trajectory_text = _format_trajectory(task, result)
+        compressed_trajectory = compress_for_context(trajectory_text, _MAX_TRAJECTORY_CHARS)
+        compressed_task_input = compress_for_context(task.input, _MAX_TASK_INPUT_CHARS)
+        compressed_expected = compress_for_context(task.expected_output, _MAX_TASK_INPUT_CHARS // 2) or "N/A"
         prompt = _VERIFIER_PROMPT.format(
-            task_input=task.input[:2000],
-            expected_output=task.expected_output[:1000] or "N/A",
-            trajectory=trajectory_text,
+            task_input=compressed_task_input,
+            expected_output=compressed_expected,
+            trajectory=compressed_trajectory,
             files_changed="\n".join(result.files_changed) or "None",
             test_output=result.test_output[:2000] or "N/A",
         )

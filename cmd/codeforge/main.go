@@ -626,6 +626,7 @@ func run() error {
 		return fmt.Errorf("benchmark run subscriber: %w", err)
 	}
 	benchmarkSvc.SeedDefaultSuites(ctx)
+	cancelWatchdog := benchmarkSvc.StartWatchdog(5*time.Minute, 15*time.Minute)
 	slog.Info("benchmark service initialized with NATS bridge")
 
 	// --- Backend Health Service (Phase 5.4) ---
@@ -905,6 +906,7 @@ func run() error {
 	repoMapCancel()
 	convRunCancel()
 	benchmarkRunCancel()
+	cancelWatchdog()
 	for _, cancel := range retrievalCancels {
 		cancel()
 	}

@@ -72,11 +72,11 @@ test.describe("Block 4: Intelligent Routing", () => {
       });
 
       // --- Assertions ---
-      // The run must reach a terminal state (not stuck in "running")
-      // If routing is disabled, the run may fail — that's acceptable.
+      // The run must reach a terminal state (not stuck in "running").
+      // Bug 4 fix: model=auto without routing now fails fast with a clear error.
       expect(
         ["completed", "failed"].includes(finalRun.status),
-        `Routing run stuck in ${finalRun.status} — model=auto may not be supported without CODEFORGE_ROUTING_ENABLED=true`,
+        `Routing run stuck in ${finalRun.status} — model=auto should fail fast without routing`,
       ).toBe(true);
 
       if (finalRun.status === "completed") {
@@ -86,6 +86,12 @@ test.describe("Block 4: Intelligent Routing", () => {
         if (finalRun.routing_reason) {
           expect(finalRun.routing_reason.length).toBeGreaterThan(0);
         }
+      } else if (finalRun.status === "failed") {
+        // Bug 4 fix: error message should mention routing
+        expect(
+          finalRun.error_message?.toLowerCase(),
+          "Failed run should have error message mentioning routing",
+        ).toContain("routing");
       }
     });
   }

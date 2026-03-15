@@ -31,18 +31,21 @@ test.describe("Block 5: Error Scenarios", () => {
     const { status, body } = await createBenchmarkRunRaw(scenario.params);
     await attachTestContext(testInfo, "response", { status_code: status, body });
 
-    // Should fail at creation (400/404) or during execution (run status=failed)
+    // Bug 2A fix: invalid dataset without suite fallback should be rejected at API level
+    // or marked failed immediately. No more stuck "running" runs.
     if (status === 201) {
       const runBody = body as { id: string };
       const finalRun = await waitForRunCompletion(runBody.id, 60_000);
-      // Worker may fail the run or leave it running if dataset resolution fails silently.
-      // Both "failed" and "running" (timeout) indicate the invalid dataset was not silently accepted.
-      expect(["failed", "running"]).toContain(finalRun.status);
+      expect(finalRun.status, `Invalid dataset run should fail, got ${finalRun.status}`).toBe(
+        "failed",
+      );
+      expect(finalRun.error_message).toBeTruthy();
       await attachTestContext(testInfo, "run_result", {
         status: finalRun.status,
         error_message: finalRun.error_message,
       });
     } else {
+      // API-level rejection is also acceptable
       expect([400, 404, 500]).toContain(status);
     }
   });
@@ -61,18 +64,21 @@ test.describe("Block 5: Error Scenarios", () => {
     const { status, body } = await createBenchmarkRunRaw(scenario.params);
     await attachTestContext(testInfo, "response", { status_code: status, body });
 
+    // Bug 3 fix: invalid model is now validated against LiteLLM /v1/models
+    // and rejected by the Python worker with a clear error.
     if (status === 201) {
       const runBody = body as { id: string };
       const finalRun = await waitForRunCompletion(runBody.id, 120_000);
-      // Worker may fail the run, leave it running, or even complete it
-      // (LiteLLM may silently fall back to a default model).
-      // Key assertion: the system doesn't crash or hang indefinitely.
-      expect(["failed", "running", "completed"]).toContain(finalRun.status);
+      expect(finalRun.status, `Invalid model run should fail, got ${finalRun.status}`).toBe(
+        "failed",
+      );
+      expect(finalRun.error_message).toBeTruthy();
       await attachTestContext(testInfo, "run_result", {
         status: finalRun.status,
         error_message: finalRun.error_message,
       });
     } else {
+      // API-level rejection is also acceptable
       expect([400, 404, 500, 502]).toContain(status);
     }
   });

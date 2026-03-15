@@ -82,15 +82,19 @@ test.describe("Block 3: Agent Benchmarks", () => {
       expect(finalRun.status, `Run ${run.id} did not complete`).toBe("completed");
       expect(results.length).toBeGreaterThanOrEqual(1);
 
-      // Verify each result has a scores object (pipeline works end-to-end)
-      // Note: metric request names (llm_judge, sparc, trajectory_verifier) map to
-      // different score keys (correctness, sparc_*, trajectory_quality) — so we
-      // validate the pipeline produced scores, not specific key names.
+      // Verify each result has scores matching the requested metric names.
+      // Bug 1 fix: aggregated metric-level keys (llm_judge, sparc, trajectory_verifier)
+      // are now included alongside raw dimension keys (correctness, sparc_*, trajectory_*).
       for (const r of results) {
         expect(r.scores, `No scores object for task ${r.task_id}`).toBeTruthy();
-        const scoreValues = Object.values(r.scores ?? {});
-        for (const s of scoreValues) {
-          expect(s).toBeGreaterThanOrEqual(0);
+
+        // Each requested metric should appear as an aggregated score key
+        for (const metric of tc.metrics) {
+          expect(
+            r.scores?.[metric] !== undefined,
+            `Missing aggregated score key '${metric}' for task ${r.task_id}. Got keys: ${Object.keys(r.scores ?? {}).join(", ")}`,
+          ).toBe(true);
+          expect(r.scores[metric]).toBeGreaterThanOrEqual(0);
         }
       }
 

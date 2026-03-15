@@ -14,7 +14,7 @@ import (
 const benchmarkRunColumns = `id, tenant_id, dataset, model, metrics, status, summary_scores,
 		total_cost, total_tokens, total_duration_ms, created_at, completed_at,
 		suite_id, benchmark_type, exec_mode, config,
-		hybrid_verification, rollout_count, rollout_strategy`
+		hybrid_verification, rollout_count, rollout_strategy, error_message`
 
 const benchmarkResultColumns = `id, tenant_id, run_id, task_id, task_name, scores, actual_output, expected_output,
 		tool_calls, cost_usd, tokens_in, tokens_out, duration_ms,
@@ -40,15 +40,15 @@ func (s *Store) CreateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 	const q = `INSERT INTO benchmark_runs
 		(id, tenant_id, dataset, model, metrics, status, summary_scores, total_cost, total_tokens,
 		 total_duration_ms, created_at, completed_at, suite_id, benchmark_type, exec_mode, config,
-		 hybrid_verification, rollout_count, rollout_strategy)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
+		 hybrid_verification, rollout_count, rollout_strategy, error_message)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
 	_, err := s.pool.Exec(ctx, q,
 		r.ID, tenantFromCtx(ctx), r.Dataset, r.Model, metricsArr, string(r.Status),
 		scores, r.TotalCost, r.TotalTokens, r.TotalDurationMs,
 		r.CreatedAt, r.CompletedAt,
 		nullIfEmpty(r.SuiteID), nullIfEmpty(string(r.BenchmarkType)),
 		nullIfEmpty(string(r.ExecMode)), cfg,
-		r.HybridVerification, r.RolloutCount, rolloutStrategy,
+		r.HybridVerification, r.RolloutCount, rolloutStrategy, r.ErrorMessage,
 	)
 	if err != nil {
 		return fmt.Errorf("create benchmark run: %w", err)
@@ -141,12 +141,12 @@ func (s *Store) UpdateBenchmarkRun(ctx context.Context, r *benchmark.Run) error 
 	}
 	const q = `UPDATE benchmark_runs
 		SET status=$2, summary_scores=$3, total_cost=$4, total_tokens=$5,
-		    total_duration_ms=$6, completed_at=$7
-		WHERE id=$1 AND tenant_id=$8`
+		    total_duration_ms=$6, completed_at=$7, error_message=$8
+		WHERE id=$1 AND tenant_id=$9`
 	tag, err := s.pool.Exec(ctx, q,
 		r.ID, string(r.Status), scores, r.TotalCost,
 		r.TotalTokens, r.TotalDurationMs, r.CompletedAt,
-		tenantFromCtx(ctx),
+		r.ErrorMessage, tenantFromCtx(ctx),
 	)
 	return execExpectOne(tag, err, "update benchmark run %s", r.ID)
 }
@@ -217,6 +217,7 @@ func scanBenchmarkRun(row scannable) (benchmark.Run, error) {
 		&r.CreatedAt, &r.CompletedAt,
 		&suiteID, &bmType, &execMode, &r.Config,
 		&r.HybridVerification, &r.RolloutCount, &r.RolloutStrategy,
+		&r.ErrorMessage,
 	)
 	if err != nil {
 		return r, err

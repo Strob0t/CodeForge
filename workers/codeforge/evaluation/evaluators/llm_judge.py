@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.evaluation.evaluators.prompt_compressor import compress_for_context
 from codeforge.evaluation.metrics import (
     evaluate_answer_relevancy,
     evaluate_correctness,
@@ -25,6 +26,11 @@ logger = structlog.get_logger()
 
 # Supported metric names for this evaluator.
 SUPPORTED_METRICS = frozenset({"correctness", "tool_correctness", "faithfulness", "answer_relevancy"})
+
+# Max character budgets for prompt compression (prevents context overflow on local models).
+_MAX_INPUT_CHARS = 4000
+_MAX_OUTPUT_CHARS = 4000
+_MAX_EXPECTED_CHARS = 2000
 
 
 class LLMJudgeEvaluator:
@@ -55,17 +61,41 @@ class LLMJudgeEvaluator:
                 if m in SUPPORTED_METRICS
             ]
 
+        # Compress inputs to avoid context overflow on local models.
+        compressed_task = task.model_copy(
+            update={
+                "input": compress_for_context(task.input, _MAX_INPUT_CHARS),
+                "expected_output": compress_for_context(task.expected_output, _MAX_EXPECTED_CHARS),
+            }
+        )
+        compressed_result = result.model_copy(
+            update={
+                "actual_output": compress_for_context(result.actual_output, _MAX_OUTPUT_CHARS),
+            }
+        )
+
         dimensions: list[EvalDimension] = []
         for metric_name in self._metrics:
             if metric_name not in SUPPORTED_METRICS:
                 logger.warning("unsupported llm_judge metric", metric=metric_name)
                 continue
             try:
-                score = await self._run_metric(metric_name, task, result)
+                score = await self._run_metric(metric_name, compressed_task, compressed_result)
                 dimensions.append(EvalDimension(name=metric_name, score=score))
             except Exception as exc:
-                logger.exception("llm_judge metric failed", metric=metric_name, task_id=task.id, error=str(exc))
-                dimensions.append(EvalDimension(name=metric_name, score=0.0, details={"error": "evaluation failed"}))
+                error_msg = str(exc)
+                is_context_overflow = "context" in error_msg.lower() or "400" in error_msg
+                logger.exception("llm_judge metric failed", metric=metric_name, task_id=task.id, error=error_msg)
+                dimensions.append(
+                    EvalDimension(
+                        name=metric_name,
+                        score=0.0,
+                        details={
+                            "error": "context_overflow" if is_context_overflow else "evaluation_failed",
+                            "error_message": error_msg[:200],
+                        },
+                    )
+                )
         return dimensions
 
     async def _run_metric(self, name: str, task: TaskSpec, result: ExecutionResult) -> float:

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -89,6 +91,9 @@ func (m *benchMockStore) ListBenchmarkRunsFiltered(_ context.Context, f *benchma
 			continue
 		}
 		if f.Model != "" && r.Model != f.Model {
+			continue
+		}
+		if f.Status != "" && r.Status != f.Status {
 			continue
 		}
 		out = append(out, *r)
@@ -316,5 +321,195 @@ func TestBenchmarkService_Leaderboard_NoSuiteFilter(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Errorf("expected 1 entry, got %d", len(entries))
+	}
+}
+
+// benchMockQueue is a minimal NATS queue mock for benchmark tests.
+type benchMockQueue struct {
+	published []benchPublishedMsg
+}
+
+type benchPublishedMsg struct {
+	Subject string
+	Data    []byte
+}
+
+func (q *benchMockQueue) Publish(_ context.Context, subject string, data []byte) error {
+	q.published = append(q.published, benchPublishedMsg{Subject: subject, Data: data})
+	return nil
+}
+func (q *benchMockQueue) PublishWithDedup(ctx context.Context, subject string, data []byte, _ string) error {
+	return q.Publish(ctx, subject, data)
+}
+func (q *benchMockQueue) Subscribe(_ context.Context, _ string, _ messagequeue.Handler) (func(), error) {
+	return func() {}, nil
+}
+func (q *benchMockQueue) Drain() error      { return nil }
+func (q *benchMockQueue) Close() error      { return nil }
+func (q *benchMockQueue) IsConnected() bool { return true }
+
+func TestStartRun_NonExistentDataset_NoSuite_ReturnsError(t *testing.T) {
+	store := newBenchMockStore()
+	// Use /tmp as datasetsDir — it exists but won't contain "nonexistent-dataset.yaml".
+	svc := service.NewBenchmarkService(store, "/tmp")
+	q := &benchMockQueue{}
+	svc.SetQueue(q)
+	ctx := context.Background()
+
+	req := &benchmark.CreateRunRequest{
+		Dataset: "nonexistent-dataset",
+		Model:   "gpt-4",
+		Metrics: []string{"correctness"},
+		// SuiteID is empty — no fallback.
+	}
+
+	run, err := svc.StartRun(ctx, req)
+	if err == nil {
+		t.Fatal("expected error for non-existent dataset with empty SuiteID, got nil")
+	}
+	if run != nil {
+		t.Errorf("expected nil run on error, got %+v", run)
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found', got: %s", err.Error())
+	}
+
+	// No message should have been published to NATS.
+	if len(q.published) != 0 {
+		t.Errorf("expected 0 NATS messages, got %d", len(q.published))
+	}
+
+	// Verify the run was persisted with failed status.
+	// The run was created by CreateRun internally, so there should be exactly one run in the store.
+	if len(store.benchRuns) != 1 {
+		t.Fatalf("expected 1 run in store, got %d", len(store.benchRuns))
+	}
+	for _, r := range store.benchRuns {
+		if r.Status != benchmark.StatusFailed {
+			t.Errorf("expected run status %q, got %q", benchmark.StatusFailed, r.Status)
+		}
+		if r.ErrorMessage == "" {
+			t.Error("expected non-empty ErrorMessage on failed run")
+		}
+		if !strings.Contains(r.ErrorMessage, "nonexistent-dataset") {
+			t.Errorf("ErrorMessage should reference dataset name, got: %s", r.ErrorMessage)
+		}
+	}
+}
+
+func TestWatchdog_MarksStaleRunAsFailed(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// Run created 20 minutes ago, still running — should be marked failed.
+	store.benchRuns["stale-run"] = &benchmark.Run{
+		ID:        "stale-run",
+		Model:     "gpt-4",
+		Status:    benchmark.StatusRunning,
+		CreatedAt: time.Now().Add(-20 * time.Minute),
+	}
+
+	svc.RunWatchdogOnce(ctx, 15*time.Minute)
+
+	r := store.benchRuns["stale-run"]
+	if r.Status != benchmark.StatusFailed {
+		t.Errorf("expected status %q, got %q", benchmark.StatusFailed, r.Status)
+	}
+	if r.ErrorMessage == "" {
+		t.Error("expected non-empty ErrorMessage on watchdog-failed run")
+	}
+	if !strings.Contains(r.ErrorMessage, "watchdog timeout") {
+		t.Errorf("ErrorMessage should contain 'watchdog timeout', got: %s", r.ErrorMessage)
+	}
+}
+
+func TestWatchdog_DoesNotMarkYoungRuns(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// Run created 5 minutes ago, still running — should stay running.
+	store.benchRuns["young-run"] = &benchmark.Run{
+		ID:        "young-run",
+		Model:     "gpt-4",
+		Status:    benchmark.StatusRunning,
+		CreatedAt: time.Now().Add(-5 * time.Minute),
+	}
+
+	svc.RunWatchdogOnce(ctx, 15*time.Minute)
+
+	r := store.benchRuns["young-run"]
+	if r.Status != benchmark.StatusRunning {
+		t.Errorf("expected status %q, got %q", benchmark.StatusRunning, r.Status)
+	}
+	if r.ErrorMessage != "" {
+		t.Errorf("expected empty ErrorMessage, got: %s", r.ErrorMessage)
+	}
+}
+
+func TestWatchdog_SkipsCompletedRuns(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// Run created 20 minutes ago but already completed — should stay completed.
+	store.benchRuns["completed-run"] = &benchmark.Run{
+		ID:        "completed-run",
+		Model:     "gpt-4",
+		Status:    benchmark.StatusCompleted,
+		CreatedAt: time.Now().Add(-20 * time.Minute),
+	}
+
+	svc.RunWatchdogOnce(ctx, 15*time.Minute)
+
+	r := store.benchRuns["completed-run"]
+	if r.Status != benchmark.StatusCompleted {
+		t.Errorf("expected status %q, got %q", benchmark.StatusCompleted, r.Status)
+	}
+	if r.ErrorMessage != "" {
+		t.Errorf("expected empty ErrorMessage, got: %s", r.ErrorMessage)
+	}
+}
+
+func TestStartRun_NonExistentDataset_WithSuite_Continues(t *testing.T) {
+	store := newBenchMockStore()
+	// Use /tmp as datasetsDir — it exists but won't contain "nonexistent-dataset.yaml".
+	svc := service.NewBenchmarkService(store, "/tmp")
+	q := &benchMockQueue{}
+	svc.SetQueue(q)
+	ctx := context.Background()
+
+	// Create a suite so the suite lookup succeeds.
+	store.suites["suite-1"] = &benchmark.Suite{
+		ID:           "suite-1",
+		Name:         "Test Suite",
+		Type:         benchmark.TypeSimple,
+		ProviderName: "test_provider",
+	}
+
+	req := &benchmark.CreateRunRequest{
+		Dataset: "nonexistent-dataset",
+		Model:   "gpt-4",
+		Metrics: []string{"correctness"},
+		SuiteID: "suite-1",
+	}
+
+	run, err := svc.StartRun(ctx, req)
+	if err != nil {
+		t.Fatalf("expected no error when SuiteID is set (suite fallback), got: %v", err)
+	}
+	if run == nil {
+		t.Fatal("expected non-nil run")
+	}
+
+	// The run should still be in running status (not failed).
+	if run.Status != benchmark.StatusRunning {
+		t.Errorf("expected run status %q, got %q", benchmark.StatusRunning, run.Status)
+	}
+
+	// A message should have been published to NATS.
+	if len(q.published) != 1 {
+		t.Errorf("expected 1 NATS message, got %d", len(q.published))
 	}
 }
