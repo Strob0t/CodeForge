@@ -1,7 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Agent, DeliverMode, Run, RunStatus, Task, ToolCallEvent } from "~/api/types";
+import type { Agent, DeliverMode, Run, Task, ToolCallEvent } from "~/api/types";
 import { StepProgress } from "~/components/StepProgress";
 import { useToast } from "~/components/Toast";
 import { getVariant, runStatusVariant } from "~/config/statusVariants";
@@ -103,50 +103,6 @@ export default function RunPanel(props: RunPanelProps) {
       toast("error", msg);
     }
   };
-
-  // Called from parent via ref or WS event forwarding
-  const updateRunStatus = (
-    runId: string,
-    status: RunStatus,
-    stepCount: number,
-    costUsd: number,
-    tokensIn?: number,
-    tokensOut?: number,
-    model?: string,
-  ) => {
-    const current = activeRun();
-    if (current && current.id === runId) {
-      setActiveRun({
-        ...current,
-        status,
-        step_count: stepCount,
-        cost_usd: costUsd,
-        tokens_in: tokensIn ?? current.tokens_in,
-        tokens_out: tokensOut ?? current.tokens_out,
-        model: model ?? current.model,
-      });
-      if (
-        status === "completed" ||
-        status === "failed" ||
-        status === "cancelled" ||
-        status === "timeout"
-      ) {
-        refetchRuns();
-      }
-    }
-  };
-
-  const addToolCall = (ev: ToolCallEvent) => {
-    const current = activeRun();
-    if (current && current.id === ev.run_id) {
-      setToolCalls((prev) => [...prev.slice(-49), ev]);
-    }
-  };
-
-  // Expose methods for parent
-  (RunPanel as unknown as { updateRunStatus: typeof updateRunStatus }).updateRunStatus =
-    updateRunStatus;
-  (RunPanel as unknown as { addToolCall: typeof addToolCall }).addToolCall = addToolCall;
 
   return (
     <Card>

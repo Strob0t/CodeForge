@@ -3,6 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { GoalKind } from "~/api/types";
 import type { AGUIGoalProposal } from "~/api/websocket";
+import { useI18n } from "~/i18n";
 import { Badge, Button } from "~/ui";
 import type { BadgeVariant } from "~/ui/primitives/Badge";
 
@@ -33,6 +34,7 @@ const KIND_BADGE_VARIANTS: Record<GoalKind, BadgeVariant> = {
 const CONTENT_PREVIEW_LIMIT = 500;
 
 export default function GoalProposalCard(props: Props) {
+  const { t } = useI18n();
   const [status, setStatus] = createSignal<"pending" | "approved" | "rejected">("pending");
   const [saving, setSaving] = createSignal(false);
 
@@ -114,10 +116,10 @@ export default function GoalProposalCard(props: Props) {
             disabled={saving()}
             onClick={handleApprove}
           >
-            {saving() ? "Saving..." : "Approve"}
+            {saving() ? t("common.saving") : t("common.approve")}
           </Button>
           <Button variant="secondary" size="xs" onClick={handleReject}>
-            Reject
+            {t("common.reject")}
           </Button>
         </div>
       </Show>

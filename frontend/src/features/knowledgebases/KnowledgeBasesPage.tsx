@@ -116,7 +116,7 @@ export default function KnowledgeBasesPage() {
       description={t("kb.description")}
       action={
         <Button onClick={() => setShowForm((v) => !v)}>
-          {showForm() ? "Cancel" : t("kb.form.create")}
+          {showForm() ? t("common.cancel") : t("kb.form.create")}
         </Button>
       }
     >

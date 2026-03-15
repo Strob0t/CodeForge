@@ -1,13 +1,15 @@
 import { createEffect, For, type JSX, onCleanup, Show } from "solid-js";
 
 import type { FileEntry } from "~/api/types";
+import type { TranslationKey } from "~/i18n";
+import { useI18n } from "~/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ContextMenuAction {
-  label: string;
+interface ContextMenuAction {
+  labelKey: TranslationKey;
   icon: string;
   action: string;
 }
@@ -24,27 +26,27 @@ export interface FileContextMenuProps {
 }
 
 // ---------------------------------------------------------------------------
-// Menu item definitions
+// Menu item definitions (use i18n keys for labels)
 // ---------------------------------------------------------------------------
 
 const FOLDER_ACTIONS: ContextMenuAction[] = [
-  { label: "New File", icon: "+", action: "new-file" },
-  { label: "New Folder", icon: "\u25A1", action: "new-folder" },
-  { label: "Upload File", icon: "\u2191", action: "upload" },
-  { label: "Add to Context", icon: "\u2795", action: "add-to-context" },
-  { label: "Rename", icon: "\u270E", action: "rename" },
-  { label: "Delete Folder", icon: "\u2716", action: "delete" },
+  { labelKey: "files.createFile", icon: "+", action: "new-file" },
+  { labelKey: "files.createFolder", icon: "\u25A1", action: "new-folder" },
+  { labelKey: "files.uploadFile", icon: "\u2191", action: "upload" },
+  { labelKey: "files.addToContext", icon: "\u2795", action: "add-to-context" },
+  { labelKey: "files.rename", icon: "\u270E", action: "rename" },
+  { labelKey: "files.deleteFolder", icon: "\u2716", action: "delete" },
 ];
 
 const FILE_ACTIONS: ContextMenuAction[] = [
-  { label: "Add to Context", icon: "\u2795", action: "add-to-context" },
-  { label: "Rename", icon: "\u270E", action: "rename" },
-  { label: "Delete File", icon: "\u2716", action: "delete" },
+  { labelKey: "files.addToContext", icon: "\u2795", action: "add-to-context" },
+  { labelKey: "files.rename", icon: "\u270E", action: "rename" },
+  { labelKey: "files.deleteFile", icon: "\u2716", action: "delete" },
 ];
 
 const ROOT_ACTIONS: ContextMenuAction[] = [
-  { label: "New File", icon: "+", action: "new-file" },
-  { label: "New Folder", icon: "\u25A1", action: "new-folder" },
+  { labelKey: "files.createFile", icon: "+", action: "new-file" },
+  { labelKey: "files.createFolder", icon: "\u25A1", action: "new-folder" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,7 @@ const ROOT_ACTIONS: ContextMenuAction[] = [
 // ---------------------------------------------------------------------------
 
 export default function FileContextMenu(props: FileContextMenuProps): JSX.Element {
+  const { t } = useI18n();
   let menuRef: HTMLDivElement | undefined;
 
   // Close on click-outside
@@ -124,7 +127,7 @@ export default function FileContextMenu(props: FileContextMenuProps): JSX.Elemen
               <span class="w-4 text-center text-xs text-cf-text-muted flex-shrink-0">
                 {item.icon}
               </span>
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </button>
           )}
         </For>

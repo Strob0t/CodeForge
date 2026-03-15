@@ -85,18 +85,19 @@ function SidebarHeader(props: {
   onUploadClick?: () => void;
 }): JSX.Element {
   const [, actions] = useFileTree();
+  const { t } = useI18n();
 
   return (
     <div class="flex items-center justify-between px-2 py-1.5 border-b border-cf-border">
       <span class="text-xs font-semibold text-cf-text-secondary uppercase tracking-wide">
-        Files
+        {t("detail.tab.files")}
       </span>
       <div class="flex items-center gap-0.5">
         <button
           type="button"
           class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
           onClick={() => actions.expandAll(props.projectId)}
-          title="Expand All"
+          title={t("files.expandAll")}
         >
           <ExpandAllIcon />
         </button>
@@ -104,7 +105,7 @@ function SidebarHeader(props: {
           type="button"
           class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
           onClick={() => actions.collapseAll()}
-          title="Collapse All"
+          title={t("files.collapseAll")}
         >
           <CollapseAllIcon />
         </button>
@@ -113,7 +114,7 @@ function SidebarHeader(props: {
             type="button"
             class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
             onClick={props.onUploadClick}
-            title="Upload File"
+            title={t("files.uploadFile")}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -131,7 +132,7 @@ function SidebarHeader(props: {
             type="button"
             class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
             onClick={props.onCreateClick}
-            title="New File"
+            title={t("files.createFile")}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -275,7 +276,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       ]);
       setActiveTab(file.path);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to open file";
+      const msg = e instanceof Error ? e.message : t("files.openFailed");
       toast("error", msg);
     }
   }
@@ -310,10 +311,10 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
           t.path === path ? { ...t, modified: false, originalContent: t.content } : t,
         ),
       );
-      toast("success", `Saved ${fileName(path)}`);
+      toast("success", t("files.saved", { name: fileName(path) }));
     },
     {
-      onError: (err) => toast("error", getErrorMessage(err, "Failed to save file")),
+      onError: (err) => toast("error", getErrorMessage(err, t("files.saveFailed"))),
     },
   );
 
@@ -417,7 +418,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       const newPath = parentDir ? `${parentDir}/${newName}` : newName;
 
       await api.files.rename(props.projectId, oldPath, newPath);
-      toast("success", `Renamed to ${newName}`);
+      toast("success", t("files.renamed", { name: newName }));
 
       // Update open tabs that match old path (or start with old path for folder renames)
       setTabs((prev) =>
@@ -445,7 +446,36 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       setRenameNewName("");
     },
     {
-      onError: (err) => toast("error", "Rename failed: " + getErrorMessage(err, "Rename failed")),
+      onError: (err) =>
+        toast(
+          "error",
+          t("files.renameFailed") + ": " + getErrorMessage(err, t("files.renameFailed")),
+        ),
+    },
+  );
+
+  // -- New Folder modal -----------------------------------------------------
+  const [showFolderModal, setShowFolderModal] = createSignal(false);
+  const [newFolderName, setNewFolderName] = createSignal("");
+  const [newFolderPrefix, setNewFolderPrefix] = createSignal("");
+
+  const { run: handleCreateFolder, loading: creatingFolder } = useAsyncAction(
+    async () => {
+      const name = newFolderName().trim();
+      if (!name) return;
+      const folderPath = newFolderPrefix() ? `${newFolderPrefix()}/${name}` : name;
+      await api.files.write(props.projectId, `${folderPath}/.gitkeep`, "");
+      toast("success", t("files.createFolderSuccess", { name }));
+      setShowFolderModal(false);
+      setNewFolderName("");
+      setNewFolderPrefix("");
+    },
+    {
+      onError: (err) =>
+        toast(
+          "error",
+          t("files.createFolderFailed") + ": " + getErrorMessage(err, "Create folder failed"),
+        ),
     },
   );
 
@@ -460,7 +490,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       if (!path) return;
 
       await api.files.delete(props.projectId, path);
-      toast("success", `Deleted ${path}`);
+      toast("success", t("files.deleted", { path }));
 
       // Close any open tabs for deleted file or files inside deleted folder
       setTabs((prev) =>
@@ -478,7 +508,11 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       setDeleteIsDir(false);
     },
     {
-      onError: (err) => toast("error", "Delete failed: " + getErrorMessage(err, "Delete failed")),
+      onError: (err) =>
+        toast(
+          "error",
+          t("files.deleteFailed") + ": " + getErrorMessage(err, t("files.deleteFailed")),
+        ),
     },
   );
 
@@ -504,20 +538,9 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
         break;
       }
       case "new-folder": {
-        const folderName = prompt("New folder name:");
-        if (!folderName?.trim()) return;
-        const folderPath = folderPrefix
-          ? `${folderPrefix}/${folderName.trim()}`
-          : folderName.trim();
-        api.files
-          .write(props.projectId, `${folderPath}/.gitkeep`, "")
-          .then(() => toast("success", `Created folder ${folderName.trim()}`))
-          .catch((err: unknown) =>
-            toast(
-              "error",
-              "Failed to create folder: " + getErrorMessage(err, "Create folder failed"),
-            ),
-          );
+        setNewFolderPrefix(folderPrefix);
+        setNewFolderName("");
+        setShowFolderModal(true);
         break;
       }
       case "upload": {
@@ -542,7 +565,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       case "add-to-context": {
         if (!entry || entry.path === "") return;
         addContextFile(entry.path);
-        toast("success", `Added to context: ${entry.path}`);
+        toast("success", t("files.addedToContext", { path: entry.path }));
         if (props.onAddToContext) {
           props.onAddToContext(entry.path);
         }
@@ -616,7 +639,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
                 d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
               />
             </svg>
-            Files
+            {t("detail.tab.files")}
           </button>
         </Show>
 
@@ -626,7 +649,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
           <div class="fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r border-cf-border bg-cf-bg-surface shadow-cf-lg">
             <FileTreeProvider>
               <div class="flex items-center justify-between p-2 border-b border-cf-border">
-                <span class="text-sm font-medium px-2">Files</span>
+                <span class="text-sm font-medium px-2">{t("detail.tab.files")}</span>
                 <button
                   type="button"
                   class="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-cf-md text-cf-text-muted hover:bg-cf-bg-surface-alt"
@@ -685,7 +708,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
                       e.stopPropagation();
                       closeTab(tab.path);
                     }}
-                    title="Close"
+                    title={t("common.close")}
                   >
                     {"\u00D7"}
                   </Button>
@@ -738,7 +761,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
                     disabled={saving()}
                     class="text-xs py-0 px-1.5"
                   >
-                    {saving() ? "Saving..." : "Save"}
+                    {saving() ? t("files.saving") : t("files.save")}
                   </Button>
                 </Show>
               </div>
@@ -785,6 +808,41 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
         </div>
       </Modal>
 
+      {/* New Folder Modal */}
+      <Modal
+        open={showFolderModal()}
+        onClose={() => setShowFolderModal(false)}
+        title={t("files.createFolder")}
+      >
+        <div class="flex flex-col gap-3 p-4">
+          <FormField label={t("files.folderName")}>
+            <Input
+              placeholder={t("files.folderNamePlaceholder")}
+              value={newFolderName()}
+              onInput={(e) => setNewFolderName(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newFolderName().trim()) {
+                  handleCreateFolder();
+                }
+              }}
+              autofocus
+            />
+          </FormField>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowFolderModal(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={handleCreateFolder}
+              disabled={!newFolderName().trim() || creatingFolder()}
+              loading={creatingFolder()}
+            >
+              {t("files.createFolder")}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* File Context Menu */}
       <FileContextMenu
         visible={ctxMenuVisible()}
@@ -797,11 +855,15 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       />
 
       {/* Rename Modal */}
-      <Modal open={showRenameModal()} onClose={() => setShowRenameModal(false)} title="Rename">
+      <Modal
+        open={showRenameModal()}
+        onClose={() => setShowRenameModal(false)}
+        title={t("files.rename")}
+      >
         <div class="flex flex-col gap-3 p-4">
-          <FormField label="New name">
+          <FormField label={t("files.newName")}>
             <Input
-              placeholder="Enter new name"
+              placeholder={t("files.newNamePlaceholder")}
               value={renameNewName()}
               onInput={(e) => setRenameNewName(e.currentTarget.value)}
               onKeyDown={(e) => {
@@ -821,7 +883,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
               disabled={!renameNewName().trim() || renaming()}
               loading={renaming()}
             >
-              Rename
+              {t("files.rename")}
             </Button>
           </div>
         </div>
@@ -831,13 +893,13 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       <Modal
         open={showDeleteModal()}
         onClose={() => setShowDeleteModal(false)}
-        title={deleteIsDir() ? "Delete Folder" : "Delete File"}
+        title={deleteIsDir() ? t("files.deleteFolder") : t("files.deleteFile")}
       >
         <div class="flex flex-col gap-3 p-4">
           <p class="text-sm text-cf-text-secondary">
-            Are you sure you want to delete{" "}
+            {t("files.deleteConfirm")}{" "}
             <span class="font-medium text-cf-text-primary">{deletePath()}</span>?
-            {deleteIsDir() ? " This will delete all files inside the folder." : ""}
+            {deleteIsDir() ? " " + t("files.deleteFolderWarning") : ""}
           </p>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setShowDeleteModal(false)}>
@@ -849,7 +911,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
               loading={deleting()}
               class="!bg-red-600 hover:!bg-red-700 !text-white"
             >
-              Delete
+              {t("common.delete")}
             </Button>
           </div>
         </div>

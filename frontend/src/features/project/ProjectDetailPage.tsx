@@ -149,6 +149,18 @@ export default function ProjectDetailPage() {
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
 
+  // Unified navigation handler: "chat" switches mobile view, other tabs switch left panel
+  function handleNavigate(target: string) {
+    if (target === "chat") {
+      if (isMobile()) {
+        setMobileView("chat");
+      }
+      // On desktop the chat panel is always visible — no action needed
+      return;
+    }
+    setLeftTab(target as LeftTab);
+  }
+
   // Resizable split + collapsible roadmap
   const [splitRatio, setSplitRatio] = createSignal(DEFAULT_SPLIT);
   const [roadmapCollapsed, setRoadmapCollapsed] = createSignal(false);
@@ -230,10 +242,9 @@ export default function ProjectDetailPage() {
         }
         break;
       }
-      case "run.toolcall": {
-        // Forward to RunPanel via WS
+      case "run.toolcall":
+        // Tool calls are rendered via AG-UI events in ChatPanel
         break;
-      }
       case "run.qualitygate": {
         const qgProjectId = payload.project_id as string;
         if (qgProjectId === projectId) {
@@ -473,7 +484,7 @@ export default function ProjectDetailPage() {
               hasGoals={(onboardGoals() ?? []).length > 0}
               hasRoadmap={(onboardRoadmap()?.milestones ?? []).length > 0}
               hasRuns={(onboardSessions() ?? []).length > 0}
-              onNavigate={(tab) => setLeftTab(tab as LeftTab)}
+              onNavigate={handleNavigate}
             />
 
             {/* Error Banner */}
@@ -581,26 +592,12 @@ export default function ProjectDetailPage() {
                     </div>
                     <Show when={leftTab() === "files"}>
                       <div class="flex-1 min-h-0">
-                        <FilePanel
-                          projectId={params.id}
-                          onNavigate={(target) => {
-                            if (target !== "chat") {
-                              setLeftTab(target as LeftTab);
-                            }
-                          }}
-                        />
+                        <FilePanel projectId={params.id} onNavigate={handleNavigate} />
                       </div>
                     </Show>
                     <Show when={leftTab() === "goals"}>
                       <div class="flex-1 min-h-0">
-                        <GoalsPanel
-                          projectId={params.id}
-                          onNavigate={(target) => {
-                            if (target !== "chat") {
-                              setLeftTab(target as LeftTab);
-                            }
-                          }}
-                        />
+                        <GoalsPanel projectId={params.id} onNavigate={handleNavigate} />
                       </div>
                     </Show>
                     <Show when={leftTab() === "roadmap"}>
@@ -608,11 +605,7 @@ export default function ProjectDetailPage() {
                         <RoadmapPanel
                           projectId={params.id}
                           onError={setError}
-                          onNavigate={(target) => {
-                            if (target !== "chat") {
-                              setLeftTab(target as LeftTab);
-                            }
-                          }}
+                          onNavigate={handleNavigate}
                         />
                       </div>
                     </Show>
@@ -621,36 +614,18 @@ export default function ProjectDetailPage() {
                         <FeatureMapPanel
                           projectId={params.id}
                           onError={setError}
-                          onNavigate={(target) => {
-                            if (target !== "chat") {
-                              setLeftTab(target as LeftTab);
-                            }
-                          }}
+                          onNavigate={handleNavigate}
                         />
                       </div>
                     </Show>
                     <Show when={leftTab() === "warroom"}>
                       <div class="flex-1 min-h-0">
-                        <WarRoom
-                          projectId={params.id}
-                          onNavigate={(target) => {
-                            if (target !== "chat") {
-                              setLeftTab(target as LeftTab);
-                            }
-                          }}
-                        />
+                        <WarRoom projectId={params.id} onNavigate={handleNavigate} />
                       </div>
                     </Show>
                     <Show when={leftTab() === "sessions"}>
                       <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
-                        <SessionPanel
-                          projectId={params.id}
-                          onNavigate={(target) => {
-                            if (target !== "chat") {
-                              setLeftTab(target as LeftTab);
-                            }
-                          }}
-                        />
+                        <SessionPanel projectId={params.id} onNavigate={handleNavigate} />
                       </div>
                     </Show>
                     <Show when={leftTab() === "trajectory"}>
@@ -659,11 +634,7 @@ export default function ProjectDetailPage() {
                           projectId={params.id}
                           selectedRunId={selectedRunId()}
                           onSelectRun={setSelectedRunId}
-                          onNavigate={(target) => {
-                            if (target !== "chat") {
-                              setLeftTab(target as LeftTab);
-                            }
-                          }}
+                          onNavigate={handleNavigate}
                         />
                       </div>
                     </Show>
