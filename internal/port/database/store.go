@@ -10,6 +10,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -422,6 +423,15 @@ type Store interface {
 	ListChannelMessages(ctx context.Context, channelID string, cursor string, limit int) ([]channel.Message, error)
 	AddChannelMember(ctx context.Context, m *channel.Member) error
 	UpdateChannelMemberNotify(ctx context.Context, channelID, userID string, notify channel.NotifySetting) error
+
+	// Boundaries (Phase 31)
+	GetProjectBoundaries(ctx context.Context, projectID string) (*boundary.ProjectBoundaryConfig, error)
+	UpsertProjectBoundaries(ctx context.Context, cfg *boundary.ProjectBoundaryConfig) error
+	DeleteProjectBoundaries(ctx context.Context, projectID string) error
+
+	// Review Triggers (Phase 31)
+	CreateReviewTrigger(ctx context.Context, projectID, commitSHA, source string) (string, error)
+	FindRecentReviewTrigger(ctx context.Context, projectID, commitSHA string, within time.Duration) (bool, error)
 }
 
 // A2ATaskFilter defines filters for listing A2A tasks.

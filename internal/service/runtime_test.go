@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -2473,4 +2474,21 @@ func (m *runtimeMockStore) ListChannelMessages(_ context.Context, _, _ string, _
 func (m *runtimeMockStore) AddChannelMember(_ context.Context, _ *channel.Member) error { return nil }
 func (m *runtimeMockStore) UpdateChannelMemberNotify(_ context.Context, _, _ string, _ channel.NotifySetting) error {
 	return nil
+}
+
+// Boundary stubs (Phase 31)
+func (m *runtimeMockStore) GetProjectBoundaries(_ context.Context, _ string) (*boundary.ProjectBoundaryConfig, error) {
+	return nil, errMockNotFound
+}
+func (m *runtimeMockStore) UpsertProjectBoundaries(_ context.Context, _ *boundary.ProjectBoundaryConfig) error {
+	return nil
+}
+func (m *runtimeMockStore) DeleteProjectBoundaries(_ context.Context, _ string) error { return nil }
+
+// Review Trigger stubs (Phase 31)
+func (m *runtimeMockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *runtimeMockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
+	return false, nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -811,4 +812,21 @@ func (s *testStore) ListChannelMessages(_ context.Context, _, _ string, _ int) (
 func (s *testStore) AddChannelMember(_ context.Context, _ *channel.Member) error { return nil }
 func (s *testStore) UpdateChannelMemberNotify(_ context.Context, _, _ string, _ channel.NotifySetting) error {
 	return nil
+}
+
+// Boundary stubs (Phase 31)
+func (s *testStore) GetProjectBoundaries(_ context.Context, _ string) (*boundary.ProjectBoundaryConfig, error) {
+	return nil, domain.ErrNotFound
+}
+func (s *testStore) UpsertProjectBoundaries(_ context.Context, _ *boundary.ProjectBoundaryConfig) error {
+	return nil
+}
+func (s *testStore) DeleteProjectBoundaries(_ context.Context, _ string) error { return nil }
+
+// Review Trigger stubs (Phase 31)
+func (s *testStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (s *testStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
+	return false, nil
 }
