@@ -211,6 +211,10 @@ OAuth device flow integration for subscription-based LLM providers (Claude Code 
 
 Real-time structured event feed for running benchmark runs. Go `TrajectoryEventPayload` enriched with cost, tokens, input, output, step fields. Frontend `BenchmarkLiveFeed.tsx` with `@tanstack/solid-virtual` virtualized auto-scrolling, feature accordions (when 2+ features), progress header with bar/cost/elapsed timer, event row rendering by type (tool_called, step_done, finished). Integrated into `BenchmarkPage.tsx` for selected running runs. TypeScript `LiveFeedEvent` + `BenchmarkLiveProgress` types.
 
+### Frontend UI Bug Fixes & i18n (COMPLETED)
+
+10 UI issues fixed across 8 files. (1) **Broken "Go to Chat" navigation** — `onNavigate("chat")` silently did nothing because `"chat"` wasn't a valid `LeftTab`; unified `handleNavigate()` now switches mobile view to chat. (2) **Dead RunPanel code** — `run.toolcall` WS stub and unused method-attachment hack removed; tool calls render via AG-UI in ChatPanel. (3) **`window.prompt()` for folders** — replaced with custom Modal dialog matching Create/Rename/Delete UX. (4) **Monaco theme sync** — editor reactively follows dark/light toggle. (5) **File panel icon alignment** — SVG polyline points centered. (6) **i18n coverage** — ~40 hardcoded strings replaced with `t()` calls across FilePanel, FileContextMenu, GoalProposalCard, KnowledgeBasesPage; 28 new keys in en.ts + de.ts.
+
 ### Benchmark Validation E2E Bug Fixes (COMPLETED)
 
 5 backend bugs discovered by the 22-test benchmark validation E2E suite (`frontend/e2e/benchmark-validation/`) and fixed. Full pipeline: Go Core -> NATS JetStream -> Python Worker -> LiteLLM -> LM Studio -> Evaluators -> DB -> API.

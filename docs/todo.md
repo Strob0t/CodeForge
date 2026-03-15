@@ -201,6 +201,15 @@
 - Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
 - Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`
 
+#### Frontend UI Bug Fixes & i18n (COMPLETED)
+- [x] (2026-03-15) **BUG-1 (High) — Broken "Go to Chat" Navigation:** `onNavigate("chat")` silently did nothing — `"chat"` was not a valid `LeftTab`. Created unified `handleNavigate()` in `ProjectDetailPage.tsx` that switches `mobileView` to `"chat"` on mobile. Replaced 8 duplicate inline handlers. Fixed in: `GoalsPanel.tsx:202`, `SessionPanel.tsx:116`, `WarRoom.tsx:90`, `OnboardingProgress.tsx:44`.
+- [x] (2026-03-15) **BUG-2 (Medium) — Dead RunPanel Code:** `run.toolcall` WS event was a stub comment. `RunPanel.addToolCall`/`updateRunStatus` attached to component function object but never called. Removed dead code — tool calls are rendered via AG-UI events in `ChatPanel`. Files: `ProjectDetailPage.tsx`, `RunPanel.tsx`.
+- [x] (2026-03-15) **BUG-3 (Low) — `window.prompt()` for Folder Creation:** Replaced `window.prompt("New folder name:")` with custom Modal dialog consistent with Create/Rename/Delete modals. New state: `showFolderModal`, `newFolderName`, `newFolderPrefix`. File: `FilePanel.tsx`.
+- [x] (2026-03-15) **Monaco Theme Sync:** Editor now reactively follows dark/light theme toggle via `createEffect` + `monaco.editor.setTheme()`. File: `CodeEditor.tsx`.
+- [x] (2026-03-15) **File Panel Icon Alignment:** Expand/Collapse-all SVG polyline points centered in 16x16 viewBox. File: `FilePanel.tsx`.
+- [x] (2026-03-15) **i18n: ~40 hardcoded strings replaced** across `FilePanel.tsx`, `FileContextMenu.tsx`, `GoalProposalCard.tsx`, `KnowledgeBasesPage.tsx`. 28 new keys in `en.ts` + `de.ts` (`files.*`, `common.approve`, `common.reject`, `detail.tab.files`).
+- Remaining: `TODO` in `PermissionRequestCard.tsx:50` — "Allow Always" does not persist policy rule to backend (requires new API endpoint).
+
 #### Benchmark Live Feed (COMPLETED)
 - [x] (2026-03-10) Go: `TrajectoryEventPayload` in `events.go` — enriched WS broadcast with cost, tokens, input, output, step fields
 - [x] (2026-03-10) Go: Runtime trajectory subscription handler broadcasts enriched payload
