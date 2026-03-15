@@ -9,8 +9,8 @@ import (
 func TestNewModeService_LoadsBuiltins(t *testing.T) {
 	s := NewModeService()
 	modes := s.List()
-	if len(modes) != 22 {
-		t.Fatalf("expected 22 built-in modes, got %d", len(modes))
+	if len(modes) != 24 {
+		t.Fatalf("expected 24 built-in modes, got %d", len(modes))
 	}
 }
 
