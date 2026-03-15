@@ -51,7 +51,7 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 	// Duplicates enables JetStream message deduplication via Nats-Msg-Id header.
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:       streamName,
-		Subjects:   []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>"},
+		Subjects:   []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "review.>"},
 		Duplicates: 2 * time.Minute,
 	})
 	if err != nil {
