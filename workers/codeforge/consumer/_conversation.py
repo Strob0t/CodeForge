@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from typing import TYPE_CHECKING, ClassVar
 
 import structlog
@@ -197,7 +198,7 @@ class ConversationHandlerMixin:
         await self._js.publish(
             SUBJECT_CONVERSATION_RUN_COMPLETE,
             json.dumps(stamped).encode(),
-            headers={"Nats-Msg-Id": f"conv-complete-{run_msg.run_id}"},
+            headers={"Nats-Msg-Id": f"conv-complete-{uuid.uuid4()}"},
         )
 
     async def _publish_error_result(self, msg: nats.aio.msg.Msg) -> None:
@@ -215,7 +216,7 @@ class ConversationHandlerMixin:
                 await self._js.publish(
                     SUBJECT_CONVERSATION_RUN_COMPLETE,
                     error_complete.model_dump_json().encode(),
-                    headers={"Nats-Msg-Id": f"conv-error-{run_msg.run_id}"},
+                    headers={"Nats-Msg-Id": f"conv-error-{uuid.uuid4()}"},
                 )
         except Exception as exc:
             logger.exception("failed to publish conversation error result", error=str(exc))

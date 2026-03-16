@@ -11,6 +11,7 @@ import (
 
 	"encoding/json"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -85,10 +86,6 @@ type ConversationService struct {
 	contextOpt    *ContextOptimizerService
 	llmKeySvc     *LLMKeyService
 
-	// processedRuns guards HandleConversationRunComplete against duplicate delivery.
-	processedRuns   map[string]struct{}
-	processedRunsMu sync.Mutex
-
 	// completionWaiters allows in-process consumers (e.g. autoagent) to wait for
 	// a conversation run to finish without creating a second NATS subscription.
 	completionWaiters   map[string]chan CompletionResult
@@ -107,7 +104,6 @@ func NewConversationService(
 		hub:               hub,
 		model:             defaultModel,
 		modeSvc:           modeSvc,
-		processedRuns:     make(map[string]struct{}),
 		completionWaiters: make(map[string]chan CompletionResult),
 	}
 }
@@ -248,8 +244,11 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		return nil, errors.New("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
 	}
 
-	// Use conversation ID as run ID.
+	// RunID matches conversationID for tool-call policy lookups (the policy system
+	// uses RunID to find the conversation). A separate unique dedup key prevents
+	// NATS JetStream from silently dropping follow-up messages.
 	runID := conversationID
+	dedupKey := "conv-start-" + uuid.New().String()
 
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:          runID,
@@ -279,7 +278,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 	})
 
 	// Publish to NATS for the Python worker.
-	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, "conv-start-"+runID); err != nil {
+	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, dedupKey); err != nil {
 		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 			RunID:  runID,
 			Status: "failed",

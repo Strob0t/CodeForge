@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -258,8 +259,10 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		}
 	}
 
-	// Use conversation ID as run ID for simplicity (one active run per conversation).
+	// RunID matches conversationID for tool-call policy lookups.
+	// A separate unique dedup key prevents NATS from dropping follow-up messages.
 	runID := conversationID
+	dedupKey := "conv-start-" + uuid.New().String()
 
 	// Match microagents against the user message (Phase 22C).
 	var microagentPrompts []string
@@ -316,7 +319,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	})
 
 	// Publish to NATS for the Python worker (with dedup to prevent duplicate runs).
-	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, "conv-start-"+runID); err != nil {
+	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, dedupKey); err != nil {
 		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
 			RunID:  runID,
 			Status: "failed",
@@ -380,7 +383,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		Role:           "user",
 		Content:        content,
 	}
-	if _, err = s.db.CreateMessage(ctx, userMsg); err != nil {
+	if _, err := s.db.CreateMessage(ctx, userMsg); err != nil {
 		return fmt.Errorf("store user message: %w", err)
 	}
 
@@ -553,30 +556,9 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		return fmt.Errorf("unmarshal conversation run complete: %w", err)
 	}
 
-	// Idempotency guard — skip duplicate deliveries.
-	s.processedRunsMu.Lock()
-	if _, seen := s.processedRuns[payload.RunID]; seen {
-		s.processedRunsMu.Unlock()
-		slog.Warn("duplicate conversation run complete, skipping",
-			"run_id", payload.RunID,
-			"conversation_id", payload.ConversationID,
-		)
-		return nil
-	}
-	s.processedRuns[payload.RunID] = struct{}{}
-	// Cap the dedup map to prevent unbounded growth (memory leak).
-	if len(s.processedRuns) > 10000 {
-		// Evict ~half the entries (map iteration order is random, good enough).
-		count := 0
-		for k := range s.processedRuns {
-			delete(s.processedRuns, k)
-			count++
-			if count >= 5000 {
-				break
-			}
-		}
-	}
-	s.processedRunsMu.Unlock()
+	// Idempotency is handled by unique Nats-Msg-Id headers on the Python side.
+	// No application-level dedup here — RunID equals ConversationID, so a map-based
+	// guard would block legitimate follow-up completions in the same conversation.
 
 	slog.Info("conversation run complete received",
 		"run_id", payload.RunID,

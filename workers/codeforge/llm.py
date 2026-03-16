@@ -62,6 +62,11 @@ _FALLBACK_KEYWORDS: tuple[str, ...] = (
     "timeout",
     "timed out",
     "reading data from socket",
+    "cannot connect",
+    "connection refused",
+    "connection error",
+    "connectionerror",
+    "apiconnectionerror",
 )
 
 
