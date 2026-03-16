@@ -398,6 +398,11 @@
 - [x] (2026-03-16) ChatPanel: TypingIndicator replaces animate-pulse, StreamingCursor replaces static "Streaming..." label
 - [x] (2026-03-16) ResourceGuard: optional `skeleton` prop for custom loading states (backward-compatible)
 
+#### Benchmark Metric Validation & Detail Card Fix (COMPLETED)
+- [x] (2026-03-16) **Go ValidMetrics allowlist gap:** Frontend offers 5 metrics (`correctness`, `tool_correctness`, `faithfulness`, `answer_relevancy`, `contextual_precision`) but Go `ValidMetrics` only had 9 entries — missing `tool_correctness`, `answer_relevancy`, `contextual_precision`. Runs with all metrics failed HTTP 400. Added 3 missing metrics to `internal/domain/benchmark/benchmark.go:180`. 29 Go tests pass.
+- [x] (2026-03-16) **SolidJS event delegation bug in benchmark detail card:** Clicking task rows in `BenchmarkRunDetail` collapsed the parent card because SolidJS delegates all `onClick` to `document` — `stopPropagation()` alone doesn't prevent parent SolidJS handlers. Fixed parent card `onClick` in `BenchmarkPage.tsx:346` with `target.closest("table"|"button"|"a")` guard. Added `stopPropagation()` on task row as defense-in-depth.
+- [x] (2026-03-16) **Verified via Playwright MCP** with `lm_studio/qwen/qwen3-30b-a3b`: detail card shows summary scores + task results table, all 3 task rows expand/collapse correctly showing Actual Output and Evaluator Scores.
+
 #### Frontend UI Bug Fixes & i18n (COMPLETED)
 - [x] (2026-03-15) **BUG-1 (High) — Broken "Go to Chat" Navigation:** `onNavigate("chat")` silently did nothing — `"chat"` was not a valid `LeftTab`. Created unified `handleNavigate()` in `ProjectDetailPage.tsx` that switches `mobileView` to `"chat"` on mobile. Replaced 8 duplicate inline handlers. Fixed in: `GoalsPanel.tsx:202`, `SessionPanel.tsx:116`, `WarRoom.tsx:90`, `OnboardingProgress.tsx:44`.
 - [x] (2026-03-15) **BUG-2 (Medium) — Dead RunPanel Code:** `run.toolcall` WS event was a stub comment. `RunPanel.addToolCall`/`updateRunStatus` attached to component function object but never called. Removed dead code — tool calls are rendered via AG-UI events in `ChatPanel`. Files: `ProjectDetailPage.tsx`, `RunPanel.tsx`.
