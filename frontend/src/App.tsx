@@ -116,12 +116,9 @@ function AppShell(props: {
         <div class="flex flex-1 overflow-hidden">
           <Sidebar>
             <Sidebar.Header>
-              <div class="flex items-center justify-between">
-                <div>
-                  <h1 class="text-xl font-bold">{t("app.title")}</h1>
-                  <p class="mt-1 text-xs text-cf-text-muted">{t("app.version")}</p>
-                </div>
-                <NotificationBell />
+              <div>
+                <h1 class="text-xl font-bold">{t("app.title")}</h1>
+                <p class="mt-1 text-xs text-cf-text-muted">{t("app.version")}</p>
               </div>
             </Sidebar.Header>
 
@@ -279,12 +276,13 @@ function AppShell(props: {
               </div>
               <Show when={isAuthenticated()}>
                 <div class="flex items-center gap-2 text-sm">
+                  <NotificationBell />
                   <span class="text-cf-text-secondary">{user()?.name ?? ""}</span>
                   <span class="rounded bg-cf-bg-surface-alt px-1.5 py-0.5 text-xs font-medium uppercase text-cf-text-muted">
                     {user()?.role ?? ""}
                   </span>
                   <Button
-                    variant="link"
+                    variant="ghost"
                     size="xs"
                     onClick={() => void logout()}
                     title={t("auth.logout")}
