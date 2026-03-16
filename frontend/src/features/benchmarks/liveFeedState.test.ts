@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { computeEta, formatTokens } from "./liveFeedState";
+import type { AgentEvent, BenchmarkResult, TrajectorySummary } from "~/api/types";
+
+import {
+  agentEventToLiveFeedEvent,
+  computeEta,
+  formatTokens,
+  statsFromSummary,
+} from "./liveFeedState";
 
 describe("formatTokens", () => {
   it("returns raw number below 1000", () => {
@@ -34,5 +41,122 @@ describe("computeEta", () => {
   });
   it("rounds to nearest second", () => {
     expect(computeEta(2, 3, 100)).toBe(50);
+  });
+});
+
+describe("agentEventToLiveFeedEvent", () => {
+  const base: AgentEvent = {
+    id: "evt-1",
+    agent_id: "agent-1",
+    task_id: "task-1",
+    project_id: "proj-1",
+    type: "agent.tool_called",
+    payload: { input: "hello", output: "world", success: true, step: 3 },
+    version: 1,
+    created_at: "2026-03-16T12:00:00Z",
+    tool_name: "Read",
+    model: "gpt-4",
+    tokens_in: 100,
+    tokens_out: 50,
+    cost_usd: 0.005,
+  };
+
+  it("maps top-level fields", () => {
+    const result = agentEventToLiveFeedEvent(base);
+    expect(result.id).toBe("evt-1");
+    expect(result.event_type).toBe("agent.tool_called");
+    expect(result.tool_name).toBe("Read");
+    expect(result.model).toBe("gpt-4");
+    expect(result.tokens_in).toBe(100);
+    expect(result.tokens_out).toBe(50);
+    expect(result.cost_usd).toBe(0.005);
+    expect(result.project_id).toBe("proj-1");
+  });
+
+  it("maps payload fields", () => {
+    const result = agentEventToLiveFeedEvent(base);
+    expect(result.input).toBe("hello");
+    expect(result.output).toBe("world");
+    expect(result.success).toBe(true);
+    expect(result.step).toBe(3);
+  });
+
+  it("converts created_at to timestamp", () => {
+    const result = agentEventToLiveFeedEvent(base);
+    expect(result.timestamp).toBe(new Date("2026-03-16T12:00:00Z").getTime());
+  });
+
+  it("falls back to payload when top-level fields missing", () => {
+    const ev: AgentEvent = {
+      ...base,
+      tool_name: undefined,
+      model: undefined,
+      tokens_in: undefined,
+      tokens_out: undefined,
+      cost_usd: undefined,
+      payload: {
+        tool_name: "Edit",
+        model: "claude",
+        tokens_in: 200,
+        tokens_out: 80,
+        cost_usd: 0.01,
+        input: "x",
+        output: "y",
+        success: false,
+        step: 1,
+      },
+    };
+    const result = agentEventToLiveFeedEvent(ev);
+    expect(result.tool_name).toBe("Edit");
+    expect(result.model).toBe("claude");
+    expect(result.tokens_in).toBe(200);
+    expect(result.tokens_out).toBe(80);
+    expect(result.cost_usd).toBe(0.01);
+  });
+});
+
+describe("statsFromSummary", () => {
+  const summary: TrajectorySummary = {
+    total_events: 100,
+    event_counts: {},
+    duration_ms: 60000,
+    tool_call_count: 47,
+    error_count: 3,
+    total_tokens_in: 24300,
+    total_tokens_out: 8100,
+    total_cost_usd: 0.42,
+  };
+
+  it("maps summary fields to AggregateStats", () => {
+    const stats = statsFromSummary(summary, []);
+    expect(stats.totalTokensIn).toBe(24300);
+    expect(stats.totalTokensOut).toBe(8100);
+    expect(stats.toolCallCount).toBe(47);
+    expect(stats.toolSuccessCount).toBe(44);
+  });
+
+  it("computes avgScore from results", () => {
+    const results = [
+      { scores: { correctness: 0.8 } },
+      { scores: { correctness: 0.6 } },
+    ] as BenchmarkResult[];
+    const stats = statsFromSummary(summary, results);
+    expect(stats.avgScore).toBeCloseTo(0.7);
+  });
+
+  it("computes costPerTask from results count", () => {
+    const results = [
+      { scores: { correctness: 0.8 } },
+      { scores: { correctness: 0.6 } },
+      { scores: { correctness: 0.7 } },
+    ] as BenchmarkResult[];
+    const stats = statsFromSummary(summary, results);
+    expect(stats.costPerTask).toBeCloseTo(0.14);
+  });
+
+  it("handles zero results", () => {
+    const stats = statsFromSummary(summary, []);
+    expect(stats.avgScore).toBe(0);
+    expect(stats.costPerTask).toBe(0);
   });
 });
