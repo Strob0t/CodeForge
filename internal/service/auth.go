@@ -3,10 +3,8 @@ package service
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -57,7 +56,7 @@ func (s *AuthService) Register(ctx context.Context, req *user.CreateRequest) (*u
 	}
 
 	u := &user.User{
-		ID:           generateID(),
+		ID:           crypto.GenerateUUIDv4(),
 		Email:        req.Email,
 		Name:         req.Name,
 		PasswordHash: string(hash),
@@ -125,14 +124,14 @@ func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID
 	}
 
 	// Create refresh token
-	rawToken, err := generateRandomToken()
+	rawToken, err := crypto.GenerateRandomToken()
 	if err != nil {
 		return nil, "", fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	tokenHash := hashSHA256(rawToken)
+	tokenHash := crypto.HashSHA256(rawToken)
 	rt := &user.RefreshToken{
-		ID:        generateID(),
+		ID:        crypto.GenerateUUIDv4(),
 		UserID:    u.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(s.cfg.RefreshTokenExpiry),
@@ -152,7 +151,7 @@ func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID
 
 // RefreshTokens validates a refresh token, atomically rotates it, and issues a new access token.
 func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user.LoginResponse, string, error) {
-	tokenHash := hashSHA256(rawToken)
+	tokenHash := crypto.HashSHA256(rawToken)
 
 	rt, err := s.store.GetRefreshTokenByHash(ctx, tokenHash)
 	if err != nil {
@@ -179,15 +178,15 @@ func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user
 	}
 
 	// Issue new refresh token via atomic rotation (P2-3)
-	newRawToken, err := generateRandomToken()
+	newRawToken, err := crypto.GenerateRandomToken()
 	if err != nil {
 		return nil, "", fmt.Errorf("generate refresh token: %w", err)
 	}
 
 	newRT := &user.RefreshToken{
-		ID:        generateID(),
+		ID:        crypto.GenerateUUIDv4(),
 		UserID:    u.ID,
-		TokenHash: hashSHA256(newRawToken),
+		TokenHash: crypto.HashSHA256(newRawToken),
 		ExpiresAt: time.Now().Add(s.cfg.RefreshTokenExpiry),
 	}
 
@@ -246,7 +245,7 @@ func (s *AuthService) ValidateAccessToken(tokenStr string) (*user.TokenClaims, e
 // ValidateAPIKey looks up an API key by its SHA-256 hash.
 // Returns the user and the API key (for scope checking).
 func (s *AuthService) ValidateAPIKey(ctx context.Context, rawKey string) (*user.User, *user.APIKey, error) {
-	keyHash := hashSHA256(rawKey)
+	keyHash := crypto.HashSHA256(rawKey)
 	apiKey, err := s.store.GetAPIKeyByHash(ctx, keyHash)
 	if err != nil {
 		return nil, nil, errors.New("invalid api key")
@@ -269,7 +268,7 @@ func (s *AuthService) CreateAPIKey(ctx context.Context, userID string, req user.
 		return nil, fmt.Errorf("validate: %w", err)
 	}
 
-	rawKey, err := generateRandomToken()
+	rawKey, err := crypto.GenerateRandomToken()
 	if err != nil {
 		return nil, fmt.Errorf("generate key: %w", err)
 	}
@@ -282,11 +281,11 @@ func (s *AuthService) CreateAPIKey(ctx context.Context, userID string, req user.
 	}
 
 	key := &user.APIKey{
-		ID:        generateID(),
+		ID:        crypto.GenerateUUIDv4(),
 		UserID:    userID,
 		Name:      req.Name,
 		Prefix:    plainKey[:12], // "cfk_" + 8 chars
-		KeyHash:   hashSHA256(plainKey),
+		KeyHash:   crypto.HashSHA256(plainKey),
 		ExpiresAt: expiresAt,
 		Scopes:    req.Scopes,
 	}
@@ -400,7 +399,7 @@ func (s *AuthService) BootstrapAdmin(ctx context.Context, tenantID string) error
 
 	// Path 2: auto-generate password to file
 	if s.cfg.AutoGenerateInitialPassword {
-		password, err := generateRandomPassword(24)
+		password, err := crypto.GenerateRandomPassword(24)
 		if err != nil {
 			return fmt.Errorf("generate initial password: %w", err)
 		}
@@ -520,14 +519,14 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email, tenantID 
 		return "", fmt.Errorf("get user: %w", err)
 	}
 
-	rawToken, err := generateRandomToken()
+	rawToken, err := crypto.GenerateRandomToken()
 	if err != nil {
 		return "", fmt.Errorf("generate token: %w", err)
 	}
 
-	tokenHash := hashSHA256(rawToken)
+	tokenHash := crypto.HashSHA256(rawToken)
 	prt := &user.PasswordResetToken{
-		ID:        generateID(),
+		ID:        crypto.GenerateUUIDv4(),
 		UserID:    u.ID,
 		TokenHash: tokenHash,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
@@ -548,7 +547,7 @@ func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPas
 		return fmt.Errorf("validate: %w", err)
 	}
 
-	tokenHash := hashSHA256(rawToken)
+	tokenHash := crypto.HashSHA256(rawToken)
 	prt, err := s.store.GetPasswordResetTokenByHash(ctx, tokenHash)
 	if err != nil {
 		return fmt.Errorf("%w: invalid or expired reset token", domain.ErrValidation)
@@ -675,7 +674,7 @@ func (s *AuthService) signJWT(u *user.User) (string, error) {
 		TenantID:           u.TenantID,
 		IssuedAt:           now.Unix(),
 		Expiry:             now.Add(s.cfg.AccessTokenExpiry).Unix(),
-		JTI:                generateID(),
+		JTI:                crypto.GenerateUUIDv4(),
 		Audience:           "codeforge",
 		Issuer:             "codeforge-core",
 		MustChangePassword: u.MustChangePassword,
@@ -750,46 +749,6 @@ func base64URLDecode(s string) ([]byte, error) {
 		s += "="
 	}
 	return base64.URLEncoding.DecodeString(s)
-}
-
-func hashSHA256(data string) string {
-	h := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(h[:])
-}
-
-func generateRandomToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-
-// generateID produces a UUID v4 string using crypto/rand.
-func generateID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
-// generateRandomPassword creates a random password of the given length
-// containing uppercase, lowercase, and digits.
-func generateRandomPassword(length int) (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
-	}
-	// Ensure at least one of each required character class
-	b[0] = 'A' + b[0]%26 // uppercase
-	b[1] = 'a' + b[1]%26 // lowercase
-	b[2] = '0' + b[2]%10 // digit
-	return string(b), nil
 }
 
 // writePasswordFile writes the password to a file, creating parent directories as needed.

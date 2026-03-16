@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     import nats.aio.msg
     from nats.js.client import JetStreamContext
+    from pydantic import BaseModel
 
 logger = structlog.get_logger()
 
@@ -86,6 +87,14 @@ class ConsumerBaseMixin:
             headers[HEADER_REQUEST_ID] = request_id
         await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers or None)
 
+    async def _publish_error(self, result: BaseModel, subject: str) -> None:
+        """Publish a pre-built error result model to NATS."""
+        try:
+            if self._js is not None:
+                await self._js.publish(subject, result.model_dump_json().encode())
+        except Exception as exc:
+            logger.exception("failed to publish error result", subject=subject, error=str(exc))
+
     async def _publish_error_result(
         self,
         msg: nats.aio.msg.Msg,
@@ -102,8 +111,7 @@ class ConsumerBaseMixin:
                 request_id=req.request_id,
                 error="internal worker error",
             )
-            if self._js is not None:
-                await self._js.publish(subject, error_result.model_dump_json().encode())
+            await self._publish_error(error_result, subject)
         except Exception as exc:
             logger.exception("failed to publish error result", subject=subject, error=str(exc))
         await msg.nak()

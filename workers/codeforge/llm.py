@@ -198,27 +198,14 @@ class LLMClientConfig:
 
 def load_llm_client_config() -> LLMClientConfig:
     """Load LLM client config from environment variables."""
-
-    def _float(key: str, default: float) -> float:
-        val = os.environ.get(key, "")
-        try:
-            return float(val) if val else default
-        except ValueError:
-            return default
-
-    def _int(key: str, default: int) -> int:
-        val = os.environ.get(key, "")
-        try:
-            return int(val) if val else default
-        except ValueError:
-            return default
+    from codeforge.config import _resolve_float, _resolve_int
 
     return LLMClientConfig(
-        max_retries=_int("CODEFORGE_LLM_MAX_RETRIES", 2),
-        backoff_base=_float("CODEFORGE_LLM_BACKOFF_BASE", 2.0),
-        backoff_max=_float("CODEFORGE_LLM_BACKOFF_MAX", 60.0),
-        connect_timeout=_float("CODEFORGE_LLM_CONNECT_TIMEOUT", 10.0),
-        read_timeout=_float("CODEFORGE_LLM_READ_TIMEOUT", 300.0),
+        max_retries=_resolve_int("CODEFORGE_LLM_MAX_RETRIES", None, 2),
+        backoff_base=_resolve_float("CODEFORGE_LLM_BACKOFF_BASE", None, 2.0),
+        backoff_max=_resolve_float("CODEFORGE_LLM_BACKOFF_MAX", None, 60.0),
+        connect_timeout=_resolve_float("CODEFORGE_LLM_CONNECT_TIMEOUT", None, 10.0),
+        read_timeout=_resolve_float("CODEFORGE_LLM_READ_TIMEOUT", None, 300.0),
     )
 
 

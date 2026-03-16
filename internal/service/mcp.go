@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -84,7 +85,7 @@ func (s *MCPService) Register(def mcp.ServerDef) error { //nolint:gocritic // hu
 	}
 
 	if def.ID == "" {
-		def.ID = generateID()
+		def.ID = crypto.GenerateUUIDv4()
 	}
 
 	s.mu.Lock()

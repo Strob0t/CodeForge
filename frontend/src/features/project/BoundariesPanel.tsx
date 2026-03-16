@@ -1,20 +1,8 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { api } from "~/api/client";
+import type { BoundaryConfig } from "~/api/types";
 import { Button } from "~/ui";
-
-interface BoundaryFile {
-  path: string;
-  type: string;
-  counterpart: string;
-  auto_detected: boolean;
-}
-
-interface BoundaryConfig {
-  project_id: string;
-  boundaries: BoundaryFile[];
-  last_analyzed: string;
-  version: number;
-}
 
 const TYPE_COLORS: Record<string, string> = {
   api: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -27,9 +15,11 @@ export default function BoundariesPanel(props: { projectId: string }) {
   const [analyzing, setAnalyzing] = createSignal(false);
 
   const fetchBoundaries = async (id: string): Promise<BoundaryConfig | null> => {
-    const res = await fetch(`/api/v1/projects/${id}/boundaries`);
-    if (!res.ok) return null;
-    return res.json() as Promise<BoundaryConfig>;
+    try {
+      return await api.projects.getBoundaries(id);
+    } catch {
+      return null;
+    }
   };
 
   const [config, { refetch }] = createResource(() => props.projectId, fetchBoundaries);
@@ -37,9 +27,7 @@ export default function BoundariesPanel(props: { projectId: string }) {
   const triggerAnalysis = async () => {
     setAnalyzing(true);
     try {
-      await fetch(`/api/v1/projects/${props.projectId}/boundaries/analyze`, {
-        method: "POST",
-      });
+      await api.projects.triggerBoundaryAnalysis(props.projectId);
       // Refetch after a short delay to allow analysis to complete
       setTimeout(() => refetch(), 3000);
     } finally {

@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -23,9 +22,7 @@ func (s *Store) CreateTenant(ctx context.Context, req tenant.CreateRequest) (*te
 	if err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
-	if settingsJSON != nil {
-		_ = json.Unmarshal(settingsJSON, &t.Settings)
-	}
+	_ = unmarshalJSONField(settingsJSON, &t.Settings, "settings")
 	return &t, nil
 }
 
@@ -39,9 +36,7 @@ func (s *Store) GetTenant(ctx context.Context, id string) (*tenant.Tenant, error
 	if err != nil {
 		return nil, notFoundWrap(err, "get tenant %s", id)
 	}
-	if settingsJSON != nil {
-		_ = json.Unmarshal(settingsJSON, &t.Settings)
-	}
+	_ = unmarshalJSONField(settingsJSON, &t.Settings, "settings")
 	return &t, nil
 }
 
@@ -58,9 +53,7 @@ func (s *Store) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 		if err := r.Scan(&t.ID, &t.Name, &t.Slug, &t.Enabled, &settingsJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return t, err
 		}
-		if settingsJSON != nil {
-			_ = json.Unmarshal(settingsJSON, &t.Settings)
-		}
+		_ = unmarshalJSONField(settingsJSON, &t.Settings, "settings")
 		return t, nil
 	})
 }

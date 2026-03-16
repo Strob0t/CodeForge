@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -84,6 +85,26 @@ func notFoundWrap(err error, format string, args ...any) error {
 		return fmt.Errorf("%s: %w", msg, domain.ErrNotFound)
 	}
 	return fmt.Errorf("%s: %w", msg, err)
+}
+
+// marshalJSON wraps json.Marshal with a descriptive error message.
+func marshalJSON(v any, field string) ([]byte, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal %s: %w", field, err)
+	}
+	return data, nil
+}
+
+// unmarshalJSONField unmarshals data into target, skipping nil/empty data.
+func unmarshalJSONField[T any](data []byte, target *T, field string) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(data, target); err != nil {
+		return fmt.Errorf("unmarshal %s: %w", field, err)
+	}
+	return nil
 }
 
 // execExpectOne verifies that an Exec affected exactly one row. If not

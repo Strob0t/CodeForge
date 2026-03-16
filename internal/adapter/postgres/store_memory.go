@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -17,11 +16,11 @@ func (s *Store) CreateMemory(ctx context.Context, m *memory.Memory) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at`
 
-	metadata := json.RawMessage(`{}`)
+	metadata := []byte(`{}`)
 	if m.Metadata != nil {
-		b, err := json.Marshal(m.Metadata)
+		b, err := marshalJSON(m.Metadata, "memory metadata")
 		if err != nil {
-			return fmt.Errorf("marshal memory metadata: %w", err)
+			return err
 		}
 		metadata = b
 	}
@@ -53,9 +52,7 @@ func (s *Store) ListMemories(ctx context.Context, projectID string) ([]memory.Me
 		); err != nil {
 			return m, err
 		}
-		if len(metadata) > 0 {
-			_ = json.Unmarshal(metadata, &m.Metadata)
-		}
+		_ = unmarshalJSONField(metadata, &m.Metadata, "metadata")
 		return m, nil
 	})
 }

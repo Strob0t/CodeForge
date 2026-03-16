@@ -174,11 +174,10 @@ func (h *Handlers) UpdateProject(w http.ResponseWriter, r *http.Request) {
 
 // ParseRepoURL handles POST /api/v1/parse-repo-url
 func (h *Handlers) ParseRepoURL(w http.ResponseWriter, r *http.Request) {
-	var req struct {
+	req, ok := readJSON[struct {
 		URL string `json:"url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r, 1<<20)
+	if !ok {
 		return
 	}
 	if req.URL == "" {
@@ -870,13 +869,12 @@ func (h *Handlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Request) {
 // It adds a persistent "allow" rule for a specific tool to a project's policy profile.
 // If the project uses a built-in preset, a custom clone is created first.
 func (h *Handlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Request) {
-	var req struct {
+	req, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
 		Tool      string `json:"tool"`
 		Command   string `json:"command,omitempty"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	}](w, r, 1<<20)
+	if !ok {
 		return
 	}
 	if req.ProjectID == "" {

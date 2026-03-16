@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/boundary"
@@ -22,7 +21,7 @@ func (s *Store) GetProjectBoundaries(ctx context.Context, projectID string) (*bo
 	if err != nil {
 		return nil, notFoundWrap(err, "get project boundaries %s", projectID)
 	}
-	if err := json.Unmarshal(boundariesJSON, &cfg.Boundaries); err != nil {
+	if err := unmarshalJSONField(boundariesJSON, &cfg.Boundaries, "boundaries"); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
@@ -31,7 +30,7 @@ func (s *Store) GetProjectBoundaries(ctx context.Context, projectID string) (*bo
 // UpsertProjectBoundaries inserts or updates the boundary configuration for a project.
 func (s *Store) UpsertProjectBoundaries(ctx context.Context, cfg *boundary.ProjectBoundaryConfig) error {
 	tid := tenantFromCtx(ctx)
-	boundariesJSON, err := json.Marshal(cfg.Boundaries)
+	boundariesJSON, err := marshalJSON(cfg.Boundaries, "boundaries")
 	if err != nil {
 		return err
 	}

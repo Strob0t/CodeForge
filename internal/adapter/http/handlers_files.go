@@ -2,7 +2,6 @@ package http
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -26,11 +25,9 @@ func (h *Handlers) ListFiles(w http.ResponseWriter, r *http.Request) {
 // ListTree handles GET /api/v1/projects/{id}/files/tree?max_entries=10000
 func (h *Handlers) ListTree(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	maxEntries := 10000
-	if v := r.URL.Query().Get("max_entries"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 50000 {
-			maxEntries = n
-		}
+	maxEntries := queryParamInt(r, "max_entries", 10000)
+	if maxEntries > 50000 {
+		maxEntries = 50000
 	}
 
 	entries, err := h.Files.ListTree(r.Context(), projectID, maxEntries)

@@ -23,9 +23,8 @@ func (h *Handlers) GetProjectBoundaries(w http.ResponseWriter, r *http.Request) 
 // UpdateProjectBoundaries handles PUT /api/v1/projects/{id}/boundaries
 func (h *Handlers) UpdateProjectBoundaries(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	var cfg boundary.ProjectBoundaryConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	cfg, ok := readJSON[boundary.ProjectBoundaryConfig](w, r, 1<<20)
+	if !ok {
 		return
 	}
 	cfg.ProjectID = projectID
@@ -75,12 +74,11 @@ func (h *Handlers) TriggerReviewRefactor(w http.ResponseWriter, r *http.Request)
 // ApproveRun handles POST /api/v1/runs/{id}/approve
 func (h *Handlers) ApproveRun(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "id")
-	var body struct {
+	body, ok := readJSON[struct {
 		PlanID string `json:"plan_id"`
 		StepID string `json:"step_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r, 1<<20)
+	if !ok {
 		return
 	}
 	if err := h.Orchestrator.ApproveStep(r.Context(), body.PlanID, body.StepID); err != nil {
@@ -93,12 +91,11 @@ func (h *Handlers) ApproveRun(w http.ResponseWriter, r *http.Request) {
 // RejectRun handles POST /api/v1/runs/{id}/reject
 func (h *Handlers) RejectRun(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "id")
-	var body struct {
+	body, ok := readJSON[struct {
 		PlanID string `json:"plan_id"`
 		StepID string `json:"step_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	}](w, r, 1<<20)
+	if !ok {
 		return
 	}
 	if err := h.Orchestrator.RejectStep(r.Context(), body.PlanID, body.StepID); err != nil {

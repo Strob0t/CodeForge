@@ -5,7 +5,7 @@ import type { CreateModeRequest, Mode } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { COMMON_DENIED_ACTIONS } from "~/config/domain-constants";
-import { useAsyncAction, useFormState } from "~/hooks";
+import { useAsyncAction, useCRUDForm } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Alert,
@@ -58,24 +58,16 @@ export default function ModesPage() {
   const [scenarios] = createResource(() => api.modes.scenarios());
   const [toolSuggestions] = createResource(() => api.modes.tools());
   const [artifactTypes] = createResource(() => api.modes.artifactTypes());
-  const [showForm, setShowForm] = createSignal(false);
-  const [editingId, setEditingId] = createSignal<string | null>(null);
 
-  const form = useFormState(FORM_DEFAULTS);
-
-  function isEditing() {
-    return editingId() !== null;
-  }
+  const crud = useCRUDForm<ModeFormState>(FORM_DEFAULTS);
 
   function handleCancelForm() {
-    setShowForm(false);
-    form.reset();
-    setEditingId(null);
+    crud.cancelForm();
     clearError();
   }
 
   function handleEdit(mode: Mode) {
-    form.populate({
+    crud.startEdit(mode.id, {
       id: mode.id,
       name: mode.name,
       desc: mode.description,
@@ -87,8 +79,6 @@ export default function ModesPage() {
       autonomy: mode.autonomy,
       prompt: mode.prompt_prefix ?? "",
     });
-    setEditingId(mode.id);
-    setShowForm(true);
   }
 
   const {
@@ -97,8 +87,8 @@ export default function ModesPage() {
     clearError,
   } = useAsyncAction(
     async () => {
-      const id = form.state.id.trim();
-      const name = form.state.name.trim();
+      const id = crud.form.state.id.trim();
+      const name = crud.form.state.name.trim();
       if (!id) {
         toast("error", t("modes.toast.idRequired"));
         return;
@@ -110,26 +100,24 @@ export default function ModesPage() {
       const req: CreateModeRequest = {
         id,
         name,
-        description: form.state.desc.trim() || undefined,
-        tools: form.state.tools.filter(Boolean),
-        denied_tools: form.state.deniedTools.filter(Boolean),
-        denied_actions: form.state.deniedActions.filter(Boolean),
-        required_artifact: form.state.requiredArtifact.trim() || undefined,
-        llm_scenario: form.state.scenario.trim() || undefined,
-        autonomy: form.state.autonomy,
-        prompt_prefix: form.state.prompt.trim() || undefined,
+        description: crud.form.state.desc.trim() || undefined,
+        tools: crud.form.state.tools.filter(Boolean),
+        denied_tools: crud.form.state.deniedTools.filter(Boolean),
+        denied_actions: crud.form.state.deniedActions.filter(Boolean),
+        required_artifact: crud.form.state.requiredArtifact.trim() || undefined,
+        llm_scenario: crud.form.state.scenario.trim() || undefined,
+        autonomy: crud.form.state.autonomy,
+        prompt_prefix: crud.form.state.prompt.trim() || undefined,
       };
-      const eid = editingId();
-      if (isEditing() && eid) {
+      const eid = crud.editingId();
+      if (crud.isEditing() && eid) {
         await api.modes.update(eid, req);
         toast("success", t("modes.toast.updated"));
       } else {
         await api.modes.create(req);
         toast("success", t("modes.toast.created"));
       }
-      form.reset();
-      setEditingId(null);
-      setShowForm(false);
+      crud.cancelForm();
       refetch();
     },
     {
@@ -137,7 +125,7 @@ export default function ModesPage() {
         const msg =
           err instanceof Error
             ? err.message
-            : isEditing()
+            : crud.isEditing()
               ? t("modes.toast.updateFailed")
               : t("modes.toast.createFailed");
         toast("error", msg);
@@ -179,22 +167,22 @@ export default function ModesPage() {
       title={t("modes.title")}
       action={
         <Button
-          variant={showForm() ? "secondary" : "primary"}
+          variant={crud.showForm() ? "secondary" : "primary"}
           onClick={() => {
-            if (showForm()) {
+            if (crud.showForm()) {
               handleCancelForm();
             } else {
-              setShowForm(true);
+              crud.startCreate();
             }
           }}
         >
-          {showForm() ? t("common.cancel") : t("modes.addMode")}
+          {crud.showForm() ? t("common.cancel") : t("modes.addMode")}
         </Button>
       }
     >
       <ErrorBanner error={error} onDismiss={clearError} />
 
-      <Show when={showForm()}>
+      <Show when={crud.showForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
@@ -202,26 +190,26 @@ export default function ModesPage() {
                 e.preventDefault();
                 void handleSubmit();
               }}
-              aria-label={isEditing() ? t("modes.edit") : t("modes.addMode")}
+              aria-label={crud.isEditing() ? t("modes.edit") : t("modes.addMode")}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField label={t("modes.form.id")} id="mode-id" required>
                   <Input
                     id="mode-id"
                     type="text"
-                    value={form.state.id}
-                    onInput={(e) => form.setState("id", e.currentTarget.value)}
+                    value={crud.form.state.id}
+                    onInput={(e) => crud.form.setState("id", e.currentTarget.value)}
                     placeholder={t("modes.form.idPlaceholder")}
                     aria-required="true"
-                    disabled={isEditing()}
+                    disabled={crud.isEditing()}
                   />
                 </FormField>
                 <FormField label={t("modes.form.name")} id="mode-name" required>
                   <Input
                     id="mode-name"
                     type="text"
-                    value={form.state.name}
-                    onInput={(e) => form.setState("name", e.currentTarget.value)}
+                    value={crud.form.state.name}
+                    onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
                     placeholder={t("modes.form.namePlaceholder")}
                     aria-required="true"
                   />
@@ -230,16 +218,16 @@ export default function ModesPage() {
                   <Input
                     id="mode-desc"
                     type="text"
-                    value={form.state.desc}
-                    onInput={(e) => form.setState("desc", e.currentTarget.value)}
+                    value={crud.form.state.desc}
+                    onInput={(e) => crud.form.setState("desc", e.currentTarget.value)}
                     placeholder={t("modes.form.descriptionPlaceholder")}
                   />
                 </FormField>
                 <FormField label={t("modes.form.tools")} id="mode-tools">
                   <TagInput
                     id="mode-tools"
-                    values={form.state.tools}
-                    onChange={(v) => form.setState("tools", v)}
+                    values={crud.form.state.tools}
+                    onChange={(v) => crud.form.setState("tools", v)}
                     suggestions={toolSuggestions() ?? []}
                     placeholder={t("modes.form.toolsPlaceholder")}
                   />
@@ -247,8 +235,8 @@ export default function ModesPage() {
                 <FormField label={t("modes.form.deniedTools")} id="mode-denied-tools">
                   <TagInput
                     id="mode-denied-tools"
-                    values={form.state.deniedTools}
-                    onChange={(v) => form.setState("deniedTools", v)}
+                    values={crud.form.state.deniedTools}
+                    onChange={(v) => crud.form.setState("deniedTools", v)}
                     suggestions={toolSuggestions() ?? []}
                     placeholder={t("modes.form.deniedToolsPlaceholder")}
                   />
@@ -256,8 +244,8 @@ export default function ModesPage() {
                 <FormField label={t("modes.form.deniedActions")} id="mode-denied-actions">
                   <TagInput
                     id="mode-denied-actions"
-                    values={form.state.deniedActions}
-                    onChange={(v) => form.setState("deniedActions", v)}
+                    values={crud.form.state.deniedActions}
+                    onChange={(v) => crud.form.setState("deniedActions", v)}
                     suggestions={[...COMMON_DENIED_ACTIONS]}
                     placeholder={t("modes.form.deniedActionsPlaceholder")}
                   />
@@ -265,8 +253,8 @@ export default function ModesPage() {
                 <FormField label={t("modes.form.requiredArtifact")} id="mode-required-artifact">
                   <Select
                     id="mode-required-artifact"
-                    value={form.state.requiredArtifact}
-                    onChange={(e) => form.setState("requiredArtifact", e.currentTarget.value)}
+                    value={crud.form.state.requiredArtifact}
+                    onChange={(e) => crud.form.setState("requiredArtifact", e.currentTarget.value)}
                   >
                     <option value="">{t("modes.form.requiredArtifactPlaceholder")}</option>
                     <For each={artifactTypes() ?? []}>
@@ -277,8 +265,8 @@ export default function ModesPage() {
                 <FormField label={t("modes.form.scenario")} id="mode-scenario">
                   <Select
                     id="mode-scenario"
-                    value={form.state.scenario}
-                    onChange={(e) => form.setState("scenario", e.currentTarget.value)}
+                    value={crud.form.state.scenario}
+                    onChange={(e) => crud.form.setState("scenario", e.currentTarget.value)}
                   >
                     <option value="">{t("modes.form.scenarioPlaceholder")}</option>
                     <For each={scenarios() ?? []}>{(s) => <option value={s}>{s}</option>}</For>
@@ -290,15 +278,15 @@ export default function ModesPage() {
                     type="number"
                     min="1"
                     max="5"
-                    value={form.state.autonomy}
-                    onInput={(e) => form.setState("autonomy", Number(e.currentTarget.value))}
+                    value={crud.form.state.autonomy}
+                    onInput={(e) => crud.form.setState("autonomy", Number(e.currentTarget.value))}
                   />
                 </FormField>
                 <FormField label={t("modes.form.prompt")} id="mode-prompt" class="sm:col-span-2">
                   <Textarea
                     id="mode-prompt"
-                    value={form.state.prompt}
-                    onInput={(e) => form.setState("prompt", e.currentTarget.value)}
+                    value={crud.form.state.prompt}
+                    onInput={(e) => crud.form.setState("prompt", e.currentTarget.value)}
                     rows={3}
                     placeholder={t("modes.form.promptPlaceholder")}
                   />
@@ -306,7 +294,7 @@ export default function ModesPage() {
               </div>
               <div class="mt-4 flex justify-end">
                 <Button type="submit">
-                  {isEditing() ? t("common.save") : t("modes.form.create")}
+                  {crud.isEditing() ? t("common.save") : t("modes.form.create")}
                 </Button>
               </div>
             </form>

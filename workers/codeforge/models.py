@@ -121,19 +121,9 @@ class RunStartMessage(BaseModel):
         """Go serializes nil maps as null; coerce to empty dict."""
         return v if v is not None else {}
 
-    @field_validator("mcp_servers", mode="before")
+    @field_validator("mcp_servers", "context", "microagent_prompts", mode="before")
     @classmethod
-    def _coerce_mcp_servers_none(cls, v: list[MCPServerDef] | None) -> list[MCPServerDef]:
-        return coerce_none_to_list(v)
-
-    @field_validator("context", mode="before")
-    @classmethod
-    def _coerce_context_none(cls, v: list[ContextEntry] | None) -> list[ContextEntry]:
-        return coerce_none_to_list(v)
-
-    @field_validator("microagent_prompts", mode="before")
-    @classmethod
-    def _coerce_microagent_prompts_none(cls, v: list[str] | None) -> list[str]:
+    def _coerce_list_fields(cls, v: list | None) -> list:
         return coerce_none_to_list(v)
 
 
@@ -205,8 +195,7 @@ class RepoMapRequest(BaseModel):
     @field_validator("active_files", mode="before")
     @classmethod
     def _coerce_null_to_empty(cls, v: list[str] | None) -> list[str]:
-        """Go marshals nil slices as null; treat as empty list."""
-        return v if v is not None else []
+        return coerce_none_to_list(v)
 
 
 class RepoMapResult(BaseModel):
@@ -451,29 +440,10 @@ class ConversationRunStartMessage(BaseModel):
     tenant_id: str = ""
     session_meta: SessionMetaPayload | None = None
 
-    @field_validator("mcp_servers", mode="before")
+    @field_validator("mcp_servers", "context", "tools", "microagent_prompts", mode="before")
     @classmethod
-    def _coerce_mcp_servers_none(cls, v: list[MCPServerDef] | None) -> list[MCPServerDef]:
-        """Go serializes nil slices as null; coerce to empty list."""
-        return v if v is not None else []
-
-    @field_validator("context", mode="before")
-    @classmethod
-    def _coerce_context_none(cls, v: list[ContextEntry] | None) -> list[ContextEntry]:
-        """Go serializes nil slices as null; coerce to empty list."""
-        return v if v is not None else []
-
-    @field_validator("tools", mode="before")
-    @classmethod
-    def _coerce_tools_none(cls, v: list[str] | None) -> list[str]:
-        """Go serializes nil slices as null; coerce to empty list."""
-        return v if v is not None else []
-
-    @field_validator("microagent_prompts", mode="before")
-    @classmethod
-    def _coerce_microagent_prompts_none(cls, v: list[str] | None) -> list[str]:
-        """Go serializes nil slices as null; coerce to empty list."""
-        return v if v is not None else []
+    def _coerce_list_fields(cls, v: list | None) -> list:
+        return coerce_none_to_list(v)
 
 
 class ConversationRunCompleteMessage(BaseModel):

@@ -4,7 +4,7 @@ import { api } from "~/api/client";
 import type { CreateMCPServerRequest, MCPServer, MCPServerTool, MCPTestResult } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { MCP_TRANSPORTS } from "~/config/domain-constants";
-import { useAsyncAction, useConfirmAction, useFormState } from "~/hooks";
+import { useAsyncAction, useCRUDForm } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Alert,
@@ -55,8 +55,6 @@ export default function MCPServersPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [servers, { refetch }] = createResource(() => api.mcp.listServers());
-  const [showForm, setShowForm] = createSignal(false);
-  const [editingId, setEditingId] = createSignal<string | null>(null);
 
   // Pre-save test state
   const [testFailError, setTestFailError] = createSignal("");
@@ -66,22 +64,14 @@ export default function MCPServersPage() {
   const [formTestResult, setFormTestResult] = createSignal<MCPTestResult | null>(null);
   const [formTesting, setFormTesting] = createSignal(false);
 
-  const form = useFormState(FORM_DEFAULTS);
-
-  const del = useConfirmAction(async (server: MCPServer) => {
+  const crud = useCRUDForm(FORM_DEFAULTS, async (server: MCPServer) => {
     await api.mcp.deleteServer(server.id);
     toast("success", t("mcp.toast.deleted"));
     refetch();
   });
 
-  function isEditing(): boolean {
-    return editingId() !== null;
-  }
-
   function handleCancelForm(): void {
-    setShowForm(false);
-    form.reset();
-    setEditingId(null);
+    crud.cancelForm();
     setFormTestResult(null);
     setFormTesting(false);
     clearError();
@@ -111,7 +101,7 @@ export default function MCPServersPage() {
 
   function handleEdit(server: MCPServer): void {
     const envEntries = Object.entries(server.env ?? {}).map(([key, value]) => ({ key, value }));
-    form.populate({
+    crud.startEdit(server.id, {
       name: server.name,
       desc: server.description,
       transport: server.transport,
@@ -121,64 +111,64 @@ export default function MCPServersPage() {
       env: envEntries,
       enabled: server.enabled,
     });
-    setEditingId(server.id);
-    setShowForm(true);
   }
 
   function addEnvRow(): void {
-    form.setState("env", [...form.state.env, { key: "", value: "" }]);
+    crud.form.setState("env", [...crud.form.state.env, { key: "", value: "" }]);
   }
 
   function removeEnvRow(index: number): void {
-    form.setState(
+    crud.form.setState(
       "env",
-      form.state.env.filter((_, i) => i !== index),
+      crud.form.state.env.filter((_, i) => i !== index),
     );
   }
 
   function updateEnvRow(index: number, field: "key" | "value", val: string): void {
-    form.setState(
+    crud.form.setState(
       "env",
-      form.state.env.map((row, i) => (i === index ? { ...row, [field]: val } : row)),
+      crud.form.state.env.map((row, i) => (i === index ? { ...row, [field]: val } : row)),
     );
   }
 
   function buildRequest(): CreateMCPServerRequest | null {
-    const name = form.state.name.trim();
+    const name = crud.form.state.name.trim();
     if (!name) {
       toast("error", t("mcp.toast.nameRequired"));
       return null;
     }
     const envObj: Record<string, string> = {};
-    for (const row of form.state.env) {
+    for (const row of crud.form.state.env) {
       const k = row.key.trim();
       if (k) envObj[k] = row.value;
     }
     return {
       name,
-      description: form.state.desc.trim() || undefined,
-      transport: form.state.transport,
+      description: crud.form.state.desc.trim() || undefined,
+      transport: crud.form.state.transport,
       command:
-        form.state.transport === "stdio" ? form.state.command.trim() || undefined : undefined,
+        crud.form.state.transport === "stdio"
+          ? crud.form.state.command.trim() || undefined
+          : undefined,
       args:
-        form.state.transport === "stdio"
-          ? form.state.args
+        crud.form.state.transport === "stdio"
+          ? crud.form.state.args
               .split("\n")
               .map((s) => s.trim())
               .filter(Boolean)
           : undefined,
       url:
-        form.state.transport === "sse" || form.state.transport === "streamable_http"
-          ? form.state.url.trim() || undefined
+        crud.form.state.transport === "sse" || crud.form.state.transport === "streamable_http"
+          ? crud.form.state.url.trim() || undefined
           : undefined,
       env: Object.keys(envObj).length > 0 ? envObj : undefined,
-      enabled: form.state.enabled,
+      enabled: crud.form.state.enabled,
     };
   }
 
   async function saveServer(req: CreateMCPServerRequest, toolCount?: number): Promise<void> {
-    const eid = editingId();
-    if (isEditing() && eid) {
+    const eid = crud.editingId();
+    if (crud.isEditing() && eid) {
       await api.mcp.updateServer(eid, req);
       toast("success", t("mcp.toast.updated"));
     } else {
@@ -188,9 +178,7 @@ export default function MCPServersPage() {
         : t("mcp.toast.created");
       toast("success", msg);
     }
-    form.reset();
-    setEditingId(null);
-    setShowForm(false);
+    crud.cancelForm();
     refetch();
   }
 
@@ -225,7 +213,7 @@ export default function MCPServersPage() {
         const msg =
           err instanceof Error
             ? err.message
-            : isEditing()
+            : crud.isEditing()
               ? t("mcp.toast.updateFailed")
               : t("mcp.toast.createFailed");
         toast("error", msg);
@@ -293,7 +281,7 @@ export default function MCPServersPage() {
         <MCPServerActions
           server={server}
           onEdit={handleEdit}
-          onDelete={(s) => del.requestConfirm(s)}
+          onDelete={(s) => crud.del.requestConfirm(s)}
           onRefetch={refetch}
         />
       ),
@@ -306,23 +294,23 @@ export default function MCPServersPage() {
       description={t("mcp.description")}
       action={
         <Button
-          variant={showForm() ? "secondary" : "primary"}
+          variant={crud.showForm() ? "secondary" : "primary"}
           onClick={() => {
-            if (showForm()) {
+            if (crud.showForm()) {
               handleCancelForm();
             } else {
-              setShowForm(true);
+              crud.startCreate();
             }
           }}
         >
-          {showForm() ? t("common.cancel") : t("mcp.addServer")}
+          {crud.showForm() ? t("common.cancel") : t("mcp.addServer")}
         </Button>
       }
     >
       <ErrorBanner error={error} onDismiss={clearError} />
 
       {/* Add / Edit Form */}
-      <Show when={showForm()}>
+      <Show when={crud.showForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
@@ -330,7 +318,7 @@ export default function MCPServersPage() {
                 e.preventDefault();
                 void handleSubmit();
               }}
-              aria-label={isEditing() ? t("mcp.editServer") : t("mcp.addServer")}
+              aria-label={crud.isEditing() ? t("mcp.editServer") : t("mcp.addServer")}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {/* Name */}
@@ -338,8 +326,8 @@ export default function MCPServersPage() {
                   <Input
                     id="mcp-name"
                     type="text"
-                    value={form.state.name}
-                    onInput={(e) => form.setState("name", e.currentTarget.value)}
+                    value={crud.form.state.name}
+                    onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
                     placeholder={t("mcp.form.namePlaceholder")}
                     aria-required="true"
                   />
@@ -349,9 +337,9 @@ export default function MCPServersPage() {
                 <FormField label={t("mcp.form.transport")} id="mcp-transport">
                   <Select
                     id="mcp-transport"
-                    value={form.state.transport}
+                    value={crud.form.state.transport}
                     onChange={(e) =>
-                      form.setState(
+                      crud.form.setState(
                         "transport",
                         e.currentTarget.value as "stdio" | "sse" | "streamable_http",
                       )
@@ -368,20 +356,20 @@ export default function MCPServersPage() {
                   <Input
                     id="mcp-desc"
                     type="text"
-                    value={form.state.desc}
-                    onInput={(e) => form.setState("desc", e.currentTarget.value)}
+                    value={crud.form.state.desc}
+                    onInput={(e) => crud.form.setState("desc", e.currentTarget.value)}
                     placeholder={t("mcp.form.descriptionPlaceholder")}
                   />
                 </FormField>
 
                 {/* Command (stdio only) */}
-                <Show when={form.state.transport === "stdio"}>
+                <Show when={crud.form.state.transport === "stdio"}>
                   <FormField label={t("mcp.form.command")} id="mcp-command" class="sm:col-span-2">
                     <Input
                       id="mcp-command"
                       type="text"
-                      value={form.state.command}
-                      onInput={(e) => form.setState("command", e.currentTarget.value)}
+                      value={crud.form.state.command}
+                      onInput={(e) => crud.form.setState("command", e.currentTarget.value)}
                       mono
                       placeholder={t("mcp.form.commandPlaceholder")}
                     />
@@ -389,8 +377,8 @@ export default function MCPServersPage() {
                   <FormField label={t("mcp.form.args")} id="mcp-args" class="sm:col-span-2">
                     <Textarea
                       id="mcp-args"
-                      value={form.state.args}
-                      onInput={(e) => form.setState("args", e.currentTarget.value)}
+                      value={crud.form.state.args}
+                      onInput={(e) => crud.form.setState("args", e.currentTarget.value)}
                       rows={3}
                       mono
                       placeholder={t("mcp.form.argsPlaceholder")}
@@ -401,15 +389,16 @@ export default function MCPServersPage() {
                 {/* URL (sse / streamable_http) */}
                 <Show
                   when={
-                    form.state.transport === "sse" || form.state.transport === "streamable_http"
+                    crud.form.state.transport === "sse" ||
+                    crud.form.state.transport === "streamable_http"
                   }
                 >
                   <FormField label={t("mcp.form.url")} id="mcp-url" class="sm:col-span-2">
                     <Input
                       id="mcp-url"
                       type="text"
-                      value={form.state.url}
-                      onInput={(e) => form.setState("url", e.currentTarget.value)}
+                      value={crud.form.state.url}
+                      onInput={(e) => crud.form.setState("url", e.currentTarget.value)}
                       mono
                       placeholder={t("mcp.form.urlPlaceholder")}
                     />
@@ -426,7 +415,7 @@ export default function MCPServersPage() {
                       {t("mcp.form.addEnv")}
                     </Button>
                   </div>
-                  <For each={form.state.env}>
+                  <For each={crud.form.state.env}>
                     {(row, index) => (
                       <div class="mb-2 flex gap-2">
                         <Input
@@ -462,8 +451,8 @@ export default function MCPServersPage() {
                 <div class="flex items-center gap-3 sm:col-span-2">
                   <Checkbox
                     id="mcp-enabled"
-                    checked={form.state.enabled}
-                    onChange={(checked) => form.setState("enabled", checked)}
+                    checked={crud.form.state.enabled}
+                    onChange={(checked) => crud.form.setState("enabled", checked)}
                   />
                   <label for="mcp-enabled" class="text-sm font-medium text-cf-text-secondary">
                     {t("mcp.form.enabled")}
@@ -496,7 +485,7 @@ export default function MCPServersPage() {
                 <Button
                   variant="secondary"
                   onClick={() => void handleFormTest()}
-                  disabled={formTesting() || !form.state.name.trim()}
+                  disabled={formTesting() || !crud.form.state.name.trim()}
                   loading={formTesting()}
                 >
                   {formTesting() ? t("mcp.testing") : t("mcp.test")}
@@ -504,7 +493,7 @@ export default function MCPServersPage() {
                 <Button type="submit" disabled={testingConnection()} loading={testingConnection()}>
                   {testingConnection()
                     ? t("mcp.testingConnection")
-                    : isEditing()
+                    : crud.isEditing()
                       ? t("mcp.form.update")
                       : t("mcp.form.create")}
                 </Button>
@@ -536,14 +525,14 @@ export default function MCPServersPage() {
 
       {/* Delete confirm dialog */}
       <ConfirmDialog
-        open={del.target() !== null}
+        open={crud.del.target() !== null}
         title={t("common.delete")}
         message={t("mcp.deleteConfirm")}
         variant="danger"
         confirmLabel={t("common.delete")}
         cancelLabel={t("common.cancel")}
-        onConfirm={() => void del.confirm()}
-        onCancel={del.cancel}
+        onConfirm={() => void crud.del.confirm()}
+        onCancel={crud.del.cancel}
       />
 
       {/* Test-failed confirm dialog */}

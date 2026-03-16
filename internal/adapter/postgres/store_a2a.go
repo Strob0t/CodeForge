@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -17,9 +16,9 @@ import (
 // --- A2A Tasks ---
 
 func (s *Store) CreateA2ATask(ctx context.Context, t *a2adomain.A2ATask) error {
-	metaJSON, err := json.Marshal(t.Metadata)
+	metaJSON, err := marshalJSON(t.Metadata, "metadata")
 	if err != nil {
-		return fmt.Errorf("create a2a task: marshal metadata: %w", err)
+		return fmt.Errorf("create a2a task: %w", err)
 	}
 	now := time.Now().UTC()
 	_, err = s.pool.Exec(ctx, `
@@ -61,18 +60,16 @@ func (s *Store) GetA2ATask(ctx context.Context, id string) (*a2adomain.A2ATask, 
 	}
 	t.State = a2adomain.TaskState(state)
 	t.Direction = a2adomain.Direction(direction)
-	if len(metaJSON) > 0 {
-		if unmarshalErr := json.Unmarshal(metaJSON, &t.Metadata); unmarshalErr != nil {
-			return nil, fmt.Errorf("a2a task %s: unmarshal metadata: %w", id, unmarshalErr)
-		}
+	if err := unmarshalJSONField(metaJSON, &t.Metadata, "metadata"); err != nil {
+		return nil, fmt.Errorf("a2a task %s: %w", id, err)
 	}
 	return &t, nil
 }
 
 func (s *Store) UpdateA2ATask(ctx context.Context, t *a2adomain.A2ATask) error {
-	metaJSON, err := json.Marshal(t.Metadata)
+	metaJSON, err := marshalJSON(t.Metadata, "metadata")
 	if err != nil {
-		return fmt.Errorf("update a2a task: marshal metadata: %w", err)
+		return fmt.Errorf("update a2a task: %w", err)
 	}
 	now := time.Now().UTC()
 	tag, err := s.pool.Exec(ctx, `
@@ -149,9 +146,7 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 		}
 		t.State = a2adomain.TaskState(state)
 		t.Direction = a2adomain.Direction(direction)
-		if len(metaJSON) > 0 {
-			_ = json.Unmarshal(metaJSON, &t.Metadata)
-		}
+		_ = unmarshalJSONField(metaJSON, &t.Metadata, "metadata")
 		return t, nil
 	})
 	if err != nil {

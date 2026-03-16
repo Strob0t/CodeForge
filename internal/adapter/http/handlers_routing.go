@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
@@ -46,9 +45,8 @@ func (h *Handlers) HandleListRoutingOutcomes(w http.ResponseWriter, r *http.Requ
 
 // HandleCreateRoutingOutcome handles POST /api/v1/routing/outcomes
 func (h *Handlers) HandleCreateRoutingOutcome(w http.ResponseWriter, r *http.Request) {
-	var o routing.RoutingOutcome
-	if err := json.NewDecoder(r.Body).Decode(&o); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	o, ok := readJSON[routing.RoutingOutcome](w, r, 1<<20)
+	if !ok {
 		return
 	}
 

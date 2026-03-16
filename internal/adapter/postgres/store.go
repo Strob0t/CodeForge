@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -70,9 +69,9 @@ func (s *Store) GetProjectByRepoName(ctx context.Context, repoName string) (*pro
 }
 
 func (s *Store) CreateProject(ctx context.Context, req *project.CreateRequest) (*project.Project, error) {
-	configJSON, err := json.Marshal(req.Config)
+	configJSON, err := marshalJSON(req.Config, "config")
 	if err != nil {
-		return nil, fmt.Errorf("marshal config: %w", err)
+		return nil, err
 	}
 
 	row := s.pool.QueryRow(ctx,
@@ -89,9 +88,9 @@ func (s *Store) CreateProject(ctx context.Context, req *project.CreateRequest) (
 }
 
 func (s *Store) UpdateProject(ctx context.Context, p *project.Project) error {
-	configJSON, err := json.Marshal(p.Config)
+	configJSON, err := marshalJSON(p.Config, "config")
 	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+		return err
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE projects SET name = $2, description = $3, repo_url = $4, provider = $5, workspace_path = $6, config = $7, policy_profile = $8
@@ -141,16 +140,16 @@ func (s *Store) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
 }
 
 func (s *Store) CreateAgent(ctx context.Context, projectID, name, backend string, config map[string]string, limits *resource.Limits) (*agent.Agent, error) {
-	configJSON, err := json.Marshal(config)
+	configJSON, err := marshalJSON(config, "config")
 	if err != nil {
-		return nil, fmt.Errorf("marshal config: %w", err)
+		return nil, err
 	}
 
 	var limitsJSON []byte
 	if limits != nil {
-		limitsJSON, err = json.Marshal(limits)
+		limitsJSON, err = marshalJSON(limits, "resource_limits")
 		if err != nil {
-			return nil, fmt.Errorf("marshal resource_limits: %w", err)
+			return nil, err
 		}
 	}
 
@@ -224,9 +223,9 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Sta
 }
 
 func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Result, costUSD float64) error {
-	resultJSON, err := json.Marshal(result)
+	resultJSON, err := marshalJSON(result, "result")
 	if err != nil {
-		return fmt.Errorf("marshal result: %w", err)
+		return err
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE tasks SET result = $2, cost_usd = $3, status = $4 WHERE id = $1 AND tenant_id = $5`,
@@ -278,9 +277,9 @@ func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, o
 }
 
 func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errs []string) error {
-	errJSON, err := json.Marshal(errs)
+	errJSON, err := marshalJSON(errs, "artifact errors")
 	if err != nil {
-		return fmt.Errorf("marshal artifact errors: %w", err)
+		return err
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET artifact_type = $2, artifact_valid = $3, artifact_errors = $4, updated_at = now()
@@ -580,22 +579,18 @@ func scanAgent(row scannable) (agent.Agent, error) {
 	if err != nil {
 		return a, err
 	}
-	if configJSON != nil {
-		if err := json.Unmarshal(configJSON, &a.Config); err != nil {
-			return a, fmt.Errorf("unmarshal agent config: %w", err)
-		}
+	if err := unmarshalJSONField(configJSON, &a.Config, "agent config"); err != nil {
+		return a, err
 	}
-	if limitsJSON != nil {
+	if len(limitsJSON) > 0 {
 		var limits resource.Limits
-		if err := json.Unmarshal(limitsJSON, &limits); err != nil {
-			return a, fmt.Errorf("unmarshal agent resource_limits: %w", err)
+		if err := unmarshalJSONField(limitsJSON, &limits, "agent resource_limits"); err != nil {
+			return a, err
 		}
 		a.ResourceLimits = &limits
 	}
-	if stateJSON != nil {
-		if err := json.Unmarshal(stateJSON, &a.State); err != nil {
-			return a, fmt.Errorf("unmarshal agent state: %w", err)
-		}
+	if err := unmarshalJSONField(stateJSON, &a.State, "agent state"); err != nil {
+		return a, err
 	}
 	a.Capabilities = caps
 	return a, nil
@@ -608,10 +603,8 @@ func scanProject(row scannable) (project.Project, error) {
 	if err != nil {
 		return p, err
 	}
-	if configJSON != nil {
-		if err := json.Unmarshal(configJSON, &p.Config); err != nil {
-			return p, fmt.Errorf("unmarshal config: %w", err)
-		}
+	if err := unmarshalJSONField(configJSON, &p.Config, "config"); err != nil {
+		return p, err
 	}
 	return p, nil
 }
@@ -630,10 +623,8 @@ func scanRun(row scannable) (run.Run, error) {
 	if err != nil {
 		return r, err
 	}
-	if artifactErrorsJSON != nil {
-		if err := json.Unmarshal(artifactErrorsJSON, &r.ArtifactErrors); err != nil {
-			return r, fmt.Errorf("unmarshal artifact_errors: %w", err)
-		}
+	if err := unmarshalJSONField(artifactErrorsJSON, &r.ArtifactErrors, "artifact_errors"); err != nil {
+		return r, err
 	}
 	return r, nil
 }
@@ -649,10 +640,10 @@ func scanTask(row scannable) (task.Task, error) {
 	if agentID != nil {
 		t.AgentID = *agentID
 	}
-	if resultJSON != nil {
+	if len(resultJSON) > 0 {
 		var r task.Result
-		if err := json.Unmarshal(resultJSON, &r); err != nil {
-			return t, fmt.Errorf("unmarshal result: %w", err)
+		if err := unmarshalJSONField(resultJSON, &r, "result"); err != nil {
+			return t, err
 		}
 		t.Result = &r
 	}
@@ -1059,9 +1050,9 @@ func (s *Store) FindMilestoneByTitle(ctx context.Context, roadmapID, title strin
 // --- Features ---
 
 func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureRequest) (*roadmap.Feature, error) {
-	externalIDsJSON, err := json.Marshal(req.ExternalIDs)
+	externalIDsJSON, err := marshalJSON(req.ExternalIDs, "external_ids")
 	if err != nil {
-		return nil, fmt.Errorf("marshal external_ids: %w", err)
+		return nil, err
 	}
 
 	tid := tenantFromCtx(ctx)
@@ -1141,9 +1132,9 @@ func (s *Store) ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]
 }
 
 func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
-	externalIDsJSON, err := json.Marshal(f.ExternalIDs)
+	externalIDsJSON, err := marshalJSON(f.ExternalIDs, "external_ids")
 	if err != nil {
-		return fmt.Errorf("marshal external_ids: %w", err)
+		return err
 	}
 
 	labels := orEmpty(f.Labels)
@@ -1186,10 +1177,8 @@ func scanFeature(row scannable) (roadmap.Feature, error) {
 	if err != nil {
 		return f, err
 	}
-	if externalIDsJSON != nil {
-		if err := json.Unmarshal(externalIDsJSON, &f.ExternalIDs); err != nil {
-			return f, fmt.Errorf("unmarshal external_ids: %w", err)
-		}
+	if err := unmarshalJSONField(externalIDsJSON, &f.ExternalIDs, "external_ids"); err != nil {
+		return f, err
 	}
 	return f, nil
 }
@@ -1307,9 +1296,7 @@ func (s *Store) CostByTool(ctx context.Context, projectID string) ([]cost.ToolSu
 		return nil, fmt.Errorf("cost by tool: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (cost.ToolSummary, error) {
-		var ts cost.ToolSummary
-		err := r.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount)
-		return ts, err
+		return scanToolSummary(r)
 	})
 }
 
@@ -1325,9 +1312,7 @@ func (s *Store) CostByToolForRun(ctx context.Context, runID string) ([]cost.Tool
 		return nil, fmt.Errorf("cost by tool for run: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (cost.ToolSummary, error) {
-		var ts cost.ToolSummary
-		err := r.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount)
-		return ts, err
+		return scanToolSummary(r)
 	})
 }
 
@@ -1467,13 +1452,7 @@ func (s *Store) ListSessions(ctx context.Context, projectID string) ([]run.Sessi
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (run.Session, error) {
-		var sess run.Session
-		err := r.Scan(
-			&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID, &sess.ConversationID,
-			&sess.ParentSessionID, &sess.ParentRunID, &sess.CurrentRunID,
-			&sess.Status, &sess.Metadata, &sess.CreatedAt, &sess.UpdatedAt,
-		)
-		return sess, err
+		return scanSession(r)
 	})
 }
 
@@ -1485,7 +1464,7 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id string, status run.S
 }
 
 // scanSession scans a single row into a Session.
-func scanSession(row pgx.Row) (run.Session, error) {
+func scanSession(row scannable) (run.Session, error) {
 	var sess run.Session
 	err := row.Scan(
 		&sess.ID, &sess.TenantID, &sess.ProjectID, &sess.TaskID, &sess.ConversationID,
@@ -1493,4 +1472,10 @@ func scanSession(row pgx.Row) (run.Session, error) {
 		&sess.Status, &sess.Metadata, &sess.CreatedAt, &sess.UpdatedAt,
 	)
 	return sess, err
+}
+
+func scanToolSummary(row scannable) (cost.ToolSummary, error) {
+	var ts cost.ToolSummary
+	err := row.Scan(&ts.Tool, &ts.Model, &ts.CostUSD, &ts.TokensIn, &ts.TokensOut, &ts.CallCount)
+	return ts, err
 }

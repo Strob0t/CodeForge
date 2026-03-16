@@ -307,6 +307,14 @@ export const api = {
       request<{ branches: string[] }>(url`/projects/remote-branches?url=${repoUrl}`).then(
         (r) => r.branches,
       ),
+
+    getBoundaries: (id: string) =>
+      request<import("./types").BoundaryConfig>(url`/projects/${id}/boundaries`),
+
+    triggerBoundaryAnalysis: (id: string) =>
+      request<undefined>(url`/projects/${id}/boundaries/analyze`, {
+        method: "POST",
+      }),
   },
 
   batch: {

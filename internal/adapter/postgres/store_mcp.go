@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,17 +12,17 @@ import (
 
 // CreateMCPServer inserts a new MCP server definition.
 func (s *Store) CreateMCPServer(ctx context.Context, srv *mcp.ServerDef) error {
-	argsJSON, err := json.Marshal(srv.Args)
+	argsJSON, err := marshalJSON(srv.Args, "args")
 	if err != nil {
-		return fmt.Errorf("marshal args: %w", err)
+		return err
 	}
-	envJSON, err := json.Marshal(srv.Env)
+	envJSON, err := marshalJSON(srv.Env, "env")
 	if err != nil {
-		return fmt.Errorf("marshal env: %w", err)
+		return err
 	}
-	headersJSON, err := json.Marshal(srv.Headers)
+	headersJSON, err := marshalJSON(srv.Headers, "headers")
 	if err != nil {
-		return fmt.Errorf("marshal headers: %w", err)
+		return err
 	}
 
 	const q = `INSERT INTO mcp_servers
@@ -69,17 +68,17 @@ func (s *Store) ListMCPServers(ctx context.Context) ([]mcp.ServerDef, error) {
 // UpdateMCPServer updates an existing MCP server definition.
 func (s *Store) UpdateMCPServer(ctx context.Context, srv *mcp.ServerDef) error {
 	tid := tenantFromCtx(ctx)
-	argsJSON, err := json.Marshal(srv.Args)
+	argsJSON, err := marshalJSON(srv.Args, "args")
 	if err != nil {
-		return fmt.Errorf("marshal args: %w", err)
+		return err
 	}
-	envJSON, err := json.Marshal(srv.Env)
+	envJSON, err := marshalJSON(srv.Env, "env")
 	if err != nil {
-		return fmt.Errorf("marshal env: %w", err)
+		return err
 	}
-	headersJSON, err := json.Marshal(srv.Headers)
+	headersJSON, err := marshalJSON(srv.Headers, "headers")
 	if err != nil {
-		return fmt.Errorf("marshal headers: %w", err)
+		return err
 	}
 
 	const q = `UPDATE mcp_servers SET
@@ -161,9 +160,9 @@ func (s *Store) UpsertMCPServerTools(ctx context.Context, serverID string, tools
 	}
 
 	for _, t := range tools {
-		schemaJSON, err := json.Marshal(t.InputSchema)
+		schemaJSON, err := marshalJSON(t.InputSchema, "input_schema")
 		if err != nil {
-			return fmt.Errorf("marshal input_schema: %w", err)
+			return err
 		}
 		_, err = tx.Exec(ctx,
 			`INSERT INTO mcp_server_tools (server_id, name, description, input_schema) VALUES ($1, $2, $3, $4)`,
@@ -209,20 +208,14 @@ func scanMCPServer(row scannable) (mcp.ServerDef, error) {
 	if err != nil {
 		return srv, err
 	}
-	if argsJSON != nil {
-		if err := json.Unmarshal(argsJSON, &srv.Args); err != nil {
-			return srv, fmt.Errorf("unmarshal args: %w", err)
-		}
+	if err := unmarshalJSONField(argsJSON, &srv.Args, "args"); err != nil {
+		return srv, err
 	}
-	if envJSON != nil {
-		if err := json.Unmarshal(envJSON, &srv.Env); err != nil {
-			return srv, fmt.Errorf("unmarshal env: %w", err)
-		}
+	if err := unmarshalJSONField(envJSON, &srv.Env, "env"); err != nil {
+		return srv, err
 	}
-	if headersJSON != nil {
-		if err := json.Unmarshal(headersJSON, &srv.Headers); err != nil {
-			return srv, fmt.Errorf("unmarshal headers: %w", err)
-		}
+	if err := unmarshalJSONField(headersJSON, &srv.Headers, "headers"); err != nil {
+		return srv, err
 	}
 	return srv, nil
 }

@@ -1,9 +1,10 @@
-import { batch, createResource, createSignal, For, Show } from "solid-js";
+import { createResource, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { BenchmarkSuite } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
+import { useCRUDForm } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -45,69 +46,49 @@ export function SuiteManagement() {
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
   const [suites, { refetch }] = createResource(() => api.benchmarks.listSuites());
-  const [showForm, setShowForm] = createSignal(false);
-  const [editingSuite, setEditingSuite] = createSignal<BenchmarkSuite | null>(null);
-  const [name, setName] = createSignal("");
-  const [description, setDescription] = createSignal("");
-  const [type, setType] = createSignal(KNOWN_PROVIDERS[0].type);
-  const [provider, setProvider] = createSignal(KNOWN_PROVIDERS[0].value);
 
-  const resetForm = () => {
-    batch(() => {
-      setName("");
-      setDescription("");
-      setType(KNOWN_PROVIDERS[0].type);
-      setProvider(KNOWN_PROVIDERS[0].value);
-      setEditingSuite(null);
-    });
-  };
+  const crud = useCRUDForm({
+    name: "",
+    description: "",
+    type: KNOWN_PROVIDERS[0].type,
+    provider: KNOWN_PROVIDERS[0].value,
+  });
 
   const startEdit = (suite: BenchmarkSuite) => {
-    batch(() => {
-      setEditingSuite(suite);
-      setName(suite.name);
-      setDescription(suite.description || "");
-      setType(String(suite.type));
-      setProvider(suite.provider_name);
-      setShowForm(true);
+    crud.startEdit(suite.id, {
+      name: suite.name,
+      description: suite.description || "",
+      type: String(suite.type),
+      provider: suite.provider_name,
     });
   };
 
-  const handleCreate = async (e: SubmitEvent) => {
+  const handleSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
+    const payload = {
+      name: crud.form.state.name,
+      description: crud.form.state.description || undefined,
+      type: crud.form.state.type,
+      provider_name: crud.form.state.provider,
+    };
     try {
-      await api.benchmarks.createSuite({
-        name: name(),
-        description: description() || undefined,
-        type: type(),
-        provider_name: provider(),
-      });
-      toast("success", t("benchmark.suites.toast.created"));
-      setShowForm(false);
-      resetForm();
+      const eid = crud.editingId();
+      if (crud.isEditing() && eid) {
+        await api.benchmarks.updateSuite(eid, payload);
+        toast("success", t("benchmark.suites.toast.updated"));
+      } else {
+        await api.benchmarks.createSuite(payload);
+        toast("success", t("benchmark.suites.toast.created"));
+      }
+      crud.cancelForm();
       refetch();
     } catch {
-      toast("error", t("benchmark.suites.toast.createError"));
-    }
-  };
-
-  const handleUpdate = async (e: SubmitEvent) => {
-    e.preventDefault();
-    const suite = editingSuite();
-    if (!suite) return;
-    try {
-      await api.benchmarks.updateSuite(suite.id, {
-        name: name(),
-        description: description() || undefined,
-        type: type(),
-        provider_name: provider(),
-      });
-      toast("success", t("benchmark.suites.toast.updated"));
-      setShowForm(false);
-      resetForm();
-      refetch();
-    } catch {
-      toast("error", t("benchmark.suites.toast.updateError"));
+      toast(
+        "error",
+        crud.isEditing()
+          ? t("benchmark.suites.toast.updateError")
+          : t("benchmark.suites.toast.createError"),
+      );
     }
   };
 
@@ -139,51 +120,49 @@ export function SuiteManagement() {
         <Button
           size="sm"
           onClick={() => {
-            if (showForm()) {
-              setShowForm(false);
-              resetForm();
+            if (crud.showForm()) {
+              crud.cancelForm();
             } else {
-              resetForm();
-              setShowForm(true);
+              crud.startCreate();
             }
           }}
         >
-          {showForm() ? t("common.cancel") : t("benchmark.suites.createBtn")}
+          {crud.showForm() ? t("common.cancel") : t("benchmark.suites.createBtn")}
         </Button>
       </div>
 
-      <Show when={showForm()}>
+      <Show when={crud.showForm()}>
         <Card class="p-4">
-          <form onSubmit={editingSuite() ? handleUpdate : handleCreate} class="space-y-3">
-            <Show when={editingSuite()}>
+          <form onSubmit={handleSubmit} class="space-y-3">
+            <Show when={crud.isEditing()}>
               <div class="mb-2 text-sm font-medium text-blue-600 dark:text-blue-400">
-                Editing: {editingSuite()?.name}
+                Editing: {crud.form.state.name}
               </div>
             </Show>
             <FormField label={t("benchmark.suites.name")} id="suite-name">
               <Input
-                value={name()}
-                onInput={(e) => setName(e.currentTarget.value)}
+                value={crud.form.state.name}
+                onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
                 placeholder="e.g. Code Quality Suite"
                 required
               />
             </FormField>
             <FormField label="Description" id="suite-desc">
               <Input
-                value={description()}
-                onInput={(e) => setDescription(e.currentTarget.value)}
+                value={crud.form.state.description}
+                onInput={(e) => crud.form.setState("description", e.currentTarget.value)}
                 placeholder="Optional description"
               />
             </FormField>
             <FormField label={t("benchmark.suites.provider")} id="suite-provider">
               <Select
-                value={provider()}
+                value={crud.form.state.provider}
                 onChange={(e) => {
                   const val = e.currentTarget.value;
-                  setProvider(val);
+                  crud.form.setState("provider", val);
                   const known = KNOWN_PROVIDERS.find((p) => p.value === val);
                   if (known) {
-                    setType(known.type);
+                    crud.form.setState("type", known.type);
                   }
                 }}
                 required
@@ -195,14 +174,14 @@ export function SuiteManagement() {
             </FormField>
             <FormField label={t("benchmark.suites.type")} id="suite-type">
               <Input
-                value={type()}
-                onInput={(e) => setType(e.currentTarget.value)}
+                value={crud.form.state.type}
+                onInput={(e) => crud.form.setState("type", e.currentTarget.value)}
                 placeholder="simple"
                 required
               />
             </FormField>
             <Button type="submit" variant="primary" size="sm">
-              {editingSuite() ? t("common.save") : t("benchmark.suites.createBtn")}
+              {crud.isEditing() ? t("common.save") : t("benchmark.suites.createBtn")}
             </Button>
           </form>
         </Card>

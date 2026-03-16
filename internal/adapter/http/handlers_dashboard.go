@@ -2,7 +2,6 @@ package http
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -32,12 +31,7 @@ func (h *Handlers) ProjectHealth(w http.ResponseWriter, r *http.Request) {
 
 // DashboardRunOutcomes handles GET /api/v1/dashboard/charts/run-outcomes
 func (h *Handlers) DashboardRunOutcomes(w http.ResponseWriter, r *http.Request) {
-	days := 7
-	if d := r.URL.Query().Get("days"); d != "" {
-		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
-			days = parsed
-		}
-	}
+	days := queryParamInt(r, "days", 7)
 	outcomes, err := h.Dashboard.RunOutcomes(r.Context(), days)
 	if err != nil {
 		writeInternalError(w, err)
@@ -90,12 +84,7 @@ func (h *Handlers) DashboardCostByProject(w http.ResponseWriter, r *http.Request
 
 // DashboardCostTrend handles GET /api/v1/dashboard/charts/cost-trend
 func (h *Handlers) DashboardCostTrend(w http.ResponseWriter, r *http.Request) {
-	days := 30
-	if d := r.URL.Query().Get("days"); d != "" {
-		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
-			days = parsed
-		}
-	}
+	days := queryParamInt(r, "days", 30)
 	trend, err := h.Dashboard.CostTrend(r.Context(), days)
 	if err != nil {
 		writeInternalError(w, err)

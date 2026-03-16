@@ -2,7 +2,6 @@ package http
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -59,12 +58,7 @@ func (h *Handlers) DeleteChannel(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ListChannelMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 	cursor := r.URL.Query().Get("cursor")
-	limit := 50
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
+	limit := queryParamInt(r, "limit", 50)
 
 	messages, err := h.Channels.ListMessages(r.Context(), channelID, cursor, limit)
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/crypto"
+
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
@@ -55,7 +57,7 @@ func (s *ReviewService) CreatePolicy(ctx context.Context, projectID, tenantID st
 
 	now := time.Now().UTC()
 	p := &review.ReviewPolicy{
-		ID:              generateID(),
+		ID:              crypto.GenerateUUIDv4(),
 		ProjectID:       projectID,
 		TenantID:        tenantID,
 		Name:            req.Name,
@@ -247,7 +249,7 @@ func (s *ReviewService) ManualTrigger(ctx context.Context, policyID string) (*re
 func (s *ReviewService) triggerReview(ctx context.Context, policy *review.ReviewPolicy, triggerRef string) (*review.Review, error) {
 	now := time.Now().UTC()
 	r := &review.Review{
-		ID:         generateID(),
+		ID:         crypto.GenerateUUIDv4(),
 		PolicyID:   policy.ID,
 		ProjectID:  policy.ProjectID,
 		TenantID:   policy.TenantID,
@@ -271,8 +273,8 @@ func (s *ReviewService) triggerReview(ctx context.Context, policy *review.Review
 	bindings := make([]pipeline.StepBinding, len(tmpl.Steps))
 	for i := range tmpl.Steps {
 		bindings[i] = pipeline.StepBinding{
-			TaskID:  generateID(),
-			AgentID: generateID(),
+			TaskID:  crypto.GenerateUUIDv4(),
+			AgentID: crypto.GenerateUUIDv4(),
 		}
 	}
 
@@ -381,7 +383,7 @@ func (s *ReviewService) appendEvent(ctx context.Context, evType event.Type, r *r
 		return
 	}
 	_ = s.events.Append(ctx, &event.AgentEvent{
-		ID:        generateID(),
+		ID:        crypto.GenerateUUIDv4(),
 		TaskID:    r.ID,
 		ProjectID: r.ProjectID,
 		Type:      evType,

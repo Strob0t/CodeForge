@@ -95,7 +95,15 @@ class RetrievalHandlerMixin:
         except Exception:
             # Publish error result so the Go waiter gets a response, then re-raise
             # so _handle_request performs the nak.
-            await self._publish_retrieval_search_error(request)
+            await self._publish_error(
+                RetrievalSearchResult(
+                    project_id=request.project_id,
+                    query=request.query,
+                    request_id=request.request_id,
+                    error="internal worker error",
+                ),
+                SUBJECT_RETRIEVAL_SEARCH_RESULT,
+            )
             raise
 
         result = RetrievalSearchResult(
@@ -107,26 +115,6 @@ class RetrievalHandlerMixin:
 
         log.info("retrieval search completed", hits=len(hits))
         return result
-
-    async def _publish_retrieval_search_error(self, request: RetrievalSearchRequest) -> None:
-        """Publish an error result for retrieval search so Go waiter gets a response."""
-        try:
-            error_result = RetrievalSearchResult(
-                project_id=request.project_id,
-                query=request.query,
-                request_id=request.request_id,
-                error="internal worker error",
-            )
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_RETRIEVAL_SEARCH_RESULT,
-                    error_result.model_dump_json().encode(),
-                )
-        except Exception as exc:
-            logger.exception(
-                "failed to publish retrieval search error result",
-                error=str(exc),
-            )
 
     async def _handle_subagent_search(self, msg: nats.aio.msg.Msg) -> None:
         """Process a sub-agent search request: expand, search, dedup, rerank, publish."""
@@ -162,7 +150,15 @@ class RetrievalHandlerMixin:
         except Exception:
             # Publish error result so the Go waiter gets a response, then re-raise
             # so _handle_request performs the nak.
-            await self._publish_subagent_search_error(request)
+            await self._publish_error(
+                SubAgentSearchResult(
+                    project_id=request.project_id,
+                    query=request.query,
+                    request_id=request.request_id,
+                    error="internal worker error",
+                ),
+                SUBJECT_SUBAGENT_SEARCH_RESULT,
+            )
             raise
 
         cost = self._subagent.last_cost
@@ -187,23 +183,3 @@ class RetrievalHandlerMixin:
             candidates=total_candidates,
         )
         return result
-
-    async def _publish_subagent_search_error(self, request: SubAgentSearchRequest) -> None:
-        """Publish an error result for subagent search so Go waiter gets a response."""
-        try:
-            error_result = SubAgentSearchResult(
-                project_id=request.project_id,
-                query=request.query,
-                request_id=request.request_id,
-                error="internal worker error",
-            )
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_SUBAGENT_SEARCH_RESULT,
-                    error_result.model_dump_json().encode(),
-                )
-        except Exception as exc:
-            logger.exception(
-                "failed to publish subagent search error result",
-                error=str(exc),
-            )

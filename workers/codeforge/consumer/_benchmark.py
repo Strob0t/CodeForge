@@ -34,6 +34,16 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
+def _litellm_headers() -> dict[str, str]:
+    """Return authorization headers for the LiteLLM proxy."""
+    import os
+
+    api_key = os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
+    if api_key:
+        return {"Authorization": f"Bearer {api_key}"}
+    return {}
+
+
 async def _fetch_available_models() -> list[str]:
     """Fetch model IDs from LiteLLM /v1/models endpoint."""
     import os
@@ -41,8 +51,7 @@ async def _fetch_available_models() -> list[str]:
     import httpx
 
     litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
-    api_key = os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = _litellm_headers()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{litellm_url}/v1/models", headers=headers)
@@ -65,8 +74,7 @@ async def _fetch_configured_models() -> list[str]:
     import httpx
 
     litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
-    api_key = os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = _litellm_headers()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{litellm_url}/model/info", headers=headers)
@@ -136,16 +144,14 @@ class BenchmarkHandlerMixin:
         # Wait for LiteLLM to be ready before running benchmarks.
         if not await _wait_for_litellm(self._llm, log):
             log.error("LiteLLM not available, aborting benchmark run")
-            error_result = BenchmarkRunResult(
-                run_id="",
-                status="failed",
-                error="LiteLLM proxy not available after health check retries",
+            await self._publish_error(
+                BenchmarkRunResult(
+                    run_id="",
+                    status="failed",
+                    error="LiteLLM proxy not available after health check retries",
+                ),
+                SUBJECT_BENCHMARK_RUN_RESULT,
             )
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_BENCHMARK_RUN_RESULT,
-                    error_result.model_dump_json().encode(),
-                )
             await msg.ack()
             return
 
@@ -230,16 +236,14 @@ class BenchmarkHandlerMixin:
 
         except Exception as exc:
             log.exception("benchmark run failed")
-            if self._js is not None:
-                error_result = BenchmarkRunResult(
+            await self._publish_error(
+                BenchmarkRunResult(
                     run_id=run_id,
                     status="failed",
                     error=str(exc),
-                )
-                await self._js.publish(
-                    SUBJECT_BENCHMARK_RUN_RESULT,
-                    error_result.model_dump_json().encode(),
-                )
+                ),
+                SUBJECT_BENCHMARK_RUN_RESULT,
+            )
 
     async def _resolve_effective_llm(self, req: object, log: structlog.BoundLogger) -> object:
         """Resolve the effective LLM client, wrapping with router for auto mode."""

@@ -8,12 +8,15 @@ export interface AppSettings {
 /** Matches Go domain/project.Project */
 export interface Project {
   id: string;
+  tenant_id?: string;
   name: string;
   description: string;
   repo_url: string;
   provider: string;
   config: Record<string, string>;
   workspace_path?: string;
+  policy_profile?: string;
+  version?: number;
   created_at: string;
   updated_at: string;
 }
@@ -108,7 +111,11 @@ export interface Branch {
 /** Agent status enum matching Go domain/agent.Status */
 export type AgentStatus = "idle" | "running" | "error" | "stopped";
 
-/** Matches Go domain/agent.Agent */
+/**
+ * Matches Go domain/agent.Agent.
+ * Note: `total_runs`, `total_cost`, and `success_rate` are API-computed
+ * aggregates (derived from run history), not stored as DB columns.
+ */
 export interface Agent {
   id: string;
   project_id: string;
@@ -2097,4 +2104,20 @@ export interface ProjectCostBar {
   project_id: string;
   project_name: string;
   cost_usd: number;
+}
+
+/** A single boundary file detected in a project. */
+export interface BoundaryFile {
+  path: string;
+  type: string;
+  counterpart: string;
+  auto_detected: boolean;
+}
+
+/** Boundary configuration for a project. */
+export interface BoundaryConfig {
+  project_id: string;
+  boundaries: BoundaryFile[];
+  last_analyzed: string;
+  version: number;
 }

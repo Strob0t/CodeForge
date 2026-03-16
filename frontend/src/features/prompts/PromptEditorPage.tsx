@@ -4,7 +4,7 @@ import { api } from "~/api/client";
 import type { PromptSectionRow } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
-import { useAsyncAction, useFormState } from "~/hooks";
+import { useAsyncAction, useCRUDForm } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -30,12 +30,10 @@ export default function PromptEditorPage() {
 
   const [scope, setScope] = createSignal("global");
   const [sections, { refetch }] = createResource(scope, (s) => api.promptSections.list(s));
-  const [showForm, setShowForm] = createSignal(false);
-  const [editingId, setEditingId] = createSignal<string | null>(null);
   const [previewText, setPreviewText] = createSignal("");
   const [previewTokens, setPreviewTokens] = createSignal(0);
 
-  const form = useFormState({
+  const crud = useCRUDForm({
     name: "",
     content: "",
     priority: 50,
@@ -44,13 +42,8 @@ export default function PromptEditorPage() {
     merge: "replace",
   });
 
-  function resetForm() {
-    form.reset();
-    setEditingId(null);
-  }
-
   function handleEdit(row: PromptSectionRow) {
-    form.populate({
+    crud.startEdit(row.id, {
       name: row.name,
       content: row.content,
       priority: row.priority,
@@ -58,29 +51,26 @@ export default function PromptEditorPage() {
       enabled: row.enabled,
       merge: row.merge,
     });
-    setEditingId(row.id);
-    setShowForm(true);
   }
 
   const { run: handleSave, loading: saving } = useAsyncAction(
     async () => {
-      if (!form.state.name.trim()) {
+      if (!crud.form.state.name.trim()) {
         toast("error", t("prompts.error.nameRequired"));
         return;
       }
       await api.promptSections.upsert({
-        id: editingId() ?? "",
-        name: form.state.name.trim(),
+        id: crud.editingId() ?? "",
+        name: crud.form.state.name.trim(),
         scope: scope(),
-        content: form.state.content,
-        priority: form.state.priority,
-        sort_order: form.state.sortOrder,
-        enabled: form.state.enabled,
-        merge: form.state.merge as "replace" | "prepend" | "append",
+        content: crud.form.state.content,
+        priority: crud.form.state.priority,
+        sort_order: crud.form.state.sortOrder,
+        enabled: crud.form.state.enabled,
+        merge: crud.form.state.merge as "replace" | "prepend" | "append",
       });
       toast("success", t("prompts.saved"));
-      setShowForm(false);
-      resetForm();
+      crud.cancelForm();
       refetch();
     },
     {
@@ -149,13 +139,7 @@ export default function PromptEditorPage() {
             {(s) => <option value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>}
           </For>
         </Select>
-        <Button
-          onClick={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-          size="sm"
-        >
+        <Button onClick={() => crud.startCreate()} size="sm">
           {t("prompts.add")}
         </Button>
         <Button onClick={() => void handlePreview()} size="sm" variant="ghost">
@@ -179,22 +163,22 @@ export default function PromptEditorPage() {
       </Show>
 
       {/* Section form */}
-      <Show when={showForm()}>
+      <Show when={crud.showForm()}>
         <Card class="mb-4 p-4">
           <h3 class="mb-3 text-sm font-semibold">
-            {editingId() ? t("prompts.editSection") : t("prompts.newSection")}
+            {crud.editingId() ? t("prompts.editSection") : t("prompts.newSection")}
           </h3>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <FormField label={t("prompts.field.name")}>
               <Input
-                value={form.state.name}
-                onInput={(e) => form.setState("name", e.currentTarget.value)}
+                value={crud.form.state.name}
+                onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
               />
             </FormField>
             <FormField label={t("prompts.field.merge")}>
               <Select
-                value={form.state.merge}
-                onChange={(e) => form.setState("merge", e.currentTarget.value)}
+                value={crud.form.state.merge}
+                onChange={(e) => crud.form.setState("merge", e.currentTarget.value)}
               >
                 <For each={MERGE_OPTIONS}>
                   {(m) => <option value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>}
@@ -207,40 +191,40 @@ export default function PromptEditorPage() {
                   type="range"
                   min="0"
                   max="100"
-                  value={form.state.priority}
-                  onInput={(e) => form.setState("priority", Number(e.currentTarget.value))}
+                  value={crud.form.state.priority}
+                  onInput={(e) => crud.form.setState("priority", Number(e.currentTarget.value))}
                   class="flex-1"
                 />
                 <span class="w-8 text-center text-xs text-cf-text-muted">
-                  {form.state.priority}
+                  {crud.form.state.priority}
                 </span>
               </div>
             </FormField>
             <FormField label={t("prompts.field.sortOrder")}>
               <Input
                 type="number"
-                value={String(form.state.sortOrder)}
-                onInput={(e) => form.setState("sortOrder", Number(e.currentTarget.value))}
+                value={String(crud.form.state.sortOrder)}
+                onInput={(e) => crud.form.setState("sortOrder", Number(e.currentTarget.value))}
               />
             </FormField>
           </div>
           <FormField label={t("prompts.field.content")} class="mt-3">
             <Textarea
-              value={form.state.content}
-              onInput={(e) => form.setState("content", e.currentTarget.value)}
+              value={crud.form.state.content}
+              onInput={(e) => crud.form.setState("content", e.currentTarget.value)}
               rows={8}
               class="font-mono text-xs"
             />
             <span class="mt-1 text-xs text-cf-text-muted">
-              ~{estimateTokens(form.state.content)} tokens
+              ~{estimateTokens(crud.form.state.content)} tokens
             </span>
           </FormField>
           <div class="mt-3 flex items-center gap-2">
             <label class="flex items-center gap-1 text-sm">
               <input
                 type="checkbox"
-                checked={form.state.enabled}
-                onChange={(e) => form.setState("enabled", e.currentTarget.checked)}
+                checked={crud.form.state.enabled}
+                onChange={(e) => crud.form.setState("enabled", e.currentTarget.checked)}
               />
               {t("prompts.field.enabled")}
             </label>
@@ -249,14 +233,7 @@ export default function PromptEditorPage() {
             <Button onClick={() => void handleSave()} size="sm" disabled={saving()}>
               {saving() ? t("common.saving") : t("common.save")}
             </Button>
-            <Button
-              onClick={() => {
-                setShowForm(false);
-                resetForm();
-              }}
-              size="sm"
-              variant="ghost"
-            >
+            <Button onClick={() => crud.cancelForm()} size="sm" variant="ghost">
               {t("common.cancel")}
             </Button>
           </div>

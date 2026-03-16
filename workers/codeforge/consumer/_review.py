@@ -18,16 +18,18 @@ class ReviewHandlerMixin:
     """Handles review.trigger.request NATS messages."""
 
     async def _handle_review_trigger(self, msg: nats.aio.msg.Msg) -> None:
-        try:
-            payload = ReviewTriggerRequestPayload.model_validate_json(msg.data)
-            logger.info(
-                "review trigger received",
-                project_id=payload.project_id,
-                commit_sha=payload.commit_sha,
-                source=payload.source,
-            )
-            # TODO: Dispatch boundary-analyzer run via agent loop
-            await msg.ack()
-        except Exception as exc:
-            logger.error("review trigger failed", error=str(exc))
-            await msg.ack()  # ack to prevent infinite redelivery
+        await self._handle_request(
+            msg=msg,
+            request_model=ReviewTriggerRequestPayload,
+            dedup_key=lambda r: f"review-{r.project_id}-{r.commit_sha}",
+            handler=self._do_review_trigger,
+            log_context=lambda r: {
+                "project_id": r.project_id,
+                "commit_sha": r.commit_sha,
+                "source": r.source,
+            },
+        )
+
+    async def _do_review_trigger(self, request: ReviewTriggerRequestPayload, log: structlog.BoundLogger) -> None:
+        log.info("review trigger received")
+        # TODO: Dispatch boundary-analyzer run via agent loop
