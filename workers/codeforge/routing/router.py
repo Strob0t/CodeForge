@@ -112,7 +112,7 @@ class HybridRouter:
                 max_cost,
                 profile=profile,
             )
-            if model is not None:
+            if model is not None and not self._is_provider_exhausted(model):
                 return RoutingDecision(
                     model=model,
                     routing_layer="mab",
@@ -124,7 +124,7 @@ class HybridRouter:
 
         if self._config.llm_meta_enabled and self._meta is not None:
             decision = self._meta.classify(prompt, analysis, available)
-            if decision is not None:
+            if decision is not None and not self._is_provider_exhausted(decision.model):
                 return decision
 
         return self._complexity_fallback(analysis, max_cost)

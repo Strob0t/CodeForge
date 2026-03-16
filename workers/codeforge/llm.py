@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 # Override via CODEFORGE_DEFAULT_MODEL env var if needed.
 DEFAULT_MODEL: str = os.environ.get("CODEFORGE_DEFAULT_MODEL", "")
 
+# Regex to strip <think>...</think> blocks from final LLM output.
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks from assembled LLM output."""
+    return _THINK_RE.sub("", text).lstrip()
+
 
 class LLMError(Exception):
     """Raised when the LLM proxy returns an error response."""
@@ -647,7 +655,7 @@ class LiteLLMClient:
             tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
 
             return ChatCompletionResponse(
-                content=str(content),
+                content=_strip_think_blocks(str(content)),
                 tool_calls=tool_calls,
                 finish_reason=str(finish_reason),
                 tokens_in=int(tokens_in),
@@ -729,7 +737,7 @@ class LiteLLMClient:
             tool_calls = acc.build_tool_calls(on_tool_call)
 
             return ChatCompletionResponse(
-                content="".join(acc.content_parts),
+                content=_strip_think_blocks("".join(acc.content_parts)),
                 tool_calls=tool_calls,
                 finish_reason=acc.finish_reason,
                 tokens_in=int(acc.tokens_in),
@@ -765,7 +773,15 @@ class LiteLLMClient:
 class _StreamAccumulator:
     """Accumulates SSE stream chunks for chat completion responses."""
 
-    __slots__ = ("content_parts", "cost", "finish_reason", "tc_accum", "tokens_in", "tokens_out")
+    __slots__ = (
+        "_in_think",
+        "content_parts",
+        "cost",
+        "finish_reason",
+        "tc_accum",
+        "tokens_in",
+        "tokens_out",
+    )
 
     def __init__(self) -> None:
         self.content_parts: list[str] = []
@@ -774,6 +790,33 @@ class _StreamAccumulator:
         self.tokens_in = 0
         self.tokens_out = 0
         self.cost = 0.0
+        self._in_think = False
+
+    def _strip_think_tokens(self, text: str) -> str:
+        """Strip <think>...</think> blocks from streaming text.
+
+        Tracks state across chunks so partial open/close tags work correctly.
+        Returns only the non-think portion for display; the full content
+        (including think blocks) is still stored in content_parts.
+        """
+        result: list[str] = []
+        i = 0
+        while i < len(text):
+            if self._in_think:
+                end = text.find("</think>", i)
+                if end == -1:
+                    break  # still inside think block, consume rest
+                self._in_think = False
+                i = end + len("</think>")
+            else:
+                start = text.find("<think>", i)
+                if start == -1:
+                    result.append(text[i:])
+                    break
+                result.append(text[i:start])
+                self._in_think = True
+                i = start + len("<think>")
+        return "".join(result)
 
     def process_chunk(self, raw: str, on_chunk: Callable[[str], None] | None) -> None:
         """Parse a single SSE data line and accumulate into state."""
@@ -793,8 +836,9 @@ class _StreamAccumulator:
         text = delta.get("content")
         if text:
             self.content_parts.append(text)
-            if on_chunk:
-                on_chunk(text)
+            visible = self._strip_think_tokens(text) if on_chunk else ""
+            if visible:
+                on_chunk(visible)
 
         for tc_delta in delta.get("tool_calls", []):
             idx = tc_delta.get("index", 0)

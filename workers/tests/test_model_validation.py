@@ -46,18 +46,18 @@ async def test_auto_model_skips_validation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_available_list_skips(monkeypatch) -> None:
-    """Empty available list (LiteLLM unreachable) should skip validation."""
+async def test_empty_available_list_raises_when_litellm_unreachable(monkeypatch) -> None:
+    """Empty available list (LiteLLM unreachable) should raise ValueError."""
     from codeforge.consumer import _benchmark
 
-    # Both endpoints return empty — total graceful degradation
+    # Both endpoints return empty — LiteLLM completely unreachable
     async def mock_fetch_configured() -> list[str]:
         return []
 
     monkeypatch.setattr(_benchmark, "_fetch_configured_models", mock_fetch_configured)
 
-    # Should not raise — graceful degradation when LiteLLM is down
-    await _benchmark._validate_model_exists("nonexistent-model", available_models=[])
+    with pytest.raises(ValueError, match="LiteLLM is unreachable"):
+        await _benchmark._validate_model_exists("nonexistent-model", available_models=[])
 
 
 # ---------------------------------------------------------------------------
@@ -176,8 +176,8 @@ async def test_fallback_to_configured_rejects_unknown(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_both_endpoints_unreachable_skips(monkeypatch) -> None:
-    """When both /v1/models AND /model/info return empty, skip validation."""
+async def test_both_endpoints_unreachable_raises(monkeypatch) -> None:
+    """When both /v1/models AND /model/info return empty, raise ValueError."""
     from codeforge.consumer import _benchmark
 
     async def mock_fetch_available() -> list[str]:
@@ -189,5 +189,5 @@ async def test_both_endpoints_unreachable_skips(monkeypatch) -> None:
     monkeypatch.setattr(_benchmark, "_fetch_available_models", mock_fetch_available)
     monkeypatch.setattr(_benchmark, "_fetch_configured_models", mock_fetch_configured)
 
-    # Should not raise — graceful degradation
-    await _benchmark._validate_model_exists("nonexistent/model-xyz-404")
+    with pytest.raises(ValueError, match="LiteLLM is unreachable"):
+        await _benchmark._validate_model_exists("nonexistent/model-xyz-404")

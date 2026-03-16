@@ -110,7 +110,11 @@ async def _validate_model_exists(model: str, available_models: list[str] | None 
         # /v1/models returned empty — try /model/info as fallback
         configured = await _fetch_configured_models()
         if not configured:
-            return  # Can't reach LiteLLM at all — skip validation, don't block
+            logger.warning("cannot validate model: LiteLLM unreachable", model=model)
+            raise ValueError(
+                f"cannot validate model {model!r}: LiteLLM is unreachable. "
+                "Ensure LiteLLM proxy is running and accessible."
+            )
         if model not in configured:
             raise ValueError(
                 f"model {model!r} not found in LiteLLM configured models. "

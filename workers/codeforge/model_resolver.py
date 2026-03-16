@@ -102,9 +102,24 @@ class _ModelCache:
             logger.warning("model_resolver: failed to fetch from LiteLLM: %s", exc, exc_info=True)
             return
 
+        # Pick best model, skipping providers with known rate-limit / auth errors.
+        best = ""
+        if models:
+            from codeforge.routing.rate_tracker import get_tracker
+
+            tracker = get_tracker()
+            for m in models:
+                provider = m.split("/")[0] if "/" in m else ""
+                if provider and tracker.is_exhausted(provider):
+                    continue
+                best = m
+                break
+            if not best:
+                best = models[0]  # all exhausted — fall back to first
+
         with self._lock:
             self._models = models
-            self._best = models[0] if models else ""
+            self._best = best
             self._last_refresh = time.monotonic()
 
         if models:

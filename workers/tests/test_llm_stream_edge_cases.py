@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from codeforge.llm import LLMError, ToolCallPart, _StreamAccumulator, classify_error_type
+from codeforge.llm import LLMError, ToolCallPart, _StreamAccumulator, _strip_think_blocks, classify_error_type
 
 # ---------------------------------------------------------------------------
 # _StreamAccumulator tests
@@ -217,6 +217,107 @@ class TestStreamAccumulatorOnToolCallCallback:
         acc.build_tool_calls(lambda tc: received.append(tc))
         assert len(received) == 1
         assert received[0].name == "test_tool"
+
+
+# ---------------------------------------------------------------------------
+# Think-token filtering tests
+# ---------------------------------------------------------------------------
+
+
+class TestStripThinkBlocks:
+    """Module-level _strip_think_blocks removes <think>...</think> from final text."""
+
+    def test_single_block(self) -> None:
+        assert _strip_think_blocks("<think>reasoning here</think>Answer") == "Answer"
+
+    def test_multiple_blocks(self) -> None:
+        text = "<think>step 1</think>Hello <think>step 2</think>world"
+        assert _strip_think_blocks(text) == "Hello world"
+
+    def test_no_think_blocks(self) -> None:
+        assert _strip_think_blocks("plain text") == "plain text"
+
+    def test_empty_string(self) -> None:
+        assert _strip_think_blocks("") == ""
+
+    def test_multiline_think_block(self) -> None:
+        text = "<think>\nline 1\nline 2\n</think>\nResult"
+        assert _strip_think_blocks(text) == "Result"
+
+    def test_leading_whitespace_stripped(self) -> None:
+        assert _strip_think_blocks("<think>x</think>  Answer") == "Answer"
+
+
+class TestStreamAccumulatorThinkTokenFilter:
+    """_StreamAccumulator strips <think> blocks from on_chunk callbacks."""
+
+    def test_think_block_in_single_chunk(self) -> None:
+        acc = _StreamAccumulator()
+        collected: list[str] = []
+        chunk = {"choices": [{"delta": {"content": "<think>reason</think>Answer"}, "finish_reason": None}]}
+        acc.process_chunk(json.dumps(chunk), lambda t: collected.append(t))
+
+        # on_chunk receives only visible text
+        assert collected == ["Answer"]
+        # content_parts stores everything (including think)
+        assert "".join(acc.content_parts) == "<think>reason</think>Answer"
+
+    def test_think_block_spans_multiple_chunks(self) -> None:
+        """<think> opens in one chunk, </think> closes in another."""
+        acc = _StreamAccumulator()
+        collected: list[str] = []
+        chunks = [
+            {"choices": [{"delta": {"content": "Hi <think>start of"}, "finish_reason": None}]},
+            {"choices": [{"delta": {"content": " reasoning"}, "finish_reason": None}]},
+            {"choices": [{"delta": {"content": "</think> done"}, "finish_reason": None}]},
+        ]
+        for chunk in chunks:
+            acc.process_chunk(json.dumps(chunk), lambda t: collected.append(t))
+
+        # Only non-think text reaches the callback
+        assert "".join(collected) == "Hi  done"
+
+    def test_no_think_tokens_passthrough(self) -> None:
+        """Normal text passes through unchanged."""
+        acc = _StreamAccumulator()
+        collected: list[str] = []
+        chunks = [
+            {"choices": [{"delta": {"content": "Hello"}, "finish_reason": None}]},
+            {"choices": [{"delta": {"content": " world"}, "finish_reason": None}]},
+        ]
+        for chunk in chunks:
+            acc.process_chunk(json.dumps(chunk), lambda t: collected.append(t))
+
+        assert collected == ["Hello", " world"]
+
+    def test_empty_think_block_suppressed(self) -> None:
+        """<think></think> produces no callback invocation."""
+        acc = _StreamAccumulator()
+        collected: list[str] = []
+        chunk = {"choices": [{"delta": {"content": "<think></think>"}, "finish_reason": None}]}
+        acc.process_chunk(json.dumps(chunk), lambda t: collected.append(t))
+
+        assert collected == []
+
+    def test_long_think_block_suppressed(self) -> None:
+        """Simulates the qwen3 4000+ char think block."""
+        acc = _StreamAccumulator()
+        collected: list[str] = []
+        # Open think tag
+        chunks = [
+            {"choices": [{"delta": {"content": "<think>"}, "finish_reason": None}]},
+        ]
+        # 100 chunks of reasoning (simulating long think block)
+        chunks.extend(
+            {"choices": [{"delta": {"content": f"reasoning step {i} " * 5}, "finish_reason": None}]} for i in range(100)
+        )
+        # Close think tag and answer
+        chunks.append({"choices": [{"delta": {"content": "</think>The answer is 42."}, "finish_reason": None}]})
+
+        for chunk in chunks:
+            acc.process_chunk(json.dumps(chunk), lambda t: collected.append(t))
+
+        assert "".join(collected) == "The answer is 42."
 
 
 # ---------------------------------------------------------------------------

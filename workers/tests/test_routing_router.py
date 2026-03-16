@@ -412,3 +412,38 @@ def test_tpm_blocked_model_skipped_in_fallback() -> None:
     tracker = get_tracker()
     tracker.record_error("groq", error_type="tpm_exceeded")
     assert tracker.is_exhausted("groq")
+
+
+def test_mab_skips_exhausted_provider() -> None:
+    """MAB-selected model should be skipped if its provider is exhausted."""
+    # MAB would normally select openai/gpt-4o (highest reward).
+    tracker = _make_tracker_with_exhausted({"openai"})
+    router = HybridRouter(
+        complexity=ComplexityAnalyzer(),
+        mab=_mab_with_data(),
+        meta=None,
+        available_models=AVAILABLE,
+        config=_config(meta=False),
+        rate_tracker=tracker,
+    )
+    # MAB's pick (openai/gpt-4o) is exhausted → should fall through.
+    decision = router.route("Hello")
+    assert decision is not None
+    assert not decision.model.startswith("openai/")
+
+
+def test_meta_router_skips_exhausted_provider() -> None:
+    """Meta-router-selected model should be skipped if its provider is exhausted."""
+    tracker = _make_tracker_with_exhausted({"anthropic"})
+    router = HybridRouter(
+        complexity=ComplexityAnalyzer(),
+        mab=_mab_cold_start(),  # MAB returns None (cold start)
+        meta=_meta_success(),  # Meta selects anthropic/claude-sonnet-4
+        available_models=AVAILABLE,
+        config=_config(),
+        rate_tracker=tracker,
+    )
+    decision = router.route("Write a function to sort a list")
+    assert decision is not None
+    # anthropic is exhausted, so meta-router result should be skipped
+    assert not decision.model.startswith("anthropic/")

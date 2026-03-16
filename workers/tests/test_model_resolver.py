@@ -101,6 +101,49 @@ class TestModelCache:
         assert models == ["valid"]
 
 
+class TestModelCacheExhaustionFiltering:
+    def test_best_skips_exhausted_provider(self) -> None:
+        """First model's provider is exhausted → best should be second model."""
+        from codeforge.routing.rate_tracker import get_tracker
+
+        cache = _ModelCache()
+        response = httpx.Response(
+            200,
+            json={"data": [{"id": "ollama/llama2"}, {"id": "anthropic/claude-sonnet"}]},
+        )
+        tracker = get_tracker()
+        tracker.record_error("ollama", error_type="auth")
+
+        with patch("codeforge.model_resolver.httpx.get", return_value=response):
+            cache.get_models()
+        assert cache.get_best() == "anthropic/claude-sonnet"
+
+        # Cleanup tracker state
+        tracker._state.pop("ollama", None)
+
+    def test_best_falls_back_when_all_exhausted(self) -> None:
+        """When all providers are exhausted, fall back to first model."""
+        from codeforge.routing.rate_tracker import get_tracker
+
+        cache = _ModelCache()
+        response = httpx.Response(
+            200,
+            json={"data": [{"id": "ollama/llama2"}, {"id": "groq/llama3"}]},
+        )
+        tracker = get_tracker()
+        tracker.record_error("ollama", error_type="auth")
+        tracker.record_error("groq", error_type="tpm_exceeded")
+
+        with patch("codeforge.model_resolver.httpx.get", return_value=response):
+            cache.get_models()
+        # All exhausted → falls back to first
+        assert cache.get_best() == "ollama/llama2"
+
+        # Cleanup
+        tracker._state.pop("ollama", None)
+        tracker._state.pop("groq", None)
+
+
 class TestGetAvailableModels:
     def test_returns_list(self) -> None:
         with patch("codeforge.model_resolver._cache") as mock_cache:
