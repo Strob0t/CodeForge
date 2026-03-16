@@ -257,6 +257,10 @@ Section grouping, page merges, top bar navigation improvements.
 
 Complete loading animation system for the SolidJS frontend. 5 primitives (Skeleton, TypingIndicator, StreamingCursor, ProgressBar, PacmanSpinner), 4 composites (SkeletonText, SkeletonCard, SkeletonTable, SkeletonChat), 7 CSS keyframes (cf-shimmer, cf-blink, cf-bounce-dot, cf-progress-slide, cf-pacman-chomp, cf-dot-orbit, cf-fade-in), skeleton design tokens for light/dark themes. ChatPanel integration: TypingIndicator replaces animate-pulse thinking indicator, StreamingCursor replaces static "Streaming..." label. ResourceGuard gains optional `skeleton` prop for custom loading states. No new dependencies.
 
+### Benchmark Metric Validation & Detail Card Fix (COMPLETED)
+
+Go `ValidMetrics` allowlist was missing 3 of 5 frontend-offered metrics (`tool_correctness`, `answer_relevancy`, `contextual_precision`), causing benchmark runs with all metrics to fail HTTP 400. Added missing entries. Fixed SolidJS event delegation bug where clicking task rows in the benchmark detail table collapsed the parent card — parent `onClick` now guards against clicks originating from table/button/a elements. Verified with Playwright MCP against `lm_studio/qwen/qwen3-30b-a3b`: detail card shows summary scores, task results table, and expandable rows with Actual Output and Evaluator Scores.
+
 ### E2E Test Expansion & Verification Tooling (COMPLETED)
 
 Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests verifying full billing error -> classify -> mark exhausted -> model switch chain). File CRUD Playwright E2E (`frontend/e2e/file-crud.spec.ts`, 4 tests). Feature description Playwright E2E (`frontend/e2e/feature-description.spec.ts`, 4 tests). Verification trend tracking in `scripts/verify-features.sh` (`--trend` flag, JSON history with git SHA/branch/timestamp in `data/verification-history/`). Agent-eval benchmark run with `mistral/mistral-large-latest` (0/300 -- model could not produce code, infrastructure verified working).
