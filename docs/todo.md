@@ -153,6 +153,7 @@
 - [x] Hybrid verification pipeline (filter->rank), trajectory verifier (5-dimension LLM scoring)
 - [x] Multi-rollout test-time scaling (best-of-N), diversity-aware MAB routing (entropy-UCB1)
 - [x] DPO/EntroPO trajectory export (JSONL), SWE-GEN synthetic task generation from Git history
+- [x] (2026-03-16) Evaluation improvements: logprob verifier, categorical trajectory scoring, longest/shortest selection strategies
 
 #### Phase 29 -- Hybrid Intelligent Model Routing (COMPLETED)
 - [x] Three-layer cascade: ComplexityAnalyzer (<1ms) -> MABModelSelector (UCB1) -> LLMMetaRouter
@@ -377,6 +378,15 @@
   - Test: `HF_TOKEN` env var propagated to datasets library
   - Run: `cd workers && poetry run pytest tests/test_cache_parquet.py -v`
 
+#### Evaluation System Improvements — R2E-Gym Cherry-Picks + Categorical Verifier (COMPLETED)
+
+> Three targeted improvements to the Phase 26+28 evaluation pipeline. Python-only, no Go/NATS/frontend changes.
+
+- [x] (2026-03-16) **LogprobVerifierEvaluator (new):** Calibrated ranking via P(YES) logprobs with `max_tokens=1`. Softmax normalization `P(YES) = exp(yes_lp) / (exp(yes_lp) + exp(no_lp))`. Falls back to text parsing when provider doesn't support logprobs. Registered in `_build_evaluators()` + `_DIMENSION_TO_METRIC`. Files: `workers/codeforge/evaluation/evaluators/logprob_verifier.py` (new), `workers/tests/test_logprob_verifier.py` (new, 13 tests), `workers/codeforge/consumer/_benchmark.py`.
+- [x] (2026-03-16) **Categorical TrajectoryVerifier:** Replaced unreliable float-based scoring (0.0-1.0) with ACHIEVED/PARTIALLY_ACHIEVED/NOT_ACHIEVED categories (based on RocketEval ICLR 2025, Prometheus ICLR 2024). Same 5 dimensions, same interface, case-insensitive parsing with backward compat for floats. `max_tokens` reduced 256->128. Files: `workers/codeforge/evaluation/evaluators/trajectory_verifier.py`, `workers/tests/test_trajectory_verifier.py` (5 new + 2 updated tests).
+- [x] (2026-03-16) **Selection strategies (longest/shortest):** Added trajectory-length-based selection for `MultiRolloutRunner` (from R2E-Gym). `_trajectory_length()` helper with 3-tier fallback (trajectory -> step_count -> actual_output). Zero-cost heuristic when hybrid pipeline unavailable. Files: `workers/codeforge/evaluation/runners/multi_rollout.py`, `workers/tests/test_multi_rollout_runner.py` (7 new tests).
+- Total: 48 tests (27 new + 21 existing), 7 files changed (+718/-30 lines)
+
 #### Frontend UI Bug Fixes & i18n (COMPLETED)
 - [x] (2026-03-15) **BUG-1 (High) — Broken "Go to Chat" Navigation:** `onNavigate("chat")` silently did nothing — `"chat"` was not a valid `LeftTab`. Created unified `handleNavigate()` in `ProjectDetailPage.tsx` that switches `mobileView` to `"chat"` on mobile. Replaced 8 duplicate inline handlers. Fixed in: `GoalsPanel.tsx:202`, `SessionPanel.tsx:116`, `WarRoom.tsx:90`, `OnboardingProgress.tsx:44`.
 - [x] (2026-03-15) **BUG-2 (Medium) — Dead RunPanel Code:** `run.toolcall` WS event was a stub comment. `RunPanel.addToolCall`/`updateRunStatus` attached to component function object but never called. Removed dead code — tool calls are rendered via AG-UI events in `ChatPanel`. Files: `ProjectDetailPage.tsx`, `RunPanel.tsx`.
@@ -407,7 +417,7 @@
 - [x] Benchmark E2E: 132 browser Playwright tests across 12 spec files
 - [x] Benchmark Validation E2E: 22 API-level tests across 6 blocks (`frontend/e2e/benchmark-validation/`)
 - [x] Backend E2E: 88 pass / 0 fail / 3 skip (97% pass rate)
-- [x] Python unit tests: 107 pass (includes 40 new tests from benchmark validation bug fixes)
+- [x] Python unit tests: 134 pass (107 prior + 27 new from evaluation improvements)
 
 #### Chat Enhancements (COMPLETED)
 - [x] (2026-03-10) Phase 1: HITL permission UI + `supervised-ask-all` preset + autonomy-to-preset mapping
