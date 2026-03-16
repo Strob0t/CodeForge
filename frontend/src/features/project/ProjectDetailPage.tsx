@@ -365,7 +365,7 @@ export default function ProjectDetailPage() {
   };
 
   return (
-    <div class="flex flex-col h-[calc(100vh-4rem)]">
+    <div class="flex flex-col h-full">
       <Show
         when={project()}
         fallback={
@@ -666,7 +666,7 @@ export default function ProjectDetailPage() {
 
               <Show when={!isMobile() || mobileView() === "chat"}>
                 <div
-                  class="flex flex-col min-h-0"
+                  class="flex flex-col min-h-0 overflow-hidden"
                   style={
                     isMobile()
                       ? { height: "100%" }

@@ -504,7 +504,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   }
 
   return (
-    <div class="flex flex-col h-full bg-cf-bg-surface">
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden bg-cf-bg-surface">
       <Show
         when={activeConversation()}
         fallback={

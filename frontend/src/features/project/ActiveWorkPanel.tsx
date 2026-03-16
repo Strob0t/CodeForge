@@ -56,7 +56,7 @@ export default function ActiveWorkPanel(props: Props) {
 
   return (
     <Show when={count() > 0}>
-      <div class="border-b border-cf-border bg-cf-bg-secondary/50">
+      <div class="border-b border-cf-border bg-cf-bg-secondary/50 flex-shrink-0">
         <Button
           variant="ghost"
           size="sm"
