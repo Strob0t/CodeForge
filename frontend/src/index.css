@@ -15,6 +15,7 @@
   --cf-bg-primary: #fdf6e3; /* base3 */
   --cf-bg-surface: #eee8d5; /* base2 */
   --cf-bg-surface-alt: #e8e1cb; /* base2 darkened */
+  --cf-bg-secondary: #f5efd9; /* base3 darkened — secondary surface */
   --cf-bg-inset: #ddd6c1; /* base2 darker */
 
   /* Border colors */
@@ -86,6 +87,7 @@
   --cf-bg-primary: #1f1f1f; /* editor background */
   --cf-bg-surface: #181818; /* sidebar background */
   --cf-bg-surface-alt: #2b2b2b; /* input/list background */
+  --cf-bg-secondary: #252525; /* secondary surface */
   --cf-bg-inset: #333333; /* inset panels */
 
   /* Border colors */
@@ -179,6 +181,7 @@
   --color-cf-bg-primary: var(--cf-bg-primary);
   --color-cf-bg-surface: var(--cf-bg-surface);
   --color-cf-bg-surface-alt: var(--cf-bg-surface-alt);
+  --color-cf-bg-secondary: var(--cf-bg-secondary);
   --color-cf-bg-inset: var(--cf-bg-inset);
 
   /* Borders */

@@ -125,7 +125,7 @@ export function TaskSettings(props: TaskSettingsProps): ReturnType<typeof Card> 
                 <Input
                   type="number"
                   min={1}
-                  max={props.taskCount ?? 10000}
+                  max={props.taskCount || 10000}
                   value={props.config.max_tasks ?? 50}
                   onInput={(e) => setField("max_tasks", parseInt(e.currentTarget.value, 10) || 1)}
                   class="w-24"

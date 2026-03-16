@@ -62,6 +62,7 @@ backups/
 
 # -- Claude Code ----------------------------------
 .claude/
+.superpowers/
 
 # -- DeepEval (runtime telemetry) ------------------
 .deepeval/
