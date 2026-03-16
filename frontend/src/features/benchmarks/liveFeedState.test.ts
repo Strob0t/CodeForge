@@ -6,6 +6,7 @@ import {
   agentEventToLiveFeedEvent,
   computeEta,
   formatTokens,
+  resultToFeatureEntry,
   statsFromSummary,
 } from "./liveFeedState";
 
@@ -158,5 +159,37 @@ describe("statsFromSummary", () => {
     const stats = statsFromSummary(summary, []);
     expect(stats.avgScore).toBe(0);
     expect(stats.costPerTask).toBe(0);
+  });
+});
+
+describe("resultToFeatureEntry", () => {
+  it("maps BenchmarkResult to FeatureEntry", () => {
+    const r = {
+      task_id: "t1",
+      task_name: "parse-json",
+      cost_usd: 0.12,
+      duration_ms: 72000,
+      scores: { correctness: 0.95 },
+    } as BenchmarkResult;
+    const entry = resultToFeatureEntry(r);
+    expect(entry.id).toBe("t1");
+    expect(entry.name).toBe("parse-json");
+    expect(entry.status).toBe("completed");
+    expect(entry.cost).toBe(0.12);
+    expect(entry.score).toBe(0.95);
+    expect(entry.events).toEqual([]);
+    expect(entry.startedAt).toBeDefined();
+  });
+
+  it("handles missing scores", () => {
+    const r = {
+      task_id: "t2",
+      task_name: "empty",
+      cost_usd: 0,
+      duration_ms: 0,
+    } as BenchmarkResult;
+    const entry = resultToFeatureEntry(r);
+    expect(entry.score).toBeUndefined();
+    expect(entry.startedAt).toBeUndefined();
   });
 });
