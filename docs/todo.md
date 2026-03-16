@@ -350,13 +350,13 @@
 > even at page_size=10. Current adaptive page_size fallback (100→10→1) works but is extremely
 > slow (~12h for 880 rows). Some rows return 500 and are skipped entirely.
 
-- [ ] E.1: Add `datasets` library to Poetry dependencies
+- [x] (2026-03-16) E.1: Add `datasets` library to Poetry dependencies
   - File: `workers/pyproject.toml`
   - Add: `datasets = "^3.0"` (HuggingFace datasets library)
   - Run: `cd workers && poetry add datasets`
   - Note: This is a large dependency (~100MB with Apache Arrow). Consider making it optional via extras: `[tool.poetry.extras] hf = ["datasets"]`
 
-- [ ] E.2: Add `download_hf_dataset_parquet()` alternative in cache module
+- [x] (2026-03-16) E.2: Add `download_hf_dataset_parquet()` alternative in cache module
   - File: `workers/codeforge/evaluation/cache.py`
   - New function: `async def download_hf_dataset_parquet(dataset, split, provider_name, filename, base_dir, config)` that:
     1. Checks cache first (same `get_cached_path()` logic)
@@ -365,12 +365,12 @@
     4. Handles `HF_TOKEN` authentication via `datasets.login(token=hf_token)` or `HfFolder.save_token()`
   - This bypasses the HTTP rows API entirely — uses HuggingFace Hub direct download
 
-- [ ] E.3: Update LiveCodeBench provider to use Parquet download
+- [x] (2026-03-16) E.3: Update LiveCodeBench provider to use Parquet download
   - File: `workers/codeforge/evaluation/providers/livecodebench.py`
   - Change `_fetch_tasks()` to call `download_hf_dataset_parquet()` instead of `download_hf_dataset()`
   - Keep `download_hf_dataset()` as fallback for providers that work fine with HTTP API (humaneval, mbpp, bigcodebench, cruxeval)
 
-- [ ] E.4: Write tests for Parquet download path
+- [x] (2026-03-16) E.4: Write tests for Parquet download path
   - File: `workers/tests/test_cache_parquet.py`
   - Test: mock `datasets.load_dataset()` → verify JSONL file created with correct records
   - Test: cached file exists → skips download

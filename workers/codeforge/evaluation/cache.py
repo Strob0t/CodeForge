@@ -265,3 +265,76 @@ async def download_hf_dataset(
         tmp_path.unlink(missing_ok=True)
         msg = f"failed to download dataset {dataset}/{split}: {exc}"
         raise RuntimeError(msg) from exc
+
+
+async def download_hf_dataset_parquet(
+    dataset: str,
+    split: str,
+    provider_name: str,
+    filename: str,
+    base_dir: str = "",
+    config: str = "default",
+) -> Path:
+    """Download a HuggingFace dataset via the ``datasets`` library and cache as JSONL.
+
+    This is an alternative to ``download_hf_dataset()`` that uses the ``datasets``
+    Python library for direct Parquet download instead of the HTTP rows API.
+    More reliable for large datasets (e.g., LiveCodeBench) where the HTTP API
+    returns 502/504 errors.
+
+    Requires: ``pip install datasets`` (or ``poetry install -E hf``)
+
+    Args:
+        dataset: HuggingFace dataset identifier (e.g. "livecodebench/code_generation").
+        split: Dataset split (e.g. "test").
+        provider_name: Provider name (used as cache subdirectory).
+        filename: Local filename to save as.
+        base_dir: Override base cache directory.
+        config: Dataset config name (default "default").
+
+    Returns:
+        Path to the cached JSONL file.
+
+    Raises:
+        RuntimeError: If download fails or ``datasets`` library is not installed.
+    """
+    cached = get_cached_path(provider_name, filename, base_dir)
+    if cached is not None:
+        logger.debug("using cached dataset", path=str(cached))
+        return cached
+
+    cache_dir = get_cache_dir(provider_name, base_dir)
+    target = cache_dir / filename
+    tmp_path = target.with_suffix(".tmp")
+
+    log = logger.bind(dataset=dataset, split=split, target=str(target))
+    log.info("downloading HuggingFace dataset via datasets library")
+
+    try:
+        from datasets import load_dataset as hf_load_dataset
+    except ImportError:
+        msg = "The 'datasets' library is required for Parquet download. Install it with: poetry install -E hf"
+        raise RuntimeError(msg) from None
+
+    try:
+        hf_token = os.getenv("HF_TOKEN", "") or None
+        # Use trust_remote_code=False for security
+        ds = hf_load_dataset(
+            dataset,
+            config if config != "default" else None,
+            split=split,
+            token=hf_token,
+            trust_remote_code=False,
+        )
+
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.writelines(json.dumps(row, default=str) + "\n" for row in ds)
+
+        tmp_path.rename(target)
+        log.info("dataset downloaded via datasets library", rows=len(ds), size_bytes=target.stat().st_size)
+        return target
+
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        msg = f"failed to download dataset {dataset}/{split} via datasets library: {exc}"
+        raise RuntimeError(msg) from exc

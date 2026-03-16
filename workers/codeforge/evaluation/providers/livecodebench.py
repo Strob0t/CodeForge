@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from codeforge.evaluation.cache import download_hf_dataset, load_jsonl
+from codeforge.evaluation.cache import download_hf_dataset, download_hf_dataset_parquet, load_jsonl
 from codeforge.evaluation.providers.base import (
     BenchmarkType,
     Capabilities,
@@ -63,14 +63,29 @@ class LiveCodeBenchProvider:
         return len(self._apply_date_filter(raw))
 
     async def _fetch_tasks(self) -> list[dict]:
-        path = await download_hf_dataset(
-            dataset=_DATASET,
-            split="test",
-            provider_name="livecodebench",
-            filename=_FILENAME,
-            base_dir=self._cache_dir,
-            config=_CONFIG,
-        )
+        import structlog
+
+        log = structlog.get_logger(__name__)
+        # Try datasets library first (reliable for large datasets like LiveCodeBench)
+        try:
+            path = await download_hf_dataset_parquet(
+                dataset=_DATASET,
+                split="test",
+                provider_name="livecodebench",
+                filename=_FILENAME,
+                base_dir=self._cache_dir,
+                config=_CONFIG,
+            )
+        except RuntimeError:
+            log.warning("datasets library unavailable, falling back to HTTP API")
+            path = await download_hf_dataset(
+                dataset=_DATASET,
+                split="test",
+                provider_name="livecodebench",
+                filename=_FILENAME,
+                base_dir=self._cache_dir,
+                config=_CONFIG,
+            )
         self._tasks_raw = load_jsonl(path)
         return self._tasks_raw
 
