@@ -15,11 +15,16 @@ export { Checkbox } from "./primitives";
 export { FormField } from "./primitives";
 export { Input } from "./primitives";
 export { Label } from "./primitives";
+export { PacmanSpinner } from "./primitives";
+export { ProgressBar } from "./primitives";
 export { Select } from "./primitives";
+export { Skeleton } from "./primitives";
 export { Spinner } from "./primitives";
 export { StatusDot } from "./primitives";
+export { StreamingCursor } from "./primitives";
 export { Textarea } from "./primitives";
 export { Tooltip } from "./primitives";
+export { TypingIndicator } from "./primitives";
 
 // Composites (Phase 3)
 export { Card } from "./composites";
@@ -33,6 +38,10 @@ export { ModelCombobox } from "./composites";
 export { ResourceGuard } from "./composites";
 export { ResourceView } from "./composites";
 export { SectionHeader } from "./composites";
+export { SkeletonCard } from "./composites";
+export { SkeletonChat } from "./composites";
+export { SkeletonTable } from "./composites";
+export { SkeletonText } from "./composites";
 export { StatCard } from "./composites";
 export { Table } from "./composites";
 export { Tabs } from "./composites";

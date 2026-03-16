@@ -8,6 +8,7 @@ interface ResourceGuardProps<T> {
   resource: Resource<T>;
   loadingMessage?: string;
   errorMessage?: string;
+  skeleton?: JSX.Element;
   children: (data: () => NonNullable<T>) => JSX.Element;
 }
 
@@ -25,7 +26,7 @@ export function ResourceGuard<T>(props: ResourceGuardProps<T>): JSX.Element {
   return (
     <>
       <Show when={props.resource.loading}>
-        <LoadingState message={props.loadingMessage} />
+        {props.skeleton ?? <LoadingState message={props.loadingMessage} />}
       </Show>
 
       <Show when={props.resource.error}>

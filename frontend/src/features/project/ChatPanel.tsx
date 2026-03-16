@@ -17,7 +17,7 @@ import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
-import { Badge, Button, CostDisplay } from "~/ui";
+import { Badge, Button, CostDisplay, StreamingCursor, TypingIndicator } from "~/ui";
 
 import ChatInput from "../chat/ChatInput";
 import TokenBadge from "../chat/TokenBadge";
@@ -819,7 +819,7 @@ export default function ChatPanel(props: ChatPanelProps) {
               <div class="flex justify-start">
                 <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-primary">
                   <Markdown content={content()} />
-                  <div class="mt-1 text-xs opacity-60">{t("chat.streaming")}</div>
+                  <StreamingCursor active={agentRunning()} />
                 </div>
               </div>
             )}
@@ -853,8 +853,9 @@ export default function ChatPanel(props: ChatPanelProps) {
           {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
           <Show when={(sending() || agentRunning()) && !streamingContent()}>
             <div class="flex justify-start">
-              <div class="bg-cf-bg-surface-alt rounded-cf-md px-4 py-2 text-sm text-cf-text-tertiary animate-pulse">
-                {t("chat.thinking")}
+              <div class="bg-cf-bg-surface-alt rounded-cf-md px-4 py-3 inline-flex items-center gap-2">
+                <TypingIndicator />
+                <span class="text-sm text-cf-text-tertiary">{t("chat.thinking")}</span>
               </div>
             </div>
           </Show>

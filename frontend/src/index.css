@@ -78,6 +78,10 @@
   --cf-status-waiting: #b58900; /* yellow */
   --cf-status-error: #dc322f; /* red */
   --cf-status-planning: #6c71c4; /* violet */
+
+  /* Skeleton loading */
+  --cf-skeleton-base: var(--cf-bg-surface-alt);
+  --cf-skeleton-shine: var(--cf-bg-surface);
 }
 
 .dark {
@@ -150,6 +154,10 @@
   --cf-status-waiting: #cca700; /* terminal yellow */
   --cf-status-error: #f14c4c; /* error foreground */
   --cf-status-planning: #c586c0; /* terminal magenta */
+
+  /* Skeleton loading */
+  --cf-skeleton-base: var(--cf-bg-surface-alt);
+  --cf-skeleton-shine: var(--cf-bg-surface);
 }
 
 /* Unovis chart theme integration */
@@ -238,6 +246,10 @@
   --radius-cf-sm: var(--cf-radius-sm);
   --radius-cf-md: var(--cf-radius-md);
   --radius-cf-lg: var(--cf-radius-lg);
+
+  /* Skeleton */
+  --color-cf-skeleton-base: var(--cf-skeleton-base);
+  --color-cf-skeleton-shine: var(--cf-skeleton-shine);
 }
 
 /* ---------------------------------------------------------------------------
@@ -306,6 +318,108 @@
   border-radius: 9999px;
   border: 2px solid var(--cf-border);
   border-top-color: var(--cf-accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Shimmer animation — used by ui/primitives/Skeleton
+   --------------------------------------------------------------------------- */
+
+@keyframes cf-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.cf-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--cf-skeleton-base) 25%,
+    var(--cf-skeleton-shine) 50%,
+    var(--cf-skeleton-base) 75%
+  );
+  background-size: 200% 100%;
+  animation: cf-shimmer 1.4s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   Blink animation — used by ui/primitives/StreamingCursor
+   --------------------------------------------------------------------------- */
+
+@keyframes cf-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Bounce-dot animation — used by ui/primitives/TypingIndicator
+   --------------------------------------------------------------------------- */
+
+@keyframes cf-bounce-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-6px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Progress-slide animation — used by ui/primitives/ProgressBar
+   --------------------------------------------------------------------------- */
+
+@keyframes cf-progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Pacman animations — used by ui/primitives/PacmanSpinner
+   --------------------------------------------------------------------------- */
+
+@keyframes cf-pacman-chomp {
+  0%,
+  100% {
+    d: path("M 50 15 L 50 15 A 12 12 0 1 1 50 15");
+  }
+  50% {
+    d: path("M 50 15 L 62 9 A 12 12 0 1 1 62 21");
+  }
+}
+
+@keyframes cf-dot-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Fade-in animation — page transitions
+   --------------------------------------------------------------------------- */
+
+@keyframes cf-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* ---------------------------------------------------------------------------
