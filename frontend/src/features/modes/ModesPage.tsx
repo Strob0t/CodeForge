@@ -50,7 +50,7 @@ const FORM_DEFAULTS: ModeFormState = {
   prompt: "",
 };
 
-export default function ModesPage() {
+export function ModesContent() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
@@ -163,9 +163,8 @@ export default function ModesPage() {
   });
 
   return (
-    <PageLayout
-      title={t("modes.title")}
-      action={
+    <>
+      <div class="mb-4 flex justify-end">
         <Button
           variant={crud.showForm() ? "secondary" : "primary"}
           onClick={() => {
@@ -178,8 +177,8 @@ export default function ModesPage() {
         >
           {crud.showForm() ? t("common.cancel") : t("modes.addMode")}
         </Button>
-      }
-    >
+      </div>
+
       <ErrorBanner error={error} onDismiss={clearError} />
 
       <Show when={crud.showForm()}>
@@ -319,6 +318,15 @@ export default function ModesPage() {
           </GridLayout>
         </Show>
       </Show>
+    </>
+  );
+}
+
+export default function ModesPage() {
+  const { t } = useI18n();
+  return (
+    <PageLayout title={t("modes.title")}>
+      <ModesContent />
     </PageLayout>
   );
 }

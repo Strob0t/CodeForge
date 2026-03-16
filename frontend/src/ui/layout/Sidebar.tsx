@@ -121,7 +121,7 @@ function SidebarNav(props: SidebarProps): JSX.Element {
   return (
     <nav
       class={
-        "flex-1 overflow-y-auto " +
+        "flex-1 overflow-y-auto flex flex-col " +
         (isMobile() ? "px-3" : collapsed() ? "px-1" : "px-3") +
         (local.class ? " " + local.class : "")
       }

@@ -22,19 +22,16 @@ import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
 import { ShortcutProvider } from "~/shortcuts";
 import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
+import { NavSection } from "~/ui/layout";
 import {
   ActivityIcon,
-  AuditIcon,
   BenchmarksIcon,
   CostsIcon,
   DashboardIcon,
   KnowledgeBaseIcon,
   McpIcon,
   ModelsIcon,
-  ModesIcon,
   PromptsIcon,
-  ScopesIcon,
-  SearchIcon,
   SettingsIcon,
 } from "~/ui/layout/NavIcons";
 import { updateTabBadge } from "~/utils/tabBadge";
@@ -66,36 +63,13 @@ function ErrorFallback(props: { error: unknown; reset: () => void }): JSX.Elemen
 // Inner shell (has access to I18n / Theme / Toast contexts)
 // ---------------------------------------------------------------------------
 
-function UserInfo(): JSX.Element {
-  const { t } = useI18n();
-  const { user, isAuthenticated, logout } = useAuth();
-  const { collapsed } = useSidebar();
-
-  return (
-    <Show when={isAuthenticated()}>
-      <Show when={!collapsed()}>
-        <div class="flex items-center justify-between border-b border-cf-border px-4 py-2 text-xs">
-          <div class="truncate text-cf-text-secondary" title={user()?.email ?? ""}>
-            {user()?.name ?? ""}{" "}
-            <span class="rounded bg-cf-bg-surface-alt px-1 py-0.5 text-xs font-medium uppercase">
-              {user()?.role ?? ""}
-            </span>
-          </div>
-          <Button variant="link" size="xs" onClick={() => void logout()} title={t("auth.logout")}>
-            {t("auth.logout")}
-          </Button>
-        </div>
-      </Show>
-    </Show>
-  );
-}
-
 function AppShell(props: {
   health: ReturnType<typeof createResource<HealthStatus>>[0];
   connected: () => boolean;
   children: JSX.Element;
 }) {
   const { t } = useI18n();
+  const { user, isAuthenticated, logout } = useAuth();
   const { collapsed, openMobile } = useSidebar();
   const { isMobile } = useBreakpoint();
   const { activeRuns } = useConversationRuns();
@@ -150,57 +124,55 @@ function AppShell(props: {
                 <NotificationBell />
               </div>
             </Sidebar.Header>
-            <UserInfo />
 
             <Sidebar.Nav>
-              <NavLink href="/" end icon={<DashboardIcon />} label={t("app.nav.dashboard")}>
-                {t("app.nav.dashboard")}
-              </NavLink>
-              <NavLink href="/costs" icon={<CostsIcon />} label={t("app.nav.costs")}>
-                {t("app.nav.costs")}
-              </NavLink>
-              <NavLink href="/models" icon={<ModelsIcon />} label={t("app.nav.models")}>
-                {t("app.nav.models")}
-              </NavLink>
-              <NavLink href="/modes" icon={<ModesIcon />} label={t("app.nav.modes")}>
-                {t("app.nav.modes")}
-              </NavLink>
-              <NavLink href="/activity" icon={<ActivityIcon />} label={t("app.nav.activity")}>
-                {t("app.nav.activity")}
-              </NavLink>
-              <NavLink href="/audit" icon={<AuditIcon />} label={t("app.nav.audit")}>
-                {t("app.nav.audit")}
-              </NavLink>
-              <NavLink href="/knowledge-bases" icon={<KnowledgeBaseIcon />} label={t("kb.title")}>
-                {t("kb.title")}
-              </NavLink>
-              <NavLink href="/scopes" icon={<ScopesIcon />} label={t("app.nav.scopes")}>
-                {t("app.nav.scopes")}
-              </NavLink>
-              <NavLink href="/mcp" icon={<McpIcon />} label={t("app.nav.mcp")}>
-                {t("app.nav.mcp")}
-              </NavLink>
-              <NavLink href="/prompts" icon={<PromptsIcon />} label={t("app.nav.prompts")}>
-                {t("app.nav.prompts")}
-              </NavLink>
-              <NavLink href="/search" icon={<SearchIcon />} label={t("app.nav.search")}>
-                {t("app.nav.search")}
-              </NavLink>
-              <NavLink href="/settings" icon={<SettingsIcon />} label={t("app.nav.settings")}>
-                {t("app.nav.settings")}
-              </NavLink>
-              <Show when={props.health()?.dev_mode}>
-                <NavLink
-                  href="/benchmarks"
-                  icon={<BenchmarksIcon />}
-                  label={t("app.nav.benchmarks")}
-                >
-                  {t("app.nav.benchmarks")}
+              <NavSection>
+                <NavLink href="/" end icon={<DashboardIcon />} label={t("app.nav.dashboard")}>
+                  {t("app.nav.dashboard")}
                 </NavLink>
-              </Show>
+                <NavLink href="/activity" icon={<ActivityIcon />} label={t("app.nav.activity")}>
+                  {t("app.nav.activity")}
+                </NavLink>
+              </NavSection>
+              <NavSection label={t("app.nav.section.ai")}>
+                <NavLink href="/ai" icon={<ModelsIcon />} label={t("app.nav.aiConfig")}>
+                  {t("app.nav.aiConfig")}
+                </NavLink>
+                <NavLink href="/prompts" icon={<PromptsIcon />} label={t("app.nav.prompts")}>
+                  {t("app.nav.prompts")}
+                </NavLink>
+                <NavLink href="/mcp" icon={<McpIcon />} label={t("app.nav.mcp")}>
+                  {t("app.nav.mcp")}
+                </NavLink>
+                <Show when={props.health()?.dev_mode}>
+                  <NavLink
+                    href="/benchmarks"
+                    icon={<BenchmarksIcon />}
+                    label={t("app.nav.benchmarks")}
+                  >
+                    {t("app.nav.benchmarks")}
+                  </NavLink>
+                </Show>
+              </NavSection>
+              <NavSection label={t("app.nav.section.knowledge")}>
+                <NavLink
+                  href="/knowledge"
+                  icon={<KnowledgeBaseIcon />}
+                  label={t("app.nav.knowledge")}
+                >
+                  {t("app.nav.knowledge")}
+                </NavLink>
+              </NavSection>
+              <ChannelList />
+              <NavSection label={t("app.nav.section.system")} bottom>
+                <NavLink href="/costs" icon={<CostsIcon />} label={t("app.nav.costs")}>
+                  {t("app.nav.costs")}
+                </NavLink>
+                <NavLink href="/settings" icon={<SettingsIcon />} label={t("app.nav.settings")}>
+                  {t("app.nav.settings")}
+                </NavLink>
+              </NavSection>
             </Sidebar.Nav>
-
-            <ChannelList />
 
             <Sidebar.Footer>
               <Show
@@ -279,37 +251,57 @@ function AppShell(props: {
             </Sidebar.Footer>
           </Sidebar>
 
-          <main
-            id="main-content"
-            class="flex-1 overflow-auto p-3 sm:p-4 lg:p-6"
-            style={{ "padding-bottom": "max(0.75rem, var(--cf-safe-bottom))" }}
-          >
-            <Show when={isMobile()}>
-              <div class="mb-3 flex items-center">
-                <button
-                  type="button"
-                  onClick={openMobile}
-                  class="rounded-cf-md p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-cf-text-secondary hover:bg-cf-bg-surface-alt transition-colors"
-                  aria-label="Open menu"
-                >
-                  <svg
-                    class="h-6 w-6"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    stroke-width="2"
+          <div class="flex flex-1 flex-col overflow-hidden">
+            <header class="flex items-center justify-between border-b border-cf-border bg-cf-bg-surface px-3 py-2 sm:px-4">
+              <div class="flex items-center gap-2">
+                <Show when={isMobile()}>
+                  <button
+                    type="button"
+                    onClick={openMobile}
+                    class="rounded-cf-md p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-cf-text-secondary hover:bg-cf-bg-surface-alt transition-colors"
+                    aria-label="Open menu"
                   >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-                    />
-                  </svg>
-                </button>
+                    <svg
+                      class="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      stroke-width="2"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                      />
+                    </svg>
+                  </button>
+                </Show>
               </div>
-            </Show>
-            {props.children}
-          </main>
+              <Show when={isAuthenticated()}>
+                <div class="flex items-center gap-2 text-sm">
+                  <span class="text-cf-text-secondary">{user()?.name ?? ""}</span>
+                  <span class="rounded bg-cf-bg-surface-alt px-1.5 py-0.5 text-xs font-medium uppercase text-cf-text-muted">
+                    {user()?.role ?? ""}
+                  </span>
+                  <Button
+                    variant="link"
+                    size="xs"
+                    onClick={() => void logout()}
+                    title={t("auth.logout")}
+                  >
+                    {t("auth.logout")}
+                  </Button>
+                </div>
+              </Show>
+            </header>
+            <main
+              id="main-content"
+              class="flex-1 overflow-auto p-3 sm:p-4 lg:p-6"
+              style={{ "padding-bottom": "max(0.75rem, var(--cf-safe-bottom))" }}
+            >
+              {props.children}
+            </main>
+          </div>
         </div>
       </div>
     </>
@@ -325,16 +317,12 @@ const KNOWN_ROUTES = new Set([
   "/",
   "/projects",
   "/costs",
-  "/models",
-  "/modes",
+  "/ai",
   "/activity",
-  "/knowledge-bases",
-  "/scopes",
+  "/knowledge",
   "/mcp",
   "/prompts",
   "/settings",
-  "/audit",
-  "/search",
   "/benchmarks",
 ]);
 

@@ -30,7 +30,7 @@ const KB_FORM_DEFAULTS = {
   contentPath: "",
 };
 
-export default function KnowledgeBasesPage() {
+export function KnowledgeBasesContent() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
@@ -111,15 +111,13 @@ export default function KnowledgeBasesPage() {
   });
 
   return (
-    <PageLayout
-      title={t("kb.title")}
-      description={t("kb.description")}
-      action={
+    <>
+      <div class="mb-4 flex justify-end">
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm() ? t("common.cancel") : t("kb.form.create")}
         </Button>
-      }
-    >
+      </div>
+
       <Show when={showForm()}>
         <form
           onSubmit={(e) => {
@@ -212,6 +210,15 @@ export default function KnowledgeBasesPage() {
           </GridLayout>
         </Show>
       </Show>
+    </>
+  );
+}
+
+export default function KnowledgeBasesPage() {
+  const { t } = useI18n();
+  return (
+    <PageLayout title={t("kb.title")} description={t("kb.description")}>
+      <KnowledgeBasesContent />
     </PageLayout>
   );
 }

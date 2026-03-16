@@ -1,10 +1,12 @@
+import { useSearchParams } from "@solidjs/router";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 
 import type { WSMessage } from "~/api/websocket";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { severityVariant } from "~/config/statusVariants";
+import { AuditContent } from "~/features/audit/AuditTrailPage";
 import { useI18n } from "~/i18n";
-import { Badge, Button, Card, EmptyState, PageLayout, Select } from "~/ui";
+import { Badge, Button, Card, EmptyState, PageLayout, Select, Tabs } from "~/ui";
 
 /** A single activity entry shown in the stream */
 interface ActivityEntry {
@@ -195,7 +197,7 @@ function classifyMessage(msg: WSMessage): ActivityEntry | null {
   }
 }
 
-export default function ActivityPage() {
+export function ActivityContent() {
   const { t, fmt } = useI18n();
   const { connected, onMessage } = useWebSocket();
   const [entries, setEntries] = createSignal<ActivityEntry[]>([]);
@@ -224,35 +226,32 @@ export default function ActivityPage() {
   });
 
   return (
-    <PageLayout
-      title={t("activity.title")}
-      action={
-        <div class="flex items-center gap-3">
-          <Badge variant={connected() ? "success" : "danger"} pill>
-            {connected() ? t("activity.connected") : t("activity.disconnected")}
-          </Badge>
-          <Select
-            value={filterType()}
-            aria-label={t("activity.filterLabel")}
-            onChange={(e) => setFilterType(e.currentTarget.value)}
-            class="w-auto"
-          >
-            <option value="">{t("activity.allEvents")}</option>
-            <For each={eventTypes()}>{(type) => <option value={type}>{type}</option>}</For>
-          </Select>
-          <Button
-            variant={paused() ? "primary" : "secondary"}
-            size="sm"
-            onClick={() => setPaused((v) => !v)}
-          >
-            {paused() ? t("activity.resume") : t("activity.pause")}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setEntries([])}>
-            {t("activity.clear")}
-          </Button>
-        </div>
-      }
-    >
+    <>
+      <div class="mb-4 flex items-center justify-end gap-3">
+        <Badge variant={connected() ? "success" : "danger"} pill>
+          {connected() ? t("activity.connected") : t("activity.disconnected")}
+        </Badge>
+        <Select
+          value={filterType()}
+          aria-label={t("activity.filterLabel")}
+          onChange={(e) => setFilterType(e.currentTarget.value)}
+          class="w-auto"
+        >
+          <option value="">{t("activity.allEvents")}</option>
+          <For each={eventTypes()}>{(type) => <option value={type}>{type}</option>}</For>
+        </Select>
+        <Button
+          variant={paused() ? "primary" : "secondary"}
+          size="sm"
+          onClick={() => setPaused((v) => !v)}
+        >
+          {paused() ? t("activity.resume") : t("activity.pause")}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => setEntries([])}>
+          {t("activity.clear")}
+        </Button>
+      </div>
+
       <Show
         when={filtered().length > 0}
         fallback={
@@ -302,6 +301,37 @@ export default function ActivityPage() {
             total: String(entries().length),
           })}
         </p>
+      </Show>
+    </>
+  );
+}
+
+export default function ActivityPage() {
+  const { t } = useI18n();
+  const [params, setParams] = useSearchParams();
+  const activeTab = (): string => {
+    const tab = params.tab;
+    if (Array.isArray(tab)) return tab[0] ?? "live";
+    return tab ?? "live";
+  };
+
+  return (
+    <PageLayout title={t("activity.title")}>
+      <Tabs
+        items={[
+          { value: "live", label: t("activity.tab.live") },
+          { value: "audit", label: t("activity.tab.audit") },
+        ]}
+        value={activeTab()}
+        onChange={(v) => setParams({ tab: v === "live" ? undefined : v })}
+        variant="underline"
+        class="mb-4"
+      />
+      <Show when={activeTab() === "live"}>
+        <ActivityContent />
+      </Show>
+      <Show when={activeTab() === "audit"}>
+        <AuditContent />
       </Show>
     </PageLayout>
   );

@@ -28,7 +28,7 @@ import {
 } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
-export default function ScopesPage() {
+export function ScopesContent() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
@@ -135,15 +135,13 @@ export default function ScopesPage() {
   });
 
   return (
-    <PageLayout
-      title={t("scope.title")}
-      description={t("scope.description")}
-      action={
+    <>
+      <div class="mb-4 flex justify-end">
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm() ? t("common.cancel") : t("scope.form.create")}
         </Button>
-      }
-    >
+      </div>
+
       <Show when={showForm()}>
         <form onSubmit={handleCreate} class="mb-6" aria-label={t("scope.form.create")}>
           <Card>
@@ -242,6 +240,15 @@ export default function ScopesPage() {
           </GridLayout>
         </Show>
       </Show>
+    </>
+  );
+}
+
+export default function ScopesPage() {
+  const { t } = useI18n();
+  return (
+    <PageLayout title={t("scope.title")} description={t("scope.description")}>
+      <ScopesContent />
     </PageLayout>
   );
 }

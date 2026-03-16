@@ -41,6 +41,7 @@ export { TagInput } from "./composites";
 // Layout (Phase 4)
 export { GridLayout } from "./layout";
 export { NavLink } from "./layout";
+export { NavSection } from "./layout";
 export { PageLayout } from "./layout";
 export { Section } from "./layout";
 export { Sidebar } from "./layout";

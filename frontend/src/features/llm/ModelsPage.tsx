@@ -29,7 +29,7 @@ const MODEL_FORM_DEFAULTS = {
   apiKey: "",
 };
 
-export default function ModelsPage() {
+export function ModelsContent() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
@@ -116,28 +116,21 @@ export default function ModelsPage() {
   );
 
   return (
-    <PageLayout
-      title={t("models.title")}
-      action={
-        <div class="flex items-center gap-3">
-          <Show when={health()}>
-            <Badge variant={health()?.status === "healthy" ? "success" : "danger"} pill>
-              LiteLLM: {health()?.status ?? "unknown"}
-            </Badge>
-          </Show>
-          <Button
-            variant="secondary"
-            onClick={() => void handleDiscover()}
-            disabled={discovering()}
-          >
-            {discovering() ? t("models.discovering") : t("models.discover")}
-          </Button>
-          <Button onClick={() => setShowForm((v) => !v)}>
-            {showForm() ? t("common.cancel") : t("models.addModel")}
-          </Button>
-        </div>
-      }
-    >
+    <>
+      <div class="mb-4 flex items-center justify-end gap-3">
+        <Show when={health()}>
+          <Badge variant={health()?.status === "healthy" ? "success" : "danger"} pill>
+            LiteLLM: {health()?.status ?? "unknown"}
+          </Badge>
+        </Show>
+        <Button variant="secondary" onClick={() => void handleDiscover()} disabled={discovering()}>
+          {discovering() ? t("models.discovering") : t("models.discover")}
+        </Button>
+        <Button onClick={() => setShowForm((v) => !v)}>
+          {showForm() ? t("common.cancel") : t("models.addModel")}
+        </Button>
+      </div>
+
       <ErrorBanner error={error} onDismiss={clearError} />
 
       <Show when={showForm()}>
@@ -242,6 +235,15 @@ export default function ModelsPage() {
           </GridLayout>
         </Show>
       </Show>
+    </>
+  );
+}
+
+export default function ModelsPage() {
+  const { t } = useI18n();
+  return (
+    <PageLayout title={t("models.title")}>
+      <ModelsContent />
     </PageLayout>
   );
 }
