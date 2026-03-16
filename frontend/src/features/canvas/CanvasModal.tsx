@@ -1,11 +1,15 @@
-import { type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { CanvasExportPanel } from "./CanvasExportPanel";
 import type { CanvasStore } from "./canvasState";
 import { createCanvasStore } from "./canvasState";
 import { CanvasToolbar } from "./CanvasToolbar";
 import type { CanvasExports, CanvasTool } from "./canvasTypes";
 import { DesignCanvas } from "./DesignCanvas";
+import { exportAscii } from "./export/exportAscii";
+import { exportJson } from "./export/exportJson";
+import { exportPng } from "./export/exportPng";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -30,6 +34,8 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
   const resolvedStore = (): CanvasStore => props.store ?? internalStore;
   const internalStore = createCanvasStore();
 
+  const [svgRef, setSvgRef] = createSignal<SVGSVGElement | undefined>(undefined);
+
   // Close on Escape key
   function handleKeyDown(e: KeyboardEvent): void {
     if (e.key === "Escape") {
@@ -45,16 +51,34 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
     });
   });
 
-  // Placeholder export handler — collects exports and passes to callback
+  // Export handler — collects all export formats and passes to callback
   function handleSendToAgent(): void {
-    // Export pipeline will be implemented in Phase 32F.
-    // For now, provide stub outputs so the callback shape is correct.
-    const exports: CanvasExports = {
-      png: "",
-      ascii: "",
-      json: { elements: resolvedStore().state.elements },
-    };
-    props.onExport(exports);
+    const store = resolvedStore();
+    const elements = store.state.elements;
+    const svg = svgRef();
+
+    // Synchronous exports
+    const w = svg?.viewBox.baseVal.width ?? 800;
+    const h = svg?.viewBox.baseVal.height ?? 600;
+    const ascii = exportAscii(elements, w, h);
+    const json = exportJson(elements, w, h);
+
+    // PNG is async — fire the callback after it resolves
+    if (svg) {
+      void exportPng(svg)
+        .then((pngDataUrl) => {
+          const exports: CanvasExports = { png: pngDataUrl, ascii, json };
+          props.onExport(exports);
+        })
+        .catch(() => {
+          // Fallback: export without PNG
+          const exports: CanvasExports = { png: "", ascii, json };
+          props.onExport(exports);
+        });
+    } else {
+      const exports: CanvasExports = { png: "", ascii, json };
+      props.onExport(exports);
+    }
   }
 
   return (
@@ -106,18 +130,24 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
             </div>
           </div>
 
-          {/* Main area: canvas + right sidebar placeholder */}
+          {/* Main area: canvas + right sidebar with export panel */}
           <div class="flex flex-1 overflow-hidden">
             {/* Canvas fills center */}
             <div class="flex-1 overflow-hidden">
-              <DesignCanvas store={resolvedStore()} activeTool={props.activeTool} />
+              <DesignCanvas
+                store={resolvedStore()}
+                activeTool={props.activeTool}
+                onSvgRef={setSvgRef}
+              />
             </div>
 
-            {/* Right sidebar slot — placeholder for future export panel (Phase 32F) */}
+            {/* Right sidebar: export panel */}
             <div
               class="hidden w-64 shrink-0 border-l border-white/10 bg-gray-900 lg:block"
               data-testid="canvas-sidebar"
-            />
+            >
+              <CanvasExportPanel store={resolvedStore()} svgRef={svgRef()} />
+            </div>
           </div>
         </div>
       </Portal>

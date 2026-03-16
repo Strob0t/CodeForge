@@ -239,6 +239,8 @@ function SelectionOverlay(props: { element: CanvasElement }): JSX.Element {
 export interface DesignCanvasProps {
   store: CanvasStore;
   activeTool?: CanvasTool;
+  /** Callback to expose the SVG element ref to the parent (for PNG export). */
+  onSvgRef?: (ref: SVGSVGElement) => void;
 }
 
 export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
@@ -253,6 +255,11 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
 
   // Observe container size via ResizeObserver
   onMount(() => {
+    // Forward SVG ref to parent if callback provided
+    if (svgRef && props.onSvgRef) {
+      props.onSvgRef(svgRef);
+    }
+
     if (!containerRef) return;
 
     const observer = new ResizeObserver((entries) => {
