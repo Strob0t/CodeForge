@@ -160,9 +160,11 @@ class BenchmarkHandlerMixin:
             return
 
         run_id = ""
+        tenant_id = ""
         try:
             req = BenchmarkRunRequest.model_validate_json(msg.data)
             run_id = req.run_id
+            tenant_id = req.tenant_id
             await _validate_model_exists(req.model)
             benchmark_type = req.benchmark_type or "simple"
             log = log.bind(run_id=run_id, benchmark_type=benchmark_type, model=req.model)
@@ -217,6 +219,7 @@ class BenchmarkHandlerMixin:
 
             result = BenchmarkRunResult(
                 run_id=req.run_id,
+                tenant_id=req.tenant_id,
                 status="completed",
                 results=results,
                 summary=summary,
@@ -243,6 +246,7 @@ class BenchmarkHandlerMixin:
             await self._publish_error(
                 BenchmarkRunResult(
                     run_id=run_id,
+                    tenant_id=tenant_id,
                     status="failed",
                     error=str(exc),
                 ),

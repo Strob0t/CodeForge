@@ -660,6 +660,11 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 		return fmt.Errorf("unmarshal benchmark run result: %w", err)
 	}
 
+	// Inject tenant context from NATS payload (background consumer has no tenant).
+	if payload.TenantID != "" {
+		ctx = tenantctx.WithTenant(ctx, payload.TenantID)
+	}
+
 	slog.Info("benchmark run result received",
 		"run_id", payload.RunID,
 		"status", payload.Status,
@@ -667,9 +672,13 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 		"total_cost", payload.TotalCost,
 	)
 
-	// Idempotency: skip if run is already completed/failed (NATS redelivery).
+	// Idempotency / stale message guard: skip if run doesn't exist or is already terminal.
 	existing, err := s.store.GetBenchmarkRun(ctx, payload.RunID)
-	if err == nil && (existing.Status == benchmark.StatusCompleted || existing.Status == benchmark.StatusFailed) {
+	if err != nil {
+		slog.Warn("benchmark run not found, skipping stale result", "run_id", payload.RunID)
+		return nil
+	}
+	if existing.Status == benchmark.StatusCompleted || existing.Status == benchmark.StatusFailed {
 		slog.Info("benchmark run result already processed, skipping", "run_id", payload.RunID)
 		return nil
 	}
