@@ -1141,9 +1141,9 @@
 - [ ] 32J.2: Update ChatPanel to render image thumbnails
 
 **Phase 32K -- Canvas-to-Chat Integration**
-- [ ] 32K.1: Add supports_vision to Go model discovery
-- [ ] 32K.2: Add supports_vision to frontend LLMModel type
-- [ ] 32K.3: Implement buildCanvasPrompt() utility
-- [ ] 32K.4: Write tests for buildCanvasPrompt()
-- [ ] 32K.5: Add canvas button to ChatPanel
+- [x] 32K.1: Add supports_vision to Go model discovery (2026-03-16)
+- [x] 32K.2: Add supports_vision to frontend LLMModel type (done in 32J)
+- [x] 32K.3: Implement buildCanvasPrompt() utility (2026-03-16)
+- [x] 32K.4: Write tests for buildCanvasPrompt() (2026-03-16)
+- [x] 32K.5: Wire canvas export to ChatPanel send (2026-03-16)
 - [ ] 32K.6: E2E test -- canvas to chat flow

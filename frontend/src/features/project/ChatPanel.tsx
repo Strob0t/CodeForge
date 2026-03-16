@@ -19,6 +19,7 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
+import { buildCanvasPrompt, modelSupportsVision } from "../canvas/buildCanvasPrompt";
 import { CanvasModal } from "../canvas/CanvasModal";
 import type { CanvasExports } from "../canvas/canvasTypes";
 import ChatInput from "../chat/ChatInput";
@@ -989,11 +990,46 @@ export default function ChatPanel(props: ChatPanelProps) {
         <CanvasModal
           open={canvasOpen()}
           onClose={() => setCanvasOpen(false)}
-          onExport={(exports: CanvasExports) => {
-            // Phase 32K will integrate real send-to-agent here.
-            // For now, log the exports and close the modal.
-            console.log("[DesignCanvas] Export:", exports);
+          onExport={async (canvasExports: CanvasExports) => {
             setCanvasOpen(false);
+            const convId = activeConversation();
+            if (!convId) return;
+
+            const hasVision = modelSupportsVision(sessionModel());
+            const promptText = buildCanvasPrompt(
+              canvasExports.ascii,
+              canvasExports.json,
+              input().trim(),
+              hasVision,
+            );
+
+            // Build images array for vision-capable models with a valid PNG.
+            const images: MessageImage[] = [];
+            if (hasVision && canvasExports.png) {
+              // Strip the data URL prefix to get raw base64.
+              const base64Data = canvasExports.png.replace(/^data:image\/png;base64,/, "");
+              images.push({
+                data: base64Data,
+                media_type: "image/png",
+                alt_text: "Design canvas sketch",
+              });
+            }
+
+            setInput("");
+            setSending(true);
+            setRunError(null);
+            try {
+              await api.conversations.send(convId, {
+                content: promptText,
+                ...(images.length > 0 ? { images } : {}),
+              });
+              await refetchMessages();
+              scrollToBottom();
+            } catch {
+              // Error handled by API layer toast.
+            } finally {
+              setSending(false);
+            }
           }}
         />
       </Show>
