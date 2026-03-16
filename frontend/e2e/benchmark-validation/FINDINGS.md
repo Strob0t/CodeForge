@@ -213,29 +213,31 @@ parameter for multi-rollout selection only.
 
 ---
 
-## Known Issues (Not Yet Fixed)
+## Known Issues — ALL FIXED (2026-03-16)
 
-> Detailed fix TODOs with file paths, test plans, and implementation steps:
-> `docs/todo.md` → "Benchmark E2E — Remaining Bugs (OPEN)"
+> All issues from E2E validation have been resolved. See `docs/todo.md` for details.
 
-### Issue A: Invalid Model Name Silently Succeeds (Regression)
-The `_validate_model_exists()` fix from Bug #3 doesn't catch models with format
-`nonexistent/model-xyz-404` — the model completes with score=0 instead of failing.
-**Fix plan:** TODO items A.1–A.3 in `docs/todo.md`
+### Issue A: Invalid Model Name Silently Succeeds (Regression) — FIXED (2026-03-16)
+The `_validate_model_exists()` fix from Bug #3 didn't catch models with format
+`nonexistent/model-xyz-404` — the model completed with score=0 instead of failing.
+**Fix:** Added `_fetch_configured_models()` using LiteLLM `/model/info` endpoint as
+fallback when `/v1/models` returns empty. Now rejects unknown provider-prefixed models.
+12 tests in `workers/tests/test_model_validation.py`.
 
-### Issue B: HTTP 500 Instead of 400 for Invalid Requests
-Invalid dataset (`nonexistent-xyz-dataset`) and missing required fields return HTTP 500
-instead of HTTP 400. Input validation at the Go handler layer is incomplete.
-**Root cause:** `CreateRunRequest.Validate()` returns plain `fmt.Errorf()` — not wrapped
-with `domain.ErrValidation` — so `writeDomainError()` falls through to HTTP 500.
-**Fix plan:** TODO items B.1–B.4 in `docs/todo.md`
+### Issue B: HTTP 500 Instead of 400 for Invalid Requests — FIXED (2026-03-16)
+Invalid dataset (`nonexistent-xyz-dataset`) and missing required fields returned HTTP 500
+instead of HTTP 400. Input validation at the Go handler layer was incomplete.
+**Fix:** Wrapped all `Validate()` errors with `domain.ErrValidation` so `writeDomainError()`
+maps them to HTTP 400. Also wrapped dataset-not-found in `StartRun()`.
+12 new Go tests in `internal/domain/benchmark/benchmark_test.go`.
 
-### Issue C: Unknown Evaluator Names Silently Ignored
-Requesting `metrics: ["nonexistent_evaluator"]` completes successfully with empty scores
+### Issue C: Unknown Evaluator Names Silently Ignored — FIXED (2026-03-16)
+Requesting `metrics: ["nonexistent_evaluator"]` completed successfully with empty scores
 instead of failing with a validation error.
-**Root cause:** `_build_evaluators()` logs warning for unknown names, then falls through
-to default LLMJudgeEvaluator. Needs validation in both Go (HTTP 400) and Python (safety net).
-**Fix plan:** TODO items C.1–C.5 in `docs/todo.md`
+**Fix:** Go-side: Added `ValidMetrics` allowlist (9 metrics) in `Validate()` — rejects unknown
+metric names with HTTP 400. Python-side: `_build_evaluators()` raises `ValueError` for unknown
+names instead of silently falling back to default evaluator. Removed silent default fallback.
+7 new Python tests in `workers/tests/test_build_evaluators.py`.
 
 ### Issue D: External Suite HuggingFace API Failures — FIXED (2026-03-16)
 Three external suites were failing due to incorrect API parameters and missing auth:
@@ -245,12 +247,10 @@ Fix: `_CONFIG = "default"`, `_SPLIT = "v0.1.2"` in `bigcodebench.py`.
 
 **LiveCodeBench (404→502→504):** Dataset `code_generation_lite` runs arbitrary code and isn't served
 via Datasets Server API. Fix: Changed to `livecodebench/code_generation` with `config="default"` in
-`livecodebench.py`. However, the correct dataset has very large rows that cause the HF Datasets Server
-to return 502/504 errors even at page_size=10. Added adaptive page size fallback (100→10→1) with
-timeout handling and broken-row skipping in `cache.py:download_hf_dataset()`. At page_size=1, rows
-download individually (~3-5s each) but some rows still return 500 and are skipped. Full dataset
-download is extremely slow (~12h for 880 rows). **Workaround:** Use `max_tasks: 3` to only download
-the first few rows. Long-term fix: use the `datasets` Python library for direct Parquet download.
+`livecodebench.py`. Added `download_hf_dataset_parquet()` using the HuggingFace `datasets` library
+for direct Parquet download — far more reliable than the HTTP rows API for large datasets. LiveCodeBench
+provider now tries `datasets` library first, falls back to HTTP API if unavailable. Install with
+`poetry install -E hf`. 6 tests in `workers/tests/test_cache_parquet.py`.
 
 **CRUXEval (401):** Gated dataset requiring authentication. Fix: Added `HF_TOKEN` env var support
 to `cache.py:download_hf_dataset()`. When set, sends `Authorization: Bearer {token}` header.
