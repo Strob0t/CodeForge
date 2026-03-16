@@ -310,16 +310,6 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
   // Selected element set for fast lookup
   const selectedSet = createMemo(() => new Set(props.store.state.selectedIds));
 
-  // Convert screen coords to SVG coords using the SVG CTM
-  function screenToSvg(clientX: number, clientY: number): SvgPoint {
-    if (!svgRef) return { x: clientX, y: clientY };
-
-    const ctm = svgRef.getScreenCTM();
-    if (!ctm) return { x: clientX, y: clientY };
-
-    return screenToSvgCoords(clientX, clientY, ctm);
-  }
-
   // Cursor: space-held = grab/grabbing, otherwise delegate to tool
   const cursor = createMemo(() => {
     if (isPanning()) return "grabbing";
@@ -327,22 +317,22 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
     return props.activeTool?.cursor ?? "default";
   });
 
-  // --- Wheel handler: zoom ---
+  // --- Wheel handler: zoom toward pointer ---
   function onWheel(e: WheelEvent): void {
     e.preventDefault();
 
     const vp = props.store.state.viewport;
     const direction = e.deltaY < 0 ? 1 : -1;
-    const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, vp.zoom * ZOOM_FACTOR ** direction));
+    const factor = direction > 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR;
+    const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, vp.zoom * factor));
+    const zoomRatio = newZoom / vp.zoom;
 
-    // Zoom toward pointer position
-    const svgBefore = screenToSvg(e.clientX, e.clientY);
-    props.store.setViewport({ zoom: newZoom });
-    const svgAfter = screenToSvg(e.clientX, e.clientY);
-
+    // Analytically compute new pan so the point under the pointer stays fixed.
+    // Avoids a second getScreenCTM() call which would return stale DOM state.
     props.store.setViewport({
-      panX: vp.panX + (svgAfter.x - svgBefore.x) * newZoom,
-      panY: vp.panY + (svgAfter.y - svgBefore.y) * newZoom,
+      zoom: newZoom,
+      panX: e.clientX - (e.clientX - vp.panX) * zoomRatio,
+      panY: e.clientY - (e.clientY - vp.panY) * zoomRatio,
     });
   }
 
