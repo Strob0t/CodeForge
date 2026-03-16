@@ -176,7 +176,7 @@ function AppShell(props: {
 
             <Sidebar.Footer>
               <Show
-                when={!collapsed()}
+                when={!collapsed() || isMobile()}
                 fallback={
                   <div class="flex flex-col items-center gap-1.5">
                     <Tooltip text={t("theme.toggle", { name: "" })}>

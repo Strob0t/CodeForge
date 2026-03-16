@@ -93,6 +93,7 @@ const en = {
   "dashboard.form.repoUrl": "Repository URL",
   "dashboard.form.description": "Description",
   "dashboard.form.create": "Create Project",
+  "dashboard.form.edit": "Edit Project",
   "dashboard.form.namePlaceholder": "My Project",
   "dashboard.form.providerPlaceholder": "Select a provider...",
   "dashboard.form.repoUrlPlaceholder": "https://github.com/user/repo",
@@ -1141,6 +1142,7 @@ const en = {
 
   // -- Dashboard Edit --
   "dashboard.toast.updated": "Project updated",
+  "dashboard.toast.updateFailed": "Failed to update project",
   "dashboard.form.update": "Update Project",
 
   // -- Project card edit --

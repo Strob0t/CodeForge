@@ -380,7 +380,7 @@ func (h *Handlers) ListSpecProviders(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		providers = append(providers, providerInfo{
-			Name:         p.Name(),
+			Name:         name,
 			Capabilities: p.Capabilities(),
 		})
 	}
@@ -402,7 +402,7 @@ func (h *Handlers) ListPMProviders(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		providers = append(providers, providerInfo{
-			Name:         p.Name(),
+			Name:         name,
 			Capabilities: p.Capabilities(),
 		})
 	}

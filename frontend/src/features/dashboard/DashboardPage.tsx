@@ -1,7 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { ProjectHealth } from "~/api/types";
+import type { Project, ProjectHealth } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
@@ -10,6 +10,7 @@ import { Alert, Button, EmptyState, GridLayout, LoadingState, PageLayout } from 
 import ActivityTimeline from "./ActivityTimeline";
 import ChartsPanel from "./ChartsPanel";
 import { CreateProjectModal } from "./CreateProjectModal";
+import { EditProjectModal } from "./EditProjectModal";
 import KpiStrip from "./KpiStrip";
 import ProjectCard from "./ProjectCard";
 
@@ -21,6 +22,7 @@ export default function DashboardPage() {
   const [projects, { refetch }] = createResource(() => api.projects.list());
   const [stats] = createResource(() => api.dashboard.stats());
   const [showModal, setShowModal] = createSignal(false);
+  const [editingProject, setEditingProject] = createSignal<Project | null>(null);
   const [batchMode, setBatchMode] = createSignal(false);
   const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
   const [batchLoading, setBatchLoading] = createSignal(false);
@@ -62,7 +64,8 @@ export default function DashboardPage() {
   }
 
   function handleEdit(id: string) {
-    window.location.href = `/projects/${id}`;
+    const p = projects()?.find((proj) => proj.id === id);
+    if (p) setEditingProject(p);
   }
 
   function toggleSelect(id: string) {
@@ -256,6 +259,16 @@ export default function DashboardPage() {
         onClose={() => setShowModal(false)}
         onCreated={() => {
           setShowModal(false);
+          refetch();
+        }}
+      />
+
+      {/* Edit Project Modal */}
+      <EditProjectModal
+        project={editingProject()}
+        onClose={() => setEditingProject(null)}
+        onUpdated={() => {
+          setEditingProject(null);
           refetch();
         }}
       />

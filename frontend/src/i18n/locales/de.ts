@@ -95,6 +95,7 @@ const de: Translations = {
   "dashboard.form.repoUrl": "Repository-URL",
   "dashboard.form.description": "Beschreibung",
   "dashboard.form.create": "Projekt erstellen",
+  "dashboard.form.edit": "Projekt bearbeiten",
   "dashboard.form.namePlaceholder": "Mein Projekt",
   "dashboard.form.providerPlaceholder": "Anbieter auswählen...",
   "dashboard.form.repoUrlPlaceholder": "https://github.com/user/repo",
@@ -1144,6 +1145,7 @@ const de: Translations = {
 
   // -- Dashboard Edit --
   "dashboard.toast.updated": "Projekt aktualisiert",
+  "dashboard.toast.updateFailed": "Projekt konnte nicht aktualisiert werden",
   "dashboard.form.update": "Projekt aktualisieren",
 
   // -- Project card edit --
