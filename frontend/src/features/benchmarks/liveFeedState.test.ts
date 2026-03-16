@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTokens } from "./liveFeedState";
+import { computeEta, formatTokens } from "./liveFeedState";
 
 describe("formatTokens", () => {
   it("returns raw number below 1000", () => {
@@ -16,5 +16,23 @@ describe("formatTokens", () => {
   it("formats millions with M suffix", () => {
     expect(formatTokens(1_000_000)).toBe("1.0M");
     expect(formatTokens(2_500_000)).toBe("2.5M");
+  });
+});
+
+describe("computeEta", () => {
+  it("returns null when total_tasks is null", () => {
+    expect(computeEta(3, null, 120)).toBeNull();
+  });
+  it("returns null when 0 completed", () => {
+    expect(computeEta(0, 5, 120)).toBeNull();
+  });
+  it("returns null when all completed", () => {
+    expect(computeEta(5, 5, 120)).toBeNull();
+  });
+  it("calculates remaining seconds", () => {
+    expect(computeEta(3, 5, 120)).toBe(80);
+  });
+  it("rounds to nearest second", () => {
+    expect(computeEta(2, 3, 100)).toBe(50);
   });
 });
