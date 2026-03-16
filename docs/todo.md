@@ -421,6 +421,20 @@
 - Design: `docs/plans/2026-03-10-benchmark-live-feed-design.md`
 - Plan: `docs/plans/2026-03-10-benchmark-live-feed-plan.md`
 
+#### Benchmark Live Feed — State Persistence & Density Improvements (COMPLETED)
+- [x] (2026-03-16) State persistence: Live feed state lifted from `BenchmarkLiveFeed` to `BenchmarkPage` as `Map<runId, LiveFeedState>` — closing/reopening info card no longer loses state
+- [x] (2026-03-16) API hydration: Running runs rehydrate from `GET /runs/{id}/trajectory` + `GET /benchmarks/runs/{id}/results` on page load
+- [x] (2026-03-16) `BenchmarkLiveFeed` converted to presentational component (receives `LiveFeedState` props)
+- [x] (2026-03-16) Pure functions extracted to `liveFeedState.ts` with 18 unit tests: `formatTokens`, `computeEta`, `agentEventToLiveFeedEvent`, `statsFromSummary`, `resultToFeatureEntry`
+- [x] (2026-03-16) Inline stats line: avg score, tokens in/out, tool calls, $/task
+- [x] (2026-03-16) Mini score bars on feature rows (green/yellow/red color coding)
+- [x] (2026-03-16) ETA display when total_tasks known
+- [x] (2026-03-16) Indeterminate progress bar fix for unknown total_tasks
+- TODO: Event dedup requires backend sequence_number on trajectory events
+- TODO: WS reconnect gap requires re-hydration on reconnect
+- Spec: `docs/superpowers/specs/2026-03-16-benchmark-live-feed-density-design.md`
+- Plan: `docs/superpowers/plans/2026-03-16-benchmark-live-feed-improvements.md`
+
 #### Agent-Eval Benchmark Results (2026-03-10)
 - [x] (2026-03-10) Ran `/agent-eval mistral/mistral-large-latest` — auto-agent pipeline end-to-end
 - Result: 0/300 total score (Grade F) — Mistral model could not produce code within 43 min
