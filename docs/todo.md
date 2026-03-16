@@ -387,6 +387,17 @@
 - [x] (2026-03-16) **Selection strategies (longest/shortest):** Added trajectory-length-based selection for `MultiRolloutRunner` (from R2E-Gym). `_trajectory_length()` helper with 3-tier fallback (trajectory -> step_count -> actual_output). Zero-cost heuristic when hybrid pipeline unavailable. Files: `workers/codeforge/evaluation/runners/multi_rollout.py`, `workers/tests/test_multi_rollout_runner.py` (7 new tests).
 - Total: 48 tests (27 new + 21 existing), 7 files changed (+718/-30 lines)
 
+#### Sidebar Restructure (COMPLETED)
+- [x] (2026-03-16) Section grouping, page merges, top bar navigation
+
+#### Loading Animation System (COMPLETED)
+- [x] (2026-03-16) 5 primitives: Skeleton (text/rect/circle), TypingIndicator (bouncing dots), StreamingCursor (blink cursor), ProgressBar (determinate/indeterminate), PacmanSpinner (branded SVG)
+- [x] (2026-03-16) 4 composites: SkeletonText, SkeletonCard (stat/project), SkeletonTable, SkeletonChat
+- [x] (2026-03-16) 7 CSS keyframes: cf-shimmer, cf-blink, cf-bounce-dot, cf-progress-slide, cf-pacman-chomp, cf-dot-orbit, cf-fade-in
+- [x] (2026-03-16) Skeleton design tokens (--cf-skeleton-base, --cf-skeleton-shine) for light/dark themes, registered in @theme
+- [x] (2026-03-16) ChatPanel: TypingIndicator replaces animate-pulse, StreamingCursor replaces static "Streaming..." label
+- [x] (2026-03-16) ResourceGuard: optional `skeleton` prop for custom loading states (backward-compatible)
+
 #### Frontend UI Bug Fixes & i18n (COMPLETED)
 - [x] (2026-03-15) **BUG-1 (High) — Broken "Go to Chat" Navigation:** `onNavigate("chat")` silently did nothing — `"chat"` was not a valid `LeftTab`. Created unified `handleNavigate()` in `ProjectDetailPage.tsx` that switches `mobileView` to `"chat"` on mobile. Replaced 8 duplicate inline handlers. Fixed in: `GoalsPanel.tsx:202`, `SessionPanel.tsx:116`, `WarRoom.tsx:90`, `OnboardingProgress.tsx:44`.
 - [x] (2026-03-15) **BUG-2 (Medium) — Dead RunPanel Code:** `run.toolcall` WS event was a stub comment. `RunPanel.addToolCall`/`updateRunStatus` attached to component function object but never called. Removed dead code — tool calls are rendered via AG-UI events in `ChatPanel`. Files: `ProjectDetailPage.tsx`, `RunPanel.tsx`.

@@ -177,6 +177,7 @@ type CreateRunRequest struct {
 var ValidMetrics = map[string]bool{
 	"llm_judge": true, "functional_test": true, "sparc": true, "trajectory_verifier": true,
 	"correctness": true, "faithfulness": true, "relevance": true, "coherence": true, "fluency": true,
+	"tool_correctness": true, "answer_relevancy": true, "contextual_precision": true,
 }
 
 // Validate checks required fields on a CreateRunRequest.

@@ -44,9 +44,10 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                     <>
                       <tr
                         class={`border-b dark:border-gray-700 ${hasDetails ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800" : ""}`}
-                        onClick={() =>
-                          hasDetails && setExpandedRow(isExpanded() ? null : res.task_id)
-                        }
+                        onClick={(e: MouseEvent) => {
+                          e.stopPropagation();
+                          if (hasDetails) setExpandedRow(isExpanded() ? null : res.task_id);
+                        }}
                       >
                         <td class="py-2 font-medium">{res.task_name}</td>
                         <td class="py-2">

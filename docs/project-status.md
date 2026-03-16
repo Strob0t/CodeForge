@@ -1,6 +1,6 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-03-15
+> Last update: 2026-03-16
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
 
@@ -248,6 +248,14 @@ Real-time structured event feed for running benchmark runs. Go `TrajectoryEventP
 ### Phase 31: Contract-First Review/Refactor (COMPLETED)
 
 Contract-first review and refactoring pipeline: boundary domain model (ProjectBoundaryConfig), 2 new agent modes (boundary-analyzer, contract-reviewer), review-refactor pipeline template (4-step sequential: boundary analysis -> contract review -> intra-layer review -> refactoring), DiffImpactScorer with 3-tier threshold HITL (auto-apply/notify/approve), ReviewTriggerService with cascade dedup (pipeline-completion, branch-merge, manual), phase-aware context budget per pipeline step, waiting_approval step status with approve/reject flow, HTTP endpoints for boundaries CRUD and run approval, Python NATS consumer for review triggers, SolidJS RefactorApproval overlay and BoundariesPanel.
+
+### Sidebar Restructure (COMPLETED)
+
+Section grouping, page merges, top bar navigation improvements.
+
+### Loading Animation System (COMPLETED)
+
+Complete loading animation system for the SolidJS frontend. 5 primitives (Skeleton, TypingIndicator, StreamingCursor, ProgressBar, PacmanSpinner), 4 composites (SkeletonText, SkeletonCard, SkeletonTable, SkeletonChat), 7 CSS keyframes (cf-shimmer, cf-blink, cf-bounce-dot, cf-progress-slide, cf-pacman-chomp, cf-dot-orbit, cf-fade-in), skeleton design tokens for light/dark themes. ChatPanel integration: TypingIndicator replaces animate-pulse thinking indicator, StreamingCursor replaces static "Streaming..." label. ResourceGuard gains optional `skeleton` prop for custom loading states. No new dependencies.
 
 ### E2E Test Expansion & Verification Tooling (COMPLETED)
 

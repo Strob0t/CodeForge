@@ -343,7 +343,16 @@ export default function BenchmarkPage() {
                       class={`cursor-pointer transition hover:ring-1 hover:ring-blue-400 ${
                         selectedRun() === run.id ? "ring-2 ring-blue-500" : ""
                       }`}
-                      onClick={() => setSelectedRun(selectedRun() === run.id ? null : run.id)}
+                      onClick={(e: MouseEvent) => {
+                        const target = e.target as HTMLElement;
+                        if (
+                          target.closest("table") ||
+                          target.closest("button") ||
+                          target.closest("a")
+                        )
+                          return;
+                        setSelectedRun(selectedRun() === run.id ? null : run.id);
+                      }}
                     >
                       <Card class="p-4">
                         <div class="flex items-center justify-between">
