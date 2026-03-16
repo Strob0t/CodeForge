@@ -223,7 +223,15 @@ if (typeof window !== "undefined") {
 
 export const api = {
   health: {
-    check: () => fetch("/health").then((r) => r.json() as Promise<HealthStatus>),
+    check: async (): Promise<HealthStatus> => {
+      try {
+        const r = await fetch("/health");
+        if (!r.ok) return { status: "unavailable", dev_mode: false };
+        return (await r.json()) as HealthStatus;
+      } catch {
+        return { status: "unavailable", dev_mode: false };
+      }
+    },
   },
 
   projects: {

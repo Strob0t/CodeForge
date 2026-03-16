@@ -1175,9 +1175,9 @@ export interface ApiError {
 export interface HealthStatus {
   status: string;
   dev_mode?: boolean;
-  postgres: string;
-  nats: string;
-  litellm: string;
+  postgres?: string;
+  nats?: string;
+  litellm?: string;
 }
 
 /** Provider list response */

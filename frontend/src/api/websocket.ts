@@ -185,8 +185,12 @@ export function createCodeForgeWS() {
 
   function onMessage(handler: (msg: WSMessage) => void): () => void {
     const listener = (ev: MessageEvent): void => {
-      const data = JSON.parse(ev.data as string) as WSMessage;
-      handler(data);
+      try {
+        const data = JSON.parse(ev.data as string) as WSMessage;
+        handler(data);
+      } catch {
+        // Ignore malformed WebSocket messages (empty frames, non-JSON data).
+      }
     };
 
     listeners.push(listener);
