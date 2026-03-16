@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Conversation, ConversationMessage, Session } from "~/api/types";
+import type { Conversation, ConversationMessage, MessageImage, Session } from "~/api/types";
 import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
@@ -723,6 +723,29 @@ export default function ChatPanel(props: ChatPanelProps) {
                 >
                   <Show when={msg.role === "assistant"} fallback={msg.content}>
                     <Markdown content={msg.content} />
+                  </Show>
+                  {/* Inline image thumbnails for multimodal messages */}
+                  <Show when={msg.images && msg.images.length > 0}>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <For each={msg.images}>
+                        {(img: MessageImage) => (
+                          <button
+                            type="button"
+                            class="block cursor-pointer rounded border border-cf-border overflow-hidden hover:opacity-80 transition-opacity"
+                            onClick={() =>
+                              window.open(`data:${img.media_type};base64,${img.data}`, "_blank")
+                            }
+                            title="Click to open full size"
+                          >
+                            <img
+                              src={`data:${img.media_type};base64,${img.data}`}
+                              alt={img.alt_text ?? "Canvas sketch"}
+                              class="max-w-[200px] max-h-[150px] object-contain"
+                            />
+                          </button>
+                        )}
+                      </For>
+                    </div>
                   </Show>
                   <MessageBadge
                     model={msg.model || undefined}
