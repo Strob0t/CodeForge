@@ -195,6 +195,14 @@ Detailed analysis: docs/research/market-analysis.md
   - BoundaryService: CRUD for ProjectBoundaryConfig — `internal/service/boundary.go`
   - Frontend: RefactorApproval HITL overlay, BoundariesPanel — `frontend/src/features/project/`
   - NATS Subjects: `review.>` wildcard (trigger, complete, boundary, approval) — `internal/port/messagequeue/subjects.go`
+- **Visual Design Canvas (Phase 32):**
+  - SVG-based design canvas: 7 tools (select, rect, ellipse, freehand, text, annotate, image) -- `frontend/src/features/canvas/`
+  - Triple-output export: PNG (offscreen canvas), ASCII art (char grid), structured JSON
+  - Smart output selection: vision models get PNG+JSON, text-only get ASCII+JSON, basic get JSON only
+  - Multimodal message pipeline: `MessageImage` through Frontend -> Go JSONB -> NATS -> Python content-array -> LiteLLM
+  - DB migration `075_add_message_images.sql`: images JSONB column on conversation_messages
+  - Canvas-to-chat: `buildCanvasPrompt()` composes prompt based on `supports_vision` model capability
+  - Feature spec: `docs/features/06-visual-design-canvas.md`
 - **Roadmap/Feature-Map Auto-Detection & Adaptive Integration:**
   - **No custom PM tool** — sync with existing tools (Plane, OpenProject, GitHub/GitLab Issues)
   - **Auto-Detection:** Three-tier detection (repo files → platform APIs → file markers)

@@ -19,11 +19,12 @@ import (
 
 // Model represents a configured model in LiteLLM.
 type Model struct {
-	ModelName string         `json:"model_name"`
-	Provider  string         `json:"litellm_provider,omitempty"`
-	ModelID   string         `json:"model_id,omitempty"`
-	ModelInfo map[string]any `json:"model_info,omitempty"`
-	Params    map[string]any `json:"litellm_params,omitempty"`
+	ModelName      string         `json:"model_name"`
+	Provider       string         `json:"litellm_provider,omitempty"`
+	ModelID        string         `json:"model_id,omitempty"`
+	ModelInfo      map[string]any `json:"model_info,omitempty"`
+	Params         map[string]any `json:"litellm_params,omitempty"`
+	SupportsVision bool           `json:"supports_vision"`
 }
 
 // HealthStatus represents the health of a LiteLLM model.
@@ -93,6 +94,12 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal models: %w", err)
 	}
+	// Infer vision capability from metadata or model name.
+	for i := range result.Data {
+		result.Data[i].SupportsVision = inferVisionSupport(
+			result.Data[i].ModelName, result.Data[i].ModelInfo,
+		)
+	}
 	return result.Data, nil
 }
 
@@ -137,17 +144,18 @@ type AddModelRequest struct {
 
 // DiscoveredModel represents a model found via auto-discovery with health status.
 type DiscoveredModel struct {
-	ModelName     string         `json:"model_name"`
-	ModelID       string         `json:"model_id,omitempty"`
-	Provider      string         `json:"provider,omitempty"`
-	Tags          []string       `json:"tags,omitempty"`
-	MaxTokens     int            `json:"max_tokens,omitempty"`
-	InputCostPer  float64        `json:"input_cost_per_token,omitempty"`
-	OutputCostPer float64        `json:"output_cost_per_token,omitempty"`
-	Status        string         `json:"status"`                 // "reachable" or "unreachable"
-	Source        string         `json:"source"`                 // "litellm" or "ollama"
-	ErrorDetail   string         `json:"error_detail,omitempty"` // error reason for unhealthy models
-	ModelInfo     map[string]any `json:"model_info,omitempty"`
+	ModelName      string         `json:"model_name"`
+	ModelID        string         `json:"model_id,omitempty"`
+	Provider       string         `json:"provider,omitempty"`
+	Tags           []string       `json:"tags,omitempty"`
+	MaxTokens      int            `json:"max_tokens,omitempty"`
+	InputCostPer   float64        `json:"input_cost_per_token,omitempty"`
+	OutputCostPer  float64        `json:"output_cost_per_token,omitempty"`
+	SupportsVision bool           `json:"supports_vision"`
+	Status         string         `json:"status"`                 // "reachable" or "unreachable"
+	Source         string         `json:"source"`                 // "litellm" or "ollama"
+	ErrorDetail    string         `json:"error_detail,omitempty"` // error reason for unhealthy models
+	ModelInfo      map[string]any `json:"model_info,omitempty"`
 }
 
 // HealthStatusReport contains detailed per-model health information from LiteLLM /health.
@@ -261,6 +269,9 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 			}
 		}
 
+		// Infer vision capability from metadata or model name.
+		dm.SupportsVision = inferVisionSupport(m.ModelName, m.ModelInfo)
+
 		// Default to reachable; will be refined by health check below.
 		dm.Status = "reachable"
 
@@ -343,6 +354,7 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context, ollamaBaseURL string)
 				"size_bytes":     m.Size,
 			},
 		}
+		dm.SupportsVision = inferVisionSupport(m.Name, nil)
 		discovered = append(discovered, dm)
 	}
 
@@ -439,6 +451,37 @@ func modelScore(m *DiscoveredModel) float64 {
 	}
 
 	return 1.0
+}
+
+// inferVisionSupport determines if a model supports vision (image) inputs.
+// It first checks the model_info metadata from LiteLLM, then falls back to
+// name-based heuristics for known vision-capable model families.
+func inferVisionSupport(modelName string, modelInfo map[string]any) bool {
+	// Check explicit metadata from LiteLLM model_info.
+	if modelInfo != nil {
+		if v, ok := modelInfo["supports_vision"].(bool); ok {
+			return v
+		}
+	}
+
+	// Fall back to name-based pattern matching.
+	name := strings.ToLower(modelName)
+	visionPatterns := []string{
+		"gpt-4o",
+		"gpt-4-vision",
+		"claude-3",
+		"claude-4",
+		"claude-opus-4",
+		"claude-sonnet-4",
+		"claude-haiku-4",
+		"gemini",
+	}
+	for _, p := range visionPatterns {
+		if strings.Contains(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Chat Completion (OpenAI-compatible) ---

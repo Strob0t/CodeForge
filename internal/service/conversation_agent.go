@@ -757,6 +757,13 @@ func (s *ConversationService) historyToPayload(messages []conversation.Message) 
 				pm.ToolCalls = tcs
 			}
 		}
+		// Propagate images if present.
+		if len(messages[i].Images) > 0 {
+			var imgs []messagequeue.MessageImagePayload
+			if err := json.Unmarshal(messages[i].Images, &imgs); err == nil {
+				pm.Images = imgs
+			}
+		}
 		result = append(result, pm)
 	}
 	return result

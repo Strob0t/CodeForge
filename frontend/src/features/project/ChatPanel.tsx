@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Conversation, ConversationMessage, Session } from "~/api/types";
+import type { Conversation, ConversationMessage, MessageImage, Session } from "~/api/types";
 import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
@@ -19,6 +19,9 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay, StreamingCursor, TypingIndicator } from "~/ui";
 
+import { buildCanvasPrompt, modelSupportsVision } from "../canvas/buildCanvasPrompt";
+import { CanvasModal } from "../canvas/CanvasModal";
+import type { CanvasExports } from "../canvas/canvasTypes";
 import ChatInput from "../chat/ChatInput";
 import TokenBadge from "../chat/TokenBadge";
 import ActionBar from "./ActionBar";
@@ -74,6 +77,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [rewindLoading, setRewindLoading] = createSignal(false);
   const [resumeLoading, setResumeLoading] = createSignal(false);
   const [showSessionHistory, setShowSessionHistory] = createSignal(false);
+  const [canvasOpen, setCanvasOpen] = createSignal(false);
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
@@ -724,6 +728,29 @@ export default function ChatPanel(props: ChatPanelProps) {
                   <Show when={msg.role === "assistant"} fallback={msg.content}>
                     <Markdown content={msg.content} />
                   </Show>
+                  {/* Inline image thumbnails for multimodal messages */}
+                  <Show when={msg.images && msg.images.length > 0}>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <For each={msg.images}>
+                        {(img: MessageImage) => (
+                          <button
+                            type="button"
+                            class="block cursor-pointer rounded border border-cf-border overflow-hidden hover:opacity-80 transition-opacity"
+                            onClick={() =>
+                              window.open(`data:${img.media_type};base64,${img.data}`, "_blank")
+                            }
+                            title="Click to open full size"
+                          >
+                            <img
+                              src={`data:${img.media_type};base64,${img.data}`}
+                              alt={img.alt_text ?? "Canvas sketch"}
+                              class="max-w-[200px] max-h-[150px] object-contain"
+                            />
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                   <MessageBadge
                     model={msg.model || undefined}
                     tokensIn={msg.tokens_in || undefined}
@@ -904,6 +931,29 @@ export default function ChatPanel(props: ChatPanelProps) {
                 />
               </svg>
             </Button>
+            {/* Design Canvas button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              class="flex-shrink-0"
+              onClick={() => setCanvasOpen(true)}
+              title="Design Canvas"
+              data-testid="canvas-open-btn"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                class="w-4 h-4"
+              >
+                <path d="M15.993 1.385a1.87 1.87 0 0 1 2.623 2.622l-4.03 4.031-2.622-2.623 4.03-4.03ZM3.74 12.104l7.217-7.216 2.623 2.622-7.217 7.217H3.74v-2.623Z" />
+                <path
+                  fill-rule="evenodd"
+                  d="M0 4a2 2 0 0 1 2-2h7a1 1 0 0 1 0 2H2v14h14v-7a1 1 0 1 1 2 0v7a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </Button>
             <div class="flex-1 min-w-0">
               <ChatInput
                 value={input()}
@@ -935,6 +985,53 @@ export default function ChatPanel(props: ChatPanelProps) {
           tokensUsed={sessionTokensIn() + sessionTokensOut()}
           tokensTotal={120000}
           visible={sessionCostUsd() > 0 || sessionSteps() > 0}
+        />
+
+        {/* Design Canvas modal */}
+        <CanvasModal
+          open={canvasOpen()}
+          onClose={() => setCanvasOpen(false)}
+          onExport={async (canvasExports: CanvasExports) => {
+            setCanvasOpen(false);
+            const convId = activeConversation();
+            if (!convId) return;
+
+            const hasVision = modelSupportsVision(sessionModel());
+            const promptText = buildCanvasPrompt(
+              canvasExports.ascii,
+              canvasExports.json,
+              input().trim(),
+              hasVision,
+            );
+
+            // Build images array for vision-capable models with a valid PNG.
+            const images: MessageImage[] = [];
+            if (hasVision && canvasExports.png) {
+              // Strip the data URL prefix to get raw base64.
+              const base64Data = canvasExports.png.replace(/^data:image\/png;base64,/, "");
+              images.push({
+                data: base64Data,
+                media_type: "image/png",
+                alt_text: "Design canvas sketch",
+              });
+            }
+
+            setInput("");
+            setSending(true);
+            setRunError(null);
+            try {
+              await api.conversations.send(convId, {
+                content: promptText,
+                ...(images.length > 0 ? { images } : {}),
+              });
+              await refetchMessages();
+              scrollToBottom();
+            } catch {
+              // Error handled by API layer toast.
+            } finally {
+              setSending(false);
+            }
+          }}
         />
       </Show>
     </div>

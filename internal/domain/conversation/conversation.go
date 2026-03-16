@@ -15,6 +15,13 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// MessageImage represents an image attached to a conversation message.
+type MessageImage struct {
+	Data      string `json:"data"`       // base64 encoded image data
+	MediaType string `json:"media_type"` // e.g. "image/png"
+	AltText   string `json:"alt_text,omitempty"`
+}
+
 // Message represents a single message in a conversation.
 type Message struct {
 	ID             string          `json:"id"`
@@ -27,6 +34,7 @@ type Message struct {
 	TokensIn       int             `json:"tokens_in,omitempty"`
 	TokensOut      int             `json:"tokens_out,omitempty"`
 	Model          string          `json:"model,omitempty"`
+	Images         json.RawMessage `json:"images,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
@@ -38,8 +46,9 @@ type CreateRequest struct {
 
 // SendMessageRequest is the request body for sending a message.
 type SendMessageRequest struct {
-	Content string `json:"content"`
-	Agentic *bool  `json:"agentic,omitempty"` // Override agentic mode (nil = use project default).
-	Mode    string `json:"mode,omitempty"`
-	UserID  string `json:"-"` // Set by handler, not from API body.
+	Content string         `json:"content"`
+	Agentic *bool          `json:"agentic,omitempty"` // Override agentic mode (nil = use project default).
+	Mode    string         `json:"mode,omitempty"`
+	Images  []MessageImage `json:"images,omitempty"`
+	UserID  string         `json:"-"` // Set by handler, not from API body.
 }

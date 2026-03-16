@@ -64,15 +64,21 @@ func (s *Store) CreateMessage(ctx context.Context, m *conversation.Message) (*co
 		toolCallsJSON = []byte(m.ToolCalls)
 	}
 
+	// Normalise nil images to SQL NULL.
+	var imagesJSON []byte
+	if len(m.Images) > 0 {
+		imagesJSON = []byte(m.Images)
+	}
+
 	var created conversation.Message
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, created_at`,
-		m.ConversationID, m.Role, m.Content, toolCallsJSON, m.ToolCallID, m.ToolName, m.TokensIn, m.TokensOut, m.Model,
+		`INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 RETURNING id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images, created_at`,
+		m.ConversationID, m.Role, m.Content, toolCallsJSON, m.ToolCallID, m.ToolName, m.TokensIn, m.TokensOut, m.Model, imagesJSON,
 	).Scan(&created.ID, &created.ConversationID, &created.Role, &created.Content,
 		&created.ToolCalls, &created.ToolCallID, &created.ToolName,
-		&created.TokensIn, &created.TokensOut, &created.Model, &created.CreatedAt)
+		&created.TokensIn, &created.TokensOut, &created.Model, &created.Images, &created.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create message: %w", err)
 	}
@@ -83,7 +89,7 @@ func (s *Store) CreateMessage(ctx context.Context, m *conversation.Message) (*co
 
 func (s *Store) ListMessages(ctx context.Context, conversationID string) ([]conversation.Message, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, created_at
+		`SELECT id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images, created_at
 		 FROM conversation_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
 		conversationID)
 	if err != nil {
@@ -93,7 +99,7 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string) ([]conv
 		var m conversation.Message
 		err := r.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content,
 			&m.ToolCalls, &m.ToolCallID, &m.ToolName,
-			&m.TokensIn, &m.TokensOut, &m.Model, &m.CreatedAt)
+			&m.TokensIn, &m.TokensOut, &m.Model, &m.Images, &m.CreatedAt)
 		return m, err
 	})
 }

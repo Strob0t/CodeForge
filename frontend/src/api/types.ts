@@ -157,6 +157,7 @@ export interface LLMModel {
   litellm_provider?: string;
   model_id?: string;
   model_info?: Record<string, unknown>;
+  supports_vision?: boolean;
 }
 
 /** Discovered model from auto-discovery */
@@ -1386,6 +1387,13 @@ export interface Conversation {
 }
 
 /** Matches Go domain/conversation.Message */
+/** Image attachment for multimodal messages (canvas sketches, uploads). */
+export interface MessageImage {
+  data: string;
+  media_type: string;
+  alt_text?: string;
+}
+
 export interface ConversationMessage {
   id: string;
   conversation_id: string;
@@ -1402,6 +1410,7 @@ export interface ConversationMessage {
   }[];
   tool_call_id?: string;
   tool_name?: string;
+  images?: MessageImage[];
 }
 
 /** Create conversation request */
@@ -1412,6 +1421,7 @@ export interface CreateConversationRequest {
 /** Send message request */
 export interface SendMessageRequest {
   content: string;
+  images?: MessageImage[];
 }
 
 // --- VCS Account types ---

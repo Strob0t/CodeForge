@@ -131,7 +131,11 @@ class ConversationHistoryManager:
         return "".join(sections)
 
     def _to_msg_dict(self, msg: ConversationMessagePayload) -> dict[str, object]:
-        """Convert a ConversationMessagePayload to an OpenAI message dict."""
+        """Convert a ConversationMessagePayload to an OpenAI message dict.
+
+        When the message has images and the role is "user", produces the
+        OpenAI content-array format with text and image_url parts.
+        """
         d: dict[str, object] = {"role": msg.role}
 
         if msg.content:
@@ -139,7 +143,30 @@ class ConversationHistoryManager:
             # Truncate tool results (role="tool") that are too long.
             if msg.role == "tool":
                 content = truncate_tool_result(content, self._config.tool_output_max_chars)
-            d["content"] = content
+
+            # If images present AND role is "user", use content-array format.
+            if msg.images and msg.role == "user":
+                content_parts: list[dict[str, object]] = [{"type": "text", "text": content}]
+                content_parts.extend(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{img.media_type};base64,{img.data}"},
+                    }
+                    for img in msg.images
+                )
+                d["content"] = content_parts
+            else:
+                d["content"] = content
+        elif msg.images and msg.role == "user":
+            # Images without text content.
+            content_parts = [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{img.media_type};base64,{img.data}"},
+                }
+                for img in msg.images
+            ]
+            d["content"] = content_parts
 
         if msg.tool_calls:
             d["tool_calls"] = [
@@ -239,6 +266,14 @@ class ConversationHistoryManager:
         content = msg.get("content", "")
         if isinstance(content, str):
             total += estimate_tokens(content)
+        elif isinstance(content, list):
+            # Content-array format (multimodal).
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        total += estimate_tokens(str(part.get("text", "")))
+                    elif part.get("type") == "image_url":
+                        total += 1000  # ~1000 tokens per image
         tool_calls = msg.get("tool_calls")
         if isinstance(tool_calls, list):
             for tc in tool_calls:

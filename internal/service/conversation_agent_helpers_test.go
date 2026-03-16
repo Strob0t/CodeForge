@@ -103,6 +103,62 @@ func TestHistoryToPayload(t *testing.T) {
 			t.Errorf("expected 0 for empty input, got %d", len(result))
 		}
 	})
+
+	t.Run("propagates images", func(t *testing.T) {
+		imgs := []messagequeue.MessageImagePayload{
+			{Data: "base64png", MediaType: "image/png", AltText: "wireframe"},
+			{Data: "base64jpg", MediaType: "image/jpeg"},
+		}
+		imgsJSON, _ := json.Marshal(imgs)
+		msgs := []conversation.Message{
+			{Role: "user", Content: "Analyze this", Images: imgsJSON},
+		}
+		result := svc.historyToPayload(msgs)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(result))
+		}
+		if len(result[0].Images) != 2 {
+			t.Fatalf("expected 2 images, got %d", len(result[0].Images))
+		}
+		if result[0].Images[0].Data != "base64png" {
+			t.Errorf("Images[0].Data = %q, want %q", result[0].Images[0].Data, "base64png")
+		}
+		if result[0].Images[0].MediaType != "image/png" {
+			t.Errorf("Images[0].MediaType = %q, want %q", result[0].Images[0].MediaType, "image/png")
+		}
+		if result[0].Images[0].AltText != "wireframe" {
+			t.Errorf("Images[0].AltText = %q, want %q", result[0].Images[0].AltText, "wireframe")
+		}
+		if result[0].Images[1].MediaType != "image/jpeg" {
+			t.Errorf("Images[1].MediaType = %q, want %q", result[0].Images[1].MediaType, "image/jpeg")
+		}
+	})
+
+	t.Run("nil images leaves nil", func(t *testing.T) {
+		msgs := []conversation.Message{
+			{Role: "user", Content: "No images here"},
+		}
+		result := svc.historyToPayload(msgs)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(result))
+		}
+		if result[0].Images != nil {
+			t.Errorf("expected nil Images for message without images, got %v", result[0].Images)
+		}
+	})
+
+	t.Run("invalid images JSON leaves nil", func(t *testing.T) {
+		msgs := []conversation.Message{
+			{Role: "user", Content: "Bad images", Images: json.RawMessage(`not valid json`)},
+		}
+		result := svc.historyToPayload(msgs)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(result))
+		}
+		if result[0].Images != nil {
+			t.Errorf("expected nil Images for invalid JSON, got %v", result[0].Images)
+		}
+	})
 }
 
 // --- TestAppendModelAdaptation ---

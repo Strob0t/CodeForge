@@ -395,6 +395,14 @@ class ConversationToolCallPayload(BaseModel):
     function: ConversationToolCallFunction
 
 
+class MessageImagePayload(BaseModel):
+    """An image attached to a conversation message."""
+
+    data: str  # base64-encoded
+    media_type: str  # e.g. "image/png"
+    alt_text: str = ""
+
+
 class ConversationMessagePayload(BaseModel):
     """A chat message in the conversation run protocol."""
 
@@ -403,6 +411,7 @@ class ConversationMessagePayload(BaseModel):
     tool_calls: list[ConversationToolCallPayload] = Field(default_factory=list)
     tool_call_id: str = ""
     name: str = ""
+    images: list[MessageImagePayload] = Field(default_factory=list)
 
 
 class SessionMetaPayload(BaseModel):
