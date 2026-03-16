@@ -2,8 +2,11 @@ package benchmark_test
 
 import (
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
@@ -169,7 +172,7 @@ func TestCreateRunRequest_Validate(t *testing.T) {
 				Dataset:       "basic-coding",
 				SuiteID:       "suite-1",
 				Model:         "claude-3",
-				Metrics:       []string{"correctness", "tool_correctness"},
+				Metrics:       []string{"correctness", "trajectory_verifier"},
 				BenchmarkType: benchmark.TypeAgent,
 				ExecMode:      benchmark.ExecModeSandbox,
 			},
@@ -265,6 +268,86 @@ func TestResult_Phase26Fields(t *testing.T) {
 	}
 	if got.FunctionalTestOutput != "2 passed, 0 failed" {
 		t.Errorf("unexpected functional test output: %s", got.FunctionalTestOutput)
+	}
+}
+
+func TestCreateRunRequest_Validate_ReturnsErrValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		req  benchmark.CreateRunRequest
+		msg  string
+	}{
+		{
+			name: "missing dataset and suite_id",
+			req:  benchmark.CreateRunRequest{Model: "gpt-4", Metrics: []string{"llm_judge"}},
+			msg:  "dataset or suite_id is required",
+		},
+		{
+			name: "missing model",
+			req:  benchmark.CreateRunRequest{Dataset: "foo", Metrics: []string{"llm_judge"}},
+			msg:  "model is required",
+		},
+		{
+			name: "missing metrics",
+			req:  benchmark.CreateRunRequest{Dataset: "foo", Model: "gpt-4"},
+			msg:  "at least one metric is required",
+		},
+		{
+			name: "invalid benchmark type",
+			req:  benchmark.CreateRunRequest{Dataset: "foo", Model: "gpt-4", Metrics: []string{"llm_judge"}, BenchmarkType: "invalid"},
+			msg:  "invalid benchmark type",
+		},
+		{
+			name: "invalid exec mode",
+			req:  benchmark.CreateRunRequest{Dataset: "foo", Model: "gpt-4", Metrics: []string{"llm_judge"}, ExecMode: "invalid"},
+			msg:  "invalid exec mode",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, domain.ErrValidation) {
+				t.Errorf("expected ErrValidation, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.msg) {
+				t.Errorf("expected message containing %q, got: %v", tt.msg, err)
+			}
+		})
+	}
+}
+
+func TestCreateRunRequest_Validate_UnknownMetric(t *testing.T) {
+	tests := []struct {
+		name    string
+		metrics []string
+		wantErr bool
+	}{
+		{"valid single", []string{"llm_judge"}, false},
+		{"valid multiple", []string{"llm_judge", "functional_test", "sparc"}, false},
+		{"valid all", []string{"llm_judge", "functional_test", "sparc", "trajectory_verifier"}, false},
+		{"valid sub-metric", []string{"correctness", "faithfulness"}, false},
+		{"unknown metric", []string{"nonexistent_evaluator"}, true},
+		{"one valid one invalid", []string{"llm_judge", "invalid"}, true},
+		{"empty string metric", []string{""}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := benchmark.CreateRunRequest{
+				Dataset: "basic-coding",
+				Model:   "gpt-4",
+				Metrics: tt.metrics,
+			}
+			err := req.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && !errors.Is(err, domain.ErrValidation) {
+				t.Errorf("expected ErrValidation, got: %v", err)
+			}
+		})
 	}
 }
 

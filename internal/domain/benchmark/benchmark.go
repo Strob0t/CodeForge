@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/domain"
 )
 
 // RunStatus represents the lifecycle state of a benchmark run.
@@ -171,22 +173,33 @@ type CreateRunRequest struct {
 	ProviderConfig     json.RawMessage `json:"provider_config,omitempty"`
 }
 
+// ValidMetrics is the set of recognised metric names for benchmark runs.
+var ValidMetrics = map[string]bool{
+	"llm_judge": true, "functional_test": true, "sparc": true, "trajectory_verifier": true,
+	"correctness": true, "faithfulness": true, "relevance": true, "coherence": true, "fluency": true,
+}
+
 // Validate checks required fields on a CreateRunRequest.
 func (r *CreateRunRequest) Validate() error {
 	if r.Dataset == "" && r.SuiteID == "" {
-		return fmt.Errorf("dataset or suite_id is required")
+		return fmt.Errorf("%w: dataset or suite_id is required", domain.ErrValidation)
 	}
 	if r.Model == "" {
-		return fmt.Errorf("model is required")
+		return fmt.Errorf("%w: model is required", domain.ErrValidation)
 	}
 	if len(r.Metrics) == 0 {
-		return fmt.Errorf("at least one metric is required")
+		return fmt.Errorf("%w: at least one metric is required", domain.ErrValidation)
+	}
+	for _, m := range r.Metrics {
+		if !ValidMetrics[m] {
+			return fmt.Errorf("%w: unknown metric %q", domain.ErrValidation, m)
+		}
 	}
 	if r.BenchmarkType != "" && !r.BenchmarkType.IsValid() {
-		return fmt.Errorf("invalid benchmark type: %q", r.BenchmarkType)
+		return fmt.Errorf("%w: invalid benchmark type: %q", domain.ErrValidation, r.BenchmarkType)
 	}
 	if r.ExecMode != "" && !r.ExecMode.IsValid() {
-		return fmt.Errorf("invalid exec mode: %q", r.ExecMode)
+		return fmt.Errorf("%w: invalid exec mode: %q", domain.ErrValidation, r.ExecMode)
 	}
 	return nil
 }

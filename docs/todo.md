@@ -262,7 +262,7 @@
 > `writeDomainError()` only maps `domain.ErrValidation`-wrapped errors to HTTP 400. Plain
 > errors fall through to the `default` case → HTTP 500.
 
-- [ ] B.1: Write failing Go test — validation errors should return HTTP 400
+- [x] (2026-03-16) B.1: Write failing Go test — validation errors should return HTTP 400
   - File: `internal/adapter/http/handlers_test.go`
   - Test: `POST /api/v1/benchmarks/runs` with `{"model": "gpt-4", "metrics": ["llm_judge"]}` (missing dataset AND suite_id) → expect HTTP 400 with `"dataset or suite_id is required"`
   - Test: `POST /api/v1/benchmarks/runs` with `{"dataset": "foo", "metrics": ["llm_judge"]}` (missing model) → expect HTTP 400 with `"model is required"`
@@ -270,7 +270,7 @@
   - Test: `POST /api/v1/benchmarks/runs` with `{"dataset": "foo", "model": "gpt-4", "metrics": ["llm_judge"], "benchmark_type": "invalid"}` → expect HTTP 400 with `"invalid benchmark type"`
   - Run: `cd /workspaces/CodeForge && go test ./internal/adapter/http/ -run TestCreateBenchmarkRun -v`
 
-- [ ] B.2: Wrap `Validate()` errors with `domain.ErrValidation`
+- [x] (2026-03-16) B.2: Wrap `Validate()` errors with `domain.ErrValidation`
   - File: `internal/domain/benchmark/benchmark.go` (line 175-190, `Validate()` method)
   - Current: `return fmt.Errorf("model is required")`
   - Fix: `return fmt.Errorf("%w: model is required", domain.ErrValidation)`
@@ -283,14 +283,14 @@
   - Import: `"github.com/CodeForge/internal/domain"` (or wherever `ErrValidation` is defined)
   - This ensures `writeDomainError()` in `internal/adapter/http/helpers.go:114` matches the `errors.Is(err, domain.ErrValidation)` case → HTTP 400
 
-- [ ] B.3: Verify `StartRun()` dataset-not-found also returns 400 (not 500)
+- [x] (2026-03-16) B.3: Verify `StartRun()` dataset-not-found also returns 400 (not 500)
   - File: `internal/service/benchmark.go` (line 192)
   - Current: `return nil, fmt.Errorf("dataset %q not found: %w", run.Dataset, statErr)`
   - This wraps `statErr` (an `os.PathError`) — `writeDomainError()` won't match it → HTTP 500
   - Fix: `return nil, fmt.Errorf("%w: dataset %q not found", domain.ErrValidation, run.Dataset)`
   - Test: `POST /api/v1/benchmarks/runs` with `{"dataset": "nonexistent-xyz", "model": "gpt-4", "metrics": ["llm_judge"]}` → expect HTTP 400 (not 500)
 
-- [ ] B.4: Run full test suite to verify no regressions
+- [x] (2026-03-16) B.4: Run full test suite to verify no regressions
   - Run: `cd /workspaces/CodeForge && go test ./internal/... -count=1`
   - All existing benchmark tests must still pass
 
@@ -303,19 +303,19 @@
 > then falls through to the "no evaluators" fallback which creates a default LLMJudgeEvaluator.
 > So requesting `metrics: ["nonexistent_evaluator"]` silently succeeds with a default evaluator.
 
-- [ ] C.1: Decide on validation strategy (two options):
+- [x] (2026-03-16) C.1: Decide on validation strategy (two options):
   - **Option 1 — Go-side validation (preferred):** Add a `ValidMetrics` set in `internal/domain/benchmark/benchmark.go` containing the 4 valid top-level metrics (`llm_judge`, `functional_test`, `sparc`, `trajectory_verifier`) plus the 5 LLM judge sub-metrics (`correctness`, `faithfulness`, `relevance`, `coherence`, `fluency`). Check each element of `req.Metrics` in `Validate()` — reject with HTTP 400 if unknown.
   - **Option 2 — Python-side validation:** Change `_build_evaluators()` to raise `ValueError` instead of logging a warning for unknown names. The existing error handler would then publish `status=failed` with a descriptive error message.
   - **Recommendation:** Option 1 (Go-side) catches errors earlier and returns proper HTTP 400. Option 2 is a safety net. Implement both.
 
-- [ ] C.2: Write failing Go test — unknown metric names rejected
+- [x] (2026-03-16) C.2: Write failing Go test — unknown metric names rejected
   - File: `internal/domain/benchmark/benchmark_test.go`
   - Test: `CreateRunRequest{Metrics: []string{"nonexistent_evaluator"}}` → `Validate()` returns error containing `"unknown metric"` and `"nonexistent_evaluator"`
   - Test: `CreateRunRequest{Metrics: []string{"llm_judge", "functional_test"}}` → `Validate()` returns nil (valid)
   - Test: `CreateRunRequest{Metrics: []string{"llm_judge", "invalid"}}` → `Validate()` returns error (one invalid is enough to reject)
   - Run: `cd /workspaces/CodeForge && go test ./internal/domain/benchmark/ -v`
 
-- [ ] C.3: Add `ValidMetrics` set and check in `Validate()`
+- [x] (2026-03-16) C.3: Add `ValidMetrics` set and check in `Validate()`
   - File: `internal/domain/benchmark/benchmark.go`
   - Add: `var ValidMetrics = map[string]bool{"llm_judge": true, "functional_test": true, "sparc": true, "trajectory_verifier": true, "correctness": true, "faithfulness": true, "relevance": true, "coherence": true, "fluency": true}`
   - In `Validate()`, after the `len(r.Metrics) == 0` check, add:

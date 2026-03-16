@@ -3043,7 +3043,7 @@ func TestCreateBenchmarkRun(t *testing.T) {
 	body, _ := json.Marshal(benchmark.CreateRunRequest{
 		Dataset: "swe-bench",
 		Model:   "gpt-4",
-		Metrics: []string{"accuracy"},
+		Metrics: []string{"llm_judge"},
 	})
 	req := httptest.NewRequest("POST", "/api/v1/benchmarks/runs", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

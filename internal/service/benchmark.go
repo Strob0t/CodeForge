@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -189,7 +190,7 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 			run.Status = benchmark.StatusFailed
 			run.ErrorMessage = fmt.Sprintf("dataset %q not found", run.Dataset)
 			_ = s.store.UpdateBenchmarkRun(ctx, run) //nolint:errcheck // best effort
-			return nil, fmt.Errorf("dataset %q not found: %w", run.Dataset, statErr)
+			return nil, fmt.Errorf("%w: dataset %q not found", domain.ErrValidation, run.Dataset)
 		} else {
 			slog.Warn("dataset path resolution failed, relying on suite provider", "original", run.Dataset, "candidate", absCandidate, "error", statErr)
 		}
