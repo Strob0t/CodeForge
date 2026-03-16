@@ -1397,7 +1397,7 @@ export interface MessageImage {
 export interface ConversationMessage {
   id: string;
   conversation_id: string;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
   tokens_in: number;
   tokens_out: number;

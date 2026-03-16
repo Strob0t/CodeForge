@@ -715,7 +715,14 @@ export default function ChatPanel(props: ChatPanelProps) {
 
         {/* Messages */}
         <div class="flex-1 overflow-y-auto p-4 space-y-4">
-          <For each={messages() ?? []}>
+          <For
+            each={(messages() ?? []).filter((msg) => {
+              // Hide system, tool, and tool-call-only assistant messages
+              if (msg.role === "system" || msg.role === "tool") return false;
+              if (msg.role === "assistant" && !msg.content?.trim() && msg.tool_calls) return false;
+              return true;
+            })}
+          >
             {(msg) => (
               <div class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
