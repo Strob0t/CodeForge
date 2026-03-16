@@ -19,6 +19,8 @@ import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay } from "~/ui";
 
+import { CanvasModal } from "../canvas/CanvasModal";
+import type { CanvasExports } from "../canvas/canvasTypes";
 import ChatInput from "../chat/ChatInput";
 import TokenBadge from "../chat/TokenBadge";
 import ActionBar from "./ActionBar";
@@ -74,6 +76,7 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [rewindLoading, setRewindLoading] = createSignal(false);
   const [resumeLoading, setResumeLoading] = createSignal(false);
   const [showSessionHistory, setShowSessionHistory] = createSignal(false);
+  const [canvasOpen, setCanvasOpen] = createSignal(false);
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
@@ -926,6 +929,29 @@ export default function ChatPanel(props: ChatPanelProps) {
                 />
               </svg>
             </Button>
+            {/* Design Canvas button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              class="flex-shrink-0"
+              onClick={() => setCanvasOpen(true)}
+              title="Design Canvas"
+              data-testid="canvas-open-btn"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                class="w-4 h-4"
+              >
+                <path d="M15.993 1.385a1.87 1.87 0 0 1 2.623 2.622l-4.03 4.031-2.622-2.623 4.03-4.03ZM3.74 12.104l7.217-7.216 2.623 2.622-7.217 7.217H3.74v-2.623Z" />
+                <path
+                  fill-rule="evenodd"
+                  d="M0 4a2 2 0 0 1 2-2h7a1 1 0 0 1 0 2H2v14h14v-7a1 1 0 1 1 2 0v7a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </Button>
             <div class="flex-1 min-w-0">
               <ChatInput
                 value={input()}
@@ -957,6 +983,18 @@ export default function ChatPanel(props: ChatPanelProps) {
           tokensUsed={sessionTokensIn() + sessionTokensOut()}
           tokensTotal={120000}
           visible={sessionCostUsd() > 0 || sessionSteps() > 0}
+        />
+
+        {/* Design Canvas modal */}
+        <CanvasModal
+          open={canvasOpen()}
+          onClose={() => setCanvasOpen(false)}
+          onExport={(exports: CanvasExports) => {
+            // Phase 32K will integrate real send-to-agent here.
+            // For now, log the exports and close the modal.
+            console.log("[DesignCanvas] Export:", exports);
+            setCanvasOpen(false);
+          }}
         />
       </Show>
     </div>
