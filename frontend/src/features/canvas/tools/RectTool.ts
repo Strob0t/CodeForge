@@ -40,6 +40,7 @@ export function createRectTool(options: RectToolOptions): CanvasTool {
         data: {},
       });
 
+      options.store.batchStart();
       drag = { start: point, previewId: id };
 
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -57,7 +58,7 @@ export function createRectTool(options: RectToolOptions): CanvasTool {
       const width = Math.abs(current.x - drag.start.x);
       const height = Math.abs(current.y - drag.start.y);
 
-      options.store.updateElement(drag.previewId, { x, y, width, height });
+      options.store.updateElementSilent(drag.previewId, { x, y, width, height });
     },
 
     onPointerUp(e: PointerEvent): void {
@@ -76,6 +77,7 @@ export function createRectTool(options: RectToolOptions): CanvasTool {
         options.store.removeElement(drag.previewId);
       }
 
+      options.store.batchCommit();
       drag = null;
     },
   };

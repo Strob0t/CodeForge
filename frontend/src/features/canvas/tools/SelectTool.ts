@@ -54,6 +54,7 @@ export function createSelectTool(options: SelectToolOptions): CanvasTool {
       if (hit) {
         options.store.deselectAll();
         options.store.selectElement(hit.id);
+        options.store.batchStart();
 
         drag = {
           elementId: hit.id,
@@ -90,7 +91,7 @@ export function createSelectTool(options: SelectToolOptions): CanvasTool {
       const dx = point.x - drag.startSvg.x;
       const dy = point.y - drag.startSvg.y;
 
-      options.store.updateElement(drag.elementId, {
+      options.store.updateElementSilent(drag.elementId, {
         x: drag.startX + dx,
         y: drag.startY + dy,
       });
@@ -99,6 +100,7 @@ export function createSelectTool(options: SelectToolOptions): CanvasTool {
     onPointerUp(e: PointerEvent): void {
       if (drag) {
         (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+        options.store.batchCommit();
         drag = null;
       }
     },

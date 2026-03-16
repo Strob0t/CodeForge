@@ -47,6 +47,7 @@ export function createFreehandTool(options: FreehandToolOptions): CanvasTool {
         data: { points: [[point.x, point.y]] } as FreehandData,
       });
       draw.previewId = id;
+      options.store.batchStart();
 
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
     },
@@ -60,7 +61,7 @@ export function createFreehandTool(options: FreehandToolOptions): CanvasTool {
       draw.points.push([point.x, point.y]);
 
       // Update preview with raw points (polyline for live feedback)
-      options.store.updateElement(draw.previewId, {
+      options.store.updateElementSilent(draw.previewId, {
         data: { points: [...draw.points] } as FreehandData,
       });
     },
@@ -74,6 +75,7 @@ export function createFreehandTool(options: FreehandToolOptions): CanvasTool {
 
       if (points.length < 2) {
         // Single click -> keep as dot
+        options.store.batchCommit();
         draw = null;
         return;
       }
@@ -91,7 +93,7 @@ export function createFreehandTool(options: FreehandToolOptions): CanvasTool {
       }
 
       // Update the preview element with smoothed path data and bounding box
-      options.store.updateElement(draw.previewId, {
+      options.store.updateElementSilent(draw.previewId, {
         x: minX,
         y: minY,
         width: maxX - minX,
@@ -99,6 +101,7 @@ export function createFreehandTool(options: FreehandToolOptions): CanvasTool {
         data: { points: [...points] } as FreehandData,
       });
 
+      options.store.batchCommit();
       draw = null;
     },
   };

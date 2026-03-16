@@ -54,6 +54,7 @@ export function createAnnotateTool(options: AnnotateToolOptions): CanvasTool {
         } as AnnotationData,
       });
 
+      options.store.batchStart();
       drag = { start, previewId: id };
 
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -73,7 +74,7 @@ export function createAnnotateTool(options: AnnotateToolOptions): CanvasTool {
       const width = Math.abs(current.x - drag.start.x);
       const height = Math.abs(current.y - drag.start.y);
 
-      options.store.updateElement(drag.previewId, {
+      options.store.updateElementSilent(drag.previewId, {
         x,
         y,
         width,
@@ -103,6 +104,7 @@ export function createAnnotateTool(options: AnnotateToolOptions): CanvasTool {
         options.store.removeElement(drag.previewId);
       }
 
+      options.store.batchCommit();
       drag = null;
     },
   };

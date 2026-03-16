@@ -40,6 +40,7 @@ export function createEllipseTool(options: EllipseToolOptions): CanvasTool {
         data: {},
       });
 
+      options.store.batchStart();
       drag = { start: point, previewId: id };
 
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -65,7 +66,7 @@ export function createEllipseTool(options: EllipseToolOptions): CanvasTool {
       const x = current.x < drag.start.x ? drag.start.x - width : drag.start.x;
       const y = current.y < drag.start.y ? drag.start.y - height : drag.start.y;
 
-      options.store.updateElement(drag.previewId, { x, y, width, height });
+      options.store.updateElementSilent(drag.previewId, { x, y, width, height });
     },
 
     onPointerUp(e: PointerEvent): void {
@@ -90,6 +91,7 @@ export function createEllipseTool(options: EllipseToolOptions): CanvasTool {
         options.store.removeElement(drag.previewId);
       }
 
+      options.store.batchCommit();
       drag = null;
     },
   };
