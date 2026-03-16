@@ -419,6 +419,13 @@ type ConversationToolCall struct {
 	Function ConversationToolCallFunction `json:"function"`
 }
 
+// MessageImagePayload is the NATS representation of an image in a conversation message.
+type MessageImagePayload struct {
+	Data      string `json:"data"`
+	MediaType string `json:"media_type"`
+	AltText   string `json:"alt_text,omitempty"`
+}
+
 // ConversationMessagePayload represents a chat message in the conversation protocol.
 type ConversationMessagePayload struct {
 	Role       string                 `json:"role"`
@@ -426,6 +433,7 @@ type ConversationMessagePayload struct {
 	ToolCalls  []ConversationToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string                 `json:"tool_call_id,omitempty"`
 	Name       string                 `json:"name,omitempty"`
+	Images     []MessageImagePayload  `json:"images,omitempty"`
 }
 
 // ConversationRunStartPayload is the schema for conversation.run.start messages.

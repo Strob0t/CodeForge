@@ -275,4 +275,142 @@ func TestSendMessageRequestJSONOmitsUserID(t *testing.T) {
 	}
 }
 
+func TestMessageImageRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		img  MessageImage
+	}{
+		{
+			name: "full fields",
+			img: MessageImage{
+				Data:      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+				MediaType: "image/png",
+				AltText:   "A red pixel",
+			},
+		},
+		{
+			name: "empty alt_text omitted",
+			img: MessageImage{
+				Data:      "AAAA",
+				MediaType: "image/jpeg",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := json.Marshal(tt.img)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+
+			var decoded MessageImage
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+
+			if decoded.Data != tt.img.Data {
+				t.Errorf("Data = %q, want %q", decoded.Data, tt.img.Data)
+			}
+			if decoded.MediaType != tt.img.MediaType {
+				t.Errorf("MediaType = %q, want %q", decoded.MediaType, tt.img.MediaType)
+			}
+			if decoded.AltText != tt.img.AltText {
+				t.Errorf("AltText = %q, want %q", decoded.AltText, tt.img.AltText)
+			}
+
+			// Empty alt_text should be omitted.
+			if tt.img.AltText == "" {
+				var m map[string]any
+				if err := json.Unmarshal(data, &m); err != nil {
+					t.Fatalf("Unmarshal to map: %v", err)
+				}
+				if _, found := m["alt_text"]; found {
+					t.Error("empty alt_text should be omitted from JSON (omitempty)")
+				}
+			}
+		})
+	}
+}
+
+func TestMessageImagesOmittedWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	// Message with nil Images should omit the images key.
+	m := Message{
+		ID:             "msg-no-img",
+		ConversationID: "conv-1",
+		Role:           "user",
+		Content:        "Just text",
+	}
+
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal to map: %v", err)
+	}
+
+	if _, found := raw["images"]; found {
+		t.Error("nil Images should be omitted from JSON (omitempty)")
+	}
+}
+
+func TestSendMessageRequestWithImages(t *testing.T) {
+	t.Parallel()
+
+	req := SendMessageRequest{
+		Content: "Analyze this design",
+		Images: []MessageImage{
+			{Data: "base64data", MediaType: "image/png", AltText: "wireframe"},
+		},
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var decoded SendMessageRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if len(decoded.Images) != 1 {
+		t.Fatalf("Images len = %d, want 1", len(decoded.Images))
+	}
+	if decoded.Images[0].MediaType != "image/png" {
+		t.Errorf("Images[0].MediaType = %q, want %q", decoded.Images[0].MediaType, "image/png")
+	}
+}
+
+func TestSendMessageRequestImagesOmittedWhenNil(t *testing.T) {
+	t.Parallel()
+
+	req := SendMessageRequest{
+		Content: "no images",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal to map: %v", err)
+	}
+
+	if _, found := raw["images"]; found {
+		t.Error("nil Images should be omitted from JSON (omitempty)")
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }
