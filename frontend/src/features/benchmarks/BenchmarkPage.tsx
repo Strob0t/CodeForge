@@ -128,6 +128,11 @@ export default function BenchmarkPage() {
     }
 
     // ---- Live feed state updates ----
+    // TODO: Event dedup — API hydration and WS may overlap, producing duplicate events.
+    //       Backend should add a monotonic sequence_number to trajectory events so the
+    //       frontend can skip events already fetched via the REST hydration endpoint.
+    // TODO: WS reconnect gap — if the WebSocket disconnects and reconnects, events emitted
+    //       during the gap are lost. A re-hydration from API on reconnect would fill that gap.
     if (msg.type === "trajectory.event") {
       const p = msg.payload as {
         run_id: string;

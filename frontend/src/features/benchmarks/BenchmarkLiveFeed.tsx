@@ -186,7 +186,7 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
       <div class="flex items-center gap-3 text-sm">
         <div class="flex-1">
           <Show
-            when={progress()}
+            when={progress() && totalTasksKnown()}
             fallback={
               <div class="h-2 w-full overflow-hidden rounded-full bg-cf-bg-secondary">
                 <div
