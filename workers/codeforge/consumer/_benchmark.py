@@ -54,17 +54,61 @@ async def _fetch_available_models() -> list[str]:
         return []
 
 
+async def _fetch_configured_models() -> list[str]:
+    """Fetch configured model names from LiteLLM /model/info endpoint.
+
+    Unlike /v1/models which may return wildcard-expanded models,
+    /model/info returns only explicitly configured model entries.
+    """
+    import os
+
+    import httpx
+
+    litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+    api_key = os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{litellm_url}/model/info", headers=headers)
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        # /model/info returns {"data": [{"model_name": "...", "litellm_params": {"model": "..."}, ...}]}
+        models: list[str] = []
+        for m in data.get("data", []):
+            name = m.get("model_name", "")
+            if name:
+                models.append(name)
+            # Also include the litellm_params model (the actual routing target)
+            litellm_model = m.get("litellm_params", {}).get("model", "")
+            if litellm_model and litellm_model != name:
+                models.append(litellm_model)
+        return models
+    except Exception:
+        return []
+
+
 async def _validate_model_exists(model: str, available_models: list[str] | None = None) -> None:
     """Validate model exists in LiteLLM. Raises ValueError if not found.
 
-    Skips for "auto" or if model list is empty (LiteLLM unreachable).
+    Skips for "auto". Falls back to /model/info when /v1/models returns empty.
+    Only skips validation entirely when both endpoints are unreachable.
     """
     if model == "auto":
         return
     if available_models is None:
         available_models = await _fetch_available_models()
     if not available_models:
-        return  # Can't reach LiteLLM — skip validation, don't block
+        # /v1/models returned empty — try /model/info as fallback
+        configured = await _fetch_configured_models()
+        if not configured:
+            return  # Can't reach LiteLLM at all — skip validation, don't block
+        if model not in configured:
+            raise ValueError(
+                f"model {model!r} not found in LiteLLM configured models. "
+                f"Configured: {', '.join(sorted(configured)[:10])}"
+            )
+        return
     if model not in available_models:
         raise ValueError(
             f"model {model!r} not available in LiteLLM. Available: {', '.join(sorted(available_models)[:10])}"
@@ -678,7 +722,11 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
         elif name in llm_judge_metrics:
             collected_llm_metrics.append(name)
         else:
-            logger.warning("unknown evaluator, skipping", evaluator=name)
+            valid_names = (
+                "llm_judge, functional_test, sparc, trajectory_verifier, "
+                "correctness, faithfulness, relevance, coherence, fluency"
+            )
+            raise ValueError(f"unknown evaluator/metric: {name!r}. Valid: {valid_names}")
 
     # Create a single LLMJudgeEvaluator with all collected metrics,
     # using the same model as the benchmark run for the judge.
@@ -689,10 +737,7 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
         evaluators.append(LLMJudgeEvaluator(judge=judge, metrics=collected_llm_metrics))
 
     if not evaluators:
-        from codeforge.evaluation.litellm_judge import LiteLLMJudge
-
-        judge = LiteLLMJudge(model=model)
-        evaluators.append(LLMJudgeEvaluator(judge=judge))
+        raise ValueError("no valid evaluators produced from metrics list")
 
     return evaluators
 

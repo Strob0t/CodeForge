@@ -46,12 +46,18 @@ async def test_auto_model_skips_validation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_available_list_skips() -> None:
+async def test_empty_available_list_skips(monkeypatch) -> None:
     """Empty available list (LiteLLM unreachable) should skip validation."""
-    from codeforge.consumer._benchmark import _validate_model_exists
+    from codeforge.consumer import _benchmark
+
+    # Both endpoints return empty — total graceful degradation
+    async def mock_fetch_configured() -> list[str]:
+        return []
+
+    monkeypatch.setattr(_benchmark, "_fetch_configured_models", mock_fetch_configured)
 
     # Should not raise — graceful degradation when LiteLLM is down
-    await _validate_model_exists("nonexistent-model", available_models=[])
+    await _benchmark._validate_model_exists("nonexistent-model", available_models=[])
 
 
 # ---------------------------------------------------------------------------
@@ -91,3 +97,97 @@ async def test_non_auto_returns_llm_directly() -> None:
 
     result = await mixin._resolve_effective_llm(req, log)
     assert result is sentinel_llm
+
+
+# ---------------------------------------------------------------------------
+# Issue A: _validate_model_exists with provider-prefixed models
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_provider_prefixed_model_not_in_list_raises() -> None:
+    """Model with provider prefix not in available list should raise."""
+    from codeforge.consumer._benchmark import _validate_model_exists
+
+    with pytest.raises(ValueError, match="not available"):
+        await _validate_model_exists(
+            "nonexistent/model-xyz-404",
+            available_models=["lm_studio/qwen3-30b-a3b", "openai/gpt-4"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_prefixed_model_in_list_passes() -> None:
+    """Model with provider prefix that IS in available list should pass."""
+    from codeforge.consumer._benchmark import _validate_model_exists
+
+    await _validate_model_exists(
+        "lm_studio/qwen3-30b-a3b",
+        available_models=["lm_studio/qwen3-30b-a3b", "openai/gpt-4"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_substring_model_does_not_match() -> None:
+    """Model that is a substring of a valid model should not pass."""
+    from codeforge.consumer._benchmark import _validate_model_exists
+
+    with pytest.raises(ValueError, match="not available"):
+        await _validate_model_exists(
+            "lm_studio/qwen3",
+            available_models=["lm_studio/qwen3-30b-a3b"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_fallback_to_configured_models(monkeypatch) -> None:
+    """When /v1/models returns empty, should try /model/info endpoint."""
+    from codeforge.consumer import _benchmark
+
+    async def mock_fetch_available() -> list[str]:
+        return []  # Simulate LiteLLM unreachable via /v1/models
+
+    async def mock_fetch_configured() -> list[str]:
+        return ["lm_studio/qwen3-30b-a3b"]
+
+    monkeypatch.setattr(_benchmark, "_fetch_available_models", mock_fetch_available)
+    monkeypatch.setattr(_benchmark, "_fetch_configured_models", mock_fetch_configured)
+
+    # Valid model in configured list should pass
+    await _benchmark._validate_model_exists("lm_studio/qwen3-30b-a3b")
+
+
+@pytest.mark.asyncio
+async def test_fallback_to_configured_rejects_unknown(monkeypatch) -> None:
+    """When /v1/models returns empty but /model/info works, reject unknown models."""
+    from codeforge.consumer import _benchmark
+
+    async def mock_fetch_available() -> list[str]:
+        return []
+
+    async def mock_fetch_configured() -> list[str]:
+        return ["lm_studio/qwen3-30b-a3b"]
+
+    monkeypatch.setattr(_benchmark, "_fetch_available_models", mock_fetch_available)
+    monkeypatch.setattr(_benchmark, "_fetch_configured_models", mock_fetch_configured)
+
+    with pytest.raises(ValueError, match="not found in LiteLLM configured"):
+        await _benchmark._validate_model_exists("nonexistent/model-xyz-404")
+
+
+@pytest.mark.asyncio
+async def test_both_endpoints_unreachable_skips(monkeypatch) -> None:
+    """When both /v1/models AND /model/info return empty, skip validation."""
+    from codeforge.consumer import _benchmark
+
+    async def mock_fetch_available() -> list[str]:
+        return []
+
+    async def mock_fetch_configured() -> list[str]:
+        return []
+
+    monkeypatch.setattr(_benchmark, "_fetch_available_models", mock_fetch_available)
+    monkeypatch.setattr(_benchmark, "_fetch_configured_models", mock_fetch_configured)
+
+    # Should not raise — graceful degradation
+    await _benchmark._validate_model_exists("nonexistent/model-xyz-404")

@@ -232,13 +232,13 @@
 > silently falls back or passes them through. The validation only catches bare model names that
 > aren't in the list — prefixed names bypass it.
 
-- [ ] A.1: Write failing test — model with `provider/name` format not in LiteLLM models list
+- [x] (2026-03-16) A.1: Write failing test — model with `provider/name` format not in LiteLLM models list
   - File: `workers/tests/test_model_validation.py`
   - Test: `_validate_model_exists("nonexistent/model-xyz-404", available_models=["lm_studio/qwen3-30b"])` should raise `ValueError`
   - Test: `_validate_model_exists("openai/gpt-4", available_models=["openai/gpt-4"])` should pass (exact match still works)
   - Run: `cd workers && poetry run pytest tests/test_model_validation.py -v`
 
-- [ ] A.2: Fix `_validate_model_exists()` — normalize comparison for provider-prefixed models
+- [x] (2026-03-16) A.2: Fix `_validate_model_exists()` — add /model/info fallback for provider-prefixed models
   - File: `workers/codeforge/consumer/_benchmark.py` (line 57-71)
   - Current logic: `if model not in available_models: raise ValueError`
   - Problem: LiteLLM `/v1/models` might return `lm_studio/qwen3-30b-a3b` while user sends `lm_studio/nonexistent-model` — both have `lm_studio/` prefix but only one is valid
@@ -246,7 +246,7 @@
   - Fix option B (simpler): Extract provider prefix from model name (`model.split("/")[0]`), check that the prefix matches at least one available model's prefix AND the full model name matches. If no exact match, raise `ValueError` with helpful message listing similar models.
   - Key constraint: Must not break `model=auto` (already guarded by early return)
 
-- [ ] A.3: Write test for edge cases
+- [x] (2026-03-16) A.3: Write test for edge cases
   - File: `workers/tests/test_model_validation.py`
   - Test: model with valid prefix but invalid name (`lm_studio/nonexistent`) → fails
   - Test: model that is a substring of a valid model (`lm_studio/qwen3`) → fails (no partial match)
@@ -327,7 +327,7 @@
     }
     ```
 
-- [ ] C.4: Python-side safety net — raise instead of warn for unknown evaluators
+- [x] (2026-03-16) C.4: Python-side safety net — raise instead of warn for unknown evaluators
   - File: `workers/codeforge/consumer/_benchmark.py` (line 681)
   - Current: `logger.warning("unknown evaluator, skipping", evaluator=name)`
   - Fix: `raise ValueError(f"unknown evaluator/metric: {name!r}. Valid: llm_judge, functional_test, sparc, trajectory_verifier, correctness, faithfulness, relevance, coherence, fluency")`
@@ -335,7 +335,7 @@
   - Write test in `workers/tests/test_score_key_normalization.py` or new file:
     `_build_evaluators(["nonexistent_evaluator"], "gpt-4")` → raises `ValueError`
 
-- [ ] C.5: Remove the "no evaluators" fallback default
+- [x] (2026-03-16) C.5: Remove the "no evaluators" fallback default
   - File: `workers/codeforge/consumer/_benchmark.py` (lines 691-697)
   - Current: `if not evaluators:` → creates a default `LLMJudgeEvaluator`
   - This fallback masks validation failures. After C.3+C.4, it should never be reached.

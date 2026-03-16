@@ -79,7 +79,7 @@ class _FakeRolloutOutcome:
         is_best: bool = True,
         diversity_score: float = 0.0,
     ) -> None:
-        self.execution = execution
+        self.result = execution
         self.eval_score = eval_score
         self.rollout_id = rollout_id
         self.is_best = is_best
