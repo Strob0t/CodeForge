@@ -1,4 +1,5 @@
 import {
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -16,6 +17,7 @@ import type {
   BenchmarkSuite,
   BenchmarkType,
   CreateBenchmarkRunRequest,
+  LiveFeedEvent,
   ProviderConfig,
 } from "~/api/types";
 import type { RoutingReport as RoutingReportType } from "~/api/types";
@@ -44,6 +46,15 @@ import { BenchmarkLiveFeed } from "./BenchmarkLiveFeed";
 import { BenchmarkRunDetail } from "./BenchmarkRunDetail";
 import { CostAnalysisView } from "./CostAnalysisView";
 import { LeaderboardView } from "./LeaderboardView";
+import {
+  agentEventToLiveFeedEvent,
+  emptyLiveFeedState,
+  type FeatureEntry,
+  type LiveFeedState,
+  MAX_EVENTS,
+  resultToFeatureEntry,
+  statsFromSummary,
+} from "./liveFeedState";
 import { MultiCompareView } from "./MultiCompareView";
 import { PromptOptimizationPanel } from "./PromptOptimizationPanel";
 import { RoutingReport } from "./RoutingReport";
@@ -96,13 +107,236 @@ export default function BenchmarkPage() {
     window.history.replaceState({}, "", url.toString());
   };
 
-  // WebSocket: auto-refresh runs when benchmark progress events arrive
+  // Live feed state per running benchmark — persists across card close/reopen
+  const [liveFeedStates, setLiveFeedStates] = createSignal<Map<string, LiveFeedState>>(new Map());
+
+  // Helper: update a single run's LiveFeedState
+  const updateRunState = (runId: string, updater: (prev: LiveFeedState) => LiveFeedState) => {
+    setLiveFeedStates((prev) => {
+      const next = new Map(prev);
+      const current = next.get(runId) ?? emptyLiveFeedState();
+      next.set(runId, updater(current));
+      return next;
+    });
+  };
+
+  // WebSocket: auto-refresh runs list and update live feed state
   const cleanupWS = onMessage((msg) => {
+    // Auto-refresh runs list on progress/completion
     if (msg.type === "benchmark.run.progress" || msg.type === "benchmark.task.completed") {
       refetch();
     }
+
+    // ---- Live feed state updates ----
+    if (msg.type === "trajectory.event") {
+      const p = msg.payload as {
+        run_id: string;
+        project_id: string;
+        event_type: string;
+        tool_name?: string;
+        model?: string;
+        input?: string;
+        output?: string;
+        success?: boolean;
+        step?: number;
+        cost_usd?: number;
+        tokens_in?: number;
+        tokens_out?: number;
+      };
+      updateRunState(p.run_id, (state) => {
+        const evt: LiveFeedEvent = {
+          id: crypto.randomUUID(),
+          timestamp: Date.now(),
+          run_id: p.run_id,
+          project_id: p.project_id ?? "",
+          event_type: p.event_type,
+          tool_name: p.tool_name,
+          model: p.model,
+          input: p.input,
+          output: p.output,
+          success: p.success,
+          step: p.step,
+          cost_usd: p.cost_usd,
+          tokens_in: p.tokens_in,
+          tokens_out: p.tokens_out,
+        };
+
+        const events = [...state.events, evt];
+        const trimmed =
+          events.length > MAX_EVENTS ? events.slice(events.length - MAX_EVENTS) : events;
+
+        const stats = { ...state.stats };
+        if (p.event_type === "agent.tool_called") {
+          stats.toolCallCount++;
+          if (p.success !== false) stats.toolSuccessCount++;
+        }
+        stats.totalTokensIn += p.tokens_in ?? 0;
+        stats.totalTokensOut += p.tokens_out ?? 0;
+
+        const features = new Map(state.features);
+        for (const [id, f] of features) {
+          if (f.status === "running") {
+            features.set(id, {
+              ...f,
+              events: [...f.events, evt],
+              cost: f.cost + (p.cost_usd ?? 0),
+              step: p.step ?? f.step,
+            });
+            break;
+          }
+        }
+
+        return { ...state, events: trimmed, stats, features, lastEventId: evt.id };
+      });
+    }
+
+    if (msg.type === "benchmark.run.progress") {
+      const p = msg.payload as {
+        run_id: string;
+        completed_tasks: number;
+        total_tasks: number;
+        avg_score: number;
+        total_cost_usd: number;
+      };
+      updateRunState(p.run_id, (state) => {
+        const progress = {
+          completed_tasks: p.completed_tasks,
+          total_tasks: p.total_tasks,
+          avg_score: p.avg_score,
+          total_cost_usd: p.total_cost_usd,
+        };
+        const stats = { ...state.stats };
+        stats.avgScore = p.avg_score;
+        stats.costPerTask = p.completed_tasks > 0 ? p.total_cost_usd / p.completed_tasks : 0;
+        return { ...state, progress, stats };
+      });
+    }
+
+    if (msg.type === "benchmark.task.started") {
+      const p = msg.payload as {
+        run_id: string;
+        task_id: string;
+        task_name: string;
+        index: number;
+        total: number;
+      };
+      updateRunState(p.run_id, (state) => {
+        const features = new Map(state.features);
+        if (!features.has(p.task_id)) {
+          features.set(p.task_id, {
+            id: p.task_id,
+            name: p.task_name,
+            status: "running",
+            events: [],
+            startedAt: Date.now(),
+            cost: 0,
+            step: 0,
+          });
+        }
+        return { ...state, features };
+      });
+    }
+
+    if (msg.type === "benchmark.task.completed") {
+      const p = msg.payload as {
+        run_id: string;
+        task_id: string;
+        task_name: string;
+        score: number;
+        cost_usd: number;
+      };
+      updateRunState(p.run_id, (state) => {
+        const features = new Map(state.features);
+        const existing = features.get(p.task_id);
+        features.set(p.task_id, {
+          id: p.task_id,
+          name: p.task_name,
+          status: "completed",
+          events: existing?.events ?? [],
+          startedAt: existing?.startedAt,
+          cost: p.cost_usd,
+          step: existing?.step ?? 0,
+          score: p.score,
+        });
+        return { ...state, features };
+      });
+    }
+
+    if (msg.type === "autoagent.status") {
+      const p = msg.payload as { run_id?: string; current_feature_id?: string };
+      const { run_id: statusRunId, current_feature_id: currentFeatureId } = p;
+      if (statusRunId && currentFeatureId) {
+        updateRunState(statusRunId, (state) => {
+          const features = new Map(state.features);
+          for (const [id, f] of features) {
+            if (f.status === "running" && id !== currentFeatureId) {
+              features.set(id, { ...f, status: "pending" });
+            }
+          }
+          const target = features.get(currentFeatureId);
+          if (target && target.status !== "completed") {
+            features.set(currentFeatureId, { ...target, status: "running" });
+          }
+          return { ...state, features };
+        });
+      }
+    }
   });
   onCleanup(cleanupWS);
+
+  // Hydrate live feed state for running runs from API
+  createEffect(() => {
+    const runList = runs();
+    if (!runList) return;
+    const runningRuns = runList.filter((r: BenchmarkRun) => r.status === "running");
+
+    for (const run of runningRuns) {
+      const existing = liveFeedStates().get(run.id);
+      if (existing?.hydratedFromApi) continue;
+
+      Promise.all([api.trajectory.get(run.id, { limit: 200 }), api.benchmarks.listResults(run.id)])
+        .then(([trajectory, resultsList]) => {
+          const events = trajectory.events.map(agentEventToLiveFeedEvent);
+          const stats = statsFromSummary(trajectory.stats, resultsList);
+
+          const features = new Map<string, FeatureEntry>();
+          for (const r of resultsList) {
+            features.set(r.task_id, resultToFeatureEntry(r));
+          }
+
+          const completedCount = resultsList.length;
+          const avgScore =
+            completedCount > 0
+              ? resultsList.reduce((sum: number, r) => {
+                  const first = r.scores ? (Object.values(r.scores)[0] ?? 0) : 0;
+                  return sum + (first as number);
+                }, 0) / completedCount
+              : 0;
+
+          const progress = {
+            completed_tasks: completedCount,
+            total_tasks: null as number | null,
+            avg_score: avgScore,
+            total_cost_usd: trajectory.stats.total_cost_usd,
+          };
+
+          const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+
+          updateRunState(run.id, (prev) => ({
+            events: prev.events.length > events.length ? prev.events : events,
+            progress: prev.progress ?? progress,
+            features: prev.features.size > features.size ? prev.features : features,
+            stats: prev.hydratedFromApi ? prev.stats : stats,
+            hydratedFromApi: true,
+            lastEventId: prev.lastEventId ?? lastEvent?.id ?? null,
+          }));
+        })
+        .catch((err: unknown) => {
+          console.warn(`[LiveFeed] hydration failed for run ${run.id}:`, err);
+          updateRunState(run.id, (prev) => ({ ...prev, hydratedFromApi: true }));
+        });
+    }
+  });
 
   // New run form
   const [showForm, setShowForm] = createSignal(false);
@@ -462,7 +696,10 @@ export default function BenchmarkPage() {
                         {/* Expanded Results */}
                         <Show when={selectedRun() === run.id}>
                           <Show when={run.status === "running"}>
-                            <BenchmarkLiveFeed runId={run.id} startedAt={run.created_at} />
+                            <BenchmarkLiveFeed
+                              state={liveFeedStates().get(run.id) ?? emptyLiveFeedState()}
+                              startedAt={run.created_at}
+                            />
                           </Show>
                           <BenchmarkRunDetail
                             results={results()}
