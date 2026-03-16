@@ -31,7 +31,7 @@ const DEBOUNCE_MS = 500;
 
 export interface CanvasExportPanelProps {
   store: CanvasStore;
-  svgRef?: SVGSVGElement;
+  svgRef?: () => SVGSVGElement | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
 
   // Default canvas dimensions when no SVG ref is available
   const canvasWidth = (): number => {
-    const svg = props.svgRef;
+    const svg = props.svgRef?.();
     if (svg) {
       const box = svg.viewBox.baseVal;
       return box.width > 0 ? box.width : 800;
@@ -56,7 +56,7 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
   };
 
   const canvasHeight = (): number => {
-    const svg = props.svgRef;
+    const svg = props.svgRef?.();
     if (svg) {
       const box = svg.viewBox.baseVal;
       return box.height > 0 ? box.height : 600;
@@ -100,7 +100,7 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
     setJsonPreview(JSON.stringify(jsonExport, null, 2));
 
     // PNG (async, only if SVG ref is available)
-    const svg = props.svgRef;
+    const svg = props.svgRef?.();
     if (svg) {
       exportPng(svg)
         .then((dataUrl) => setPngDataUrl(dataUrl))
@@ -110,14 +110,43 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
     }
   }
 
-  async function copyToClipboard(content: string): Promise<void> {
+  function copyToClipboard(content: string): void {
+    function showFeedback(msg: string): void {
+      setCopyFeedback(msg);
+      setTimeout(() => setCopyFeedback(""), 1500);
+    }
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(content).then(
+        () => showFeedback("Copied!"),
+        () => {
+          if (execCommandCopy(content)) {
+            showFeedback("Copied!");
+          } else {
+            showFeedback("Copy failed");
+          }
+        },
+      );
+    } else if (execCommandCopy(content)) {
+      showFeedback("Copied!");
+    } else {
+      showFeedback("Copy failed");
+    }
+  }
+
+  function execCommandCopy(text: string): boolean {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
     try {
-      await navigator.clipboard.writeText(content);
-      setCopyFeedback("Copied!");
-      setTimeout(() => setCopyFeedback(""), 1500);
+      return document.execCommand("copy");
     } catch {
-      setCopyFeedback("Copy failed");
-      setTimeout(() => setCopyFeedback(""), 1500);
+      return false;
+    } finally {
+      document.body.removeChild(textarea);
     }
   }
 
@@ -125,13 +154,13 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
     const tab = activeTab();
     switch (tab) {
       case "png":
-        void copyToClipboard(pngDataUrl());
+        copyToClipboard(pngDataUrl());
         break;
       case "ascii":
-        void copyToClipboard(asciiPreview());
+        copyToClipboard(asciiPreview());
         break;
       case "json":
-        void copyToClipboard(jsonPreview());
+        copyToClipboard(jsonPreview());
         break;
     }
   }

@@ -1,15 +1,22 @@
-import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { CanvasExportPanel } from "./CanvasExportPanel";
 import type { CanvasStore } from "./canvasState";
 import { createCanvasStore } from "./canvasState";
 import { CanvasToolbar } from "./CanvasToolbar";
-import type { CanvasExports, CanvasTool } from "./canvasTypes";
+import type { CanvasExports, CanvasTool, ToolType } from "./canvasTypes";
 import { DesignCanvas } from "./DesignCanvas";
 import { exportAscii } from "./export/exportAscii";
 import { exportJson } from "./export/exportJson";
 import { exportPng } from "./export/exportPng";
+import { createAnnotateTool } from "./tools/AnnotateTool";
+import { createEllipseTool } from "./tools/EllipseTool";
+import { createFreehandTool } from "./tools/FreehandTool";
+import { createImageTool } from "./tools/ImageTool";
+import { createRectTool } from "./tools/RectTool";
+import { createSelectTool } from "./tools/SelectTool";
+import { createTextTool } from "./tools/TextTool";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -21,7 +28,7 @@ export interface CanvasModalProps {
   onExport: (exports: CanvasExports) => void;
   /** Optional external store; if omitted a fresh store is created internally. */
   store?: CanvasStore;
-  /** Optional active tool instance for DesignCanvas pointer delegation. */
+  /** @deprecated Tool instances are now created internally based on store.state.activeTool. */
   activeTool?: CanvasTool;
 }
 
@@ -35,6 +42,24 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
   const internalStore = createCanvasStore();
 
   const [svgRef, setSvgRef] = createSignal<SVGSVGElement | undefined>(undefined);
+
+  // Create tool instances — each tool needs store + svgRef
+  const toolOpts = { store: resolvedStore(), svgRef };
+  const toolInstances: Record<ToolType, CanvasTool> = {
+    select: createSelectTool(toolOpts),
+    rect: createRectTool(toolOpts),
+    ellipse: createEllipseTool(toolOpts),
+    freehand: createFreehandTool(toolOpts),
+    text: createTextTool(toolOpts),
+    annotate: createAnnotateTool(toolOpts),
+    image: createImageTool(toolOpts),
+  };
+
+  // Reactive: return the current tool instance based on store.state.activeTool
+  const currentTool = createMemo((): CanvasTool => {
+    const toolType = resolvedStore().state.activeTool;
+    return toolInstances[toolType] ?? toolInstances.select;
+  });
 
   // Close on Escape key
   function handleKeyDown(e: KeyboardEvent): void {
@@ -136,7 +161,7 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
             <div class="flex-1 overflow-hidden">
               <DesignCanvas
                 store={resolvedStore()}
-                activeTool={props.activeTool}
+                activeTool={props.activeTool ?? currentTool()}
                 onSvgRef={setSvgRef}
               />
             </div>
@@ -146,7 +171,7 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
               class="hidden w-64 shrink-0 border-l border-white/10 bg-gray-900 lg:block"
               data-testid="canvas-sidebar"
             >
-              <CanvasExportPanel store={resolvedStore()} svgRef={svgRef()} />
+              <CanvasExportPanel store={resolvedStore()} svgRef={svgRef} />
             </div>
           </div>
         </div>
