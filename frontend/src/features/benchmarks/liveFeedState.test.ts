@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentEvent, BenchmarkResult, TrajectorySummary } from "~/api/types";
+import type { AgentEvent, TrajectorySummary } from "~/api/types";
 
 import {
   agentEventToLiveFeedEvent,
@@ -137,10 +137,7 @@ describe("statsFromSummary", () => {
   });
 
   it("computes avgScore from results", () => {
-    const results = [
-      { scores: { correctness: 0.8 } },
-      { scores: { correctness: 0.6 } },
-    ] as BenchmarkResult[];
+    const results = [{ scores: { correctness: 0.8 } }, { scores: { correctness: 0.6 } }];
     const stats = statsFromSummary(summary, results);
     expect(stats.avgScore).toBeCloseTo(0.7);
   });
@@ -150,7 +147,7 @@ describe("statsFromSummary", () => {
       { scores: { correctness: 0.8 } },
       { scores: { correctness: 0.6 } },
       { scores: { correctness: 0.7 } },
-    ] as BenchmarkResult[];
+    ];
     const stats = statsFromSummary(summary, results);
     expect(stats.costPerTask).toBeCloseTo(0.14);
   });
@@ -170,7 +167,7 @@ describe("resultToFeatureEntry", () => {
       cost_usd: 0.12,
       duration_ms: 72000,
       scores: { correctness: 0.95 },
-    } as BenchmarkResult;
+    };
     const entry = resultToFeatureEntry(r);
     expect(entry.id).toBe("t1");
     expect(entry.name).toBe("parse-json");
@@ -187,7 +184,7 @@ describe("resultToFeatureEntry", () => {
       task_name: "empty",
       cost_usd: 0,
       duration_ms: 0,
-    } as BenchmarkResult;
+    };
     const entry = resultToFeatureEntry(r);
     expect(entry.score).toBeUndefined();
     expect(entry.startedAt).toBeUndefined();
