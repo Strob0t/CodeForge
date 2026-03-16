@@ -1074,3 +1074,76 @@
 - [x] Add empty states with navigation links to all 8 tab panels (2026-03-09)
 - [x] Proactive agent greeting on first chat open per project (localStorage-gated) (2026-03-09)
 - [x] Lint, TypeScript verify, pre-commit pass (2026-03-09)
+
+#### Phase 32 -- Visual Design Canvas
+
+> Feature spec: `docs/features/06-visual-design-canvas.md`
+
+**Phase 32A -- Canvas Types & State (Frontend)**
+- [ ] 32A.1: Create `canvasTypes.ts` -- all type definitions (CanvasElement, ElementStyle, tool types)
+- [ ] 32A.2: Write tests for canvas state store (add/remove/update/undo/redo/select)
+- [ ] 32A.3: Implement `canvasState.ts` -- SolidJS createStore with undo/redo
+
+**Phase 32B -- SVG Viewport & Select Tool (Frontend)**
+- [ ] 32B.1: Write tests for `screenToSvg` coordinate transform
+- [ ] 32B.2: Implement `DesignCanvas.tsx` -- main SVG component with viewport
+- [ ] 32B.3: Implement `SelectTool.ts` -- select, move, resize via pointer capture
+
+**Phase 32C -- Shape Tools (Frontend)**
+- [ ] 32C.1: Implement `RectTool.ts` -- rectangle creation via drag
+- [ ] 32C.2: Implement `EllipseTool.ts` -- ellipse/circle creation (Shift constraint)
+- [ ] 32C.3: Write tests for Catmull-Rom path smoothing
+- [ ] 32C.4: Implement `FreehandTool.ts` -- freehand SVG path with smoothing
+- [ ] 32C.5: Implement `TextTool.ts` -- click-to-place text via foreignObject
+
+**Phase 32D -- Image Upload & Annotation (Frontend)**
+- [ ] 32D.1: Implement `ImageTool.ts` -- file upload, base64, 5MB limit
+- [ ] 32D.2: Implement `AnnotateTool.ts` -- arrow + callout annotation
+
+**Phase 32E -- Toolbar & Modal (Frontend)**
+- [ ] 32E.1: Implement `CanvasToolbar.tsx` -- tool selector with keyboard shortcuts
+- [ ] 32E.2: Implement `CanvasModal.tsx` -- fullscreen modal wrapper
+
+**Phase 32F -- Export Pipeline (Frontend)**
+- [ ] 32F.1: Write tests for PNG export
+- [ ] 32F.2: Implement `exportPng.ts` -- SVG to PNG via offscreen canvas
+- [ ] 32F.3: Write tests for ASCII art export
+- [ ] 32F.4: Implement `exportAscii.ts` -- element tree to character grid
+- [ ] 32F.5: Write tests for JSON export
+- [ ] 32F.6: Implement `exportJson.ts` -- structured JSON description
+- [ ] 32F.7: Implement `CanvasExportPanel.tsx` -- export preview sidebar
+
+**Phase 32G -- Phase 1 Integration & E2E Tests**
+- [ ] 32G.1: E2E test -- canvas basic interactions
+- [ ] 32G.2: E2E test -- export pipeline
+- [ ] 32G.3: Add canvas entry point to ProjectDetailPage
+
+**Phase 32H -- Go Backend Multimodal Pipeline**
+- [ ] 32H.1: Write failing Go test -- MessageImage serialization
+- [ ] 32H.2: Add MessageImage to Go domain types
+- [ ] 32H.3: Write database migration 075_add_message_images.sql
+- [ ] 32H.4: Update message store to read/write images JSONB
+- [ ] 32H.5: Write failing Go test -- NATS payload with images
+- [ ] 32H.6: Add MessageImagePayload to NATS schema
+- [ ] 32H.7: Update historyToPayload to propagate images
+- [ ] 32H.8: Run full Go test suite -- no regressions
+
+**Phase 32I -- Python Workers Multimodal Pipeline**
+- [ ] 32I.1: Write failing Python test -- MessageImagePayload model
+- [ ] 32I.2: Add MessageImagePayload to Python models
+- [ ] 32I.3: Write failing Python test -- history builder multimodal output
+- [ ] 32I.4: Update _to_msg_dict for multimodal content-array
+- [ ] 32I.5: Contract test -- Go marshal to Python unmarshal
+- [ ] 32I.6: Run full Python test suite -- no regressions
+
+**Phase 32J -- Frontend Multimodal Types**
+- [ ] 32J.1: Add MessageImage to frontend types.ts
+- [ ] 32J.2: Update ChatPanel to render image thumbnails
+
+**Phase 32K -- Canvas-to-Chat Integration**
+- [ ] 32K.1: Add supports_vision to Go model discovery
+- [ ] 32K.2: Add supports_vision to frontend LLMModel type
+- [ ] 32K.3: Implement buildCanvasPrompt() utility
+- [ ] 32K.4: Write tests for buildCanvasPrompt()
+- [ ] 32K.5: Add canvas button to ChatPanel
+- [ ] 32K.6: E2E test -- canvas to chat flow
