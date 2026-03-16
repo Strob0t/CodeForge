@@ -50,16 +50,36 @@ You are an expert code reviewer evaluating an AI coding agent's work.
 ## Test Results
 {test_output}
 
-Rate the agent's performance on these dimensions (0.0 to 1.0):
+Rate the agent's performance on each dimension using EXACTLY one of: ACHIEVED, PARTIALLY_ACHIEVED, or NOT_ACHIEVED.
 
-1. **solution_quality**: Does the final output correctly solve the task?
-2. **approach_efficiency**: Did the agent take a reasonable path? (no unnecessary steps, no loops)
-3. **code_quality**: Is the generated/modified code clean, idiomatic, and well-structured?
-4. **error_recovery**: Did the agent handle errors well? (retry, adapt, not repeat same mistakes)
+Dimension definitions:
+1. **solution_quality**: Does the output correctly solve the task?
+   - ACHIEVED: Task fully solved, correct output
+   - PARTIALLY_ACHIEVED: Partially correct, missing edge cases or minor errors
+   - NOT_ACHIEVED: Wrong approach, broken output, or task not addressed
+
+2. **approach_efficiency**: Did the agent take a reasonable path?
+   - ACHIEVED: Direct path, no unnecessary steps
+   - PARTIALLY_ACHIEVED: Some redundant steps but reached a solution
+   - NOT_ACHIEVED: Excessive flailing, loops, or dead-end exploration
+
+3. **code_quality**: Is the generated code clean and idiomatic?
+   - ACHIEVED: Clean, readable, follows conventions
+   - PARTIALLY_ACHIEVED: Functional but messy or inconsistent style
+   - NOT_ACHIEVED: Broken, unreadable, or violates basic conventions
+
+4. **error_recovery**: Did the agent handle errors well?
+   - ACHIEVED: Recognized and recovered from errors effectively
+   - PARTIALLY_ACHIEVED: Partial recovery or slow adaptation
+   - NOT_ACHIEVED: Repeated same errors or ignored them
+
 5. **completeness**: Are all aspects of the task addressed?
+   - ACHIEVED: All requirements met
+   - PARTIALLY_ACHIEVED: Core requirements met, secondary ones missed
+   - NOT_ACHIEVED: Major requirements missing
 
-Respond ONLY with a JSON object, no other text:
-{{"solution_quality": 0.0, "approach_efficiency": 0.0, "code_quality": 0.0, "error_recovery": 0.0, "completeness": 0.0}}"""
+Respond ONLY with a JSON object:
+{{"solution_quality": "ACHIEVED", "approach_efficiency": "PARTIALLY_ACHIEVED", "code_quality": "ACHIEVED", "error_recovery": "NOT_ACHIEVED", "completeness": "ACHIEVED"}}"""
 
 # Max chars per individual message in the formatted trajectory.
 _MAX_MSG_CHARS = 500
@@ -67,6 +87,12 @@ _MAX_MSG_CHARS = 500
 # Max character budgets for prompt compression (prevents context overflow on local models).
 _MAX_TRAJECTORY_CHARS = 4000
 _MAX_TASK_INPUT_CHARS = 2000
+
+_CATEGORY_SCORES: dict[str, float] = {
+    "ACHIEVED": 1.0,
+    "PARTIALLY_ACHIEVED": 0.5,
+    "NOT_ACHIEVED": 0.0,
+}
 
 
 class TrajectoryVerifierEvaluator:
@@ -135,7 +161,7 @@ class TrajectoryVerifierEvaluator:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=256,
+            max_tokens=128,
         )
 
 
@@ -166,15 +192,22 @@ def _format_trajectory(task: TaskSpec, result: ExecutionResult) -> str:
 
 
 def _parse_scores(content: str) -> dict[str, float]:
-    """Parse JSON scores from LLM response. Returns empty dict on failure."""
+    """Parse categorical JSON scores from LLM response. Returns empty dict on failure."""
     try:
-        # Strip potential markdown fences.
         text = content.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
         raw: dict[str, Any] = json.loads(text)
-        return {k: max(0.0, min(1.0, float(v))) for k, v in raw.items() if k in _SCORE_DIMENSIONS}
+        result: dict[str, float] = {}
+        for k, v in raw.items():
+            if k in _SCORE_DIMENSIONS:
+                if isinstance(v, str):
+                    result[k] = _CATEGORY_SCORES.get(v.upper(), 0.0)
+                else:
+                    # Backward compat: if someone passes a float, clamp it
+                    result[k] = max(0.0, min(1.0, float(v)))
+        return result
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         logger.warning("trajectory verifier parse failed", error=str(exc), content=content[:200])
         raise

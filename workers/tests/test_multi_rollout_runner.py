@@ -10,7 +10,12 @@ from __future__ import annotations
 import pytest
 
 from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline
-from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
+from codeforge.evaluation.providers.base import (
+    EvalDimension,
+    ExecutionResult,
+    TaskSpec,
+    TrajectoryMessage,
+)
 from codeforge.evaluation.runners.multi_rollout import MultiRolloutRunner, compute_diversity
 from codeforge.evaluation.runners.simple import RunResult
 
@@ -210,6 +215,154 @@ class TestMultiRolloutRunner:
         """Without hybrid pipeline, first rollout is marked best (no selection)."""
         inner = _FakeInnerRunner(["a", "b"])
         runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=2)
+
+        outcomes = await runner.run_task(_task())
+
+        best = [o for o in outcomes if o.is_best]
+        assert len(best) == 1
+        assert best[0].rollout_id == 0
+
+
+# ---------------------------------------------------------------------------
+# Helpers: trajectory-aware fake runner
+# ---------------------------------------------------------------------------
+
+
+class _FakeInnerRunnerWithTrajectory:
+    """Fake runner that returns configurable trajectory lengths per call."""
+
+    def __init__(self, configs: list[dict]) -> None:
+        self._configs = configs
+        self._call_idx = 0
+
+    async def run_task(self, task: TaskSpec) -> RunResult:
+        cfg = self._configs[self._call_idx % len(self._configs)]
+        self._call_idx += 1
+        trajectory = [
+            TrajectoryMessage(role="assistant", content=f"step {i}") for i in range(cfg.get("trajectory_len", 0))
+        ]
+        execution = ExecutionResult(
+            actual_output=cfg.get("output", ""),
+            exit_code=0,
+            trajectory=trajectory,
+            step_count=cfg.get("step_count", 0),
+        )
+        return RunResult(task=task, execution=execution)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Selection Strategies (longest / shortest)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectionStrategies:
+    @pytest.mark.asyncio
+    async def test_longest_selects_max_trajectory(self) -> None:
+        """strategy='longest' picks the rollout with the most trajectory messages."""
+        configs = [
+            {"trajectory_len": 2},
+            {"trajectory_len": 5},
+            {"trajectory_len": 3},
+        ]
+        inner = _FakeInnerRunnerWithTrajectory(configs)
+        runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=3, strategy="longest")
+
+        outcomes = await runner.run_task(_task())
+
+        best = [o for o in outcomes if o.is_best]
+        assert len(best) == 1
+        assert len(best[0].result.trajectory) == 5
+
+    @pytest.mark.asyncio
+    async def test_shortest_selects_min_trajectory(self) -> None:
+        """strategy='shortest' picks the rollout with the fewest trajectory messages."""
+        configs = [
+            {"trajectory_len": 5},
+            {"trajectory_len": 2},
+            {"trajectory_len": 7},
+        ]
+        inner = _FakeInnerRunnerWithTrajectory(configs)
+        runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=3, strategy="shortest")
+
+        outcomes = await runner.run_task(_task())
+
+        best = [o for o in outcomes if o.is_best]
+        assert len(best) == 1
+        assert len(best[0].result.trajectory) == 2
+
+    @pytest.mark.asyncio
+    async def test_shortest_excludes_empty(self) -> None:
+        """strategy='shortest' ignores rollouts with empty trajectories."""
+        configs = [
+            {"trajectory_len": 0},
+            {"trajectory_len": 2},
+            {"trajectory_len": 5},
+        ]
+        inner = _FakeInnerRunnerWithTrajectory(configs)
+        runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=3, strategy="shortest")
+
+        outcomes = await runner.run_task(_task())
+
+        best = [o for o in outcomes if o.is_best]
+        assert len(best) == 1
+        # Should pick trajectory_len=2, not the empty one.
+        assert len(best[0].result.trajectory) == 2
+
+    @pytest.mark.asyncio
+    async def test_shortest_all_empty_fallback(self) -> None:
+        """strategy='shortest' falls back to first rollout when all trajectories are empty."""
+        configs = [
+            {"trajectory_len": 0},
+            {"trajectory_len": 0},
+            {"trajectory_len": 0},
+        ]
+        inner = _FakeInnerRunnerWithTrajectory(configs)
+        runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=3, strategy="shortest")
+
+        outcomes = await runner.run_task(_task())
+
+        best = [o for o in outcomes if o.is_best]
+        assert len(best) == 1
+        assert best[0].rollout_id == 0
+
+    @pytest.mark.asyncio
+    async def test_longest_output_length_fallback(self) -> None:
+        """strategy='longest' falls back to actual_output length when all trajectories are empty."""
+        configs = [
+            {"trajectory_len": 0, "output": "a"},
+            {"trajectory_len": 0, "output": "abcde"},
+            {"trajectory_len": 0, "output": "ab"},
+        ]
+        inner = _FakeInnerRunnerWithTrajectory(configs)
+        runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=3, strategy="longest")
+
+        outcomes = await runner.run_task(_task())
+
+        best = [o for o in outcomes if o.is_best]
+        assert len(best) == 1
+        assert best[0].result.actual_output == "abcde"
+
+    @pytest.mark.asyncio
+    async def test_longest_single_rollout(self) -> None:
+        """rollout_count=1 with strategy='longest' always marks the single rollout as best."""
+        configs = [{"trajectory_len": 3}]
+        inner = _FakeInnerRunnerWithTrajectory(configs)
+        runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=1, strategy="longest")
+
+        outcomes = await runner.run_task(_task())
+
+        assert len(outcomes) == 1
+        assert outcomes[0].is_best is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_strategy_fallback(self) -> None:
+        """Unknown strategy falls back to first rollout is_best."""
+        configs = [
+            {"trajectory_len": 3},
+            {"trajectory_len": 5},
+        ]
+        inner = _FakeInnerRunnerWithTrajectory(configs)
+        runner = MultiRolloutRunner(inner, hybrid_pipeline=None, rollout_count=2, strategy="invalid")
 
         outcomes = await runner.run_task(_task())
 

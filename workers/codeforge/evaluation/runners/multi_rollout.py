@@ -20,6 +20,18 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
+def _trajectory_length(result: ExecutionResult) -> int:
+    """Compute trajectory length for selection strategies.
+
+    Falls back to step_count, then actual_output length if trajectory is empty.
+    """
+    if result.trajectory:
+        return len(result.trajectory)
+    if result.step_count > 0:
+        return result.step_count
+    return len(result.actual_output)
+
+
 class _InnerRunner(Protocol):
     """Protocol for any runner that can execute a single task.
 
@@ -49,7 +61,8 @@ class MultiRolloutRunner:
         inner_runner: Runner implementing ``run_single_task(task) -> ExecutionResult``.
         hybrid_pipeline: Optional hybrid verifier for best-of-N selection.
         rollout_count: Number of independent rollouts per task.
-        strategy: Selection strategy — ``"best"`` (hybrid select) or ``"majority"`` (vote).
+        strategy: Selection strategy — ``"best"`` (hybrid), ``"majority"`` (vote),
+            ``"longest"`` (max trajectory), or ``"shortest"`` (min non-empty trajectory).
     """
 
     def __init__(
@@ -87,8 +100,12 @@ class MultiRolloutRunner:
             await self._select_best_hybrid(task, outcomes)
         elif self._strategy == "majority":
             self._select_majority(outcomes)
+        elif self._strategy == "longest":
+            self._select_longest(outcomes)
+        elif self._strategy == "shortest":
+            self._select_shortest(outcomes)
         else:
-            # No pipeline: first rollout is best (fallback).
+            # No pipeline or unknown strategy: first rollout is best (fallback).
             outcomes[0].is_best = True
 
         return outcomes
@@ -134,6 +151,26 @@ class MultiRolloutRunner:
                 passing[0].is_best = True
             elif outcomes:
                 outcomes[0].is_best = True
+
+    def _select_longest(self, outcomes: list[RolloutOutcome]) -> None:
+        """Select rollout with longest trajectory."""
+        best_idx = 0
+        best_len = -1
+        for i, o in enumerate(outcomes):
+            tl = _trajectory_length(o.result)
+            if tl > best_len:
+                best_len = tl
+                best_idx = i
+        outcomes[best_idx].is_best = True
+
+    def _select_shortest(self, outcomes: list[RolloutOutcome]) -> None:
+        """Select rollout with shortest non-empty trajectory."""
+        non_empty = [(i, _trajectory_length(o.result)) for i, o in enumerate(outcomes) if o.result.trajectory]
+        if not non_empty:
+            outcomes[0].is_best = True
+            return
+        best_idx = min(non_empty, key=lambda x: x[1])[0]
+        outcomes[best_idx].is_best = True
 
 
 def compute_diversity(outputs: list[str]) -> list[float]:

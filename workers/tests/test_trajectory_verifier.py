@@ -90,12 +90,12 @@ class TestFormatTrajectory:
 class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_returns_five_dimensions(self) -> None:
-        """Well-formed trajectory → 5 named EvalDimension scores."""
+        """Well-formed trajectory -> 5 named EvalDimension scores."""
         mock_response = AsyncMock()
         mock_response.choices = [AsyncMock()]
         mock_response.choices[0].message.content = (
-            '{"solution_quality": 0.9, "approach_efficiency": 0.8, '
-            '"code_quality": 0.85, "error_recovery": 0.7, "completeness": 0.95}'
+            '{"solution_quality": "ACHIEVED", "approach_efficiency": "PARTIALLY_ACHIEVED", '
+            '"code_quality": "ACHIEVED", "error_recovery": "NOT_ACHIEVED", "completeness": "ACHIEVED"}'
         )
 
         evaluator = TrajectoryVerifierEvaluator(model="test-model")
@@ -112,19 +112,19 @@ class TestTrajectoryVerifierEvaluator:
             "trajectory_error_recovery",
             "trajectory_completeness",
         }
-        # Check scores match
         by_name = {d.name: d.score for d in dims}
-        assert by_name["trajectory_solution_quality"] == 0.9
-        assert by_name["trajectory_approach_efficiency"] == 0.8
+        assert by_name["trajectory_solution_quality"] == 1.0
+        assert by_name["trajectory_approach_efficiency"] == 0.5
+        assert by_name["trajectory_error_recovery"] == 0.0
 
     @pytest.mark.asyncio
     async def test_empty_trajectory_returns_zero_scores(self) -> None:
-        """Empty trajectory → all 5 dimensions with score 0.0."""
+        """Empty trajectory -> all 5 dimensions with score 0.0."""
         mock_response = AsyncMock()
         mock_response.choices = [AsyncMock()]
         mock_response.choices[0].message.content = (
-            '{"solution_quality": 0.0, "approach_efficiency": 0.0, '
-            '"code_quality": 0.0, "error_recovery": 0.0, "completeness": 0.0}'
+            '{"solution_quality": "NOT_ACHIEVED", "approach_efficiency": "NOT_ACHIEVED", '
+            '"code_quality": "NOT_ACHIEVED", "error_recovery": "NOT_ACHIEVED", "completeness": "NOT_ACHIEVED"}'
         )
 
         evaluator = TrajectoryVerifierEvaluator(model="test-model")
@@ -175,13 +175,13 @@ class TestTrajectoryVerifierEvaluator:
         assert evaluator.name == "trajectory_verifier"
 
     @pytest.mark.asyncio
-    async def test_scores_clamped_to_valid_range(self) -> None:
-        """Scores outside 0-1 range are clamped."""
+    async def test_unknown_category_maps_to_zero(self) -> None:
+        """Unknown category string maps to 0.0."""
         mock_response = AsyncMock()
         mock_response.choices = [AsyncMock()]
         mock_response.choices[0].message.content = (
-            '{"solution_quality": 1.5, "approach_efficiency": -0.3, '
-            '"code_quality": 0.5, "error_recovery": 0.5, "completeness": 0.5}'
+            '{"solution_quality": "UNKNOWN", "approach_efficiency": "MAYBE", '
+            '"code_quality": "ACHIEVED", "error_recovery": "ACHIEVED", "completeness": "ACHIEVED"}'
         )
 
         evaluator = TrajectoryVerifierEvaluator(model="test-model")
@@ -190,5 +190,81 @@ class TestTrajectoryVerifierEvaluator:
             dims = await evaluator.evaluate(_task(), _result_with_trajectory())
 
         by_name = {d.name: d.score for d in dims}
-        assert by_name["trajectory_solution_quality"] == 1.0  # clamped from 1.5
-        assert by_name["trajectory_approach_efficiency"] == 0.0  # clamped from -0.3
+        assert by_name["trajectory_solution_quality"] == 0.0  # UNKNOWN -> 0.0
+        assert by_name["trajectory_approach_efficiency"] == 0.0  # MAYBE -> 0.0
+        assert by_name["trajectory_code_quality"] == 1.0  # ACHIEVED -> 1.0
+
+    @pytest.mark.asyncio
+    async def test_achieved_maps_to_1(self) -> None:
+        """ACHIEVED -> 1.0."""
+        mock_response = AsyncMock()
+        mock_response.choices = [AsyncMock()]
+        mock_response.choices[0].message.content = (
+            '{"solution_quality": "ACHIEVED", "approach_efficiency": "ACHIEVED", '
+            '"code_quality": "ACHIEVED", "error_recovery": "ACHIEVED", "completeness": "ACHIEVED"}'
+        )
+        evaluator = TrajectoryVerifierEvaluator(model="test-model")
+        with patch.object(evaluator, "_call_verifier", return_value=mock_response):
+            dims = await evaluator.evaluate(_task(), _result_with_trajectory())
+        for d in dims:
+            assert d.score == 1.0
+
+    @pytest.mark.asyncio
+    async def test_partially_maps_to_half(self) -> None:
+        """PARTIALLY_ACHIEVED -> 0.5."""
+        mock_response = AsyncMock()
+        mock_response.choices = [AsyncMock()]
+        mock_response.choices[0].message.content = (
+            '{"solution_quality": "PARTIALLY_ACHIEVED", "approach_efficiency": "PARTIALLY_ACHIEVED", '
+            '"code_quality": "PARTIALLY_ACHIEVED", "error_recovery": "PARTIALLY_ACHIEVED", '
+            '"completeness": "PARTIALLY_ACHIEVED"}'
+        )
+        evaluator = TrajectoryVerifierEvaluator(model="test-model")
+        with patch.object(evaluator, "_call_verifier", return_value=mock_response):
+            dims = await evaluator.evaluate(_task(), _result_with_trajectory())
+        for d in dims:
+            assert d.score == 0.5
+
+    @pytest.mark.asyncio
+    async def test_not_achieved_maps_to_zero(self) -> None:
+        """NOT_ACHIEVED -> 0.0."""
+        mock_response = AsyncMock()
+        mock_response.choices = [AsyncMock()]
+        mock_response.choices[0].message.content = (
+            '{"solution_quality": "NOT_ACHIEVED", "approach_efficiency": "NOT_ACHIEVED", '
+            '"code_quality": "NOT_ACHIEVED", "error_recovery": "NOT_ACHIEVED", '
+            '"completeness": "NOT_ACHIEVED"}'
+        )
+        evaluator = TrajectoryVerifierEvaluator(model="test-model")
+        with patch.object(evaluator, "_call_verifier", return_value=mock_response):
+            dims = await evaluator.evaluate(_task(), _result_with_trajectory())
+        for d in dims:
+            assert d.score == 0.0
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_categories(self) -> None:
+        """Category matching is case-insensitive."""
+        mock_response = AsyncMock()
+        mock_response.choices = [AsyncMock()]
+        mock_response.choices[0].message.content = (
+            '{"solution_quality": "achieved", "approach_efficiency": "Achieved", '
+            '"code_quality": "ACHIEVED", "error_recovery": "partially_achieved", '
+            '"completeness": "Partially_Achieved"}'
+        )
+        evaluator = TrajectoryVerifierEvaluator(model="test-model")
+        with patch.object(evaluator, "_call_verifier", return_value=mock_response):
+            dims = await evaluator.evaluate(_task(), _result_with_trajectory())
+        by_name = {d.name: d.score for d in dims}
+        assert by_name["trajectory_solution_quality"] == 1.0
+        assert by_name["trajectory_approach_efficiency"] == 1.0
+        assert by_name["trajectory_code_quality"] == 1.0
+        assert by_name["trajectory_error_recovery"] == 0.5
+        assert by_name["trajectory_completeness"] == 0.5
+
+    def test_prompt_contains_category_definitions(self) -> None:
+        """Prompt includes ACHIEVED / PARTIALLY_ACHIEVED / NOT_ACHIEVED."""
+        from codeforge.evaluation.evaluators.trajectory_verifier import _VERIFIER_PROMPT
+
+        assert "ACHIEVED" in _VERIFIER_PROMPT
+        assert "PARTIALLY_ACHIEVED" in _VERIFIER_PROMPT
+        assert "NOT_ACHIEVED" in _VERIFIER_PROMPT

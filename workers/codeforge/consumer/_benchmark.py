@@ -534,6 +534,8 @@ _DIMENSION_TO_METRIC: dict[str, str] = {
     "trajectory_error_recovery": "trajectory_verifier",
     "trajectory_completeness": "trajectory_verifier",
     "trajectory_quality": "trajectory_verifier",  # error fallback
+    # LogprobVerifierEvaluator -> "logprob_verifier"
+    "logprob_verification": "logprob_verifier",
     # FunctionalTestEvaluator -> identity (already matches)
     "functional_test": "functional_test",
 }
@@ -723,12 +725,16 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
             evaluators.append(SPARCEvaluator())
         elif name == "trajectory_verifier":
             evaluators.append(TrajectoryVerifierEvaluator(model=model))
+        elif name == "logprob_verifier":
+            from codeforge.evaluation.evaluators.logprob_verifier import LogprobVerifierEvaluator
+
+            evaluators.append(LogprobVerifierEvaluator(model=model))
         elif name in llm_judge_metrics:
             collected_llm_metrics.append(name)
         else:
             valid_names = (
                 "llm_judge, functional_test, sparc, trajectory_verifier, "
-                "correctness, faithfulness, relevance, coherence, fluency"
+                "logprob_verifier, correctness, faithfulness, relevance, coherence, fluency"
             )
             raise ValueError(f"unknown evaluator/metric: {name!r}. Valid: {valid_names}")
 
