@@ -1,6 +1,6 @@
 import type { CanvasStore } from "../canvasState";
 import type { CanvasElement, CanvasTool } from "../canvasTypes";
-import { screenToSvgCoords, type SvgPoint } from "../DesignCanvas";
+import { eventToSvg, type SvgPoint } from "./coords";
 
 // ---------------------------------------------------------------------------
 // SelectTool — select, move, (future: resize) elements on the canvas
@@ -38,16 +38,6 @@ function hitTest(elements: readonly CanvasElement[], point: SvgPoint): CanvasEle
   }
 
   return undefined;
-}
-
-/** Convert a PointerEvent to SVG coordinates using the SVG element CTM. */
-function eventToSvg(e: PointerEvent, svgEl: SVGSVGElement | undefined): SvgPoint {
-  if (!svgEl) return { x: e.clientX, y: e.clientY };
-
-  const ctm = svgEl.getScreenCTM();
-  if (!ctm) return { x: e.clientX, y: e.clientY };
-
-  return screenToSvgCoords(e.clientX, e.clientY, ctm);
 }
 
 export function createSelectTool(options: SelectToolOptions): CanvasTool {
