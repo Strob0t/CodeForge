@@ -86,7 +86,7 @@ export default function WarRoom(props: WarRoomProps) {
               </svg>
               <p class="text-sm text-cf-text-muted">{t("empty.warroom")}</p>
               <button
-                class="text-sm text-cf-accent hover:underline"
+                class="text-sm text-cf-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
                 onClick={() => props.onNavigate?.("chat")}
               >
                 {t("empty.warroom.action")}

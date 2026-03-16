@@ -1,6 +1,7 @@
 import type { JSX } from "solid-js";
 import { createMemo, createSignal, For, Show } from "solid-js";
 
+import { useFocusTrap } from "~/hooks/useFocusTrap";
 import { cx } from "~/utils/cx";
 
 import NotificationItem from "./NotificationItem";
@@ -51,6 +52,21 @@ function filterNotifications(items: Notification[], tab: FilterTab): Notificatio
 
 export default function NotificationCenter(props: NotificationCenterProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<FilterTab>("all");
+  let panelRef: HTMLDivElement | undefined;
+
+  const { onKeyDown: trapKeyDown } = useFocusTrap(
+    () => panelRef,
+    () => props.visible,
+  );
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      props.onClose();
+      return;
+    }
+    trapKeyDown(e);
+  }
 
   const filtered = createMemo(() => filterNotifications(getNotifications(), activeTab()));
 
@@ -60,11 +76,21 @@ export default function NotificationCenter(props: NotificationCenterProps): JSX.
       <div class="fixed inset-0 z-40" onClick={() => props.onClose()} />
 
       {/* Dropdown panel */}
-      <div class="absolute right-0 top-full z-50 mt-2 w-80 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Notifications"
+        onKeyDown={handleKeyDown}
+        class="absolute right-0 top-full z-50 mt-2 w-80 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg"
+      >
         {/* Header */}
         <div class="flex items-center justify-between border-b border-cf-border px-3 py-2">
           <h3 class="text-sm font-semibold text-cf-text-primary">Notifications</h3>
-          <button class="text-xs text-cf-accent hover:underline" onClick={() => markAllRead()}>
+          <button
+            class="text-xs text-cf-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
+            onClick={() => markAllRead()}
+          >
             Mark all read
           </button>
         </div>
@@ -75,7 +101,7 @@ export default function NotificationCenter(props: NotificationCenterProps): JSX.
             {(tab) => (
               <button
                 class={cx(
-                  "flex-1 py-1.5 text-xs font-medium transition-colors",
+                  "flex-1 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2",
                   activeTab() === tab.key
                     ? "border-b-2 border-cf-accent text-cf-accent"
                     : "text-cf-text-muted hover:text-cf-text-primary",

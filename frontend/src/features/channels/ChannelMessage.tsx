@@ -112,7 +112,7 @@ const ChannelMessage: Component<ChannelMessageProps> = (props) => {
         <Show when={!props.message.parent_id && props.onThreadClick}>
           <button
             type="button"
-            class="mt-1 text-xs text-cf-accent hover:text-cf-accent-hover transition-colors opacity-0 group-hover:opacity-100"
+            class="mt-1 text-xs text-cf-accent hover:text-cf-accent-hover transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
             onClick={() => props.onThreadClick?.(props.message.id)}
           >
             Reply in thread

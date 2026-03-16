@@ -17,20 +17,24 @@ export default function ChannelList() {
             fallback={<div class="px-2 py-1 text-xs text-cf-text-muted">Loading...</div>}
           >
             {(list) => (
-              <For
-                each={list()}
-                fallback={<div class="px-2 py-1 text-xs text-cf-text-muted">No channels</div>}
-              >
-                {(ch) => (
-                  <a
-                    href={`/channels/${ch.id}`}
-                    class="flex items-center gap-2 rounded-cf-sm px-2 py-1.5 text-sm text-cf-text-secondary hover:bg-cf-bg-surface-alt hover:text-cf-text-primary transition-colors"
-                  >
-                    <span class="text-cf-text-muted">{ch.type === "project" ? "#" : ">"}</span>
-                    <span class="truncate">{ch.name}</span>
-                  </a>
-                )}
-              </For>
+              <ul class="list-none m-0 p-0">
+                <For
+                  each={list()}
+                  fallback={<li class="px-2 py-1 text-xs text-cf-text-muted">No channels</li>}
+                >
+                  {(ch) => (
+                    <li>
+                      <a
+                        href={`/channels/${ch.id}`}
+                        class="flex items-center gap-2 rounded-cf-sm px-2 py-1.5 text-sm text-cf-text-secondary hover:bg-cf-bg-surface-alt hover:text-cf-text-primary transition-colors"
+                      >
+                        <span class="text-cf-text-muted">{ch.type === "project" ? "#" : ">"}</span>
+                        <span class="truncate">{ch.name}</span>
+                      </a>
+                    </li>
+                  )}
+                </For>
+              </ul>
             )}
           </Show>
         </div>

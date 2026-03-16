@@ -15,15 +15,15 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
   const [expandedRow, setExpandedRow] = createSignal<string | null>(null);
 
   return (
-    <div class="mt-4 border-t pt-4 dark:border-gray-700">
+    <div class="mt-4 border-t border-cf-border pt-4">
       <Show when={!props.loading} fallback={<LoadingState />}>
         <Show
           when={props.results?.length}
-          fallback={<p class="text-sm text-gray-500">{t("benchmark.noResults")}</p>}
+          fallback={<p class="text-sm text-cf-text-muted">{t("benchmark.noResults")}</p>}
         >
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b text-left text-xs text-gray-500 dark:border-gray-700">
+              <tr class="border-b border-cf-border text-left text-xs text-cf-text-muted">
                 <th class="pb-2">{t("benchmark.taskName")}</th>
                 <th class="pb-2">{t("benchmark.scores")}</th>
                 <th class="pb-2">{t("benchmark.cost")}</th>
@@ -43,10 +43,18 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                   return (
                     <>
                       <tr
-                        class={`border-b dark:border-gray-700 ${hasDetails ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800" : ""}`}
+                        class={`border-b border-cf-border ${hasDetails ? "cursor-pointer hover:bg-cf-bg-surface-alt" : ""}`}
+                        role={hasDetails ? "button" : undefined}
+                        tabIndex={hasDetails ? 0 : undefined}
                         onClick={(e: MouseEvent) => {
                           e.stopPropagation();
                           if (hasDetails) setExpandedRow(isExpanded() ? null : res.task_id);
+                        }}
+                        onKeyDown={(e: KeyboardEvent) => {
+                          if ((e.key === "Enter" || e.key === " ") && hasDetails) {
+                            e.preventDefault();
+                            setExpandedRow(isExpanded() ? null : res.task_id);
+                          }
                         }}
                       >
                         <td class="py-2 font-medium">{res.task_name}</td>
@@ -54,7 +62,7 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                           <div class="flex flex-wrap gap-1">
                             <For each={Object.entries(res.scores)}>
                               {([k, v]) => (
-                                <span class="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800">
+                                <span class="rounded bg-cf-bg-surface-alt px-1.5 py-0.5 text-xs">
                                   {k}: {(v as number).toFixed(3)}
                                 </span>
                               )}
@@ -65,23 +73,23 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                           <CostDisplay usd={res.cost_usd} />
                         </td>
                         <td class="py-2 text-xs">{props.formatDuration(res.duration_ms)}</td>
-                        <td class="py-2 text-xs text-gray-400">
+                        <td class="py-2 text-xs text-cf-text-muted">
                           {hasDetails ? (isExpanded() ? "\u25B2" : "\u25BC") : ""}
                         </td>
                       </tr>
 
                       {/* Expanded detail row */}
                       <Show when={isExpanded()}>
-                        <tr class="border-b bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
+                        <tr class="border-b border-cf-border bg-cf-bg-surface-alt">
                           <td colspan="5" class="px-4 py-3">
                             <div class="space-y-3">
                               {/* Actual Output */}
                               <Show when={res.actual_output}>
                                 <div>
-                                  <div class="mb-1 text-xs font-semibold text-gray-500">
+                                  <div class="mb-1 text-xs font-semibold text-cf-text-muted">
                                     Actual Output
                                   </div>
-                                  <pre class="max-h-40 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-800">
+                                  <pre class="max-h-40 overflow-auto rounded bg-cf-bg-surface-alt p-2 text-xs">
                                     {res.actual_output}
                                   </pre>
                                 </div>
@@ -90,10 +98,10 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                               {/* Tool Calls */}
                               <Show when={res.tool_calls?.length}>
                                 <div>
-                                  <div class="mb-1 text-xs font-semibold text-gray-500">
+                                  <div class="mb-1 text-xs font-semibold text-cf-text-muted">
                                     Tool Calls ({res.tool_calls?.length ?? 0})
                                   </div>
-                                  <pre class="max-h-40 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-800">
+                                  <pre class="max-h-40 overflow-auto rounded bg-cf-bg-surface-alt p-2 text-xs">
                                     {JSON.stringify(res.tool_calls, null, 2)}
                                   </pre>
                                 </div>
@@ -102,10 +110,10 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                               {/* Functional Test Output */}
                               <Show when={res.functional_test_output}>
                                 <div>
-                                  <div class="mb-1 text-xs font-semibold text-gray-500">
+                                  <div class="mb-1 text-xs font-semibold text-cf-text-muted">
                                     Functional Test Output
                                   </div>
-                                  <pre class="max-h-32 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-800">
+                                  <pre class="max-h-32 overflow-auto rounded bg-cf-bg-surface-alt p-2 text-xs">
                                     {res.functional_test_output}
                                   </pre>
                                 </div>
@@ -119,13 +127,13 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                                 }
                               >
                                 <div>
-                                  <div class="mb-1 text-xs font-semibold text-gray-500">
+                                  <div class="mb-1 text-xs font-semibold text-cf-text-muted">
                                     Evaluator Scores
                                   </div>
                                   <div class="flex flex-wrap gap-2">
                                     <For each={Object.entries(res.evaluator_scores ?? {})}>
                                       {([evalName, scores]) => (
-                                        <div class="rounded border px-2 py-1 text-xs dark:border-gray-700">
+                                        <div class="rounded border border-cf-border px-2 py-1 text-xs">
                                           <span class="font-medium">{evalName}:</span>{" "}
                                           <For
                                             each={Object.entries(scores as Record<string, number>)}
@@ -146,13 +154,13 @@ export function BenchmarkRunDetail(props: BenchmarkRunDetailProps) {
                               {/* Files Changed */}
                               <Show when={res.files_changed?.length}>
                                 <div>
-                                  <div class="mb-1 text-xs font-semibold text-gray-500">
+                                  <div class="mb-1 text-xs font-semibold text-cf-text-muted">
                                     Files Changed ({res.files_changed?.length ?? 0})
                                   </div>
                                   <div class="flex flex-wrap gap-1">
                                     <For each={res.files_changed ?? []}>
                                       {(f) => (
-                                        <span class="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-mono dark:bg-blue-900/30">
+                                        <span class="rounded bg-cf-info-bg px-1.5 py-0.5 text-xs font-mono">
                                           {f}
                                         </span>
                                       )}

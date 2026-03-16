@@ -94,7 +94,7 @@ function CompareResultsTable(props: { result: BenchmarkCompareResult }) {
       <h4 class="mb-3 text-sm font-semibold">{t("benchmark.compareResults")}</h4>
       <table class="w-full text-left text-sm">
         <thead>
-          <tr class="border-b text-xs text-gray-500">
+          <tr class="border-b border-cf-border text-xs text-cf-text-muted">
             <th class="pb-2 pr-4">{t("benchmark.metric")}</th>
             <th class="pb-2 pr-4">
               {props.result.run_a.dataset} / {props.result.run_a.model}

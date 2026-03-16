@@ -99,9 +99,9 @@ export default function ToolCallCard(props: ToolCallCardProps) {
       case "running":
         return "text-cf-accent animate-pulse";
       case "completed":
-        return "text-green-500";
+        return "text-cf-success-fg";
       case "failed":
-        return "text-red-500";
+        return "text-cf-danger-fg";
     }
   };
 
@@ -141,7 +141,7 @@ export default function ToolCallCard(props: ToolCallCardProps) {
 
         {/* Permission Denied badge */}
         <Show when={hasPermissionDenied(props.result)}>
-          <span class="ml-1 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
+          <span class="ml-1 rounded-full bg-cf-danger px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
             Permission Denied
           </span>
         </Show>
@@ -193,7 +193,7 @@ export default function ToolCallCard(props: ToolCallCardProps) {
                     <Button
                       variant="ghost"
                       size="xs"
-                      class="text-green-500 hover:text-green-400"
+                      class="text-cf-success-fg hover:opacity-80"
                       onClick={() => setExpanded(false)}
                     >
                       {"\u2713"} Accept
@@ -201,7 +201,7 @@ export default function ToolCallCard(props: ToolCallCardProps) {
                     <Button
                       variant="ghost"
                       size="xs"
-                      class="text-red-500 hover:text-red-400"
+                      class="text-cf-danger-fg hover:opacity-80"
                       onClick={handleRevert}
                     >
                       {"\u2717"} Reject
@@ -211,10 +211,10 @@ export default function ToolCallCard(props: ToolCallCardProps) {
                     <span class="text-xs text-cf-text-muted animate-pulse">Reverting...</span>
                   </Show>
                   <Show when={revertStatus() === "reverted"}>
-                    <span class="text-xs text-green-500">{"\u2713"} Reverted</span>
+                    <span class="text-xs text-cf-success-fg">{"\u2713"} Reverted</span>
                   </Show>
                   <Show when={revertStatus() === "error"}>
-                    <span class="text-xs text-red-500">Revert failed</span>
+                    <span class="text-xs text-cf-danger-fg">Revert failed</span>
                   </Show>
                   <Button
                     variant="ghost"

@@ -20,9 +20,9 @@ export interface NotificationItemProps {
 // ---------------------------------------------------------------------------
 
 const borderColors: Record<NotificationType, string> = {
-  run_failed: "border-l-red-500",
-  permission_request: "border-l-blue-500",
-  run_complete: "border-l-green-500",
+  run_failed: "border-l-cf-danger",
+  permission_request: "border-l-cf-accent",
+  run_complete: "border-l-cf-success",
   agent_message: "border-l-cf-accent",
   info: "border-l-cf-border",
 };
@@ -70,7 +70,7 @@ export default function NotificationItem(props: NotificationItemProps): JSX.Elem
     >
       {/* Unread indicator */}
       <Show when={!props.notification.read}>
-        <span class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-blue-500" aria-label="Unread" />
+        <span class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-cf-accent" aria-label="Unread" />
       </Show>
 
       {/* Content */}

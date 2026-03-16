@@ -63,13 +63,13 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
   const arrowColor = (status: string) => {
     switch (status) {
       case "initiated":
-        return "#3b82f6";
+        return "var(--cf-accent)";
       case "completed":
-        return "#22c55e";
+        return "var(--cf-success)";
       case "failed":
-        return "#ef4444";
+        return "var(--cf-danger)";
       default:
-        return "#6b7280";
+        return "var(--cf-text-muted)";
     }
   };
 

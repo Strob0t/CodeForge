@@ -173,10 +173,10 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
           {(tab) => (
             <button
               type="button"
-              class={`flex-1 px-2 py-1.5 text-xs font-medium transition-colors ${
+              class={`flex-1 px-2 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2 ${
                 activeTab() === tab.id
-                  ? "border-b-2 border-blue-500 text-blue-400"
-                  : "text-gray-400 hover:text-gray-200"
+                  ? "border-b-2 border-cf-accent text-cf-accent"
+                  : "text-cf-text-muted hover:text-cf-text-primary"
               }`}
               onClick={() => setActiveTab(tab.id)}
               data-testid={`tab-${tab.id}`}
@@ -189,12 +189,13 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
 
       {/* Copy button + feedback */}
       <div class="flex items-center justify-between border-b border-white/10 px-2 py-1">
-        <span class="text-xs text-green-400">{copyFeedback()}</span>
+        <span class="text-xs text-cf-success-fg">{copyFeedback()}</span>
         <button
           type="button"
-          class="rounded px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-white/10"
+          class="rounded px-2 py-0.5 text-xs text-cf-text-secondary transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
           onClick={handleCopy}
           data-testid="copy-button"
+          aria-label="Copy export to clipboard"
         >
           Copy
         </button>
@@ -206,7 +207,7 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
           <Show
             when={pngDataUrl()}
             fallback={
-              <p class="text-xs text-gray-500">
+              <p class="text-xs text-cf-text-muted">
                 No preview available (PNG requires the canvas SVG element)
               </p>
             }
@@ -222,7 +223,7 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
 
         <Show when={activeTab() === "ascii"}>
           <pre
-            class="whitespace-pre font-mono text-xs leading-tight text-gray-300"
+            class="whitespace-pre font-mono text-xs leading-tight text-cf-text-secondary"
             data-testid="ascii-preview"
           >
             {asciiPreview() || "(empty canvas)"}
@@ -231,7 +232,7 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
 
         <Show when={activeTab() === "json"}>
           <pre
-            class="whitespace-pre-wrap font-mono text-xs leading-tight text-gray-300"
+            class="whitespace-pre-wrap font-mono text-xs leading-tight text-cf-text-secondary"
             data-testid="json-preview"
           >
             <code>{jsonPreview() || "{}"}</code>

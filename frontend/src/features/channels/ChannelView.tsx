@@ -117,9 +117,15 @@ export default function ChannelView() {
               </div>
             }
           >
-            <div class="py-2">
-              <For each={orderedMessages()}>{(msg) => <ChannelMessage message={msg} />}</For>
-            </div>
+            <ul class="list-none m-0 p-0 py-2">
+              <For each={orderedMessages()}>
+                {(msg) => (
+                  <li>
+                    <ChannelMessage message={msg} />
+                  </li>
+                )}
+              </For>
+            </ul>
           </Show>
         </Show>
         {/* Scroll anchor */}

@@ -80,15 +80,15 @@ function layoutDAG(nodes: PlanGraphNode[]): LayoutNode[] {
 function statusColor(status: string): string {
   switch (status) {
     case "running":
-      return "#3b82f6"; // blue
+      return "var(--cf-accent)";
     case "completed":
-      return "#22c55e"; // green
+      return "var(--cf-success)";
     case "failed":
-      return "#ef4444"; // red
+      return "var(--cf-danger)";
     case "review":
-      return "#f59e0b"; // amber
+      return "var(--cf-warning)";
     default:
-      return "#94a3b8"; // slate
+      return "var(--cf-text-tertiary)";
   }
 }
 
@@ -171,7 +171,7 @@ export default function AgentFlowGraph(props: AgentFlowGraphProps) {
                   refY="3"
                   orient="auto"
                 >
-                  <polygon points="0 0, 8 3, 0 6" fill="#94a3b8" />
+                  <polygon points="0 0, 8 3, 0 6" fill="var(--cf-text-tertiary)" />
                 </marker>
               </defs>
 
@@ -181,7 +181,7 @@ export default function AgentFlowGraph(props: AgentFlowGraphProps) {
                   <path
                     d={ep.path}
                     fill="none"
-                    stroke="#94a3b8"
+                    stroke="var(--cf-text-tertiary)"
                     stroke-width="1.5"
                     marker-end="url(#arrowhead)"
                     class="transition-all"

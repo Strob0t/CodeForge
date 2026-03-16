@@ -7,10 +7,10 @@ export default function ContextGauge(props: ContextGaugeProps) {
   const percent = () => Math.min(100, (props.used / Math.max(props.total, 1)) * 100);
   const color = () => {
     const p = percent();
-    if (p >= 90) return "bg-red-500";
-    if (p >= 75) return "bg-orange-500";
-    if (p >= 50) return "bg-yellow-500";
-    return "bg-green-500";
+    if (p >= 90) return "bg-cf-danger";
+    if (p >= 75) return "bg-cf-warning";
+    if (p >= 50) return "bg-cf-warning";
+    return "bg-cf-success";
   };
 
   return (

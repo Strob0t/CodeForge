@@ -86,7 +86,7 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
                   </div>
                   <table class="w-full text-left text-sm">
                     <thead>
-                      <tr class="border-b text-xs text-gray-500 dark:border-gray-700">
+                      <tr class="border-b text-xs text-cf-text-muted border-cf-border">
                         <th class="px-4 py-2">{t("benchmark.taskName")}</th>
                         <th class="px-4 py-2 text-right">{t("benchmark.cost")}</th>
                         <th class="px-4 py-2 text-right">{t("benchmark.costAnalysis.tokensIn")}</th>
@@ -99,7 +99,7 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
                     <tbody>
                       <For each={ca().task_breakdown}>
                         {(task) => (
-                          <tr class="border-b last:border-0 dark:border-gray-700">
+                          <tr class="border-b border-cf-border last:border-0">
                             <td class="px-4 py-2 font-medium">{task.task_name}</td>
                             <td class="px-4 py-2 text-right font-mono text-xs">
                               <CostDisplay usd={task.cost_usd} />
@@ -127,7 +127,7 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
                   href={api.benchmarks.exportTrainingUrl(ca().run_id, "json")}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-sm text-blue-600 underline hover:text-blue-800 dark:text-blue-400"
+                  class="text-sm text-cf-accent underline hover:text-cf-accent-hover"
                 >
                   {t("benchmark.export.training")} (JSON)
                 </a>
@@ -135,7 +135,7 @@ export function CostAnalysisView(props: CostAnalysisViewProps) {
                   href={api.benchmarks.exportTrainingUrl(ca().run_id, "jsonl")}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-sm text-blue-600 underline hover:text-blue-800 dark:text-blue-400"
+                  class="text-sm text-cf-accent underline hover:text-cf-accent-hover"
                 >
                   {t("benchmark.export.training")} (JSONL)
                 </a>

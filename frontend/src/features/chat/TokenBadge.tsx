@@ -9,9 +9,7 @@ interface TokenBadgeProps {
 
 const TokenBadge: Component<TokenBadgeProps> = (props) => {
   const colorClasses = () =>
-    props.type === "@"
-      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-      : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300";
+    props.type === "@" ? "bg-cf-info-bg text-cf-info-fg" : "bg-cf-info-bg text-cf-info-fg";
 
   return (
     <span
@@ -24,7 +22,7 @@ const TokenBadge: Component<TokenBadgeProps> = (props) => {
       <Show when={props.onRemove}>
         <button
           type="button"
-          class="ml-0.5 inline-flex items-center justify-center rounded-full hover:opacity-70 focus:outline-none"
+          class="ml-0.5 inline-flex items-center justify-center rounded-full hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
           aria-label={`Remove ${props.label}`}
           onClick={() => props.onRemove?.()}
         >

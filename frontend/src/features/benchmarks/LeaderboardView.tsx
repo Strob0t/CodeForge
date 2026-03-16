@@ -83,7 +83,7 @@ export function LeaderboardView() {
           <Card class="overflow-x-auto p-0">
             <table class="w-full text-left text-sm">
               <thead>
-                <tr class="border-b text-xs text-gray-500 dark:border-gray-700">
+                <tr class="border-b border-cf-border text-xs text-cf-text-muted">
                   <th class="px-4 py-3">#</th>
                   <th class="px-4 py-3">{t("benchmark.model")}</th>
                   <th class="px-4 py-3 text-right">{t("benchmark.leaderboard.avgScore")}</th>
@@ -97,7 +97,7 @@ export function LeaderboardView() {
               <tbody>
                 <For each={sortedEntries()}>
                   {(entry: LeaderboardEntry, idx) => (
-                    <tr class="border-b last:border-0 dark:border-gray-700">
+                    <tr class="border-b border-cf-border last:border-0">
                       <td class="px-4 py-2.5">
                         <span
                           class="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold"
@@ -130,7 +130,7 @@ export function LeaderboardView() {
                       <td class="px-4 py-2.5 text-right font-mono text-xs">
                         {entry.token_efficiency.toFixed(1)}
                       </td>
-                      <td class="px-4 py-2.5 text-right text-xs text-gray-500">
+                      <td class="px-4 py-2.5 text-right text-xs text-cf-text-muted">
                         {entry.duration_ms < 1000
                           ? `${entry.duration_ms}ms`
                           : `${(entry.duration_ms / 1000).toFixed(1)}s`}

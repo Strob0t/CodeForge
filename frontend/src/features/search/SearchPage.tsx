@@ -93,7 +93,7 @@ export default function SearchPage() {
           <div class="flex flex-wrap gap-1.5">
             <button
               type="button"
-              class={`rounded-full px-2.5 py-0.5 text-xs transition-colors ${
+              class={`rounded-full px-2.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2 ${
                 selectedProjectIds().length === 0
                   ? "bg-cf-accent text-white"
                   : "bg-cf-bg-surface-alt text-cf-text-secondary hover:text-cf-text-primary"
@@ -106,7 +106,7 @@ export default function SearchPage() {
               {(p) => (
                 <button
                   type="button"
-                  class={`rounded-full px-2.5 py-0.5 text-xs transition-colors ${
+                  class={`rounded-full px-2.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2 ${
                     selectedProjectIds().includes(p.id)
                       ? "bg-cf-accent text-white"
                       : "bg-cf-bg-surface-alt text-cf-text-secondary hover:text-cf-text-primary"

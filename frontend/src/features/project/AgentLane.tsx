@@ -58,13 +58,13 @@ export default function AgentLane(props: { agent: Agent }) {
   const statusColor = () => {
     switch (props.agent.status) {
       case "running":
-        return "bg-green-500";
+        return "bg-cf-success";
       case "error":
-        return "bg-red-500";
+        return "bg-cf-danger";
       case "idle":
-        return "bg-yellow-500";
+        return "bg-cf-warning";
       default:
-        return "bg-gray-500";
+        return "bg-cf-text-muted";
     }
   };
 
@@ -84,7 +84,7 @@ export default function AgentLane(props: { agent: Agent }) {
       {/* Output stream */}
       <div class="flex-1 overflow-y-auto px-3 py-1 font-mono text-xs text-cf-text-secondary">
         <For each={outputs()}>
-          {(o) => <div class={o.stream === "stderr" ? "text-red-400" : ""}>{o.line}</div>}
+          {(o) => <div class={o.stream === "stderr" ? "text-cf-danger-fg" : ""}>{o.line}</div>}
         </For>
         <For each={toolCalls()}>
           {(tc) => (

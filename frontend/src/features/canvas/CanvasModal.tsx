@@ -117,14 +117,14 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
           data-testid="canvas-modal"
         >
           {/* Top bar: toolbar + close/export buttons */}
-          <div class="flex items-center justify-between border-b border-white/10 bg-gray-900 px-3 py-2">
+          <div class="flex items-center justify-between border-b border-white/10 bg-cf-bg-surface px-3 py-2">
             <CanvasToolbar store={resolvedStore()} />
 
             <div class="flex items-center gap-2">
               {/* Send to Agent button */}
               <button
                 type="button"
-                class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                class="rounded-md bg-cf-accent px-3 py-1.5 text-sm font-medium text-cf-accent-fg transition-colors hover:bg-cf-accent-hover"
                 onClick={handleSendToAgent}
                 aria-label="Send to Agent"
               >
@@ -134,7 +134,7 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
               {/* Close button */}
               <button
                 type="button"
-                class="flex items-center justify-center rounded-md p-1.5 text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+                class="flex items-center justify-center rounded-md p-1.5 text-cf-text-muted transition-colors hover:bg-white/10 hover:text-cf-text-primary"
                 onClick={() => props.onClose()}
                 aria-label="Close canvas"
               >
@@ -168,7 +168,7 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
 
             {/* Right sidebar: export panel */}
             <div
-              class="hidden w-64 shrink-0 border-l border-white/10 bg-gray-900 lg:block"
+              class="hidden w-64 shrink-0 border-l border-white/10 bg-cf-bg-surface lg:block"
               data-testid="canvas-sidebar"
             >
               <CanvasExportPanel store={resolvedStore()} svgRef={svgRef} />

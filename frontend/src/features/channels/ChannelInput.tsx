@@ -45,9 +45,10 @@ const ChannelInput: Component<ChannelInputProps> = (props) => {
       />
       <button
         type="button"
-        class="shrink-0 rounded-cf-md bg-cf-accent px-4 py-2 text-sm font-medium text-cf-accent-fg hover:bg-cf-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        class="shrink-0 rounded-cf-md bg-cf-accent px-4 py-2 text-sm font-medium text-cf-accent-fg hover:bg-cf-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
         disabled={!canSend()}
         onClick={handleSend}
+        aria-label="Send message"
       >
         Send
       </button>

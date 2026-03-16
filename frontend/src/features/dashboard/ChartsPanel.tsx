@@ -34,28 +34,24 @@ const ChartsPanel: Component = () => {
   return (
     <div>
       <div class="mb-3 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-[var(--cf-text-primary)]">
-          {t("dashboard.charts.title")}
-        </h3>
+        <h3 class="text-sm font-semibold text-cf-text-primary">{t("dashboard.charts.title")}</h3>
         <Show when={activeTab() === "cost-trend"}>
           <div class="flex gap-1">
             <button
-              class="rounded px-2 py-0.5 text-xs"
+              class="rounded px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
               classList={{
-                "bg-[var(--cf-accent)] text-[var(--cf-accent-fg)]": trendDays() === 7,
-                "text-[var(--cf-text-muted)] hover:text-[var(--cf-text-primary)]":
-                  trendDays() !== 7,
+                "bg-cf-accent text-cf-accent-fg": trendDays() === 7,
+                "text-cf-text-muted hover:text-cf-text-primary": trendDays() !== 7,
               }}
               onClick={() => setTrendDays(7)}
             >
               7d
             </button>
             <button
-              class="rounded px-2 py-0.5 text-xs"
+              class="rounded px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
               classList={{
-                "bg-[var(--cf-accent)] text-[var(--cf-accent-fg)]": trendDays() === 30,
-                "text-[var(--cf-text-muted)] hover:text-[var(--cf-text-primary)]":
-                  trendDays() !== 30,
+                "bg-cf-accent text-cf-accent-fg": trendDays() === 30,
+                "text-cf-text-muted hover:text-cf-text-primary": trendDays() !== 30,
               }}
               onClick={() => setTrendDays(30)}
             >
@@ -108,9 +104,7 @@ const ChartsPanel: Component = () => {
 };
 
 const ChartPlaceholder: Component = () => (
-  <div class="flex h-64 items-center justify-center text-sm text-[var(--cf-text-muted)]">
-    Loading...
-  </div>
+  <div class="flex h-64 items-center justify-center text-sm text-cf-text-muted">Loading...</div>
 );
 
 export default ChartsPanel;

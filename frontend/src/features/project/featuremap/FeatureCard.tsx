@@ -52,6 +52,8 @@ export default function FeatureCard(props: FeatureCardProps) {
         <div class="flex items-center gap-2 min-w-0">
           {/* Status toggle checkbox */}
           <button
+            role="checkbox"
+            aria-checked={props.feature.status === "done"}
             class={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border text-xs ${
               props.feature.status === "done"
                 ? "border-cf-success bg-cf-success text-white"

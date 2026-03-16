@@ -135,7 +135,7 @@ export function SuiteManagement() {
         <Card class="p-4">
           <form onSubmit={handleSubmit} class="space-y-3">
             <Show when={crud.isEditing()}>
-              <div class="mb-2 text-sm font-medium text-blue-600 dark:text-blue-400">
+              <div class="mb-2 text-sm font-medium text-cf-accent">
                 Editing: {crud.form.state.name}
               </div>
             </Show>
@@ -203,7 +203,7 @@ export function SuiteManagement() {
                     <div class="flex items-center gap-2">
                       <Show when={seeded}>
                         <svg
-                          class="h-4 w-4 shrink-0 text-gray-400"
+                          class="h-4 w-4 shrink-0 text-cf-text-muted"
                           viewBox="0 0 20 20"
                           fill="currentColor"
                           aria-label="Built-in suite"
@@ -218,13 +218,13 @@ export function SuiteManagement() {
                       <div>
                         <div class="font-medium">{suite.name}</div>
                         <Show when={suite.description}>
-                          <div class="text-sm text-gray-500">{suite.description}</div>
+                          <div class="text-sm text-cf-text-muted">{suite.description}</div>
                         </Show>
                       </div>
                     </div>
                     <div class="flex items-center gap-2">
                       <Badge variant="default">{suite.type}</Badge>
-                      <span class="text-xs text-gray-500">{suite.provider_name}</span>
+                      <span class="text-xs text-cf-text-muted">{suite.provider_name}</span>
                       <Badge variant="default">
                         {suite.task_count} {t("benchmark.tasks")}
                       </Badge>

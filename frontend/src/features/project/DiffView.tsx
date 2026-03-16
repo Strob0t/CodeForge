@@ -32,11 +32,11 @@ export default function DiffView(props: DiffViewProps) {
               </div>
               <For each={oldLines}>
                 {(line, i) => (
-                  <div class="flex bg-red-500/10">
-                    <span class="w-10 text-right pr-2 text-red-400/60 select-none flex-shrink-0">
+                  <div class="flex bg-cf-danger-bg">
+                    <span class="w-10 text-right pr-2 text-cf-danger-fg/60 select-none flex-shrink-0">
                       {hunk.old_start + i()}
                     </span>
-                    <span class="text-red-400 whitespace-pre-wrap break-all flex-1 px-1">
+                    <span class="text-cf-danger-fg whitespace-pre-wrap break-all flex-1 px-1">
                       -{line}
                     </span>
                   </div>
@@ -44,11 +44,11 @@ export default function DiffView(props: DiffViewProps) {
               </For>
               <For each={newLines}>
                 {(line, i) => (
-                  <div class="flex bg-green-500/10">
-                    <span class="w-10 text-right pr-2 text-green-400/60 select-none flex-shrink-0">
+                  <div class="flex bg-cf-success-bg">
+                    <span class="w-10 text-right pr-2 text-cf-success-fg/60 select-none flex-shrink-0">
                       {hunk.new_start + i()}
                     </span>
-                    <span class="text-green-400 whitespace-pre-wrap break-all flex-1 px-1">
+                    <span class="text-cf-success-fg whitespace-pre-wrap break-all flex-1 px-1">
                       +{line}
                     </span>
                   </div>

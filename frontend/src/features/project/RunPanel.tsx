@@ -239,11 +239,7 @@ export default function RunPanel(props: RunPanelProps) {
                       <div class="flex gap-2 py-0.5 text-cf-text-muted">
                         <span class="font-mono">{tc.tool || "?"}</span>
                         <span
-                          class={
-                            tc.phase === "denied"
-                              ? "text-red-500 dark:text-red-400"
-                              : "text-green-600 dark:text-green-400"
-                          }
+                          class={tc.phase === "denied" ? "text-cf-danger-fg" : "text-cf-success-fg"}
                         >
                           {tc.phase}
                         </span>
@@ -294,7 +290,7 @@ export default function RunPanel(props: RunPanelProps) {
                         <span>{r.deliver_mode}</span>
                       </Show>
                       <Show when={r.error}>
-                        <span class="text-red-500 dark:text-red-400" title={r.error}>
+                        <span class="text-cf-danger-fg" title={r.error}>
                           {t("common.error")}
                         </span>
                       </Show>

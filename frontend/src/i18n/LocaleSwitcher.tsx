@@ -13,7 +13,7 @@ export function LocaleSwitcher(): JSX.Element {
   return (
     <button
       type="button"
-      class="flex items-center gap-1 rounded-cf-md px-2 py-1 text-xs text-cf-text-muted hover:bg-cf-bg-surface-alt hover:text-cf-text-secondary"
+      class="flex items-center gap-1 rounded-cf-md px-2 py-1 text-xs text-cf-text-muted hover:bg-cf-bg-surface-alt hover:text-cf-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
       onClick={() => setLocale(next())}
       aria-label={`Language: ${localeLabel(locale())}. Click to switch.`}
     >

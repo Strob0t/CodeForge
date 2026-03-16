@@ -53,13 +53,13 @@ export default function LSPPanel(props: LSPPanelProps) {
   const statusDotColor = (status: string): string => {
     switch (status) {
       case "ready":
-        return "#22c55e";
+        return "var(--cf-success)";
       case "starting":
-        return "#eab308";
+        return "var(--cf-warning)";
       case "failed":
-        return "#ef4444";
+        return "var(--cf-danger)";
       default:
-        return "#9ca3af";
+        return "var(--cf-text-muted)";
     }
   };
 
@@ -118,7 +118,7 @@ export default function LSPPanel(props: LSPPanelProps) {
                   </Show>
                   <span class="text-xs text-cf-text-tertiary">{server.status}</span>
                   <Show when={server.error}>
-                    <span class="text-xs text-red-400" title={server.error}>
+                    <span class="text-xs text-cf-danger-fg" title={server.error}>
                       error
                     </span>
                   </Show>

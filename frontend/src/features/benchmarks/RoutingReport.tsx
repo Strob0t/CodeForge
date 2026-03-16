@@ -11,10 +11,10 @@ import { Badge, Card, CostDisplay } from "~/ui";
 
 /** Color palette for the model distribution bar segments. */
 const MODEL_COLORS = [
-  "var(--color-cf-accent, #3b82f6)",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
+  "var(--cf-accent)",
+  "var(--cf-success)",
+  "var(--cf-warning)",
+  "var(--cf-danger)",
   "#8b5cf6",
   "#ec4899",
   "#14b8a6",
@@ -22,9 +22,9 @@ const MODEL_COLORS = [
 ];
 
 function statusColor(status: ProviderStatus): string {
-  if (!status.reachable) return "#ef4444"; // red
-  if (status.errors > 0) return "#f59e0b"; // yellow
-  return "#10b981"; // green
+  if (!status.reachable) return "var(--cf-danger)";
+  if (status.errors > 0) return "var(--cf-warning)";
+  return "var(--cf-success)";
 }
 
 interface RoutingReportProps {
@@ -46,22 +46,22 @@ export function RoutingReport(props: RoutingReportProps) {
       {/* Summary */}
       <div class="flex gap-6 text-sm">
         <div>
-          <span class="text-gray-500 dark:text-gray-400">{t("benchmark.systemScore")}:</span>{" "}
+          <span class="text-cf-text-muted">{t("benchmark.systemScore")}:</span>{" "}
           <span class="font-mono font-medium">{props.report.system_score.toFixed(3)}</span>
         </div>
         <div>
-          <span class="text-gray-500 dark:text-gray-400">{t("benchmark.systemCost")}:</span>{" "}
+          <span class="text-cf-text-muted">{t("benchmark.systemCost")}:</span>{" "}
           <CostDisplay usd={props.report.system_cost} />
         </div>
         <div>
-          <span class="text-gray-500 dark:text-gray-400">{t("benchmark.fallbackEvents")}:</span>{" "}
+          <span class="text-cf-text-muted">{t("benchmark.fallbackEvents")}:</span>{" "}
           <span class="font-mono">{props.report.fallback_events}</span>
         </div>
       </div>
 
       {/* Model Distribution Bar */}
       <div>
-        <div class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+        <div class="mb-1 text-xs font-medium text-cf-text-muted">
           {t("benchmark.modelDistribution")}
         </div>
         <div class="flex h-5 w-full overflow-hidden rounded-full">
@@ -89,7 +89,7 @@ export function RoutingReport(props: RoutingReportProps) {
                   class="inline-block h-2.5 w-2.5 rounded-sm"
                   style={{ "background-color": MODEL_COLORS[idx() % MODEL_COLORS.length] }}
                 />
-                <span class="text-gray-600 dark:text-gray-300">{model}</span>
+                <span class="text-cf-text-secondary">{model}</span>
               </div>
             )}
           </For>
@@ -100,7 +100,7 @@ export function RoutingReport(props: RoutingReportProps) {
       <div>
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b text-left text-xs text-gray-500 dark:border-gray-700">
+            <tr class="border-b text-left text-xs text-cf-text-muted border-cf-border">
               <th class="pb-2">{t("benchmark.model")}</th>
               <th class="pb-2 text-right">{t("benchmark.tasks")}</th>
               <th class="pb-2 text-right">{t("benchmark.percentage")}</th>
@@ -111,7 +111,7 @@ export function RoutingReport(props: RoutingReportProps) {
           <tbody>
             <For each={modelEntries()}>
               {([model, stats]) => (
-                <tr class="border-b dark:border-gray-700">
+                <tr class="border-b border-cf-border">
                   <td class="py-1.5 font-mono text-xs">{model}</td>
                   <td class="py-1.5 text-right">{stats.task_count}</td>
                   <td class="py-1.5 text-right">{stats.task_percentage.toFixed(1)}%</td>
@@ -128,22 +128,22 @@ export function RoutingReport(props: RoutingReportProps) {
 
       {/* Fallback events */}
       <div>
-        <div class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+        <div class="mb-1 text-xs font-medium text-cf-text-muted">
           {t("benchmark.fallbackEvents")}
         </div>
         <Show
           when={props.report.fallback_details.length > 0}
-          fallback={<p class="text-xs text-gray-400">{t("benchmark.noFallbacks")}</p>}
+          fallback={<p class="text-xs text-cf-text-muted">{t("benchmark.noFallbacks")}</p>}
         >
           <div class="max-h-40 space-y-1 overflow-auto">
             <For each={props.report.fallback_details}>
               {(evt: FallbackEvent) => (
-                <div class="flex items-center gap-2 rounded bg-gray-50 px-2 py-1 text-xs dark:bg-gray-800">
-                  <span class="font-mono text-gray-500">{evt.task_id.slice(0, 8)}</span>
+                <div class="flex items-center gap-2 rounded bg-cf-bg-surface-alt px-2 py-1 text-xs">
+                  <span class="font-mono text-cf-text-muted">{evt.task_id.slice(0, 8)}</span>
                   <Badge variant="default">{evt.primary}</Badge>
-                  <span class="text-gray-400">{"\u2192"}</span>
+                  <span class="text-cf-text-muted">{"\u2192"}</span>
                   <Badge variant="warning">{evt.fallback_to}</Badge>
-                  <span class="text-gray-500">{evt.reason}</span>
+                  <span class="text-cf-text-muted">{evt.reason}</span>
                 </div>
               )}
             </For>
@@ -153,20 +153,20 @@ export function RoutingReport(props: RoutingReportProps) {
 
       {/* Provider availability */}
       <div>
-        <div class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+        <div class="mb-1 text-xs font-medium text-cf-text-muted">
           {t("benchmark.providerStatus")}
         </div>
         <div class="flex flex-wrap gap-3">
           <For each={Object.entries(props.report.provider_availability)}>
             {([name, status]: [string, ProviderStatus]) => (
-              <div class="flex items-center gap-1.5 rounded border px-2 py-1 text-xs dark:border-gray-700">
+              <div class="flex items-center gap-1.5 rounded border border-cf-border px-2 py-1 text-xs">
                 <span
                   class="inline-block h-2.5 w-2.5 rounded-full"
                   style={{ "background-color": statusColor(status) }}
                 />
                 <span class="font-medium">{name}</span>
                 <Show when={status.errors > 0}>
-                  <span class="text-gray-400">({status.errors} errors)</span>
+                  <span class="text-cf-text-muted">({status.errors} errors)</span>
                 </Show>
               </div>
             )}

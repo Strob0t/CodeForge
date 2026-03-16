@@ -56,7 +56,7 @@ function RadarChart(props: {
               fill="none"
               stroke="currentColor"
               stroke-opacity="0.15"
-              class="text-gray-500"
+              class="text-cf-text-muted"
             />
           )}
         </For>
@@ -73,7 +73,7 @@ function RadarChart(props: {
                 y2={p.y}
                 stroke="currentColor"
                 stroke-opacity="0.2"
-                class="text-gray-500"
+                class="text-cf-text-muted"
               />
             );
           }}
@@ -91,7 +91,7 @@ function RadarChart(props: {
                 dominant-baseline="central"
                 font-size="9"
                 fill="currentColor"
-                class="text-gray-600 dark:text-gray-400"
+                class="text-cf-text-secondary"
               >
                 {metric.length > 12 ? metric.slice(0, 10) + ".." : metric}
               </text>
@@ -143,7 +143,7 @@ function RadarChart(props: {
                 style={{ background: CHART_COLORS[idx() % CHART_COLORS.length] }}
               />
               <span class="font-medium">{entry.run.model}</span>
-              <span class="text-gray-500">{entry.run.dataset}</span>
+              <span class="text-cf-text-muted">{entry.run.dataset}</span>
             </div>
           )}
         </For>
@@ -222,10 +222,10 @@ export function MultiCompareView(props: MultiCompareViewProps) {
         <div class="max-h-48 space-y-1.5 overflow-y-auto">
           <For each={props.runs}>
             {(run: BenchmarkRun) => (
-              <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
+              <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-cf-bg-surface-alt">
                 <Checkbox checked={selected().has(run.id)} onChange={() => toggle(run.id)} />
                 <span class="font-medium">{run.dataset}</span>
-                <span class="text-gray-500">/ {run.model}</span>
+                <span class="text-cf-text-muted">/ {run.model}</span>
                 <Badge variant="default" class="ml-auto">
                   {run.status}
                 </Badge>
@@ -260,13 +260,13 @@ export function MultiCompareView(props: MultiCompareViewProps) {
             <Card class="overflow-x-auto p-0">
               <table class="w-full text-left text-sm">
                 <thead>
-                  <tr class="border-b text-xs text-gray-500 dark:border-gray-700">
+                  <tr class="border-b border-cf-border text-xs text-cf-text-muted">
                     <th class="px-4 py-3">{t("benchmark.metric")}</th>
                     <For each={entries()}>
                       {(entry) => (
                         <th class="px-4 py-3 text-right">
                           <div>{entry.run.model}</div>
-                          <div class="font-normal text-gray-400">{entry.run.dataset}</div>
+                          <div class="font-normal text-cf-text-muted">{entry.run.dataset}</div>
                         </th>
                       )}
                     </For>
@@ -274,7 +274,7 @@ export function MultiCompareView(props: MultiCompareViewProps) {
                 </thead>
                 <tbody>
                   {/* Cost row */}
-                  <tr class="border-b dark:border-gray-700">
+                  <tr class="border-b border-cf-border">
                     <td class="px-4 py-2 font-medium">{t("benchmark.cost")}</td>
                     <For each={entries()}>
                       {(entry) => (
@@ -285,7 +285,7 @@ export function MultiCompareView(props: MultiCompareViewProps) {
                     </For>
                   </tr>
                   {/* Duration row */}
-                  <tr class="border-b dark:border-gray-700">
+                  <tr class="border-b border-cf-border">
                     <td class="px-4 py-2 font-medium">{t("benchmark.duration")}</td>
                     <For each={entries()}>
                       {(entry) => (
@@ -302,15 +302,13 @@ export function MultiCompareView(props: MultiCompareViewProps) {
                     {(metric) => {
                       const best = bestForMetric(metric);
                       return (
-                        <tr class="border-b last:border-0 dark:border-gray-700">
+                        <tr class="border-b border-cf-border last:border-0">
                           <td class="px-4 py-2 font-medium">{metric}</td>
                           <For each={entries()}>
                             {(entry) => (
                               <td
                                 class={`px-4 py-2 text-right font-mono ${
-                                  entry.run.id === best
-                                    ? "font-bold text-green-600 dark:text-green-400"
-                                    : ""
+                                  entry.run.id === best ? "font-bold text-cf-success-fg" : ""
                                 }`}
                               >
                                 {avgScore(entry, metric)}

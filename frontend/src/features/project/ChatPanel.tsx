@@ -714,59 +714,62 @@ export default function ChatPanel(props: ChatPanelProps) {
         </Show>
 
         {/* Messages */}
-        <div class="flex-1 overflow-y-auto p-4 space-y-4">
-          <For
-            each={(messages() ?? []).filter((msg) => {
-              // Hide system, tool, and tool-call-only assistant messages
-              if (msg.role === "system" || msg.role === "tool") return false;
-              if (msg.role === "assistant" && !msg.content?.trim() && msg.tool_calls) return false;
-              return true;
-            })}
-          >
-            {(msg) => (
-              <div class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  class={`max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm ${
-                    msg.role === "user"
-                      ? "bg-cf-accent text-white whitespace-pre-wrap"
-                      : "bg-cf-bg-surface-alt text-cf-text-primary"
-                  }`}
-                >
-                  <Show when={msg.role === "assistant"} fallback={msg.content}>
-                    <Markdown content={msg.content} />
-                  </Show>
-                  {/* Inline image thumbnails for multimodal messages */}
-                  <Show when={msg.images && msg.images.length > 0}>
-                    <div class="mt-2 flex flex-wrap gap-2">
-                      <For each={msg.images}>
-                        {(img: MessageImage) => (
-                          <button
-                            type="button"
-                            class="block cursor-pointer rounded border border-cf-border overflow-hidden hover:opacity-80 transition-opacity"
-                            onClick={() =>
-                              window.open(`data:${img.media_type};base64,${img.data}`, "_blank")
-                            }
-                            title="Click to open full size"
-                          >
-                            <img
-                              src={`data:${img.media_type};base64,${img.data}`}
-                              alt={img.alt_text ?? "Canvas sketch"}
-                              class="max-w-[200px] max-h-[150px] object-contain"
-                            />
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                  <MessageBadge
-                    model={msg.model || undefined}
-                    tokensIn={msg.tokens_in || undefined}
-                    tokensOut={msg.tokens_out || undefined}
-                  />
-                </div>
-              </div>
-            )}
-          </For>
+        <div class="flex-1 overflow-y-auto p-4">
+          <ul class="space-y-4 list-none m-0 p-0">
+            <For
+              each={(messages() ?? []).filter((msg) => {
+                // Hide system, tool, and tool-call-only assistant messages
+                if (msg.role === "system" || msg.role === "tool") return false;
+                if (msg.role === "assistant" && !msg.content?.trim() && msg.tool_calls)
+                  return false;
+                return true;
+              })}
+            >
+              {(msg) => (
+                <li class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    class={`max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm ${
+                      msg.role === "user"
+                        ? "bg-cf-accent text-white whitespace-pre-wrap"
+                        : "bg-cf-bg-surface-alt text-cf-text-primary"
+                    }`}
+                  >
+                    <Show when={msg.role === "assistant"} fallback={msg.content}>
+                      <Markdown content={msg.content} />
+                    </Show>
+                    {/* Inline image thumbnails for multimodal messages */}
+                    <Show when={msg.images && msg.images.length > 0}>
+                      <div class="mt-2 flex flex-wrap gap-2">
+                        <For each={msg.images}>
+                          {(img: MessageImage) => (
+                            <button
+                              type="button"
+                              class="block cursor-pointer rounded border border-cf-border overflow-hidden hover:opacity-80 transition-opacity"
+                              onClick={() =>
+                                window.open(`data:${img.media_type};base64,${img.data}`, "_blank")
+                              }
+                              title="Click to open full size"
+                            >
+                              <img
+                                src={`data:${img.media_type};base64,${img.data}`}
+                                alt={img.alt_text ?? "Canvas sketch"}
+                                class="max-w-[200px] max-h-[150px] object-contain"
+                              />
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                    <MessageBadge
+                      model={msg.model || undefined}
+                      tokensIn={msg.tokens_in || undefined}
+                      tokensOut={msg.tokens_out || undefined}
+                    />
+                  </div>
+                </li>
+              )}
+            </For>
+          </ul>
 
           {/* Plan step status badges from AG-UI events */}
           <Show when={planSteps().length > 0}>

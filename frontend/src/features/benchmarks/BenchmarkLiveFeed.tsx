@@ -73,7 +73,7 @@ function featureStatusIcon(status: string): string {
 
 function scoreBarColor(score: number): string {
   if (score >= 0.7) return "bg-cf-success-fg";
-  if (score >= 0.4) return "bg-yellow-400";
+  if (score >= 0.4) return "bg-cf-warning";
   return "bg-cf-danger-fg";
 }
 
@@ -244,7 +244,7 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
                   stats().avgScore >= 0.7
                     ? "text-cf-success-fg font-semibold"
                     : stats().avgScore >= 0.4
-                      ? "text-yellow-400 font-semibold"
+                      ? "text-cf-warning font-semibold"
                       : "text-cf-danger-fg font-semibold"
                 }
               >
@@ -269,7 +269,7 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
                 class={
                   stats().toolSuccessCount / stats().toolCallCount >= 0.9
                     ? "text-cf-success-fg"
-                    : "text-yellow-400"
+                    : "text-cf-warning"
                 }
               >
                 ({Math.round((stats().toolSuccessCount / stats().toolCallCount) * 100)}%)
@@ -293,6 +293,7 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
               <div>
                 <button
                   type="button"
+                  aria-expanded={expandedFeature() === feature.id}
                   class={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs transition hover:bg-cf-bg-secondary ${
                     expandedFeature() === feature.id
                       ? "bg-cf-bg-secondary text-cf-accent"

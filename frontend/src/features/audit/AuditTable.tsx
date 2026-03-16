@@ -138,7 +138,15 @@ export default function AuditTable(props: AuditTableProps) {
                   <>
                     <tr
                       class="cursor-pointer border-b border-cf-border transition-colors hover:bg-cf-bg-surface-alt/50"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => toggleRow(entry.id)}
+                      onKeyDown={(e: KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          toggleRow(entry.id);
+                        }
+                      }}
                     >
                       <td class="whitespace-nowrap px-3 py-2 font-mono text-xs">
                         {new Date(entry.created_at).toLocaleString()}

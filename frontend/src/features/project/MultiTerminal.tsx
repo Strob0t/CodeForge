@@ -60,15 +60,13 @@ function TerminalTile(props: {
   return (
     <div
       class={`flex flex-col rounded-cf-md border bg-cf-bg-surface ${
-        props.expanded
-          ? "col-span-full border-indigo-300 dark:border-indigo-600"
-          : "border-cf-border"
+        props.expanded ? "col-span-full border-cf-accent" : "border-cf-border"
       }`}
     >
       {/* Header */}
       <div class="flex items-center justify-between border-b border-cf-border px-3 py-1.5">
         <div class="flex items-center gap-2">
-          <StatusDot color="#22c55e" />
+          <StatusDot color="var(--cf-success)" />
           <span class="text-xs font-medium text-cf-text-secondary">{props.terminal.agentName}</span>
           <span class="text-xs text-cf-text-muted">
             {t("multiTerminal.lines", { n: props.terminal.lines.length })}

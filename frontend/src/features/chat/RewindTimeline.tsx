@@ -82,7 +82,7 @@ const RewindTimeline: Component<RewindTimelineProps> = (props) => {
           <span class="text-sm font-semibold text-cf-text-primary">Rewind Timeline</span>
           <button
             type="button"
-            class="flex h-6 w-6 items-center justify-center rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-inset transition-colors"
+            class="flex h-6 w-6 items-center justify-center rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-inset transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
             aria-label="Close timeline"
             onClick={() => props.onClose()}
           >
@@ -98,7 +98,7 @@ const RewindTimeline: Component<RewindTimelineProps> = (props) => {
                 {/* Step button */}
                 <button
                   type="button"
-                  class={`group flex flex-col items-center gap-1 rounded-cf-sm px-3 py-2 transition-colors hover:bg-cf-bg-inset ${
+                  class={`group flex flex-col items-center gap-1 rounded-cf-sm px-3 py-2 transition-colors hover:bg-cf-bg-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2 ${
                     confirmStepId() === step.stepId ? "bg-cf-bg-inset" : ""
                   }`}
                   onClick={() => handleStepClick(step.stepId)}
@@ -128,21 +128,21 @@ const RewindTimeline: Component<RewindTimelineProps> = (props) => {
                     <div class="flex gap-1.5">
                       <button
                         type="button"
-                        class="rounded-cf-sm bg-cf-accent px-2 py-1 text-[11px] font-medium text-cf-accent-fg hover:bg-cf-accent-hover transition-colors"
+                        class="rounded-cf-sm bg-cf-accent px-2 py-1 text-[11px] font-medium text-cf-accent-fg hover:bg-cf-accent-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
                         onClick={() => handleRewind(step.stepId, "all")}
                       >
                         Code + Chat
                       </button>
                       <button
                         type="button"
-                        class="rounded-cf-sm border border-cf-border px-2 py-1 text-[11px] font-medium text-cf-text-secondary hover:bg-cf-bg-inset transition-colors"
+                        class="rounded-cf-sm border border-cf-border px-2 py-1 text-[11px] font-medium text-cf-text-secondary hover:bg-cf-bg-inset transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
                         onClick={() => handleRewind(step.stepId, "code_only")}
                       >
                         Code Only
                       </button>
                       <button
                         type="button"
-                        class="rounded-cf-sm border border-cf-border px-2 py-1 text-[11px] font-medium text-cf-text-secondary hover:bg-cf-bg-inset transition-colors"
+                        class="rounded-cf-sm border border-cf-border px-2 py-1 text-[11px] font-medium text-cf-text-secondary hover:bg-cf-bg-inset transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
                         onClick={() => handleRewind(step.stepId, "conversation_only")}
                       >
                         Chat Only
@@ -150,7 +150,7 @@ const RewindTimeline: Component<RewindTimelineProps> = (props) => {
                     </div>
                     <button
                       type="button"
-                      class="mt-1.5 block w-full text-center text-[11px] text-cf-text-muted hover:text-cf-text-secondary transition-colors"
+                      class="mt-1.5 block w-full text-center text-[11px] text-cf-text-muted hover:text-cf-text-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
                       onClick={handleCancel}
                     >
                       Cancel

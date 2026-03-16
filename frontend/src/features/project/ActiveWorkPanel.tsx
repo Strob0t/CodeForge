@@ -124,9 +124,9 @@ function StatusDot(props: { status: string }) {
   const color = () => {
     switch (props.status) {
       case "running":
-        return "bg-green-400";
+        return "bg-cf-success";
       case "queued":
-        return "bg-yellow-400";
+        return "bg-cf-warning";
       default:
         return "bg-cf-text-muted";
     }

@@ -63,7 +63,7 @@ export default function OnboardingProgress(props: OnboardingProgressProps) {
               </Show>
               <button
                 class={
-                  "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors " +
+                  "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2 " +
                   (step.done
                     ? "text-green-600"
                     : step.action
@@ -80,7 +80,7 @@ export default function OnboardingProgress(props: OnboardingProgressProps) {
           )}
         </For>
         <button
-          class="ml-auto text-cf-text-muted hover:text-cf-text-primary"
+          class="ml-auto text-cf-text-muted hover:text-cf-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
           onClick={handleDismiss}
           title={t("onboarding.dismiss")}
         >

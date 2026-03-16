@@ -356,7 +356,7 @@ export function CanvasToolbar(props: CanvasToolbarProps): JSX.Element {
             class={
               "flex items-center justify-center rounded-md p-1.5 transition-colors " +
               (activeTool() === def.type
-                ? "bg-blue-600 text-white"
+                ? "bg-cf-accent text-cf-accent-fg"
                 : "text-cf-text-secondary hover:bg-cf-bg-surface-alt hover:text-cf-text-primary")
             }
             title={`${def.label} (${def.shortcut})`}

@@ -72,17 +72,17 @@ export function PromptOptimizationPanel(props: PromptOptimizationPanelProps) {
             {/* Summary */}
             <div class="flex gap-4 text-sm">
               <span>
-                <span class="text-gray-500">Model Family:</span>{" "}
+                <span class="text-cf-text-muted">Model Family:</span>{" "}
                 <Badge variant="default">{r().model_family}</Badge>
               </span>
               <span>
-                <span class="text-gray-500">Failed:</span>{" "}
+                <span class="text-cf-text-muted">Failed:</span>{" "}
                 <span class="font-mono">
                   {r().failed_tasks}/{r().total_tasks}
                 </span>
               </span>
               <span>
-                <span class="text-gray-500">Failure Rate:</span>{" "}
+                <span class="text-cf-text-muted">Failure Rate:</span>{" "}
                 <span class="font-mono">{(r().failure_rate * 100).toFixed(1)}%</span>
               </span>
             </div>
@@ -90,7 +90,9 @@ export function PromptOptimizationPanel(props: PromptOptimizationPanelProps) {
             {/* Strategic Principles */}
             <Show when={r().strategic_principles.length > 0}>
               <div>
-                <div class="mb-1 text-xs font-semibold text-gray-500">Strategic Principles</div>
+                <div class="mb-1 text-xs font-semibold text-cf-text-muted">
+                  Strategic Principles
+                </div>
                 <ul class="list-inside list-disc space-y-1 text-sm">
                   <For each={r().strategic_principles}>{(principle) => <li>{principle}</li>}</For>
                 </ul>
@@ -100,7 +102,7 @@ export function PromptOptimizationPanel(props: PromptOptimizationPanelProps) {
             {/* Tactical Fixes */}
             <Show when={r().tactical_fixes.length > 0}>
               <div>
-                <div class="mb-2 text-xs font-semibold text-gray-500">
+                <div class="mb-2 text-xs font-semibold text-cf-text-muted">
                   {t("benchmark.promptDiff")} ({r().tactical_fixes.length})
                 </div>
                 <div class="space-y-2">
@@ -111,32 +113,32 @@ export function PromptOptimizationPanel(props: PromptOptimizationPanelProps) {
 
                       return (
                         <div
-                          class={`rounded border p-3 text-sm dark:border-gray-700 ${
+                          class={`rounded border border-cf-border p-3 text-sm ${
                             isAccepted()
-                              ? "border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20"
+                              ? "border-cf-success-border bg-cf-success-bg"
                               : isRejected()
-                                ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20"
+                                ? "border-cf-danger-border bg-cf-danger-bg"
                                 : ""
                           }`}
                         >
                           <div class="flex items-start justify-between gap-2">
                             <div class="flex-1">
                               <div class="font-medium">Task: {fix.task_id}</div>
-                              <div class="mt-1 text-gray-600 dark:text-gray-400">
+                              <div class="mt-1 text-cf-text-secondary">
                                 {fix.failure_description}
                               </div>
                               <Show when={fix.root_cause}>
-                                <div class="mt-1 text-xs text-gray-500">
+                                <div class="mt-1 text-xs text-cf-text-muted">
                                   Root cause: {fix.root_cause}
                                 </div>
                               </Show>
                               <Show when={fix.proposed_addition}>
-                                <div class="mt-2 rounded bg-gray-100 p-2 text-xs dark:bg-gray-800">
+                                <div class="mt-2 rounded bg-cf-bg-surface-alt p-2 text-xs">
                                   {fix.proposed_addition}
                                 </div>
                               </Show>
                               <Show when={fix.confidence > 0}>
-                                <div class="mt-1 text-xs text-gray-400">
+                                <div class="mt-1 text-xs text-cf-text-muted">
                                   Confidence: {(fix.confidence * 100).toFixed(0)}%
                                 </div>
                               </Show>

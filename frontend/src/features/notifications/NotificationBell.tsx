@@ -46,7 +46,7 @@ export default function NotificationBell(props: NotificationBellProps): JSX.Elem
 
         {/* Unread count badge */}
         <Show when={getUnreadCount() > 0}>
-          <span class="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+          <span class="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-cf-danger px-1 text-[10px] font-bold text-white">
             {getUnreadCount() > 99 ? "99+" : getUnreadCount()}
           </span>
         </Show>

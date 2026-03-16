@@ -6,6 +6,7 @@ import { DiffPreview } from "~/components/DiffPreview";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import { Button, Card } from "~/ui";
+import { Modal } from "~/ui/composites/Modal";
 
 interface TrajectoryPanelProps {
   runId: string;
@@ -604,29 +605,29 @@ export default function TrajectoryPanel(props: TrajectoryPanelProps) {
       </Card.Body>
 
       {/* Rewind confirmation dialog */}
-      <Show when={rewindConfirmId()}>
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div class="rounded-cf-md bg-cf-bg-surface border border-cf-border shadow-lg p-5 max-w-sm mx-4">
-            <p class="text-sm text-cf-text-primary mb-4">{t("trajectory.rewindConfirm")}</p>
-            <div class="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={cancelRewind}>
-                {t("trajectory.cancel")}
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={rewinding()}
-                onClick={() => {
-                  const id = rewindConfirmId();
-                  if (id) void handleRewind(id);
-                }}
-              >
-                {rewinding() ? "..." : t("trajectory.rewindConfirmBtn")}
-              </Button>
-            </div>
-          </div>
+      <Modal
+        open={rewindConfirmId() !== null}
+        onClose={cancelRewind}
+        title={t("trajectory.rewind")}
+      >
+        <p class="text-sm text-cf-text-primary mb-4">{t("trajectory.rewindConfirm")}</p>
+        <div class="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={cancelRewind}>
+            {t("trajectory.cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={rewinding()}
+            onClick={() => {
+              const id = rewindConfirmId();
+              if (id) void handleRewind(id);
+            }}
+          >
+            {rewinding() ? "..." : t("trajectory.rewindConfirmBtn")}
+          </Button>
         </div>
-      </Show>
+      </Modal>
     </Card>
   );
 }

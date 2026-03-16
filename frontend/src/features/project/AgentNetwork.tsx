@@ -27,17 +27,17 @@ interface NetworkEdge {
 }
 
 const ROLE_COLORS: Record<TeamRole, string> = {
-  coder: "#3b82f6",
+  coder: "var(--cf-accent)",
   reviewer: "#8b5cf6",
-  tester: "#10b981",
-  documenter: "#f59e0b",
-  planner: "#ef4444",
+  tester: "var(--cf-success)",
+  documenter: "var(--cf-warning)",
+  planner: "var(--cf-danger)",
 };
 
 const STATUS_RING: Record<string, string> = {
-  idle: "#9ca3af",
-  active: "#22c55e",
-  error: "#ef4444",
+  idle: "var(--cf-text-muted)",
+  active: "var(--cf-success)",
+  error: "var(--cf-danger)",
 };
 
 /** Arrange nodes in a circle */
@@ -209,7 +209,7 @@ export default function AgentNetwork(props: AgentNetworkProps) {
                   refY="3"
                   orient="auto"
                 >
-                  <polygon points="0 0, 8 3, 0 6" fill="#6366f1" />
+                  <polygon points="0 0, 8 3, 0 6" fill="var(--cf-accent)" />
                 </marker>
               </defs>
 
@@ -225,7 +225,7 @@ export default function AgentNetwork(props: AgentNetworkProps) {
                         y1={src()?.y ?? 0}
                         x2={tgt()?.x ?? 0}
                         y2={tgt()?.y ?? 0}
-                        stroke={edge.active ? "#6366f1" : "#e5e7eb"}
+                        stroke={edge.active ? "var(--cf-accent)" : "var(--cf-border)"}
                         stroke-width={edge.active ? 3 : 1}
                         stroke-dasharray={edge.active ? "none" : "4,4"}
                         class={edge.active ? "animate-pulse" : ""}
@@ -236,7 +236,7 @@ export default function AgentNetwork(props: AgentNetworkProps) {
                           y1={src()?.y ?? 0}
                           x2={tgt()?.x ?? 0}
                           y2={tgt()?.y ?? 0}
-                          stroke="#6366f1"
+                          stroke="var(--cf-accent)"
                           stroke-width="3"
                           marker-end="url(#arrowhead)"
                         />
@@ -250,8 +250,17 @@ export default function AgentNetwork(props: AgentNetworkProps) {
               <For each={networkNodes()}>
                 {(node) => (
                   <g
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${node.name} (${node.role}) - ${node.status}`}
                     onMouseEnter={() => setHoveredNode(node.id)}
                     onMouseLeave={() => setHoveredNode(null)}
+                    onKeyDown={(e: KeyboardEvent) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setHoveredNode(hoveredNode() === node.id ? null : node.id);
+                      }
+                    }}
                     style={{ cursor: "pointer" }}
                   >
                     {/* Status ring */}

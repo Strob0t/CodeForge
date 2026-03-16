@@ -1,6 +1,7 @@
 import type { Component } from "solid-js";
-import { createSignal, For, onCleanup, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createSignal, For, Show } from "solid-js";
+
+import { Modal } from "~/ui/composites/Modal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,18 +97,6 @@ function buildUnifiedLines(hunk: DiffHunk): DiffLine[] {
 const DiffSummaryModal: Component<DiffSummaryModalProps> = (props) => {
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
 
-  // --- Keyboard: close on Escape ---
-
-  function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape" && props.visible) {
-      e.stopPropagation();
-      props.onClose();
-    }
-  }
-
-  document.addEventListener("keydown", handleKeyDown);
-  onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
-
   // --- Toggle file expansion ---
 
   function toggleFile(path: string) {
@@ -124,14 +113,6 @@ const DiffSummaryModal: Component<DiffSummaryModalProps> = (props) => {
 
   function isExpanded(path: string): boolean {
     return expanded().has(path);
-  }
-
-  // --- Backdrop click ---
-
-  function handleBackdropClick(e: MouseEvent) {
-    if (e.target === e.currentTarget) {
-      props.onClose();
-    }
   }
 
   // --- Line styling ---
@@ -172,135 +153,118 @@ const DiffSummaryModal: Component<DiffSummaryModalProps> = (props) => {
   // --- Render ---
 
   return (
-    <Show when={props.visible}>
-      <Portal>
-        <div
-          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Session Changes"
-          onClick={handleBackdropClick}
-        >
-          <div class="mx-3 w-full max-w-3xl max-h-[80vh] flex flex-col rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg">
-            {/* Header */}
-            <div class="flex items-center justify-between border-b border-cf-border px-4 py-3">
-              <div class="flex flex-col gap-0.5">
-                <h2 class="text-lg font-semibold text-cf-text-primary">Session Changes</h2>
-                <span class="text-xs text-cf-text-muted">
-                  {props.diffs.length === 0
-                    ? "No changes"
-                    : `${props.diffs.length} file${props.diffs.length === 1 ? "" : "s"} changed`}
-                </span>
-              </div>
-              <button
-                class="text-cf-text-muted hover:text-cf-text-primary text-lg leading-none px-1"
-                onClick={() => props.onClose()}
-                aria-label="Close"
-              >
-                {"\u2715"}
-              </button>
-            </div>
-
-            {/* Scrollable content */}
-            <div class="flex-1 overflow-y-auto">
-              {/* Empty state */}
-              <Show when={props.diffs.length === 0}>
-                <div class="flex flex-col items-center justify-center py-16 text-cf-text-muted">
-                  <svg
-                    class="mb-3 h-10 w-10 opacity-40"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="9" y1="15" x2="15" y2="15" />
-                  </svg>
-                  <span class="text-sm">No file changes in this session</span>
-                </div>
-              </Show>
-
-              {/* File list */}
-              <Show when={props.diffs.length > 0}>
-                <For each={props.diffs}>
-                  {(entry) => {
-                    const stats = () => countChanges(entry.hunks);
-
-                    return (
-                      <div class="border-b border-cf-border last:border-b-0">
-                        {/* File header — clickable to expand/collapse */}
-                        <button
-                          class="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-cf-bg-surface-alt transition-colors"
-                          onClick={() => toggleFile(entry.path)}
-                          aria-expanded={isExpanded(entry.path)}
-                        >
-                          <span class="text-cf-text-muted text-xs w-4 shrink-0 select-none">
-                            {isExpanded(entry.path) ? "\u25BC" : "\u25B6"}
-                          </span>
-                          <span class="font-mono text-sm text-cf-text-primary truncate flex-1">
-                            {entry.path}
-                          </span>
-                          <span class="inline-flex items-center gap-1.5 shrink-0">
-                            <span class="text-xs font-medium text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 rounded-full px-1.5 py-0.5">
-                              +{stats().added}
-                            </span>
-                            <span class="text-xs font-medium text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30 rounded-full px-1.5 py-0.5">
-                              -{stats().removed}
-                            </span>
-                          </span>
-                        </button>
-
-                        {/* Diff hunks (collapsed by default) */}
-                        <Show when={isExpanded(entry.path)}>
-                          <div class="border-t border-cf-border">
-                            <For each={entry.hunks}>
-                              {(hunk) => {
-                                const lines = () => buildUnifiedLines(hunk);
-                                return (
-                                  <div>
-                                    <For each={lines()}>
-                                      {(line) => (
-                                        <div
-                                          class={`flex font-mono text-xs ${lineClasses(line.type)}`}
-                                        >
-                                          {/* Old line number */}
-                                          <span class="w-10 shrink-0 select-none text-right pr-1 text-cf-text-muted/50">
-                                            {line.oldLineNo ?? ""}
-                                          </span>
-                                          {/* New line number */}
-                                          <span class="w-10 shrink-0 select-none text-right pr-1 text-cf-text-muted/50">
-                                            {line.newLineNo ?? ""}
-                                          </span>
-                                          {/* Prefix and content */}
-                                          <span
-                                            class={`flex-1 whitespace-pre-wrap break-all px-2 ${lineTextColor(line.type)}`}
-                                          >
-                                            {line.type === "header"
-                                              ? line.content
-                                              : `${linePrefix(line.type)}${line.content}`}
-                                          </span>
-                                        </div>
-                                      )}
-                                    </For>
-                                  </div>
-                                );
-                              }}
-                            </For>
-                          </div>
-                        </Show>
-                      </div>
-                    );
-                  }}
-                </For>
-              </Show>
-            </div>
-          </div>
+    <Modal
+      open={props.visible}
+      onClose={props.onClose}
+      title="Session Changes"
+      class="w-full max-w-3xl max-h-[80vh] flex flex-col"
+    >
+      <div class="-mt-4 -mx-4">
+        {/* Subtitle */}
+        <div class="px-4 pb-2 pt-1">
+          <span class="text-xs text-cf-text-muted">
+            {props.diffs.length === 0
+              ? "No changes"
+              : `${props.diffs.length} file${props.diffs.length === 1 ? "" : "s"} changed`}
+          </span>
         </div>
-      </Portal>
-    </Show>
+
+        {/* Scrollable content */}
+        <div class="flex-1 overflow-y-auto max-h-[60vh]">
+          {/* Empty state */}
+          <Show when={props.diffs.length === 0}>
+            <div class="flex flex-col items-center justify-center py-16 text-cf-text-muted">
+              <svg
+                class="mb-3 h-10 w-10 opacity-40"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="9" y1="15" x2="15" y2="15" />
+              </svg>
+              <span class="text-sm">No file changes in this session</span>
+            </div>
+          </Show>
+
+          {/* File list */}
+          <Show when={props.diffs.length > 0}>
+            <For each={props.diffs}>
+              {(entry) => {
+                const stats = () => countChanges(entry.hunks);
+
+                return (
+                  <div class="border-b border-cf-border last:border-b-0">
+                    {/* File header — clickable to expand/collapse */}
+                    <button
+                      class="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-cf-bg-surface-alt transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
+                      onClick={() => toggleFile(entry.path)}
+                      aria-expanded={isExpanded(entry.path)}
+                    >
+                      <span class="text-cf-text-muted text-xs w-4 shrink-0 select-none">
+                        {isExpanded(entry.path) ? "\u25BC" : "\u25B6"}
+                      </span>
+                      <span class="font-mono text-sm text-cf-text-primary truncate flex-1">
+                        {entry.path}
+                      </span>
+                      <span class="inline-flex items-center gap-1.5 shrink-0">
+                        <span class="text-xs font-medium text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 rounded-full px-1.5 py-0.5">
+                          +{stats().added}
+                        </span>
+                        <span class="text-xs font-medium text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30 rounded-full px-1.5 py-0.5">
+                          -{stats().removed}
+                        </span>
+                      </span>
+                    </button>
+
+                    {/* Diff hunks (collapsed by default) */}
+                    <Show when={isExpanded(entry.path)}>
+                      <div class="border-t border-cf-border">
+                        <For each={entry.hunks}>
+                          {(hunk) => {
+                            const lines = () => buildUnifiedLines(hunk);
+                            return (
+                              <div>
+                                <For each={lines()}>
+                                  {(line) => (
+                                    <div class={`flex font-mono text-xs ${lineClasses(line.type)}`}>
+                                      {/* Old line number */}
+                                      <span class="w-10 shrink-0 select-none text-right pr-1 text-cf-text-muted/50">
+                                        {line.oldLineNo ?? ""}
+                                      </span>
+                                      {/* New line number */}
+                                      <span class="w-10 shrink-0 select-none text-right pr-1 text-cf-text-muted/50">
+                                        {line.newLineNo ?? ""}
+                                      </span>
+                                      {/* Prefix and content */}
+                                      <span
+                                        class={`flex-1 whitespace-pre-wrap break-all px-2 ${lineTextColor(line.type)}`}
+                                      >
+                                        {line.type === "header"
+                                          ? line.content
+                                          : `${linePrefix(line.type)}${line.content}`}
+                                      </span>
+                                    </div>
+                                  )}
+                                </For>
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
+          </Show>
+        </div>
+      </div>
+    </Modal>
   );
 };
 

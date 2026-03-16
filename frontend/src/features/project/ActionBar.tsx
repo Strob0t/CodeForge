@@ -35,7 +35,7 @@ export default function ActionBar(props: ActionBarProps) {
         <For each={allActions()}>
           {(action) => (
             <button
-              class="rounded-cf-sm border border-cf-border bg-cf-bg-surface px-2.5 py-1 text-xs text-cf-text-primary hover:bg-cf-bg-inset hover:border-cf-accent transition-colors"
+              class="rounded-cf-sm border border-cf-border bg-cf-bg-surface px-2.5 py-1 text-xs text-cf-text-primary hover:bg-cf-bg-inset hover:border-cf-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
               onClick={() => props.onAction(action)}
             >
               {action.label}

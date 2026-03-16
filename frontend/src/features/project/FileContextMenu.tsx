@@ -114,12 +114,14 @@ export default function FileContextMenu(props: FileContextMenuProps): JSX.Elemen
         ref={menuRef}
         class="fixed z-50 min-w-[160px] bg-cf-bg-surface border border-cf-border shadow-cf-lg rounded-cf-md py-1 select-none"
         style={adjustedPosition()}
+        role="menu"
       >
         <For each={actions()}>
           {(item) => (
             <button
               type="button"
-              class="flex items-center gap-2 w-full text-left text-sm text-cf-text-primary px-3 py-1.5 hover:bg-cf-bg-surface-alt transition-colors"
+              role="menuitem"
+              class="flex items-center gap-2 w-full text-left text-sm text-cf-text-primary px-3 py-1.5 hover:bg-cf-bg-surface-alt transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
               onClick={() => {
                 props.onAction(item.action);
               }}

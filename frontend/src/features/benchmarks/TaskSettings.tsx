@@ -88,6 +88,7 @@ export function TaskSettings(props: TaskSettingsProps): ReturnType<typeof Card> 
     <Card class="mt-3">
       <button
         type="button"
+        aria-expanded={expanded()}
         class="flex w-full items-center justify-between px-4 py-2 text-left text-sm font-semibold text-cf-text-primary"
         onClick={() => setExpanded(!expanded())}
       >

@@ -1,5 +1,6 @@
 /* eslint-disable solid/no-innerhtml -- Markdown renderer: all innerHTML goes through renderInline which escapes HTML entities. */
 import { For, Show } from "solid-js";
+import { Dynamic } from "solid-js/web";
 
 interface MarkdownProps {
   content: string;
@@ -140,8 +141,10 @@ function HeadingEl(props: { level: number; text: string }) {
     5: "text-sm font-medium mt-1 mb-1",
     6: "text-sm font-medium mt-1 mb-1",
   };
-
-  return <div class={classes[props.level] || classes[3]} innerHTML={html()} />;
+  const tag = () => `h${Math.min(Math.max(props.level, 1), 6)}` as keyof HTMLElementTagNameMap;
+  return (
+    <Dynamic component={tag()} class={classes[props.level] || classes[3]} innerHTML={html()} />
+  );
 }
 
 export default function Markdown(props: MarkdownProps) {

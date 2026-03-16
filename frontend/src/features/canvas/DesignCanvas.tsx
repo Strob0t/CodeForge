@@ -224,7 +224,7 @@ function SelectionOverlay(props: { element: CanvasElement }): JSX.Element {
       width={props.element.width + padding * 2}
       height={props.element.height + padding * 2}
       fill="none"
-      stroke="#3b82f6"
+      stroke="var(--cf-accent)"
       stroke-width={1.5}
       stroke-dasharray="6 3"
       pointer-events="none"
@@ -391,7 +391,7 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
   return (
     <div
       ref={containerRef}
-      class="relative w-full h-full overflow-hidden bg-gray-50"
+      class="relative w-full h-full overflow-hidden bg-cf-bg-surface-alt"
       style={{ cursor: cursor() }}
     >
       <svg

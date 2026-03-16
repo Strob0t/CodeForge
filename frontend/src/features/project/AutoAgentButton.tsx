@@ -73,13 +73,13 @@ export default function AutoAgentButton(props: Props) {
       </Show>
 
       <Show when={status()?.status === "failed"}>
-        <span class="text-xs text-red-400" title={status()?.error ?? ""}>
+        <span class="text-xs text-cf-danger-fg" title={status()?.error ?? ""}>
           Failed
         </span>
       </Show>
 
       <Show when={error()}>
-        <span class="text-xs text-red-400">{error()}</span>
+        <span class="text-xs text-cf-danger-fg">{error()}</span>
       </Show>
     </div>
   );
