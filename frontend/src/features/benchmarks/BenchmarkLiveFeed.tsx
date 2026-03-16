@@ -1,73 +1,13 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 
-import type { BenchmarkLiveProgress, LiveFeedEvent } from "~/api/types";
-import { useWebSocket } from "~/components/WebSocketProvider";
+import type { LiveFeedEvent } from "~/api/types";
 
-const MAX_EVENTS = 5000;
+import { computeEta, formatTokens, type LiveFeedState } from "./liveFeedState";
 
 interface BenchmarkLiveFeedProps {
-  runId: string;
+  state: LiveFeedState;
   startedAt: string;
-}
-
-interface FeatureEntry {
-  id: string;
-  name: string;
-  status: "pending" | "running" | "completed" | "failed";
-  events: LiveFeedEvent[];
-  startedAt?: number;
-  cost: number;
-  step: number;
-  score?: number;
-}
-
-// ---- Typed WS payload interfaces (single boundary cast per message type) ----
-
-interface TrajectoryPayload {
-  run_id: string;
-  project_id: string;
-  event_type: string;
-  tool_name?: string;
-  model?: string;
-  input?: string;
-  output?: string;
-  success?: boolean;
-  step?: number;
-  cost_usd?: number;
-  tokens_in?: number;
-  tokens_out?: number;
-}
-
-interface ProgressPayload {
-  run_id: string;
-  completed_tasks: number;
-  total_tasks: number;
-  avg_score: number;
-  total_cost_usd: number;
-}
-
-interface TaskStartedPayload {
-  run_id: string;
-  task_id: string;
-  task_name: string;
-  index: number;
-  total: number;
-}
-
-interface TaskCompletedPayload {
-  run_id: string;
-  task_id: string;
-  task_name: string;
-  score: number;
-  cost_usd: number;
-}
-
-interface AutoAgentStatusPayload {
-  run_id?: string;
-  project_id?: string;
-  current_feature_id?: string;
-  status?: string;
 }
 
 // ---- Helpers ----
@@ -131,22 +71,26 @@ function featureStatusIcon(status: string): string {
   }
 }
 
+function scoreBarColor(score: number): string {
+  if (score >= 0.7) return "bg-cf-success-fg";
+  if (score >= 0.4) return "bg-yellow-400";
+  return "bg-cf-danger-fg";
+}
+
 /**
- * BenchmarkLiveFeed -- real-time event feed for a running benchmark.
+ * BenchmarkLiveFeed -- presentational component for a running benchmark.
  *
- * Subscribes to WebSocket messages (trajectory.event, benchmark.run.progress,
- * benchmark.task.started, benchmark.task.completed, autoagent.status) filtered
- * by run_id and renders:
- *   1. A progress header with bar, task count, cost, and elapsed timer
- *   2. Feature accordions when 2+ features detected (collapsible per-feature view)
- *   3. A virtualized, auto-scrolling event log
+ * Receives LiveFeedState from BenchmarkPage (which handles WS + hydration).
+ * Renders progress header, stats line, feature rows, and virtualized event log.
  */
 export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
-  // ---- State ----
-  const [events, setEvents] = createSignal<LiveFeedEvent[]>([]);
-  const [progress, setProgress] = createSignal<BenchmarkLiveProgress | null>(null);
-  const [features, setFeatures] = createSignal<Map<string, FeatureEntry>>(new Map());
-  const [currentFeatureId, setCurrentFeatureId] = createSignal<string | null>(null);
+  // ---- Derived from props ----
+  const events = () => props.state.events;
+  const progress = () => props.state.progress;
+  const features = () => props.state.features;
+  const stats = () => props.state.stats;
+
+  // ---- Local UI state (component-scoped, lost on unmount — that's fine) ----
   const [elapsed, setElapsed] = createSignal(0);
   const [autoScroll, setAutoScroll] = createSignal(true);
   const [expandedFeature, setExpandedFeature] = createSignal<string | null>(null);
@@ -157,112 +101,6 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
     const id = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000);
     onCleanup(() => clearInterval(id));
   });
-
-  // ---- WebSocket subscription ----
-  const { onMessage } = useWebSocket();
-  // eslint-disable-next-line solid/reactivity -- imperative listener, props.runId stable for component lifetime
-  const cleanup = onMessage((msg) => {
-    if (msg.type === "trajectory.event") {
-      const p = msg.payload as unknown as TrajectoryPayload;
-      if (p.run_id !== props.runId) return;
-      const evt: LiveFeedEvent = {
-        id: crypto.randomUUID(),
-        timestamp: Date.now(),
-        run_id: p.run_id,
-        project_id: p.project_id ?? "",
-        event_type: p.event_type,
-        tool_name: p.tool_name,
-        model: p.model,
-        input: p.input,
-        output: p.output,
-        success: p.success,
-        step: p.step,
-        cost_usd: p.cost_usd,
-        tokens_in: p.tokens_in,
-        tokens_out: p.tokens_out,
-      };
-      setEvents((prev) => {
-        const next = [...prev, evt];
-        return next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next;
-      });
-      // Track event under current feature
-      const fId = currentFeatureId();
-      if (fId) {
-        setFeatures((prev) => {
-          const f = prev.get(fId);
-          if (!f) return prev;
-          const next = new Map(prev);
-          next.set(fId, {
-            ...f,
-            events: [...f.events, evt],
-            cost: f.cost + (evt.cost_usd ?? 0),
-            step: evt.step ?? f.step,
-          });
-          return next;
-        });
-      }
-    }
-
-    if (msg.type === "benchmark.run.progress") {
-      const p = msg.payload as unknown as ProgressPayload;
-      if (p.run_id !== props.runId) return;
-      setProgress({
-        completed_tasks: p.completed_tasks,
-        total_tasks: p.total_tasks,
-        avg_score: p.avg_score,
-        total_cost_usd: p.total_cost_usd,
-      });
-    }
-
-    if (msg.type === "benchmark.task.started") {
-      const p = msg.payload as unknown as TaskStartedPayload;
-      if (p.run_id !== props.runId) return;
-      setFeatures((prev) => {
-        const next = new Map(prev);
-        if (!next.has(p.task_id)) {
-          next.set(p.task_id, {
-            id: p.task_id,
-            name: p.task_name,
-            status: "running",
-            events: [],
-            startedAt: Date.now(),
-            cost: 0,
-            step: 0,
-          });
-        }
-        return next;
-      });
-      setCurrentFeatureId(p.task_id);
-    }
-
-    if (msg.type === "benchmark.task.completed") {
-      const p = msg.payload as unknown as TaskCompletedPayload;
-      if (p.run_id !== props.runId) return;
-      setFeatures((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(p.task_id);
-        next.set(p.task_id, {
-          id: p.task_id,
-          name: p.task_name,
-          status: "completed",
-          events: existing?.events ?? [],
-          startedAt: existing?.startedAt,
-          cost: p.cost_usd,
-          step: existing?.step ?? 0,
-          score: p.score,
-        });
-        return next;
-      });
-    }
-
-    if (msg.type === "autoagent.status") {
-      const p = msg.payload as unknown as AutoAgentStatusPayload;
-      if (p.current_feature_id) {
-        setCurrentFeatureId(p.current_feature_id);
-      }
-    }
-  });
-  onCleanup(cleanup);
 
   // ---- Derived data ----
   const featureList = createMemo(() => Array.from(features().values()));
@@ -279,13 +117,24 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
 
   const pct = createMemo(() => {
     const p = progress();
-    if (!p || p.total_tasks === 0) return 0;
+    if (!p || p.total_tasks === null || p.total_tasks === 0) return 0;
     return Math.round((p.completed_tasks / p.total_tasks) * 100);
+  });
+
+  const totalTasksKnown = createMemo(() => {
+    const p = progress();
+    return p !== null && p.total_tasks !== null;
+  });
+
+  const eta = createMemo(() => {
+    const p = progress();
+    if (!p) return null;
+    return computeEta(p.completed_tasks, p.total_tasks, elapsed());
   });
 
   const currentTaskRunning = createMemo(() => {
     const p = progress();
-    return p && p.completed_tasks < p.total_tasks ? p : undefined;
+    return p && p.total_tasks !== null && p.completed_tasks < p.total_tasks ? p : undefined;
   });
 
   // ---- Virtualizer ----
@@ -337,7 +186,7 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
       <div class="flex items-center gap-3 text-sm">
         <div class="flex-1">
           <Show
-            when={progress()}
+            when={progress() && totalTasksKnown()}
             fallback={
               <div class="h-2 w-full overflow-hidden rounded-full bg-cf-bg-secondary">
                 <div
@@ -358,7 +207,9 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
         <Show when={progress()}>
           {(p) => (
             <span class="whitespace-nowrap text-cf-text-secondary">
-              {p().completed_tasks}/{p().total_tasks} tasks ({pct()}%)
+              <Show when={totalTasksKnown()} fallback={<>{p().completed_tasks} tasks completed</>}>
+                {p().completed_tasks}/{p().total_tasks} tasks ({pct()}%)
+              </Show>
             </span>
           )}
         </Show>
@@ -372,7 +223,67 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
         <span class="whitespace-nowrap font-mono text-cf-text-muted">
           {formatElapsed(elapsed())}
         </span>
+        <Show when={eta()}>
+          {(e) => (
+            <span class="whitespace-nowrap text-cf-text-muted">ETA ~{formatElapsed(e())}</span>
+          )}
+        </Show>
       </div>
+
+      {/* ---- Inline Stats ---- */}
+      <Show when={stats().toolCallCount > 0 || (progress()?.completed_tasks ?? 0) > 0}>
+        <div
+          class="flex flex-wrap items-center gap-2 text-xs font-mono text-cf-text-muted"
+          style={{ "border-top": "1px solid var(--cf-border)", "padding-top": "6px" }}
+        >
+          <Show when={stats().avgScore > 0}>
+            <span>
+              avg{" "}
+              <span
+                class={
+                  stats().avgScore >= 0.7
+                    ? "text-cf-success-fg font-semibold"
+                    : stats().avgScore >= 0.4
+                      ? "text-yellow-400 font-semibold"
+                      : "text-cf-danger-fg font-semibold"
+                }
+              >
+                {stats().avgScore.toFixed(2)}
+              </span>
+            </span>
+            <span class="text-cf-border">|</span>
+          </Show>
+          <Show when={stats().totalTokensIn > 0}>
+            <span>
+              tok{" "}
+              <span class="text-cf-text-secondary">
+                {formatTokens(stats().totalTokensIn)}/{formatTokens(stats().totalTokensOut)}
+              </span>
+            </span>
+            <span class="text-cf-border">|</span>
+          </Show>
+          <Show when={stats().toolCallCount > 0}>
+            <span>
+              tools <span class="text-cf-text-secondary">{stats().toolCallCount}</span>{" "}
+              <span
+                class={
+                  stats().toolSuccessCount / stats().toolCallCount >= 0.9
+                    ? "text-cf-success-fg"
+                    : "text-yellow-400"
+                }
+              >
+                ({Math.round((stats().toolSuccessCount / stats().toolCallCount) * 100)}%)
+              </span>
+            </span>
+            <span class="text-cf-border">|</span>
+          </Show>
+          <Show when={stats().costPerTask > 0}>
+            <span>
+              $/task <span class="text-cf-text-secondary">${stats().costPerTask.toFixed(2)}</span>
+            </span>
+          </Show>
+        </div>
+      </Show>
 
       {/* ---- Feature Accordion (when 2+ features detected) ---- */}
       <Show when={useAccordion()}>
@@ -409,8 +320,18 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
                   </Show>
                   <span class="flex-1 truncate text-left">{feature.name}</span>
                   <span class="text-cf-text-muted">step {feature.step}</span>
-                  <Show when={feature.score}>
-                    {(score) => <span class="font-mono">{score().toFixed(1)}</span>}
+                  <Show when={feature.score !== undefined ? feature.score : null}>
+                    {(score) => (
+                      <>
+                        <span class="inline-block w-10 h-1 rounded-full bg-cf-bg-secondary overflow-hidden shrink-0">
+                          <span
+                            class={`block h-full rounded-full ${scoreBarColor(score())}`}
+                            style={{ width: `${Math.round(score() * 100)}%` }}
+                          />
+                        </span>
+                        <span class="font-mono">{score().toFixed(2)}</span>
+                      </>
+                    )}
                   </Show>
                   <span class="text-cf-text-muted">${feature.cost.toFixed(4)}</span>
                   <Show when={feature.startedAt}>
@@ -452,8 +373,18 @@ export function BenchmarkLiveFeed(props: BenchmarkLiveFeedProps) {
                   </span>
                 </Show>
                 <span class="flex-1 truncate">{feature.name}</span>
-                <Show when={feature.score}>
-                  {(score) => <span class="font-mono">{score().toFixed(1)}</span>}
+                <Show when={feature.score !== undefined ? feature.score : null}>
+                  {(score) => (
+                    <>
+                      <span class="inline-block w-10 h-1 rounded-full bg-cf-bg-secondary overflow-hidden shrink-0">
+                        <span
+                          class={`block h-full rounded-full ${scoreBarColor(score())}`}
+                          style={{ width: `${Math.round(score() * 100)}%` }}
+                        />
+                      </span>
+                      <span class="font-mono">{score().toFixed(2)}</span>
+                    </>
+                  )}
                 </Show>
                 <span class="text-cf-text-muted">${feature.cost.toFixed(4)}</span>
               </div>
