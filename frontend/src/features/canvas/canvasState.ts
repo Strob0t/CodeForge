@@ -21,6 +21,7 @@ export interface CanvasStore {
   state: CanvasStoreState;
   addElement: (input: Omit<CanvasElement, "id" | "zIndex">) => string;
   updateElement: (id: string, patch: ElementPatch) => void;
+  updateElementSilent: (id: string, patch: ElementPatch) => void;
   removeElement: (id: string) => void;
   undo: () => void;
   redo: () => void;
@@ -30,6 +31,8 @@ export interface CanvasStore {
   deselectElement: (id: string) => void;
   deselectAll: () => void;
   clearCanvas: () => void;
+  batchStart: () => void;
+  batchCommit: () => void;
 }
 
 let globalIdCounter = 0;
@@ -40,6 +43,7 @@ function nextId(): string {
 
 export function createCanvasStore(): CanvasStore {
   let zIndexCounter = 0;
+  let batchSnapshot: CanvasElement[] | null = null;
 
   const [state, setState] = createStore<CanvasStoreState>({
     elements: [],
@@ -142,6 +146,59 @@ export function createCanvasStore(): CanvasStore {
     );
   }
 
+  function updateElementSilent(id: string, patch: ElementPatch): void {
+    const idx = state.elements.findIndex((e) => e.id === id);
+    if (idx === -1) return;
+
+    setState(
+      produce((s) => {
+        const el = s.elements[idx];
+        const { style: stylePatch, ...rest } = patch;
+
+        for (const key of Object.keys(rest) as (keyof typeof rest)[]) {
+          const value = rest[key];
+          if (value !== undefined) {
+            (el as unknown as Record<string, unknown>)[key] = value;
+          }
+        }
+
+        if (stylePatch) {
+          for (const key of Object.keys(stylePatch) as (keyof typeof stylePatch)[]) {
+            const value = stylePatch[key];
+            if (value !== undefined) {
+              (el.style as unknown as Record<string, unknown>)[key] = value;
+            }
+          }
+        }
+      }),
+    );
+  }
+
+  function batchStart(): void {
+    batchSnapshot = snapshotElements();
+    setState(
+      produce((s) => {
+        s.redoStack = [];
+      }),
+    );
+  }
+
+  function batchCommit(): void {
+    if (batchSnapshot === null) return;
+
+    const snapshot = batchSnapshot;
+    batchSnapshot = null;
+
+    setState(
+      produce((s) => {
+        s.undoStack.push(snapshot);
+        if (s.undoStack.length > MAX_UNDO_STACK) {
+          s.undoStack.splice(0, s.undoStack.length - MAX_UNDO_STACK);
+        }
+      }),
+    );
+  }
+
   function undo(): void {
     if (state.undoStack.length === 0) return;
 
@@ -223,6 +280,7 @@ export function createCanvasStore(): CanvasStore {
     state,
     addElement,
     updateElement,
+    updateElementSilent,
     removeElement,
     undo,
     redo,
@@ -232,5 +290,7 @@ export function createCanvasStore(): CanvasStore {
     deselectElement,
     deselectAll,
     clearCanvas,
+    batchStart,
+    batchCommit,
   };
 }

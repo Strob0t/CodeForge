@@ -484,6 +484,74 @@ describe("clearCanvas", () => {
 });
 
 // ---------------------------------------------------------------------------
+// batchStart / updateElementSilent / batchCommit
+// ---------------------------------------------------------------------------
+
+describe("batch undo", () => {
+  it("updateElementSilent does not push to undo stack", () => {
+    const store = createCanvasStore();
+    const id = store.addElement(makeElement());
+    const stackBefore = store.state.undoStack.length;
+
+    store.updateElementSilent(id, { x: 50 });
+
+    expect(store.state.undoStack).toHaveLength(stackBefore);
+    expect(store.state.elements.find((e) => e.id === id)?.x).toBe(50);
+  });
+
+  it("batchStart + updateElementSilent + batchCommit produces one undo entry", () => {
+    const store = createCanvasStore();
+    const id = store.addElement(makeElement({ x: 0 }));
+    const stackBefore = store.state.undoStack.length;
+
+    store.batchStart();
+    store.updateElementSilent(id, { x: 10 });
+    store.updateElementSilent(id, { x: 20 });
+    store.updateElementSilent(id, { x: 30 });
+    store.batchCommit();
+
+    // Only ONE undo entry added (not 3)
+    expect(store.state.undoStack).toHaveLength(stackBefore + 1);
+    expect(store.state.elements.find((e) => e.id === id)?.x).toBe(30);
+  });
+
+  it("undoing a batch reverts to state before batchStart", () => {
+    const store = createCanvasStore();
+    const id = store.addElement(makeElement({ x: 0 }));
+
+    store.batchStart();
+    store.updateElementSilent(id, { x: 100 });
+    store.updateElementSilent(id, { x: 200 });
+    store.batchCommit();
+
+    store.undo();
+
+    expect(store.state.elements.find((e) => e.id === id)?.x).toBe(0);
+  });
+
+  it("batchCommit without batchStart is a no-op", () => {
+    const store = createCanvasStore();
+    store.addElement(makeElement());
+    const stackBefore = store.state.undoStack.length;
+
+    store.batchCommit();
+
+    expect(store.state.undoStack).toHaveLength(stackBefore);
+  });
+
+  it("batchStart clears redo stack", () => {
+    const store = createCanvasStore();
+    store.addElement(makeElement());
+    store.undo();
+    expect(store.state.redoStack).toHaveLength(1);
+
+    store.batchStart();
+    // Redo stack cleared because a new mutation is starting
+    expect(store.state.redoStack).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Independent store instances
 // ---------------------------------------------------------------------------
 
