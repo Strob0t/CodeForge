@@ -118,13 +118,19 @@ class BenchmarkHandlerMixin:
                 await msg.ack()
                 return
 
+            # Ack early to prevent redelivery if the worker crashes mid-run.
+            # Results are published back via NATS regardless of success/failure.
+            await msg.ack()
+
             log.info("benchmark run started")
 
             start = time.monotonic()
             evaluators = _build_evaluators(req.evaluators, req.model)
 
-            # Phase 28A: Split evaluators by stage for hybrid verification.
-            pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else EvaluationPipeline(evaluators)
+            # Always build a regular pipeline for per-task scoring.
+            pipeline = EvaluationPipeline(evaluators)
+            # Phase 28A: Build hybrid pipeline separately for multi-rollout selection.
+            hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
 
             # Auto-routing: wrap LLM with routing for per-task model selection.
             effective_llm = await self._resolve_effective_llm(req, log)
@@ -133,11 +139,17 @@ class BenchmarkHandlerMixin:
             on_start, on_complete = _build_progress_callbacks(self._js, req.run_id)
 
             if benchmark_type == "tool_use":
-                results = await _run_tool_use_benchmark(req, effective_llm, pipeline, on_start, on_complete)
+                results = await _run_tool_use_benchmark(
+                    req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                )
             elif benchmark_type == "agent":
-                results = await _run_agent_benchmark(req, effective_llm, pipeline, on_start, on_complete)
+                results = await _run_agent_benchmark(
+                    req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                )
             else:
-                results = await _run_simple_benchmark(req, effective_llm, pipeline, on_start, on_complete)
+                results = await _run_simple_benchmark(
+                    req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                )
 
             # Annotate results with routing metadata.
             if req.model == "auto" and hasattr(effective_llm, "routing_log"):
@@ -165,7 +177,6 @@ class BenchmarkHandlerMixin:
                     result.model_dump_json().encode(),
                 )
 
-            await msg.ack()
             log.info(
                 "benchmark run completed",
                 task_count=len(results),
@@ -185,7 +196,6 @@ class BenchmarkHandlerMixin:
                     SUBJECT_BENCHMARK_RUN_RESULT,
                     error_result.model_dump_json().encode(),
                 )
-            await msg.ack()
 
     async def _resolve_effective_llm(self, req: object, log: structlog.BoundLogger) -> object:
         """Resolve the effective LLM client, wrapping with router for auto mode."""
@@ -346,22 +356,22 @@ async def _load_tasks_for_run(req) -> list:
     return _dataset_to_task_specs(req.dataset_path)
 
 
-async def _run_simple_benchmark(req, llm, pipeline, on_start=None, on_complete=None) -> list:
+async def _run_simple_benchmark(req, llm, pipeline, on_start=None, on_complete=None, hybrid_pipeline=None) -> list:
     """Run a simple prompt -> LLM -> compare benchmark."""
     from codeforge.evaluation.runners.simple import SimpleBenchmarkRunner
 
     runner = SimpleBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
     tasks = await _load_tasks_for_run(req)
-    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete)
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete, hybrid_pipeline)
 
 
-async def _run_tool_use_benchmark(req, llm, pipeline, on_start=None, on_complete=None) -> list:
+async def _run_tool_use_benchmark(req, llm, pipeline, on_start=None, on_complete=None, hybrid_pipeline=None) -> list:
     """Run a tool-use benchmark with tools in task metadata."""
     from codeforge.evaluation.runners.tool_use import ToolUseBenchmarkRunner
 
     runner = ToolUseBenchmarkRunner(llm=llm, pipeline=pipeline, model=req.model)
     tasks = await _load_tasks_for_run(req)
-    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete)
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete, hybrid_pipeline)
 
 
 class _BenchmarkRuntime:
@@ -391,7 +401,7 @@ class _BenchmarkRuntime:
         pass
 
 
-async def _run_agent_benchmark(req, llm, pipeline, on_start=None, on_complete=None) -> list:
+async def _run_agent_benchmark(req, llm, pipeline, on_start=None, on_complete=None, hybrid_pipeline=None) -> list:
     """Run an agent benchmark using the full agent loop."""
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
     from codeforge.evaluation.runners.agent import AgentBenchmarkRunner
@@ -402,7 +412,7 @@ async def _run_agent_benchmark(req, llm, pipeline, on_start=None, on_complete=No
     else:
         from codeforge.evaluation.providers.codeforge_agent import CodeForgeAgentProvider
 
-        provider = CodeForgeAgentProvider(datasets_dir=req.dataset_path)
+        provider = CodeForgeAgentProvider(dataset_path=req.dataset_path)
         tasks = await provider.load_tasks()
 
     config = LoopConfig(
@@ -418,17 +428,18 @@ async def _run_agent_benchmark(req, llm, pipeline, on_start=None, on_complete=No
         workspace_path=tempfile.gettempdir(),
     )
     runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline, loop_config=config)
-    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete)
+    return await _run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete, hybrid_pipeline)
 
 
-async def _run_with_optional_rollout(runner, tasks, req, pipeline, on_start=None, on_complete=None) -> list:
+async def _run_with_optional_rollout(
+    runner, tasks, req, pipeline, on_start=None, on_complete=None, hybrid_pipeline=None
+) -> list:
     """Wrap runner in MultiRolloutRunner when rollout_count > 1."""
     from codeforge.models import BenchmarkRunRequest
 
     if isinstance(req, BenchmarkRunRequest) and req.rollout_count > 1:
         from codeforge.evaluation.runners.multi_rollout import MultiRolloutRunner
 
-        hybrid_pipeline = pipeline if req.hybrid_verification else None
         multi_runner = MultiRolloutRunner(
             inner_runner=runner,
             hybrid_pipeline=hybrid_pipeline,
@@ -515,16 +526,16 @@ def _convert_rollout_outcome(task, outcome, rollout_count) -> object:
         task_id=task.id,
         task_name=task.name,
         scores=scores,
-        actual_output=outcome.execution.actual_output,
+        actual_output=outcome.result.actual_output,
         expected_output=task.expected_output,
-        tool_calls=[{"name": tc.name, "args": tc.args} for tc in outcome.execution.tool_calls],
-        cost_usd=outcome.execution.cost_usd,
-        tokens_in=outcome.execution.tokens_in,
-        tokens_out=outcome.execution.tokens_out,
-        duration_ms=outcome.execution.duration_ms,
+        tool_calls=[{"name": tc.name, "args": tc.args} for tc in outcome.result.tool_calls],
+        cost_usd=outcome.result.cost_usd,
+        tokens_in=outcome.result.tokens_in,
+        tokens_out=outcome.result.tokens_out,
+        duration_ms=outcome.result.duration_ms,
         evaluator_scores={},
-        files_changed=outcome.execution.files_changed,
-        functional_test_output=outcome.execution.test_output,
+        files_changed=outcome.result.files_changed,
+        functional_test_output=outcome.result.test_output,
         rollout_id=outcome.rollout_id,
         rollout_count=rollout_count,
         is_best_rollout=outcome.is_best,

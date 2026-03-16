@@ -11,8 +11,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    import httpx
 
 logger = structlog.get_logger(__name__)
 
@@ -127,6 +131,36 @@ def load_json(path: Path) -> list[dict] | dict:
         return json.loads(f.read())
 
 
+async def _fetch_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    params: dict[str, str],
+    log: structlog.stdlib.BoundLogger,
+) -> httpx.Response | None:
+    """Fetch a URL with 3 retries on 5xx errors and timeouts.
+
+    Returns the response on success, or None if all retries failed.
+    """
+    import asyncio
+
+    import httpx
+
+    for attempt in range(3):
+        try:
+            resp = await client.get(url, params=params)
+        except httpx.TimeoutException:
+            wait = 2**attempt
+            log.warning("HF API timeout, retrying", attempt=attempt + 1, wait_s=wait)
+            await asyncio.sleep(wait)
+            continue
+        if resp.status_code < 500:
+            return resp
+        wait = 2**attempt
+        log.warning("HF API server error, retrying", status=resp.status_code, attempt=attempt + 1, wait_s=wait)
+        await asyncio.sleep(wait)
+    return None
+
+
 async def download_hf_dataset(
     dataset: str,
     split: str,
@@ -169,14 +203,23 @@ async def download_hf_dataset(
     log.info("downloading HuggingFace dataset via rows API")
 
     base_url = "https://datasets-server.huggingface.co/rows"
-    page_size = 100
+    page_sizes = [100, 10, 1]
     offset = 0
     all_rows: list[dict] = []
 
     try:
         import httpx
 
-        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+        headers: dict[str, str] = {}
+        hf_token = os.getenv("HF_TOKEN", "")
+        if hf_token:
+            headers["Authorization"] = f"Bearer {hf_token}"
+
+        async with httpx.AsyncClient(timeout=180.0, follow_redirects=True, headers=headers) as client:
+            # Start with largest page size, fall back to smaller on persistent 5xx/timeout.
+            page_size_idx = 0
+            page_size = page_sizes[page_size_idx]
+
             while True:
                 params = {
                     "dataset": dataset,
@@ -185,7 +228,22 @@ async def download_hf_dataset(
                     "offset": str(offset),
                     "length": str(page_size),
                 }
-                resp = await client.get(base_url, params=params)
+                resp = await _fetch_with_retry(client, base_url, params, log)
+
+                if resp is None and page_size_idx + 1 < len(page_sizes):
+                    page_size_idx += 1
+                    page_size = page_sizes[page_size_idx]
+                    log.warning("reducing page size after persistent errors", new_page_size=page_size)
+                    continue
+
+                if resp is None and page_size == 1:
+                    log.warning("skipping broken row after persistent errors", offset=offset)
+                    offset += 1
+                    continue
+
+                if resp is None:
+                    msg = f"all retries exhausted for {dataset}/{split} at page_size={page_size}"
+                    raise RuntimeError(msg)
                 resp.raise_for_status()
                 data = resp.json()
                 rows = data.get("rows", [])

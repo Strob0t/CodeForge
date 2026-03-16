@@ -231,6 +231,16 @@ Real-time structured event feed for running benchmark runs. Go `TrajectoryEventP
 
 18 files changed, 2478 insertions, 109 deletions. Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`. Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`.
 
+### Benchmark Validation Round 2 — Bugs 6-10 + External Suite Fixes (COMPLETED)
+
+5 more bugs found and fixed during the 33-run E2E test plan (Round 2), plus 3 external suite HuggingFace API fixes.
+
+**Bug 6 (High) — Agent Provider Wrong Kwarg:** `datasets_dir=` → `dataset_path=` in consumer. **Bug 7 (High) — Watchdog Timeout Too Short:** 15min → 2h default, configurable via `BENCHMARK_WATCHDOG_TIMEOUT`. **Bug 8 (High) — RolloutOutcome Missing eval_score:** Added field + pass-through in `multi_rollout.py`. **Bug 9 (High) — Wrong Attribute in _convert_rollout_outcome:** `outcome.execution.*` → `outcome.result.*`. **Bug 10 (Medium) — Hybrid Pipeline Passed as Regular:** Separated pipeline construction with dedicated `hybrid_pipeline` parameter.
+
+**Issue D — External Suite HF API Failures (3 fixes):** BigCodeBench config/split swap, CRUXEval dataset moved to `cruxeval-org/cruxeval` + HF_TOKEN auth, LiveCodeBench correct dataset + adaptive page size fallback (100→10→1) with timeout handling and broken-row skipping in `cache.py:download_hf_dataset()`. Early NATS ack prevents stale message redelivery.
+
+**E2E Results:** Phase 3b external suites 4/5 PASS (LiveCodeBench partial — HF server 502/504 for large rows). Phase 5 API comparison/analysis 12/12 PASS. Phase 6 error scenarios 2/5 PASS (3 known issues: invalid model validation regression, HTTP 500 vs 400, unknown evaluator silently ignored).
+
 ### Allow Always Policy Persistence (COMPLETED)
 
 "Allow Always" button in HITL PermissionRequestCard now persists permanent policy rules. `POST /api/v1/policies/allow-always` endpoint: resolves project's effective profile, clones immutable presets to `{preset}-custom-{projectId}`, constructs `PermissionRule` from tool name + command glob pattern (e.g., `Bash/git*`), prepends to profile (first-match-wins), updates project association. Idempotent via `HasRuleForSpecifier` duplicate detection. Future identical tool calls auto-approve without HITL prompt. 12 files changed, 26 new tests across Go domain/service/HTTP layers + frontend wiring.

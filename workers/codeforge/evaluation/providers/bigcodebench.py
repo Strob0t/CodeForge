@@ -17,7 +17,8 @@ from codeforge.evaluation.providers.base import (
 )
 
 _DATASET = "bigcode/bigcodebench"
-_CONFIG = "v0.1.2"
+_CONFIG = "default"
+_SPLIT = "v0.1.2"
 _FILENAME = "bigcodebench.jsonl"
 
 
@@ -52,7 +53,7 @@ class BigCodeBenchProvider:
     async def _fetch_tasks(self) -> list[dict]:
         path = await download_hf_dataset(
             dataset=_DATASET,
-            split="test",
+            split=_SPLIT,
             provider_name="bigcodebench",
             filename=_FILENAME,
             base_dir=self._cache_dir,

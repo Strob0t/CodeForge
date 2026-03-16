@@ -4,7 +4,7 @@ Competition programming problems collected from LeetCode, Codeforces,
 and AtCoder. Supports temporal splits so models can be evaluated on
 problems released after their training cutoff.
 
-Source: https://huggingface.co/datasets/livecodebench/code_generation_lite
+Source: https://huggingface.co/datasets/livecodebench/code_generation
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_DATASET = "livecodebench/code_generation_lite"
-_CONFIG = "release_v5"
+_DATASET = "livecodebench/code_generation"
+_CONFIG = "default"
 _FILENAME = "livecodebench.jsonl"
 
 

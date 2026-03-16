@@ -883,6 +883,8 @@ Available metrics: `correctness`, `tool_correctness`, `faithfulness`, `answer_re
 | YAML Key | ENV Variable | Default | Description |
 |---|---|---|---|
 | `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
+| — | `BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck runs (Go duration: `30m`, `4h`). Agent runs with local models can take 60+ min. |
+| — | `HF_TOKEN` | — | HuggingFace API token for gated datasets. Required for CRUXEval (`cruxeval/cruxeval`). Optional for other external suites. Get a token at https://huggingface.co/settings/tokens |
 
 #### Interactive E2E Testing Guide
 

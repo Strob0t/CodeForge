@@ -14,7 +14,7 @@ import structlog
 
 if TYPE_CHECKING:
     from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline, VerificationResult
-    from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec
+    from codeforge.evaluation.providers.base import EvalScore, ExecutionResult, TaskSpec
     from codeforge.evaluation.runners._base import RunResult
 
 logger = structlog.get_logger()
@@ -36,6 +36,7 @@ class RolloutOutcome:
 
     rollout_id: int
     result: ExecutionResult
+    eval_score: EvalScore | None = None
     verification: VerificationResult | None = None
     diversity_score: float = 0.0
     is_best: bool = False
@@ -69,7 +70,7 @@ class MultiRolloutRunner:
         outcomes: list[RolloutOutcome] = []
         for i in range(self._rollout_count):
             run_result = await self._inner.run_task(task)
-            outcomes.append(RolloutOutcome(rollout_id=i, result=run_result.execution))
+            outcomes.append(RolloutOutcome(rollout_id=i, result=run_result.execution, eval_score=run_result.eval_score))
 
         if self._rollout_count == 1:
             outcomes[0].is_best = True

@@ -4,7 +4,7 @@
 predict the output (CRUXEval-O), or given a function and output,
 predict the input (CRUXEval-I).
 
-Source: https://huggingface.co/datasets/cruxeval/cruxeval
+Source: https://huggingface.co/datasets/cruxeval-org/cruxeval
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 
-_DATASET = "cruxeval/cruxeval"
+_DATASET = "cruxeval-org/cruxeval"
 _FILENAME = "cruxeval.jsonl"
 
 

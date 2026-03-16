@@ -626,8 +626,14 @@ func run() error {
 		return fmt.Errorf("benchmark run subscriber: %w", err)
 	}
 	benchmarkSvc.SeedDefaultSuites(ctx)
-	cancelWatchdog := benchmarkSvc.StartWatchdog(5*time.Minute, 15*time.Minute)
-	slog.Info("benchmark service initialized with NATS bridge")
+	watchdogTimeout := 2 * time.Hour // Default: 2h (agent runs with local models can take 60+ min)
+	if v := os.Getenv("BENCHMARK_WATCHDOG_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			watchdogTimeout = d
+		}
+	}
+	cancelWatchdog := benchmarkSvc.StartWatchdog(5*time.Minute, watchdogTimeout)
+	slog.Info("benchmark service initialized with NATS bridge", "watchdog_timeout", watchdogTimeout)
 
 	// --- Backend Health Service (Phase 5.4) ---
 	backendHealthSvc := service.NewBackendHealthService(queue)

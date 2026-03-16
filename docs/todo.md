@@ -204,6 +204,18 @@
 - Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
 - Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`
 
+#### Benchmark Validation E2E Round 2 — Bugs 6-10 + External Suite Fixes (COMPLETED)
+- [x] (2026-03-15) **Bug 6 — Agent Provider Wrong Kwarg (High):** `datasets_dir=` → `dataset_path=` in `_benchmark.py:405`
+- [x] (2026-03-15) **Bug 7 — Watchdog Timeout Too Short (High):** 15min → 2h default, configurable via `BENCHMARK_WATCHDOG_TIMEOUT` env var in `cmd/codeforge/main.go`
+- [x] (2026-03-15) **Bug 8 — RolloutOutcome Missing eval_score (High):** Added `eval_score` field to `RolloutOutcome` dataclass in `multi_rollout.py`
+- [x] (2026-03-15) **Bug 9 — Wrong Attribute Name in _convert_rollout_outcome (High):** `outcome.execution.*` → `outcome.result.*` in `_benchmark.py:518-527`
+- [x] (2026-03-15) **Bug 10 — Hybrid Pipeline Passed as Regular Pipeline (Medium):** Separated pipeline construction, added `hybrid_pipeline` parameter
+- [x] (2026-03-16) **Issue D — External Suite HF API Failures:** Fixed BigCodeBench (config/split swap), CRUXEval (dataset moved to `cruxeval-org/cruxeval` + HF_TOKEN auth), LiveCodeBench (correct dataset + adaptive page size fallback 100→10→1 with timeout handling and broken-row skipping)
+- [x] (2026-03-16) Early NATS ack in benchmark handler to prevent stale message redelivery
+- [x] (2026-03-16) Documented `HF_TOKEN` and `BENCHMARK_WATCHDOG_TIMEOUT` env vars in `docs/dev-setup.md`
+- Results: Phase 3b external suites 4/5 PASS (LiveCodeBench partial due to HF server limitations), Phase 5 API 12/12 PASS, Phase 6 errors 2/5 PASS
+- Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
+
 #### Frontend UI Bug Fixes & i18n (COMPLETED)
 - [x] (2026-03-15) **BUG-1 (High) — Broken "Go to Chat" Navigation:** `onNavigate("chat")` silently did nothing — `"chat"` was not a valid `LeftTab`. Created unified `handleNavigate()` in `ProjectDetailPage.tsx` that switches `mobileView` to `"chat"` on mobile. Replaced 8 duplicate inline handlers. Fixed in: `GoalsPanel.tsx:202`, `SessionPanel.tsx:116`, `WarRoom.tsx:90`, `OnboardingProgress.tsx:44`.
 - [x] (2026-03-15) **BUG-2 (Medium) — Dead RunPanel Code:** `run.toolcall` WS event was a stub comment. `RunPanel.addToolCall`/`updateRunStatus` attached to component function object but never called. Removed dead code — tool calls are rendered via AG-UI events in `ChatPanel`. Files: `ProjectDetailPage.tsx`, `RunPanel.tsx`.
