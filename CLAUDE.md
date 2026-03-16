@@ -184,6 +184,17 @@ Detailed analysis: docs/research/market-analysis.md
 - **Benchmark & Evaluation System (Phase 26 + 28):** — **implemented**
   - Phase 26: Provider interface pattern, evaluator plugins (LLMJudge, FunctionalTest, SPARC), 3 runner types, external providers (HumanEval, MBPP, SWE-bench)
   - Phase 28 (R2E-Gym/EntroPO): Hybrid verification pipeline, trajectory verifier, multi-rollout scaling, diversity-aware MAB (entropy-UCB1), DPO export, SWE-GEN synthetic tasks — `workers/codeforge/evaluation/`
+- **Contract-First Review/Refactor (Phase 31):** — **implemented**
+  - Boundary Detection: LLM-based identification of API, data, inter-service, cross-language boundaries — `internal/domain/boundary/`
+  - Review-Refactor Pipeline: 4-step sequential (boundary-analyzer -> contract-reviewer -> reviewer -> refactorer) — `internal/domain/pipeline/presets.go`
+  - 2 New Modes: `boundary-analyzer` (read-only, plan scenario), `contract-reviewer` (read-only, review scenario) — `internal/domain/mode/presets.go`
+  - ReviewTriggerService: Cascade triggers (pipeline-completion, branch-merge, manual) with commit SHA dedup — `internal/service/review_trigger.go`
+  - DiffImpactScorer: 3-tier threshold HITL (auto-apply, notify, approve) — `internal/service/diff_impact.go`
+  - Phase-aware Context Budget: Per-pipeline-step budget scaling (100%/60%/50%/70%) — `internal/service/context_budget.go`
+  - waiting_approval Step Status: Pipeline pause + approve/reject flow — `internal/service/orchestrator.go`
+  - BoundaryService: CRUD for ProjectBoundaryConfig — `internal/service/boundary.go`
+  - Frontend: RefactorApproval HITL overlay, BoundariesPanel — `frontend/src/features/project/`
+  - NATS Subjects: `review.>` wildcard (trigger, complete, boundary, approval) — `internal/port/messagequeue/subjects.go`
 - **Roadmap/Feature-Map Auto-Detection & Adaptive Integration:**
   - **No custom PM tool** — sync with existing tools (Plane, OpenProject, GitHub/GitLab Issues)
   - **Auto-Detection:** Three-tier detection (repo files → platform APIs → file markers)

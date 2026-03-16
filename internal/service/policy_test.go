@@ -295,8 +295,8 @@ func TestPolicyServiceListProfiles(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", custom)
 	names := svc.ListProfiles()
 
-	if len(names) != 5 {
-		t.Fatalf("expected 5 profiles (4 presets + 1 custom), got %d: %v", len(names), names)
+	if len(names) != 6 {
+		t.Fatalf("expected 6 profiles (5 presets + 1 custom), got %d: %v", len(names), names)
 	}
 
 	found := false

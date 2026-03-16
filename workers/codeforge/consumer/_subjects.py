@@ -19,6 +19,7 @@ STREAM_SUBJECTS = [
     "memory.>",
     "handoff.>",
     "backends.>",
+    "review.>",
 ]
 
 # Task subjects
@@ -86,6 +87,13 @@ SUBJECT_BACKEND_HEALTH_RESULT = "backends.health.result"
 
 # Trajectory events
 SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"
+
+# Review/Refactor subjects (Phase 31)
+SUBJECT_REVIEW_TRIGGER_REQUEST = "review.trigger.request"
+SUBJECT_REVIEW_TRIGGER_COMPLETE = "review.trigger.complete"
+SUBJECT_REVIEW_BOUNDARY_ANALYZED = "review.boundary.analyzed"
+SUBJECT_REVIEW_APPROVAL_REQUIRED = "review.approval.required"
+SUBJECT_REVIEW_APPROVAL_RESPONSE = "review.approval.response"
 
 # Headers
 HEADER_REQUEST_ID = "X-Request-ID"

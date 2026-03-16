@@ -19,12 +19,14 @@ import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 import AuditTable from "../audit/AuditTable";
 import ActiveWorkPanel from "./ActiveWorkPanel";
 import AutoAgentButton from "./AutoAgentButton";
+import BoundariesPanel from "./BoundariesPanel";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
 import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
 import OnboardingProgress from "./OnboardingProgress";
+import RefactorApproval from "./RefactorApproval";
 import RoadmapPanel from "./RoadmapPanel";
 import SessionPanel from "./SessionPanel";
 import TrajectoryPanel from "./TrajectoryPanel";
@@ -145,7 +147,8 @@ export default function ProjectDetailPage() {
     | "goals"
     | "audit"
     | "sessions"
-    | "trajectory";
+    | "trajectory"
+    | "boundaries";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
 
@@ -520,7 +523,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" || leftTab() === "trajectory" ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" || leftTab() === "trajectory" || leftTab() === "boundaries" ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
@@ -567,6 +570,7 @@ export default function ProjectDetailPage() {
                           <option value="sessions">{t("session.tab")}</option>
                           <option value="trajectory">{t("detail.tab.trajectory")}</option>
                           <option value="audit">{t("audit.title")}</option>
+                          <option value="boundaries">Boundaries</option>
                         </select>
                       </div>
                       <Button
@@ -643,6 +647,11 @@ export default function ProjectDetailPage() {
                         <AuditTable projectId={params.id} />
                       </div>
                     </Show>
+                    <Show when={leftTab() === "boundaries"}>
+                      <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                        <BoundariesPanel projectId={params.id} />
+                      </div>
+                    </Show>
                   </div>
 
                   {/* Draggable Divider */}
@@ -695,6 +704,9 @@ export default function ProjectDetailPage() {
                   <ChatPanel projectId={params.id} activeTab={leftTab()} />
                 </div>
               </Show>
+
+              {/* Global overlay: refactor approval dialog */}
+              <RefactorApproval />
 
               {/* Mobile bottom tab bar */}
               <Show when={isMobile()}>

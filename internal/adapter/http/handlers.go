@@ -99,6 +99,8 @@ type Handlers struct {
 	Channels         *service.ChannelService
 	Subscription     *service.SubscriptionService
 	Limits           *config.Limits
+	Boundaries       *service.BoundaryService
+	ReviewTrigger    *service.ReviewTriggerService
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -279,6 +281,14 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 		go func() {
 			if err := h.Graph.RequestBuild(context.Background(), projectID, workspacePath); err != nil {
 				slog.Error("auto graph build failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
+
+	if h.ReviewTrigger != nil {
+		go func() {
+			if _, err := h.ReviewTrigger.TriggerReview(context.Background(), projectID, "", "auto-index"); err != nil {
+				slog.Error("auto boundary analysis trigger failed", "project_id", projectID, "error", err)
 			}
 		}()
 	}

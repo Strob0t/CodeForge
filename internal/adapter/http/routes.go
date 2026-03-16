@@ -124,6 +124,14 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Post("/runs/{id}/cancel", h.CancelRun)
 		r.Get("/runs/{id}/events", h.ListRunEvents)
 
+		// Run Approval (Phase 31)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/runs/{id}/approve", h.ApproveRun)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/runs/{id}/reject", h.RejectRun)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/runs/{id}/approve-partial", h.ApproveRunPartial)
+
 		// LLM management (proxied to LiteLLM)
 		r.Get("/llm/models", h.ListLLMModels)
 		r.Post("/llm/models", h.AddLLMModel)
@@ -243,6 +251,17 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/dashboard/charts/model-usage", h.DashboardModelUsage)
 		r.Get("/dashboard/charts/cost-by-project", h.DashboardCostByProject)
 		r.Get("/projects/{id}/health", h.ProjectHealth)
+
+		// Boundaries (Phase 31)
+		r.Get("/projects/{id}/boundaries", h.GetProjectBoundaries)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Put("/projects/{id}/boundaries", h.UpdateProjectBoundaries)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/projects/{id}/boundaries/analyze", h.TriggerBoundaryAnalysis)
+
+		// Review/Refactor (Phase 31)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/projects/{id}/review-refactor", h.TriggerReviewRefactor)
 
 		// Roadmap (nested under projects)
 		r.Get("/projects/{id}/roadmap", h.GetProjectRoadmap)

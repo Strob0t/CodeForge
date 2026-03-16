@@ -85,3 +85,28 @@ func TestAdaptiveContextBudget_ZeroBase(t *testing.T) {
 		t.Errorf("zero base budget should return 0, got %d", got)
 	}
 }
+
+func TestPhaseAwareContextBudget(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		base    int
+		wantPct int
+	}{
+		{"boundary-analyzer gets full", "boundary-analyzer", 2000, 100},
+		{"contract-reviewer gets 60%", "contract-reviewer", 2000, 60},
+		{"reviewer gets 50%", "reviewer", 2000, 50},
+		{"refactorer gets 70%", "refactorer", 2000, 70},
+		{"unknown gets full", "coder", 2000, 100},
+		{"zero base returns zero", "reviewer", 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PhaseAwareContextBudget(tt.base, tt.mode)
+			want := tt.base * tt.wantPct / 100
+			if got != want {
+				t.Errorf("PhaseAwareContextBudget(%d, %q) = %d, want %d", tt.base, tt.mode, got, want)
+			}
+		})
+	}
+}

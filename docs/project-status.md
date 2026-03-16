@@ -245,6 +245,10 @@ Real-time structured event feed for running benchmark runs. Go `TrajectoryEventP
 
 "Allow Always" button in HITL PermissionRequestCard now persists permanent policy rules. `POST /api/v1/policies/allow-always` endpoint: resolves project's effective profile, clones immutable presets to `{preset}-custom-{projectId}`, constructs `PermissionRule` from tool name + command glob pattern (e.g., `Bash/git*`), prepends to profile (first-match-wins), updates project association. Idempotent via `HasRuleForSpecifier` duplicate detection. Future identical tool calls auto-approve without HITL prompt. 12 files changed, 26 new tests across Go domain/service/HTTP layers + frontend wiring.
 
+### Phase 31: Contract-First Review/Refactor (COMPLETED)
+
+Contract-first review and refactoring pipeline: boundary domain model (ProjectBoundaryConfig), 2 new agent modes (boundary-analyzer, contract-reviewer), review-refactor pipeline template (4-step sequential: boundary analysis -> contract review -> intra-layer review -> refactoring), DiffImpactScorer with 3-tier threshold HITL (auto-apply/notify/approve), ReviewTriggerService with cascade dedup (pipeline-completion, branch-merge, manual), phase-aware context budget per pipeline step, waiting_approval step status with approve/reject flow, HTTP endpoints for boundaries CRUD and run approval, Python NATS consumer for review triggers, SolidJS RefactorApproval overlay and BoundariesPanel.
+
 ### E2E Test Expansion & Verification Tooling (COMPLETED)
 
 Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests verifying full billing error -> classify -> mark exhausted -> model switch chain). File CRUD Playwright E2E (`frontend/e2e/file-crud.spec.ts`, 4 tests). Feature description Playwright E2E (`frontend/e2e/feature-description.spec.ts`, 4 tests). Verification trend tracking in `scripts/verify-features.sh` (`--trend` flag, JSON history with git SHA/branch/timestamp in `data/verification-history/`). Agent-eval benchmark run with `mistral/mistral-large-latest` (0/300 -- model could not produce code, infrastructure verified working).

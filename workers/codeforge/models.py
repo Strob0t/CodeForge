@@ -619,3 +619,32 @@ class A2ATaskCompleteMessage(BaseModel):
     tenant_id: str = ""
     state: str = "completed"
     error: str = ""
+
+
+# --- Review/Refactor Models (Phase 31) ---
+
+
+class ReviewTriggerRequestPayload(BaseModel):
+    """Request to trigger a review run on a project (matches Go ReviewTriggerRequestPayload)."""
+
+    project_id: str
+    tenant_id: str
+    commit_sha: str
+    source: str
+
+
+class BoundaryEntry(BaseModel):
+    """A single detected layer boundary (matches Go ReviewBoundaryEntry)."""
+
+    path: str
+    type: str
+    counterpart: str = ""
+    auto_detected: bool = True
+
+
+class ReviewBoundaryAnalyzedPayload(BaseModel):
+    """Published when layer boundaries have been detected (matches Go ReviewBoundaryAnalyzedPayload)."""
+
+    project_id: str
+    tenant_id: str
+    boundaries: list[BoundaryEntry]

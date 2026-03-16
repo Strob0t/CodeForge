@@ -14,6 +14,30 @@ const contextDecayThreshold = 60
 // benefits most from pre-injected context (RepoMap, Retrieval, etc.).
 // By turn 15+ the agent has read files and built its own context through
 // tool calls, so injecting more wastes tokens.
+// phaseContextScale maps review pipeline mode IDs to their context budget
+// percentage. Focused phases (reviewer, contract-reviewer) need less context
+// than boundary analysis which requires full codebase visibility.
+var phaseContextScale = map[string]int{
+	"boundary-analyzer": 100,
+	"contract-reviewer": 60,
+	"reviewer":          50,
+	"refactorer":        70,
+}
+
+// PhaseAwareContextBudget scales the context budget based on the active
+// review pipeline phase. Boundary analysis gets the full budget; focused
+// review/refactor phases get a reduced slice to save tokens.
+func PhaseAwareContextBudget(baseBudget int, modeID string) int {
+	if baseBudget <= 0 {
+		return 0
+	}
+	pct, ok := phaseContextScale[modeID]
+	if !ok {
+		return baseBudget
+	}
+	return baseBudget * pct / 100
+}
+
 func AdaptiveContextBudget(baseBudget int, history []messagequeue.ConversationMessagePayload) int {
 	if baseBudget <= 0 {
 		return 0

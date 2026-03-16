@@ -28,12 +28,13 @@ const (
 type StepStatus string
 
 const (
-	StepStatusPending   StepStatus = "pending"
-	StepStatusRunning   StepStatus = "running"
-	StepStatusCompleted StepStatus = "completed"
-	StepStatusFailed    StepStatus = "failed"
-	StepStatusSkipped   StepStatus = "skipped"
-	StepStatusCancelled StepStatus = "cancelled"
+	StepStatusPending         StepStatus = "pending"
+	StepStatusRunning         StepStatus = "running"
+	StepStatusCompleted       StepStatus = "completed"
+	StepStatusFailed          StepStatus = "failed"
+	StepStatusSkipped         StepStatus = "skipped"
+	StepStatusCancelled       StepStatus = "cancelled"
+	StepStatusWaitingApproval StepStatus = "waiting_approval"
 )
 
 // IsTerminal returns true if the step is in a final state.

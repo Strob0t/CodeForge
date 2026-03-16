@@ -885,6 +885,24 @@
   - History stored as JSON in `data/verification-history/` with git SHA, branch, timestamp
   - `--trend` flag displays last 20 runs summary + per-feature trend across last 5 runs
 
+#### Phase 31 -- Contract-First Review/Refactor (COMPLETED)
+- [x] Boundary domain model (ProjectBoundaryConfig, BoundaryFile) -- 2026-03-15
+- [x] Plan domain: waiting_approval step status -- 2026-03-15
+- [x] DB migrations (073 project_boundaries, 074 review_triggers) -- 2026-03-15
+- [x] NATS subjects (review.>) for Go + Python -- 2026-03-15
+- [x] Mode presets: boundary-analyzer, contract-reviewer (24 total) -- 2026-03-15
+- [x] Pipeline template: review-refactor (4-step sequential) -- 2026-03-15
+- [x] DiffImpactScorer (3-tier threshold HITL) -- 2026-03-15
+- [x] Phase-aware context budget (boundary/contract/review/refactor phases) -- 2026-03-15
+- [x] Store interface + PostgreSQL implementation (boundaries + review triggers) -- 2026-03-15
+- [x] BoundaryService with CRUD and validation -- 2026-03-15
+- [x] ReviewTriggerService with cascade dedup -- 2026-03-15
+- [x] Orchestrator: waiting_approval status handling (approve/reject) -- 2026-03-15
+- [x] HTTP endpoints: boundaries CRUD, review trigger, run approval -- 2026-03-15
+- [x] Python NATS consumer: review trigger handler -- 2026-03-15
+- [x] Frontend: RefactorApproval HITL UI + BoundariesPanel -- 2026-03-15
+- [x] Integration wiring: services in main.go + autoIndex trigger -- 2026-03-15
+
 #### Project Workflow Redesign (COMPLETED -- 2026-03-09)
 
 > Plan: `docs/plans/2026-03-09-project-workflow-impl-plan.md`

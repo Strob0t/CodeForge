@@ -265,8 +265,8 @@ func TestInstantiate_EmptyBinding(t *testing.T) {
 
 func TestBuiltinTemplates_AllValid(t *testing.T) {
 	templates := BuiltinTemplates()
-	if len(templates) != 3 {
-		t.Fatalf("expected 3 builtin templates, got %d", len(templates))
+	if len(templates) != 4 {
+		t.Fatalf("expected 4 builtin templates, got %d", len(templates))
 	}
 
 	for _, tmpl := range templates {

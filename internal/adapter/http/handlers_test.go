@@ -23,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/autoagent"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 	bp "github.com/Strob0t/CodeForge/internal/domain/branchprotection"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -2444,8 +2445,8 @@ func TestListPolicyProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	profiles := result["profiles"]
-	if len(profiles) != 4 {
-		t.Fatalf("expected 4 profiles (4 presets), got %d: %v", len(profiles), profiles)
+	if len(profiles) != 5 {
+		t.Fatalf("expected 5 profiles (5 presets), got %d: %v", len(profiles), profiles)
 	}
 }
 
@@ -2824,8 +2825,8 @@ func TestCreatePolicyProfile(t *testing.T) {
 
 	var result map[string][]string
 	_ = json.NewDecoder(w.Body).Decode(&result)
-	if len(result["profiles"]) != 5 {
-		t.Fatalf("expected 5 profiles (4 presets + 1 custom), got %d", len(result["profiles"]))
+	if len(result["profiles"]) != 6 {
+		t.Fatalf("expected 6 profiles (5 presets + 1 custom), got %d", len(result["profiles"]))
 	}
 }
 
@@ -3409,6 +3410,23 @@ func (m *mockStore) ListChannelMessages(_ context.Context, _, _ string, _ int) (
 func (m *mockStore) AddChannelMember(_ context.Context, _ *channel.Member) error { return nil }
 func (m *mockStore) UpdateChannelMemberNotify(_ context.Context, _, _ string, _ channel.NotifySetting) error {
 	return nil
+}
+
+// Boundary stubs (Phase 31)
+func (m *mockStore) GetProjectBoundaries(_ context.Context, _ string) (*boundary.ProjectBoundaryConfig, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) UpsertProjectBoundaries(_ context.Context, _ *boundary.ProjectBoundaryConfig) error {
+	return nil
+}
+func (m *mockStore) DeleteProjectBoundaries(_ context.Context, _ string) error { return nil }
+
+// Review Trigger stubs (Phase 31)
+func (m *mockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *mockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
+	return false, nil
 }
 
 func TestListRemoteBranches_URLValidation(t *testing.T) {
