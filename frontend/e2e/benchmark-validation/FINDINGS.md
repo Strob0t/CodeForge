@@ -215,17 +215,27 @@ parameter for multi-rollout selection only.
 
 ## Known Issues (Not Yet Fixed)
 
+> Detailed fix TODOs with file paths, test plans, and implementation steps:
+> `docs/todo.md` → "Benchmark E2E — Remaining Bugs (OPEN)"
+
 ### Issue A: Invalid Model Name Silently Succeeds (Regression)
 The `_validate_model_exists()` fix from Bug #3 doesn't catch models with format
 `nonexistent/model-xyz-404` — the model completes with score=0 instead of failing.
+**Fix plan:** TODO items A.1–A.3 in `docs/todo.md`
 
 ### Issue B: HTTP 500 Instead of 400 for Invalid Requests
 Invalid dataset (`nonexistent-xyz-dataset`) and missing required fields return HTTP 500
 instead of HTTP 400. Input validation at the Go handler layer is incomplete.
+**Root cause:** `CreateRunRequest.Validate()` returns plain `fmt.Errorf()` — not wrapped
+with `domain.ErrValidation` — so `writeDomainError()` falls through to HTTP 500.
+**Fix plan:** TODO items B.1–B.4 in `docs/todo.md`
 
 ### Issue C: Unknown Evaluator Names Silently Ignored
 Requesting `metrics: ["nonexistent_evaluator"]` completes successfully with empty scores
 instead of failing with a validation error.
+**Root cause:** `_build_evaluators()` logs warning for unknown names, then falls through
+to default LLMJudgeEvaluator. Needs validation in both Go (HTTP 400) and Python (safety net).
+**Fix plan:** TODO items C.1–C.5 in `docs/todo.md`
 
 ### Issue D: External Suite HuggingFace API Failures — FIXED (2026-03-16)
 Three external suites were failing due to incorrect API parameters and missing auth:

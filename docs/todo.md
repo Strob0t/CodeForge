@@ -216,6 +216,167 @@
 - Results: Phase 3b external suites 4/5 PASS (LiveCodeBench partial due to HF server limitations), Phase 5 API 12/12 PASS, Phase 6 errors 2/5 PASS
 - Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
 
+#### Benchmark E2E — Remaining Bugs (OPEN)
+
+> Discovered during E2E validation Round 2 (Phase 6 error scenarios).
+> Reference: `frontend/e2e/benchmark-validation/FINDINGS.md` → "Known Issues (Not Yet Fixed)"
+> These bugs affect input validation and error handling — the happy path works, but malformed
+> requests don't fail cleanly.
+
+##### Issue A: Invalid Model Name Silently Succeeds (Regression from Bug 3)
+
+> **Severity:** Medium
+> **E2E Test:** Phase 6.2 — FAIL (run completes with score=0 instead of failing)
+> **Root cause:** `_validate_model_exists()` does exact match against `/v1/models` list, but
+> LiteLLM accepts `provider/model-name` format models (e.g. `nonexistent/model-xyz-404`) and
+> silently falls back or passes them through. The validation only catches bare model names that
+> aren't in the list — prefixed names bypass it.
+
+- [ ] A.1: Write failing test — model with `provider/name` format not in LiteLLM models list
+  - File: `workers/tests/test_model_validation.py`
+  - Test: `_validate_model_exists("nonexistent/model-xyz-404", available_models=["lm_studio/qwen3-30b"])` should raise `ValueError`
+  - Test: `_validate_model_exists("openai/gpt-4", available_models=["openai/gpt-4"])` should pass (exact match still works)
+  - Run: `cd workers && poetry run pytest tests/test_model_validation.py -v`
+
+- [ ] A.2: Fix `_validate_model_exists()` — normalize comparison for provider-prefixed models
+  - File: `workers/codeforge/consumer/_benchmark.py` (line 57-71)
+  - Current logic: `if model not in available_models: raise ValueError`
+  - Problem: LiteLLM `/v1/models` might return `lm_studio/qwen3-30b-a3b` while user sends `lm_studio/nonexistent-model` — both have `lm_studio/` prefix but only one is valid
+  - Fix option A (preferred): Keep exact match but also attempt a LiteLLM model info call (`/model/info` endpoint) to confirm the model is actually routable. If the model doesn't resolve, raise `ValueError`.
+  - Fix option B (simpler): Extract provider prefix from model name (`model.split("/")[0]`), check that the prefix matches at least one available model's prefix AND the full model name matches. If no exact match, raise `ValueError` with helpful message listing similar models.
+  - Key constraint: Must not break `model=auto` (already guarded by early return)
+
+- [ ] A.3: Write test for edge cases
+  - File: `workers/tests/test_model_validation.py`
+  - Test: model with valid prefix but invalid name (`lm_studio/nonexistent`) → fails
+  - Test: model that is a substring of a valid model (`lm_studio/qwen3`) → fails (no partial match)
+  - Test: empty model list (LiteLLM unreachable) → passes (existing skip behavior)
+  - Test: model `auto` → passes (existing early return)
+
+##### Issue B: HTTP 500 Instead of 400 for Invalid Requests
+
+> **Severity:** High
+> **E2E Tests:** Phase 6.1 (invalid dataset) — WEAK PASS (HTTP 500, should be 400),
+>                Phase 6.3 (missing required field) — FAIL (HTTP 500, should be 400)
+> **Root cause:** `CreateRunRequest.Validate()` returns plain `fmt.Errorf()` errors, but
+> `writeDomainError()` only maps `domain.ErrValidation`-wrapped errors to HTTP 400. Plain
+> errors fall through to the `default` case → HTTP 500.
+
+- [ ] B.1: Write failing Go test — validation errors should return HTTP 400
+  - File: `internal/adapter/http/handlers_test.go`
+  - Test: `POST /api/v1/benchmarks/runs` with `{"model": "gpt-4", "metrics": ["llm_judge"]}` (missing dataset AND suite_id) → expect HTTP 400 with `"dataset or suite_id is required"`
+  - Test: `POST /api/v1/benchmarks/runs` with `{"dataset": "foo", "metrics": ["llm_judge"]}` (missing model) → expect HTTP 400 with `"model is required"`
+  - Test: `POST /api/v1/benchmarks/runs` with `{"dataset": "foo", "model": "gpt-4"}` (missing metrics) → expect HTTP 400 with `"at least one metric is required"`
+  - Test: `POST /api/v1/benchmarks/runs` with `{"dataset": "foo", "model": "gpt-4", "metrics": ["llm_judge"], "benchmark_type": "invalid"}` → expect HTTP 400 with `"invalid benchmark type"`
+  - Run: `cd /workspaces/CodeForge && go test ./internal/adapter/http/ -run TestCreateBenchmarkRun -v`
+
+- [ ] B.2: Wrap `Validate()` errors with `domain.ErrValidation`
+  - File: `internal/domain/benchmark/benchmark.go` (line 175-190, `Validate()` method)
+  - Current: `return fmt.Errorf("model is required")`
+  - Fix: `return fmt.Errorf("%w: model is required", domain.ErrValidation)`
+  - Apply to ALL 5 error returns in `Validate()`:
+    1. `dataset or suite_id is required`
+    2. `model is required`
+    3. `at least one metric is required`
+    4. `invalid benchmark type: %q`
+    5. `invalid exec mode: %q`
+  - Import: `"github.com/CodeForge/internal/domain"` (or wherever `ErrValidation` is defined)
+  - This ensures `writeDomainError()` in `internal/adapter/http/helpers.go:114` matches the `errors.Is(err, domain.ErrValidation)` case → HTTP 400
+
+- [ ] B.3: Verify `StartRun()` dataset-not-found also returns 400 (not 500)
+  - File: `internal/service/benchmark.go` (line 192)
+  - Current: `return nil, fmt.Errorf("dataset %q not found: %w", run.Dataset, statErr)`
+  - This wraps `statErr` (an `os.PathError`) — `writeDomainError()` won't match it → HTTP 500
+  - Fix: `return nil, fmt.Errorf("%w: dataset %q not found", domain.ErrValidation, run.Dataset)`
+  - Test: `POST /api/v1/benchmarks/runs` with `{"dataset": "nonexistent-xyz", "model": "gpt-4", "metrics": ["llm_judge"]}` → expect HTTP 400 (not 500)
+
+- [ ] B.4: Run full test suite to verify no regressions
+  - Run: `cd /workspaces/CodeForge && go test ./internal/... -count=1`
+  - All existing benchmark tests must still pass
+
+##### Issue C: Unknown Evaluator Names Silently Ignored
+
+> **Severity:** Medium
+> **E2E Test:** Phase 6.4 — FAIL (run completes with empty scores instead of failing)
+> **Root cause:** `_build_evaluators()` in `workers/codeforge/consumer/_benchmark.py:652-697`
+> uses a `logger.warning("unknown evaluator, skipping")` for unrecognized names (line 681),
+> then falls through to the "no evaluators" fallback which creates a default LLMJudgeEvaluator.
+> So requesting `metrics: ["nonexistent_evaluator"]` silently succeeds with a default evaluator.
+
+- [ ] C.1: Decide on validation strategy (two options):
+  - **Option 1 — Go-side validation (preferred):** Add a `ValidMetrics` set in `internal/domain/benchmark/benchmark.go` containing the 4 valid top-level metrics (`llm_judge`, `functional_test`, `sparc`, `trajectory_verifier`) plus the 5 LLM judge sub-metrics (`correctness`, `faithfulness`, `relevance`, `coherence`, `fluency`). Check each element of `req.Metrics` in `Validate()` — reject with HTTP 400 if unknown.
+  - **Option 2 — Python-side validation:** Change `_build_evaluators()` to raise `ValueError` instead of logging a warning for unknown names. The existing error handler would then publish `status=failed` with a descriptive error message.
+  - **Recommendation:** Option 1 (Go-side) catches errors earlier and returns proper HTTP 400. Option 2 is a safety net. Implement both.
+
+- [ ] C.2: Write failing Go test — unknown metric names rejected
+  - File: `internal/domain/benchmark/benchmark_test.go`
+  - Test: `CreateRunRequest{Metrics: []string{"nonexistent_evaluator"}}` → `Validate()` returns error containing `"unknown metric"` and `"nonexistent_evaluator"`
+  - Test: `CreateRunRequest{Metrics: []string{"llm_judge", "functional_test"}}` → `Validate()` returns nil (valid)
+  - Test: `CreateRunRequest{Metrics: []string{"llm_judge", "invalid"}}` → `Validate()` returns error (one invalid is enough to reject)
+  - Run: `cd /workspaces/CodeForge && go test ./internal/domain/benchmark/ -v`
+
+- [ ] C.3: Add `ValidMetrics` set and check in `Validate()`
+  - File: `internal/domain/benchmark/benchmark.go`
+  - Add: `var ValidMetrics = map[string]bool{"llm_judge": true, "functional_test": true, "sparc": true, "trajectory_verifier": true, "correctness": true, "faithfulness": true, "relevance": true, "coherence": true, "fluency": true}`
+  - In `Validate()`, after the `len(r.Metrics) == 0` check, add:
+    ```go
+    for _, m := range r.Metrics {
+        if !ValidMetrics[m] {
+            return fmt.Errorf("%w: unknown metric %q; valid metrics: llm_judge, functional_test, sparc, trajectory_verifier", domain.ErrValidation, m)
+        }
+    }
+    ```
+
+- [ ] C.4: Python-side safety net — raise instead of warn for unknown evaluators
+  - File: `workers/codeforge/consumer/_benchmark.py` (line 681)
+  - Current: `logger.warning("unknown evaluator, skipping", evaluator=name)`
+  - Fix: `raise ValueError(f"unknown evaluator/metric: {name!r}. Valid: llm_judge, functional_test, sparc, trajectory_verifier, correctness, faithfulness, relevance, coherence, fluency")`
+  - This ensures that even if Go-side validation is bypassed (e.g. direct NATS message), the worker fails cleanly
+  - Write test in `workers/tests/test_score_key_normalization.py` or new file:
+    `_build_evaluators(["nonexistent_evaluator"], "gpt-4")` → raises `ValueError`
+
+- [ ] C.5: Remove the "no evaluators" fallback default
+  - File: `workers/codeforge/consumer/_benchmark.py` (lines 691-697)
+  - Current: `if not evaluators:` → creates a default `LLMJudgeEvaluator`
+  - This fallback masks validation failures. After C.3+C.4, it should never be reached.
+  - Replace with: `if not evaluators: raise ValueError("no valid evaluators after processing metrics list")`
+  - Or remove the fallback entirely (the `raise ValueError` in C.4 will already prevent reaching this code)
+
+##### Issue E: LiveCodeBench — Replace HF HTTP API with `datasets` Library
+
+> **Severity:** Low (workaround exists: `max_tasks: 3`)
+> **Root cause:** HuggingFace Datasets Server HTTP API (`datasets-server.huggingface.co/rows`)
+> can't serve `livecodebench/code_generation` rows reliably — returns 502/504 for large rows
+> even at page_size=10. Current adaptive page_size fallback (100→10→1) works but is extremely
+> slow (~12h for 880 rows). Some rows return 500 and are skipped entirely.
+
+- [ ] E.1: Add `datasets` library to Poetry dependencies
+  - File: `workers/pyproject.toml`
+  - Add: `datasets = "^3.0"` (HuggingFace datasets library)
+  - Run: `cd workers && poetry add datasets`
+  - Note: This is a large dependency (~100MB with Apache Arrow). Consider making it optional via extras: `[tool.poetry.extras] hf = ["datasets"]`
+
+- [ ] E.2: Add `download_hf_dataset_parquet()` alternative in cache module
+  - File: `workers/codeforge/evaluation/cache.py`
+  - New function: `async def download_hf_dataset_parquet(dataset, split, provider_name, filename, base_dir, config)` that:
+    1. Checks cache first (same `get_cached_path()` logic)
+    2. Uses `datasets.load_dataset(dataset, config, split=split)` for direct Parquet download
+    3. Converts to JSONL and saves to cache directory
+    4. Handles `HF_TOKEN` authentication via `datasets.login(token=hf_token)` or `HfFolder.save_token()`
+  - This bypasses the HTTP rows API entirely — uses HuggingFace Hub direct download
+
+- [ ] E.3: Update LiveCodeBench provider to use Parquet download
+  - File: `workers/codeforge/evaluation/providers/livecodebench.py`
+  - Change `_fetch_tasks()` to call `download_hf_dataset_parquet()` instead of `download_hf_dataset()`
+  - Keep `download_hf_dataset()` as fallback for providers that work fine with HTTP API (humaneval, mbpp, bigcodebench, cruxeval)
+
+- [ ] E.4: Write tests for Parquet download path
+  - File: `workers/tests/test_cache_parquet.py`
+  - Test: mock `datasets.load_dataset()` → verify JSONL file created with correct records
+  - Test: cached file exists → skips download
+  - Test: `HF_TOKEN` env var propagated to datasets library
+  - Run: `cd workers && poetry run pytest tests/test_cache_parquet.py -v`
+
 #### Frontend UI Bug Fixes & i18n (COMPLETED)
 - [x] (2026-03-15) **BUG-1 (High) — Broken "Go to Chat" Navigation:** `onNavigate("chat")` silently did nothing — `"chat"` was not a valid `LeftTab`. Created unified `handleNavigate()` in `ProjectDetailPage.tsx` that switches `mobileView` to `"chat"` on mobile. Replaced 8 duplicate inline handlers. Fixed in: `GoalsPanel.tsx:202`, `SessionPanel.tsx:116`, `WarRoom.tsx:90`, `OnboardingProgress.tsx:44`.
 - [x] (2026-03-15) **BUG-2 (Medium) — Dead RunPanel Code:** `run.toolcall` WS event was a stub comment. `RunPanel.addToolCall`/`updateRunStatus` attached to component function object but never called. Removed dead code — tool calls are rendered via AG-UI events in `ChatPanel`. Files: `ProjectDetailPage.tsx`, `RunPanel.tsx`.
