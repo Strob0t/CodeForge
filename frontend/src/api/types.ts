@@ -207,6 +207,12 @@ export interface AgentEvent {
   request_id?: string;
   version: number;
   created_at: string;
+  // Per-tool tracking (populated for tool_called/step_done events)
+  tool_name?: string;
+  model?: string;
+  tokens_in?: number;
+  tokens_out?: number;
+  cost_usd?: number;
 }
 
 // --- Run types (Phase 4C) ---
@@ -1686,7 +1692,7 @@ export interface LiveFeedEvent {
 /** Benchmark-specific progress tracked from WS events. */
 export interface BenchmarkLiveProgress {
   completed_tasks: number;
-  total_tasks: number;
+  total_tasks: number | null;
   avg_score: number;
   total_cost_usd: number;
 }
