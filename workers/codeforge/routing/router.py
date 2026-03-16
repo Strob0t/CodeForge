@@ -85,6 +85,13 @@ class HybridRouter:
 
         return get_blocklist().filter_available(self._available_models)
 
+    def _is_provider_exhausted(self, model: str) -> bool:
+        """Return True if the model's provider is currently rate-limited."""
+        if self._rate_tracker is None:
+            return False
+        provider = model.split("/")[0] if "/" in model else ""
+        return bool(provider and self._rate_tracker.is_exhausted(provider))
+
     def route(
         self,
         prompt: str,
@@ -165,16 +172,12 @@ class HybridRouter:
 
         tier_defaults = COMPLEXITY_DEFAULTS.get(primary.complexity_tier, [])
         for m in tier_defaults:
-            if m not in seen and m in available:
-                if self._rate_tracker is not None:
-                    provider = m.split("/")[0] if "/" in m else ""
-                    if provider and self._rate_tracker.is_exhausted(provider):
-                        continue
+            if m not in seen and m in available and not self._is_provider_exhausted(m):
                 fallbacks.append(m)
                 seen.add(m)
 
         for m in available:
-            if m not in seen:
+            if m not in seen and not self._is_provider_exhausted(m):
                 fallbacks.append(m)
                 seen.add(m)
 
@@ -221,12 +224,8 @@ class HybridRouter:
             for model in COMPLEXITY_DEFAULTS.get(tier, []):
                 if len(steps) >= max_steps:
                     break
-                if model in seen or model not in available:
+                if model in seen or model not in available or self._is_provider_exhausted(model):
                     continue
-                if self._rate_tracker is not None:
-                    provider = model.split("/")[0] if "/" in model else ""
-                    if provider and self._rate_tracker.is_exhausted(provider):
-                        continue
                 seen.add(model)
                 steps.append(CascadeStep(model=model, confidence_threshold=threshold))
 
@@ -247,12 +246,8 @@ class HybridRouter:
         preferences = COMPLEXITY_DEFAULTS.get(analysis.complexity_tier, [])
 
         for model in preferences:
-            if model not in available:
+            if model not in available or self._is_provider_exhausted(model):
                 continue
-            if self._rate_tracker is not None:
-                provider = model.split("/")[0] if "/" in model else ""
-                if provider and self._rate_tracker.is_exhausted(provider):
-                    continue
             if max_cost is not None:
                 from codeforge.routing.capabilities import enrich_model_capabilities
 

@@ -406,6 +406,7 @@ async def test_fallback_records_error_in_rate_tracker() -> None:
 
     with patch("codeforge.agent_loop.get_tracker") as mock_get_tracker:
         tracker = MagicMock()
+        tracker.is_exhausted.return_value = False
         mock_get_tracker.return_value = tracker
 
         result = await executor._try_model_fallback(cfg, state, exc)

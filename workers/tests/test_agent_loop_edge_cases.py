@@ -281,7 +281,9 @@ async def test_llm_429_triggers_fallback() -> None:
         patch("codeforge.agent_loop.get_tracker") as mock_tracker,
         patch("codeforge.agent_loop.get_blocklist") as mock_blocklist,
     ):
-        mock_tracker.return_value = MagicMock()
+        tracker_mock = MagicMock()
+        tracker_mock.is_exhausted.return_value = False
+        mock_tracker.return_value = tracker_mock
         mock_blocklist.return_value = MagicMock()
         result = await executor.run(
             [{"role": "user", "content": "test"}],
@@ -312,7 +314,9 @@ async def test_all_fallbacks_exhausted() -> None:
         patch("codeforge.agent_loop.get_tracker") as mock_tracker,
         patch("codeforge.agent_loop.get_blocklist") as mock_blocklist,
     ):
-        mock_tracker.return_value = MagicMock()
+        tracker_mock = MagicMock()
+        tracker_mock.is_exhausted.return_value = False
+        mock_tracker.return_value = tracker_mock
         mock_blocklist.return_value = MagicMock()
         result = await executor.run(
             [{"role": "user", "content": "test"}],
@@ -380,7 +384,9 @@ async def test_unexpected_exception_wrapped() -> None:
         patch("codeforge.agent_loop.get_tracker") as mock_tracker,
         patch("codeforge.agent_loop.get_blocklist") as mock_blocklist,
     ):
-        mock_tracker.return_value = MagicMock()
+        tracker_mock = MagicMock()
+        tracker_mock.is_exhausted.return_value = False
+        mock_tracker.return_value = tracker_mock
         mock_blocklist.return_value = MagicMock()
         result = await executor.run(
             [{"role": "user", "content": "test"}],
@@ -391,6 +397,60 @@ async def test_unexpected_exception_wrapped() -> None:
         )
 
     assert result.final_content == "Recovered"
+
+
+async def test_fallback_skips_rate_limited_provider() -> None:
+    """When a provider is rate-limited, fallback skips all models from that provider."""
+    call_count = 0
+
+    async def _stream(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        model = kwargs.get("model", "")
+        if "gemini" in model:
+            raise LLMError(429, model, "rate limit exceeded")
+        return ChatCompletionResponse(
+            content="OK from openai",
+            tool_calls=[],
+            finish_reason="stop",
+            tokens_in=10,
+            tokens_out=5,
+            model="openai/gpt-4o-mini",
+            cost_usd=0.001,
+        )
+
+    llm = MagicMock()
+    llm.chat_completion_stream = AsyncMock(side_effect=_stream)
+    runtime = _make_runtime()
+    registry = _make_registry()
+
+    executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/ws")
+
+    from codeforge.routing.rate_tracker import RateLimitTracker
+
+    tracker = RateLimitTracker()
+
+    with (
+        patch("codeforge.agent_loop.get_tracker", return_value=tracker),
+        patch("codeforge.agent_loop.get_blocklist") as mock_blocklist,
+    ):
+        mock_blocklist.return_value = MagicMock()
+        result = await executor.run(
+            [{"role": "user", "content": "test"}],
+            config=LoopConfig(
+                model="gemini/gemini-2.5-flash",
+                fallback_models=[
+                    "gemini/gemini-2.0-flash",  # same provider, should be skipped
+                    "openai/gpt-4o-mini",  # different provider, should be tried
+                ],
+            ),
+        )
+
+    assert result.final_content == "OK from openai"
+    assert result.error == ""
+    # Should have tried gemini-2.5-flash (failed), skipped gemini-2.0-flash (same provider),
+    # and gone directly to openai/gpt-4o-mini.
+    assert call_count == 2
 
 
 # ---------------------------------------------------------------------------

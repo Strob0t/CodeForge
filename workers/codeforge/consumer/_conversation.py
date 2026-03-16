@@ -238,6 +238,7 @@ class ConversationHandlerMixin:
                 primary_model,
                 routing,
                 runtime,
+                fallback_models=fallback_models,
             )
 
         from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
@@ -270,40 +271,85 @@ class ConversationHandlerMixin:
         model: str,
         routing: object,
         runtime: RuntimeClient,
+        fallback_models: list[str] | None = None,
     ) -> AgentLoopResult:
-        """Single-turn LLM call with per-chunk streaming via NATS."""
+        """Single-turn LLM call with per-chunk streaming via NATS.
+
+        Supports model fallback: if the primary model fails with a
+        fallback-eligible error (429, 402, auth), tries the next model
+        in the chain.
+        """
         import asyncio
 
-        from codeforge.llm import RoutingResult
+        from codeforge.llm import LLMError, RoutingResult, classify_error_type, is_fallback_eligible
         from codeforge.models import AgentLoopResult
+        from codeforge.routing.blocklist import get_blocklist
+        from codeforge.routing.rate_tracker import get_tracker
 
         rt = routing if isinstance(routing, RoutingResult) else RoutingResult()
-        loop = asyncio.get_running_loop()
-        pending: list[asyncio.Task[None]] = []
 
-        def _on_chunk(chunk_text: str) -> None:
-            task = loop.create_task(runtime.send_output(chunk_text))
-            pending.append(task)
+        models_to_try = [model] + (fallback_models or [])
+        tracker = get_tracker()
+        failed: set[str] = set()
+        last_error: str = ""
 
-        resp = await self._llm.chat_completion_stream(
-            messages=messages,
-            model=model,
-            temperature=rt.temperature,
-            tags=rt.tags,
-            on_chunk=_on_chunk,
-            provider_api_key=run_msg.provider_api_key,
-        )
+        for current_model in models_to_try:
+            if current_model in failed:
+                continue
+            # Skip models whose provider is currently rate-limited.
+            provider = current_model.split("/", 1)[0] if "/" in current_model else ""
+            if provider and tracker.is_exhausted(provider):
+                continue
 
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+            loop = asyncio.get_running_loop()
+            pending: list[asyncio.Task[None]] = []
 
+            def _on_chunk(chunk_text: str, _pending: list = pending, _loop: asyncio.AbstractEventLoop = loop) -> None:
+                task = _loop.create_task(runtime.send_output(chunk_text))
+                _pending.append(task)
+
+            try:
+                resp = await self._llm.chat_completion_stream(
+                    messages=messages,
+                    model=current_model,
+                    temperature=rt.temperature,
+                    tags=rt.tags,
+                    on_chunk=_on_chunk,
+                    provider_api_key=run_msg.provider_api_key,
+                )
+            except LLMError as exc:
+                failed.add(current_model)
+                last_error = str(exc)
+                error_type = classify_error_type(exc)
+                if error_type:
+                    tracker.record_error(provider or current_model, error_type=error_type)
+                if exc.status_code in (401, 403):
+                    get_blocklist().block_auth(current_model, reason=f"HTTP {exc.status_code}")
+                if not is_fallback_eligible(exc) or current_model == models_to_try[-1]:
+                    break
+                notice = f"\n[Model {current_model} unavailable ({exc.status_code}). Switching to next model]\n"
+                await runtime.send_output(notice)
+                logger.warning("simple_chat fallback: %s failed (%d)", current_model, exc.status_code)
+                continue
+
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+            return AgentLoopResult(
+                final_content=resp.content,
+                total_cost=resp.cost_usd,
+                total_tokens_in=resp.tokens_in,
+                total_tokens_out=resp.tokens_out,
+                step_count=1,
+                model=resp.model,
+            )
+
+        # All models exhausted.
         return AgentLoopResult(
-            final_content=resp.content,
-            total_cost=resp.cost_usd,
-            total_tokens_in=resp.tokens_in,
-            total_tokens_out=resp.tokens_out,
-            step_count=1,
-            model=resp.model,
+            final_content="",
+            step_count=0,
+            model=model,
+            error=f"All models failed. Last error: {last_error}",
         )
 
     async def _build_system_prompt(

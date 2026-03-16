@@ -31,7 +31,7 @@ from codeforge.models import (
 )
 from codeforge.pricing import resolve_cost
 from codeforge.routing.blocklist import get_blocklist
-from codeforge.routing.rate_tracker import get_tracker
+from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
@@ -114,11 +114,24 @@ class AgentLoopExecutor:
         return ""
 
     @staticmethod
-    def _pick_next_fallback(cfg: LoopConfig, state: _LoopState) -> str | None:
-        """Return the next untried fallback model, or None if exhausted."""
+    def _pick_next_fallback(
+        cfg: LoopConfig,
+        state: _LoopState,
+        rate_tracker: RateLimitTracker | None = None,
+    ) -> str | None:
+        """Return the next untried fallback model, or None if exhausted.
+
+        Skips models whose provider is currently rate-limited (via the rate
+        tracker) to avoid wasting time on providers that will 429 again.
+        """
         for m in cfg.fallback_models:
-            if m not in state.failed_models:
-                return m
+            if m in state.failed_models:
+                continue
+            if rate_tracker is not None:
+                provider = m.split("/", 1)[0] if "/" in m else ""
+                if provider and rate_tracker.is_exhausted(provider):
+                    continue
+            return m
         return None
 
     async def _try_model_fallback(
@@ -134,13 +147,14 @@ class AgentLoopExecutor:
         state.failed_models.add(failed_model)
         # Mark the provider as exhausted in the rate tracker so the HybridRouter
         # skips it on subsequent calls within the same conversation.
+        tracker = get_tracker()
         error_type = classify_error_type(exc)
         if error_type:
             provider = failed_model.split("/", 1)[0] if "/" in failed_model else failed_model
-            get_tracker().record_error(provider, error_type=error_type)
+            tracker.record_error(provider, error_type=error_type)
         if exc.status_code in (401, 403):
             get_blocklist().block_auth(failed_model, reason=f"HTTP {exc.status_code}")
-        next_model = self._pick_next_fallback(cfg, state)
+        next_model = self._pick_next_fallback(cfg, state, rate_tracker=tracker)
         if next_model is None:
             return f"LLM call failed: {exc}"
         cfg.model = next_model
