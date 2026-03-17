@@ -6,6 +6,7 @@ from codeforge.backends.opencode import OpenCodeExecutor
 from codeforge.backends.openhands import OpenHandsExecutor
 from codeforge.backends.plandex import PlandexExecutor
 from codeforge.backends.router import BackendRouter
+from codeforge.backends.sweagent import SweagentExecutor
 
 
 def build_default_router() -> BackendRouter:
@@ -16,6 +17,7 @@ def build_default_router() -> BackendRouter:
     router.register(OpenHandsExecutor())
     router.register(OpenCodeExecutor())
     router.register(PlandexExecutor())
+    router.register(SweagentExecutor())
     return router
 
 
@@ -26,5 +28,6 @@ __all__ = [
     "OpenCodeExecutor",
     "OpenHandsExecutor",
     "PlandexExecutor",
+    "SweagentExecutor",
     "build_default_router",
 ]
