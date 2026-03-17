@@ -1,0 +1,7 @@
+id: reminder.scope-drift
+category: reminder
+name: Scope Drift Warning
+priority: 70
+sort_order: 6
+content: |
+  Your recent actions appear to be drifting from the original task scope. Re-read the original request and focus only on what was asked. Do not add features, refactor unrelated code, or make improvements beyond the stated goal.

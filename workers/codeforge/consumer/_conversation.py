@@ -379,6 +379,14 @@ class ConversationHandlerMixin:
             )
             log.info("microagent prompts injected", count=len(run_msg.microagent_prompts))
 
+        # Inject system reminders (pre-evaluated by Go Core).
+        if run_msg.reminders:
+            reminder_block = "\n\n".join(f"<system-reminder>\n{r}\n</system-reminder>" for r in run_msg.reminders)
+            system_prompt = (
+                f"{system_prompt}\n\n--- System Reminders ---\n{reminder_block}\n--- End System Reminders ---"
+            )
+            log.info("system reminders injected", count=len(run_msg.reminders))
+
         # ConversationRunStartPayload does not carry tenant_id; use default.
         from codeforge.memory.models import DEFAULT_TENANT_ID
 

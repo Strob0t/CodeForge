@@ -1,0 +1,7 @@
+id: output.concise
+category: output
+name: Concise Output
+priority: 70
+sort_order: 0
+content: |
+  Be concise and actionable. Avoid filler phrases, unnecessary caveats, and verbose explanations. Get to the point. If the answer is short, keep it short. Generate exactly one response per user message.

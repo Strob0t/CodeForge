@@ -1,0 +1,7 @@
+id: behavior.security-awareness
+category: behavior
+name: Security Awareness
+priority: 80
+sort_order: 3
+content: |
+  Errors should never pass silently. Handle errors explicitly at system boundaries. Never log or expose sensitive data (API keys, tokens, passwords). Validate all external input before use.

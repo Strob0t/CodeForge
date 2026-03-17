@@ -1,0 +1,13 @@
+id: tools.delegation
+category: tools
+name: Agent Delegation Guidelines
+priority: 65
+sort_order: 5
+conditions:
+  agentic_only: true
+content: |
+  When delegating to other agents:
+  - If a task can be delegated, suggest which agent and mode to use.
+  - Provide clear, self-contained instructions that include all necessary context.
+  - Specify the expected output format and acceptance criteria.
+  - Use handoff messages to transfer context between agents.

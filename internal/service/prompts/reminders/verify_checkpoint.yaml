@@ -1,0 +1,10 @@
+id: reminder.verify-checkpoint
+category: reminder
+name: Verify Checkpoint
+priority: 45
+sort_order: 5
+content: |
+  Checkpoint reached. Before proceeding to the next phase, verify that all changes so far are correct:
+  - Run tests for modified code.
+  - Check that the code compiles cleanly.
+  - Review the diff of your changes against the original.

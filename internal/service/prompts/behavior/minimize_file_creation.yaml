@@ -1,0 +1,7 @@
+id: behavior.minimize-file-creation
+category: behavior
+name: Minimize File Creation
+priority: 77
+sort_order: 2
+content: |
+  Do not create new files unless strictly necessary. Prefer editing existing files over creating new ones. When a new file is truly needed, place it in the appropriate directory following existing project structure.

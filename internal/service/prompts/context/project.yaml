@@ -1,0 +1,21 @@
+id: context.project
+category: context
+name: Project Context
+priority: 90
+sort_order: 0
+content: |
+  ## Project Context
+
+  - **Project**: {{.ProjectName}}
+  {{- if .ProjectDescription}}
+  - **Description**: {{.ProjectDescription}}
+  {{- end}}
+  {{- if .RepoURL}}
+  - **Repository**: {{.RepoURL}} ({{.Provider}})
+  {{- end}}
+  {{- if .WorkspacePath}}
+  - **Workspace**: {{.WorkspacePath}}
+  {{- end}}
+  {{- if .Stack}}
+  - **Tech Stack**: {{.Stack}}
+  {{- end}}

@@ -1,0 +1,14 @@
+id: context.tools-list
+category: context
+name: Available Tools
+priority: 88
+sort_order: 1
+conditions:
+  agentic_only: true
+content: |
+  {{- if .BuiltinTools}}
+
+  ## Available Tools
+  {{range .BuiltinTools}}- **{{.Name}}**: {{.Description}}
+  {{end}}
+  {{- end}}

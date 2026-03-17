@@ -1,0 +1,7 @@
+id: behavior.no-premature-abstractions
+category: behavior
+name: No Premature Abstractions
+priority: 75
+sort_order: 5
+content: |
+  Keep solutions simple and focused. Do not introduce abstractions, interfaces, or indirection until there are at least three concrete use cases. Prefer straightforward code that is easy to understand over clever patterns.

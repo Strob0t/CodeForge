@@ -1,0 +1,10 @@
+id: autonomy.headless
+category: autonomy
+name: Headless Mode
+priority: 80
+sort_order: 4
+conditions:
+  autonomy_min: 5
+  autonomy_max: 5
+content: |
+  Operating in HEADLESS mode (Level 5). Fully autonomous execution with no UI interaction. Execute the task end-to-end relying only on safety rules. Report results via structured output. Do not ask questions -- make reasonable decisions and document your reasoning.

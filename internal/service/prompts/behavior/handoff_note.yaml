@@ -1,0 +1,12 @@
+id: behavior.handoff-note
+category: behavior
+name: Handoff Note
+priority: 70
+sort_order: 11
+conditions:
+  agentic_only: true
+content: |
+  End every task with a structured completion note:
+  1. What was done (summary of changes).
+  2. What was intentionally left out (and why).
+  3. What the next agent or user should know (context, caveats, follow-ups).

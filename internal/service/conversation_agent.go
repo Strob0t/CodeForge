@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
@@ -123,6 +125,49 @@ func (s *ConversationService) buildConversationContextEntries(
 		"history_messages", len(history),
 	)
 	return toContextEntryPayloads(entries)
+}
+
+// evaluateReminders checks runtime conditions and returns matching reminder texts.
+// Parameters ctx and conversationID are reserved for future budget/stall tracking integration.
+func (s *ConversationService) evaluateReminders(
+	_ context.Context,
+	_ string,
+	history []messagequeue.ConversationMessagePayload,
+) []string {
+	if s.promptAssembler == nil || s.promptAssembler.library == nil {
+		return nil
+	}
+
+	// Fetch all reminder entries from the library.
+	reminders := s.promptAssembler.library.GetByCategory(prompt.CategoryReminder)
+	if len(reminders) == 0 {
+		return nil
+	}
+
+	// Build reminder template data from current state.
+	data := map[string]any{
+		"TurnCount":       len(history),
+		"BudgetPercent":   0.0, // TODO: Wire actual budget tracking
+		"StallIterations": 0,   // TODO: Wire stall detection
+	}
+
+	var result []string
+	for i := range reminders {
+		// For now, only inject reminders that don't require template data
+		// (static reminders). Dynamic reminders will be wired when budget
+		// and stall tracking are integrated.
+		text := renderEntry(&reminders[i], data)
+		text = strings.TrimSpace(text)
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+
+	// Don't inject all reminders on every turn -- that wastes tokens.
+	// Return the rendered reminders so the pipeline is exercised; the caller
+	// (SendMessageAgentic/WithMode) passes them to the NATS payload which
+	// the Python worker injects into the system prompt.
+	return result
 }
 
 // policyForAutonomy maps an autonomy level (1-5) to a policy preset name.
@@ -284,6 +329,9 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Resolve per-user provider API key (if configured).
 	providerAPIKey := s.resolveProviderAPIKey(ctx, req.UserID, model)
 
+	// Evaluate system reminders.
+	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
+
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
 		ConversationID:    conversationID,
@@ -304,6 +352,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		ProviderAPIKey:    providerAPIKey,
 		TenantID:          tenantctx.FromContext(ctx),
 		SessionMeta:       sessionMeta,
+		Reminders:         reminders,
 	}
 
 	data, err := json.Marshal(payload)
@@ -498,6 +547,9 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		contextEntries = append(contextEntries, applied.extraContext...)
 	}
 
+	// Evaluate system reminders.
+	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
+
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
@@ -518,6 +570,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		Agentic:           true,
 		TenantID:          tenantctx.FromContext(ctx),
 		SessionMeta:       sessionMeta,
+		Reminders:         reminders,
 	}
 
 	data, err := json.Marshal(payload)
@@ -876,6 +929,23 @@ func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID s
 		{Name: "Search", Description: "Regex search across files"},
 		{Name: "Glob", Description: "Find files by glob pattern"},
 		{Name: "ListDir", Description: "List directory contents"},
+	}
+
+	// If the modular prompt assembler is configured, use it instead of the
+	// monolithic template. This preserves backward compatibility: without an
+	// assembler the old template path is used unchanged.
+	if s.promptAssembler != nil {
+		asmCtx := prompt.AssemblyContext{
+			ModeID:   "coder", // default for conversations
+			Autonomy: 3,       // default
+			Env:      os.Getenv("APP_ENV"),
+			Agentic:  true,
+		}
+		if result := s.promptAssembler.Assemble(asmCtx, data); result != "" {
+			return result
+		}
+		// Fall through to the legacy template if the assembler produces nothing
+		// (e.g. no YAML files loaded yet).
 	}
 
 	var buf bytes.Buffer

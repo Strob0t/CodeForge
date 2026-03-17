@@ -1,0 +1,7 @@
+id: reminder.file-modified
+category: reminder
+name: File Modified Reminder
+priority: 45
+sort_order: 1
+content: |
+  One or more files have been modified since you last read them. Re-read any files you plan to edit to ensure you are working with the latest content.

@@ -1,0 +1,13 @@
+id: tools.edit-files
+category: tools
+name: File Editing Guidelines
+priority: 70
+sort_order: 1
+conditions:
+  agentic_only: true
+content: |
+  When editing files:
+  - Use targeted edits (search-and-replace) over full file rewrites whenever possible.
+  - If an edit does not match, re-read the file and try again with the correct content.
+  - Preserve existing code style, indentation, and conventions.
+  - Make the smallest change that solves the problem.

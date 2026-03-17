@@ -1,0 +1,12 @@
+id: context.tasks-list
+category: context
+name: Recent Tasks
+priority: 83
+sort_order: 4
+content: |
+  {{- if .RecentTasks}}
+
+  ## Recent Tasks
+  {{range .RecentTasks}}- [{{.Status}}] {{.Name}} ({{.ID}})
+  {{end}}
+  {{- end}}

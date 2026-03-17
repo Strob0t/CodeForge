@@ -1,0 +1,12 @@
+id: context.agents-list
+category: context
+name: Available Agents
+priority: 85
+sort_order: 2
+content: |
+  {{- if .Agents}}
+
+  ## Available Agents
+  {{range .Agents}}- {{.}}
+  {{end}}
+  {{- end}}

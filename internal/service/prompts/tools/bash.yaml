@@ -1,0 +1,14 @@
+id: tools.bash
+category: tools
+name: Shell Command Guidelines
+priority: 70
+sort_order: 4
+conditions:
+  agentic_only: true
+content: |
+  When running shell commands:
+  - Prefer specific commands over broad ones (e.g., `go test ./pkg/...` over `go test ./...`).
+  - If a command fails, analyze the error output and retry with a corrected approach.
+  - Never give up after a single failure -- iterate until the task is done or you have exhausted reasonable approaches.
+  - When you encounter an error, explain what went wrong and what you will try differently.
+  - Use absolute paths to avoid working-directory issues.

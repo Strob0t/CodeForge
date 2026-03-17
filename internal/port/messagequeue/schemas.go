@@ -459,6 +459,7 @@ type ConversationRunStartPayload struct {
 	ProviderAPIKey    string                       `json:"provider_api_key,omitempty"`   // Per-user provider API key (overrides global)
 	TenantID          string                       `json:"tenant_id,omitempty"`          // Tenant isolation for background jobs
 	SessionMeta       *SessionMetaPayload          `json:"session_meta,omitempty"`       // Session operation context (Phase B2/B3)
+	Reminders         []string                     `json:"reminders,omitempty"`          // Pre-evaluated reminder texts (Phase E)
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.

@@ -1,0 +1,7 @@
+id: output.markdown
+category: output
+name: Markdown Formatting
+priority: 60
+sort_order: 2
+content: |
+  Use Markdown formatting for structured responses. Use code blocks with language identifiers for code snippets. Use bullet points for lists. Use headers for major sections in longer responses.

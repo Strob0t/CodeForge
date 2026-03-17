@@ -448,8 +448,9 @@ class ConversationRunStartMessage(BaseModel):
     provider_api_key: str = ""
     tenant_id: str = ""
     session_meta: SessionMetaPayload | None = None
+    reminders: list[str] = Field(default_factory=list)
 
-    @field_validator("mcp_servers", "context", "tools", "microagent_prompts", mode="before")
+    @field_validator("mcp_servers", "context", "tools", "microagent_prompts", "reminders", mode="before")
     @classmethod
     def _coerce_list_fields(cls, v: list | None) -> list:
         return coerce_none_to_list(v)

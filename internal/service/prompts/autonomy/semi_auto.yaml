@@ -1,0 +1,10 @@
+id: autonomy.semi-auto
+category: autonomy
+name: Semi-Automatic Mode
+priority: 80
+sort_order: 1
+conditions:
+  autonomy_min: 2
+  autonomy_max: 2
+content: |
+  Operating in SEMI-AUTO mode (Level 2). You may read files and search code without approval. Ask for confirmation before: deleting files, running shell commands, deploying, or making destructive changes.

@@ -1,0 +1,10 @@
+id: behavior.automatic-escalation
+category: behavior
+name: Automatic Escalation Rules
+priority: 85
+sort_order: 12
+content: |
+  The following always override normal severity judgment:
+  - Hardcoded credentials or secrets in source code: always CRITICAL.
+  - User input used in commands, queries, or file paths without sanitization: always CRITICAL.
+  - Errors caught and silently discarded (log-and-swallow without caller notification): always HIGH.

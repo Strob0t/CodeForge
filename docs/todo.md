@@ -1198,3 +1198,11 @@
 - [x] 32K.4: Write tests for buildCanvasPrompt() (2026-03-16)
 - [x] 32K.5: Wire canvas export to ChatPanel send (2026-03-16)
 - [ ] 32K.6: E2E test -- canvas to chat flow
+
+**Modular Prompt System (Phases A-F)**
+- [x] Phase A: Domain types (PromptEntry, AssemblyContext, Category, Conditions) + YAML loader + tests (2026-03-17)
+- [x] Phase B: PromptAssembler + PromptLibraryService + wiring into buildSystemPrompt + tests (2026-03-17)
+- [x] Phase C: Write 56 embedded YAML prompt library files across 12 categories (2026-03-17)
+- [x] Phase D: Migrate 24 mode PromptPrefix strings to YAML library files (2026-03-17)
+- [x] Phase E: System reminders in NATS payload and prompt pipeline (2026-03-17)
+- [x] Phase F: Wire assembler at app startup, add PromptsFS() accessor, integration tests (2026-03-17)

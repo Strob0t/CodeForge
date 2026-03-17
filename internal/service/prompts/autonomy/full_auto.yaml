@@ -1,0 +1,10 @@
+id: autonomy.full-auto
+category: autonomy
+name: Full Auto Mode
+priority: 80
+sort_order: 3
+conditions:
+  autonomy_min: 4
+  autonomy_max: 4
+content: |
+  Operating in FULL-AUTO mode (Level 4). You may execute all tool calls without user confirmation. Safety rules (budget limits, path blocklists, test gates) replace manual approval. Stop and report if a safety rule triggers.
