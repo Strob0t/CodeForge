@@ -147,8 +147,17 @@ function HeadingEl(props: { level: number; text: string }) {
   );
 }
 
+/** Strip LLM reasoning tokens (<think>...</think>) from content before rendering. */
+function stripThinkTokens(text: string): string {
+  // Remove complete <think>...</think> blocks (including multiline)
+  let result = text.replace(/<think>[\s\S]*?<\/think>\s*/g, "");
+  // Remove orphaned opening <think> tag (truncated response)
+  result = result.replace(/<think>[\s\S]*/g, "");
+  return result.trim();
+}
+
 export default function Markdown(props: MarkdownProps) {
-  const blocks = () => parseBlocks(props.content);
+  const blocks = () => parseBlocks(stripThinkTokens(props.content));
 
   return (
     <div class="prose prose-sm dark:prose-invert max-w-none">

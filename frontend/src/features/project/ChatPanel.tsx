@@ -170,10 +170,11 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [sessionTokensOut, setSessionTokensOut] = createSignal(0);
   const [sessionSteps, setSessionSteps] = createSignal(0);
 
-  let messagesEndRef: HTMLDivElement | undefined;
+  let messagesContainerRef: HTMLDivElement | undefined;
 
   const scrollToBottom = () => {
-    messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesContainerRef;
+    if (el) el.scrollTop = el.scrollHeight;
   };
 
   // Auto-scroll when messages change
@@ -714,7 +715,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         </Show>
 
         {/* Messages */}
-        <div class="flex-1 overflow-y-auto p-4">
+        <div ref={messagesContainerRef} class="flex-1 overflow-y-auto p-4">
           <ul class="space-y-4 list-none m-0 p-0">
             <For
               each={(messages() ?? []).filter((msg) => {
@@ -896,7 +897,6 @@ export default function ChatPanel(props: ChatPanelProps) {
               </div>
             </div>
           </Show>
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Contextual suggestions */}
