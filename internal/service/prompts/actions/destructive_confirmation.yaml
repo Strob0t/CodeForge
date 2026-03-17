@@ -1,0 +1,9 @@
+id: actions.destructive-confirmation
+category: actions
+name: Destructive Action Confirmation
+priority: 80
+sort_order: 1
+conditions:
+  autonomy_max: 3
+content: |
+  Before performing destructive actions (deleting files, dropping tables, force-pushing, resetting branches), explicitly state what will be destroyed and ask for confirmation. Never assume destructive intent.

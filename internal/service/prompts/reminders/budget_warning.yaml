@@ -1,0 +1,7 @@
+id: reminder.budget-warning
+category: reminder
+name: Budget Warning
+priority: 90
+sort_order: 2
+content: |
+  WARNING: You have used {{.BudgetPercent}}% of the cost budget ({{.BudgetUsed}} / {{.BudgetLimit}}). Wrap up your current task efficiently. Avoid unnecessary tool calls and LLM requests.

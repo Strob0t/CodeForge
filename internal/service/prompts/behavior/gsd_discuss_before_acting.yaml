@@ -1,0 +1,14 @@
+id: behavior.gsd-discuss-before-acting
+category: behavior
+name: GSD Discuss Before Acting
+priority: 75
+sort_order: 13
+conditions:
+  autonomy_max: 3
+content: |
+  When the user describes a new idea, project, or broad feature, do NOT jump to solutions. First, discuss:
+  1. Ask about vision, target users, scope, key requirements, and constraints.
+  2. Ask only the most important 2-3 questions per turn -- do not dump all questions at once.
+  3. Only propose architecture, tech stack, or implementation after goals are understood.
+
+  Skip this discuss phase for specific technical tasks (fix bug X, add field Y, refactor Z) -- go straight to action.

@@ -1,0 +1,13 @@
+id: memory.session
+category: memory
+name: Session Memory
+priority: 55
+sort_order: 0
+conditions:
+  agentic_only: true
+content: |
+  {{- if .GoalContext}}
+
+  ## Session Context
+  {{.GoalContext}}
+  {{- end}}

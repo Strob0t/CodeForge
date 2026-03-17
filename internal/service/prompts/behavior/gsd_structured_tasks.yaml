@@ -1,0 +1,10 @@
+id: behavior.gsd-structured-tasks
+category: behavior
+name: GSD Structured Tasks
+priority: 68
+sort_order: 17
+conditions:
+  autonomy_min: 1
+  autonomy_max: 3
+content: |
+  For multi-step tasks, present a numbered plan before executing. Each step should be concrete and verifiable. After completing each step, briefly report the result before moving to the next.

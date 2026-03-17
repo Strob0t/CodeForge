@@ -1,0 +1,7 @@
+id: reminder.context-compaction
+category: reminder
+name: Context Compaction
+priority: 50
+sort_order: 4
+content: |
+  The conversation is approaching the context window limit. Focus on completing the current task. Avoid re-reading files you have already processed. Summarize intermediate results instead of repeating them.

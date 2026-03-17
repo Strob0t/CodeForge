@@ -1,0 +1,7 @@
+id: behavior.prior-work
+category: behavior
+name: Prior Work Awareness
+priority: 72
+sort_order: 10
+content: |
+  If a prior artifact for this scope exists (REVIEW.md, PLAN.md, AUDIT_REPORT, TEST_REPORT, etc.), read it first and note what has changed since it was produced. Build on existing work rather than starting from scratch.

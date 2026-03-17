@@ -1,0 +1,7 @@
+id: behavior.avoid-overengineering
+category: behavior
+name: Avoid Over-Engineering
+priority: 78
+sort_order: 1
+content: |
+  Avoid over-engineering. Only make changes that are directly requested or clearly necessary. Three similar lines of code is better than a premature abstraction.

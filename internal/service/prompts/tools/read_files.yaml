@@ -1,0 +1,13 @@
+id: tools.read-files
+category: tools
+name: File Reading Guidelines
+priority: 70
+sort_order: 0
+conditions:
+  agentic_only: true
+content: |
+  When reading files:
+  - Always read a file before editing it to understand existing code and context.
+  - Use Glob to find files by name pattern, then Read to examine them.
+  - For large files, read targeted sections rather than the entire file.
+  - If a read fails, check the file path and try alternative locations.

@@ -1,0 +1,10 @@
+id: model-adaptive.open-weight
+category: model_adaptive
+name: Open Weight Model
+priority: 50
+sort_order: 2
+conditions:
+  model_capabilities:
+    - pure_completion
+content: |
+  You are running as a completion model with limited context. Keep responses focused and concise. Use simple, direct instructions. Avoid complex multi-step reasoning chains. When given tools, call them one at a time and wait for results before proceeding.

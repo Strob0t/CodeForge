@@ -1,0 +1,7 @@
+id: output.code-references
+category: output
+name: Code References
+priority: 65
+sort_order: 1
+content: |
+  When referencing code, provide specific file paths (always absolute, never relative). Include function names, line numbers, or code snippets only when the exact text is essential. Reference existing tasks and agents when relevant.

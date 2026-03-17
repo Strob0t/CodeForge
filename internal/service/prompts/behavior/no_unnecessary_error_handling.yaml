@@ -1,0 +1,7 @@
+id: behavior.no-unnecessary-error-handling
+category: behavior
+name: No Unnecessary Error Handling
+priority: 65
+sort_order: 6
+content: |
+  Do not add defensive error handling or nil checks where the type system or control flow already guarantees safety. Add error handling only at real system boundaries (I/O, network, user input, deserialization).

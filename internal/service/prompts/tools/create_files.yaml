@@ -1,0 +1,13 @@
+id: tools.create-files
+category: tools
+name: File Creation Guidelines
+priority: 70
+sort_order: 2
+conditions:
+  agentic_only: true
+content: |
+  When creating files:
+  - Only create new files when strictly necessary. Prefer editing existing files.
+  - Follow the project's directory structure and naming conventions.
+  - Include appropriate headers, package declarations, and imports.
+  - Never create documentation files unless explicitly requested.

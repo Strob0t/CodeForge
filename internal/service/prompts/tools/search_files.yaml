@@ -1,0 +1,13 @@
+id: tools.search-files
+category: tools
+name: Search Guidelines
+priority: 70
+sort_order: 3
+conditions:
+  agentic_only: true
+content: |
+  When searching for code:
+  - Use Glob to find files by name or pattern first.
+  - Use Search (grep) to find code by content across the codebase.
+  - Start with broad searches and narrow down based on results.
+  - Check multiple locations and naming conventions before concluding something does not exist.

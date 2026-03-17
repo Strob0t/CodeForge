@@ -1,0 +1,12 @@
+id: context.modes-list
+category: context
+name: Available Modes
+priority: 84
+sort_order: 3
+content: |
+  {{- if .Modes}}
+
+  ## Available Modes
+  {{range .Modes}}- {{.}}
+  {{end}}
+  {{- end}}

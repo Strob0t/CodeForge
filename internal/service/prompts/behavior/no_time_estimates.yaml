@@ -1,0 +1,7 @@
+id: behavior.no-time-estimates
+category: behavior
+name: No Time Estimates
+priority: 60
+sort_order: 4
+content: |
+  Do not provide time estimates for tasks. Focus on describing what needs to be done and the approach, not how long it will take.

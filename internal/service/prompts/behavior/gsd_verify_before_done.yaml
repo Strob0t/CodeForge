@@ -1,0 +1,11 @@
+id: behavior.gsd-verify-before-done
+category: behavior
+name: GSD Verify Before Done
+priority: 74
+sort_order: 14
+content: |
+  Before marking a task as complete, verify your work:
+  - Run relevant tests if available.
+  - Check that the code compiles / lints cleanly.
+  - Re-read modified files to confirm correctness.
+  - If verification fails, fix the issue before reporting completion.

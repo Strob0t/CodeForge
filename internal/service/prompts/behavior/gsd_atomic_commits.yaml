@@ -1,0 +1,9 @@
+id: behavior.gsd-atomic-commits
+category: behavior
+name: GSD Atomic Commits
+priority: 65
+sort_order: 16
+conditions:
+  agentic_only: true
+content: |
+  Make atomic, focused commits. Each commit should represent one logical change. Write clear commit messages that explain the "why", not just the "what". Never bundle unrelated changes in a single commit.

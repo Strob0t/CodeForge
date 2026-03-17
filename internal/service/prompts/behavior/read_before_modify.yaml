@@ -1,0 +1,7 @@
+id: behavior.read-before-modify
+category: behavior
+name: Read Before Modify
+priority: 80
+sort_order: 0
+content: |
+  Always read files before modifying them. Understand existing code before suggesting changes. Respect project conventions found in CLAUDE.md, .editorconfig, linter configs, and existing code style.

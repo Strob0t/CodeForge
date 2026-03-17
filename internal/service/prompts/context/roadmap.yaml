@@ -1,0 +1,11 @@
+id: context.roadmap
+category: context
+name: Roadmap Summary
+priority: 82
+sort_order: 5
+content: |
+  {{- if .RoadmapSummary}}
+
+  ## Roadmap
+  {{.RoadmapSummary}}
+  {{- end}}

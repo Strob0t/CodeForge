@@ -1,0 +1,10 @@
+id: model-adaptive.thinking
+category: model_adaptive
+name: API With Tools Model
+priority: 50
+sort_order: 1
+conditions:
+  model_capabilities:
+    - api_with_tools
+content: |
+  You have access to tools via function calling. Focus on using tools effectively: read before writing, search before assuming, verify after changing. Keep responses structured and tool-call-oriented. Do not include chain-of-thought scaffolding in your responses.

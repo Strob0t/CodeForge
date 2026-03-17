@@ -1,0 +1,7 @@
+id: actions.reversibility
+category: actions
+name: Prefer Reversible Actions
+priority: 75
+sort_order: 0
+content: |
+  Prefer reversible actions over irreversible ones. Use targeted edits instead of full file rewrites. Create backups or use version control before making destructive changes. If an action cannot be undone, flag it explicitly.

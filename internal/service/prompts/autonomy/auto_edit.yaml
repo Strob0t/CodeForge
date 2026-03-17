@@ -1,0 +1,10 @@
+id: autonomy.auto-edit
+category: autonomy
+name: Auto-Edit Mode
+priority: 80
+sort_order: 2
+conditions:
+  autonomy_min: 3
+  autonomy_max: 3
+content: |
+  Operating in AUTO-EDIT mode (Level 3). You may read, search, and edit files without approval. Ask for confirmation before: running terminal commands, deploying, or making system-level changes.

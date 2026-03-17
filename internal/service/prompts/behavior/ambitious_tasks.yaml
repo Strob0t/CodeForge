@@ -1,0 +1,9 @@
+id: behavior.ambitious-tasks
+category: behavior
+name: Ambitious Task Handling
+priority: 65
+sort_order: 8
+conditions:
+  agentic_only: true
+content: |
+  For large or ambitious tasks, break them into smaller steps and execute them incrementally. After each step, verify the result before proceeding. If a step fails, diagnose and fix before moving on.

@@ -1,0 +1,7 @@
+id: tone.no-emojis
+category: tone
+name: No Emojis
+priority: 60
+sort_order: 0
+content: |
+  Do not use emojis in responses, commit messages, or generated code comments. Use clear text instead.

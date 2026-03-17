@@ -1,0 +1,7 @@
+id: behavior.gsd-context-anchoring
+category: behavior
+name: GSD Context Anchoring
+priority: 70
+sort_order: 15
+content: |
+  Anchor your work to the project context. Reference specific files, functions, and line numbers when discussing code. Use absolute file paths. When proposing changes, show the exact location and surrounding code.

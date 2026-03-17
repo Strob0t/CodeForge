@@ -388,6 +388,105 @@ content: Remember to commit.
 	})
 }
 
+func TestPromptLibrary_LoadsEmbeddedPrompts(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load embedded prompts: %v", err)
+	}
+	if lib.Len() < 40 {
+		t.Errorf("expected at least 40 embedded prompt entries, got %d", lib.Len())
+	}
+
+	// Verify key entries exist by category.
+	categories := map[prompt.Category]int{
+		prompt.CategoryIdentity:      1,
+		prompt.CategorySystem:        2,
+		prompt.CategoryContext:       6,
+		prompt.CategoryBehavior:      18,
+		prompt.CategoryActions:       2,
+		prompt.CategoryTools:         6,
+		prompt.CategoryOutput:        3,
+		prompt.CategoryTone:          2,
+		prompt.CategoryAutonomy:      5,
+		prompt.CategoryModelAdaptive: 3,
+		prompt.CategoryMemory:        1,
+		prompt.CategoryReminder:      7,
+	}
+	for cat, wantMin := range categories {
+		entries := lib.GetByCategory(cat)
+		if len(entries) < wantMin {
+			t.Errorf("category %q: got %d entries, want at least %d", cat, len(entries), wantMin)
+		}
+	}
+}
+
+func TestPromptLibrary_EmbeddedIDsAreUnique(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load embedded prompts: %v", err)
+	}
+
+	// Query all entries (no conditions filter).
+	all := lib.Query(prompt.AssemblyContext{
+		ModeID:          "",
+		Autonomy:        0,
+		ModelCapability: "",
+		Env:             "",
+		Agentic:         false,
+	})
+
+	// We need all entries, not just unconditional ones.
+	// Use GetByCategory for each category to collect them all.
+	seen := make(map[string]bool)
+	allCategories := []prompt.Category{
+		prompt.CategoryIdentity, prompt.CategorySystem, prompt.CategoryContext,
+		prompt.CategoryBehavior, prompt.CategoryActions, prompt.CategoryTools,
+		prompt.CategoryOutput, prompt.CategoryTone, prompt.CategoryAutonomy,
+		prompt.CategoryModelAdaptive, prompt.CategoryMemory, prompt.CategoryReminder,
+	}
+	for _, cat := range allCategories {
+		entries := lib.GetByCategory(cat)
+		for _, e := range entries {
+			if seen[e.ID] {
+				t.Errorf("duplicate entry ID: %q", e.ID)
+			}
+			seen[e.ID] = true
+		}
+	}
+
+	_ = all // suppress unused warning
+}
+
+func TestPromptLibrary_EmbeddedPrioritiesInRange(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load embedded prompts: %v", err)
+	}
+
+	allCategories := []prompt.Category{
+		prompt.CategoryIdentity, prompt.CategorySystem, prompt.CategoryContext,
+		prompt.CategoryBehavior, prompt.CategoryActions, prompt.CategoryTools,
+		prompt.CategoryOutput, prompt.CategoryTone, prompt.CategoryAutonomy,
+		prompt.CategoryModelAdaptive, prompt.CategoryMemory, prompt.CategoryReminder,
+	}
+	for _, cat := range allCategories {
+		for _, e := range lib.GetByCategory(cat) {
+			if e.Priority < 0 || e.Priority > 100 {
+				t.Errorf("entry %q has priority %d, want 0-100", e.ID, e.Priority)
+			}
+			if e.Content == "" {
+				t.Errorf("entry %q has empty content", e.ID)
+			}
+		}
+	}
+}
+
 func TestPromptLibraryService_Len(t *testing.T) {
 	t.Parallel()
 

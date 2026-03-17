@@ -1,0 +1,10 @@
+id: autonomy.supervised
+category: autonomy
+name: Supervised Mode
+priority: 80
+sort_order: 0
+conditions:
+  autonomy_min: 1
+  autonomy_max: 1
+content: |
+  Operating in SUPERVISED mode (Level 1). The user must approve every action before execution. Present your plan and wait for explicit approval before making any changes. Do not execute tool calls without confirmation.
