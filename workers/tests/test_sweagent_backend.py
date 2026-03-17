@@ -111,7 +111,7 @@ class TestSweagentExecute:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch("codeforge.subprocess_utils.graceful_terminate", new_callable=AsyncMock) as mock_term,
+            patch("codeforge.backends.sweagent.graceful_terminate", new_callable=AsyncMock) as mock_term,
         ):
             result = await executor.execute(
                 task_id="t4",
@@ -181,7 +181,7 @@ class TestSweagentCancel:
         mock_proc.returncode = None
         executor._processes["t1"] = mock_proc
 
-        with patch("codeforge.subprocess_utils.graceful_terminate", new_callable=AsyncMock) as mock_term:
+        with patch("codeforge.backends.sweagent.graceful_terminate", new_callable=AsyncMock) as mock_term:
             await executor.cancel("t1")
 
         mock_term.assert_awaited_once_with(mock_proc)
@@ -199,11 +199,11 @@ class TestSweagentCheckAvailable:
     @pytest.mark.asyncio
     async def test_available_when_cli_found(self) -> None:
         executor = SweagentExecutor(cli_path="/usr/bin/sweagent")
-        with patch("codeforge.subprocess_utils.check_cli_available", return_value=True):
+        with patch("codeforge.backends.sweagent.check_cli_available", return_value=True):
             assert await executor.check_available() is True
 
     @pytest.mark.asyncio
     async def test_unavailable_when_cli_missing(self) -> None:
         executor = SweagentExecutor(cli_path="/usr/bin/sweagent")
-        with patch("codeforge.subprocess_utils.check_cli_available", return_value=False):
+        with patch("codeforge.backends.sweagent.check_cli_available", return_value=False):
             assert await executor.check_available() is False
