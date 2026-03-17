@@ -124,6 +124,7 @@ const AutocompletePopover: Component<AutocompletePopoverProps> = (props) => {
       setSelectedIndex((i) => (i - 1 + len) % len);
     } else if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
+      e.stopImmediatePropagation();
       const items = filtered();
       const item = items[selectedIndex()];
       if (item) {
@@ -131,6 +132,7 @@ const AutocompletePopover: Component<AutocompletePopoverProps> = (props) => {
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopImmediatePropagation();
       props.onClose();
     }
   }

@@ -252,6 +252,11 @@ const ChatInput: Component<ChatInputProps> = (props) => {
   // --- Keyboard handling ---
 
   function handleKeyDown(e: KeyboardEvent) {
+    // AutocompletePopover's capture-phase listener calls stopImmediatePropagation
+    // and preventDefault when it handles Enter/Tab/Escape. If the event was already
+    // consumed, bail out to avoid sending the message to the LLM.
+    if (e.defaultPrevented) return;
+
     // When autocomplete is open, let AutocompletePopover handle keyboard events
     // via its document-level capture listener.
     if (trigger() && autocompleteItems().length > 0) {
