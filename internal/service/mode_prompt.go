@@ -195,6 +195,38 @@ func AssembleSections(sections []PromptSection) string {
 	return buf.String()
 }
 
+// BuildModePromptFromLibrary assembles a mode prompt using the modular library.
+// For builtin modes whose content lives in YAML files, assembles via PromptAssembler.
+// Falls back to BuildModePrompt() if the assembler is nil or produces no output.
+// Custom modes with an explicit PromptPrefix always skip the library.
+func BuildModePromptFromLibrary(m *mode.Mode, assembler *PromptAssembler) (string, []PromptSection) {
+	// Custom modes with explicit PromptPrefix always bypass the library.
+	if !m.Builtin && m.PromptPrefix != "" {
+		return BuildModePrompt(m)
+	}
+
+	if assembler == nil {
+		return BuildModePrompt(m)
+	}
+
+	ctx := prompt.AssemblyContext{
+		ModeID:   m.ID,
+		Autonomy: m.Autonomy,
+		Agentic:  true,
+	}
+
+	result := assembler.Assemble(ctx, nil)
+	if result == "" {
+		return BuildModePrompt(m)
+	}
+
+	tokens := cfcontext.EstimateTokens(result)
+	return result, []PromptSection{{
+		Name: "library", Text: result, Tokens: tokens,
+		Priority: PriorityRole, Source: "library", Enabled: true,
+	}}
+}
+
 // ApplyDBOverrides merges database prompt section rows into the embedded sections.
 // Merge strategies: "replace" overwrites the section text, "append" appends to it,
 // "prepend" prepends before it. Unmatched DB rows are added as new sections.

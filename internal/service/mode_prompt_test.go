@@ -247,6 +247,127 @@ func TestAssembleSections_SkipsDisabledAndEmpty(t *testing.T) {
 	}
 }
 
+// --- BuildModePromptFromLibrary tests ---
+
+func TestBuildModePromptFromLibrary_NilAssembler(t *testing.T) {
+	m := findBuiltin(t, "architect")
+	result, sections := BuildModePromptFromLibrary(m, nil)
+	// Should fall back to BuildModePrompt.
+	if result == "" {
+		t.Fatal("expected non-empty result from fallback")
+	}
+	if len(sections) == 0 {
+		t.Fatal("expected sections from fallback")
+	}
+	// Verify it's template-based (not library-based).
+	for _, s := range sections {
+		if s.Source == "library" {
+			t.Error("nil assembler should not produce library-sourced sections")
+		}
+	}
+}
+
+func TestBuildModePromptFromLibrary_CustomModeBypassesLibrary(t *testing.T) {
+	m := &mode.Mode{
+		ID:           "custom-test",
+		Name:         "Custom Test",
+		Builtin:      false,
+		PromptPrefix: "You are a custom test agent.",
+		Autonomy:     3,
+	}
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load library: %v", err)
+	}
+	assembler := NewPromptAssembler(lib, 0)
+
+	result, sections := BuildModePromptFromLibrary(m, assembler)
+	if result != m.PromptPrefix {
+		t.Fatalf("custom mode should return raw PromptPrefix, got %q", result)
+	}
+	if len(sections) != 1 || sections[0].Name != "custom" {
+		t.Fatalf("expected 1 custom section, got %d", len(sections))
+	}
+}
+
+func TestBuildModePromptFromLibrary_AllBuiltins(t *testing.T) {
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load library: %v", err)
+	}
+	assembler := NewPromptAssembler(lib, 0)
+
+	builtins := mode.BuiltinModes()
+	for i := range builtins {
+		result, sections := BuildModePromptFromLibrary(&builtins[i], assembler)
+		if result == "" {
+			t.Errorf("built-in mode %q produced empty prompt from library", builtins[i].ID)
+		}
+		if len(sections) == 0 {
+			t.Errorf("built-in mode %q produced no sections from library", builtins[i].ID)
+		}
+	}
+}
+
+func TestBuildModePromptFromLibrary_ContainsModeContent(t *testing.T) {
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load library: %v", err)
+	}
+	assembler := NewPromptAssembler(lib, 0)
+
+	tests := []struct {
+		modeID   string
+		contains string
+	}{
+		{"architect", "Architect Mode"},
+		{"coder", "Coder Mode"},
+		{"reviewer", "Reviewer Mode"},
+		{"debugger", "Debugger Mode"},
+		{"tester", "Tester Mode"},
+		{"security", "Security Auditor Mode"},
+		{"devops", "DevOps Engineer Mode"},
+		{"frontend", "Frontend Developer Mode"},
+		{"orchestrator", "Orchestrator Mode"},
+		{"boundary-analyzer", "Boundary Analyzer Mode"},
+		{"contract-reviewer", "Contract Reviewer Mode"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.modeID, func(t *testing.T) {
+			m := findBuiltin(t, tt.modeID)
+			result, _ := BuildModePromptFromLibrary(m, assembler)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("expected library prompt for %q to contain %q, got prefix: %q",
+					tt.modeID, tt.contains, result[:min(100, len(result))])
+			}
+		})
+	}
+}
+
+func TestBuildModePromptFromLibrary_LibrarySectionSource(t *testing.T) {
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load library: %v", err)
+	}
+	assembler := NewPromptAssembler(lib, 0)
+
+	m := findBuiltin(t, "coder")
+	_, sections := BuildModePromptFromLibrary(m, assembler)
+	if len(sections) != 1 {
+		t.Fatalf("expected 1 library section, got %d", len(sections))
+	}
+	if sections[0].Source != "library" {
+		t.Errorf("expected source 'library', got %q", sections[0].Source)
+	}
+	if sections[0].Name != "library" {
+		t.Errorf("expected name 'library', got %q", sections[0].Name)
+	}
+	if sections[0].Tokens <= 0 {
+		t.Errorf("expected positive token count, got %d", sections[0].Tokens)
+	}
+}
+
 // --- helpers ---
 
 func findBuiltin(t *testing.T, id string) *mode.Mode {
