@@ -31,7 +31,10 @@
           "relevance": 0.9
         }
       },
-      "files_changed": ["/src/lru.py", "/tests/test_lru.py"],
+      "files_changed": [
+        "/src/lru.py",
+        "/tests/test_lru.py"
+      ],
       "functional_test_output": "25/25 tests passed",
       "rollout_id": 1,
       "rollout_count": 3,

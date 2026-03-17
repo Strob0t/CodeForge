@@ -10,7 +10,11 @@
       "end_line": 65,
       "distance": 2,
       "score": 0.88,
-      "edge_path": ["LRU", "LRU.Get", "LRU.cache"],
+      "edge_path": [
+        "LRU",
+        "LRU.Get",
+        "LRU.cache"
+      ],
       "project_id": "550e8400-e29b-41d4-a716-446655440001"
     }
   ]
