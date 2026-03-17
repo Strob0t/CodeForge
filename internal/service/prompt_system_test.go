@@ -535,7 +535,8 @@ func TestGoldenFiles(t *testing.T) {
 				if err := os.MkdirAll(goldenDir, 0o755); err != nil {
 					t.Fatalf("create golden dir: %v", err)
 				}
-				if err := os.WriteFile(goldenPath, []byte(result), 0o644); err != nil {
+				// Append trailing newline so end-of-file-fixer hook is a no-op.
+				if err := os.WriteFile(goldenPath, []byte(result+"\n"), 0o644); err != nil {
 					t.Fatalf("write golden file: %v", err)
 				}
 				t.Logf("updated golden file: %s", goldenPath)
@@ -550,7 +551,8 @@ func TestGoldenFiles(t *testing.T) {
 				t.Fatalf("read golden file: %v", err)
 			}
 
-			if string(expected) != result {
+			// Trim trailing newline added for end-of-file-fixer compatibility.
+			if string(expected) != result+"\n" {
 				// Show a concise diff summary.
 				expectedLines := strings.Split(string(expected), "\n")
 				resultLines := strings.Split(result, "\n")
