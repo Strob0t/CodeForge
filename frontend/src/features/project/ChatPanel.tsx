@@ -1,6 +1,7 @@
 import {
   batch,
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   For,
@@ -23,6 +24,7 @@ import { buildCanvasPrompt, modelSupportsVision } from "../canvas/buildCanvasPro
 import { CanvasModal } from "../canvas/CanvasModal";
 import type { CanvasExports } from "../canvas/canvasTypes";
 import ChatInput from "../chat/ChatInput";
+import { type CommandContext, executeCommand } from "../chat/commandExecutor";
 import TokenBadge from "../chat/TokenBadge";
 import ActionBar from "./ActionBar";
 import type { ActionRule } from "./actionRules";
@@ -158,6 +160,9 @@ export default function ChatPanel(props: ChatPanelProps) {
 
   // Action suggestions from AG-UI events and rule-based derivation
   const [actionSuggestions, setActionSuggestions] = createSignal<ActionRule[]>([]);
+
+  // Command output display (for /help, /cost etc.)
+  const [commandOutput, setCommandOutput] = createSignal<string | null>(null);
 
   // Agentic mode tracking: step counter and running cost
   const [stepCount, setStepCount] = createSignal(0);
@@ -463,6 +468,51 @@ export default function ChatPanel(props: ChatPanelProps) {
     const content = input().trim();
     if (!content || !activeConversation() || sending()) return;
 
+    // Slash command interception: /command or //command
+    if (content.startsWith("/")) {
+      const stripped = content.startsWith("//") ? content.slice(2) : content.slice(1);
+      const spaceIdx = stripped.indexOf(" ");
+      const commandId = spaceIdx > 0 ? stripped.slice(0, spaceIdx) : stripped;
+      const args = spaceIdx > 0 ? stripped.slice(spaceIdx + 1) : "";
+
+      const convId = activeConversation();
+      if (!convId) return;
+
+      const ctx: CommandContext = {
+        conversationId: convId,
+        messages: (messages() ?? []).map((m) => ({ role: m.role, content: m.content })),
+        sessionCostUsd: sessionCostUsd(),
+        sessionTokensIn: sessionTokensIn(),
+        sessionTokensOut: sessionTokensOut(),
+        sessionSteps: sessionSteps(),
+        sessionModel: sessionModel(),
+      };
+
+      setInput("");
+      try {
+        const result = await executeCommand(commandId, args, ctx);
+        switch (result.type) {
+          case "display":
+            setCommandOutput(result.content ?? null);
+            break;
+          case "api_call":
+            toast("success", result.content ?? "Done");
+            await refetchMessages();
+            scrollToBottom();
+            break;
+          case "modal":
+            toast("info", `Action: ${result.action ?? "modal"}`);
+            break;
+        }
+      } catch {
+        toast("error", "Command failed");
+      }
+      return;
+    }
+
+    // Clear any previous command output
+    setCommandOutput(null);
+
     // Prepend context files as file references.
     const ctxPaths = contextFiles();
     const prefix = ctxPaths.length > 0 ? ctxPaths.map((p) => `@${p}`).join(" ") + "\n" : "";
@@ -504,6 +554,17 @@ export default function ChatPanel(props: ChatPanelProps) {
     return "danger";
   }
 
+  // Build tool result lookup from persisted tool messages for ToolCallCard rendering
+  const toolResultMap = createMemo(() => {
+    const map = new Map<string, string>();
+    for (const msg of messages() ?? []) {
+      if (msg.role === "tool" && msg.tool_call_id) {
+        map.set(msg.tool_call_id, msg.content);
+      }
+    }
+    return map;
+  });
+
   return (
     <div class="flex flex-col flex-1 min-h-0 overflow-hidden bg-cf-bg-surface">
       <Show
@@ -518,6 +579,29 @@ export default function ChatPanel(props: ChatPanelProps) {
         <div class="flex items-center justify-between border-b border-cf-border px-4 py-2">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-cf-text-primary">{t("chat.tab")}</span>
+            <button
+              type="button"
+              class="rounded p-0.5 text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-hover transition-colors"
+              title="New Conversation"
+              data-testid="new-conversation-btn"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    const conv = await api.conversations.create(props.projectId, {
+                      title: "New Chat",
+                    });
+                    await refetchConversations();
+                    setActiveConversation(conv.id);
+                  } catch {
+                    toast("error", "Failed to create conversation");
+                  }
+                })();
+              }}
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+              </svg>
+            </button>
             <Show when={agentRunning()}>
               <span class="inline-flex items-center gap-1 rounded-full bg-cf-accent/10 px-2 py-0.5 text-xs font-medium text-cf-accent">
                 <span class="inline-block h-1.5 w-1.5 rounded-full bg-cf-accent animate-pulse" />
@@ -719,10 +803,8 @@ export default function ChatPanel(props: ChatPanelProps) {
           <ul class="space-y-4 list-none m-0 p-0">
             <For
               each={(messages() ?? []).filter((msg) => {
-                // Hide system, tool, and tool-call-only assistant messages
+                // Hide system and tool messages (tool results shown via ToolCallCards)
                 if (msg.role === "system" || msg.role === "tool") return false;
-                if (msg.role === "assistant" && !msg.content?.trim() && msg.tool_calls)
-                  return false;
                 return true;
               })}
             >
@@ -736,7 +818,33 @@ export default function ChatPanel(props: ChatPanelProps) {
                     }`}
                   >
                     <Show when={msg.role === "assistant"} fallback={msg.content}>
-                      <Markdown content={msg.content} />
+                      <Show when={msg.content?.trim()}>
+                        <Markdown content={msg.content} />
+                      </Show>
+                    </Show>
+                    {/* Persisted tool calls from this message */}
+                    <Show when={msg.tool_calls && msg.tool_calls.length > 0}>
+                      <div class="border-l-2 border-cf-accent/40 pl-3 mt-1">
+                        <For each={msg.tool_calls}>
+                          {(tc) => {
+                            let args: Record<string, unknown> | undefined;
+                            try {
+                              args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+                            } catch {
+                              // args may not be valid JSON
+                            }
+                            const result = toolResultMap().get(tc.id);
+                            return (
+                              <ToolCallCard
+                                name={tc.function.name}
+                                args={args}
+                                result={result}
+                                status={result !== undefined ? "completed" : "pending"}
+                              />
+                            );
+                          }}
+                        </For>
+                      </div>
                     </Show>
                     {/* Inline image thumbnails for multimodal messages */}
                     <Show when={msg.images && msg.images.length > 0}>
@@ -783,6 +891,17 @@ export default function ChatPanel(props: ChatPanelProps) {
                 )}
               </For>
             </div>
+          </Show>
+
+          {/* Slash command output (e.g. /help, /cost) */}
+          <Show when={commandOutput()}>
+            {(output) => (
+              <div class="flex justify-start">
+                <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-secondary border border-cf-border">
+                  <pre class="whitespace-pre-wrap font-mono text-xs">{output()}</pre>
+                </div>
+              </div>
+            )}
           </Show>
 
           {/* Active tool calls from AG-UI events — grouped with vertical line */}

@@ -44,6 +44,8 @@ interface TriggerState {
   query: string;
   /** Character index of the trigger in the input value. */
   startIndex: number;
+  /** Length of the trigger sequence (1 for @/#/, 2 for //). */
+  triggerLength: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,12 +68,32 @@ function detectTrigger(text: string, cursorPos: number): TriggerState | null {
     if (ch === " " || ch === "\n" || ch === "\t") return null;
 
     if (TRIGGER_CHARS.has(ch)) {
+      // Handle // as a two-character command trigger
+      if (ch === "/" && i > 0 && text[i - 1] === "/") {
+        const doubleStart = i - 1;
+        if (
+          doubleStart === 0 ||
+          text[doubleStart - 1] === " " ||
+          text[doubleStart - 1] === "\n" ||
+          text[doubleStart - 1] === "\t"
+        ) {
+          return {
+            char: "/" as TriggerChar,
+            query: text.slice(i + 1, cursorPos),
+            startIndex: doubleStart,
+            triggerLength: 2,
+          };
+        }
+        return null;
+      }
+
       // Valid only if at position 0 or preceded by whitespace.
       if (i === 0 || text[i - 1] === " " || text[i - 1] === "\n" || text[i - 1] === "\t") {
         return {
           char: ch as TriggerChar,
           query: text.slice(i + 1, cursorPos),
           startIndex: i,
+          triggerLength: 1,
         };
       }
       // Trigger char exists but is not at a word boundary — invalid.
@@ -188,8 +210,9 @@ const ChatInput: Component<ChatInputProps> = (props) => {
 
     // Replace trigger + query text with the completed reference label.
     const before = props.value.slice(0, t.startIndex);
-    const after = props.value.slice(t.startIndex + 1 + t.query.length);
-    const inserted = `${t.char}${item.label} `;
+    const after = props.value.slice(t.startIndex + t.triggerLength + t.query.length);
+    const triggerStr = t.triggerLength === 2 ? "//" : String(t.char);
+    const inserted = `${triggerStr}${item.label} `;
     const newValue = before + inserted + after;
     props.onInput(newValue);
 

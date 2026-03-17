@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show } from "solid-js";
 
 import type { CanvasStore } from "./canvasState";
 import { exportAscii } from "./export/exportAscii";
@@ -92,6 +92,9 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
       clearTimeout(debounceTimer);
     }
   });
+
+  // Generate previews immediately on mount (bypass debounce for initial render)
+  onMount(() => updatePreviews());
 
   function updatePreviews(): void {
     const elements = props.store.state.elements;
