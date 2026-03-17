@@ -1120,38 +1120,49 @@
 > Feature spec: `docs/features/06-visual-design-canvas.md`
 
 **Phase 32A -- Canvas Types & State (Frontend)**
-- [ ] 32A.1: Create `canvasTypes.ts` -- all type definitions (CanvasElement, ElementStyle, tool types)
-- [ ] 32A.2: Write tests for canvas state store (add/remove/update/undo/redo/select)
-- [ ] 32A.3: Implement `canvasState.ts` -- SolidJS createStore with undo/redo
+- [x] 32A.1: Create `canvasTypes.ts` -- all type definitions (CanvasElement, ElementStyle, tool types) (2026-03-16)
+- [x] 32A.2: Write tests for canvas state store (add/remove/update/undo/redo/select) (2026-03-16)
+- [x] 32A.3: Implement `canvasState.ts` -- SolidJS createStore with undo/redo (2026-03-16)
 
 **Phase 32B -- SVG Viewport & Select Tool (Frontend)**
-- [ ] 32B.1: Write tests for `screenToSvg` coordinate transform
-- [ ] 32B.2: Implement `DesignCanvas.tsx` -- main SVG component with viewport
-- [ ] 32B.3: Implement `SelectTool.ts` -- select, move, resize via pointer capture
+- [x] 32B.1: Write tests for `screenToSvg` coordinate transform (2026-03-16)
+- [x] 32B.2: Implement `DesignCanvas.tsx` -- main SVG component with viewport (2026-03-16)
+- [x] 32B.3: Implement `SelectTool.ts` -- select, move, resize via pointer capture (2026-03-16)
 
 **Phase 32C -- Shape Tools (Frontend)**
-- [ ] 32C.1: Implement `RectTool.ts` -- rectangle creation via drag
-- [ ] 32C.2: Implement `EllipseTool.ts` -- ellipse/circle creation (Shift constraint)
-- [ ] 32C.3: Write tests for Catmull-Rom path smoothing
-- [ ] 32C.4: Implement `FreehandTool.ts` -- freehand SVG path with smoothing
-- [ ] 32C.5: Implement `TextTool.ts` -- click-to-place text via foreignObject
+- [x] 32C.1: Implement `RectTool.ts` -- rectangle creation via drag (2026-03-16)
+- [x] 32C.2: Implement `EllipseTool.ts` -- ellipse/circle creation (Shift constraint) (2026-03-16)
+- [x] 32C.3: Write tests for Catmull-Rom path smoothing (2026-03-16)
+- [x] 32C.4: Implement `FreehandTool.ts` -- freehand SVG path with smoothing (2026-03-16)
+- [x] 32C.5: Implement `TextTool.ts` -- click-to-place text via foreignObject (2026-03-16)
 
 **Phase 32D -- Image Upload & Annotation (Frontend)**
-- [ ] 32D.1: Implement `ImageTool.ts` -- file upload, base64, 5MB limit
-- [ ] 32D.2: Implement `AnnotateTool.ts` -- arrow + callout annotation
+- [x] 32D.1: Implement `ImageTool.ts` -- file upload, base64, 5MB limit (2026-03-16)
+- [x] 32D.2: Implement `AnnotateTool.ts` -- arrow + callout annotation (2026-03-16)
 
 **Phase 32E -- Toolbar & Modal (Frontend)**
-- [ ] 32E.1: Implement `CanvasToolbar.tsx` -- tool selector with keyboard shortcuts
-- [ ] 32E.2: Implement `CanvasModal.tsx` -- fullscreen modal wrapper
+- [x] 32E.1: Implement `CanvasToolbar.tsx` -- tool selector with keyboard shortcuts (2026-03-16)
+- [x] 32E.2: Implement `CanvasModal.tsx` -- fullscreen modal wrapper (2026-03-16)
 
 **Phase 32F -- Export Pipeline (Frontend)**
-- [ ] 32F.1: Write tests for PNG export
-- [ ] 32F.2: Implement `exportPng.ts` -- SVG to PNG via offscreen canvas
-- [ ] 32F.3: Write tests for ASCII art export
-- [ ] 32F.4: Implement `exportAscii.ts` -- element tree to character grid
-- [ ] 32F.5: Write tests for JSON export
-- [ ] 32F.6: Implement `exportJson.ts` -- structured JSON description
-- [ ] 32F.7: Implement `CanvasExportPanel.tsx` -- export preview sidebar
+- [x] 32F.1: Write tests for PNG export (2026-03-16)
+- [x] 32F.2: Implement `exportPng.ts` -- SVG to PNG via offscreen canvas (2026-03-16)
+- [x] 32F.3: Write tests for ASCII art export (2026-03-16)
+- [x] 32F.4: Implement `exportAscii.ts` -- element tree to character grid (2026-03-16)
+- [x] 32F.5: Write tests for JSON export (2026-03-16)
+- [x] 32F.6: Implement `exportJson.ts` -- structured JSON description (2026-03-16)
+- [x] 32F.7: Implement `CanvasExportPanel.tsx` -- export preview sidebar (2026-03-16)
+
+**Phase 32L -- Canvas Tool Improvements (Frontend)**
+- [x] 32L.1: 8-point resize handles on SelectTool with Shift aspect-ratio lock (2026-03-17)
+- [x] 32L.2: Inline text/annotation editing via double-click (foreignObject textarea) (2026-03-17)
+- [x] 32L.3: Fix freehand movement + apply Catmull-Rom smoothing in renderer (2026-03-17)
+- [x] 32L.4: PolygonTool -- multi-click polygon, close on first-vertex or double-click (2026-03-17)
+- [x] 32L.5: NodeTool -- drag individual vertices on polygon/freehand/annotation (2026-03-17)
+- [x] 32L.6: ImageTool drag-to-size with preview rect (2026-03-17)
+- [x] 32L.7: Delete/Backspace removes selected elements (2026-03-17)
+- [x] 32L.8: Collapsible + resizable export panel with drag handle (2026-03-17)
+- [x] 32L.9: Polygon ASCII export via Bresenham line rasterization (2026-03-17)
 
 **Phase 32G -- Phase 1 Integration & E2E Tests**
 - [ ] 32G.1: E2E test -- canvas basic interactions

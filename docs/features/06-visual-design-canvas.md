@@ -30,13 +30,15 @@ frontend/src/features/canvas/
   CanvasModal.tsx          -- Fullscreen modal wrapper
   buildCanvasPrompt.ts     -- Prompt composition based on model vision capability
   tools/
-    SelectTool.ts          -- Select, move, resize via pointer capture
+    SelectTool.ts          -- Select, move, 8-point resize handles, Shift aspect-ratio lock
     FreehandTool.ts        -- SVG path with Catmull-Rom smoothing
     RectTool.ts            -- Rectangle creation via drag
     EllipseTool.ts         -- Ellipse/circle creation
     TextTool.ts            -- Click-to-place text, inline editing via foreignObject
     AnnotateTool.ts        -- Arrow + callout annotation
-    ImageTool.ts           -- File upload -> base64 -> image element
+    ImageTool.ts           -- Drag-to-size file upload -> base64 -> image element
+    PolygonTool.ts         -- Multi-click polygon, close on first-vertex or double-click
+    NodeTool.ts            -- Drag individual vertices on polygon/freehand/annotation
   export/
     exportPng.ts           -- SVG -> XMLSerializer -> offscreen canvas -> PNG base64
     exportAscii.ts         -- Element tree -> character grid rasterization -> string
