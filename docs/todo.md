@@ -1199,6 +1199,31 @@
 - [x] 32K.5: Wire canvas export to ChatPanel send (2026-03-16)
 - [ ] 32K.6: E2E test -- canvas to chat flow
 
+#### Stub & Placeholder Cleanup (2026-03-17)
+
+> Tracker: `docs/stub-tracker.md` (full details, file:line references, effort estimates)
+
+**Quick Wins (small effort, high impact):**
+- [ ] STUB-002: Convert `StubBackendExecutor` to ABC with `@abstractmethod` on `info` property (`workers/codeforge/backends/_base.py:99`)
+- [ ] STUB-005: Add `mode` + `model` columns to conversations table, implement UPDATE queries (`internal/adapter/postgres/store_conversation.go:117-125`)
+- [ ] STUB-011: Refactor `detectGoalFiles()` to use intermediate type instead of partial `ProjectGoal` (`internal/service/goal_discovery.go:159`)
+
+**Medium Effort:**
+- [ ] STUB-004: Wire actual budget tracking + stall detection into conversation agent template data (`internal/service/conversation_agent.go:150-151`)
+- [ ] STUB-003: Implement review trigger dispatch to boundary-analyzer agent loop (`workers/codeforge/consumer/_review.py:35`)
+- [ ] STUB-009: Add trajectory event `sequence_number` (Go) + frontend dedup + WS reconnect re-hydration (`frontend/src/features/benchmarks/BenchmarkPage.tsx:131-135`)
+- [ ] STUB-006: Build A2A agent card skills dynamically from mode registry + backend capabilities (`internal/port/a2a/agentcard.go:4-32`)
+- [ ] STUB-012: Defer StepBinding creation until orchestrator assigns real resources (`internal/service/review.go:267`)
+
+**Large Effort (phase-level):**
+- [ ] STUB-001: A2A task persistence to PostgreSQL + execution routing to agent backends (`internal/port/a2a/handler.go`)
+- [ ] STUB-010: SWE-agent backend adapter implementation (`docs/features/04-agent-orchestration.md`)
+
+**No Action Needed (intentional designs):**
+- STUB-007/008: GitHub OAuth + Subscription 501 gates (feature-gated by design)
+- STUB-013/014/015: Intentional no-ops (_BenchmarkRuntime, StubBackendExecutor.cancel, useCRUDForm fallback)
+- STUB-016-023: Documentation TODOs (tracked in plan docs or cross-referenced above)
+
 **Modular Prompt System (Phases A-F)**
 - [x] Phase A: Domain types (PromptEntry, AssemblyContext, Category, Conditions) + YAML loader + tests (2026-03-17)
 - [x] Phase B: PromptAssembler + PromptLibraryService + wiring into buildSystemPrompt + tests (2026-03-17)
