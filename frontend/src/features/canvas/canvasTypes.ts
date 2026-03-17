@@ -34,6 +34,10 @@ export interface AnnotationData {
   arrowPath?: string;
 }
 
+export interface PolygonData {
+  vertices: [number, number][];
+}
+
 // Union of all element data types
 export type ElementData =
   | RectData
@@ -41,10 +45,18 @@ export type ElementData =
   | FreehandData
   | TextData
   | ImageData
-  | AnnotationData;
+  | AnnotationData
+  | PolygonData;
 
 // Element type discriminator
-export type ElementType = "rect" | "ellipse" | "freehand" | "text" | "image" | "annotation";
+export type ElementType =
+  | "rect"
+  | "ellipse"
+  | "freehand"
+  | "text"
+  | "image"
+  | "annotation"
+  | "polygon";
 
 // A single element on the canvas
 export interface CanvasElement {
@@ -61,13 +73,23 @@ export interface CanvasElement {
 }
 
 // Available tools
-export type ToolType = "select" | "rect" | "ellipse" | "freehand" | "text" | "annotate" | "image";
+export type ToolType =
+  | "select"
+  | "rect"
+  | "ellipse"
+  | "freehand"
+  | "text"
+  | "annotate"
+  | "image"
+  | "polygon"
+  | "node";
 
 // Tool interface for pointer-event-driven tools
 export interface CanvasTool {
   onPointerDown: (event: PointerEvent) => void;
   onPointerMove: (event: PointerEvent) => void;
   onPointerUp: (event: PointerEvent) => void;
+  onDblClick?: (event: MouseEvent) => void;
   cursor: string;
 }
 
@@ -100,4 +122,5 @@ export interface CanvasStoreState {
   viewport: Viewport;
   undoStack: CanvasElement[][];
   redoStack: CanvasElement[][];
+  editingId: string | null;
 }

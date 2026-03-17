@@ -33,6 +33,7 @@ export interface CanvasStore {
   clearCanvas: () => void;
   batchStart: () => void;
   batchCommit: () => void;
+  setEditingId: (id: string | null) => void;
 }
 
 let globalIdCounter = 0;
@@ -52,6 +53,7 @@ export function createCanvasStore(): CanvasStore {
     viewport: { panX: 0, panY: 0, zoom: 1 },
     undoStack: [],
     redoStack: [],
+    editingId: null,
   });
 
   // Snapshot the current elements array (deep clone via JSON round-trip)
@@ -108,6 +110,9 @@ export function createCanvasStore(): CanvasStore {
         const selIdx = s.selectedIds.indexOf(id);
         if (selIdx !== -1) {
           s.selectedIds.splice(selIdx, 1);
+        }
+        if (s.editingId === id) {
+          s.editingId = null;
         }
       }),
     );
@@ -264,6 +269,7 @@ export function createCanvasStore(): CanvasStore {
 
   function deselectAll(): void {
     setState("selectedIds", []);
+    setState("editingId", null);
   }
 
   function clearCanvas(): void {
@@ -272,8 +278,13 @@ export function createCanvasStore(): CanvasStore {
       produce((s) => {
         s.elements = [];
         s.selectedIds = [];
+        s.editingId = null;
       }),
     );
+  }
+
+  function setEditingId(id: string | null): void {
+    setState("editingId", id);
   }
 
   return {
@@ -292,5 +303,6 @@ export function createCanvasStore(): CanvasStore {
     clearCanvas,
     batchStart,
     batchCommit,
+    setEditingId,
   };
 }

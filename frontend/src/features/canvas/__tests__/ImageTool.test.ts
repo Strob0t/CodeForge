@@ -13,9 +13,9 @@ function makeSvgRef(): () => SVGSVGElement | undefined {
   return () => undefined;
 }
 
-function makePointerEvent(clientX: number, clientY: number): PointerEvent {
+function makePointerEvent(type: string, clientX: number, clientY: number): PointerEvent {
   const captured = { id: -1 };
-  const event = new PointerEvent("pointerdown", {
+  const event = new PointerEvent(type, {
     clientX,
     clientY,
     pointerId: 1,
@@ -36,6 +36,16 @@ function makePointerEvent(clientX: number, clientY: number): PointerEvent {
   });
 
   return event;
+}
+
+/** Simulate a click (pointerDown + pointerUp at the same point). */
+function simulateClick(
+  tool: ReturnType<typeof createImageTool>,
+  clientX: number,
+  clientY: number,
+): void {
+  tool.onPointerDown(makePointerEvent("pointerdown", clientX, clientY));
+  tool.onPointerUp(makePointerEvent("pointerup", clientX, clientY));
 }
 
 /** Assert capturedInput is not null and return it typed. */
@@ -67,20 +77,33 @@ describe("createImageTool", () => {
     expect(typeof tool.onPointerUp).toBe("function");
   });
 
-  it("onPointerMove and onPointerUp are no-ops", () => {
+  it("creates a preview rect on pointer down, removed on pointer up", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const moveEvent = new PointerEvent("pointermove", { clientX: 0, clientY: 0 });
-    const upEvent = new PointerEvent("pointerup", { clientX: 0, clientY: 0 });
+    tool.onPointerDown(makePointerEvent("pointerdown", 100, 200));
 
-    // Should not throw
-    tool.onPointerMove(moveEvent);
-    tool.onPointerUp(upEvent);
+    // Preview rect should exist (type "rect" used for placeholder)
+    expect(store.state.elements).toHaveLength(1);
+    expect(store.state.elements[0].type).toBe("rect");
+
+    // After pointer up, preview rect is removed
+    const appendChildSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
+      if (node instanceof HTMLInputElement && node.type === "file") {
+        vi.spyOn(node, "click").mockImplementation(function noop() {
+          /* intentionally empty */
+        });
+      }
+      return node;
+    });
+
+    tool.onPointerUp(makePointerEvent("pointerup", 100, 200));
     expect(store.state.elements).toHaveLength(0);
+
+    appendChildSpy.mockRestore();
   });
 });
 
 // ---------------------------------------------------------------------------
-// File input creation and handling
+// File input creation and handling (drag-to-size)
 // ---------------------------------------------------------------------------
 
 describe("ImageTool file handling", () => {
@@ -109,33 +132,22 @@ describe("ImageTool file handling", () => {
     appendChildSpy.mockRestore();
   });
 
-  it("creates a hidden file input on pointer down", () => {
+  it("opens file dialog on pointer up (click = no drag)", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const event = makePointerEvent(100, 200);
 
-    tool.onPointerDown(event);
+    simulateClick(tool, 100, 200);
 
     const input = requireInput(capturedInput);
     expect(input.type).toBe("file");
     expect(input.accept).toBe("image/*");
     expect(input.style.display).toBe("none");
-  });
-
-  it("calls click() on the file input to open file dialog", () => {
-    const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const event = makePointerEvent(100, 200);
-
-    tool.onPointerDown(event);
-
-    const input = requireInput(capturedInput);
     expect(input.click).toHaveBeenCalled();
   });
 
-  it("adds an image element when a valid file is selected", () => {
+  it("adds an image element with default size on click", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const event = makePointerEvent(50, 75);
 
-    tool.onPointerDown(event);
+    simulateClick(tool, 50, 75);
 
     const input = requireInput(capturedInput);
 
@@ -165,10 +177,10 @@ describe("ImageTool file handling", () => {
     // Restore FileReader
     globalThis.FileReader = originalFileReader;
 
-    // Verify element was added
-    expect(store.state.elements).toHaveLength(1);
-    const el = store.state.elements[0];
-    expect(el.type).toBe("image");
+    // Preview rect was removed, only image element remains
+    const imageEls = store.state.elements.filter((e) => e.type === "image");
+    expect(imageEls).toHaveLength(1);
+    const el = imageEls[0];
     expect(el.x).toBe(50);
     expect(el.y).toBe(75);
     expect(el.width).toBe(200);
@@ -178,11 +190,49 @@ describe("ImageTool file handling", () => {
     expect(data.originalName).toBe("photo.png");
   });
 
+  it("uses dragged dimensions when drag is large enough", () => {
+    const tool = createImageTool({ store, svgRef: makeSvgRef() });
+
+    // Drag from (10,10) to (110,60) — a 100x50 area
+    tool.onPointerDown(makePointerEvent("pointerdown", 10, 10));
+    tool.onPointerMove(makePointerEvent("pointermove", 110, 60));
+    tool.onPointerUp(makePointerEvent("pointerup", 110, 60));
+
+    const input = requireInput(capturedInput);
+
+    // Simulate file selection
+    const file = new File(["image-data"], "wide.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file] });
+
+    const mockDataUrl = "data:image/png;base64,wide";
+    const originalFileReader = globalThis.FileReader;
+    const mockReader = {
+      onload: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      result: mockDataUrl,
+      readAsDataURL: vi.fn(function (this: { onload: (() => void) | null }) {
+        if (this.onload) this.onload();
+      }),
+    };
+    globalThis.FileReader = vi.fn(function () {
+      return mockReader;
+    }) as unknown as typeof FileReader;
+
+    input.dispatchEvent(new Event("change"));
+    globalThis.FileReader = originalFileReader;
+
+    const imageEls = store.state.elements.filter((e) => e.type === "image");
+    expect(imageEls).toHaveLength(1);
+    expect(imageEls[0].x).toBe(10);
+    expect(imageEls[0].y).toBe(10);
+    expect(imageEls[0].width).toBe(100);
+    expect(imageEls[0].height).toBe(50);
+  });
+
   it("rejects files larger than 5MB", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const event = makePointerEvent(50, 75);
 
-    tool.onPointerDown(event);
+    simulateClick(tool, 50, 75);
 
     const input = requireInput(capturedInput);
 
@@ -208,14 +258,15 @@ describe("ImageTool file handling", () => {
     globalThis.FileReader = originalFileReader;
 
     expect(readerSpy).not.toHaveBeenCalled();
-    expect(store.state.elements).toHaveLength(0);
+    // Only the removed preview rect was in the store; no image was added
+    const imageEls = store.state.elements.filter((e) => e.type === "image");
+    expect(imageEls).toHaveLength(0);
   });
 
   it("accepts files exactly at 5MB limit", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const event = makePointerEvent(10, 20);
 
-    tool.onPointerDown(event);
+    simulateClick(tool, 10, 20);
 
     const input = requireInput(capturedInput);
 
@@ -241,14 +292,14 @@ describe("ImageTool file handling", () => {
 
     globalThis.FileReader = originalFileReader;
 
-    expect(store.state.elements).toHaveLength(1);
+    const imageEls = store.state.elements.filter((e) => e.type === "image");
+    expect(imageEls).toHaveLength(1);
   });
 
   it("does nothing when no file is selected (cancel)", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const event = makePointerEvent(50, 75);
 
-    tool.onPointerDown(event);
+    simulateClick(tool, 50, 75);
 
     const input = requireInput(capturedInput);
 
@@ -256,14 +307,14 @@ describe("ImageTool file handling", () => {
     Object.defineProperty(input, "files", { value: [] });
     input.dispatchEvent(new Event("change"));
 
-    expect(store.state.elements).toHaveLength(0);
+    const imageEls = store.state.elements.filter((e) => e.type === "image");
+    expect(imageEls).toHaveLength(0);
   });
 
   it("does nothing on FileReader error", () => {
     const tool = createImageTool({ store, svgRef: makeSvgRef() });
-    const event = makePointerEvent(50, 75);
 
-    tool.onPointerDown(event);
+    simulateClick(tool, 50, 75);
 
     const input = requireInput(capturedInput);
 
@@ -287,6 +338,7 @@ describe("ImageTool file handling", () => {
 
     globalThis.FileReader = originalFileReader;
 
-    expect(store.state.elements).toHaveLength(0);
+    const imageEls = store.state.elements.filter((e) => e.type === "image");
+    expect(imageEls).toHaveLength(0);
   });
 });

@@ -14,6 +14,8 @@ import { createAnnotateTool } from "./tools/AnnotateTool";
 import { createEllipseTool } from "./tools/EllipseTool";
 import { createFreehandTool } from "./tools/FreehandTool";
 import { createImageTool } from "./tools/ImageTool";
+import { createNodeTool } from "./tools/NodeTool";
+import { createPolygonTool } from "./tools/PolygonTool";
 import { createRectTool } from "./tools/RectTool";
 import { createSelectTool } from "./tools/SelectTool";
 import { createTextTool } from "./tools/TextTool";
@@ -42,6 +44,8 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
   const internalStore = createCanvasStore();
 
   const [svgRef, setSvgRef] = createSignal<SVGSVGElement | undefined>(undefined);
+  const [exportPanelOpen, setExportPanelOpen] = createSignal(false);
+  const [exportPanelWidth, setExportPanelWidth] = createSignal(256);
 
   // Create tool instances — each tool needs store + svgRef
   const toolOpts = { store: resolvedStore(), svgRef };
@@ -53,6 +57,8 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
     text: createTextTool(toolOpts),
     annotate: createAnnotateTool(toolOpts),
     image: createImageTool(toolOpts),
+    polygon: createPolygonTool(toolOpts),
+    node: createNodeTool(toolOpts),
   };
 
   // Reactive: return the current tool instance based on store.state.activeTool
@@ -118,7 +124,11 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
         >
           {/* Top bar: toolbar + close/export buttons */}
           <div class="flex items-center justify-between border-b border-white/10 bg-cf-bg-surface px-3 py-2">
-            <CanvasToolbar store={resolvedStore()} />
+            <CanvasToolbar
+              store={resolvedStore()}
+              onToggleExport={() => setExportPanelOpen((prev) => !prev)}
+              exportOpen={exportPanelOpen()}
+            />
 
             <div class="flex items-center gap-2">
               {/* Send to Agent button */}
@@ -166,13 +176,16 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
               />
             </div>
 
-            {/* Right sidebar: export panel */}
-            <div
-              class="hidden w-64 shrink-0 border-l border-white/10 bg-cf-bg-surface lg:block"
-              data-testid="canvas-sidebar"
-            >
-              <CanvasExportPanel store={resolvedStore()} svgRef={svgRef} />
-            </div>
+            {/* Right sidebar: export panel (collapsible + resizable) */}
+            <Show when={exportPanelOpen()}>
+              <CanvasExportPanel
+                store={resolvedStore()}
+                svgRef={svgRef}
+                width={exportPanelWidth()}
+                onResize={setExportPanelWidth}
+                onClose={() => setExportPanelOpen(false)}
+              />
+            </Show>
           </div>
         </div>
       </Portal>

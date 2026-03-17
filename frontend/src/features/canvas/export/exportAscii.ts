@@ -3,6 +3,7 @@ import type {
   CanvasElement,
   FreehandData,
   ImageData,
+  PolygonData,
   TextData,
 } from "../canvasTypes";
 
@@ -145,6 +146,47 @@ function rasterizeImage(grid: string[][], el: CanvasElement): void {
   }
 }
 
+function rasterizeLine(
+  grid: string[][],
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  ch: string,
+): void {
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  let cx = x0,
+    cy = y0;
+  while (true) {
+    setChar(grid, cx, cy, ch);
+    if (cx === x1 && cy === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      cx += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      cy += sy;
+    }
+  }
+}
+
+function rasterizePolygon(grid: string[][], el: CanvasElement): void {
+  const data = el.data as PolygonData;
+  if (!data.vertices || data.vertices.length < 2) return;
+  const verts = data.vertices;
+  for (let i = 0; i < verts.length; i++) {
+    const [ax, ay] = verts[i];
+    const [bx, by] = verts[(i + 1) % verts.length];
+    rasterizeLine(grid, pxToCol(ax), pxToRow(ay), pxToCol(bx), pxToRow(by), "*");
+  }
+}
+
 function rasterizeAnnotation(grid: string[][], el: CanvasElement): void {
   const data = el.data as AnnotationData;
   const col0 = pxToCol(el.x);
@@ -220,6 +262,9 @@ export function exportAscii(
         break;
       case "annotation":
         rasterizeAnnotation(grid, el);
+        break;
+      case "polygon":
+        rasterizePolygon(grid, el);
         break;
     }
   }

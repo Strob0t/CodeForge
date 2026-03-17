@@ -153,6 +153,49 @@ const TOOL_DEFS: ToolDef[] = [
       </svg>
     ),
   },
+  {
+    type: "polygon",
+    label: "Polygon",
+    shortcut: "G",
+    icon: () => (
+      <svg
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polygon points="12 2, 22 8.5, 18 20, 6 20, 2 8.5" />
+      </svg>
+    ),
+  },
+  {
+    type: "node",
+    label: "Node Edit",
+    shortcut: "N",
+    icon: () => (
+      <svg
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="5" cy="12" r="2" />
+        <circle cx="19" cy="12" r="2" />
+        <circle cx="12" cy="5" r="2" />
+        <line x1="7" y1="12" x2="17" y2="12" />
+        <line x1="5" y1="10" x2="12" y2="7" />
+        <line x1="19" y1="10" x2="12" y2="7" />
+      </svg>
+    ),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -294,6 +337,8 @@ const KEY_TO_TOOL: Record<string, ToolType> = {
   t: "text",
   a: "annotate",
   i: "image",
+  g: "polygon",
+  n: "node",
 };
 
 // ---------------------------------------------------------------------------
@@ -302,6 +347,8 @@ const KEY_TO_TOOL: Record<string, ToolType> = {
 
 export interface CanvasToolbarProps {
   store: CanvasStore;
+  onToggleExport?: () => void;
+  exportOpen?: boolean;
 }
 
 export function CanvasToolbar(props: CanvasToolbarProps): JSX.Element {
@@ -321,6 +368,16 @@ export function CanvasToolbar(props: CanvasToolbarProps): JSX.Element {
         props.store.redo();
       } else {
         props.store.undo();
+      }
+      return;
+    }
+
+    // Delete/Backspace removes selected elements
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      const ids = [...props.store.state.selectedIds];
+      for (const id of ids) {
+        props.store.removeElement(id);
       }
       return;
     }
@@ -391,6 +448,40 @@ export function CanvasToolbar(props: CanvasToolbarProps): JSX.Element {
       <span class="ml-1 min-w-[3rem] text-center text-xs text-cf-text-muted" aria-live="polite">
         {Math.round(props.store.state.viewport.zoom * 100)}%
       </span>
+
+      {/* Export panel toggle */}
+      {props.onToggleExport && (
+        <>
+          <div class="mx-1 h-6 w-px bg-cf-border" role="separator" />
+          <button
+            type="button"
+            class={
+              "flex items-center justify-center rounded-md p-1.5 transition-colors " +
+              (props.exportOpen
+                ? "bg-cf-accent text-cf-accent-fg"
+                : "text-cf-text-secondary hover:bg-cf-bg-surface-alt hover:text-cf-text-primary")
+            }
+            title="Toggle Export Panel"
+            aria-label="Toggle Export Panel"
+            aria-pressed={props.exportOpen ?? false}
+            onClick={() => props.onToggleExport?.()}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="15" y1="3" x2="15" y2="21" />
+            </svg>
+          </button>
+        </>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, type JSX, onCleanup, onMount } from "solid-js";
+import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 
 import type { CanvasStore } from "./canvasState";
 import type {
@@ -7,8 +7,11 @@ import type {
   CanvasTool,
   FreehandData,
   ImageData,
+  PolygonData,
   TextData,
 } from "./canvasTypes";
+import { getEditableNodes } from "./tools/NodeTool";
+import { catmullRomToSvgPath } from "./tools/smoothing";
 
 // ---------------------------------------------------------------------------
 // Pure coordinate transform — exported for unit testing
@@ -93,25 +96,36 @@ function renderFreehand(el: CanvasElement): JSX.Element {
   const points = data.points;
   if (!points || points.length === 0) return <g />;
 
+  // Compute original bounding-box origin from raw points
+  let minX = Infinity;
+  let minY = Infinity;
+  for (const [px, py] of points) {
+    if (px < minX) minX = px;
+    if (py < minY) minY = py;
+  }
+
+  // Translation offset: element may have been moved after creation
+  const dx = el.x - minX;
+  const dy = el.y - minY;
+
+  // Use Catmull-Rom smoothing for multi-point paths
   const d =
     points.length === 1
       ? `M${points[0][0]},${points[0][1]}L${points[0][0]},${points[0][1]}`
-      : `M${points[0][0]},${points[0][1]}` +
-        points
-          .slice(1)
-          .map((p) => `L${p[0]},${p[1]}`)
-          .join("");
+      : catmullRomToSvgPath(points);
 
   return (
-    <path
-      d={d}
-      fill="none"
-      stroke={el.style.stroke}
-      stroke-width={el.style.strokeWidth}
-      opacity={el.style.opacity}
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
+    <g transform={`translate(${dx},${dy})`}>
+      <path
+        d={d}
+        fill="none"
+        stroke={el.style.stroke}
+        stroke-width={el.style.strokeWidth}
+        opacity={el.style.opacity}
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </g>
   );
 }
 
@@ -193,6 +207,37 @@ function renderAnnotation(el: CanvasElement): JSX.Element {
   );
 }
 
+function renderPolygon(el: CanvasElement): JSX.Element {
+  const data = el.data as PolygonData;
+  const vertices = data.vertices;
+  if (!vertices || vertices.length === 0) return <g />;
+
+  // Compute original bounding-box origin for translation (same pattern as freehand)
+  let minX = Infinity;
+  let minY = Infinity;
+  for (const [px, py] of vertices) {
+    if (px < minX) minX = px;
+    if (py < minY) minY = py;
+  }
+  const dx = el.x - minX;
+  const dy = el.y - minY;
+
+  const pointsStr = vertices.map(([x, y]) => `${x},${y}`).join(" ");
+
+  return (
+    <g transform={`translate(${dx},${dy})`}>
+      <polygon
+        points={pointsStr}
+        fill={el.style.fill}
+        stroke={el.style.stroke}
+        stroke-width={el.style.strokeWidth}
+        opacity={el.style.opacity}
+        stroke-linejoin="round"
+      />
+    </g>
+  );
+}
+
 function renderElement(el: CanvasElement): JSX.Element {
   switch (el.type) {
     case "rect":
@@ -207,6 +252,8 @@ function renderElement(el: CanvasElement): JSX.Element {
       return renderImage(el);
     case "annotation":
       return renderAnnotation(el);
+    case "polygon":
+      return renderPolygon(el);
   }
 }
 
@@ -216,19 +263,179 @@ function renderElement(el: CanvasElement): JSX.Element {
 
 function SelectionOverlay(props: { element: CanvasElement }): JSX.Element {
   const padding = 4;
+  const HANDLE_RENDER_SIZE = 6;
+  const half = HANDLE_RENDER_SIZE / 2;
+
+  const el = createMemo(() => props.element);
+  const handles = createMemo(() => {
+    const e = el();
+    return [
+      { x: e.x, y: e.y }, // nw
+      { x: e.x + e.width / 2, y: e.y }, // n
+      { x: e.x + e.width, y: e.y }, // ne
+      { x: e.x + e.width, y: e.y + e.height / 2 }, // e
+      { x: e.x + e.width, y: e.y + e.height }, // se
+      { x: e.x + e.width / 2, y: e.y + e.height }, // s
+      { x: e.x, y: e.y + e.height }, // sw
+      { x: e.x, y: e.y + e.height / 2 }, // w
+    ];
+  });
 
   return (
-    <rect
-      x={props.element.x - padding}
-      y={props.element.y - padding}
-      width={props.element.width + padding * 2}
-      height={props.element.height + padding * 2}
-      fill="none"
-      stroke="var(--cf-accent)"
-      stroke-width={1.5}
-      stroke-dasharray="6 3"
-      pointer-events="none"
-    />
+    <g pointer-events="none">
+      <rect
+        x={el().x - padding}
+        y={el().y - padding}
+        width={el().width + padding * 2}
+        height={el().height + padding * 2}
+        fill="none"
+        stroke="var(--cf-accent)"
+        stroke-width={1.5}
+        stroke-dasharray="6 3"
+      />
+      <For each={handles()}>
+        {(h) => (
+          <rect
+            x={h.x - half}
+            y={h.y - half}
+            width={HANDLE_RENDER_SIZE}
+            height={HANDLE_RENDER_SIZE}
+            fill="white"
+            stroke="var(--cf-accent)"
+            stroke-width={1.5}
+          />
+        )}
+      </For>
+    </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InlineEditor — foreignObject overlay for editing text/annotation elements
+// ---------------------------------------------------------------------------
+
+function InlineEditor(props: {
+  store: CanvasStore;
+  svgRef: SVGSVGElement | undefined;
+}): JSX.Element {
+  const editingEl = () => {
+    const id = props.store.state.editingId;
+    if (!id) return undefined;
+    return props.store.state.elements.find((e) => e.id === id);
+  };
+
+  function handleInput(e: InputEvent): void {
+    const el = editingEl();
+    if (!el) return;
+    const value = (e.currentTarget as HTMLTextAreaElement).value;
+    if (el.type === "text") {
+      props.store.updateElementSilent(el.id, { data: { text: value } as TextData });
+    } else if (el.type === "annotation") {
+      const annData = el.data as AnnotationData;
+      props.store.updateElementSilent(el.id, {
+        data: { ...annData, text: value } as AnnotationData,
+      });
+    }
+  }
+
+  function handleKeyDown(e: KeyboardEvent): void {
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      props.store.setEditingId(null);
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      props.store.setEditingId(null);
+    }
+  }
+
+  function handleBlur(): void {
+    props.store.setEditingId(null);
+  }
+
+  return (
+    <Show when={editingEl()}>
+      {(el) => {
+        const text = () => {
+          if (el().type === "text") return (el().data as TextData).text;
+          if (el().type === "annotation") return (el().data as AnnotationData).text;
+          return "";
+        };
+
+        return (
+          <foreignObject
+            x={el().x}
+            y={el().type === "annotation" ? el().y - 24 : el().y}
+            width={Math.max(el().width, 100)}
+            height={Math.max(el().height, 30)}
+          >
+            <textarea
+              ref={(ref) => {
+                // Auto-focus and select on mount
+                setTimeout(() => {
+                  ref.focus();
+                  ref.select();
+                }, 0);
+              }}
+              value={text()}
+              onInput={handleInput}
+              onKeyDown={handleKeyDown}
+              onBlur={handleBlur}
+              style={{
+                width: "100%",
+                height: "100%",
+                border: "2px solid var(--cf-accent, #3b82f6)",
+                background: "white",
+                color: "black",
+                padding: "2px 4px",
+                "font-size": `${el().style.fontSize ?? 16}px`,
+                "font-family": el().style.fontFamily ?? "sans-serif",
+                resize: "none",
+                outline: "none",
+              }}
+            />
+          </foreignObject>
+        );
+      }}
+    </Show>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NodeOverlay — editable node circles for polygon/freehand/annotation elements
+// ---------------------------------------------------------------------------
+
+function NodeOverlay(props: { store: CanvasStore }): JSX.Element {
+  const selectedEl = () => {
+    const ids = props.store.state.selectedIds;
+    if (ids.length !== 1) return undefined;
+    return props.store.state.elements.find((e) => e.id === ids[0]);
+  };
+
+  return (
+    <Show when={props.store.state.activeTool === "node" && selectedEl()}>
+      {(el) => {
+        const nodes = () => getEditableNodes(el());
+        return (
+          <>
+            <For each={nodes()}>
+              {([x, y]) => (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={4}
+                  fill="white"
+                  stroke="var(--cf-accent)"
+                  stroke-width={1.5}
+                  pointer-events="none"
+                />
+              )}
+            </For>
+          </>
+        );
+      }}
+    </Show>
   );
 }
 
@@ -388,6 +595,10 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
     props.activeTool?.onPointerUp(e);
   }
 
+  function onDblClick(e: MouseEvent): void {
+    props.activeTool?.onDblClick?.(e);
+  }
+
   return (
     <div
       ref={containerRef}
@@ -404,6 +615,7 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDblClick={onDblClick}
       >
         {/* Arrowhead marker for annotations */}
         <defs>
@@ -428,6 +640,9 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
             </g>
           )}
         </For>
+
+        <InlineEditor store={props.store} svgRef={svgRef} />
+        <NodeOverlay store={props.store} />
       </svg>
     </div>
   );
