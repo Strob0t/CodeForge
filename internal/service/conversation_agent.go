@@ -127,6 +127,49 @@ func (s *ConversationService) buildConversationContextEntries(
 	return toContextEntryPayloads(entries)
 }
 
+// evaluateReminders checks runtime conditions and returns matching reminder texts.
+// Parameters ctx and conversationID are reserved for future budget/stall tracking integration.
+func (s *ConversationService) evaluateReminders(
+	_ context.Context,
+	_ string,
+	history []messagequeue.ConversationMessagePayload,
+) []string {
+	if s.promptAssembler == nil || s.promptAssembler.library == nil {
+		return nil
+	}
+
+	// Fetch all reminder entries from the library.
+	reminders := s.promptAssembler.library.GetByCategory(prompt.CategoryReminder)
+	if len(reminders) == 0 {
+		return nil
+	}
+
+	// Build reminder template data from current state.
+	data := map[string]any{
+		"TurnCount":       len(history),
+		"BudgetPercent":   0.0, // TODO: Wire actual budget tracking
+		"StallIterations": 0,   // TODO: Wire stall detection
+	}
+
+	var result []string
+	for i := range reminders {
+		// For now, only inject reminders that don't require template data
+		// (static reminders). Dynamic reminders will be wired when budget
+		// and stall tracking are integrated.
+		text := renderEntry(&reminders[i], data)
+		text = strings.TrimSpace(text)
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+
+	// Don't inject all reminders on every turn -- that wastes tokens.
+	// Return the rendered reminders so the pipeline is exercised; the caller
+	// (SendMessageAgentic/WithMode) passes them to the NATS payload which
+	// the Python worker injects into the system prompt.
+	return result
+}
+
 // policyForAutonomy maps an autonomy level (1-5) to a policy preset name.
 func policyForAutonomy(autonomy int) string {
 	switch autonomy {
@@ -286,6 +329,9 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Resolve per-user provider API key (if configured).
 	providerAPIKey := s.resolveProviderAPIKey(ctx, req.UserID, model)
 
+	// Evaluate system reminders.
+	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
+
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
 		ConversationID:    conversationID,
@@ -306,6 +352,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		ProviderAPIKey:    providerAPIKey,
 		TenantID:          tenantctx.FromContext(ctx),
 		SessionMeta:       sessionMeta,
+		Reminders:         reminders,
 	}
 
 	data, err := json.Marshal(payload)
@@ -500,6 +547,9 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		contextEntries = append(contextEntries, applied.extraContext...)
 	}
 
+	// Evaluate system reminders.
+	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
+
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
@@ -520,6 +570,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		Agentic:           true,
 		TenantID:          tenantctx.FromContext(ctx),
 		SessionMeta:       sessionMeta,
+		Reminders:         reminders,
 	}
 
 	data, err := json.Marshal(payload)

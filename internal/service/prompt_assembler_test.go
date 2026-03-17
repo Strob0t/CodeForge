@@ -1,11 +1,14 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // testAssemblerFS returns a minimal prompt library FS for assembler testing.
@@ -574,6 +577,193 @@ func TestRenderEntry(t *testing.T) {
 		// renderEntry should return raw content.
 		if result != "Value: {{.Missing.Deep.Field}}" {
 			t.Errorf("expected raw content on exec error, got %q", result)
+		}
+	})
+}
+
+func TestEvaluateReminders(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns nil when promptAssembler is nil", func(t *testing.T) {
+		t.Parallel()
+		svc := &ConversationService{} // no promptAssembler set
+		result := svc.evaluateReminders(context.Background(), "conv-1", nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("returns nil when library is nil", func(t *testing.T) {
+		t.Parallel()
+		svc := &ConversationService{
+			promptAssembler: &PromptAssembler{library: nil},
+		}
+		result := svc.evaluateReminders(context.Background(), "conv-1", nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("returns nil when library has no reminders", func(t *testing.T) {
+		t.Parallel()
+		// Library with no reminder entries.
+		fsys := fstest.MapFS{
+			"prompts/identity.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: identity-core
+category: identity
+name: Core Identity
+priority: 95
+content: You are CodeForge.
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		svc := &ConversationService{
+			promptAssembler: NewPromptAssembler(lib, 0),
+		}
+		result := svc.evaluateReminders(context.Background(), "conv-1", nil)
+		if result != nil {
+			t.Errorf("expected nil (no reminders in library), got %v", result)
+		}
+	})
+
+	t.Run("returns rendered reminders from library", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/reminder.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: reminder-budget
+category: reminder
+name: Budget Warning
+priority: 50
+content: "Budget at {{.BudgetPercent}}%."
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		svc := &ConversationService{
+			promptAssembler: NewPromptAssembler(lib, 0),
+		}
+		history := []messagequeue.ConversationMessagePayload{
+			{Role: "user", Content: "hello"},
+		}
+		result := svc.evaluateReminders(context.Background(), "conv-1", history)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 reminder, got %d", len(result))
+		}
+		if result[0] != "Budget at 0%." {
+			t.Errorf("reminder = %q, want %q", result[0], "Budget at 0%.")
+		}
+	})
+
+	t.Run("renders TurnCount from history length", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/reminder.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: reminder-turns
+category: reminder
+name: Turn Count
+priority: 50
+content: "Turns: {{.TurnCount}}"
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		svc := &ConversationService{
+			promptAssembler: NewPromptAssembler(lib, 0),
+		}
+		history := []messagequeue.ConversationMessagePayload{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi"},
+			{Role: "user", Content: "bye"},
+		}
+		result := svc.evaluateReminders(context.Background(), "conv-1", history)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 reminder, got %d", len(result))
+		}
+		if result[0] != "Turns: 3" {
+			t.Errorf("reminder = %q, want %q", result[0], "Turns: 3")
+		}
+	})
+}
+
+func TestConversationRunStartPayload_RemindersField(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reminders field round-trips through JSON", func(t *testing.T) {
+		t.Parallel()
+		payload := messagequeue.ConversationRunStartPayload{
+			RunID:          "run-1",
+			ConversationID: "conv-1",
+			ProjectID:      "proj-1",
+			SystemPrompt:   "You are an assistant.",
+			Model:          "gpt-4",
+			Agentic:        true,
+			Reminders:      []string{"Check your budget.", "Stay on topic."},
+		}
+
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		var decoded messagequeue.ConversationRunStartPayload
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		if len(decoded.Reminders) != 2 {
+			t.Fatalf("expected 2 reminders, got %d", len(decoded.Reminders))
+		}
+		if decoded.Reminders[0] != "Check your budget." {
+			t.Errorf("reminder[0] = %q, want %q", decoded.Reminders[0], "Check your budget.")
+		}
+		if decoded.Reminders[1] != "Stay on topic." {
+			t.Errorf("reminder[1] = %q, want %q", decoded.Reminders[1], "Stay on topic.")
+		}
+	})
+
+	t.Run("empty reminders omitted from JSON", func(t *testing.T) {
+		t.Parallel()
+		payload := messagequeue.ConversationRunStartPayload{
+			RunID:          "run-1",
+			ConversationID: "conv-1",
+			ProjectID:      "proj-1",
+			Model:          "gpt-4",
+			Agentic:        true,
+		}
+
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		// With omitempty, nil slice should not appear in JSON.
+		if strings.Contains(string(data), `"reminders"`) {
+			t.Error("nil reminders should be omitted from JSON (omitempty)")
+		}
+	})
+
+	t.Run("nil reminders deserializes as nil", func(t *testing.T) {
+		t.Parallel()
+		raw := `{"run_id":"r","conversation_id":"c","project_id":"p","model":"m","agentic":true}`
+		var payload messagequeue.ConversationRunStartPayload
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if payload.Reminders != nil {
+			t.Errorf("expected nil reminders, got %v", payload.Reminders)
 		}
 	})
 }
