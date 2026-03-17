@@ -8,13 +8,10 @@
 
 ## CRITICAL — Production Stubs (will fail or silently no-op)
 
-### STUB-001: A2A In-Memory Task Store (Go)
-- **File:** `internal/port/a2a/handler.go:3,24,29`
+### ~~STUB-001: A2A In-Memory Task Store (Go)~~ **FIXED 2026-03-17**
+- **File:** `internal/port/a2a/handler.go` (deleted)
 - **Phase:** A2A Phase 2-3
-- **Description:** Entire A2A handler is marked `STATUS: Phase 2-3 stub — discovery-only implementation`. Tasks are accepted via `POST /a2a/tasks` but stored only in `map[string]*TaskResponse` — lost on restart, never dispatched to agent backends.
-- **Impact:** A2A protocol endpoints accept tasks but they are lost on restart and never executed.
-- **Fix:** Persist tasks to PostgreSQL, route to agent backends for execution.
-- **Effort:** Large (new migration, service layer, NATS integration)
+- **Description:** ~~Entire A2A handler was a discovery-only stub with in-memory task store.~~ Deleted the entire legacy `internal/port/a2a/` package (dead code, zero external imports). The real A2A implementation lives in `internal/adapter/a2a/` (SDK-based, PostgreSQL persistence) and `internal/service/a2a.go`. Python worker receives A2A tasks via NATS (`a2a.task.created`) and executes them through the `A2AHandlerMixin`.
 
 ### ~~STUB-002: StubBackendExecutor.info Raises NotImplementedError (Python)~~ **FIXED 2026-03-17**
 - **File:** `workers/codeforge/backends/_base.py:99`
@@ -52,13 +49,10 @@
 - **Description:** ~~Both methods were no-op stubs.~~ Added `mode` and `model` columns (migration 076), updated all CRUD queries, implemented real UPDATE methods with tenant isolation.
 - **Tests:** `TestConversation_SetMode_Persisted`, `TestConversation_SetModel_Persisted`
 
-### STUB-006: A2A Agent Card Skills Are Hardcoded (Go)
-- **File:** `internal/port/a2a/agentcard.go:4-32`
+### ~~STUB-006: A2A Agent Card Skills Are Hardcoded (Go)~~ **FIXED 2026-03-17**
+- **File:** `internal/port/a2a/agentcard.go` (deleted)
 - **Phase:** A2A Phase 2-3
-- **Description:** Comment: "Skills are hardcoded placeholders. In Phase 2-3 these will be populated dynamically." Only 2 static skills ("code-task", "decompose") returned regardless of actual agent capabilities.
-- **Impact:** A2A agent card does not reflect actual registered backends or mode configurations.
-- **Fix:** Build skills dynamically from mode registry and agent backend capabilities.
-- **Effort:** Medium (query mode presets + backend registry at card build time)
+- **Description:** ~~Hardcoded placeholders.~~ Deleted with the legacy `internal/port/a2a/` package. The real agent card is served by `internal/adapter/a2a/` which uses the SDK-based implementation.
 
 ### STUB-007: GitHub OAuth Returns 501 When Unconfigured (Go)
 - **File:** `internal/adapter/http/handlers_github_oauth.go:10-12,27-28`
@@ -198,8 +192,8 @@ See `docs/todo.md` lines 1167-1200 for full list.
 
 | Category | Count | IDs |
 |----------|-------|-----|
-| **CRITICAL** | **1** (~~3~~) | STUB-001, ~~STUB-002~~, STUB-003 |
-| **HIGH** | **6** (~~7~~) | STUB-004, ~~STUB-005~~, STUB-006 through STUB-010 |
+| **CRITICAL** | **0** (~~3~~) | ~~STUB-001~~, ~~STUB-002~~, STUB-003 |
+| **HIGH** | **5** (~~7~~) | STUB-004, ~~STUB-005~~, ~~STUB-006~~, STUB-007 through STUB-010 |
 | **MEDIUM** | **4** (~~5~~) | ~~STUB-011~~, STUB-012 through STUB-015 |
 | **LOW** | **8** | STUB-016 through STUB-023 |
 | **INFO** | ~255 | Test stubs (no action) |
@@ -219,11 +213,11 @@ See `docs/todo.md` lines 1167-1200 for full list.
 4. STUB-004 — Wire budget tracking & stall detection
 5. STUB-003 — Implement review trigger dispatch
 6. STUB-009 — Event dedup + WS reconnect gap
-7. STUB-006 — Dynamic A2A agent card skills
+7. ~~STUB-006 — Dynamic A2A agent card skills~~ (deleted with legacy package)
 8. STUB-012 — Refactor placeholder StepBindings
 
 **Large effort (phase-level work):**
-9. STUB-001 — A2A task persistence & execution
+9. ~~STUB-001 — A2A task persistence & execution~~ (deleted legacy stub; real impl in adapter/a2a)
 10. STUB-010 — SWE-agent backend implementation
 
 **No action needed:**
