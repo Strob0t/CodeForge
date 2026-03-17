@@ -707,31 +707,64 @@ class ConversationHandlerMixin:
         )
 
     async def _get_available_models(self) -> list[str]:
-        """Fetch available model names from LiteLLM /v1/models endpoint."""
+        """Fetch available model names, preferring Go Core's health-checked list.
+
+        Strategy:
+        1. Ask Go Core ``/api/v1/llm/available`` which returns only reachable
+           models (refined via LiteLLM ``/health`` endpoint).
+        2. Fall back to raw LiteLLM ``/v1/models`` if Go Core is unreachable.
+        """
         import httpx
 
-        litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
-        headers: dict[str, str] = {}
-        if self._litellm_key:
-            headers["Authorization"] = f"Bearer {self._litellm_key}"
+        from codeforge.routing.blocklist import get_blocklist
+
+        # --- Primary: Go Core (health-checked, authoritative) ---
+        core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+        internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
+        core_headers: dict[str, str] = {}
+        if internal_key:
+            core_headers["X-API-Key"] = internal_key
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{litellm_url}/v1/models", headers=headers)
+                resp = await client.get(f"{core_url}/api/v1/llm/available", headers=core_headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_models = [
+                    m.get("model_name", "")
+                    for m in data.get("models", [])
+                    if m.get("model_name") and m.get("status") != "unreachable"
+                ]
+                if raw_models:
+                    from codeforge.model_resolver import expand_wildcard_models
+                    from codeforge.routing.key_filter import filter_keyless_models
+
+                    models = expand_wildcard_models(raw_models)
+                    models = filter_keyless_models(models)
+                    return get_blocklist().filter_available(models)
+                logger.warning("Go Core /llm/available returned no reachable models")
+        except Exception as exc:
+            logger.debug("Go Core /llm/available unavailable, falling back to LiteLLM", error=str(exc))
+
+        # --- Fallback: direct LiteLLM query (no health filtering) ---
+        litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+        litellm_headers: dict[str, str] = {}
+        if self._litellm_key:
+            litellm_headers["Authorization"] = f"Bearer {self._litellm_key}"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{litellm_url}/v1/models", headers=litellm_headers)
             if resp.status_code != 200:
                 logger.warning("LiteLLM /v1/models returned status %d", resp.status_code)
                 return []
             data = resp.json()
             raw_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
             from codeforge.model_resolver import expand_wildcard_models
-
-            models = expand_wildcard_models(raw_ids)
             from codeforge.routing.key_filter import filter_keyless_models
 
+            models = expand_wildcard_models(raw_ids)
             models = filter_keyless_models(models)
             if not models:
                 logger.warning("LiteLLM /v1/models returned empty model list")
-            from codeforge.routing.blocklist import get_blocklist
-
             return get_blocklist().filter_available(models)
         except Exception as exc:
             logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
