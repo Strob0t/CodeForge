@@ -543,6 +543,14 @@ func run() error {
 	conversationSvc.SetRoutingConfig(&cfg.Routing)
 	conversationSvc.SetContextOptimizer(contextOptSvc)
 	conversationSvc.SetLLMKeyService(llmKeySvc)
+	promptLib, plErr := service.NewPromptLibraryService(service.PromptsFS(), "prompts")
+	if plErr != nil {
+		slog.Error("failed to load modular prompt library, using legacy template fallback", "error", plErr)
+	} else {
+		assembler := service.NewPromptAssembler(promptLib, 0)
+		conversationSvc.SetPromptAssembler(assembler)
+		slog.Info("modular prompt library loaded", "entries", promptLib.Len())
+	}
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)

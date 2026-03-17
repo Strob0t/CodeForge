@@ -767,3 +767,133 @@ func TestConversationRunStartPayload_RemindersField(t *testing.T) {
 		}
 	})
 }
+
+// --- Integration tests using the real embedded prompt library ---
+
+func TestBuildSystemPrompt_ModularAssembler(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load prompt library: %v", err)
+	}
+
+	assembler := NewPromptAssembler(lib, 0)
+
+	ctx := prompt.AssemblyContext{
+		ModeID:   "coder",
+		Autonomy: 3,
+		Env:      "development",
+		Agentic:  true,
+	}
+	result := assembler.Assemble(ctx, nil)
+	if result == "" {
+		t.Fatal("expected non-empty assembled prompt for coder mode")
+	}
+
+	// Verify identity section is present.
+	if !strings.Contains(result, "CodeForge") {
+		t.Error("expected identity section with 'CodeForge'")
+	}
+	// Verify behavior rules about reading before modifying.
+	if !strings.Contains(result, "read") && !strings.Contains(result, "Read") {
+		t.Error("expected behavior rules about reading files")
+	}
+	// Verify coder mode-specific content is included.
+	if !strings.Contains(result, "Coder") && !strings.Contains(result, "coder") {
+		t.Error("expected coder mode-specific content")
+	}
+	// Verify autonomy level 3 (auto-edit) is included.
+	if !strings.Contains(result, "AUTO-EDIT") {
+		t.Error("expected AUTO-EDIT autonomy content for level 3")
+	}
+}
+
+func TestAssemble_AutonomyLevels_ProduceDifferentOutput(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load prompt library: %v", err)
+	}
+	assembler := NewPromptAssembler(lib, 0)
+
+	supervised := assembler.Assemble(prompt.AssemblyContext{
+		ModeID: "coder", Autonomy: 1, Agentic: true,
+	}, nil)
+	headless := assembler.Assemble(prompt.AssemblyContext{
+		ModeID: "coder", Autonomy: 5, Agentic: true,
+	}, nil)
+
+	if supervised == headless {
+		t.Error("supervised (level 1) and headless (level 5) should produce different prompts")
+	}
+
+	if !strings.Contains(supervised, "SUPERVISED") {
+		t.Error("supervised output should contain 'SUPERVISED'")
+	}
+	if !strings.Contains(headless, "HEADLESS") {
+		t.Error("headless output should contain 'HEADLESS'")
+	}
+}
+
+func TestAssemble_DifferentModes_ProduceDifferentOutput(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load prompt library: %v", err)
+	}
+	assembler := NewPromptAssembler(lib, 0)
+
+	coder := assembler.Assemble(prompt.AssemblyContext{
+		ModeID: "coder", Autonomy: 3, Agentic: true,
+	}, nil)
+	reviewer := assembler.Assemble(prompt.AssemblyContext{
+		ModeID: "reviewer", Autonomy: 3, Agentic: true,
+	}, nil)
+
+	if coder == reviewer {
+		t.Error("coder and reviewer modes should produce different prompts")
+	}
+}
+
+func TestAssemble_AgenticVsNonAgentic_ProduceDifferentOutput(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load prompt library: %v", err)
+	}
+	assembler := NewPromptAssembler(lib, 0)
+
+	agentic := assembler.Assemble(prompt.AssemblyContext{
+		ModeID: "coder", Autonomy: 3, Agentic: true,
+	}, nil)
+	nonAgentic := assembler.Assemble(prompt.AssemblyContext{
+		ModeID: "coder", Autonomy: 3, Agentic: false,
+	}, nil)
+
+	if agentic == nonAgentic {
+		t.Error("agentic and non-agentic should produce different prompts")
+	}
+	// Agentic output should be longer (more tool/action sections included).
+	if len(agentic) <= len(nonAgentic) {
+		t.Errorf("agentic prompt (%d bytes) should be longer than non-agentic (%d bytes)",
+			len(agentic), len(nonAgentic))
+	}
+}
+
+func TestPromptsFS_Accessor(t *testing.T) {
+	t.Parallel()
+
+	fs := PromptsFS()
+	// Verify the accessor returns a usable FS by reading a known directory.
+	entries, err := fs.ReadDir("prompts")
+	if err != nil {
+		t.Fatalf("PromptsFS().ReadDir('prompts') failed: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Error("expected at least one entry in prompts/ directory")
+	}
+}
