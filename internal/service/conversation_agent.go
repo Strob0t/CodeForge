@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
@@ -876,6 +878,23 @@ func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID s
 		{Name: "Search", Description: "Regex search across files"},
 		{Name: "Glob", Description: "Find files by glob pattern"},
 		{Name: "ListDir", Description: "List directory contents"},
+	}
+
+	// If the modular prompt assembler is configured, use it instead of the
+	// monolithic template. This preserves backward compatibility: without an
+	// assembler the old template path is used unchanged.
+	if s.promptAssembler != nil {
+		asmCtx := prompt.AssemblyContext{
+			ModeID:   "coder", // default for conversations
+			Autonomy: 3,       // default
+			Env:      os.Getenv("APP_ENV"),
+			Agentic:  true,
+		}
+		if result := s.promptAssembler.Assemble(asmCtx, data); result != "" {
+			return result
+		}
+		// Fall through to the legacy template if the assembler produces nothing
+		// (e.g. no YAML files loaded yet).
 	}
 
 	var buf bytes.Buffer

@@ -69,22 +69,23 @@ type CompletionResult struct {
 
 // ConversationService manages conversations and LLM interactions.
 type ConversationService struct {
-	db            database.Store
-	hub           broadcast.Broadcaster
-	queue         messagequeue.Queue
-	model         string // default model name for LiteLLM
-	modelRegistry *ModelRegistry
-	modeSvc       *ModeService
-	mcpSvc        *MCPService
-	policySvc     *PolicyService
-	microagentSvc *MicroagentService
-	goalSvc       *GoalDiscoveryService
-	sessionSvc    *SessionService
-	agentCfg      *config.Agent
-	routingCfg    *config.Routing
-	metrics       *cfotel.Metrics
-	contextOpt    *ContextOptimizerService
-	llmKeySvc     *LLMKeyService
+	db              database.Store
+	hub             broadcast.Broadcaster
+	queue           messagequeue.Queue
+	model           string // default model name for LiteLLM
+	modelRegistry   *ModelRegistry
+	modeSvc         *ModeService
+	mcpSvc          *MCPService
+	policySvc       *PolicyService
+	microagentSvc   *MicroagentService
+	goalSvc         *GoalDiscoveryService
+	sessionSvc      *SessionService
+	agentCfg        *config.Agent
+	routingCfg      *config.Routing
+	metrics         *cfotel.Metrics
+	contextOpt      *ContextOptimizerService
+	llmKeySvc       *LLMKeyService
+	promptAssembler *PromptAssembler
 
 	// completionWaiters allows in-process consumers (e.g. autoagent) to wait for
 	// a conversation run to finish without creating a second NATS subscription.
@@ -143,6 +144,9 @@ func (s *ConversationService) SetSessionService(svc *SessionService) { s.session
 
 // SetLLMKeyService configures per-user LLM key resolution for conversation runs.
 func (s *ConversationService) SetLLMKeyService(svc *LLMKeyService) { s.llmKeySvc = svc }
+
+// SetPromptAssembler configures the modular prompt assembler for system prompt generation.
+func (s *ConversationService) SetPromptAssembler(a *PromptAssembler) { s.promptAssembler = a }
 
 // resolveModel picks the best available model using priority:
 // AgentConfig.DefaultModel > ConversationModel (explicit config) > ModelRegistry.BestModel (auto-discovery).

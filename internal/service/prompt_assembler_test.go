@@ -1,0 +1,579 @@
+package service
+
+import (
+	"strings"
+	"testing"
+	"testing/fstest"
+
+	"github.com/Strob0t/CodeForge/internal/domain/prompt"
+)
+
+// testAssemblerFS returns a minimal prompt library FS for assembler testing.
+func testAssemblerFS() fstest.MapFS {
+	return fstest.MapFS{
+		"prompts/identity.yaml": &fstest.MapFile{
+			Data: []byte(`
+id: identity-core
+category: identity
+name: Core Identity
+priority: 95
+sort_order: 0
+content: You are CodeForge.
+`),
+		},
+		"prompts/behavior.yaml": &fstest.MapFile{
+			Data: []byte(`
+id: behavior-coding
+category: behavior
+name: Coding Standards
+priority: 80
+sort_order: 0
+content: Write clean, tested code.
+`),
+		},
+		"prompts/tools.yaml": &fstest.MapFile{
+			Data: []byte(`
+id: tools-agentic
+category: tools
+name: Agentic Tools
+priority: 70
+sort_order: 0
+conditions:
+  agentic_only: true
+content: "Available tools: Read, Write, Edit, Bash."
+`),
+		},
+		"prompts/reminder.yaml": &fstest.MapFile{
+			Data: []byte(`
+id: reminder-final
+category: reminder
+name: Final Reminder
+priority: 30
+sort_order: 0
+content: Always commit your changes.
+`),
+		},
+	}
+}
+
+func TestPromptAssembler_Assemble(t *testing.T) {
+	t.Parallel()
+
+	t.Run("basic assembly with all matching entries", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		ctx := prompt.AssemblyContext{
+			ModeID:   "coder",
+			Autonomy: 3,
+			Agentic:  true,
+		}
+		result := asm.Assemble(ctx, nil)
+
+		// All 4 entries should be included.
+		if !strings.Contains(result, "You are CodeForge.") {
+			t.Error("result should contain identity text")
+		}
+		if !strings.Contains(result, "Write clean, tested code.") {
+			t.Error("result should contain behavior text")
+		}
+		if !strings.Contains(result, "Available tools") {
+			t.Error("result should contain tools text")
+		}
+		if !strings.Contains(result, "Always commit your changes.") {
+			t.Error("result should contain reminder text")
+		}
+	})
+
+	t.Run("non-agentic excludes agentic-only entry", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		ctx := prompt.AssemblyContext{
+			ModeID:   "coder",
+			Autonomy: 3,
+			Agentic:  false,
+		}
+		result := asm.Assemble(ctx, nil)
+
+		if strings.Contains(result, "Available tools") {
+			t.Error("non-agentic result should NOT contain tools text (agentic_only)")
+		}
+		if !strings.Contains(result, "You are CodeForge.") {
+			t.Error("result should still contain identity text")
+		}
+	})
+
+	t.Run("empty result when no entries match", func(t *testing.T) {
+		t.Parallel()
+		// Create a library where all entries have restrictive conditions.
+		fsys := fstest.MapFS{
+			"prompts/restricted.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: restricted
+category: system
+name: Restricted
+priority: 50
+conditions:
+  modes:
+    - nonexistent-mode
+content: Should not appear.
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		ctx := prompt.AssemblyContext{ModeID: "coder"}
+		result := asm.Assemble(ctx, nil)
+		if result != "" {
+			t.Errorf("expected empty result, got %q", result)
+		}
+	})
+
+	t.Run("empty library returns empty string", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/readme.md": &fstest.MapFile{Data: []byte("nothing")},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		result := asm.Assemble(prompt.AssemblyContext{}, nil)
+		if result != "" {
+			t.Errorf("expected empty result, got %q", result)
+		}
+	})
+}
+
+func TestPromptAssembler_SortOrder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("entries sorted by category order then priority", func(t *testing.T) {
+		t.Parallel()
+		// identity (cat=0, prio=95) should appear before behavior (cat=3, prio=80)
+		// which should appear before tools (cat=5, prio=70) before reminder (cat=11, prio=30).
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		ctx := prompt.AssemblyContext{
+			ModeID:   "coder",
+			Autonomy: 3,
+			Agentic:  true,
+		}
+		result := asm.Assemble(ctx, nil)
+
+		idxIdentity := strings.Index(result, "You are CodeForge.")
+		idxBehavior := strings.Index(result, "Write clean, tested code.")
+		idxTools := strings.Index(result, "Available tools")
+		idxReminder := strings.Index(result, "Always commit your changes.")
+
+		if idxIdentity > idxBehavior {
+			t.Error("identity should come before behavior")
+		}
+		if idxBehavior > idxTools {
+			t.Error("behavior should come before tools")
+		}
+		if idxTools > idxReminder {
+			t.Error("tools should come before reminder")
+		}
+	})
+
+	t.Run("same category sorted by priority desc then sort_order asc", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/a.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: behavior-a
+category: behavior
+name: Behavior A
+priority: 80
+sort_order: 10
+content: Behavior A text.
+`),
+			},
+			"prompts/b.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: behavior-b
+category: behavior
+name: Behavior B
+priority: 90
+sort_order: 5
+content: Behavior B text.
+`),
+			},
+			"prompts/c.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: behavior-c
+category: behavior
+name: Behavior C
+priority: 80
+sort_order: 5
+content: Behavior C text.
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		result := asm.Assemble(prompt.AssemblyContext{}, nil)
+
+		// B (prio=90) before C (prio=80, sort=5) before A (prio=80, sort=10).
+		idxB := strings.Index(result, "Behavior B text.")
+		idxC := strings.Index(result, "Behavior C text.")
+		idxA := strings.Index(result, "Behavior A text.")
+
+		if idxB > idxC {
+			t.Error("B (priority=90) should come before C (priority=80)")
+		}
+		if idxC > idxA {
+			t.Error("C (sort_order=5) should come before A (sort_order=10) within same priority")
+		}
+	})
+}
+
+func TestPromptAssembler_TemplateRendering(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders Go templates with data", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/ctx.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: context-project
+category: context
+name: Project Context
+priority: 85
+content: "Project: {{.ProjectName}}. Path: {{.WorkspacePath}}."
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		data := struct {
+			ProjectName   string
+			WorkspacePath string
+		}{
+			ProjectName:   "MyProject",
+			WorkspacePath: "/workspace/myproject",
+		}
+
+		result := asm.Assemble(prompt.AssemblyContext{}, data)
+		if !strings.Contains(result, "Project: MyProject.") {
+			t.Errorf("template should render ProjectName, got %q", result)
+		}
+		if !strings.Contains(result, "Path: /workspace/myproject.") {
+			t.Errorf("template should render WorkspacePath, got %q", result)
+		}
+	})
+
+	t.Run("nil data skips template rendering", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/tmpl.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: tmpl-test
+category: system
+name: Template Test
+priority: 50
+content: "Hello {{.Name}}, welcome."
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		result := asm.Assemble(prompt.AssemblyContext{}, nil)
+		// With nil data, template rendering is skipped; raw content is used.
+		if !strings.Contains(result, "{{.Name}}") {
+			t.Errorf("nil data should produce raw template content, got %q", result)
+		}
+	})
+
+	t.Run("invalid template returns raw content", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/bad-tmpl.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: bad-tmpl
+category: system
+name: Bad Template
+priority: 50
+content: "Hello {{.BadSyntax"
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		data := struct{ Name string }{Name: "test"}
+		result := asm.Assemble(prompt.AssemblyContext{}, data)
+		// Should fall back to raw content on parse failure.
+		if !strings.Contains(result, "{{.BadSyntax") {
+			t.Errorf("bad template should produce raw content, got %q", result)
+		}
+	})
+
+	t.Run("template execution error returns raw content", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/exec-err.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: exec-err
+category: system
+name: Exec Error
+priority: 50
+content: "Result: {{.MissingMethod | call}}"
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		data := struct{ Name string }{Name: "test"}
+		result := asm.Assemble(prompt.AssemblyContext{}, data)
+		// Should fall back to raw content on execution failure.
+		if result == "" {
+			t.Error("should produce some output even on template execution error")
+		}
+	})
+
+	t.Run("content without template markers is not parsed", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/plain.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: plain
+category: system
+name: Plain
+priority: 50
+content: No templates here, just plain text.
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		data := struct{ Name string }{Name: "test"}
+		result := asm.Assemble(prompt.AssemblyContext{}, data)
+		if result != "No templates here, just plain text." {
+			t.Errorf("plain content should pass through unchanged, got %q", result)
+		}
+	})
+}
+
+func TestPromptAssembler_Pruning(t *testing.T) {
+	t.Parallel()
+
+	t.Run("budget prunes low-priority entries", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		// Set a very tight budget: identity (18 chars = ~4 tokens) + behavior (25 chars = ~6 tokens)
+		// = 10 tokens. Set budget to 10 so tools (39 chars = ~9 tokens) and reminder (28 chars = ~7 tokens) get pruned.
+		// Actually let's compute more carefully:
+		// "You are CodeForge." = 18 chars = 4 tokens
+		// "Write clean, tested code." = 25 chars = 6 tokens
+		// So set budget to 10 to keep only these two highest-priority.
+		asm := NewPromptAssembler(lib, 10)
+
+		ctx := prompt.AssemblyContext{
+			ModeID:   "coder",
+			Autonomy: 3,
+			Agentic:  true,
+		}
+		result := asm.Assemble(ctx, nil)
+
+		// Highest priority entries should survive: identity (95) and behavior (80).
+		if !strings.Contains(result, "You are CodeForge.") {
+			t.Error("identity (priority=95) should survive pruning")
+		}
+		if !strings.Contains(result, "Write clean, tested code.") {
+			t.Error("behavior (priority=80) should survive pruning")
+		}
+		// Lower priority entries should be pruned first.
+		if strings.Contains(result, "Always commit your changes.") {
+			t.Error("reminder (priority=30) should be pruned")
+		}
+	})
+
+	t.Run("zero budget means no pruning", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		ctx := prompt.AssemblyContext{
+			ModeID:   "coder",
+			Autonomy: 3,
+			Agentic:  true,
+		}
+		result := asm.Assemble(ctx, nil)
+
+		// All entries should be present.
+		if !strings.Contains(result, "Always commit your changes.") {
+			t.Error("with budget=0, no pruning should occur")
+		}
+	})
+
+	t.Run("large budget keeps everything", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 100000)
+
+		ctx := prompt.AssemblyContext{
+			ModeID:   "coder",
+			Autonomy: 3,
+			Agentic:  true,
+		}
+		result := asm.Assemble(ctx, nil)
+
+		// Budget is large enough for all entries.
+		if !strings.Contains(result, "You are CodeForge.") {
+			t.Error("identity should be present with large budget")
+		}
+		if !strings.Contains(result, "Always commit your changes.") {
+			t.Error("reminder should be present with large budget")
+		}
+	})
+}
+
+func TestPromptAssembler_SectionsJoin(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sections are joined with double newline", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		ctx := prompt.AssemblyContext{
+			ModeID:   "coder",
+			Autonomy: 3,
+			Agentic:  true,
+		}
+		result := asm.Assemble(ctx, nil)
+
+		// Sections should be separated by "\n\n".
+		parts := strings.Split(result, "\n\n")
+		if len(parts) < 2 {
+			t.Errorf("expected multiple sections separated by double newline, got %d parts", len(parts))
+		}
+	})
+}
+
+func TestRenderEntry(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil data returns raw content", func(t *testing.T) {
+		t.Parallel()
+		e := &prompt.PromptEntry{
+			ID:      "test",
+			Content: "Hello {{.Name}}",
+		}
+		result := renderEntry(e, nil)
+		if result != "Hello {{.Name}}" {
+			t.Errorf("expected raw content, got %q", result)
+		}
+	})
+
+	t.Run("content without markers returns raw", func(t *testing.T) {
+		t.Parallel()
+		e := &prompt.PromptEntry{
+			ID:      "test",
+			Content: "No templates here",
+		}
+		data := struct{ Name string }{Name: "World"}
+		result := renderEntry(e, data)
+		if result != "No templates here" {
+			t.Errorf("expected raw content, got %q", result)
+		}
+	})
+
+	t.Run("renders template with valid data", func(t *testing.T) {
+		t.Parallel()
+		e := &prompt.PromptEntry{
+			ID:      "test",
+			Content: "Hello {{.Name}}!",
+		}
+		data := struct{ Name string }{Name: "World"}
+		result := renderEntry(e, data)
+		if result != "Hello World!" {
+			t.Errorf("expected %q, got %q", "Hello World!", result)
+		}
+	})
+
+	t.Run("parse error returns raw content", func(t *testing.T) {
+		t.Parallel()
+		e := &prompt.PromptEntry{
+			ID:      "test",
+			Content: "Bad {{.Syntax",
+		}
+		data := struct{ Name string }{Name: "World"}
+		result := renderEntry(e, data)
+		if result != "Bad {{.Syntax" {
+			t.Errorf("expected raw content on parse error, got %q", result)
+		}
+	})
+
+	t.Run("execution error returns raw content", func(t *testing.T) {
+		t.Parallel()
+		e := &prompt.PromptEntry{
+			ID:      "test",
+			Content: "Value: {{.Missing.Deep.Field}}",
+		}
+		data := struct{ Name string }{Name: "World"}
+		result := renderEntry(e, data)
+		// text/template default behavior panics on missing fields
+		// but template.Execute catches it and returns an error.
+		// renderEntry should return raw content.
+		if result != "Value: {{.Missing.Deep.Field}}" {
+			t.Errorf("expected raw content on exec error, got %q", result)
+		}
+	})
+}
