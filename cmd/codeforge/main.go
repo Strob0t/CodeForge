@@ -42,6 +42,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
@@ -548,9 +549,19 @@ func run() error {
 		slog.Error("failed to load modular prompt library, using legacy template fallback", "error", plErr)
 	} else {
 		assembler := service.NewPromptAssembler(promptLib, 0)
+
+		// Wire prompt evolution: selector overrides base YAML with evolved variants.
+		evoCfg := prompt.DefaultEvolutionConfig()
+		promptSelector := service.NewPromptSelector(nil, evoCfg) // nil store until PostgreSQL adapter is built
+		assembler.SetSelector(promptSelector)
+
 		conversationSvc.SetPromptAssembler(assembler)
 		slog.Info("modular prompt library loaded", "entries", promptLib.Len())
 	}
+
+	// --- Prompt Evolution Service ---
+	evoCfg := prompt.DefaultEvolutionConfig()
+	evoSvc := service.NewPromptEvolutionService(queue, nil, evoCfg) // nil store until PostgreSQL adapter is built
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)
@@ -721,6 +732,7 @@ func run() error {
 		Limits:           &cfg.Limits,
 		Boundaries:       boundarySvc,
 		ReviewTrigger:    reviewTriggerSvc,
+		PromptEvolution:  evoSvc,
 	}
 
 	// A2A Client Service (Phase 27K + 27O) — outbound federation + push notifications.

@@ -57,6 +57,19 @@ func (s *PromptLibraryService) Len() int {
 	return len(s.entries)
 }
 
+// GetEntry returns the entry with the given ID, or nil if not found.
+func (s *PromptLibraryService) GetEntry(id string) *prompt.PromptEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for i := range s.entries {
+		if s.entries[i].ID == id {
+			entry := s.entries[i]
+			return &entry
+		}
+	}
+	return nil
+}
+
 // LoadOverlay adds entries from an overlay filesystem, replacing any entries
 // with matching IDs.
 func (s *PromptLibraryService) LoadOverlay(fsys fs.FS, root string) error {

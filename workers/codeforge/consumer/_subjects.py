@@ -20,6 +20,7 @@ STREAM_SUBJECTS = [
     "handoff.>",
     "backends.>",
     "review.>",
+    "prompt.>",
 ]
 
 # Task subjects
@@ -94,6 +95,11 @@ SUBJECT_REVIEW_TRIGGER_COMPLETE = "review.trigger.complete"
 SUBJECT_REVIEW_BOUNDARY_ANALYZED = "review.boundary.analyzed"
 SUBJECT_REVIEW_APPROVAL_REQUIRED = "review.approval.required"
 SUBJECT_REVIEW_APPROVAL_RESPONSE = "review.approval.response"
+
+# Prompt evolution subjects (Phase 33)
+SUBJECT_PROMPT_EVOLUTION_REFLECT = "prompt.evolution.reflect"
+SUBJECT_PROMPT_EVOLUTION_REFLECT_COMPLETE = "prompt.evolution.reflect.complete"
+SUBJECT_PROMPT_EVOLUTION_MUTATE_COMPLETE = "prompt.evolution.mutate.complete"
 
 # Headers
 HEADER_REQUEST_ID = "X-Request-ID"

@@ -131,4 +131,11 @@ const (
 	SubjectReviewBoundaryAnalyzed = "review.boundary.analyzed" // Python → Go: layer boundaries detected
 	SubjectReviewApprovalRequired = "review.approval.required" // Python → Go: human approval needed
 	SubjectReviewApprovalResponse = "review.approval.response" // Go → Python: approval decision
+
+	// Prompt evolution subjects (Phase 33)
+	SubjectPromptEvolutionReflect         = "prompt.evolution.reflect"          // Go → Python: request failure reflection
+	SubjectPromptEvolutionReflectComplete = "prompt.evolution.reflect.complete" // Python → Go: reflection results
+	SubjectPromptEvolutionMutateComplete  = "prompt.evolution.mutate.complete"  // Python → Go: mutation results
+	SubjectPromptEvolutionPromoted        = "prompt.evolution.promoted"         // Go event: variant promoted
+	SubjectPromptEvolutionReverted        = "prompt.evolution.reverted"         // Go event: variant reverted
 )

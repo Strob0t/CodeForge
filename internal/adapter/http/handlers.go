@@ -101,6 +101,7 @@ type Handlers struct {
 	Limits           *config.Limits
 	Boundaries       *service.BoundaryService
 	ReviewTrigger    *service.ReviewTriggerService
+	PromptEvolution  *service.PromptEvolutionService
 }
 
 // ListProjects handles GET /api/v1/projects

@@ -1,7 +1,11 @@
 {
   "project_id": "550e8400-e29b-41d4-a716-446655440001",
   "request_id": "550e8400-e29b-41d4-a716-446655440012",
-  "seed_symbols": ["LRU", "Cache", "Get"],
+  "seed_symbols": [
+    "LRU",
+    "Cache",
+    "Get"
+  ],
   "max_hops": 3,
   "top_k": 10,
   "scope_id": "scope-backend"

@@ -263,6 +263,15 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 			Post("/projects/{id}/review-refactor", h.TriggerReviewRefactor)
 
+		// Prompt Evolution
+		if h.PromptEvolution != nil {
+			r.Get("/prompt-evolution/status", h.GetPromptEvolutionStatus)
+			r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+				Post("/prompt-evolution/revert/{modeId}", h.RevertPromptEvolutionMode)
+			r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+				Post("/prompt-evolution/promote/{variantId}", h.PromotePromptEvolutionVariant)
+		}
+
 		// Roadmap (nested under projects)
 		r.Get("/projects/{id}/roadmap", h.GetProjectRoadmap)
 		r.Post("/projects/{id}/roadmap", h.CreateProjectRoadmap)

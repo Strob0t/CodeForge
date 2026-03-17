@@ -768,6 +768,225 @@ func TestConversationRunStartPayload_RemindersField(t *testing.T) {
 	})
 }
 
+// --- Fingerprint tests ---
+
+func TestPromptAssembler_AssembleWithFingerprint(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns non-empty fingerprint", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+		result := asm.AssembleWithFingerprint(ctx, nil, "openai")
+
+		if result.Prompt == "" {
+			t.Error("expected non-empty prompt")
+		}
+		if result.Fingerprint == "" {
+			t.Error("expected non-empty fingerprint")
+		}
+		if len(result.Fingerprint) != 64 {
+			t.Errorf("fingerprint length = %d, want 64 (SHA256 hex)", len(result.Fingerprint))
+		}
+	})
+
+	t.Run("same context produces same fingerprint", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+
+		r1 := asm.AssembleWithFingerprint(ctx, nil, "openai")
+		r2 := asm.AssembleWithFingerprint(ctx, nil, "openai")
+
+		if r1.Fingerprint != r2.Fingerprint {
+			t.Error("same context should produce same fingerprint")
+		}
+	})
+
+	t.Run("empty result has empty fingerprint", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/restricted.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: restricted
+category: system
+name: Restricted
+priority: 50
+conditions:
+  modes:
+    - nonexistent-mode
+content: Should not appear.
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+		result := asm.AssembleWithFingerprint(prompt.AssemblyContext{ModeID: "coder"}, nil, "openai")
+		if result.Prompt != "" {
+			t.Error("expected empty prompt")
+		}
+		if result.Fingerprint != "" {
+			t.Error("expected empty fingerprint for empty result")
+		}
+	})
+
+	t.Run("Assemble returns same prompt as AssembleWithFingerprint", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+
+		plain := asm.Assemble(ctx, nil)
+		withFP := asm.AssembleWithFingerprint(ctx, nil, "openai")
+
+		if plain != withFP.Prompt {
+			t.Error("Assemble and AssembleWithFingerprint should produce same prompt text")
+		}
+	})
+}
+
+// --- Variant selector integration tests ---
+
+// mockVariantSelector is a test double for PromptVariantSelector.
+type mockVariantSelector struct {
+	variants map[string]string // entryID -> overridden content
+}
+
+func (m *mockVariantSelector) SelectVariant(entryID, modelFamily string) (string, bool) {
+	content, ok := m.variants[entryID]
+	return content, ok
+}
+
+func TestPromptAssembler_VariantSelector(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil selector uses base content", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+		// No selector set.
+
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+		result := asm.AssembleWithFingerprint(ctx, nil, "openai")
+		if !strings.Contains(result.Prompt, "You are CodeForge.") {
+			t.Error("should use base content when no selector set")
+		}
+	})
+
+	t.Run("selector overrides matching entry", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+		asm.SetSelector(&mockVariantSelector{
+			variants: map[string]string{
+				"identity-core": "You are CodeForge EVOLVED.",
+			},
+		})
+
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+		result := asm.AssembleWithFingerprint(ctx, nil, "openai")
+
+		if !strings.Contains(result.Prompt, "You are CodeForge EVOLVED.") {
+			t.Error("selector should override identity content")
+		}
+		if strings.Contains(result.Prompt, "You are CodeForge.") {
+			t.Error("original identity content should be replaced")
+		}
+	})
+
+	t.Run("selector does not affect non-matching entries", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+		asm.SetSelector(&mockVariantSelector{
+			variants: map[string]string{
+				"identity-core": "Evolved identity.",
+			},
+		})
+
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+		result := asm.AssembleWithFingerprint(ctx, nil, "openai")
+
+		// Non-overridden entries should keep original content.
+		if !strings.Contains(result.Prompt, "Write clean, tested code.") {
+			t.Error("non-overridden behavior entry should keep original content")
+		}
+	})
+
+	t.Run("selector not applied when modelFamily is empty", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		asm := NewPromptAssembler(lib, 0)
+		asm.SetSelector(&mockVariantSelector{
+			variants: map[string]string{
+				"identity-core": "Should not appear.",
+			},
+		})
+
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+		// Empty modelFamily — selector should not be applied.
+		result := asm.AssembleWithFingerprint(ctx, nil, "")
+
+		if strings.Contains(result.Prompt, "Should not appear.") {
+			t.Error("selector should not be applied when modelFamily is empty")
+		}
+		if !strings.Contains(result.Prompt, "You are CodeForge.") {
+			t.Error("original content should be used")
+		}
+	})
+
+	t.Run("variant changes fingerprint", func(t *testing.T) {
+		t.Parallel()
+		lib, err := NewPromptLibraryService(testAssemblerFS(), "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		asmBase := NewPromptAssembler(lib, 0)
+		asmEvolved := NewPromptAssembler(lib, 0)
+		asmEvolved.SetSelector(&mockVariantSelector{
+			variants: map[string]string{
+				"identity-core": "Evolved identity text.",
+			},
+		})
+
+		ctx := prompt.AssemblyContext{ModeID: "coder", Autonomy: 3, Agentic: true}
+		base := asmBase.AssembleWithFingerprint(ctx, nil, "openai")
+		evolved := asmEvolved.AssembleWithFingerprint(ctx, nil, "openai")
+
+		if base.Fingerprint == evolved.Fingerprint {
+			t.Error("variant override should produce different fingerprint")
+		}
+	})
+}
+
 // --- Integration tests using the real embedded prompt library ---
 
 func TestBuildSystemPrompt_ModularAssembler(t *testing.T) {

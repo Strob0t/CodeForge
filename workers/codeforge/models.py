@@ -628,3 +628,51 @@ class ReviewBoundaryAnalyzedPayload(BaseModel):
     project_id: str
     tenant_id: str
     boundaries: list[BoundaryEntry]
+
+
+# --- Prompt Evolution Models (Phase 33) ---
+
+
+class PromptEvolutionTacticalFix(BaseModel):
+    """A single failure-specific fix (matches Go PromptEvolutionTacticalFix)."""
+
+    task_id: str = ""
+    failure_description: str = ""
+    root_cause: str = ""
+    proposed_addition: str = ""
+    confidence: float = 0.0
+
+
+class PromptEvolutionReflectRequest(BaseModel):
+    """Request to perform failure reflection (matches Go PromptEvolutionReflectPayload)."""
+
+    tenant_id: str = ""
+    mode_id: str = ""
+    model_family: str = ""
+    current_prompt: str = ""
+    failures: list[dict[str, object]] = Field(default_factory=list)
+
+
+class PromptEvolutionReflectComplete(BaseModel):
+    """Reflection results sent back to Go (matches Go PromptEvolutionReflectCompletePayload)."""
+
+    tenant_id: str = ""
+    mode_id: str = ""
+    model_family: str = ""
+    tactical_fixes: list[PromptEvolutionTacticalFix] = Field(default_factory=list)
+    strategic_principles: list[str] = Field(default_factory=list)
+    error: str = ""
+
+
+class PromptEvolutionMutateComplete(BaseModel):
+    """Mutation results sent back to Go (matches Go PromptEvolutionMutateCompletePayload)."""
+
+    tenant_id: str = ""
+    mode_id: str = ""
+    model_family: str = ""
+    variant_content: str = ""
+    version: int = 0
+    parent_id: str = ""
+    mutation_source: str = ""
+    validation_passed: bool = False
+    error: str = ""
