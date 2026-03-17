@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -86,17 +87,17 @@ class BackendExecutor(Protocol):
     async def cancel(self, task_id: str) -> None: ...
 
 
-class StubBackendExecutor:
-    """Base class for backend executors that are not yet implemented.
+class StubBackendExecutor(ABC):
+    """Abstract base class for backend executors that are not yet implemented.
 
     Provides default implementations for ``check_available()`` (CLI probe),
     ``execute()`` (returns "not yet implemented"), and ``cancel()`` (no-op).
-    Subclasses only need to define ``info`` and ``__init__``.
+    Subclasses must override ``info``.
     """
 
     @property
-    def info(self) -> BackendInfo:
-        raise NotImplementedError
+    @abstractmethod
+    def info(self) -> BackendInfo: ...
 
     async def check_available(self) -> bool:
         return await check_cli_available(self.info.cli_command)
@@ -117,5 +118,5 @@ class StubBackendExecutor:
             ),
         )
 
-    async def cancel(self, task_id: str) -> None:
+    async def cancel(self, task_id: str) -> None:  # noqa: B027
         pass

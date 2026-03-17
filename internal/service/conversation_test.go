@@ -45,6 +45,26 @@ func (m *convMockStore) GetConversation(_ context.Context, id string) (*conversa
 	return nil, errMockNotFound
 }
 
+func (m *convMockStore) UpdateConversationMode(_ context.Context, id, mode string) error {
+	for i := range m.conversations {
+		if m.conversations[i].ID == id {
+			m.conversations[i].Mode = mode
+			return nil
+		}
+	}
+	return errMockNotFound
+}
+
+func (m *convMockStore) UpdateConversationModel(_ context.Context, id, model string) error {
+	for i := range m.conversations {
+		if m.conversations[i].ID == id {
+			m.conversations[i].Model = model
+			return nil
+		}
+	}
+	return errMockNotFound
+}
+
 func (m *convMockStore) ListConversationsByProject(_ context.Context, projectID string) ([]conversation.Conversation, error) {
 	var result []conversation.Conversation
 	for i := range m.conversations {
@@ -119,6 +139,63 @@ func TestConversation_Create(t *testing.T) {
 	_, err = svc.Create(ctx, conversation.CreateRequest{})
 	if err == nil {
 		t.Fatal("expected error for missing project_id")
+	}
+}
+
+func TestConversation_SetMode_Persisted(t *testing.T) {
+	store := &convMockStore{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	ctx := context.Background()
+
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Mode Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if conv.Mode != "" {
+		t.Fatalf("expected empty mode on new conversation, got %q", conv.Mode)
+	}
+
+	// Set mode
+	if err := svc.SetMode(ctx, conv.ID, "architect"); err != nil {
+		t.Fatalf("SetMode: %v", err)
+	}
+
+	// Verify mode persisted
+	got, err := svc.Get(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Mode != "architect" {
+		t.Errorf("expected mode 'architect', got %q", got.Mode)
+	}
+}
+
+func TestConversation_SetModel_Persisted(t *testing.T) {
+	store := &convMockStore{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	ctx := context.Background()
+
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Model Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Set model
+	if err := svc.SetModel(ctx, conv.ID, "claude-sonnet-4-20250514"); err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+
+	// Verify model persisted
+	got, err := svc.Get(ctx, conv.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("expected model 'claude-sonnet-4-20250514', got %q", got.Model)
 	}
 }
 

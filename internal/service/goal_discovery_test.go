@@ -241,6 +241,73 @@ func TestDetectCursorrules(t *testing.T) {
 	}
 }
 
+// --- DetectedGoal type safety tests (STUB-011) ---
+
+func TestDetectedGoal_NoProjectIDOrTenantID(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "CLAUDE.md"), "# Rules\nAlways use Go.")
+
+	detected := detectGoalFiles(dir)
+
+	if len(detected) != 1 {
+		t.Fatalf("expected 1 detected goal, got %d", len(detected))
+	}
+
+	// DetectedGoal should NOT have ProjectID, TenantID, or ID fields —
+	// verify through the type system that these are absent.
+	dg := detected[0]
+	if dg.Kind != goal.KindConstraint {
+		t.Errorf("expected constraint kind, got %q", dg.Kind)
+	}
+	if dg.Title == "" {
+		t.Error("expected non-empty title")
+	}
+	if dg.Content == "" {
+		t.Error("expected non-empty content")
+	}
+	if dg.Source == "" {
+		t.Error("expected non-empty source")
+	}
+}
+
+func TestDetectedGoal_ToProjectGoal(t *testing.T) {
+	dg := DetectedGoal{
+		Kind:       goal.KindVision,
+		Title:      "My Vision",
+		Content:    "Build something great",
+		Source:     "gsd",
+		SourcePath: ".planning/PROJECT.md",
+		Priority:   95,
+	}
+
+	pg := dg.ToProjectGoal("proj-123")
+
+	if pg.ProjectID != "proj-123" {
+		t.Errorf("expected ProjectID 'proj-123', got %q", pg.ProjectID)
+	}
+	if pg.Kind != goal.KindVision {
+		t.Errorf("expected kind vision, got %q", pg.Kind)
+	}
+	if pg.Title != "My Vision" {
+		t.Errorf("expected title 'My Vision', got %q", pg.Title)
+	}
+	if pg.Content != "Build something great" {
+		t.Errorf("expected content, got %q", pg.Content)
+	}
+	if pg.Source != "gsd" {
+		t.Errorf("expected source 'gsd', got %q", pg.Source)
+	}
+	if pg.SourcePath != ".planning/PROJECT.md" {
+		t.Errorf("expected source_path, got %q", pg.SourcePath)
+	}
+	if pg.Priority != 95 {
+		t.Errorf("expected priority 95, got %d", pg.Priority)
+	}
+	if !pg.Enabled {
+		t.Error("expected Enabled=true")
+	}
+}
+
 // --- Bug fix tests (30H) ---
 
 func TestBinaryFileSkip(t *testing.T) {
@@ -361,15 +428,15 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func groupByKind(goals []goal.ProjectGoal) map[goal.GoalKind]goal.ProjectGoal {
-	m := make(map[goal.GoalKind]goal.ProjectGoal, len(goals))
+func groupByKind(goals []DetectedGoal) map[goal.GoalKind]DetectedGoal {
+	m := make(map[goal.GoalKind]DetectedGoal, len(goals))
 	for i := range goals {
 		m[goals[i].Kind] = goals[i]
 	}
 	return m
 }
 
-func goalSources(goals []goal.ProjectGoal) []string {
+func goalSources(goals []DetectedGoal) []string {
 	var s []string
 	for i := range goals {
 		s = append(s, goals[i].Source)
@@ -377,7 +444,7 @@ func goalSources(goals []goal.ProjectGoal) []string {
 	return s
 }
 
-func goalSourceSet(goals []goal.ProjectGoal) map[string]bool {
+func goalSourceSet(goals []DetectedGoal) map[string]bool {
 	m := make(map[string]bool, len(goals))
 	for i := range goals {
 		m[goals[i].Source] = true

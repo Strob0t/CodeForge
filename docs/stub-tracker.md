@@ -16,13 +16,11 @@
 - **Fix:** Persist tasks to PostgreSQL, route to agent backends for execution.
 - **Effort:** Large (new migration, service layer, NATS integration)
 
-### STUB-002: StubBackendExecutor.info Raises NotImplementedError (Python)
+### ~~STUB-002: StubBackendExecutor.info Raises NotImplementedError (Python)~~ **FIXED 2026-03-17**
 - **File:** `workers/codeforge/backends/_base.py:99`
 - **Phase:** N/A (base class)
-- **Description:** The `StubBackendExecutor` base class `info` property raises `NotImplementedError`. Any future backend extending this class without overriding `info` will crash at runtime.
-- **Impact:** Current backends all override it, but it's a landmine for new backends.
-- **Fix:** Convert to ABC with `@abstractmethod` so missing override is caught at class definition time, not runtime.
-- **Effort:** Small (change base class to ABC, add `@abstractmethod`)
+- **Description:** ~~The `StubBackendExecutor` base class `info` property raises `NotImplementedError`.~~ Converted to ABC with `@abstractmethod`. Missing override now caught at class definition time.
+- **Tests:** `workers/tests/test_stub_backend_abc.py` (5 tests)
 
 ### STUB-003: Review Trigger Handler Is a No-Op (Python)
 - **File:** `workers/codeforge/consumer/_review.py:35`
@@ -48,19 +46,11 @@
 - **Fix:** Read actual budget percentage from cost tracking service, stall iteration count from agent loop state.
 - **Effort:** Medium (wire existing services into template data)
 
-### STUB-005: UpdateConversationMode/Model Are No-Op Stubs (Go)
-- **File:** `internal/adapter/postgres/store_conversation.go:117-125`
+### ~~STUB-005: UpdateConversationMode/Model Are No-Op Stubs (Go)~~ **FIXED 2026-03-17**
+- **File:** `internal/adapter/postgres/store_conversation.go`
 - **Phase:** Phase 9 (Chat Enhancements)
-- **Description:** Both methods are explicitly commented as stubs:
-  ```go
-  // UpdateConversationMode is a stub — the conversations table does not yet have a mode column.
-  func (s *Store) UpdateConversationMode(_ context.Context, _, _ string) error { return nil }
-  // UpdateConversationModel is a stub — the conversations table does not yet have a model column.
-  func (s *Store) UpdateConversationModel(_ context.Context, _, _ string) error { return nil }
-  ```
-- **Impact:** Slash commands `/mode` and `/model` appear to succeed but don't persist. Mode/model resets on page reload.
-- **Fix:** Add `mode` and `model` columns to conversations table (migration), implement UPDATE queries.
-- **Effort:** Small-Medium (migration + 2 SQL queries)
+- **Description:** ~~Both methods were no-op stubs.~~ Added `mode` and `model` columns (migration 076), updated all CRUD queries, implemented real UPDATE methods with tenant isolation.
+- **Tests:** `TestConversation_SetMode_Persisted`, `TestConversation_SetModel_Persisted`
 
 ### STUB-006: A2A Agent Card Skills Are Hardcoded (Go)
 - **File:** `internal/port/a2a/agentcard.go:4-32`
@@ -108,13 +98,11 @@
 
 ## MEDIUM — Hardcoded/Placeholder Data (works but with limitations)
 
-### STUB-011: Goal Discovery Returns Partial ProjectGoal Objects (Go)
-- **File:** `internal/service/goal_discovery.go:159`
+### ~~STUB-011: Goal Discovery Returns Partial ProjectGoal Objects (Go)~~ **FIXED 2026-03-17**
+- **File:** `internal/service/goal_discovery.go`
 - **Phase:** N/A
-- **Description:** `detectGoalFiles()` returns ProjectGoal stubs without ID/ProjectID/TenantID. Calling code fills these in later.
-- **Impact:** Goals are temporarily in an invalid state during processing. Fragile if calling code changes.
-- **Fix:** Use a builder pattern or intermediate type that doesn't expose incomplete state.
-- **Effort:** Small (type refactor)
+- **Description:** ~~`detectGoalFiles()` returned partial ProjectGoal objects.~~ Introduced `DetectedGoal` intermediate type (no ID/ProjectID/TenantID). `ToProjectGoal(projectID)` converts to full `ProjectGoal` with required fields.
+- **Tests:** `TestDetectedGoal_NoProjectIDOrTenantID`, `TestDetectedGoal_ToProjectGoal` + all existing detection tests pass
 
 ### STUB-012: Review Pipeline Creates Placeholder StepBindings (Go)
 - **File:** `internal/service/review.go:267`
@@ -210,9 +198,9 @@ See `docs/todo.md` lines 1167-1200 for full list.
 
 | Category | Count | IDs |
 |----------|-------|-----|
-| **CRITICAL** | **3** | STUB-001, STUB-002, STUB-003 |
-| **HIGH** | **7** | STUB-004 through STUB-010 |
-| **MEDIUM** | **5** | STUB-011 through STUB-015 |
+| **CRITICAL** | **1** (~~3~~) | STUB-001, ~~STUB-002~~, STUB-003 |
+| **HIGH** | **6** (~~7~~) | STUB-004, ~~STUB-005~~, STUB-006 through STUB-010 |
+| **MEDIUM** | **4** (~~5~~) | ~~STUB-011~~, STUB-012 through STUB-015 |
 | **LOW** | **8** | STUB-016 through STUB-023 |
 | **INFO** | ~255 | Test stubs (no action) |
 | **docs/todo.md unchecked** | 20 | Phase 32 tasks |
@@ -222,10 +210,10 @@ See `docs/todo.md` lines 1167-1200 for full list.
 
 ## Recommended Fix Order
 
-**Quick wins (small effort, high impact):**
-1. STUB-002 — Convert StubBackendExecutor to ABC (`@abstractmethod`)
-2. STUB-005 — Add mode/model columns to conversations table
-3. STUB-011 — Goal discovery type refactor
+**Quick wins — COMPLETED 2026-03-17:**
+1. ~~STUB-002 — Convert StubBackendExecutor to ABC (`@abstractmethod`)~~
+2. ~~STUB-005 — Add mode/model columns to conversations table~~
+3. ~~STUB-011 — Goal discovery type refactor~~
 
 **Medium effort:**
 4. STUB-004 — Wire budget tracking & stall detection

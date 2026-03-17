@@ -1204,9 +1204,9 @@
 > Tracker: `docs/stub-tracker.md` (full details, file:line references, effort estimates)
 
 **Quick Wins (small effort, high impact):**
-- [ ] STUB-002: Convert `StubBackendExecutor` to ABC with `@abstractmethod` on `info` property (`workers/codeforge/backends/_base.py:99`)
-- [ ] STUB-005: Add `mode` + `model` columns to conversations table, implement UPDATE queries (`internal/adapter/postgres/store_conversation.go:117-125`)
-- [ ] STUB-011: Refactor `detectGoalFiles()` to use intermediate type instead of partial `ProjectGoal` (`internal/service/goal_discovery.go:159`)
+- [x] STUB-002: Convert `StubBackendExecutor` to ABC with `@abstractmethod` on `info` property (2026-03-17)
+- [x] STUB-005: Add `mode` + `model` columns to conversations table, implement UPDATE queries (2026-03-17)
+- [x] STUB-011: Refactor `detectGoalFiles()` to use intermediate `DetectedGoal` type (2026-03-17)
 
 **Medium Effort:**
 - [ ] STUB-004: Wire actual budget tracking + stall detection into conversation agent template data (`internal/service/conversation_agent.go:150-151`)

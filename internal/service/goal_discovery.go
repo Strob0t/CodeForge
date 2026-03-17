@@ -55,12 +55,11 @@ func (s *GoalDiscoveryService) DetectAndImport(ctx context.Context, projectID, w
 
 	result := &GoalDiscoveryResult{}
 	for i := range detected {
-		detected[i].ProjectID = projectID
-		detected[i].Enabled = true
-		if err := s.db.CreateProjectGoal(ctx, &detected[i]); err != nil {
-			return nil, fmt.Errorf("create goal %q: %w", detected[i].Title, err)
+		pg := detected[i].ToProjectGoal(projectID)
+		if err := s.db.CreateProjectGoal(ctx, &pg); err != nil {
+			return nil, fmt.Errorf("create goal %q: %w", pg.Title, err)
 		}
-		result.Goals = append(result.Goals, detected[i])
+		result.Goals = append(result.Goals, pg)
 		result.GoalsCreated++
 	}
 
@@ -155,10 +154,35 @@ func (s *GoalDiscoveryService) AsContextEntries(ctx context.Context, projectID s
 
 // --- Detection logic (pure functions, no DB) ---
 
-// detectGoalFiles scans a workspace directory for goal-relevant files
-// and returns ProjectGoal stubs (no ID/ProjectID/TenantID yet).
-func detectGoalFiles(workspacePath string) []goal.ProjectGoal {
-	var goals []goal.ProjectGoal
+// DetectedGoal holds the fields that file-based detection can fill.
+// It intentionally omits ID, ProjectID, and TenantID to prevent incomplete state.
+type DetectedGoal struct {
+	Kind       goal.GoalKind
+	Title      string
+	Content    string
+	Source     string
+	SourcePath string
+	Priority   int
+}
+
+// ToProjectGoal converts a DetectedGoal into a persistable ProjectGoal,
+// filling in the required ProjectID and setting Enabled=true.
+func (d *DetectedGoal) ToProjectGoal(projectID string) goal.ProjectGoal {
+	return goal.ProjectGoal{
+		ProjectID:  projectID,
+		Kind:       d.Kind,
+		Title:      d.Title,
+		Content:    d.Content,
+		Source:     d.Source,
+		SourcePath: d.SourcePath,
+		Priority:   d.Priority,
+		Enabled:    true,
+	}
+}
+
+// detectGoalFiles scans a workspace directory for goal-relevant files.
+func detectGoalFiles(workspacePath string) []DetectedGoal {
+	var goals []DetectedGoal
 
 	// Tier 1: GSD .planning/ directory
 	goals = append(goals, detectGSD(workspacePath)...)
@@ -173,13 +197,13 @@ func detectGoalFiles(workspacePath string) []goal.ProjectGoal {
 }
 
 // detectGSD checks for GSD .planning/ files.
-func detectGSD(root string) []goal.ProjectGoal {
+func detectGSD(root string) []DetectedGoal {
 	planDir := filepath.Join(root, ".planning")
 	if _, err := os.Stat(planDir); err != nil {
 		return nil
 	}
 
-	var goals []goal.ProjectGoal
+	var goals []DetectedGoal
 
 	patterns := []struct {
 		file     string
@@ -197,7 +221,7 @@ func detectGSD(root string) []goal.ProjectGoal {
 		if content == "" {
 			continue
 		}
-		goals = append(goals, goal.ProjectGoal{
+		goals = append(goals, DetectedGoal{
 			Kind:       p.kind,
 			Title:      p.title,
 			Content:    content,
@@ -221,7 +245,7 @@ func detectGSD(root string) []goal.ProjectGoal {
 		if content == "" {
 			continue
 		}
-		goals = append(goals, goal.ProjectGoal{
+		goals = append(goals, DetectedGoal{
 			Kind:       goal.KindContext,
 			Title:      "Context: " + strings.TrimSuffix(e.Name(), ".md"),
 			Content:    content,
@@ -235,8 +259,8 @@ func detectGSD(root string) []goal.ProjectGoal {
 }
 
 // detectAgentInstructions checks for CLAUDE.md, .cursorrules, .clinerules.
-func detectAgentInstructions(root string) []goal.ProjectGoal {
-	var goals []goal.ProjectGoal
+func detectAgentInstructions(root string) []DetectedGoal {
+	var goals []DetectedGoal
 
 	patterns := []struct {
 		file     string
@@ -254,7 +278,7 @@ func detectAgentInstructions(root string) []goal.ProjectGoal {
 		if content == "" {
 			continue
 		}
-		goals = append(goals, goal.ProjectGoal{
+		goals = append(goals, DetectedGoal{
 			Kind:       goal.KindConstraint,
 			Title:      p.title,
 			Content:    content,
@@ -268,15 +292,15 @@ func detectAgentInstructions(root string) []goal.ProjectGoal {
 }
 
 // detectProjectDocs checks for README.md, CONTRIBUTING.md, docs/architecture.md, docs/requirements.md.
-func detectProjectDocs(root string) []goal.ProjectGoal {
-	var goals []goal.ProjectGoal
+func detectProjectDocs(root string) []DetectedGoal {
+	var goals []DetectedGoal
 
 	// README.md — first section only
 	readmeContent := readGoalFile(filepath.Join(root, "README.md"))
 	if readmeContent != "" {
 		first := extractFirstSection(readmeContent)
 		if first != "" {
-			goals = append(goals, goal.ProjectGoal{
+			goals = append(goals, DetectedGoal{
 				Kind:       goal.KindVision,
 				Title:      "Project Overview (README)",
 				Content:    first,
@@ -290,7 +314,7 @@ func detectProjectDocs(root string) []goal.ProjectGoal {
 	// CONTRIBUTING.md
 	contribContent := readGoalFile(filepath.Join(root, "CONTRIBUTING.md"))
 	if contribContent != "" {
-		goals = append(goals, goal.ProjectGoal{
+		goals = append(goals, DetectedGoal{
 			Kind:       goal.KindConstraint,
 			Title:      "Contributing Guidelines",
 			Content:    contribContent,
@@ -304,7 +328,7 @@ func detectProjectDocs(root string) []goal.ProjectGoal {
 	for _, name := range []string{"docs/architecture.md", "docs/ARCHITECTURE.md"} {
 		content := readGoalFile(filepath.Join(root, name))
 		if content != "" {
-			goals = append(goals, goal.ProjectGoal{
+			goals = append(goals, DetectedGoal{
 				Kind:       goal.KindConstraint,
 				Title:      "Architecture",
 				Content:    content,
@@ -320,7 +344,7 @@ func detectProjectDocs(root string) []goal.ProjectGoal {
 	for _, name := range []string{"docs/requirements.md", "docs/REQUIREMENTS.md"} {
 		content := readGoalFile(filepath.Join(root, name))
 		if content != "" {
-			goals = append(goals, goal.ProjectGoal{
+			goals = append(goals, DetectedGoal{
 				Kind:       goal.KindRequirement,
 				Title:      "Requirements",
 				Content:    content,

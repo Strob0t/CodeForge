@@ -13,11 +13,12 @@ func (s *Store) CreateConversation(ctx context.Context, c *conversation.Conversa
 	tid := tenantFromCtx(ctx)
 	var created conversation.Conversation
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO conversations (tenant_id, project_id, title)
-		 VALUES ($1, $2, $3)
-		 RETURNING id, tenant_id, project_id, title, created_at, updated_at`,
-		tid, c.ProjectID, c.Title,
-	).Scan(&created.ID, &created.TenantID, &created.ProjectID, &created.Title, &created.CreatedAt, &created.UpdatedAt)
+		`INSERT INTO conversations (tenant_id, project_id, title, mode, model)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, tenant_id, project_id, title, mode, model, created_at, updated_at`,
+		tid, c.ProjectID, c.Title, c.Mode, c.Model,
+	).Scan(&created.ID, &created.TenantID, &created.ProjectID, &created.Title,
+		&created.Mode, &created.Model, &created.CreatedAt, &created.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create conversation: %w", err)
 	}
@@ -27,10 +28,10 @@ func (s *Store) CreateConversation(ctx context.Context, c *conversation.Conversa
 func (s *Store) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
 	var c conversation.Conversation
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, project_id, title, created_at, updated_at
+		`SELECT id, tenant_id, project_id, title, mode, model, created_at, updated_at
 		 FROM conversations WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx),
-	).Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
+	).Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.Mode, &c.Model, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, notFoundWrap(err, "get conversation %s", id)
 	}
@@ -39,7 +40,7 @@ func (s *Store) GetConversation(ctx context.Context, id string) (*conversation.C
 
 func (s *Store) ListConversationsByProject(ctx context.Context, projectID string) ([]conversation.Conversation, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, project_id, title, created_at, updated_at
+		`SELECT id, tenant_id, project_id, title, mode, model, created_at, updated_at
 		 FROM conversations WHERE project_id = $1 AND tenant_id = $2 ORDER BY updated_at DESC`,
 		projectID, tenantFromCtx(ctx))
 	if err != nil {
@@ -47,7 +48,7 @@ func (s *Store) ListConversationsByProject(ctx context.Context, projectID string
 	}
 	return scanRows(rows, func(r pgx.Rows) (conversation.Conversation, error) {
 		var c conversation.Conversation
-		err := r.Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
+		err := r.Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.Mode, &c.Model, &c.CreatedAt, &c.UpdatedAt)
 		return c, err
 	})
 }
@@ -114,14 +115,20 @@ func (s *Store) DeleteConversationMessages(ctx context.Context, conversationID s
 	return nil
 }
 
-// UpdateConversationMode is a stub — the conversations table does not yet have a mode column.
-func (s *Store) UpdateConversationMode(_ context.Context, _, _ string) error {
-	return nil
+// UpdateConversationMode persists a mode override for a conversation.
+func (s *Store) UpdateConversationMode(ctx context.Context, conversationID, mode string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE conversations SET mode = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,
+		mode, conversationID, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "update conversation mode %s", conversationID)
 }
 
-// UpdateConversationModel is a stub — the conversations table does not yet have a model column.
-func (s *Store) UpdateConversationModel(_ context.Context, _, _ string) error {
-	return nil
+// UpdateConversationModel persists a model override for a conversation.
+func (s *Store) UpdateConversationModel(ctx context.Context, conversationID, model string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE conversations SET model = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,
+		model, conversationID, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "update conversation model %s", conversationID)
 }
 
 // SearchConversationMessages performs full-text search across conversation messages

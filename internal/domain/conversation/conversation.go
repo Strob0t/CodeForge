@@ -11,6 +11,8 @@ type Conversation struct {
 	TenantID  string    `json:"tenant_id"`
 	ProjectID string    `json:"project_id"`
 	Title     string    `json:"title"`
+	Mode      string    `json:"mode,omitempty"`
+	Model     string    `json:"model,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
