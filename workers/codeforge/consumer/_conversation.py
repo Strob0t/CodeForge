@@ -105,6 +105,16 @@ class ConversationHandlerMixin:
             self._register_handoff_tool(registry, run_msg.run_id)
             self._register_propose_goal_tool(registry, runtime)
 
+            # Auto-summarize if threshold is set and exceeded.
+            if run_msg.summarize_threshold > 0 and len(run_msg.messages) > run_msg.summarize_threshold:
+                from codeforge.history import ConversationSummarizer
+
+                summarizer = ConversationSummarizer(
+                    llm=self._llm,
+                    threshold=run_msg.summarize_threshold,
+                )
+                run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
+
             history_mgr = ConversationHistoryManager(HistoryConfig())
             messages = history_mgr.build_messages(
                 system_prompt=system_prompt,

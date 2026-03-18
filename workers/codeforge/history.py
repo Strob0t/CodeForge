@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from codeforge.constants import CHARS_PER_TOKEN
+from codeforge.models import ConversationMessagePayload
 
 if TYPE_CHECKING:
-    from codeforge.models import ContextEntry, ConversationMessagePayload
+    from codeforge.llm import LiteLLMClient
+    from codeforge.models import ContextEntry
 
 logger = logging.getLogger(__name__)
 
@@ -282,3 +284,89 @@ class ConversationHistoryManager:
                     total += estimate_tokens(str(func.get("name", "")))
                     total += estimate_tokens(str(func.get("arguments", "")))
         return max(1, total)
+
+
+_SUMMARIZE_SYSTEM = (
+    "You are a conversation summarizer for a coding assistant session. "
+    "Summarize the conversation concisely. Preserve: key decisions made, "
+    "code changes performed, files read/modified, errors encountered, "
+    "and current task state. Remove redundant back-and-forth. "
+    "Output a single cohesive summary paragraph."
+)
+
+_SUMMARIZE_MAX_CHARS = 50_000
+
+
+class ConversationSummarizer:
+    """Summarizes older conversation history when context is exhausted.
+
+    When ``summarize_if_needed()`` is called and the history length exceeds
+    the threshold, the head (older) messages are summarized via LLM and
+    replaced with a single summary message. The tail (recent) messages
+    are always preserved intact.
+    """
+
+    def __init__(
+        self,
+        llm: LiteLLMClient,  # also accepts FakeLLM (duck-typed)
+        threshold: int = 60,
+        min_recent: int = 20,
+    ) -> None:
+        self._llm = llm
+        self._threshold = threshold
+        self._min_recent = min_recent
+
+    async def summarize_if_needed(
+        self,
+        history: list[ConversationMessagePayload],
+    ) -> list[ConversationMessagePayload]:
+        """Summarize head of history if length exceeds threshold.
+
+        Returns the (possibly shortened) message list. If summarization
+        fails, returns the original history unchanged.
+        """
+        if len(history) <= self._threshold:
+            return history
+
+        # Split: head (to summarize) + tail (to preserve)
+        tail_start = max(0, len(history) - self._min_recent)
+        head = history[:tail_start]
+        tail = history[tail_start:]
+
+        if not head:
+            return history
+
+        try:
+            summary_text = await self._summarize_history(head)
+        except Exception:
+            logger.warning("conversation summarization failed, keeping original history")
+            return history
+
+        summary_msg = ConversationMessagePayload(
+            role="system",
+            content=f"[Conversation Summary]\n{summary_text}",
+        )
+
+        return [summary_msg, *tail]
+
+    async def _summarize_history(
+        self,
+        messages: list[ConversationMessagePayload],
+    ) -> str:
+        """Call LLM to summarize a list of messages."""
+        lines: list[str] = []
+        for msg in messages:
+            content = msg.content or ""
+            lines.append(f"{msg.role}: {content}")
+
+        full_text = "\n".join(lines)
+        if len(full_text) > _SUMMARIZE_MAX_CHARS:
+            full_text = full_text[:_SUMMARIZE_MAX_CHARS] + "\n... (truncated)"
+
+        resp = await self._llm.completion(
+            prompt=full_text,
+            system=_SUMMARIZE_SYSTEM,
+            temperature=0.1,
+            tags=["background"],
+        )
+        return resp.content

@@ -149,6 +149,7 @@ type Agent struct {
 	ContextBudget            int      `yaml:"context_budget"`             // Token budget for conversation context (default: 2048)
 	ContextPromptReserve     int      `yaml:"context_prompt_reserve"`     // Tokens reserved for prompt in conversation context (default: 512)
 	ConversationRolloutCount int      `yaml:"conversation_rollout_count"` // Multi-rollout count for inference-time scaling (default: 1, max: 8)
+	SummarizeThreshold       int      `yaml:"summarize_threshold"`        // Message count threshold for auto-summarization (0 = disabled)
 }
 
 // Auth holds authentication and authorization configuration.
@@ -230,6 +231,8 @@ type Orchestrator struct {
 	GraphMaxHops              int           `yaml:"graph_max_hops"`              // Max hops for graph traversal (default: 2)
 	GraphTopK                 int           `yaml:"graph_top_k"`                 // Top-K results for graph search (default: 10)
 	GraphHopDecay             float64       `yaml:"graph_hop_decay"`             // Score decay per hop (default: 0.7)
+	ContextRerankEnabled      bool          `yaml:"context_rerank_enabled"`      // Enable LLM re-ranking of context entries (default: false)
+	ContextRerankModel        string        `yaml:"context_rerank_model"`        // Model to use for re-ranking (empty = default)
 }
 
 // Runtime holds agent execution engine configuration.

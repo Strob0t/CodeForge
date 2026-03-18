@@ -207,6 +207,37 @@ type SharedContextUpdatedPayload struct {
 	Version   int    `json:"version"`
 }
 
+// --- Context re-ranking payloads (Phase 3 — Context Intelligence) ---
+
+// ContextRerankRequestPayload is sent from Go to Python for LLM-based re-ranking.
+type ContextRerankRequestPayload struct {
+	RequestID string                      `json:"request_id"`
+	ProjectID string                      `json:"project_id"`
+	Query     string                      `json:"query"`
+	Entries   []ContextRerankEntryPayload `json:"entries"`
+	Model     string                      `json:"model,omitempty"`
+}
+
+// ContextRerankEntryPayload represents a single context entry for re-ranking.
+type ContextRerankEntryPayload struct {
+	Path     string `json:"path"`
+	Kind     string `json:"kind"`
+	Content  string `json:"content"`
+	Priority int    `json:"priority"`
+	Tokens   int    `json:"tokens"`
+}
+
+// ContextRerankResultPayload is the response from Python after re-ranking.
+type ContextRerankResultPayload struct {
+	RequestID    string                      `json:"request_id"`
+	Entries      []ContextRerankEntryPayload `json:"entries"`
+	FallbackUsed bool                        `json:"fallback_used"`
+	TokensIn     int                         `json:"tokens_in"`
+	TokensOut    int                         `json:"tokens_out"`
+	CostUSD      float64                     `json:"cost_usd"`
+	Error        string                      `json:"error,omitempty"`
+}
+
 // --- RepoMap payloads (Phase 6A) ---
 
 // RepoMapRequestPayload is the schema for repomap.generate.request messages.
@@ -438,30 +469,31 @@ type ConversationMessagePayload struct {
 
 // ConversationRunStartPayload is the schema for conversation.run.start messages.
 type ConversationRunStartPayload struct {
-	RunID             string                       `json:"run_id"`
-	ConversationID    string                       `json:"conversation_id"`
-	SessionID         string                       `json:"session_id,omitempty"`
-	ProjectID         string                       `json:"project_id"`
-	Messages          []ConversationMessagePayload `json:"messages"`
-	SystemPrompt      string                       `json:"system_prompt"`
-	Model             string                       `json:"model"`
-	PolicyProfile     string                       `json:"policy_profile"`
-	WorkspacePath     string                       `json:"workspace_path"`
-	Mode              *ModePayload                 `json:"mode,omitempty"`
-	Termination       TerminationPayload           `json:"termination"`
-	Context           []ContextEntryPayload        `json:"context,omitempty"`
-	MCPServers        []MCPServerDefPayload        `json:"mcp_servers,omitempty"`
-	Tools             []string                     `json:"tools,omitempty"`
-	MicroagentPrompts []string                     `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
-	Trust             *trust.Annotation            `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
-	RoutingEnabled    bool                         `json:"routing_enabled,omitempty"`    // Intelligent routing enabled (Phase 29)
-	Agentic           bool                         `json:"agentic"`                      // true = multi-turn tool loop, false = single-turn chat
-	ProviderAPIKey    string                       `json:"provider_api_key,omitempty"`   // Per-user provider API key (overrides global)
-	TenantID          string                       `json:"tenant_id,omitempty"`          // Tenant isolation for background jobs
-	SessionMeta       *SessionMetaPayload          `json:"session_meta,omitempty"`       // Session operation context (Phase B2/B3)
-	Reminders         []string                     `json:"reminders,omitempty"`          // Pre-evaluated reminder texts (Phase E)
-	PlanActEnabled    bool                         `json:"plan_act_enabled,omitempty"`   // Plan/Act mode toggle (A3)
-	RolloutCount      int                          `json:"rollout_count,omitempty"`      // Multi-rollout count for inference-time scaling (Phase 4 A4)
+	RunID              string                       `json:"run_id"`
+	ConversationID     string                       `json:"conversation_id"`
+	SessionID          string                       `json:"session_id,omitempty"`
+	ProjectID          string                       `json:"project_id"`
+	Messages           []ConversationMessagePayload `json:"messages"`
+	SystemPrompt       string                       `json:"system_prompt"`
+	Model              string                       `json:"model"`
+	PolicyProfile      string                       `json:"policy_profile"`
+	WorkspacePath      string                       `json:"workspace_path"`
+	Mode               *ModePayload                 `json:"mode,omitempty"`
+	Termination        TerminationPayload           `json:"termination"`
+	Context            []ContextEntryPayload        `json:"context,omitempty"`
+	MCPServers         []MCPServerDefPayload        `json:"mcp_servers,omitempty"`
+	Tools              []string                     `json:"tools,omitempty"`
+	MicroagentPrompts  []string                     `json:"microagent_prompts,omitempty"`  // Matched microagent prompts (Phase 22C)
+	Trust              *trust.Annotation            `json:"trust,omitempty"`               // Message trust annotation (Phase 23A)
+	RoutingEnabled     bool                         `json:"routing_enabled,omitempty"`     // Intelligent routing enabled (Phase 29)
+	Agentic            bool                         `json:"agentic"`                       // true = multi-turn tool loop, false = single-turn chat
+	ProviderAPIKey     string                       `json:"provider_api_key,omitempty"`    // Per-user provider API key (overrides global)
+	TenantID           string                       `json:"tenant_id,omitempty"`           // Tenant isolation for background jobs
+	SessionMeta        *SessionMetaPayload          `json:"session_meta,omitempty"`        // Session operation context (Phase B2/B3)
+	Reminders          []string                     `json:"reminders,omitempty"`           // Pre-evaluated reminder texts (Phase E)
+	PlanActEnabled     bool                         `json:"plan_act_enabled,omitempty"`    // Plan/Act mode toggle (A3)
+	RolloutCount       int                          `json:"rollout_count,omitempty"`       // Multi-rollout count for inference-time scaling (Phase 4 A4)
+	SummarizeThreshold int                          `json:"summarize_threshold,omitempty"` // Message count threshold for auto-summarization (Phase 3)
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.

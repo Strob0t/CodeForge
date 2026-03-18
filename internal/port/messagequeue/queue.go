@@ -62,6 +62,10 @@ const (
 	SubjectContextPacked = "context.packed"         // Go → Python: context pack ready for run
 	SubjectSharedUpdated = "context.shared.updated" // Go → all: shared context changed
 
+	// Context re-ranking subjects (Phase 3 — Context Intelligence)
+	SubjectContextRerankRequest = "context.rerank.request" // Go → Python: rerank context entries
+	SubjectContextRerankResult  = "context.rerank.result"  // Python → Go: reranked entries
+
 	// RepoMap subjects (Phase 6A)
 	SubjectRepoMapRequest = "repomap.generate.request" // Go → Python: request repo map generation
 	SubjectRepoMapResult  = "repomap.generate.result"  // Python → Go: repo map generation result
