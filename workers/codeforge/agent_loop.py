@@ -132,6 +132,7 @@ class LoopConfig:
     provider_api_key: str = ""
     plan_act_enabled: bool = False
     rollout_id: int = -1  # -1 = not a rollout
+    routing_metadata: object | None = None  # RoutingMetadata from initial route
 
 
 @dataclass
@@ -182,6 +183,37 @@ class AgentLoopExecutor:
                 content = msg.get("content", "")
                 return content if isinstance(content, str) else str(content)
         return ""
+
+    async def _publish_routing_decision(self, cfg: LoopConfig) -> None:
+        """Publish a trajectory.routing_decision event if routing is active (C1.7)."""
+        if not cfg.routing_layer:
+            return
+
+        event: dict[str, object] = {
+            "event_type": "trajectory.routing_decision",
+            "selected_model": cfg.model,
+            "complexity_tier": cfg.complexity_tier,
+            "task_type": cfg.task_type,
+            "routing_layer": cfg.routing_layer,
+            "reason": "",
+            "alternatives": [],
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+        # Enrich from RoutingMetadata if available.
+        metadata = cfg.routing_metadata
+        if metadata is not None:
+            event["reason"] = getattr(metadata, "reason", "")
+            event["mab_score"] = getattr(metadata, "mab_score", 0.0)
+            raw_alts = getattr(metadata, "alternatives", ())
+            event["alternatives"] = [dict(a) for a in raw_alts] if raw_alts else []
+        else:
+            event["reason"] = f"Routed via {cfg.routing_layer} layer"
+
+        try:
+            await self._runtime.publish_trajectory_event(event)
+        except Exception as exc:
+            logger.debug("failed to publish routing_decision trajectory event: %s", exc)
 
     @staticmethod
     def _pick_next_fallback(
@@ -320,6 +352,9 @@ class AgentLoopExecutor:
         plan_act = _init_plan_act(cfg, messages)
         tools_array = self._tools.get_openai_tools()
         loop_start = time.monotonic()
+
+        # Publish initial routing decision as trajectory event (C1.7).
+        await self._publish_routing_decision(cfg)
 
         for iteration in range(cfg.max_iterations):
             otel_metrics.loop_iterations.add(1)
@@ -1000,6 +1035,9 @@ def _should_early_stop(
     return False
 
 
+_MAX_ROLLOUT_COUNT = 8
+
+
 class ConversationRolloutExecutor:
     """Multi-rollout wrapper for agent loop conversations (A4)."""
 
@@ -1008,10 +1046,13 @@ class ConversationRolloutExecutor:
         agent_loop_executor: AgentLoopExecutor,
         rollout_count: int,
         workspace_path: str,
+        runtime: RuntimeClient | None = None,
     ) -> None:
         self._executor = agent_loop_executor
-        self._rollout_count = rollout_count
+        # Clamp: 0 or negative -> 1, cap at _MAX_ROLLOUT_COUNT.
+        self._rollout_count = max(1, min(rollout_count, _MAX_ROLLOUT_COUNT))
         self._workspace = workspace_path
+        self._runtime = runtime
 
     async def execute(
         self,
@@ -1036,6 +1077,7 @@ class ConversationRolloutExecutor:
         total_cost = 0.0
         total_tokens_in = 0
         total_tokens_out = 0
+        early_stopped = False
 
         for rollout_id in range(self._rollout_count):
             if rollout_id > 0:
@@ -1056,12 +1098,21 @@ class ConversationRolloutExecutor:
             # Early stopping check.
             if _should_early_stop(outputs, exit_codes, self._rollout_count):
                 logger.info("early stop at rollout %d/%d", rollout_id + 1, self._rollout_count)
+                early_stopped = True
                 break
 
         # Score rollouts (simple: use content length as proxy; errors score 0).
         scores = [len(r.final_content) / max(len(r.final_content), 1) if not r.error else 0.0 for r in results]
         best_idx = _select_best_rollout(results, scores)
         best = results[best_idx]
+
+        # Publish trajectory event with rollout metadata.
+        await self._publish_rollout_trajectory(
+            total_rollouts=len(results),
+            selected_index=best_idx,
+            scores=scores,
+            early_stopped=early_stopped,
+        )
 
         return AgentLoopResult(
             final_content=best.final_content,
@@ -1072,7 +1123,36 @@ class ConversationRolloutExecutor:
             step_count=best.step_count,
             model=best.model,
             error=best.error,
+            metadata={
+                "rollout_count": len(results),
+                "selected_index": best_idx,
+                "scores": scores,
+                "early_stopped": early_stopped,
+            },
         )
+
+    async def _publish_rollout_trajectory(
+        self,
+        total_rollouts: int,
+        selected_index: int,
+        scores: list[float],
+        early_stopped: bool,
+    ) -> None:
+        """Publish a trajectory event summarizing rollout execution."""
+        if self._runtime is None:
+            return
+        try:
+            await self._runtime.publish_trajectory_event(
+                {
+                    "event_type": "trajectory.rollout_complete",
+                    "total_rollouts": total_rollouts,
+                    "selected_index": selected_index,
+                    "scores": scores,
+                    "early_stopped": early_stopped,
+                }
+            )
+        except Exception as exc:
+            logger.warning("failed to publish rollout trajectory event: %s", exc)
 
 
 async def _record_routing_outcome(

@@ -17,6 +17,7 @@ import { useI18n } from "~/i18n";
 import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 
 import AuditTable from "../audit/AuditTable";
+import { CanvasModal } from "../canvas/CanvasModal";
 import ActiveWorkPanel from "./ActiveWorkPanel";
 import AutoAgentButton from "./AutoAgentButton";
 import BoundariesPanel from "./BoundariesPanel";
@@ -136,6 +137,7 @@ export default function ProjectDetailPage() {
   const [error, setError] = createSignal("");
   const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [showCanvas, setShowCanvas] = createSignal(false);
   const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
 
   // Left panel tab
@@ -437,6 +439,30 @@ export default function ProjectDetailPage() {
                   <AutoAgentButton projectId={params.id} wsStatus={autoAgentStatus} />
                 </Show>
 
+                {/* Design Canvas */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCanvas(true)}
+                  aria-label="Open Design Canvas"
+                  title="Design Canvas"
+                  data-testid="project-canvas-btn"
+                >
+                  <svg
+                    class="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    stroke-width="1.5"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"
+                    />
+                  </svg>
+                </Button>
+
                 {/* Settings Gear Icon */}
                 <div class="relative">
                   <Button
@@ -707,6 +733,13 @@ export default function ProjectDetailPage() {
 
               {/* Global overlay: refactor approval dialog */}
               <RefactorApproval />
+
+              {/* Design Canvas modal overlay */}
+              <CanvasModal
+                open={showCanvas()}
+                onClose={() => setShowCanvas(false)}
+                onExport={() => setShowCanvas(false)}
+              />
 
               {/* Mobile bottom tab bar */}
               <Show when={isMobile()}>

@@ -1165,31 +1165,31 @@
 - [x] 32L.9: Polygon ASCII export via Bresenham line rasterization (2026-03-17)
 
 **Phase 32G -- Phase 1 Integration & E2E Tests**
-- [ ] 32G.1: E2E test -- canvas basic interactions
-- [ ] 32G.2: E2E test -- export pipeline
-- [ ] 32G.3: Add canvas entry point to ProjectDetailPage
+- [x] 32G.1: E2E test -- canvas basic interactions (2026-03-18)
+- [x] 32G.2: E2E test -- export pipeline (2026-03-18)
+- [x] 32G.3: Add canvas entry point to ProjectDetailPage (2026-03-18)
 
-**Phase 32H -- Go Backend Multimodal Pipeline**
-- [ ] 32H.1: Write failing Go test -- MessageImage serialization
-- [ ] 32H.2: Add MessageImage to Go domain types
-- [ ] 32H.3: Write database migration 075_add_message_images.sql
-- [ ] 32H.4: Update message store to read/write images JSONB
-- [ ] 32H.5: Write failing Go test -- NATS payload with images
-- [ ] 32H.6: Add MessageImagePayload to NATS schema
-- [ ] 32H.7: Update historyToPayload to propagate images
-- [ ] 32H.8: Run full Go test suite -- no regressions
+**Phase 32H -- Go Backend Multimodal Pipeline (COMPLETED 2026-03-18)**
+- [x] 32H.1: Write failing Go test -- MessageImage serialization (2026-03-18)
+- [x] 32H.2: Add MessageImage to Go domain types (2026-03-18) — `internal/domain/conversation/conversation.go`
+- [x] 32H.3: Write database migration 075_add_message_images.sql (2026-03-18)
+- [x] 32H.4: Update message store to read/write images JSONB (2026-03-18) — `store_conversation.go`
+- [x] 32H.5: Write failing Go test -- NATS payload with images (2026-03-18)
+- [x] 32H.6: Add MessageImagePayload to NATS schema (2026-03-18) — `schemas.go:453-468`
+- [x] 32H.7: Update historyToPayload to propagate images (2026-03-18) — `conversation_agent.go:863-869`
+- [x] 32H.8: Run full Go test suite -- no regressions (2026-03-18)
 
-**Phase 32I -- Python Workers Multimodal Pipeline**
-- [ ] 32I.1: Write failing Python test -- MessageImagePayload model
-- [ ] 32I.2: Add MessageImagePayload to Python models
-- [ ] 32I.3: Write failing Python test -- history builder multimodal output
-- [ ] 32I.4: Update _to_msg_dict for multimodal content-array
-- [ ] 32I.5: Contract test -- Go marshal to Python unmarshal
-- [ ] 32I.6: Run full Python test suite -- no regressions
+**Phase 32I -- Python Workers Multimodal Pipeline (COMPLETED 2026-03-18)**
+- [x] 32I.1: Write failing Python test -- MessageImagePayload model (2026-03-18)
+- [x] 32I.2: Add MessageImagePayload to Python models (2026-03-18) — `models.py:433-449`
+- [x] 32I.3: Write failing Python test -- history builder multimodal output (2026-03-18)
+- [x] 32I.4: Update _to_msg_dict for multimodal content-array (2026-03-18) — `history.py:135-171`
+- [x] 32I.5: Contract test -- Go marshal to Python unmarshal (2026-03-18) — standalone tests in `schemas_test.go` + `test_multimodal.py`
+- [x] 32I.6: Run full Python test suite -- no regressions (2026-03-18)
 
-**Phase 32J -- Frontend Multimodal Types**
-- [ ] 32J.1: Add MessageImage to frontend types.ts
-- [ ] 32J.2: Update ChatPanel to render image thumbnails
+**Phase 32J -- Frontend Multimodal Types (COMPLETED 2026-03-18)**
+- [x] 32J.1: Add MessageImage to frontend types.ts (2026-03-18) — `types.ts:1392-1395`
+- [x] 32J.2: Update ChatPanel to render image thumbnails (2026-03-18) — `ChatPanel.tsx:849-865`
 
 **Phase 32K -- Canvas-to-Chat Integration**
 - [x] 32K.1: Add supports_vision to Go model discovery (2026-03-16)
@@ -1197,7 +1197,7 @@
 - [x] 32K.3: Implement buildCanvasPrompt() utility (2026-03-16)
 - [x] 32K.4: Write tests for buildCanvasPrompt() (2026-03-16)
 - [x] 32K.5: Wire canvas export to ChatPanel send (2026-03-16)
-- [ ] 32K.6: E2E test -- canvas to chat flow
+- [x] 32K.6: E2E test -- canvas to chat flow (2026-03-18)
 
 #### Stub & Placeholder Cleanup (2026-03-17)
 
@@ -1311,23 +1311,23 @@
 - [x] (2026-03-18) A2.8: Add `CODEFORGE_SUMMARIZE_THRESHOLD` env var + wire into NATS payload
 - [x] (2026-03-18) A2.9: Run regression tests (16 new tests pass, no regressions)
 
-#### Phase 4 — Advanced Features (~12h total)
+#### Phase 4 — Advanced Features (COMPLETED 2026-03-18)
 
-**C1: Routing Transparency + Mid-Loop Model Switching (~4h)**
-- [ ] C1.1-C1.4: Write routing transparency + quality signal + model switch tests
-- [ ] C1.5: Extend `HybridRouter.route()` to return `RoutingMetadata`
-- [ ] C1.6: Implement `IterationQualityTracker` class in `agent_loop.py`
-- [ ] C1.7: Integrate quality tracker + routing metadata into agent loop
-- [ ] C1.8: Run regression tests
+**C1: Routing Transparency + Mid-Loop Model Switching (COMPLETED 2026-03-18)**
+- [x] (2026-03-18) C1.1-C1.4: Write routing transparency + quality signal + model switch tests — 7 new tests in `test_routing_transparency.py`
+- [x] (2026-03-18) C1.5: `route_with_metadata()` on `HybridRouter` — `router.py:133`, returns `RoutingMetadata`
+- [x] (2026-03-18) C1.6: `IterationQualityTracker` class — `agent_loop.py:857`, integrated into `run()` at line 310
+- [x] (2026-03-18) C1.7: Wired `route_with_metadata()` into agent loop via `RoutingResult.routing_metadata` → `LoopConfig` → `_publish_routing_decision()` trajectory event
+- [x] (2026-03-18) C1.8: 132/132 tests pass (23 routing + 33 agent loop + 67 routing/fallback + 34 consumer dispatch), zero regressions
 
-**A4: Inference-Time Scaling for Conversations (~8h)**
-- [ ] A4.1-A4.5b: Write rollout tests (single, multi, selection, early stopping, cost, non-git fallback)
-- [ ] A4.6: Add `rollout_count` to NATS payload (`schemas.go` + `models.py`)
-- [ ] A4.7: Add `Agent.ConversationRolloutCount` config (cap 8, autonomy >= 4)
-- [ ] A4.8: Implement `ConversationRolloutExecutor` (depends on C2 `EarlyStopChecker`)
-- [ ] A4.9: Implement workspace snapshot/restore via git stash
-- [ ] A4.10: Integrate into NATS consumer dispatch
-- [ ] A4.11-A4.12: Add trajectory metadata + run tests
+**A4: Inference-Time Scaling for Conversations (COMPLETED 2026-03-18)**
+- [x] (2026-03-18) A4.1-A4.5b: 27 rollout tests in `test_conversation_rollout.py` (single, multi, selection, early stopping, cost, non-git fallback, snapshot/restore, clamping, trajectory metadata)
+- [x] (2026-03-18) A4.6: `rollout_count` in Go NATS payload (`schemas.go:495`) + Python `ConversationRunStartMessage` (`models.py:488`)
+- [x] (2026-03-18) A4.7: `Agent.ConversationRolloutCount` config (`config.go:151`), env var `CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT`, default 1
+- [x] (2026-03-18) A4.8: `ConversationRolloutExecutor` (`agent_loop.py:1003`) with `EarlyStopChecker`, non-git fallback
+- [x] (2026-03-18) A4.9: `_snapshot_workspace()` (`agent_loop.py:919`) + `_restore_workspace()` (`:935`) via git stash
+- [x] (2026-03-18) A4.10: NATS consumer dispatch wired — `rollout_count > 1` triggers `ConversationRolloutExecutor` in `_conversation.py:279-290`, clamped `max(1, min(count, 8))`
+- [x] (2026-03-18) A4.11-A4.12: `trajectory.rollout_complete` event with rollout_count, selected_index, scores, early_stopped; NATS contract fixture updated; 128/128 tests pass
 
 #### Phase 5 — Ecosystem (COMPLETED)
 

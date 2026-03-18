@@ -485,6 +485,7 @@ class ConversationRunStartMessage(BaseModel):
     tenant_id: str = ""
     session_meta: SessionMetaPayload | None = None
     reminders: list[str] = Field(default_factory=list)
+    rollout_count: int = 1
     summarize_threshold: int = 0
 
     @field_validator("mcp_servers", "context", "tools", "microagent_prompts", "reminders", mode="before")
@@ -527,6 +528,7 @@ class AgentLoopResult(BaseModel):
     step_count: int = 0
     model: str = ""
     error: str = ""
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

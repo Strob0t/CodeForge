@@ -78,5 +78,7 @@
   },
   "routing_enabled": true,
   "agentic": true,
-  "provider_api_key": "sk-user-key-abc123"
+  "provider_api_key": "sk-user-key-abc123",
+  "rollout_count": 3,
+  "summarize_threshold": 50
 }
