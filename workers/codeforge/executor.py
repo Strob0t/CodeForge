@@ -63,6 +63,53 @@ class AgentExecutor:
                 error=str(exc),
             )
 
+    @_tracer.trace_agent("executor-a2a")
+    async def execute_a2a_task(
+        self,
+        *,
+        task_id: str,
+        skill_id: str,
+        prompt: str,
+    ) -> TaskResult:
+        """Execute an inbound A2A task.
+
+        Unlike the generic ``execute()``, this method builds a system prompt
+        that incorporates the A2A skill context so the LLM understands the
+        request originates from an external agent.
+        """
+        logger.info("executing A2A task %s (skill=%s)", task_id, skill_id)
+
+        skill_context = f" (skill: {skill_id})" if skill_id else ""
+        system = f"You are an AI agent executing an A2A task{skill_context}. Respond concisely."
+
+        try:
+            response = await self._llm.completion(
+                prompt=prompt,
+                system=system,
+            )
+
+            cost = resolve_cost(
+                response.cost_usd,
+                response.model,
+                response.tokens_in,
+                response.tokens_out,
+            )
+            return TaskResult(
+                task_id=task_id,
+                status=TaskStatus.COMPLETED,
+                output=response.content,
+                tokens_in=response.tokens_in,
+                tokens_out=response.tokens_out,
+                cost_usd=cost,
+            )
+        except Exception as exc:
+            logger.exception("A2A task %s failed", task_id)
+            return TaskResult(
+                task_id=task_id,
+                status=TaskStatus.FAILED,
+                error=str(exc),
+            )
+
     async def _check_experience_cache(self, task: TaskMessage, runtime: RuntimeClient) -> bool:
         """Check if a cached experience exists. Returns True if cache hit was used."""
         if not (self._experience_pool and task.project_id and task.prompt):
