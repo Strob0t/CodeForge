@@ -38,6 +38,34 @@ func PhaseAwareContextBudget(baseBudget int, modeID string) int {
 	return baseBudget * pct / 100
 }
 
+// complexityMultipliers maps complexity tiers to budget scaling factors.
+// Simple tasks need minimal context; complex/reasoning tasks benefit from more.
+var complexityMultipliers = map[string]float64{
+	"simple":    0.25,
+	"medium":    1.0,
+	"complex":   2.0,
+	"reasoning": 2.0,
+}
+
+// ComplexityBudget scales the base context token budget by a multiplier
+// determined by the task complexity tier. Unknown tiers default to 1.0x.
+// The result composes with PhaseAwareContextBudget and AdaptiveContextBudget:
+//
+//	effective = AdaptiveContextBudget(
+//	    PhaseAwareContextBudget(
+//	        ComplexityBudget(tier, base), modeID),
+//	    history)
+func ComplexityBudget(tier string, baseBudget int) int {
+	if baseBudget <= 0 {
+		return 0
+	}
+	m, ok := complexityMultipliers[tier]
+	if !ok {
+		m = 1.0
+	}
+	return int(float64(baseBudget) * m)
+}
+
 func AdaptiveContextBudget(baseBudget int, history []messagequeue.ConversationMessagePayload) int {
 	if baseBudget <= 0 {
 		return 0
