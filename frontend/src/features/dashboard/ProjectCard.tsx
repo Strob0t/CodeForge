@@ -1,4 +1,4 @@
-import { A } from "@solidjs/router";
+import { A, useNavigate } from "@solidjs/router";
 import { Show } from "solid-js";
 
 import type { Project, ProjectHealth } from "~/api/types";
@@ -19,10 +19,18 @@ interface ProjectCardProps {
 
 export default function ProjectCard(props: ProjectCardProps) {
   const { t, fmt } = useI18n();
+  const navigate = useNavigate();
+
+  const handleCardClick = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest("a")) return;
+    navigate(`/projects/${props.project.id}`);
+  };
 
   return (
     <Card
-      class={`transition-shadow hover:shadow-md ${props.selected ? "ring-2 ring-cf-accent" : ""}`}
+      class={`hover:shadow-cf-md hover:border-cf-accent/30 transition-all duration-200 cursor-pointer ${props.selected ? "ring-2 ring-cf-accent" : ""}`}
+      onClick={handleCardClick}
     >
       <Card.Body>
         {/* Header row: name + health dot */}
