@@ -129,8 +129,8 @@ func (s *ConversationService) buildConversationContextEntries(
 
 // evaluateReminders checks runtime conditions and returns matching reminder texts.
 func (s *ConversationService) evaluateReminders(
-	_ context.Context,
-	_ string,
+	ctx context.Context,
+	conversationID string,
 	history []messagequeue.ConversationMessagePayload,
 ) []string {
 	if s.promptAssembler == nil || s.promptAssembler.library == nil {
@@ -143,12 +143,15 @@ func (s *ConversationService) evaluateReminders(
 		return nil
 	}
 
+	// Query accumulated cost for this conversation from trajectory events.
+	budgetPct, budgetUsed, budgetLimit := s.computeBudget(ctx, conversationID)
+
 	// Build reminder template data from current state.
 	data := map[string]any{
 		"TurnCount":       len(history),
-		"BudgetPercent":   0.0, // TODO: Wire when Python worker reports running cost back to Go
-		"BudgetUsed":      "",
-		"BudgetLimit":     "",
+		"BudgetPercent":   budgetPct,
+		"BudgetUsed":      budgetUsed,
+		"BudgetLimit":     budgetLimit,
 		"StallIterations": countStallIterations(history),
 	}
 
@@ -162,6 +165,32 @@ func (s *ConversationService) evaluateReminders(
 	}
 
 	return result
+}
+
+// defaultBudgetLimit is the default cost budget (USD) when no explicit limit is configured.
+const defaultBudgetLimit = 5.0
+
+// computeBudget queries the event store for accumulated cost and returns
+// (percent, usedStr, limitStr). Returns (0, "", "") when the event store is
+// unavailable or the conversation has no cost data yet.
+func (s *ConversationService) computeBudget(ctx context.Context, conversationID string) (pct float64, usedStr, limitStr string) {
+	if s.events == nil || conversationID == "" {
+		return 0, "", ""
+	}
+	stats, err := s.events.TrajectoryStats(ctx, conversationID)
+	if err != nil || stats == nil {
+		return 0, "", ""
+	}
+	costUsed := stats.TotalCostUSD
+	if costUsed <= 0 {
+		return 0, "", ""
+	}
+	costLimit := defaultBudgetLimit
+	pct = (costUsed / costLimit) * 100
+	if pct > 100 {
+		pct = 100
+	}
+	return pct, fmt.Sprintf("$%.4f", costUsed), fmt.Sprintf("$%.2f", costLimit)
 }
 
 // progressToolsConv are tools that indicate meaningful work in conversations.

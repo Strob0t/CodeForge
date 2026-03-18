@@ -1220,10 +1220,10 @@
 - [x] STUB-010: SWE-agent backend adapter implementation (`workers/codeforge/backends/sweagent.py`) (2026-03-17)
 
 **Small Effort (new from 2026-03-18 scan):**
-- [ ] STUB-024: Wire re-run benchmark button onClick in PromptOptimizationPanel (`frontend/src/features/benchmarks/PromptOptimizationPanel.tsx:173`)
-- [ ] STUB-025: Remove deprecated `activeTool` prop from CanvasModal interface (`frontend/src/features/canvas/CanvasModal.tsx:33-34`)
-- [ ] Cleanup: Delete dead code `internal/port/a2a/` (zero imports, merge artifact)
-- [ ] STUB-004 (remaining): Wire BudgetPercent from Python worker cost reporting
+- [x] STUB-024: Wire re-run benchmark button onClick in PromptOptimizationPanel (2026-03-18)
+- [x] STUB-025: Remove deprecated `activeTool` prop from CanvasModal interface (2026-03-18)
+- [x] Cleanup: Delete dead code `internal/port/a2a/` (zero imports, merge artifact) (2026-03-18)
+- [x] STUB-004 (remaining): Wire BudgetPercent from event store accumulated cost (2026-03-18)
 
 **No Action Needed (intentional designs):**
 - STUB-007/008: GitHub OAuth + Subscription 501 gates (feature-gated by design)

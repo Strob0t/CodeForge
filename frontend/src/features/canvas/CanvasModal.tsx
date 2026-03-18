@@ -30,8 +30,6 @@ export interface CanvasModalProps {
   onExport: (exports: CanvasExports) => void;
   /** Optional external store; if omitted a fresh store is created internally. */
   store?: CanvasStore;
-  /** @deprecated Tool instances are now created internally based on store.state.activeTool. */
-  activeTool?: CanvasTool;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,7 +175,7 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
             <div class="flex-1 overflow-hidden">
               <DesignCanvas
                 store={resolvedStore()}
-                activeTool={props.activeTool ?? currentTool()}
+                activeTool={currentTool()}
                 onSvgRef={setSvgRef}
               />
             </div>

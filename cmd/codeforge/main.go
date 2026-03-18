@@ -556,6 +556,7 @@ func run() error {
 		assembler.SetSelector(promptSelector)
 
 		conversationSvc.SetPromptAssembler(assembler)
+		conversationSvc.SetEventStore(eventStore)
 		slog.Info("modular prompt library loaded", "entries", promptLib.Len())
 	}
 
