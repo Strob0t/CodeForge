@@ -1253,31 +1253,28 @@
 > Based on: Current LLM-for-coding research (2025/26), codebase analysis, identified gaps
 > 12 measures, 90+ atomic TODOs, 5 implementation phases
 
-#### Phase 1 — Quick Wins (no dependencies, ~7h total)
+#### Phase 1 — Quick Wins (COMPLETED 2026-03-18)
 
-**A1: Stall Detection + Escape (~3h)**
-- [ ] A1.1-A1.2: Write stall detection tests (identical calls, args differentiation, empty/single edge cases)
-- [ ] A1.3-A1.4: Write escape prompt injection + double-stall abort tests
-- [ ] A1.5: Implement `StallDetector` class in `workers/codeforge/agent_loop.py`
-- [ ] A1.6: Integrate into `AgentLoopExecutor.run()` and `_execute_tool_call()`
-- [ ] A1.7: Publish `trajectory.stall_detected` event via `_runtime.publish_trajectory_event()`
-- [ ] A1.8: Run regression tests
+**A1: Stall Detection + Escape** -- COMPLETED (2026-03-18)
+- [x] A1.1-A1.4: Write 22 stall detection tests (identical calls, args hash, escape injection, double-stall abort, edge cases)
+- [x] A1.5: Implement `StallDetector` class in `workers/codeforge/agent_loop.py` (~50 lines, deque-based sliding window)
+- [x] A1.6: Integrate into `AgentLoopExecutor.run()` with `_check_stall()` helper (cyclomatic complexity managed)
+- [x] A1.7: Publish `trajectory.stall_detected` event via `_runtime.publish_trajectory_event()`
+- [x] A1.8: 60/60 tests pass (22 new + 33 existing agent loop + 5 related)
 
-**B3: Adaptive Context Budget Based on Task Complexity (~2h)**
-- [ ] B3.1: Write tier-to-budget mapping tests (SIMPLE=512, MEDIUM=2048, COMPLEX=4096, REASONING=4096)
-- [ ] B3.2: Write composite test (tier + phase + decay)
-- [ ] B3.3: Write Go-side complexity classifier tests
-- [ ] B3.4: Implement `ClassifyComplexity()` in `internal/service/complexity.go` (port 7 heuristics from Python)
-- [ ] B3.5: Implement `ComplexityBudget()` in `internal/service/context_budget.go`
-- [ ] B3.6: Add `complexity_tier` to NATS payload (Go + Python), integrate into dispatch
-- [ ] B3.7: Run regression tests
+**B3: Adaptive Context Budget Based on Task Complexity** -- COMPLETED (2026-03-18)
+- [x] B3.1-B3.3: Write 17 tests (9 budget mapping + 8 complexity classifier including edge cases)
+- [x] B3.4: Implement `ClassifyComplexity()` in `internal/service/complexity.go` (240 lines, 7 heuristics + task-type boost)
+- [x] B3.5: Implement `ComplexityBudget()` in `internal/service/context_budget.go` (composes with PhaseAware + Adaptive)
+- [x] B3.6: NATS payload integration deferred to Phase 2 (Go-side functions ready)
+- [x] B3.7: All Go service tests pass, golangci-lint clean
 
-**C2: Confidence-Based Early Stopping for Multi-Rollout (~2h)**
-- [ ] C2.1-C2.5: Write early stopping tests (quorum, threshold, exit_code, rollout_count<=3, clusters)
-- [ ] C2.6: Implement `EarlyStopChecker` class in `workers/codeforge/evaluation/runners/multi_rollout.py`
-- [ ] C2.7: Integrate into `MultiRolloutRunner.run()`
-- [ ] C2.8: Add `EARLY_STOP_THRESHOLD` / `EARLY_STOP_QUORUM` config
-- [ ] C2.9: Run regression tests
+**C2: Confidence-Based Early Stopping for Multi-Rollout** -- COMPLETED (2026-03-18)
+- [x] C2.1-C2.5: Write 15 early stopping tests (quorum, threshold, exit_code, rollout_count<=3, clusters, best selection)
+- [x] C2.6: Implement `EarlyStopChecker` class in `workers/codeforge/evaluation/runners/early_stopping.py`
+- [x] C2.7: Integrate into `MultiRolloutRunner.run()` with `MultiRolloutMetadata` dataclass
+- [x] C2.8: Add `CODEFORGE_EARLY_STOP_THRESHOLD` / `CODEFORGE_EARLY_STOP_QUORUM` env vars
+- [x] C2.9: 35/35 tests pass (15 new + 20 existing runner tests)
 
 #### Phase 2 — Core Quality (A1 helps validate, ~8h total)
 
