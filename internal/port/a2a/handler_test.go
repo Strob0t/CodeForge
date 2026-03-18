@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Strob0t/CodeForge/internal/domain/mode"
 )
 
 func newTestRouter() *chi.Mux {
@@ -34,8 +36,39 @@ func TestAgentCard(t *testing.T) {
 	if card.Name != "CodeForge" {
 		t.Fatalf("expected name CodeForge, got %s", card.Name)
 	}
-	if len(card.Skills) != 2 {
-		t.Fatalf("expected 2 skills, got %d", len(card.Skills))
+	if len(card.Skills) == 0 {
+		t.Fatal("expected at least 1 skill (fallback)")
+	}
+}
+
+func TestBuildAgentCard_DynamicSkills(t *testing.T) {
+	modes := []mode.Mode{
+		{ID: "architect", Name: "Architect", Description: "Plans architecture"},
+		{ID: "coder", Name: "Coder", Description: "Writes code"},
+		{ID: "reviewer", Name: "Reviewer", Description: "Reviews code"},
+	}
+	card := BuildAgentCard("http://localhost:8080", modes)
+	if len(card.Skills) != 3 {
+		t.Fatalf("expected 3 skills, got %d", len(card.Skills))
+	}
+	if card.Skills[0].ID != "architect" {
+		t.Errorf("skill[0].ID = %q, want %q", card.Skills[0].ID, "architect")
+	}
+	if card.Skills[1].Name != "Coder" {
+		t.Errorf("skill[1].Name = %q, want %q", card.Skills[1].Name, "Coder")
+	}
+	if card.Skills[2].Description != "Reviews code" {
+		t.Errorf("skill[2].Description = %q, want %q", card.Skills[2].Description, "Reviews code")
+	}
+}
+
+func TestBuildAgentCard_EmptyModes_FallbackSkills(t *testing.T) {
+	card := BuildAgentCard("http://localhost:8080", nil)
+	if len(card.Skills) != 1 {
+		t.Fatalf("expected 1 fallback skill, got %d", len(card.Skills))
+	}
+	if card.Skills[0].ID != "code-task" {
+		t.Errorf("fallback skill ID = %q, want %q", card.Skills[0].ID, "code-task")
 	}
 }
 

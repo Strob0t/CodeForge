@@ -147,15 +147,14 @@ func (s *ConversationService) evaluateReminders(
 	// Build reminder template data from current state.
 	data := map[string]any{
 		"TurnCount":       len(history),
-		"BudgetPercent":   0.0, // TODO: Wire actual budget tracking
-		"StallIterations": 0,   // TODO: Wire stall detection
+		"BudgetPercent":   0.0, // TODO: Wire when Python worker reports running cost back to Go
+		"BudgetUsed":      "",
+		"BudgetLimit":     "",
+		"StallIterations": countStallIterations(history),
 	}
 
 	var result []string
 	for i := range reminders {
-		// For now, only inject reminders that don't require template data
-		// (static reminders). Dynamic reminders will be wired when budget
-		// and stall tracking are integrated.
 		text := renderEntry(&reminders[i], data)
 		text = strings.TrimSpace(text)
 		if text != "" {
@@ -168,6 +167,31 @@ func (s *ConversationService) evaluateReminders(
 	// (SendMessageAgentic/WithMode) passes them to the NATS payload which
 	// the Python worker injects into the system prompt.
 	return result
+}
+
+// progressToolsConv are tools that indicate meaningful work in conversations.
+var progressToolsConv = map[string]bool{
+	"Edit":  true,
+	"Write": true,
+	"Bash":  true,
+}
+
+// countStallIterations counts consecutive non-progress tool results at the tail
+// of the message history. A "progress" tool is Edit, Write, or Bash. Non-tool
+// messages (assistant, user) are skipped. The count resets on any progress tool.
+func countStallIterations(history []messagequeue.ConversationMessagePayload) int {
+	count := 0
+	for i := range history {
+		if history[i].Role != "tool" {
+			continue
+		}
+		if progressToolsConv[history[i].Name] {
+			count = 0
+		} else {
+			count++
+		}
+	}
+	return count
 }
 
 // policyForAutonomy maps an autonomy level (1-5) to a policy preset name.

@@ -263,25 +263,10 @@ func (s *ReviewService) triggerReview(ctx context.Context, policy *review.Review
 	}
 
 	// Instantiate the pipeline template to get a plan request.
-	// The review-only template has 2 steps (reviewer + security).
-	// We create placeholder bindings — the orchestrator will handle task creation.
-	tmpl, err := s.pipelineSvc.Get(policy.TemplateID)
-	if err != nil {
-		return r, fmt.Errorf("get pipeline template %q: %w", policy.TemplateID, err)
-	}
-
-	bindings := make([]pipeline.StepBinding, len(tmpl.Steps))
-	for i := range tmpl.Steps {
-		bindings[i] = pipeline.StepBinding{
-			TaskID:  crypto.GenerateUUIDv4(),
-			AgentID: crypto.GenerateUUIDv4(),
-		}
-	}
-
+	// Nil bindings — Instantiate auto-generates TaskID/AgentID UUIDs.
 	planReq, err := s.pipelineSvc.Instantiate(ctx, policy.TemplateID, pipeline.InstantiateRequest{
 		ProjectID: policy.ProjectID,
 		PlanName:  fmt.Sprintf("review-%s-%s", policy.Name, r.ID[:8]),
-		Bindings:  bindings,
 	})
 	if err != nil {
 		return r, fmt.Errorf("instantiate review pipeline: %w", err)

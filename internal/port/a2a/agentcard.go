@@ -1,15 +1,27 @@
 package a2a
 
-// BuildAgentCard returns a static AgentCard for the CodeForge service.
-// NOTE: Skills are hardcoded placeholders. In Phase 2-3 these will be
-// populated dynamically from the registered agent backends and mode configs.
-func BuildAgentCard(baseURL string) AgentCard {
+import "github.com/Strob0t/CodeForge/internal/domain/mode"
+
+// BuildAgentCard returns an AgentCard for the CodeForge service.
+// Skills are built dynamically from registered modes. If no modes are
+// provided, a single fallback skill is returned for backward compatibility.
+func BuildAgentCard(baseURL string, modes []mode.Mode) AgentCard {
 	return AgentCard{
 		Name:        "CodeForge",
 		Description: "AI coding agent orchestration platform",
 		URL:         baseURL,
 		Version:     "0.1.0",
-		Skills: []Skill{
+		Skills:      buildSkillsFromModes(modes),
+		Capabilities: struct {
+			Streaming bool `json:"streaming"`
+		}{Streaming: true},
+	}
+}
+
+// buildSkillsFromModes converts registered modes into A2A skills.
+func buildSkillsFromModes(modes []mode.Mode) []Skill {
+	if len(modes) == 0 {
+		return []Skill{
 			{
 				ID:          "code-task",
 				Name:        "Code Task",
@@ -17,16 +29,17 @@ func BuildAgentCard(baseURL string) AgentCard {
 				InputModes:  []string{"text"},
 				OutputModes: []string{"text"},
 			},
-			{
-				ID:          "decompose",
-				Name:        "Feature Decomposition",
-				Description: "Decompose a feature into implementation subtasks",
-				InputModes:  []string{"text"},
-				OutputModes: []string{"text"},
-			},
-		},
-		Capabilities: struct {
-			Streaming bool `json:"streaming"`
-		}{Streaming: true},
+		}
 	}
+	skills := make([]Skill, len(modes))
+	for i := range modes {
+		skills[i] = Skill{
+			ID:          modes[i].ID,
+			Name:        modes[i].Name,
+			Description: modes[i].Description,
+			InputModes:  []string{"text"},
+			OutputModes: []string{"text"},
+		}
+	}
+	return skills
 }

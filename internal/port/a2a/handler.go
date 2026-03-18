@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 
 	"github.com/go-chi/chi/v5"
@@ -25,6 +26,7 @@ import (
 // but never executed. See CLAUDE.md "A2A" section for roadmap.
 type Handler struct {
 	baseURL string
+	modes   []mode.Mode
 	mu      sync.RWMutex
 	tasks   map[string]*TaskResponse // In-memory task store (stub)
 }
@@ -45,8 +47,18 @@ func (h *Handler) MountRoutes(r chi.Router) {
 	r.Get("/a2a/tasks/{id}", h.handleGetTask)
 }
 
+// SetModes updates the modes used to build the agent card dynamically.
+func (h *Handler) SetModes(modes []mode.Mode) {
+	h.mu.Lock()
+	h.modes = modes
+	h.mu.Unlock()
+}
+
 func (h *Handler) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
-	card := BuildAgentCard(h.baseURL)
+	h.mu.RLock()
+	modes := h.modes
+	h.mu.RUnlock()
+	card := BuildAgentCard(h.baseURL, modes)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(card)
 }

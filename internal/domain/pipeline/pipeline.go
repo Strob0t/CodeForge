@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 )
 
@@ -139,7 +141,14 @@ func (t *Template) validateDAG() error {
 }
 
 // Instantiate produces a CreatePlanRequest from the template and bindings.
+// If bindings is nil or empty, UUIDs are auto-generated for all steps.
+// If a binding has an empty TaskID or AgentID, those fields are auto-generated.
 func (t *Template) Instantiate(req InstantiateRequest) (*plan.CreatePlanRequest, error) {
+	// Auto-generate bindings when none provided.
+	if len(req.Bindings) == 0 {
+		req.Bindings = make([]StepBinding, len(t.Steps))
+	}
+
 	if len(req.Bindings) != len(t.Steps) {
 		return nil, fmt.Errorf(
 			"template %q has %d steps but got %d bindings: %w",
@@ -147,9 +156,13 @@ func (t *Template) Instantiate(req InstantiateRequest) (*plan.CreatePlanRequest,
 		)
 	}
 
-	for i, b := range req.Bindings {
-		if b.TaskID == "" || b.AgentID == "" {
-			return nil, fmt.Errorf("binding %d: %w", i, ErrBindingMissingIDs)
+	// Auto-fill empty TaskID/AgentID with generated UUIDs.
+	for i := range req.Bindings {
+		if req.Bindings[i].TaskID == "" {
+			req.Bindings[i].TaskID = uuid.New().String()
+		}
+		if req.Bindings[i].AgentID == "" {
+			req.Bindings[i].AgentID = uuid.New().String()
 		}
 	}
 

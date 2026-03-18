@@ -663,6 +663,40 @@ content: "Budget at {{.BudgetPercent}}%."
 		}
 	})
 
+	t.Run("renders StallIterations from history", func(t *testing.T) {
+		t.Parallel()
+		fsys := fstest.MapFS{
+			"prompts/reminder.yaml": &fstest.MapFile{
+				Data: []byte(`
+id: reminder-stall
+category: reminder
+name: Stall Warning
+priority: 50
+content: "Stall: {{.StallIterations}}"
+`),
+			},
+		}
+		lib, err := NewPromptLibraryService(fsys, "prompts")
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		svc := &ConversationService{
+			promptAssembler: NewPromptAssembler(lib, 0),
+		}
+		history := []messagequeue.ConversationMessagePayload{
+			{Role: "tool", Name: "Edit", Content: "ok"},    // progress → reset
+			{Role: "tool", Name: "Read", Content: "data"},  // non-progress → 1
+			{Role: "tool", Name: "Glob", Content: "files"}, // non-progress → 2
+		}
+		result := svc.evaluateReminders(context.Background(), "conv-1", history)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 reminder, got %d", len(result))
+		}
+		if result[0] != "Stall: 2" {
+			t.Errorf("reminder = %q, want %q", result[0], "Stall: 2")
+		}
+	})
+
 	t.Run("renders TurnCount from history length", func(t *testing.T) {
 		t.Parallel()
 		fsys := fstest.MapFS{
@@ -1100,6 +1134,76 @@ func TestAssemble_AgenticVsNonAgentic_ProduceDifferentOutput(t *testing.T) {
 	if len(agentic) <= len(nonAgentic) {
 		t.Errorf("agentic prompt (%d bytes) should be longer than non-agentic (%d bytes)",
 			len(agentic), len(nonAgentic))
+	}
+}
+
+func TestCountStallIterations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		history []messagequeue.ConversationMessagePayload
+		want    int
+	}{
+		{
+			name:    "empty history",
+			history: nil,
+			want:    0,
+		},
+		{
+			name: "user messages only",
+			history: []messagequeue.ConversationMessagePayload{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi"},
+			},
+			want: 0,
+		},
+		{
+			name: "progress tool resets count",
+			history: []messagequeue.ConversationMessagePayload{
+				{Role: "tool", Name: "Read", Content: "data"},
+				{Role: "tool", Name: "Edit", Content: "ok"},
+			},
+			want: 0,
+		},
+		{
+			name: "consecutive non-progress tools",
+			history: []messagequeue.ConversationMessagePayload{
+				{Role: "tool", Name: "Read", Content: "data"},
+				{Role: "tool", Name: "Glob", Content: "files"},
+				{Role: "tool", Name: "Search", Content: "results"},
+			},
+			want: 3,
+		},
+		{
+			name: "progress in middle resets",
+			history: []messagequeue.ConversationMessagePayload{
+				{Role: "tool", Name: "Read", Content: "data"},
+				{Role: "tool", Name: "Read", Content: "data"},
+				{Role: "tool", Name: "Write", Content: "ok"},
+				{Role: "tool", Name: "Glob", Content: "files"},
+			},
+			want: 1,
+		},
+		{
+			name: "assistant messages ignored",
+			history: []messagequeue.ConversationMessagePayload{
+				{Role: "tool", Name: "Read", Content: "data"},
+				{Role: "assistant", Content: "thinking"},
+				{Role: "tool", Name: "Search", Content: "results"},
+			},
+			want: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := countStallIterations(tt.history)
+			if got != tt.want {
+				t.Errorf("countStallIterations() = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 
