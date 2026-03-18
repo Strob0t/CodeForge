@@ -1329,20 +1329,20 @@
 - [ ] A4.10: Integrate into NATS consumer dispatch
 - [ ] A4.11-A4.12: Add trajectory metadata + run tests
 
-#### Phase 5 — Ecosystem (independent, ~14h total)
+#### Phase 5 — Ecosystem (COMPLETED)
 
 **C3: New Benchmark Providers — DPAI Arena + Terminal-Bench (~6h)**
-- [ ] C3.1-C3.2: Research dataset formats and access methods
-- [ ] C3.3-C3.4: Write provider load tests
-- [ ] C3.5: Implement `DPAIArenaProvider`
-- [ ] C3.6: Implement `TerminalBenchProvider`
-- [ ] C3.7: Add filesystem state evaluator for Terminal-Bench
-- [ ] C3.8-C3.9: Update Go validation + run tests
+- [x] (2026-03-18) C3.1-C3.2: Research dataset formats and access methods
+- [x] (2026-03-18) C3.3-C3.4: Write provider load tests (20 DPAI Arena + 21 Terminal-Bench + 15 Filesystem State = 56 tests)
+- [x] (2026-03-18) C3.5: Implement `DPAIArenaProvider` (BenchmarkType.SIMPLE, HuggingFace DPAI/arena dataset)
+- [x] (2026-03-18) C3.6: Implement `TerminalBenchProvider` (BenchmarkType.AGENT, filesystem state verification)
+- [x] (2026-03-18) C3.7: Add `FilesystemStateEvaluator` for Terminal-Bench (expected files, content match, missing files)
+- [x] (2026-03-18) C3.8-C3.9: Update Go `defaultSuites` + all tests pass
 
 **C4: RLVR Training Pipeline Export (~8h)**
-- [ ] C4.1-C4.4: Write RLVR export tests (JSONL format, reward computation, multi-run, HTTP, zero-results)
-- [ ] C4.5: Implement `compute_rlvr_reward()` in `workers/codeforge/evaluation/export.py`
-- [ ] C4.6: Implement `format_rlvr_entry()` formatter
-- [ ] C4.7: Implement `ExportRLVRDataset()` in Go service
-- [ ] C4.8-C4.10: Add HTTP endpoints + route registration
-- [ ] C4.11: Run full test suite
+- [x] (2026-03-18) C4.1-C4.4: Write RLVR export tests (19 Python + 13 Go service + 4 Go handler = 36 tests)
+- [x] (2026-03-18) C4.5: Implement `compute_rlvr_reward()` (weighted avg, functional_test 2x, clamped [0,1])
+- [x] (2026-03-18) C4.6: Implement `format_rlvr_entry()` formatter + `RLVRExporter` class
+- [x] (2026-03-18) C4.7: Implement `ExportRLVRDataset()` in Go service + `ComputeRLVRReward()`
+- [x] (2026-03-18) C4.8-C4.10: Add `GET /api/v1/benchmarks/runs/{id}/export/rlvr` endpoint (JSONL + JSON)
+- [x] (2026-03-18) C4.11: Full test suite passes (87 Python, all Go packages green)

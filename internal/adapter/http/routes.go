@@ -465,6 +465,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			r.Post("/compare-multi", h.MultiCompareBenchmarkRuns)
 			r.Get("/runs/{id}/cost-analysis", h.BenchmarkCostAnalysis)
 			r.Get("/runs/{id}/export/training", h.ExportTrainingData)
+			r.Get("/runs/{id}/export/rlvr", h.ExportRLVRData)
 			r.Get("/leaderboard", h.BenchmarkLeaderboard)
 			r.Get("/datasets", h.ListBenchmarkDatasets)
 			r.Put("/suites/{id}", h.UpdateBenchmarkSuite)

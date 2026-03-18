@@ -104,6 +104,9 @@ type mockStore struct {
 	activeWork []task.ActiveWorkItem
 	// Goal Discovery fields (Phase 28)
 	goals []goal.ProjectGoal
+	// Benchmark fields (Phase 26+)
+	benchmarkRuns    []benchmark.Run
+	benchmarkResults []benchmark.Result
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -1279,18 +1282,34 @@ func (m *mockStore) ListBenchmarkRunsFiltered(_ context.Context, _ *benchmark.Ru
 }
 
 // Benchmark stubs
-func (m *mockStore) CreateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
-func (m *mockStore) GetBenchmarkRun(_ context.Context, _ string) (*benchmark.Run, error) {
-	return nil, nil
+func (m *mockStore) CreateBenchmarkRun(_ context.Context, r *benchmark.Run) error {
+	m.benchmarkRuns = append(m.benchmarkRuns, *r)
+	return nil
 }
-func (m *mockStore) ListBenchmarkRuns(_ context.Context) ([]benchmark.Run, error) { return nil, nil }
+func (m *mockStore) GetBenchmarkRun(_ context.Context, id string) (*benchmark.Run, error) {
+	for i := range m.benchmarkRuns {
+		if m.benchmarkRuns[i].ID == id {
+			return &m.benchmarkRuns[i], nil
+		}
+	}
+	return nil, fmt.Errorf("run not found: %s", id)
+}
+func (m *mockStore) ListBenchmarkRuns(_ context.Context) ([]benchmark.Run, error) {
+	return m.benchmarkRuns, nil
+}
 func (m *mockStore) UpdateBenchmarkRun(_ context.Context, _ *benchmark.Run) error { return nil }
 func (m *mockStore) DeleteBenchmarkRun(_ context.Context, _ string) error         { return nil }
 func (m *mockStore) CreateBenchmarkResult(_ context.Context, _ *benchmark.Result) error {
 	return nil
 }
-func (m *mockStore) ListBenchmarkResults(_ context.Context, _ string) ([]benchmark.Result, error) {
-	return nil, nil
+func (m *mockStore) ListBenchmarkResults(_ context.Context, runID string) ([]benchmark.Result, error) {
+	var results []benchmark.Result
+	for i := range m.benchmarkResults {
+		if m.benchmarkResults[i].RunID == runID {
+			results = append(results, m.benchmarkResults[i])
+		}
+	}
+	return results, nil
 }
 
 // Experience Pool stubs

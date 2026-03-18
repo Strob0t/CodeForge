@@ -36,8 +36,10 @@ import codeforge.evaluation.providers.codeforge_simple as _cs  # noqa: F401
 import codeforge.evaluation.providers.codeforge_synthetic as _  # noqa: F401
 import codeforge.evaluation.providers.codeforge_tool_use as _ct  # noqa: F401
 import codeforge.evaluation.providers.cruxeval as _cr  # noqa: F401
+import codeforge.evaluation.providers.dpai_arena as _da  # noqa: F401
 import codeforge.evaluation.providers.humaneval as _h  # noqa: F401
 import codeforge.evaluation.providers.livecodebench as _l  # noqa: F401
 import codeforge.evaluation.providers.mbpp as _m  # noqa: F401
 import codeforge.evaluation.providers.sparcbench as _sp  # noqa: F401
 import codeforge.evaluation.providers.swebench as _s  # noqa: F401
+import codeforge.evaluation.providers.terminal_bench as _tb  # noqa: F401
