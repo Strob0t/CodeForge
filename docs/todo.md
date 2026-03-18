@@ -1209,11 +1209,11 @@
 - [x] STUB-011: Refactor `detectGoalFiles()` to use intermediate `DetectedGoal` type (2026-03-17)
 
 **Medium Effort:**
-- [ ] STUB-004: Wire actual budget tracking + stall detection into conversation agent template data (`internal/service/conversation_agent.go:150-151`)
+- [x] STUB-004: Wire actual budget tracking + stall detection into conversation agent template data (2026-03-18)
 - [ ] STUB-003: Implement review trigger dispatch to boundary-analyzer agent loop (`workers/codeforge/consumer/_review.py:35`)
 - [ ] STUB-009: Add trajectory event `sequence_number` (Go) + frontend dedup + WS reconnect re-hydration (`frontend/src/features/benchmarks/BenchmarkPage.tsx:131-135`)
-- [ ] STUB-006: Build A2A agent card skills dynamically from mode registry + backend capabilities (`internal/port/a2a/agentcard.go:4-32`)
-- [ ] STUB-012: Defer StepBinding creation until orchestrator assigns real resources (`internal/service/review.go:267`)
+- [x] STUB-006: Build A2A agent card skills dynamically from mode registry + backend capabilities (2026-03-18)
+- [x] STUB-012: Defer StepBinding creation until orchestrator assigns real resources (2026-03-18)
 
 **Large Effort (phase-level):**
 - [ ] STUB-001: A2A task persistence to PostgreSQL + execution routing to agent backends (`internal/port/a2a/handler.go`)
@@ -1231,3 +1231,10 @@
 - [x] Phase D: Migrate 24 mode PromptPrefix strings to YAML library files (2026-03-17)
 - [x] Phase E: System reminders in NATS payload and prompt pipeline (2026-03-17)
 - [x] Phase F: Wire assembler at app startup, add PromptsFS() accessor, integration tests (2026-03-17)
+
+#### Codebase-Wide Lint Cleanup (2026-03-18)
+
+- [x] Go: Fix all 50 golangci-lint issues (errcheck, gocritic hugeParam/rangeValCopy/appendCombine, gosec G118 nolint) (2026-03-18)
+- [x] TypeScript: Fix all 21 ESLint issues (18 SolidJS reactivity warnings, 3 config parsing errors) (2026-03-18)
+- [x] Config: golangci-lint exclusions for frontend/node_modules + G117/G118 test rules (2026-03-18)
+- [x] Audit: Reviewed ~220+ linter suppression comments across Go/Python/TypeScript -- all justified (2026-03-18)
