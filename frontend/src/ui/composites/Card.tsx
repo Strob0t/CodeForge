@@ -16,7 +16,7 @@ function CardRoot(props: CardProps): JSX.Element {
   const [local] = splitProps(props, ["class", "children", "onClick"]);
   return (
     <div
-      class={cx("rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-sm", local.class)}
+      class={cx("rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-sm hover:-translate-y-0.5 transition-transform duration-200", local.class)}
       onClick={(e: MouseEvent) => local.onClick?.(e)}
     >
       {local.children}

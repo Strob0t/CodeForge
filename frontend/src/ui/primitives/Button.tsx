@@ -56,7 +56,7 @@ export function Button(props: ButtonProps): JSX.Element {
       type={rest.type ?? "button"}
       disabled={isDisabled()}
       class={cx(
-        "inline-flex items-center justify-center font-medium transition-colors",
+        "inline-flex items-center justify-center font-medium active:scale-[0.98] transition-[color,background-color,border-color,transform] duration-150",
         variantClasses[variant()],
         variant() === "icon"
           ? "p-2 min-h-[40px] min-w-[40px] rounded-cf-sm text-sm"

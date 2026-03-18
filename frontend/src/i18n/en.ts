@@ -253,6 +253,8 @@ const en = {
   "models.toast.addFailed": "Failed to add model",
   "models.toast.deleteFailed": "Failed to delete model",
   "models.deleteAria": "Delete model {{name}}",
+  "models.expandAll": "Expand All",
+  "models.collapseAll": "Collapse All",
   "models.discover": "Discover Models",
   "models.discovering": "Discovering...",
   "models.discovered": "Discovered Models",

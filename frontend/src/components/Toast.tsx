@@ -4,6 +4,7 @@ import {
   For,
   type JSX,
   onCleanup,
+  onMount,
   type ParentProps,
   useContext,
 } from "solid-js";
@@ -141,11 +142,13 @@ const levelStyles: Record<ToastLevel, { bg: string; icon: string }> = {
 function ToastItem(props: { toast: Toast; onDismiss: () => void }): JSX.Element {
   const { t } = useI18n();
   const style = () => levelStyles[props.toast.level];
+  const [mounted, setMounted] = createSignal(false);
+  onMount(() => requestAnimationFrame(() => setMounted(true)));
 
   return (
     <div
       role={props.toast.level === "error" ? "alert" : "status"}
-      class={`pointer-events-auto flex items-start gap-2 rounded-cf-md border-l-4 p-3 shadow-cf-md ${style().bg}`}
+      class={`pointer-events-auto flex items-start gap-2 rounded-cf-md border-l-4 p-3 shadow-cf-md transform transition-all duration-300 ${mounted() ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"} ${style().bg}`}
     >
       <span class="mt-0.5 text-sm font-bold" aria-hidden="true">
         {style().icon}

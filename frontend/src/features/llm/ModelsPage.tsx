@@ -39,6 +39,21 @@ export function ModelsContent() {
   const [discoveredModels, setDiscoveredModels] = createSignal<DiscoveredModel[]>([]);
   const [showDiscovered, setShowDiscovered] = createSignal(false);
 
+  // Collapse/expand model cards
+  const [expandedModels, setExpandedModels] = createSignal<Set<string>>(new Set());
+  const [expandAll, setExpandAll] = createSignal(false);
+
+  const toggleModel = (id: string) => {
+    setExpandedModels((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const isExpanded = (id: string): boolean => expandAll() || expandedModels().has(id);
+
   const form = useFormState(MODEL_FORM_DEFAULTS);
 
   const {
@@ -123,6 +138,9 @@ export function ModelsContent() {
             LiteLLM: {health()?.status ?? "unknown"}
           </Badge>
         </Show>
+        <Button variant="ghost" size="xs" onClick={() => setExpandAll(!expandAll())}>
+          {expandAll() ? t("models.collapseAll") : t("models.expandAll")}
+        </Button>
         <Button variant="secondary" onClick={() => void handleDiscover()} disabled={discovering()}>
           {discovering() ? t("models.discovering") : t("models.discover")}
         </Button>
@@ -232,7 +250,14 @@ export function ModelsContent() {
         <Show when={models()?.length} fallback={<EmptyState title={t("models.empty")} />}>
           <GridLayout>
             <For each={models() ?? []}>
-              {(model) => <ModelCard model={model} onDelete={handleDelete} />}
+              {(model) => (
+                <ModelCard
+                  model={model}
+                  onDelete={handleDelete}
+                  expanded={isExpanded(model.model_name)}
+                  onToggle={() => toggleModel(model.model_name)}
+                />
+              )}
             </For>
           </GridLayout>
         </Show>
@@ -253,6 +278,8 @@ export default function ModelsPage() {
 interface ModelCardProps {
   model: LLMModel;
   onDelete: (id: string) => Promise<void>;
+  expanded: boolean;
+  onToggle: () => void;
 }
 
 function ModelCard(props: ModelCardProps) {
@@ -261,12 +288,28 @@ function ModelCard(props: ModelCardProps) {
     <Card class="transition-shadow hover:shadow-md">
       <Card.Body>
         <div class="flex items-start justify-between">
-          <div>
-            <h3 class="text-lg font-semibold text-cf-text-primary">{props.model.model_name}</h3>
-            <Show when={props.model.litellm_provider}>
-              <p class="mt-1 text-sm text-cf-text-muted">{props.model.litellm_provider}</p>
-            </Show>
-          </div>
+          <button
+            type="button"
+            class="flex items-center gap-2 text-left"
+            onClick={() => props.onToggle()}
+            aria-expanded={props.expanded}
+          >
+            <span
+              class="inline-block text-cf-text-muted transition-transform"
+              style={{ transform: props.expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+              aria-hidden="true"
+            >
+              &#9654;
+            </span>
+            <div>
+              <h3 class="text-lg font-semibold text-cf-text-primary">{props.model.model_name}</h3>
+              <Show when={props.model.litellm_provider}>
+                <Badge variant="default" pill>
+                  {props.model.litellm_provider}
+                </Badge>
+              </Show>
+            </div>
+          </button>
           <Show when={props.model.model_id}>
             <Button
               variant="danger"
@@ -279,24 +322,26 @@ function ModelCard(props: ModelCardProps) {
           </Show>
         </div>
 
-        <div class="mt-3 flex flex-wrap gap-2 text-xs">
-          <Show when={props.model.model_id}>
-            <Badge variant="default">
-              <span class="font-mono">{props.model.model_id}</span>
-            </Badge>
-          </Show>
-          <Show when={props.model.model_info}>
-            <For each={Object.entries(props.model.model_info ?? {})}>
-              {([key, value]) => (
-                <Show when={typeof value === "string" || typeof value === "number"}>
-                  <Badge variant="info">
-                    {key}: {String(value)}
-                  </Badge>
-                </Show>
-              )}
-            </For>
-          </Show>
-        </div>
+        <Show when={props.expanded}>
+          <div class="mt-3 flex flex-wrap gap-2 text-xs">
+            <Show when={props.model.model_id}>
+              <Badge variant="default">
+                <span class="font-mono">{props.model.model_id}</span>
+              </Badge>
+            </Show>
+            <Show when={props.model.model_info}>
+              <For each={Object.entries(props.model.model_info ?? {})}>
+                {([key, value]) => (
+                  <Show when={typeof value === "string" || typeof value === "number"}>
+                    <Badge variant="info">
+                      {key}: {String(value)}
+                    </Badge>
+                  </Show>
+                )}
+              </For>
+            </Show>
+          </div>
+        </Show>
       </Card.Body>
     </Card>
   );

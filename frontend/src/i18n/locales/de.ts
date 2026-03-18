@@ -245,6 +245,8 @@ const de: Translations = {
   "models.toast.addFailed": "Modell konnte nicht hinzugef\u00fcgt werden",
   "models.toast.deleteFailed": "Modell konnte nicht gel\u00f6scht werden",
   "models.deleteAria": "Modell {{name}} l\u00f6schen",
+  "models.expandAll": "Alle aufklappen",
+  "models.collapseAll": "Alle zuklappen",
   "models.discover": "Modelle entdecken",
   "models.discovering": "Suche...",
   "models.discovered": "Entdeckte Modelle",
@@ -1365,7 +1367,8 @@ const de: Translations = {
   "benchmark.subtitle":
     "Agentenqualitaet mit konfigurierbaren Metriken bewerten (nur im Dev-Modus)",
   "benchmark.empty": "Noch keine Benchmark-Laeufe.",
-  "benchmark.emptyDescription": "Starte deinen ersten Benchmark, um die Agenten-Qualitaet zu bewerten.",
+  "benchmark.emptyDescription":
+    "Starte deinen ersten Benchmark, um die Agenten-Qualitaet zu bewerten.",
   "benchmark.newRun": "Neuer Lauf",
   "benchmark.dataset": "Datensatz",
   "benchmark.model": "Modell",

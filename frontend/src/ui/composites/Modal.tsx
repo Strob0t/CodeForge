@@ -1,4 +1,4 @@
-import { type JSX, Show, splitProps } from "solid-js";
+import { createSignal, type JSX, Show, splitProps } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { useFocusTrap } from "~/hooks/useFocusTrap";
@@ -38,11 +38,20 @@ export function Modal(props: ModalProps): JSX.Element {
     }
   }
 
+  const [mounted, setMounted] = createSignal(false);
+
+  // Reset and trigger entrance animation when modal opens
+  const onOpen = () => {
+    setMounted(false);
+    requestAnimationFrame(() => setMounted(true));
+  };
+
   return (
     <Show when={local.open}>
+      {(() => { onOpen(); return null; })()}
       <Portal>
         <div
-          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          class={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 transition-opacity duration-200 ${mounted() ? "opacity-100" : "opacity-0"}`}
           role="dialog"
           aria-modal="true"
           aria-label={local.title}
@@ -52,7 +61,8 @@ export function Modal(props: ModalProps): JSX.Element {
           <div
             ref={dialogRef}
             class={cx(
-              "relative mx-3 sm:mx-4 max-h-[85vh] w-full max-w-lg overflow-auto rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-lg",
+              "relative mx-3 sm:mx-4 max-h-[85vh] w-full max-w-lg overflow-auto rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-lg transition-all duration-200",
+              mounted() ? "opacity-100 scale-100" : "opacity-0 scale-95",
               local.class,
             )}
           >
