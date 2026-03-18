@@ -207,6 +207,37 @@ type SharedContextUpdatedPayload struct {
 	Version   int    `json:"version"`
 }
 
+// --- Context re-ranking payloads (Phase 3 — Context Intelligence) ---
+
+// ContextRerankRequestPayload is sent from Go to Python for LLM-based re-ranking.
+type ContextRerankRequestPayload struct {
+	RequestID string                      `json:"request_id"`
+	ProjectID string                      `json:"project_id"`
+	Query     string                      `json:"query"`
+	Entries   []ContextRerankEntryPayload `json:"entries"`
+	Model     string                      `json:"model,omitempty"`
+}
+
+// ContextRerankEntryPayload represents a single context entry for re-ranking.
+type ContextRerankEntryPayload struct {
+	Path     string `json:"path"`
+	Kind     string `json:"kind"`
+	Content  string `json:"content"`
+	Priority int    `json:"priority"`
+	Tokens   int    `json:"tokens"`
+}
+
+// ContextRerankResultPayload is the response from Python after re-ranking.
+type ContextRerankResultPayload struct {
+	RequestID    string                      `json:"request_id"`
+	Entries      []ContextRerankEntryPayload `json:"entries"`
+	FallbackUsed bool                        `json:"fallback_used"`
+	TokensIn     int                         `json:"tokens_in"`
+	TokensOut    int                         `json:"tokens_out"`
+	CostUSD      float64                     `json:"cost_usd"`
+	Error        string                      `json:"error,omitempty"`
+}
+
 // --- RepoMap payloads (Phase 6A) ---
 
 // RepoMapRequestPayload is the schema for repomap.generate.request messages.

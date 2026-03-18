@@ -377,6 +377,41 @@ class GraphSearchResult(BaseModel):
     error: str = ""
 
 
+# --- Context Re-ranking Models (Phase 3 — Context Intelligence) ---
+
+
+class ContextRerankEntryPayload(BaseModel):
+    """A single context entry for re-ranking."""
+
+    path: str = ""
+    kind: str = "file"
+    content: str = ""
+    priority: int = 50
+    tokens: int = 0
+
+
+class ContextRerankRequest(BaseModel):
+    """Request payload for context re-ranking via NATS."""
+
+    request_id: str
+    project_id: str = ""
+    query: str = ""
+    entries: list[ContextRerankEntryPayload] = Field(default_factory=list)
+    model: str = ""
+
+
+class ContextRerankResult(BaseModel):
+    """Result payload from context re-ranking."""
+
+    request_id: str
+    entries: list[ContextRerankEntryPayload] = Field(default_factory=list)
+    fallback_used: bool = False
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
+    error: str = ""
+
+
 # --- Conversation Run Models (Phase 17C) ---
 
 
