@@ -810,7 +810,7 @@ def resolve_skill_selection_model() -> str:
 
     Design note: This bypasses the HybridRouter intentionally because
     skill selection is always a simple task (short list in, JSON out).
-    If this needs to change, see docs/plans/2026-03-09-auto-agent-skills-design.md
+    If this needs to change, see docs/specs/2026-03-09-auto-agent-skills-design.md
     section 5 for alternative approaches (dedicated task type, scenario tag,
     env var override, etc.).
     """
