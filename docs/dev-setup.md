@@ -180,7 +180,7 @@ CodeForge/
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
 │   ├── public/
 │   │   ├── favicon.svg       # Anvil brand favicon
-│   │   └── fonts/            # Self-hosted woff2 (Outfit, SUSE Mono — 5 files)
+│   │   └── fonts/            # Self-hosted woff2 (Outfit, Source Sans 3 — 5 files)
 │   ├── playwright.config.ts  # Playwright configuration (browser E2E)
 │   ├── playwright.llm.config.ts  # Playwright configuration (LLM API E2E)
 │   └── src/
@@ -273,7 +273,7 @@ The living design system page is available at `http://localhost:3000/design-syst
 
 ### Font Files
 
-Self-hosted woff2 font files live in `frontend/public/fonts/` (5 files total). Outfit (display headings) and SUSE Mono (body text, variable font) are loaded via `@font-face` in global CSS. No external CDN or npm font packages are used.
+Self-hosted woff2 font files live in `frontend/public/fonts/` (5 files total). Outfit (display headings) and Source Sans 3 (body text, variable font) are loaded via `@font-face` in global CSS. No external CDN or npm font packages are used.
 
 ### Onboarding Wizard
 

@@ -201,14 +201,14 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Typography — Body Font (SUSE Mono)
-   Variable font: single file covers weights 100–800
+   Typography — Body Font (Source Sans 3)
+   Variable font: single file covers weights 200–900
    --------------------------------------------------------------------------- */
 
 @font-face {
-  font-family: "SUSE Mono";
-  src: url("/fonts/SUSEMono-LatinExt.woff2") format("woff2");
-  font-weight: 100 800;
+  font-family: "Source Sans 3";
+  src: url("/fonts/SourceSans3-LatinExt.woff2") format("woff2");
+  font-weight: 200 900;
   font-style: normal;
   font-display: swap;
   unicode-range:
@@ -217,9 +217,9 @@
     U+A720-A7FF;
 }
 @font-face {
-  font-family: "SUSE Mono";
-  src: url("/fonts/SUSEMono-Latin.woff2") format("woff2");
-  font-weight: 100 800;
+  font-family: "Source Sans 3";
+  src: url("/fonts/SourceSans3-Latin.woff2") format("woff2");
+  font-weight: 200 900;
   font-style: normal;
   font-display: swap;
   unicode-range:
@@ -235,7 +235,7 @@
 @theme {
   /* Typography */
   --font-display: "Outfit", system-ui, sans-serif;
-  --font-body: "SUSE Mono", ui-monospace, monospace;
+  --font-body: "Source Sans 3", system-ui, sans-serif;
 
   /* Accent */
   --color-cf-accent: var(--cf-accent);
@@ -315,6 +315,7 @@
 
 body {
   font-family: var(--font-body);
+  color: var(--cf-text-primary);
 }
 
 h1,

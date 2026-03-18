@@ -16,7 +16,7 @@ func (s *Store) CreateChannel(ctx context.Context, ch *channel.Channel) (*channe
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO channels (tenant_id, project_id, name, type, description, created_by)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, tenant_id, project_id, name, type, description, created_by, created_at`,
+		 RETURNING id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at`,
 		tid, nullIfEmpty(ch.ProjectID), ch.Name, ch.Type, ch.Description, nullIfEmpty(ch.CreatedBy),
 	).Scan(&created.ID, &created.TenantID, &created.ProjectID, &created.Name,
 		&created.Type, &created.Description, &created.CreatedBy, &created.CreatedAt)
@@ -29,7 +29,7 @@ func (s *Store) CreateChannel(ctx context.Context, ch *channel.Channel) (*channe
 func (s *Store) GetChannel(ctx context.Context, id string) (*channel.Channel, error) {
 	var ch channel.Channel
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, project_id, name, type, description, created_by, created_at
+		`SELECT id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at
 		 FROM channels WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx),
 	).Scan(&ch.ID, &ch.TenantID, &ch.ProjectID, &ch.Name,
@@ -47,12 +47,12 @@ func (s *Store) ListChannels(ctx context.Context, projectID string) ([]channel.C
 
 	if projectID == "" {
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, tenant_id, project_id, name, type, description, created_by, created_at
+			`SELECT id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at
 			 FROM channels WHERE tenant_id = $1 ORDER BY created_at DESC`,
 			tid)
 	} else {
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, tenant_id, project_id, name, type, description, created_by, created_at
+			`SELECT id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at
 			 FROM channels WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`,
 			projectID, tid)
 	}
@@ -79,7 +79,7 @@ func (s *Store) CreateChannelMessage(ctx context.Context, msg *channel.Message) 
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO channel_messages (channel_id, sender_id, sender_type, sender_name, content, metadata, parent_id)
 		 VALUES ($1, $2, $3, $4, $5, COALESCE($6::jsonb, '{}'::jsonb), $7)
-		 RETURNING id, channel_id, sender_id, sender_type, sender_name, content, metadata, parent_id, created_at`,
+		 RETURNING id, channel_id, COALESCE(sender_id::text,''), sender_type, sender_name, content, COALESCE(metadata,'{}'), COALESCE(parent_id::text,''), created_at`,
 		msg.ChannelID, nullIfEmpty(msg.SenderID), msg.SenderType, msg.SenderName,
 		msg.Content, nullIfEmpty(msg.Metadata), nullIfEmpty(msg.ParentID),
 	).Scan(&created.ID, &created.ChannelID, &created.SenderID, &created.SenderType,
@@ -97,7 +97,7 @@ func (s *Store) ListChannelMessages(ctx context.Context, channelID, cursor strin
 
 	if cursor == "" {
 		rows, err = s.pool.Query(ctx,
-			`SELECT m.id, m.channel_id, m.sender_id, m.sender_type, m.sender_name, m.content, m.metadata, m.parent_id, m.created_at
+			`SELECT m.id, m.channel_id, COALESCE(m.sender_id::text,''), m.sender_type, m.sender_name, m.content, COALESCE(m.metadata,'{}'), COALESCE(m.parent_id::text,''), m.created_at
 			 FROM channel_messages m
 			 JOIN channels c ON c.id = m.channel_id
 			 WHERE m.channel_id = $1 AND c.tenant_id = $2
@@ -110,7 +110,7 @@ func (s *Store) ListChannelMessages(ctx context.Context, channelID, cursor strin
 			return nil, fmt.Errorf("invalid cursor: %w", parseErr)
 		}
 		rows, err = s.pool.Query(ctx,
-			`SELECT m.id, m.channel_id, m.sender_id, m.sender_type, m.sender_name, m.content, m.metadata, m.parent_id, m.created_at
+			`SELECT m.id, m.channel_id, COALESCE(m.sender_id::text,''), m.sender_type, m.sender_name, m.content, COALESCE(m.metadata,'{}'), COALESCE(m.parent_id::text,''), m.created_at
 			 FROM channel_messages m
 			 JOIN channels c ON c.id = m.channel_id
 			 WHERE m.channel_id = $1 AND c.tenant_id = $2 AND m.created_at < $3

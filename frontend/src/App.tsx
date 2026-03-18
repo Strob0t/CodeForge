@@ -128,7 +128,7 @@ function AppShell(props: {
           <Sidebar>
             <Sidebar.Header>
               <Show
-                when={!collapsed()}
+                when={!collapsed() || isMobile()}
                 fallback={
                   <Tooltip text={`${t("app.title")} ${t("app.version")}`} placement="right">
                     <CodeForgeLogo size={24} class="text-cf-text-primary" />

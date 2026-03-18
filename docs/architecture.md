@@ -1833,7 +1833,7 @@ frontend/
     api/                 # API client, WebSocket handler
   public/
     favicon.svg          # Anvil brand favicon
-    fonts/               # Self-hosted woff2 (Outfit, SUSE Mono)
+    fonts/               # Self-hosted woff2 (Outfit, Source Sans 3)
 ```
 
 #### Typography System
@@ -1841,9 +1841,9 @@ frontend/
 Two typefaces, self-hosted as woff2 in `frontend/public/fonts/` (no external CDN, no new npm dependencies):
 
 - **Outfit** -- display headings (h1-h3, hero text, brand elements)
-- **SUSE Mono** -- body text, UI labels, code-adjacent prose (variable font, weights 100-800)
+- **Source Sans 3** -- body text, UI labels, descriptions (variable font, weights 200-900)
 
-Font files are loaded via `@font-face` declarations in the global CSS. Outfit has 3 weight files (400/500/700), SUSE Mono is a variable font (2 files: latin + latin-ext).
+Font files are loaded via `@font-face` declarations in the global CSS. Outfit has 3 weight files (400/500/700), Source Sans 3 is a variable font (2 files: latin + latin-ext).
 
 #### Design System Page
 

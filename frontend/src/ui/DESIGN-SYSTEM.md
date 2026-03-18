@@ -37,7 +37,7 @@ Light mode tokens are defined on `:root`. Dark mode overrides are inside `.dark 
 | Role | Font Family | CSS Variable |
 |------|------------|-------------|
 | Display (h1-h4) | Outfit | `--font-display` |
-| Body text | SUSE Mono | `--font-body` |
+| Body text | Source Sans 3 | `--font-body` |
 | Monospace / code | System monospace | `font-mono` (Tailwind default) |
 
 Fonts are self-hosted as `.woff2` files in `/public/fonts/`.

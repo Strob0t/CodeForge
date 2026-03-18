@@ -1422,6 +1422,7 @@ export interface CreateConversationRequest {
 /** Send message request */
 export interface SendMessageRequest {
   content: string;
+  mode?: string;
   images?: MessageImage[];
 }
 

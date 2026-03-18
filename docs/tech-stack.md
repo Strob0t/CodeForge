@@ -158,5 +158,5 @@
 #### Typography
 
 - **Outfit** (display headings) — self-hosted woff2 in `frontend/public/fonts/`, 3 weights (400/600/700)
-- **SUSE Mono** (body text) — self-hosted variable woff2 in `frontend/public/fonts/`, weights 100-800 (latin + latin-ext)
+- **Source Sans 3** (body text) — self-hosted variable woff2 in `frontend/public/fonts/`, weights 200-900 (latin + latin-ext)
 - No npm font packages or external CDN — zero runtime dependency for fonts

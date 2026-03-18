@@ -271,7 +271,7 @@ export default function DesignSystemPage(): JSX.Element {
         <DSSection
           id="typography"
           title="Typography"
-          description="Display headings use Outfit. Body text uses SUSE Mono. Code uses the system monospace stack."
+          description="Display headings use Outfit. Body text uses Source Sans 3. Code uses the system monospace stack."
         >
           <div class="space-y-4">
             <div>
@@ -305,7 +305,7 @@ export default function DesignSystemPage(): JSX.Element {
             <hr class="border-cf-border" />
             <div>
               <p class="text-sm text-cf-text-primary">
-                Body text (SUSE Mono) - The quick brown fox jumps over the lazy dog.
+                Body text (Source Sans 3) - The quick brown fox jumps over the lazy dog.
               </p>
               <p class="text-xs text-cf-text-muted mt-1 font-mono">font-body / text-sm</p>
             </div>

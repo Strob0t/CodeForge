@@ -303,12 +303,16 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	}
 
 	// Resolve mode for scenario-based LLM routing.
+	// Priority: explicit request > stored conversation mode > default "coder".
 	var modeAutonomy int
 	var resolvedMode *messagequeue.ModePayload
 	if s.modeSvc != nil {
 		modeID := req.Mode
 		if modeID == "" {
-			modeID = "coder" // Conversations default to coder mode.
+			modeID = conv.Mode
+		}
+		if modeID == "" {
+			modeID = "coder"
 		}
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
 			modeAutonomy = m.Autonomy
