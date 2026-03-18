@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 )
 
@@ -74,17 +76,21 @@ func (s *Store) CreateMessage(ctx context.Context, m *conversation.Message) (*co
 	var created conversation.Message
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+		 FROM conversations WHERE id = $1 AND tenant_id = $11
 		 RETURNING id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images, created_at`,
-		m.ConversationID, m.Role, m.Content, toolCallsJSON, m.ToolCallID, m.ToolName, m.TokensIn, m.TokensOut, m.Model, imagesJSON,
+		m.ConversationID, m.Role, m.Content, toolCallsJSON, m.ToolCallID, m.ToolName, m.TokensIn, m.TokensOut, m.Model, imagesJSON, tenantFromCtx(ctx),
 	).Scan(&created.ID, &created.ConversationID, &created.Role, &created.Content,
 		&created.ToolCalls, &created.ToolCallID, &created.ToolName,
 		&created.TokensIn, &created.TokensOut, &created.Model, &created.Images, &created.CreatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("create message: conversation %s not found: %w", m.ConversationID, domain.ErrNotFound)
+		}
 		return nil, fmt.Errorf("create message: %w", err)
 	}
 	// Update conversation's updated_at
-	_, _ = s.pool.Exec(ctx, `UPDATE conversations SET updated_at = NOW() WHERE id = $1`, m.ConversationID)
+	_, _ = s.pool.Exec(ctx, `UPDATE conversations SET updated_at = NOW() WHERE id = $1 AND tenant_id = $2`, m.ConversationID, tenantFromCtx(ctx))
 	return &created, nil
 }
 
@@ -107,8 +113,8 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string) ([]conv
 
 func (s *Store) DeleteConversationMessages(ctx context.Context, conversationID string) error {
 	_, err := s.pool.Exec(ctx,
-		`DELETE FROM conversation_messages WHERE conversation_id = $1`,
-		conversationID)
+		`DELETE FROM conversation_messages WHERE conversation_id = $1 AND conversation_id IN (SELECT id FROM conversations WHERE tenant_id = $2)`,
+		conversationID, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete conversation messages: %w", err)
 	}
@@ -207,6 +213,6 @@ func (s *Store) CreateToolMessages(ctx context.Context, conversationID string, m
 	}
 
 	// Update conversation's updated_at
-	_, _ = s.pool.Exec(ctx, `UPDATE conversations SET updated_at = NOW() WHERE id = $1`, conversationID)
+	_, _ = s.pool.Exec(ctx, `UPDATE conversations SET updated_at = NOW() WHERE id = $1 AND tenant_id = $2`, conversationID, tenantFromCtx(ctx))
 	return nil
 }

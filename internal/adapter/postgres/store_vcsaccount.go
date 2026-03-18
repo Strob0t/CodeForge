@@ -31,7 +31,7 @@ func (s *Store) GetVCSAccount(ctx context.Context, id string) (*vcsaccount.VCSAc
 	var a vcsaccount.VCSAccount
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, tenant_id, provider, label, server_url, auth_method, encrypted_token, created_at, updated_at
-		 FROM vcs_accounts WHERE id = $1`, id,
+		 FROM vcs_accounts WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx),
 	).Scan(&a.ID, &a.TenantID, &a.Provider, &a.Label, &a.ServerURL,
 		&a.AuthMethod, &a.EncryptedToken, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
@@ -57,6 +57,6 @@ func (s *Store) CreateVCSAccount(ctx context.Context, a *vcsaccount.VCSAccount) 
 }
 
 func (s *Store) DeleteVCSAccount(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM vcs_accounts WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM vcs_accounts WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete vcs account %s", id)
 }

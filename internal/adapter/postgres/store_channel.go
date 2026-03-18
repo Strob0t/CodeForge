@@ -97,10 +97,12 @@ func (s *Store) ListChannelMessages(ctx context.Context, channelID, cursor strin
 
 	if cursor == "" {
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, channel_id, sender_id, sender_type, sender_name, content, metadata, parent_id, created_at
-			 FROM channel_messages WHERE channel_id = $1
-			 ORDER BY created_at DESC LIMIT $2`,
-			channelID, limit)
+			`SELECT m.id, m.channel_id, m.sender_id, m.sender_type, m.sender_name, m.content, m.metadata, m.parent_id, m.created_at
+			 FROM channel_messages m
+			 JOIN channels c ON c.id = m.channel_id
+			 WHERE m.channel_id = $1 AND c.tenant_id = $2
+			 ORDER BY m.created_at DESC LIMIT $3`,
+			channelID, tenantFromCtx(ctx), limit)
 	} else {
 		// Parse cursor as time for cursor-based pagination.
 		cursorTime, parseErr := time.Parse(time.RFC3339Nano, cursor)
@@ -108,10 +110,12 @@ func (s *Store) ListChannelMessages(ctx context.Context, channelID, cursor strin
 			return nil, fmt.Errorf("invalid cursor: %w", parseErr)
 		}
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, channel_id, sender_id, sender_type, sender_name, content, metadata, parent_id, created_at
-			 FROM channel_messages WHERE channel_id = $1 AND created_at < $2
-			 ORDER BY created_at DESC LIMIT $3`,
-			channelID, cursorTime, limit)
+			`SELECT m.id, m.channel_id, m.sender_id, m.sender_type, m.sender_name, m.content, m.metadata, m.parent_id, m.created_at
+			 FROM channel_messages m
+			 JOIN channels c ON c.id = m.channel_id
+			 WHERE m.channel_id = $1 AND c.tenant_id = $2 AND m.created_at < $3
+			 ORDER BY m.created_at DESC LIMIT $4`,
+			channelID, tenantFromCtx(ctx), cursorTime, limit)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list channel messages: %w", err)
@@ -126,10 +130,11 @@ func (s *Store) ListChannelMessages(ctx context.Context, channelID, cursor strin
 
 func (s *Store) AddChannelMember(ctx context.Context, m *channel.Member) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO channel_members (channel_id, user_id, role, notify)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO channel_members (channel_id, user_id, role, notify, tenant_id)
+		 SELECT $1, $2, $3, $4, tenant_id
+		 FROM channels WHERE id = $1 AND tenant_id = $5
 		 ON CONFLICT (channel_id, user_id) DO NOTHING`,
-		m.ChannelID, m.UserID, m.Role, m.Notify)
+		m.ChannelID, m.UserID, m.Role, m.Notify, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("add channel member: %w", err)
 	}
@@ -138,7 +143,8 @@ func (s *Store) AddChannelMember(ctx context.Context, m *channel.Member) error {
 
 func (s *Store) UpdateChannelMemberNotify(ctx context.Context, channelID, userID string, notify channel.NotifySetting) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE channel_members SET notify = $1 WHERE channel_id = $2 AND user_id = $3`,
-		notify, channelID, userID)
+		`UPDATE channel_members SET notify = $1
+		 WHERE channel_id = $2 AND user_id = $3 AND tenant_id = $4`,
+		notify, channelID, userID, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "update channel member notify %s/%s", channelID, userID)
 }

@@ -260,7 +260,7 @@ func (s *Store) CreateA2APushConfig(ctx context.Context, taskID, url, token stri
 }
 
 func (s *Store) GetA2APushConfig(ctx context.Context, id string) (taskID, url, token string, err error) {
-	err = s.pool.QueryRow(ctx, `SELECT task_id, url, token FROM a2a_push_configs WHERE id=$1`, id).
+	err = s.pool.QueryRow(ctx, `SELECT pc.task_id, pc.url, pc.token FROM a2a_push_configs pc JOIN a2a_tasks t ON t.id = pc.task_id WHERE pc.id = $1 AND t.tenant_id = $2`, id, tenantFromCtx(ctx)).
 		Scan(&taskID, &url, &token)
 	if err != nil {
 		return "", "", "", notFoundWrap(err, "push config %s", id)
@@ -269,7 +269,7 @@ func (s *Store) GetA2APushConfig(ctx context.Context, id string) (taskID, url, t
 }
 
 func (s *Store) ListA2APushConfigs(ctx context.Context, taskID string) ([]database.A2APushConfig, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, task_id, url, token, created_at FROM a2a_push_configs WHERE task_id=$1`, taskID)
+	rows, err := s.pool.Query(ctx, `SELECT pc.id, pc.task_id, pc.url, pc.token, pc.created_at FROM a2a_push_configs pc JOIN a2a_tasks t ON t.id = pc.task_id WHERE pc.task_id = $1 AND t.tenant_id = $2`, taskID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list push configs: %w", err)
 	}
@@ -281,12 +281,12 @@ func (s *Store) ListA2APushConfigs(ctx context.Context, taskID string) ([]databa
 }
 
 func (s *Store) DeleteA2APushConfig(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, "DELETE FROM a2a_push_configs WHERE id=$1", id)
+	tag, err := s.pool.Exec(ctx, "DELETE FROM a2a_push_configs WHERE id = $1 AND task_id IN (SELECT id FROM a2a_tasks WHERE tenant_id = $2)", id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete push config %s", id)
 }
 
 func (s *Store) DeleteAllA2APushConfigs(ctx context.Context, taskID string) error {
-	_, err := s.pool.Exec(ctx, "DELETE FROM a2a_push_configs WHERE task_id=$1", taskID)
+	_, err := s.pool.Exec(ctx, "DELETE FROM a2a_push_configs WHERE task_id = $1 AND task_id IN (SELECT id FROM a2a_tasks WHERE tenant_id = $2)", taskID, tenantFromCtx(ctx))
 	if err != nil {
 		return fmt.Errorf("delete all push configs for task %s: %w", taskID, err)
 	}

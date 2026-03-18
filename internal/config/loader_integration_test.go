@@ -61,8 +61,8 @@ logging:
 	if cfg.Server.Port != "8080" {
 		t.Errorf("default port should be 8080, got %q", cfg.Server.Port)
 	}
-	if cfg.Postgres.MaxConns != 15 {
-		t.Errorf("default max_conns should be 15, got %d", cfg.Postgres.MaxConns)
+	if cfg.Postgres.MaxConns != 50 {
+		t.Errorf("default max_conns should be 50, got %d", cfg.Postgres.MaxConns)
 	}
 	// Note: NATS.URL may be overridden by NATS_URL env var in devcontainers,
 	// so we only check that it's non-empty (validation would catch empty).
@@ -88,8 +88,8 @@ func TestLoadFrom_EnvInvalidValues(t *testing.T) {
 		t.Fatalf("LoadFrom: %v", err)
 	}
 
-	if cfg.Postgres.MaxConns != 15 {
-		t.Errorf("invalid int env should be ignored: got max_conns %d, want 15", cfg.Postgres.MaxConns)
+	if cfg.Postgres.MaxConns != 50 {
+		t.Errorf("invalid int env should be ignored: got max_conns %d, want 50", cfg.Postgres.MaxConns)
 	}
 	if cfg.Breaker.Timeout.String() != "30s" {
 		t.Errorf("invalid duration env should be ignored: got %v, want 30s", cfg.Breaker.Timeout)

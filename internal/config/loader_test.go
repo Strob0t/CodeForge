@@ -13,8 +13,8 @@ func TestDefaults(t *testing.T) {
 	if cfg.Server.Port != "8080" {
 		t.Errorf("expected port 8080, got %s", cfg.Server.Port)
 	}
-	if cfg.Postgres.MaxConns != 15 {
-		t.Errorf("expected max_conns 15, got %d", cfg.Postgres.MaxConns)
+	if cfg.Postgres.MaxConns != 50 {
+		t.Errorf("expected max_conns 50, got %d", cfg.Postgres.MaxConns)
 	}
 	if cfg.Breaker.Timeout != 30*time.Second {
 		t.Errorf("expected breaker timeout 30s, got %v", cfg.Breaker.Timeout)
