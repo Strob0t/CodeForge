@@ -1281,13 +1281,13 @@
 
 #### Phase 2 — Core Quality (A1 helps validate, ~8h total)
 
-**A3: Plan/Act Mode Toggle (~5h)**
-- [ ] A3.1-A3.5: Write plan/act tests (tool restriction, phase transition, max iterations, autonomy, routing tags)
-- [ ] A3.6: Add `plan_act_enabled` to NATS payload (`schemas.go` + `models.py`)
-- [ ] A3.7: Set `plan_act_enabled` based on `modeAutonomy >= 4` in dispatcher
-- [ ] A3.8: Implement `PlanActController` class in `agent_loop.py`
-- [ ] A3.9: Integrate into `run()` and `_do_llm_iteration()`
-- [ ] A3.10-A3.11: Add env var + run tests
+**A3: Plan/Act Mode Toggle (~5h)** -- DONE 2026-03-18
+- [x] A3.1-A3.5: Write plan/act tests (tool restriction, phase transition, max iterations, autonomy, routing tags) -- 29 Python + 8 Go tests
+- [x] A3.6: Add `plan_act_enabled` to NATS payload (`schemas.go` + `models.py`)
+- [x] A3.7: Set `plan_act_enabled` based on `modeAutonomy >= 4` in dispatcher (`conversation_agent.go`)
+- [x] A3.8: Implement `PlanActController` class in `workers/codeforge/plan_act.py`
+- [x] A3.9: Integrate into `run()` and `_do_llm_iteration()` in `agent_loop.py`
+- [x] A3.10-A3.11: Add `CODEFORGE_PLAN_ACT_MAX_ITERATIONS` env var (default 10) + all tests passing
 
 **B2: Semantic Deduplication of Context Candidates (~3h)**
 - [ ] B2.1-B2.3b: Write dedup tests (overlapping lines, cross-file, no-dupes, simhash edge cases)

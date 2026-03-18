@@ -725,3 +725,216 @@ func TestSendMessageAgenticWithMode_WithoutOptions_NoExtraContext(t *testing.T) 
 		t.Fatalf("expected 0 context entries without options, got %d", len(payload.Context))
 	}
 }
+
+// --- Plan/Act Mode Toggle Tests (A3) ---
+
+func TestPlanActEnabled_PayloadSerialization(t *testing.T) {
+	// Verify plan_act_enabled field survives JSON round-trip.
+	payload := messagequeue.ConversationRunStartPayload{
+		RunID:          "run-1",
+		ConversationID: "conv-1",
+		ProjectID:      "proj-1",
+		SystemPrompt:   "test",
+		Model:          "gpt-4o",
+		Agentic:        true,
+		PlanActEnabled: true,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Verify JSON contains the field.
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal to map: %v", err)
+	}
+	val, ok := raw["plan_act_enabled"]
+	if !ok {
+		t.Fatal("expected plan_act_enabled in JSON output")
+	}
+	if val != true {
+		t.Errorf("expected plan_act_enabled=true, got %v", val)
+	}
+
+	// Verify deserialization.
+	var decoded messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !decoded.PlanActEnabled {
+		t.Error("expected PlanActEnabled=true after round-trip")
+	}
+}
+
+func TestPlanActEnabled_DefaultFalse(t *testing.T) {
+	// Verify default is false when field is omitted.
+	jsonData := `{"run_id":"r1","conversation_id":"c1","project_id":"p1","messages":[],"system_prompt":"test","model":"gpt-4o","agentic":true}`
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal([]byte(jsonData), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if payload.PlanActEnabled {
+		t.Error("expected PlanActEnabled=false when omitted from JSON")
+	}
+}
+
+func TestSendMessageAgentic_PlanActEnabledForHighAutonomy(t *testing.T) {
+	// Modes with autonomy >= 4 should set PlanActEnabled=true in the NATS payload.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Plan/Act Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// "prototyper" mode has Autonomy=4 (>= 4 threshold).
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "Build a prototype", "prototyper")
+	if err != nil {
+		t.Fatalf("SendMessageAgenticWithMode: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !payload.PlanActEnabled {
+		t.Error("expected PlanActEnabled=true for prototyper mode (autonomy=4)")
+	}
+}
+
+func TestSendMessageAgentic_PlanActDisabledForLowAutonomy(t *testing.T) {
+	// Modes with autonomy < 4 should set PlanActEnabled=false in the NATS payload.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "No Plan/Act Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// "coder" mode has Autonomy=3 (< 4 threshold).
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "Write some code", "coder")
+	if err != nil {
+		t.Fatalf("SendMessageAgenticWithMode: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if payload.PlanActEnabled {
+		t.Error("expected PlanActEnabled=false for coder mode (autonomy=3)")
+	}
+}
+
+func TestSendMessageAgentic_DefaultMode_PlanActDisabled(t *testing.T) {
+	// SendMessageAgentic defaults to "coder" mode (autonomy=3), so PlanActEnabled should be false.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Default Mode Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{Content: "Hello"})
+	if err != nil {
+		t.Fatalf("SendMessageAgentic: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if payload.PlanActEnabled {
+		t.Error("expected PlanActEnabled=false for default coder mode (autonomy=3)")
+	}
+}
+
+func TestSendMessageAgenticWithMode_BoundaryAnalyzer_PlanActEnabled(t *testing.T) {
+	// boundary-analyzer has Autonomy=4, should enable plan/act.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Boundary Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "Analyze boundaries", "boundary-analyzer")
+	if err != nil {
+		t.Fatalf("SendMessageAgenticWithMode: %v", err)
+	}
+
+	_, data := q.snapshot()
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !payload.PlanActEnabled {
+		t.Error("expected PlanActEnabled=true for boundary-analyzer (autonomy=4)")
+	}
+}
