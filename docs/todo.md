@@ -1244,3 +1244,108 @@
 - [x] TypeScript: Fix all 21 ESLint issues (18 SolidJS reactivity warnings, 3 config parsing errors) (2026-03-18)
 - [x] Config: golangci-lint exclusions for frontend/node_modules + G117/G118 test rules (2026-03-18)
 - [x] Audit: Reviewed ~220+ linter suppression comments across Go/Python/TypeScript -- all justified (2026-03-18)
+
+---
+
+### Quality & Performance Improvements (2026-03-18)
+
+> Spec: `docs/superpowers/specs/2026-03-18-quality-performance-improvements-design.md`
+> Based on: Current LLM-for-coding research (2025/26), codebase analysis, identified gaps
+> 12 measures, 90+ atomic TODOs, 5 implementation phases
+
+#### Phase 1 — Quick Wins (no dependencies, ~7h total)
+
+**A1: Stall Detection + Escape (~3h)**
+- [ ] A1.1-A1.2: Write stall detection tests (identical calls, args differentiation, empty/single edge cases)
+- [ ] A1.3-A1.4: Write escape prompt injection + double-stall abort tests
+- [ ] A1.5: Implement `StallDetector` class in `workers/codeforge/agent_loop.py`
+- [ ] A1.6: Integrate into `AgentLoopExecutor.run()` and `_execute_tool_call()`
+- [ ] A1.7: Publish `trajectory.stall_detected` event via `_runtime.publish_trajectory_event()`
+- [ ] A1.8: Run regression tests
+
+**B3: Adaptive Context Budget Based on Task Complexity (~2h)**
+- [ ] B3.1: Write tier-to-budget mapping tests (SIMPLE=512, MEDIUM=2048, COMPLEX=4096, REASONING=4096)
+- [ ] B3.2: Write composite test (tier + phase + decay)
+- [ ] B3.3: Write Go-side complexity classifier tests
+- [ ] B3.4: Implement `ClassifyComplexity()` in `internal/service/complexity.go` (port 7 heuristics from Python)
+- [ ] B3.5: Implement `ComplexityBudget()` in `internal/service/context_budget.go`
+- [ ] B3.6: Add `complexity_tier` to NATS payload (Go + Python), integrate into dispatch
+- [ ] B3.7: Run regression tests
+
+**C2: Confidence-Based Early Stopping for Multi-Rollout (~2h)**
+- [ ] C2.1-C2.5: Write early stopping tests (quorum, threshold, exit_code, rollout_count<=3, clusters)
+- [ ] C2.6: Implement `EarlyStopChecker` class in `workers/codeforge/evaluation/runners/multi_rollout.py`
+- [ ] C2.7: Integrate into `MultiRolloutRunner.run()`
+- [ ] C2.8: Add `EARLY_STOP_THRESHOLD` / `EARLY_STOP_QUORUM` config
+- [ ] C2.9: Run regression tests
+
+#### Phase 2 — Core Quality (A1 helps validate, ~8h total)
+
+**A3: Plan/Act Mode Toggle (~5h)**
+- [ ] A3.1-A3.5: Write plan/act tests (tool restriction, phase transition, max iterations, autonomy, routing tags)
+- [ ] A3.6: Add `plan_act_enabled` to NATS payload (`schemas.go` + `models.py`)
+- [ ] A3.7: Set `plan_act_enabled` based on `modeAutonomy >= 4` in dispatcher
+- [ ] A3.8: Implement `PlanActController` class in `agent_loop.py`
+- [ ] A3.9: Integrate into `run()` and `_do_llm_iteration()`
+- [ ] A3.10-A3.11: Add env var + run tests
+
+**B2: Semantic Deduplication of Context Candidates (~3h)**
+- [ ] B2.1-B2.3b: Write dedup tests (overlapping lines, cross-file, no-dupes, simhash edge cases)
+- [ ] B2.4: Implement `simhash64()` + `hammingDistance()` in `internal/service/context_optimizer.go`
+- [ ] B2.5: Implement `deduplicateCandidates()` in `context_optimizer.go`
+- [ ] B2.6: Integrate into `BuildConversationContext()`
+- [ ] B2.7: Run regression tests
+
+#### Phase 3 — Context Intelligence (~10h total)
+
+**B1: LLM-Based Re-Ranking of Retrieval Results (~4h)**
+- [ ] B1.1-B1.4: Write reranker tests (reorder, prompt format, fallback, routing tags)
+- [ ] B1.5: Add NATS subjects in `queue.go` + `_subjects.py`
+- [ ] B1.6: Implement `ContextReranker` in `workers/codeforge/consumer/_context.py`
+- [ ] B1.7-B1.7b: Add NATS handler + Go integration test
+- [ ] B1.8: Integrate into Go `ContextOptimizerService`
+- [ ] B1.9-B1.11: Add config + verify JetStream + run tests
+
+**A2: Conversation Summarization at Context Exhaustion (~6h)**
+- [ ] A2.1-A2.4: Write summarization tests (threshold, tail preservation, prompt, routing tags)
+- [ ] A2.5: Implement `ConversationSummarizer` class in `workers/codeforge/history.py`
+- [ ] A2.6: Implement `_summarize_history()` async method
+- [ ] A2.7: Add `async summarize_if_needed()` pre-processing step (separate from sync `build_messages()`)
+- [ ] A2.8: Add `CODEFORGE_SUMMARIZE_THRESHOLD` env var
+- [ ] A2.9: Run regression tests
+
+#### Phase 4 — Advanced Features (~12h total)
+
+**C1: Routing Transparency + Mid-Loop Model Switching (~4h)**
+- [ ] C1.1-C1.4: Write routing transparency + quality signal + model switch tests
+- [ ] C1.5: Extend `HybridRouter.route()` to return `RoutingMetadata`
+- [ ] C1.6: Implement `IterationQualityTracker` class in `agent_loop.py`
+- [ ] C1.7: Integrate quality tracker + routing metadata into agent loop
+- [ ] C1.8: Run regression tests
+
+**A4: Inference-Time Scaling for Conversations (~8h)**
+- [ ] A4.1-A4.5b: Write rollout tests (single, multi, selection, early stopping, cost, non-git fallback)
+- [ ] A4.6: Add `rollout_count` to NATS payload (`schemas.go` + `models.py`)
+- [ ] A4.7: Add `Agent.ConversationRolloutCount` config (cap 8, autonomy >= 4)
+- [ ] A4.8: Implement `ConversationRolloutExecutor` (depends on C2 `EarlyStopChecker`)
+- [ ] A4.9: Implement workspace snapshot/restore via git stash
+- [ ] A4.10: Integrate into NATS consumer dispatch
+- [ ] A4.11-A4.12: Add trajectory metadata + run tests
+
+#### Phase 5 — Ecosystem (independent, ~14h total)
+
+**C3: New Benchmark Providers — DPAI Arena + Terminal-Bench (~6h)**
+- [ ] C3.1-C3.2: Research dataset formats and access methods
+- [ ] C3.3-C3.4: Write provider load tests
+- [ ] C3.5: Implement `DPAIArenaProvider`
+- [ ] C3.6: Implement `TerminalBenchProvider`
+- [ ] C3.7: Add filesystem state evaluator for Terminal-Bench
+- [ ] C3.8-C3.9: Update Go validation + run tests
+
+**C4: RLVR Training Pipeline Export (~8h)**
+- [ ] C4.1-C4.4: Write RLVR export tests (JSONL format, reward computation, multi-run, HTTP, zero-results)
+- [ ] C4.5: Implement `compute_rlvr_reward()` in `workers/codeforge/evaluation/export.py`
+- [ ] C4.6: Implement `format_rlvr_entry()` formatter
+- [ ] C4.7: Implement `ExportRLVRDataset()` in Go service
+- [ ] C4.8-C4.10: Add HTTP endpoints + route registration
+- [ ] C4.11: Run full test suite
