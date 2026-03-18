@@ -484,6 +484,7 @@ class ConversationRunStartMessage(BaseModel):
     tenant_id: str = ""
     session_meta: SessionMetaPayload | None = None
     reminders: list[str] = Field(default_factory=list)
+    summarize_threshold: int = 0
 
     @field_validator("mcp_servers", "context", "tools", "microagent_prompts", "reminders", mode="before")
     @classmethod

@@ -79,6 +79,15 @@ func (s *ConversationService) IsAgentic(ctx context.Context, conversationID stri
 	return proj.WorkspacePath != ""
 }
 
+// summarizeThreshold returns the configured auto-summarization threshold,
+// or 0 (disabled) when agentCfg is nil.
+func (s *ConversationService) summarizeThreshold() int {
+	if s.agentCfg != nil {
+		return s.agentCfg.SummarizeThreshold
+	}
+	return 0
+}
+
 // buildConversationContextEntries assembles context entries for a conversation run
 // when ContextEnabled is true and the context optimizer is wired. The history
 // parameter drives the adaptive budget: early turns get the full budget, long
@@ -381,26 +390,27 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
 
 	payload := messagequeue.ConversationRunStartPayload{
-		RunID:             runID,
-		ConversationID:    conversationID,
-		SessionID:         sessionID,
-		ProjectID:         proj.ID,
-		Messages:          protoMessages,
-		SystemPrompt:      systemPrompt,
-		Model:             model,
-		PolicyProfile:     policyProfile,
-		WorkspacePath:     proj.WorkspacePath,
-		Mode:              resolvedMode,
-		Termination:       termination,
-		MCPServers:        mcpDefs,
-		MicroagentPrompts: microagentPrompts,
-		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
-		Context:           contextEntries,
-		Agentic:           true,
-		ProviderAPIKey:    providerAPIKey,
-		TenantID:          tenantctx.FromContext(ctx),
-		SessionMeta:       sessionMeta,
-		Reminders:         reminders,
+		RunID:              runID,
+		ConversationID:     conversationID,
+		SessionID:          sessionID,
+		ProjectID:          proj.ID,
+		Messages:           protoMessages,
+		SystemPrompt:       systemPrompt,
+		Model:              model,
+		PolicyProfile:      policyProfile,
+		WorkspacePath:      proj.WorkspacePath,
+		Mode:               resolvedMode,
+		Termination:        termination,
+		MCPServers:         mcpDefs,
+		MicroagentPrompts:  microagentPrompts,
+		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
+		Context:            contextEntries,
+		Agentic:            true,
+		ProviderAPIKey:     providerAPIKey,
+		TenantID:           tenantctx.FromContext(ctx),
+		SessionMeta:        sessionMeta,
+		Reminders:          reminders,
+		SummarizeThreshold: s.summarizeThreshold(),
 	}
 
 	data, err := json.Marshal(payload)
@@ -600,25 +610,26 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{
-		RunID:             runID,
-		ConversationID:    conversationID,
-		SessionID:         sessionID,
-		ProjectID:         proj.ID,
-		Messages:          protoMessages,
-		SystemPrompt:      systemPrompt,
-		Model:             model,
-		PolicyProfile:     policyProfile,
-		WorkspacePath:     proj.WorkspacePath,
-		Mode:              resolvedMode,
-		Termination:       termination,
-		MCPServers:        mcpDefs,
-		MicroagentPrompts: microagentPrompts,
-		RoutingEnabled:    s.routingCfg != nil && s.routingCfg.Enabled,
-		Context:           contextEntries,
-		Agentic:           true,
-		TenantID:          tenantctx.FromContext(ctx),
-		SessionMeta:       sessionMeta,
-		Reminders:         reminders,
+		RunID:              runID,
+		ConversationID:     conversationID,
+		SessionID:          sessionID,
+		ProjectID:          proj.ID,
+		Messages:           protoMessages,
+		SystemPrompt:       systemPrompt,
+		Model:              model,
+		PolicyProfile:      policyProfile,
+		WorkspacePath:      proj.WorkspacePath,
+		Mode:               resolvedMode,
+		Termination:        termination,
+		MCPServers:         mcpDefs,
+		MicroagentPrompts:  microagentPrompts,
+		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
+		Context:            contextEntries,
+		Agentic:            true,
+		TenantID:           tenantctx.FromContext(ctx),
+		SessionMeta:        sessionMeta,
+		Reminders:          reminders,
+		SummarizeThreshold: s.summarizeThreshold(),
 	}
 
 	data, err := json.Marshal(payload)

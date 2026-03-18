@@ -148,6 +148,7 @@ type Agent struct {
 	ContextEnabled       bool     `yaml:"context_enabled"`        // Enable context optimizer for conversations (default: true)
 	ContextBudget        int      `yaml:"context_budget"`         // Token budget for conversation context (default: 2048)
 	ContextPromptReserve int      `yaml:"context_prompt_reserve"` // Tokens reserved for prompt in conversation context (default: 512)
+	SummarizeThreshold   int      `yaml:"summarize_threshold"`    // Message count threshold for auto-summarization (0 = disabled)
 }
 
 // Auth holds authentication and authorization configuration.
