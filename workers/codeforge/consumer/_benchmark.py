@@ -395,6 +395,29 @@ def _dataset_to_task_specs(dataset_path: str) -> list:
     ]
 
 
+def _resolve_default_dataset(provider_name: str) -> str:
+    """Map built-in provider names to their default dataset YAML paths."""
+    import os
+    from pathlib import Path
+
+    datasets_dir = os.environ.get("BENCHMARK_DATASETS_DIR", "configs/benchmarks")
+    mapping = {
+        "codeforge_simple": "basic-coding.yaml",
+        "codeforge_tool_use": "tool-use-basic.yaml",
+        "codeforge_agent": "agent-coding.yaml",
+    }
+    filename = mapping.get(provider_name, "")
+    if not filename:
+        return ""
+    candidate = Path(datasets_dir) / filename
+    if candidate.exists():
+        return str(candidate)
+    # Try absolute path from workspace root
+    workspace = Path(os.environ.get("CODEFORGE_WORKSPACE", "/workspaces/CodeForge"))
+    absolute = workspace / datasets_dir / filename
+    return str(absolute) if absolute.exists() else ""
+
+
 async def _load_tasks_for_run(req) -> list:
     """Load tasks from provider registry or legacy YAML dataset."""
     from codeforge.evaluation.providers import get_provider
@@ -407,7 +430,10 @@ async def _load_tasks_for_run(req) -> list:
         except TypeError:
             # Built-in providers (codeforge_simple/agent/tool_use) accept
             # dataset_path instead of config.
-            provider = provider_cls(dataset_path=req.dataset_path)
+            dataset_path = req.dataset_path
+            if not dataset_path:
+                dataset_path = _resolve_default_dataset(req.provider_name)
+            provider = provider_cls(dataset_path=dataset_path)
         tasks = await provider.load_tasks()
         return apply_task_filters(tasks, req.provider_config)
 
