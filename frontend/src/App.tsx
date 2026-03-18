@@ -22,6 +22,7 @@ import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
 import { ShortcutProvider } from "~/shortcuts";
 import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
+import { CodeForgeLogo } from "~/ui/icons/CodeForgeLogo";
 import { NavSection } from "~/ui/layout";
 import {
   ActivityIcon,
@@ -116,10 +117,21 @@ function AppShell(props: {
         <div class="flex flex-1 overflow-hidden">
           <Sidebar>
             <Sidebar.Header>
-              <div>
-                <h1 class="text-xl font-bold">{t("app.title")}</h1>
-                <p class="mt-1 text-xs text-cf-text-muted">{t("app.version")}</p>
-              </div>
+              <Show
+                when={!collapsed()}
+                fallback={
+                  <Tooltip text={`${t("app.title")} ${t("app.version")}`} placement="right">
+                    <CodeForgeLogo size={24} class="text-cf-text-primary" />
+                  </Tooltip>
+                }
+              >
+                <Tooltip text={t("app.version")} placement="bottom">
+                  <div class="flex items-center gap-2">
+                    <CodeForgeLogo size={28} class="text-cf-text-primary" />
+                    <h1 class="font-bold text-cf-text-primary">{t("app.title")}</h1>
+                  </div>
+                </Tooltip>
+              </Show>
             </Sidebar.Header>
 
             <Sidebar.Nav>
