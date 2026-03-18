@@ -25,13 +25,13 @@ const explorationRate = 0.20
 // Implements PromptVariantSelector interface for assembler integration.
 type PromptSelector struct {
 	store  PromptVariantStore
-	config prompt.EvolutionConfig
+	config *prompt.EvolutionConfig
 	mu     sync.RWMutex
 	rng    *rand.Rand
 }
 
 // NewPromptSelector creates a new selector with the given store and config.
-func NewPromptSelector(store PromptVariantStore, config prompt.EvolutionConfig) *PromptSelector {
+func NewPromptSelector(store PromptVariantStore, config *prompt.EvolutionConfig) *PromptSelector {
 	return &PromptSelector{
 		store:  store,
 		config: config,
@@ -125,21 +125,21 @@ func ucb1Select(candidates []prompt.PromptVariant) prompt.PromptVariant {
 
 	logTotal := math.Log(float64(totalTrials))
 
-	best := candidates[0]
-	bestScore := ucb1Score(best, logTotal)
+	bestIdx := 0
+	bestScore := ucb1Score(&candidates[0], logTotal)
 
 	for i := 1; i < len(candidates); i++ {
-		score := ucb1Score(candidates[i], logTotal)
+		score := ucb1Score(&candidates[i], logTotal)
 		if score > bestScore {
 			bestScore = score
-			best = candidates[i]
+			bestIdx = i
 		}
 	}
 
-	return best
+	return candidates[bestIdx]
 }
 
-func ucb1Score(v prompt.PromptVariant, logTotal float64) float64 {
+func ucb1Score(v *prompt.PromptVariant, logTotal float64) float64 {
 	if v.TrialCount == 0 {
 		return math.Inf(1) // unexplored = infinite priority
 	}
@@ -148,9 +148,9 @@ func ucb1Score(v prompt.PromptVariant, logTotal float64) float64 {
 
 func filterActive(variants []prompt.PromptVariant) []prompt.PromptVariant {
 	result := make([]prompt.PromptVariant, 0, len(variants))
-	for _, v := range variants {
-		if v.Enabled && v.PromotionStatus != prompt.PromotionRetired {
-			result = append(result, v)
+	for i := range variants {
+		if variants[i].Enabled && variants[i].PromotionStatus != prompt.PromotionRetired {
+			result = append(result, variants[i])
 		}
 	}
 	return result
@@ -158,9 +158,9 @@ func filterActive(variants []prompt.PromptVariant) []prompt.PromptVariant {
 
 func filterByStatus(variants []prompt.PromptVariant, status prompt.PromotionStatus) []prompt.PromptVariant {
 	result := make([]prompt.PromptVariant, 0, len(variants))
-	for _, v := range variants {
-		if v.PromotionStatus == status {
-			result = append(result, v)
+	for i := range variants {
+		if variants[i].PromotionStatus == status {
+			result = append(result, variants[i])
 		}
 	}
 	return result

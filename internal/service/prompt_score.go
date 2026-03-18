@@ -11,7 +11,7 @@ import (
 
 // PromptScoreStore abstracts persistence for prompt scores.
 type PromptScoreStore interface {
-	InsertPromptScore(ctx context.Context, score prompt.PromptScore) error
+	InsertPromptScore(ctx context.Context, score *prompt.PromptScore) error
 	GetScoresByFingerprint(ctx context.Context, fingerprint string) ([]prompt.PromptScore, error)
 	GetAggregatedScores(ctx context.Context, tenantID, modeID, modelFamily string) (map[string]map[prompt.SignalType]float64, error)
 }
@@ -33,7 +33,7 @@ func NewPromptScoreCollector(store PromptScoreStore) *PromptScoreCollector {
 }
 
 // RecordScore records a single signal score for a prompt fingerprint.
-func (c *PromptScoreCollector) RecordScore(ctx context.Context, score prompt.PromptScore) error {
+func (c *PromptScoreCollector) RecordScore(ctx context.Context, score *prompt.PromptScore) error {
 	if score.PromptFingerprint == "" {
 		return nil // skip if no fingerprint attached
 	}
@@ -51,7 +51,7 @@ func (c *PromptScoreCollector) RecordScore(ctx context.Context, score prompt.Pro
 
 	// Update in-memory cache.
 	c.mu.Lock()
-	c.cache[score.PromptFingerprint] = append(c.cache[score.PromptFingerprint], score)
+	c.cache[score.PromptFingerprint] = append(c.cache[score.PromptFingerprint], *score)
 	c.mu.Unlock()
 
 	return nil
@@ -59,7 +59,7 @@ func (c *PromptScoreCollector) RecordScore(ctx context.Context, score prompt.Pro
 
 // RecordBenchmarkScore is a convenience method for recording benchmark quality scores.
 func (c *PromptScoreCollector) RecordBenchmarkScore(ctx context.Context, tenantID, fingerprint, modeID, modelFamily, runID string, score float64) error {
-	return c.RecordScore(ctx, prompt.PromptScore{
+	return c.RecordScore(ctx, &prompt.PromptScore{
 		TenantID:          tenantID,
 		PromptFingerprint: fingerprint,
 		ModeID:            modeID,
@@ -76,7 +76,7 @@ func (c *PromptScoreCollector) RecordSuccessScore(ctx context.Context, tenantID,
 	if succeeded {
 		score = 1.0
 	}
-	return c.RecordScore(ctx, prompt.PromptScore{
+	return c.RecordScore(ctx, &prompt.PromptScore{
 		TenantID:          tenantID,
 		PromptFingerprint: fingerprint,
 		ModeID:            modeID,
@@ -97,7 +97,7 @@ func (c *PromptScoreCollector) RecordCostScore(ctx context.Context, tenantID, fi
 	if normalized < 0 {
 		normalized = 0
 	}
-	return c.RecordScore(ctx, prompt.PromptScore{
+	return c.RecordScore(ctx, &prompt.PromptScore{
 		TenantID:          tenantID,
 		PromptFingerprint: fingerprint,
 		ModeID:            modeID,
@@ -114,7 +114,7 @@ func (c *PromptScoreCollector) RecordUserFeedback(ctx context.Context, tenantID,
 	if positive {
 		score = 1.0
 	}
-	return c.RecordScore(ctx, prompt.PromptScore{
+	return c.RecordScore(ctx, &prompt.PromptScore{
 		TenantID:          tenantID,
 		PromptFingerprint: fingerprint,
 		ModeID:            modeID,
@@ -127,7 +127,7 @@ func (c *PromptScoreCollector) RecordUserFeedback(ctx context.Context, tenantID,
 
 // RecordEfficiencyScore records stall/efficiency signal (normalized step count).
 func (c *PromptScoreCollector) RecordEfficiencyScore(ctx context.Context, tenantID, fingerprint, modeID, modelFamily, runID string, score float64) error {
-	return c.RecordScore(ctx, prompt.PromptScore{
+	return c.RecordScore(ctx, &prompt.PromptScore{
 		TenantID:          tenantID,
 		PromptFingerprint: fingerprint,
 		ModeID:            modeID,
@@ -151,9 +151,9 @@ func (c *PromptScoreCollector) CompositeScoreForFingerprint(fingerprint string) 
 	// Aggregate: average each signal type, then compute weighted composite.
 	sums := make(map[prompt.SignalType]float64)
 	counts := make(map[prompt.SignalType]int)
-	for _, s := range scores {
-		sums[s.SignalType] += s.Score
-		counts[s.SignalType]++
+	for i := range scores {
+		sums[scores[i].SignalType] += scores[i].Score
+		counts[scores[i].SignalType]++
 	}
 
 	avgs := make(map[prompt.SignalType]float64)

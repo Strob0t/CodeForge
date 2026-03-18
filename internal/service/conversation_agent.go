@@ -55,7 +55,7 @@ func buildSessionMeta(sess *run.Session) *messagequeue.SessionMetaPayload {
 	return sm
 }
 
-func (s *ConversationService) IsAgentic(ctx context.Context, conversationID string, req conversation.SendMessageRequest) bool {
+func (s *ConversationService) IsAgentic(ctx context.Context, conversationID string, req *conversation.SendMessageRequest) bool {
 	if req.Agentic != nil {
 		return *req.Agentic
 	}
@@ -209,7 +209,7 @@ func policyForAutonomy(autonomy int) string {
 // SendMessageAgentic stores the user message and dispatches an agentic run to the
 // Python worker via NATS. Streaming results arrive asynchronously via WebSocket.
 // The method returns immediately after dispatch.
-func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversationID string, req conversation.SendMessageRequest) error {
+func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversationID string, req *conversation.SendMessageRequest) error {
 	if req.Content == "" {
 		return errors.New("content is required")
 	}

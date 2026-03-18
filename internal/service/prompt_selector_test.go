@@ -15,9 +15,9 @@ type inMemoryVariantStore struct {
 
 func (s *inMemoryVariantStore) GetVariantsByModeAndModel(_ context.Context, modeID, modelFamily string) ([]prompt.PromptVariant, error) {
 	var result []prompt.PromptVariant
-	for _, v := range s.variants {
-		if v.ModeID == modeID && v.ModelFamily == modelFamily {
-			result = append(result, v)
+	for i := range s.variants {
+		if s.variants[i].ModeID == modeID && s.variants[i].ModelFamily == modelFamily {
+			result = append(result, s.variants[i])
 		}
 	}
 	return result, nil
@@ -38,7 +38,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 
 	t.Run("nil_store_returns_not_ok", func(t *testing.T) {
 		t.Parallel()
-		sel := NewPromptSelector(nil, prompt.DefaultEvolutionConfig())
+		sel := NewPromptSelector(nil, ptrTo(prompt.DefaultEvolutionConfig()))
 		_, ok := sel.SelectVariant("some-entry", "openai")
 		if ok {
 			t.Error("expected ok=false with nil store")
@@ -48,7 +48,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 	t.Run("no_variants_returns_not_ok", func(t *testing.T) {
 		t.Parallel()
 		store := &inMemoryVariantStore{}
-		sel := NewPromptSelector(store, prompt.DefaultEvolutionConfig())
+		sel := NewPromptSelector(store, ptrTo(prompt.DefaultEvolutionConfig()))
 		_, ok := sel.SelectVariant("coder", "openai")
 		if ok {
 			t.Error("expected ok=false with no variants")
@@ -79,7 +79,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 		}
 		cfg := prompt.DefaultEvolutionConfig()
 		cfg.PromotionStrategy = prompt.StrategyManual // only return explicitly promoted
-		sel := NewPromptSelector(store, cfg)
+		sel := NewPromptSelector(store, &cfg)
 		content, ok := sel.SelectVariant("coder", "openai")
 		if !ok {
 			t.Fatal("expected ok=true")
@@ -103,7 +103,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 				},
 			},
 		}
-		sel := NewPromptSelector(store, prompt.DefaultEvolutionConfig())
+		sel := NewPromptSelector(store, ptrTo(prompt.DefaultEvolutionConfig()))
 		_, ok := sel.SelectVariant("coder", "openai")
 		if ok {
 			t.Error("expected ok=false for retired-only variants")
@@ -124,7 +124,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 				},
 			},
 		}
-		sel := NewPromptSelector(store, prompt.DefaultEvolutionConfig())
+		sel := NewPromptSelector(store, ptrTo(prompt.DefaultEvolutionConfig()))
 		_, ok := sel.SelectVariant("coder", "openai")
 		if ok {
 			t.Error("expected ok=false for disabled variants")
@@ -147,7 +147,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 				},
 			},
 		}
-		sel := NewPromptSelector(store, cfg)
+		sel := NewPromptSelector(store, &cfg)
 		_, ok := sel.SelectVariant("coder", "openai")
 		if ok {
 			t.Error("manual strategy should not return candidates")
@@ -178,7 +178,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 				},
 			},
 		}
-		sel := NewPromptSelector(store, cfg)
+		sel := NewPromptSelector(store, &cfg)
 		content, ok := sel.SelectVariant("coder", "openai")
 		if !ok {
 			t.Fatal("expected ok=true for shadow with promoted variant")
@@ -218,7 +218,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 		}
 
 		// Run many iterations to verify exploration happens sometimes.
-		sel := NewPromptSelector(store, cfg)
+		sel := NewPromptSelector(store, &cfg)
 		sel.rng = rand.New(rand.NewPCG(42, 0)) // deterministic
 
 		promotedCount := 0
@@ -270,7 +270,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 			},
 		}
 
-		sel := NewPromptSelector(store, cfg)
+		sel := NewPromptSelector(store, &cfg)
 		content, ok := sel.SelectVariant("coder", "openai")
 		if !ok {
 			t.Fatal("expected ok=true with candidates")
@@ -299,7 +299,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 				},
 			},
 		}
-		sel := NewPromptSelector(store, cfg)
+		sel := NewPromptSelector(store, &cfg)
 		_, ok := sel.SelectVariant("reviewer", "openai")
 		if ok {
 			t.Error("reviewer mode has manual strategy, should not return candidates")
@@ -309,7 +309,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 	t.Run("empty_entryID_returns_not_ok", func(t *testing.T) {
 		t.Parallel()
 		store := &inMemoryVariantStore{}
-		sel := NewPromptSelector(store, prompt.DefaultEvolutionConfig())
+		sel := NewPromptSelector(store, ptrTo(prompt.DefaultEvolutionConfig()))
 		_, ok := sel.SelectVariant("", "openai")
 		if ok {
 			t.Error("expected ok=false for empty entryID")
@@ -319,7 +319,7 @@ func TestPromptSelector_SelectVariant(t *testing.T) {
 	t.Run("empty_modelFamily_returns_not_ok", func(t *testing.T) {
 		t.Parallel()
 		store := &inMemoryVariantStore{}
-		sel := NewPromptSelector(store, prompt.DefaultEvolutionConfig())
+		sel := NewPromptSelector(store, ptrTo(prompt.DefaultEvolutionConfig()))
 		_, ok := sel.SelectVariant("coder", "")
 		if ok {
 			t.Error("expected ok=false for empty modelFamily")
@@ -358,7 +358,7 @@ func TestPromptSelector_UCB1Selection(t *testing.T) {
 		}
 		cfg := prompt.DefaultEvolutionConfig()
 		cfg.PromotionStrategy = prompt.StrategyAuto
-		sel := NewPromptSelector(store, cfg)
+		sel := NewPromptSelector(store, &cfg)
 
 		// UCB1 should strongly prefer the under-explored variant.
 		content, ok := sel.SelectVariant("coder", "openai")

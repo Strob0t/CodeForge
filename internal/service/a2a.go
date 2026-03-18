@@ -394,7 +394,7 @@ func (s *A2AService) DispatchPushNotifications(ctx context.Context, taskID strin
 	})
 
 	for _, cfg := range configs {
-		go s.sendWebhook(cfg.URL, cfg.Token, payload)
+		go s.sendWebhook(cfg.URL, cfg.Token, payload) //nolint:gosec // G118: webhook must outlive the HTTP request
 	}
 }
 

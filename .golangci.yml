@@ -61,14 +61,17 @@ linters:
         - name: unreachable-code
 
   exclusions:
+    paths:
+      - frontend/node_modules
     rules:
       - path: _test\.go
         linters:
           - noctx
+      # Tests marshal structs with password/token fields and use background contexts in goroutines
       - path: _test\.go
         linters:
           - gosec
-        text: "G306|G204|G301|G101"
+        text: "G306|G204|G301|G101|G117|G118"
       - path: tests/integration/
         linters:
           - noctx

@@ -1120,7 +1120,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         <CanvasModal
           open={canvasOpen()}
           onClose={() => setCanvasOpen(false)}
-          onExport={async (canvasExports: CanvasExports) => {
+          onExport={(canvasExports: CanvasExports) => {
             setCanvasOpen(false);
             const convId = activeConversation();
             if (!convId) return;
@@ -1136,7 +1136,6 @@ export default function ChatPanel(props: ChatPanelProps) {
             // Build images array for vision-capable models with a valid PNG.
             const images: MessageImage[] = [];
             if (hasVision && canvasExports.png) {
-              // Strip the data URL prefix to get raw base64.
               const base64Data = canvasExports.png.replace(/^data:image\/png;base64,/, "");
               images.push({
                 data: base64Data,
@@ -1148,18 +1147,20 @@ export default function ChatPanel(props: ChatPanelProps) {
             setInput("");
             setSending(true);
             setRunError(null);
-            try {
-              await api.conversations.send(convId, {
-                content: promptText,
-                ...(images.length > 0 ? { images } : {}),
-              });
-              await refetchMessages();
-              scrollToBottom();
-            } catch {
-              // Error handled by API layer toast.
-            } finally {
-              setSending(false);
-            }
+            void (async () => {
+              try {
+                await api.conversations.send(convId, {
+                  content: promptText,
+                  ...(images.length > 0 ? { images } : {}),
+                });
+                await refetchMessages();
+                scrollToBottom();
+              } catch {
+                // Error handled by API layer toast.
+              } finally {
+                setSending(false);
+              }
+            })();
           }}
         />
       </Show>

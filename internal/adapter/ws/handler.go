@@ -63,7 +63,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		tenantID = "00000000-0000-0000-0000-000000000000"
 	}
 
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(r.Context()) //nolint:gosec // G118: cancel stored in conn.cancel, called via h.remove(c)
 	c := &conn{ws: ws, cancel: cancel, tenantID: tenantID}
 
 	h.mu.Lock()

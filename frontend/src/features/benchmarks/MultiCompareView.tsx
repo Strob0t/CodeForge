@@ -64,13 +64,13 @@ function RadarChart(props: {
         {/* Axis lines */}
         <For each={props.metrics}>
           {(_, i) => {
-            const p = pointOnAxis(i(), 1);
+            const p = () => pointOnAxis(i(), 1);
             return (
               <line
                 x1={cx}
                 y1={cy}
-                x2={p.x}
-                y2={p.y}
+                x2={p().x}
+                y2={p().y}
                 stroke="currentColor"
                 stroke-opacity="0.2"
                 class="text-cf-text-muted"
@@ -82,11 +82,11 @@ function RadarChart(props: {
         {/* Axis labels */}
         <For each={props.metrics}>
           {(metric, i) => {
-            const p = pointOnAxis(i(), 1.15);
+            const p = () => pointOnAxis(i(), 1.15);
             return (
               <text
-                x={p.x}
-                y={p.y}
+                x={p().x}
+                y={p().y}
                 text-anchor="middle"
                 dominant-baseline="central"
                 font-size="9"
@@ -117,12 +117,12 @@ function RadarChart(props: {
           {(entry, idx) => (
             <For each={props.metrics}>
               {(metric, mi) => {
-                const val = parseFloat(props.avgScore(entry, metric));
-                const p = pointOnAxis(mi(), isNaN(val) ? 0 : val);
+                const val = () => parseFloat(props.avgScore(entry, metric));
+                const p = () => pointOnAxis(mi(), isNaN(val()) ? 0 : val());
                 return (
                   <circle
-                    cx={p.x}
-                    cy={p.y}
+                    cx={p().x}
+                    cy={p().y}
                     r="3"
                     fill={CHART_COLORS[idx() % CHART_COLORS.length]}
                   />

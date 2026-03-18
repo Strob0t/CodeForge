@@ -10,6 +10,8 @@ import (
 	mq "github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
+func ptrTo[T any](v T) *T { return &v }
+
 // fakeQueue records published messages.
 type fakeQueue struct {
 	published []fakeMsg
@@ -41,15 +43,15 @@ func (q *fakeQueue) IsConnected() bool { return true }
 
 // Extend inMemoryVariantStore (from prompt_selector_test.go) with PromptEvolutionStore methods.
 
-func (s *inMemoryVariantStore) InsertVariant(_ context.Context, v prompt.PromptVariant) error {
-	s.variants = append(s.variants, v)
+func (s *inMemoryVariantStore) InsertVariant(_ context.Context, v *prompt.PromptVariant) error {
+	s.variants = append(s.variants, *v)
 	return nil
 }
 
 func (s *inMemoryVariantStore) GetVariantByID(_ context.Context, id string) (prompt.PromptVariant, error) {
-	for _, v := range s.variants {
-		if v.ID == id {
-			return v, nil
+	for i := range s.variants {
+		if s.variants[i].ID == id {
+			return s.variants[i], nil
 		}
 	}
 	return prompt.PromptVariant{}, fmt.Errorf("variant %s not found", id)
@@ -72,7 +74,7 @@ func TestPromptEvolutionService_TriggerReflection(t *testing.T) {
 		t.Parallel()
 		queue := &fakeQueue{}
 		cfg := prompt.DefaultEvolutionConfig()
-		svc := NewPromptEvolutionService(queue, nil, cfg)
+		svc := NewPromptEvolutionService(queue, nil, &cfg)
 
 		failures := []map[string]json.RawMessage{
 			{"task_id": json.RawMessage(`"t1"`), "error": json.RawMessage(`"some error"`)},
@@ -116,7 +118,7 @@ func TestPromptEvolutionService_TriggerReflection(t *testing.T) {
 	t.Run("empty_failures_is_allowed", func(t *testing.T) {
 		t.Parallel()
 		queue := &fakeQueue{}
-		svc := NewPromptEvolutionService(queue, nil, prompt.DefaultEvolutionConfig())
+		svc := NewPromptEvolutionService(queue, nil, ptrTo(prompt.DefaultEvolutionConfig()))
 
 		err := svc.TriggerReflection(context.Background(), "t1", "coder", "openai", "prompt", nil)
 		if err != nil {
@@ -134,7 +136,7 @@ func TestPromptEvolutionService_HandleMutateComplete(t *testing.T) {
 	t.Run("stores_variant_in_store", func(t *testing.T) {
 		t.Parallel()
 		store := &inMemoryVariantStore{}
-		svc := NewPromptEvolutionService(&fakeQueue{}, store, prompt.DefaultEvolutionConfig())
+		svc := NewPromptEvolutionService(&fakeQueue{}, store, ptrTo(prompt.DefaultEvolutionConfig()))
 
 		payload := mq.PromptEvolutionMutateCompletePayload{
 			TenantID:         "t1",
@@ -172,7 +174,7 @@ func TestPromptEvolutionService_HandleMutateComplete(t *testing.T) {
 	t.Run("skips_variant_that_failed_validation", func(t *testing.T) {
 		t.Parallel()
 		store := &inMemoryVariantStore{}
-		svc := NewPromptEvolutionService(&fakeQueue{}, store, prompt.DefaultEvolutionConfig())
+		svc := NewPromptEvolutionService(&fakeQueue{}, store, ptrTo(prompt.DefaultEvolutionConfig()))
 
 		payload := mq.PromptEvolutionMutateCompletePayload{
 			TenantID:         "t1",
@@ -197,7 +199,7 @@ func TestPromptEvolutionService_HandleMutateComplete(t *testing.T) {
 	t.Run("error_payload_is_logged_not_stored", func(t *testing.T) {
 		t.Parallel()
 		store := &inMemoryVariantStore{}
-		svc := NewPromptEvolutionService(&fakeQueue{}, store, prompt.DefaultEvolutionConfig())
+		svc := NewPromptEvolutionService(&fakeQueue{}, store, ptrTo(prompt.DefaultEvolutionConfig()))
 
 		payload := mq.PromptEvolutionMutateCompletePayload{
 			TenantID: "t1",
@@ -248,7 +250,7 @@ func TestPromptEvolutionService_PromoteVariant(t *testing.T) {
 				},
 			},
 		}
-		svc := NewPromptEvolutionService(queue, store, prompt.DefaultEvolutionConfig())
+		svc := NewPromptEvolutionService(queue, store, ptrTo(prompt.DefaultEvolutionConfig()))
 
 		err := svc.PromoteVariant(context.Background(), "t1", "new-candidate")
 		if err != nil {
@@ -277,7 +279,7 @@ func TestPromptEvolutionService_PromoteVariant(t *testing.T) {
 	t.Run("promote_nonexistent_returns_error", func(t *testing.T) {
 		t.Parallel()
 		store := &inMemoryVariantStore{}
-		svc := NewPromptEvolutionService(&fakeQueue{}, store, prompt.DefaultEvolutionConfig())
+		svc := NewPromptEvolutionService(&fakeQueue{}, store, ptrTo(prompt.DefaultEvolutionConfig()))
 
 		err := svc.PromoteVariant(context.Background(), "t1", "nonexistent")
 		if err == nil {
@@ -317,7 +319,7 @@ func TestPromptEvolutionService_RevertMode(t *testing.T) {
 				},
 			},
 		}
-		svc := NewPromptEvolutionService(queue, store, prompt.DefaultEvolutionConfig())
+		svc := NewPromptEvolutionService(queue, store, ptrTo(prompt.DefaultEvolutionConfig()))
 
 		err := svc.RevertMode(context.Background(), "t1", "coder")
 		if err != nil {
@@ -349,7 +351,7 @@ func TestPromptEvolutionService_GetStatus(t *testing.T) {
 	t.Run("returns_config_status", func(t *testing.T) {
 		t.Parallel()
 		cfg := prompt.DefaultEvolutionConfig()
-		svc := NewPromptEvolutionService(&fakeQueue{}, &inMemoryVariantStore{}, cfg)
+		svc := NewPromptEvolutionService(&fakeQueue{}, &inMemoryVariantStore{}, &cfg)
 
 		status := svc.GetStatus()
 		if !status.Enabled {

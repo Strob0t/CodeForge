@@ -274,7 +274,7 @@ func TestIsAgentic(t *testing.T) {
 			queue: nil, // queue is nil, but explicit override should win
 		}
 		agentic := true
-		result := svc.IsAgentic(ctx, "conv-1", conversation.SendMessageRequest{
+		result := svc.IsAgentic(ctx, "conv-1", &conversation.SendMessageRequest{
 			Content: "hello",
 			Agentic: &agentic,
 		})
@@ -288,7 +288,7 @@ func TestIsAgentic(t *testing.T) {
 			queue:    nil,
 			agentCfg: &config.Agent{AgenticByDefault: true},
 		}
-		result := svc.IsAgentic(ctx, "conv-1", conversation.SendMessageRequest{
+		result := svc.IsAgentic(ctx, "conv-1", &conversation.SendMessageRequest{
 			Content: "hello",
 		})
 		if result {
@@ -300,7 +300,7 @@ func TestIsAgentic(t *testing.T) {
 		svc := &ConversationService{
 			agentCfg: &config.Agent{AgenticByDefault: false},
 		}
-		result := svc.IsAgentic(ctx, "conv-1", conversation.SendMessageRequest{
+		result := svc.IsAgentic(ctx, "conv-1", &conversation.SendMessageRequest{
 			Content: "hello",
 		})
 		if result {

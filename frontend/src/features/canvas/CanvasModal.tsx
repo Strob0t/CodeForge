@@ -40,15 +40,20 @@ export interface CanvasModalProps {
 
 export function CanvasModal(props: CanvasModalProps): JSX.Element {
   // Use provided store or create one internally
-  const resolvedStore = (): CanvasStore => props.store ?? internalStore;
   const internalStore = createCanvasStore();
+  const resolvedStore = createMemo((): CanvasStore => props.store ?? internalStore);
 
   const [svgRef, setSvgRef] = createSignal<SVGSVGElement | undefined>(undefined);
   const [exportPanelOpen, setExportPanelOpen] = createSignal(false);
   const [exportPanelWidth, setExportPanelWidth] = createSignal(256);
 
   // Create tool instances — each tool needs store + svgRef
-  const toolOpts = { store: resolvedStore(), svgRef };
+  const toolOpts = {
+    get store() {
+      return resolvedStore();
+    },
+    svgRef,
+  };
   const toolInstances: Record<ToolType, CanvasTool> = {
     select: createSelectTool(toolOpts),
     rect: createRectTool(toolOpts),
@@ -94,17 +99,18 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
     const ascii = exportAscii(elements, w, h);
     const json = exportJson(elements, w, h);
 
-    // PNG is async — fire the callback after it resolves
+    // PNG is async — capture callback synchronously, fire after resolve
+    const onExport = props.onExport;
     if (svg) {
       void exportPng(svg)
         .then((pngDataUrl) => {
           const exports: CanvasExports = { png: pngDataUrl, ascii, json };
-          props.onExport(exports);
+          onExport(exports);
         })
         .catch(() => {
           // Fallback: export without PNG
           const exports: CanvasExports = { png: "", ascii, json };
-          props.onExport(exports);
+          onExport(exports);
         });
     } else {
       const exports: CanvasExports = { png: "", ascii, json };

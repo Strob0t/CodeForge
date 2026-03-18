@@ -123,7 +123,7 @@ func (s *SubscriptionService) StartConnect(ctx context.Context, providerName str
 		return nil, fmt.Errorf("device flow start: %w", err)
 	}
 
-	flowCtx, cancel := context.WithTimeout(context.Background(), time.Duration(dc.ExpiresIn)*time.Second)
+	flowCtx, cancel := context.WithTimeout(context.Background(), time.Duration(dc.ExpiresIn)*time.Second) //nolint:gosec // G118: cancel stored in flow.cancel, called on cleanup
 	done := make(chan flowResult, 1)
 
 	flow := &activeFlow{

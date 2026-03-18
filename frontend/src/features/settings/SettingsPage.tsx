@@ -534,13 +534,15 @@ export default function SettingsPage() {
             <span class="text-xs text-cf-text-muted">{t("settings.vcs.orOAuth")}</span>
             <Button
               variant="secondary"
-              onClick={async () => {
-                try {
-                  const { url } = await api.auth.githubOAuth();
-                  window.location.href = url;
-                } catch {
-                  toast("error", t("settings.vcs.oauthFailed"));
-                }
+              onClick={() => {
+                void (async () => {
+                  try {
+                    const { url } = await api.auth.githubOAuth();
+                    window.location.href = url;
+                  } catch {
+                    toast("error", t("settings.vcs.oauthFailed"));
+                  }
+                })();
               }}
             >
               {t("settings.vcs.connectGitHub")}

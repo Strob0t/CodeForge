@@ -19,7 +19,7 @@ export function LeaderboardView() {
   const [suites] = createResource(() => api.benchmarks.listSuites());
   const [entries, { refetch }] = createResource(
     () => suiteId() || "__all__",
-    () => api.benchmarks.leaderboard(suiteId() || undefined),
+    (key) => api.benchmarks.leaderboard(key === "__all__" ? undefined : key),
   );
 
   const sortedEntries = (): LeaderboardEntry[] => {

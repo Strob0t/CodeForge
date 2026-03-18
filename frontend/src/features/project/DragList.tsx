@@ -38,6 +38,7 @@ export default function DragList<T>(props: DragListProps<T>) {
     setOverIdx(index);
   };
 
+  // eslint-disable-next-line solid/reactivity -- dragIdx() is read at event time, not render time
   const handleDrop = (targetIdx: number) => (e: DragEvent) => {
     e.preventDefault();
     const sourceIdx = dragIdx();
@@ -62,14 +63,14 @@ export default function DragList<T>(props: DragListProps<T>) {
         {(item, index) => {
           const dragHandleProps: DragHandleProps = {
             draggable: true,
-            onDragStart: handleDragStart(index()),
+            onDragStart: (e: DragEvent) => handleDragStart(index())(e),
             onDragEnd: handleDragEnd,
           };
 
           return (
             <div
-              onDragOver={handleDragOver(index())}
-              onDrop={handleDrop(index())}
+              onDragOver={(e: DragEvent) => handleDragOver(index())(e)}
+              onDrop={(e: DragEvent) => handleDrop(index())(e)}
               class={`transition-all ${
                 overIdx() === index() && dragIdx() !== null && dragIdx() !== index()
                   ? "border-t-2 border-cf-accent"

@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup } from "solid-js";
+import { createEffect, createSignal, For, onCleanup } from "solid-js";
 
 import type { Agent } from "~/api/types";
 import { useWebSocket } from "~/components/WebSocketProvider";
@@ -21,39 +21,40 @@ export default function AgentLane(props: { agent: Agent }) {
   const [stepCount, setStepCount] = createSignal(0);
   const [costUsd, setCostUsd] = createSignal(0);
 
-  const cleanup = onMessage((msg) => {
-    const p = msg.payload;
+  createEffect(() => {
+    const agentId = props.agent.id;
+    const unsub = onMessage((msg) => {
+      const p = msg.payload;
 
-    switch (msg.type) {
-      case "run.toolcall": {
-        if ((p.agent_id as string) !== props.agent.id) {
-          // Tool calls don't have agent_id directly — match via run association
+      switch (msg.type) {
+        case "run.toolcall": {
+          if ((p.agent_id as string) !== agentId) {
+            break;
+          }
+          setToolCalls((prev) => [
+            ...prev.slice(-19),
+            { callId: p.call_id as string, tool: p.tool as string, phase: p.phase as string },
+          ]);
           break;
         }
-        setToolCalls((prev) => [
-          ...prev.slice(-19),
-          { callId: p.call_id as string, tool: p.tool as string, phase: p.phase as string },
-        ]);
-        break;
-      }
-      case "run.status": {
-        if ((p.agent_id as string) === props.agent.id) {
-          setStepCount(p.step_count as number);
-          setCostUsd((p.cost_usd as number) ?? 0);
+        case "run.status": {
+          if ((p.agent_id as string) === agentId) {
+            setStepCount(p.step_count as number);
+            setCostUsd((p.cost_usd as number) ?? 0);
+          }
+          break;
         }
-        break;
+        case "task.output": {
+          setOutputs((prev) => [
+            ...prev.slice(-49),
+            { line: p.line as string, stream: p.stream as string },
+          ]);
+          break;
+        }
       }
-      case "task.output": {
-        // Match by current task association
-        setOutputs((prev) => [
-          ...prev.slice(-49),
-          { line: p.line as string, stream: p.stream as string },
-        ]);
-        break;
-      }
-    }
+    });
+    onCleanup(unsub);
   });
-  onCleanup(cleanup);
 
   const statusColor = () => {
     switch (props.agent.status) {

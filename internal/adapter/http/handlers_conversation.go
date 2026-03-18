@@ -85,10 +85,10 @@ func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Reques
 
 	// Route to agentic or simple path — both dispatch via NATS and return 202.
 	var err error
-	if h.Conversations.IsAgentic(r.Context(), id, req) {
-		err = h.Conversations.SendMessageAgentic(r.Context(), id, req)
+	if h.Conversations.IsAgentic(r.Context(), id, &req) {
+		err = h.Conversations.SendMessageAgentic(r.Context(), id, &req)
 	} else {
-		_, err = h.Conversations.SendMessage(r.Context(), id, req)
+		_, err = h.Conversations.SendMessage(r.Context(), id, &req)
 	}
 	if err != nil {
 		writeDomainError(w, err, "send message")

@@ -14,10 +14,10 @@ type inMemoryScoreStore struct {
 	scores []prompt.PromptScore
 }
 
-func (s *inMemoryScoreStore) InsertPromptScore(_ context.Context, score prompt.PromptScore) error {
+func (s *inMemoryScoreStore) InsertPromptScore(_ context.Context, score *prompt.PromptScore) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.scores = append(s.scores, score)
+	s.scores = append(s.scores, *score)
 	return nil
 }
 
@@ -25,9 +25,9 @@ func (s *inMemoryScoreStore) GetScoresByFingerprint(_ context.Context, fingerpri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result []prompt.PromptScore
-	for _, sc := range s.scores {
-		if sc.PromptFingerprint == fingerprint {
-			result = append(result, sc)
+	for i := range s.scores {
+		if s.scores[i].PromptFingerprint == fingerprint {
+			result = append(result, s.scores[i])
 		}
 	}
 	return result, nil
@@ -37,12 +37,12 @@ func (s *inMemoryScoreStore) GetAggregatedScores(_ context.Context, tenantID, mo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := make(map[string]map[prompt.SignalType]float64)
-	for _, sc := range s.scores {
+	for i := range s.scores {
+		sc := &s.scores[i]
 		if sc.TenantID == tenantID && sc.ModeID == modeID && sc.ModelFamily == modelFamily {
 			if _, ok := result[sc.PromptFingerprint]; !ok {
 				result[sc.PromptFingerprint] = make(map[prompt.SignalType]float64)
 			}
-			// Simple average: this mock just uses the last score.
 			result[sc.PromptFingerprint][sc.SignalType] = sc.Score
 		}
 	}
@@ -62,7 +62,7 @@ func TestPromptScoreCollector_RecordScore(t *testing.T) {
 		collector, store := newTestScoreCollector()
 		ctx := context.Background()
 
-		err := collector.RecordScore(ctx, prompt.PromptScore{
+		err := collector.RecordScore(ctx, &prompt.PromptScore{
 			TenantID:          "t1",
 			PromptFingerprint: "fp1",
 			ModeID:            "coder",
@@ -90,7 +90,7 @@ func TestPromptScoreCollector_RecordScore(t *testing.T) {
 		collector, store := newTestScoreCollector()
 		ctx := context.Background()
 
-		err := collector.RecordScore(ctx, prompt.PromptScore{
+		err := collector.RecordScore(ctx, &prompt.PromptScore{
 			PromptFingerprint: "",
 			SignalType:        prompt.SignalBenchmark,
 			Score:             0.5,
@@ -111,7 +111,7 @@ func TestPromptScoreCollector_RecordScore(t *testing.T) {
 		collector, store := newTestScoreCollector()
 		ctx := context.Background()
 
-		err := collector.RecordScore(ctx, prompt.PromptScore{
+		err := collector.RecordScore(ctx, &prompt.PromptScore{
 			PromptFingerprint: "fp1",
 			SignalType:        prompt.SignalType("invalid"),
 			Score:             0.5,
@@ -132,7 +132,7 @@ func TestPromptScoreCollector_RecordScore(t *testing.T) {
 		collector, store := newTestScoreCollector()
 		ctx := context.Background()
 
-		err := collector.RecordScore(ctx, prompt.PromptScore{
+		err := collector.RecordScore(ctx, &prompt.PromptScore{
 			PromptFingerprint: "fp1",
 			SignalType:        prompt.SignalSuccess,
 			Score:             1.0,

@@ -13,7 +13,7 @@ import (
 // PromptEvolutionStore extends PromptVariantStore with mutation and promotion operations.
 type PromptEvolutionStore interface {
 	PromptVariantStore
-	InsertVariant(ctx context.Context, v prompt.PromptVariant) error
+	InsertVariant(ctx context.Context, v *prompt.PromptVariant) error
 	GetVariantByID(ctx context.Context, id string) (prompt.PromptVariant, error)
 	UpdatePromotionStatus(ctx context.Context, id string, status prompt.PromotionStatus) error
 }
@@ -23,11 +23,11 @@ type PromptEvolutionStore interface {
 type PromptEvolutionService struct {
 	queue  mq.Queue
 	store  PromptEvolutionStore
-	config prompt.EvolutionConfig
+	config *prompt.EvolutionConfig
 }
 
 // NewPromptEvolutionService creates a new evolution orchestrator.
-func NewPromptEvolutionService(queue mq.Queue, store PromptEvolutionStore, config prompt.EvolutionConfig) *PromptEvolutionService {
+func NewPromptEvolutionService(queue mq.Queue, store PromptEvolutionStore, config *prompt.EvolutionConfig) *PromptEvolutionService {
 	return &PromptEvolutionService{
 		queue:  queue,
 		store:  store,
@@ -102,7 +102,7 @@ func (s *PromptEvolutionService) HandleMutateComplete(ctx context.Context, data 
 		Enabled:         true,
 	}
 
-	if err := s.store.InsertVariant(ctx, variant); err != nil {
+	if err := s.store.InsertVariant(ctx, &variant); err != nil {
 		return fmt.Errorf("insert variant: %w", err)
 	}
 
@@ -132,10 +132,10 @@ func (s *PromptEvolutionService) PromoteVariant(ctx context.Context, tenantID, v
 	if err != nil {
 		return fmt.Errorf("get existing variants: %w", err)
 	}
-	for _, v := range existing {
-		if v.PromotionStatus == prompt.PromotionPromoted {
-			if err := s.store.UpdatePromotionStatus(ctx, v.ID, prompt.PromotionRetired); err != nil {
-				return fmt.Errorf("retire variant %s: %w", v.ID, err)
+	for i := range existing {
+		if existing[i].PromotionStatus == prompt.PromotionPromoted {
+			if err := s.store.UpdatePromotionStatus(ctx, existing[i].ID, prompt.PromotionRetired); err != nil {
+				return fmt.Errorf("retire variant %s: %w", existing[i].ID, err)
 			}
 		}
 	}
@@ -177,10 +177,10 @@ func (s *PromptEvolutionService) RevertMode(ctx context.Context, tenantID, modeI
 		if err != nil {
 			continue
 		}
-		for _, v := range variants {
-			if v.PromotionStatus != prompt.PromotionRetired {
-				if err := s.store.UpdatePromotionStatus(ctx, v.ID, prompt.PromotionRetired); err != nil {
-					slog.Error("failed to retire variant", "variant_id", v.ID, "error", err)
+		for i := range variants {
+			if variants[i].PromotionStatus != prompt.PromotionRetired {
+				if err := s.store.UpdatePromotionStatus(ctx, variants[i].ID, prompt.PromotionRetired); err != nil {
+					slog.Error("failed to retire variant", "variant_id", variants[i].ID, "error", err)
 				}
 			}
 		}

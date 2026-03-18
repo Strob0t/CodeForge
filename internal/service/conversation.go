@@ -208,7 +208,7 @@ func (s *ConversationService) SearchMessages(ctx context.Context, query string, 
 // SendMessage stores the user message and dispatches a simple (non-agentic) chat run
 // to the Python worker via NATS. The result arrives asynchronously via WebSocket AG-UI
 // events and is stored by HandleConversationRunComplete.
-func (s *ConversationService) SendMessage(ctx context.Context, conversationID string, req conversation.SendMessageRequest) (*conversation.Message, error) {
+func (s *ConversationService) SendMessage(ctx context.Context, conversationID string, req *conversation.SendMessageRequest) (*conversation.Message, error) {
 	if req.Content == "" {
 		return nil, errors.New("content is required")
 	}

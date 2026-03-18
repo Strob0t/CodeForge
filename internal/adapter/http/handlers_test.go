@@ -1116,9 +1116,9 @@ func (m *mockStore) GetConversation(_ context.Context, id string) (*conversation
 }
 func (m *mockStore) ListConversationsByProject(_ context.Context, projectID string) ([]conversation.Conversation, error) {
 	var result []conversation.Conversation
-	for _, c := range m.convs {
-		if c.ProjectID == projectID {
-			result = append(result, c)
+	for i := range m.convs {
+		if m.convs[i].ProjectID == projectID {
+			result = append(result, m.convs[i])
 		}
 	}
 	return result, nil

@@ -139,7 +139,7 @@ func TestListItems_Success(t *testing.T) {
 
 		resp := planeListResponse{Results: issues, NextCursor: "", NextPageResults: false}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
@@ -202,15 +202,14 @@ func TestListItems_CursorPagination(t *testing.T) {
 		cursor := r.URL.Query().Get("cursor")
 		w.Header().Set("Content-Type", "application/json")
 
-		if cursor == "" {
-			// First page
+		switch cursor {
+		case "":
 			resp := planeListResponse{Results: page1Issues, NextCursor: "cursor-page2", NextPageResults: true}
-			json.NewEncoder(w).Encode(resp)
-		} else if cursor == "cursor-page2" {
-			// Second page
+			_ = json.NewEncoder(w).Encode(resp)
+		case "cursor-page2":
 			resp := planeListResponse{Results: page2Issues, NextCursor: "", NextPageResults: false}
-			json.NewEncoder(w).Encode(resp)
-		} else {
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
 			t.Errorf("unexpected cursor: %q", cursor)
 			http.Error(w, "bad cursor", http.StatusBadRequest)
 		}
@@ -241,7 +240,7 @@ func TestListItems_Empty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		resp := planeListResponse{Results: []planeIssue{}, NextCursor: "", NextPageResults: false}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
@@ -297,7 +296,7 @@ func TestGetItem_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(issue)
+		_ = json.NewEncoder(w).Encode(issue)
 	}))
 	defer srv.Close()
 
@@ -370,7 +369,7 @@ func TestCreateItem_Success(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(createdIssue)
+		_ = json.NewEncoder(w).Encode(createdIssue)
 	}))
 	defer srv.Close()
 
@@ -422,7 +421,7 @@ func TestUpdateItem_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(updatedIssue)
+		_ = json.NewEncoder(w).Encode(updatedIssue)
 	}))
 	defer srv.Close()
 
@@ -553,7 +552,7 @@ func TestListItems_ContextCanceled(t *testing.T) {
 		// This handler should not be reached if context is canceled
 		resp := planeListResponse{Results: []planeIssue{}, NextCursor: "", NextPageResults: false}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 

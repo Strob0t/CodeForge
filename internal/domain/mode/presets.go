@@ -281,44 +281,45 @@ func BuiltinModes() []Mode {
 	modes = append(modes, specialistModes...)
 
 	// Goal-researcher mode for agent-driven goal discovery (GSD style).
-	modes = append(modes, Mode{
-		ID:           "goal-researcher",
-		Name:         "Goal Researcher",
-		Description:  "Analyzes a repository and interviews the user to discover project goals (GSD).",
-		Builtin:      true,
-		Tools:        []string{"Read", "Glob", "Grep", "ListDir", "propose_goal", "Write"},
-		DeniedTools:  []string{"Edit", "Bash"},
-		LLMScenario:  "think",
-		Autonomy:     2,
-		PromptPrefix: "",
-	})
-
-	// Review-refactor pipeline modes (Phase 31).
-	modes = append(modes, Mode{
-		ID:               "boundary-analyzer",
-		Name:             "Boundary Analyzer",
-		Description:      "Analyzes project structure to identify boundary files between modules, services, and language layers.",
-		Builtin:          true,
-		Tools:            []string{"Read", "Glob", "Grep", "ListDir"},
-		DeniedTools:      []string{"Write", "Edit", "Bash"},
-		RequiredArtifact: "BOUNDARIES.json",
-		LLMScenario:      "plan",
-		Autonomy:         4,
-		PromptPrefix:     "",
-	})
-
-	modes = append(modes, Mode{
-		ID:               "contract-reviewer",
-		Name:             "Contract Reviewer",
-		Description:      "Reviews cross-layer contracts for consistency between boundary files.",
-		Builtin:          true,
-		Tools:            []string{"Read", "Glob", "Grep"},
-		DeniedTools:      []string{"Write", "Edit", "Bash"},
-		RequiredArtifact: "CONTRACT_REVIEW.md",
-		LLMScenario:      "review",
-		Autonomy:         2,
-		PromptPrefix:     "",
-	})
+	modes = append(modes,
+		// Goal-researcher mode for agent-driven goal discovery (GSD style).
+		Mode{
+			ID:           "goal-researcher",
+			Name:         "Goal Researcher",
+			Description:  "Analyzes a repository and interviews the user to discover project goals (GSD).",
+			Builtin:      true,
+			Tools:        []string{"Read", "Glob", "Grep", "ListDir", "propose_goal", "Write"},
+			DeniedTools:  []string{"Edit", "Bash"},
+			LLMScenario:  "think",
+			Autonomy:     2,
+			PromptPrefix: "",
+		},
+		// Review-refactor pipeline modes (Phase 31).
+		Mode{
+			ID:               "boundary-analyzer",
+			Name:             "Boundary Analyzer",
+			Description:      "Analyzes project structure to identify boundary files between modules, services, and language layers.",
+			Builtin:          true,
+			Tools:            []string{"Read", "Glob", "Grep", "ListDir"},
+			DeniedTools:      []string{"Write", "Edit", "Bash"},
+			RequiredArtifact: "BOUNDARIES.json",
+			LLMScenario:      "plan",
+			Autonomy:         4,
+			PromptPrefix:     "",
+		},
+		Mode{
+			ID:               "contract-reviewer",
+			Name:             "Contract Reviewer",
+			Description:      "Reviews cross-layer contracts for consistency between boundary files.",
+			Builtin:          true,
+			Tools:            []string{"Read", "Glob", "Grep"},
+			DeniedTools:      []string{"Write", "Edit", "Bash"},
+			RequiredArtifact: "CONTRACT_REVIEW.md",
+			LLMScenario:      "review",
+			Autonomy:         2,
+			PromptPrefix:     "",
+		},
+	)
 
 	return modes
 }

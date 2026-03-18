@@ -207,7 +207,7 @@ func TestConversation_SendMessage_EmptyContent(t *testing.T) {
 	ctx := context.Background()
 
 	// SendMessage with empty content should fail validation before touching LLM
-	_, err := svc.SendMessage(ctx, "conv-1", conversation.SendMessageRequest{Content: ""})
+	_, err := svc.SendMessage(ctx, "conv-1", &conversation.SendMessageRequest{Content: ""})
 	if err == nil {
 		t.Fatal("expected error for empty content")
 	}
@@ -284,7 +284,7 @@ func TestSendMessageAgentic_ContextPopulatedWhenEnabled(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{Content: "Implement authentication handler"})
+	err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{Content: "Implement authentication handler"})
 	if err != nil {
 		t.Fatalf("SendMessageAgentic: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestSendMessage_DispatchesViaNATS(t *testing.T) {
 	}
 
 	// SendMessage should now dispatch via NATS, not call LLM directly
-	_, err = svc.SendMessage(ctx, conv.ID, conversation.SendMessageRequest{Content: "Hello"})
+	_, err = svc.SendMessage(ctx, conv.ID, &conversation.SendMessageRequest{Content: "Hello"})
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestSendMessage_RequiresQueue(t *testing.T) {
 	ctx := context.Background()
 
 	conv, _ := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "No Queue"})
-	_, err := svc.SendMessage(ctx, conv.ID, conversation.SendMessageRequest{Content: "Hello"})
+	_, err := svc.SendMessage(ctx, conv.ID, &conversation.SendMessageRequest{Content: "Hello"})
 	if err == nil {
 		t.Fatal("expected error when queue is nil")
 	}
@@ -415,7 +415,7 @@ func TestSendMessageAgentic_ContextEmptyWhenDisabled(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{Content: "Implement authentication handler"})
+	err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{Content: "Implement authentication handler"})
 	if err != nil {
 		t.Fatalf("SendMessageAgentic: %v", err)
 	}
@@ -547,7 +547,7 @@ func TestSendMessageAgentic_AdaptiveBudgetReducesContext(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 
-		err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
+		err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
 			Content: "Implement authentication handler",
 		})
 		if err != nil {
@@ -591,7 +591,7 @@ func TestSendMessageAgentic_AdaptiveBudgetReducesContext(t *testing.T) {
 			})
 		}
 
-		err = svc.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
+		err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
 			Content: "Implement authentication handler",
 		})
 		if err != nil {

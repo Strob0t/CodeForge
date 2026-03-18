@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Agent } from "~/api/types";
@@ -38,28 +38,31 @@ export default function WarRoom(props: WarRoomProps) {
     setRefetchTimer(setTimeout(() => refetch(), 500));
   }
 
-  const cleanup = onMessage((msg) => {
-    const p = msg.payload;
+  createEffect(() => {
     const projectId = props.projectId;
+    // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+    const unsub = onMessage((msg) => {
+      const p = msg.payload;
 
-    switch (msg.type) {
-      case "agent.status": {
-        if ((p.project_id as string) === projectId) debouncedRefetch();
-        break;
+      switch (msg.type) {
+        case "agent.status": {
+          if ((p.project_id as string) === projectId) debouncedRefetch();
+          break;
+        }
+        case "run.status": {
+          if ((p.project_id as string) === projectId) debouncedRefetch();
+          break;
+        }
+        case "activework.claimed":
+        case "activework.released": {
+          if ((p.project_id as string) === projectId) debouncedRefetch();
+          break;
+        }
       }
-      case "run.status": {
-        if ((p.project_id as string) === projectId) debouncedRefetch();
-        break;
-      }
-      case "activework.claimed":
-      case "activework.released": {
-        if ((p.project_id as string) === projectId) debouncedRefetch();
-        break;
-      }
-    }
+    });
+    onCleanup(unsub);
   });
   onCleanup(() => {
-    cleanup();
     const t = refetchTimer();
     if (t) clearTimeout(t);
   });

@@ -81,8 +81,7 @@ func TestCompositeScore(t *testing.T) {
 			scores: map[SignalType]float64{
 				SignalBenchmark: 0.8,
 			},
-			// 0.8 * 0.35 / 0.35 = 0.8
-			want:  0.8,
+			want:  0.8, // 0.8 * 0.35 / 0.35
 			delta: 0.001,
 		},
 		{

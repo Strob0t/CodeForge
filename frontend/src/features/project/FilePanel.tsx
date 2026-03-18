@@ -113,7 +113,7 @@ function SidebarHeader(props: {
           <button
             type="button"
             class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
-            onClick={props.onUploadClick}
+            onClick={() => props.onUploadClick?.()}
             title={t("files.uploadFile")}
           >
             <svg
@@ -131,7 +131,7 @@ function SidebarHeader(props: {
           <button
             type="button"
             class="inline-flex items-center justify-center h-7 w-7 rounded-cf-sm text-cf-text-muted hover:text-cf-text-primary hover:bg-cf-bg-surface-alt transition-colors"
-            onClick={props.onCreateClick}
+            onClick={() => props.onCreateClick?.()}
             title={t("files.createFile")}
           >
             <svg

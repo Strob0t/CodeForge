@@ -104,7 +104,7 @@ func (s *AutoAgentService) Start(ctx context.Context, projectID string) (*autoag
 	s.broadcastStatus(ctx, aa)
 
 	// Launch background goroutine with cancellable context.
-	loopCtx, cancel := context.WithCancel(context.Background())
+	loopCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in s.cancels[projectID], called from Stop()
 	s.mu.Lock()
 	s.cancels[projectID] = cancel
 	s.mu.Unlock()
@@ -254,7 +254,7 @@ func (s *AutoAgentService) processFeature(
 	)
 
 	// Send the message via the agentic loop (tool-use enabled).
-	err = s.conversations.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
+	err = s.conversations.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
 		Content: prompt,
 	})
 	if err != nil {
@@ -291,7 +291,7 @@ func (s *AutoAgentService) processFeature(
 				"The tests are failing. %d/%d tests passed.\n\nTest output:\n```\n%s\n```\n\nPlease fix the implementation to make all tests pass.",
 				passed, total, strings.TrimSpace(output),
 			)
-			err = s.conversations.SendMessageAgentic(ctx, conv.ID, conversation.SendMessageRequest{
+			err = s.conversations.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
 				Content: fixPrompt,
 			})
 			if err != nil {

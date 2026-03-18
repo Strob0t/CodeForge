@@ -220,7 +220,7 @@ func (p *Provider) GetItem(ctx context.Context, projectRef, itemID string) (*pmp
 	if err != nil {
 		return nil, fmt.Errorf("plane: get issue: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -265,7 +265,7 @@ func (p *Provider) CreateItem(ctx context.Context, projectRef string, item *pmpr
 	if err != nil {
 		return nil, fmt.Errorf("plane: create issue: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -307,7 +307,7 @@ func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmpr
 	if err != nil {
 		return nil, fmt.Errorf("plane: update issue: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)

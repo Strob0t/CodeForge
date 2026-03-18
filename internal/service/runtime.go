@@ -396,7 +396,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		timeoutDur := time.Duration(profile.Termination.TimeoutSeconds) * time.Second
 		timeoutCtx, timeoutCancel := context.WithCancel(context.Background())
 		s.runTimeouts.Store(r.ID, timeoutCancel)
-		go func(runID string, timeout time.Duration) {
+		go func(runID string, timeout time.Duration) { //nolint:gosec // G118: timeout goroutine outlives request; cancel stored in s.runTimeouts
 			timer := time.NewTimer(timeout)
 			defer timer.Stop()
 			select {

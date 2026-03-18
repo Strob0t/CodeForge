@@ -50,14 +50,16 @@ export function BenchmarkCompare(props: BenchmarkCompareProps) {
             size="sm"
             variant="primary"
             disabled={!compareA() || !compareB() || compareA() === compareB()}
-            onClick={async () => {
-              try {
-                const result = await api.benchmarks.compare(compareA(), compareB());
-                setCompareResult(result);
-                toast("success", t("benchmark.toast.compareReady"));
-              } catch {
-                toast("error", t("benchmark.toast.compareError"));
-              }
+            onClick={() => {
+              void (async () => {
+                try {
+                  const result = await api.benchmarks.compare(compareA(), compareB());
+                  setCompareResult(result);
+                  toast("success", t("benchmark.toast.compareReady"));
+                } catch {
+                  toast("error", t("benchmark.toast.compareError"));
+                }
+              })();
             }}
           >
             {t("benchmark.compareBtn")}
