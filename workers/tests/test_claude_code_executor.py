@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from codeforge.claude_code_executor import ClaudeCodeExecutor
+from codeforge.models import ToolCallDecision
 
 
 def _make_executor() -> ClaudeCodeExecutor:
@@ -66,3 +71,108 @@ class TestEstimateEquivalentCost:
             cost = _make_executor()._estimate_equivalent_cost(1000, 500)
             mock_rc.assert_called_once_with(0.0, "anthropic/claude-sonnet-4", 1000, 500)
             assert cost == 0.05
+
+
+# ---------------------------------------------------------------------------
+# Helpers for mocking the claude_code_sdk module (not installed)
+# ---------------------------------------------------------------------------
+
+
+class _FakePermissionResultAllow:
+    """Stub for ``claude_code_sdk.types.PermissionResultAllow``."""
+
+
+class _FakePermissionResultDeny:
+    """Stub for ``claude_code_sdk.types.PermissionResultDeny``."""
+
+    def __init__(self, *, message: str = "") -> None:
+        self.message = message
+
+
+@pytest.fixture(autouse=False)
+def _mock_claude_code_sdk(monkeypatch: pytest.MonkeyPatch):
+    """Inject a fake ``claude_code_sdk`` package into ``sys.modules``.
+
+    This allows the inner import inside ``_policy_callback`` to succeed
+    even though the real SDK is not installed.
+    """
+    sdk_types = types.ModuleType("claude_code_sdk.types")
+    sdk_types.PermissionResultAllow = _FakePermissionResultAllow  # type: ignore[attr-defined]
+    sdk_types.PermissionResultDeny = _FakePermissionResultDeny  # type: ignore[attr-defined]
+
+    sdk = types.ModuleType("claude_code_sdk")
+    sdk.types = sdk_types  # type: ignore[attr-defined]
+
+    monkeypatch.setitem(sys.modules, "claude_code_sdk", sdk)
+    monkeypatch.setitem(sys.modules, "claude_code_sdk.types", sdk_types)
+
+
+# ---------------------------------------------------------------------------
+# Policy callback tests
+# ---------------------------------------------------------------------------
+
+
+class TestPolicyCallback:
+    """Tests for ``ClaudeCodeExecutor._make_policy_callback``."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_mock_claude_code_sdk")
+    async def test_allow_maps_read_to_file_read(self) -> None:
+        runtime = AsyncMock()
+        runtime.request_tool_call.return_value = ToolCallDecision(
+            call_id="c1",
+            decision="allow",
+        )
+
+        executor = ClaudeCodeExecutor(workspace_path="/tmp", runtime=runtime)
+        callback = executor._make_policy_callback()
+        result = await callback("Read", {"file_path": "/tmp/foo.py"})
+
+        runtime.request_tool_call.assert_awaited_once_with(
+            tool="file:read",
+            command="",
+            path="/tmp/foo.py",
+        )
+        assert isinstance(result, _FakePermissionResultAllow)
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_mock_claude_code_sdk")
+    async def test_deny_maps_bash_to_command_execute(self) -> None:
+        runtime = AsyncMock()
+        runtime.request_tool_call.return_value = ToolCallDecision(
+            call_id="c2",
+            decision="deny",
+            reason="blocked",
+        )
+
+        executor = ClaudeCodeExecutor(workspace_path="/tmp", runtime=runtime)
+        callback = executor._make_policy_callback()
+        result = await callback("Bash", {"command": "rm -rf /"})
+
+        runtime.request_tool_call.assert_awaited_once_with(
+            tool="command:execute",
+            command="rm -rf /",
+            path="",
+        )
+        assert isinstance(result, _FakePermissionResultDeny)
+        assert result.message == "blocked"
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_mock_claude_code_sdk")
+    async def test_unknown_tool_gets_claude_code_prefix(self) -> None:
+        runtime = AsyncMock()
+        runtime.request_tool_call.return_value = ToolCallDecision(
+            call_id="c3",
+            decision="allow",
+        )
+
+        executor = ClaudeCodeExecutor(workspace_path="/tmp", runtime=runtime)
+        callback = executor._make_policy_callback()
+        result = await callback("SomeNewTool", {"arg": "val"})
+
+        runtime.request_tool_call.assert_awaited_once_with(
+            tool="claude-code:SomeNewTool",
+            command="",
+            path="",
+        )
+        assert isinstance(result, _FakePermissionResultAllow)
