@@ -1346,3 +1346,15 @@
 - [x] (2026-03-18) C4.7: Implement `ExportRLVRDataset()` in Go service + `ComputeRLVRReward()`
 - [x] (2026-03-18) C4.8-C4.10: Add `GET /api/v1/benchmarks/runs/{id}/export/rlvr` endpoint (JSONL + JSON)
 - [x] (2026-03-18) C4.11: Full test suite passes (87 Python, all Go packages green)
+
+#### Claude Code Integration
+
+- [x] Claude Code as routing target with execution branch (2026-03-18)
+  - ClaudeCodeExecutor with SDK + CLI fallback
+  - Policy enforcement via can_use_tool callback
+  - COMPLEXITY_DEFAULTS: claudecode/default in COMPLEX + REASONING
+  - Availability detection with caching
+- [ ] Claude Code: E2E manual test with live CLI
+- [ ] Claude Code: model selection override (claudecode/claude-sonnet-4)
+- [ ] Claude Code: read CODEFORGE_CLAUDECODE_MAX_TURNS, _TIMEOUT, _TIERS from env
+- [ ] Claude Code: update docs/dev-setup.md with new env vars
