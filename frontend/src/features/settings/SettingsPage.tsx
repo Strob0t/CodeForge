@@ -44,6 +44,7 @@ import {
 } from "~/ui";
 import { SkeletonCard } from "~/ui/composites/SkeletonCard";
 import type { TableColumn } from "~/ui/composites/Table";
+import { cx } from "~/utils/cx";
 
 import { ShortcutsSection } from "./ShortcutsSection";
 
@@ -55,6 +56,37 @@ export default function SettingsPage() {
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
   const auth = useAuth();
+
+  // -- Section navigation ------------------------------------------------------
+  const sections = [
+    { id: "settings-general", label: "General" },
+    { id: "settings-shortcuts", label: "Shortcuts" },
+    { id: "settings-vcs", label: "VCS" },
+    { id: "settings-providers", label: "Providers" },
+    { id: "settings-proxy", label: "LLM Proxy" },
+    { id: "settings-subscriptions", label: "Subscriptions" },
+    { id: "settings-apikeys", label: "API Keys" },
+    { id: "settings-users", label: "Users" },
+    { id: "settings-devtools", label: "Dev Tools" },
+  ];
+
+  const [activeSection, setActiveSection] = createSignal("settings-general");
+
+  onMount(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveSection(entry.target.id);
+        }
+      },
+      { rootMargin: "-20% 0px -80% 0px" },
+    );
+    for (const s of sections) {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    }
+    onCleanup(() => observer.disconnect());
+  });
 
   // -- General settings -------------------------------------------------------
   const [defaultProvider, setDefaultProvider] = createSignal("");
@@ -425,8 +457,26 @@ export default function SettingsPage() {
 
   return (
     <PageLayout title={t("settings.title")}>
+      <nav class="sticky top-0 z-10 bg-cf-bg-primary/95 backdrop-blur-sm border-b border-cf-border overflow-x-auto whitespace-nowrap flex gap-1 py-2 mb-4">
+        <For each={sections}>
+          {(s) => (
+            <button
+              class={cx(
+                "px-3 py-1.5 text-xs font-medium rounded-cf-sm transition-colors shrink-0",
+                activeSection() === s.id
+                  ? "bg-cf-accent text-cf-accent-fg"
+                  : "text-cf-text-secondary hover:bg-cf-bg-surface-alt",
+              )}
+              onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: "smooth" })}
+            >
+              {s.label}
+            </button>
+          )}
+        </For>
+      </nav>
+
       {/* General Settings Section */}
-      <Section title={t("settings.general.title")} class="mb-8">
+      <Section id="settings-general" title={t("settings.general.title")} class="mb-8">
         <div class="space-y-4">
           <FormField
             label={t("settings.general.defaultProvider")}
@@ -481,12 +531,12 @@ export default function SettingsPage() {
       </Section>
 
       {/* Keyboard Shortcuts Section */}
-      <Section title={t("settings.shortcuts.title")} class="mb-8">
+      <Section id="settings-shortcuts" title={t("settings.shortcuts.title")} class="mb-8">
         <ShortcutsSection />
       </Section>
 
       {/* VCS Accounts Section */}
-      <Section title={t("settings.vcs.title")} class="mb-8">
+      <Section id="settings-vcs" title={t("settings.vcs.title")} class="mb-8">
         {/* Add new account form */}
         <div class="mb-4 space-y-3 max-w-2xl">
           <div class="grid grid-cols-[180px_1fr] gap-3">
@@ -617,7 +667,7 @@ export default function SettingsPage() {
       />
 
       {/* Providers Section */}
-      <Section title={t("settings.providers.title")} class="mb-8">
+      <Section id="settings-providers" title={t("settings.providers.title")} class="mb-8">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <ProviderCard
             label={t("settings.providers.git")}
@@ -643,7 +693,7 @@ export default function SettingsPage() {
       </Section>
 
       {/* LLM Health */}
-      <Section title={t("settings.llm.title")} class="mb-8">
+      <Section id="settings-proxy" title={t("settings.llm.title")} class="mb-8">
         <Show when={!llmHealth.loading} fallback={<SkeletonCard variant="stat" />}>
           <Show
             when={llmHealth()}
@@ -655,7 +705,11 @@ export default function SettingsPage() {
       </Section>
 
       {/* Subscription Providers Section */}
-      <Section title={t("settings.subscriptionProviders.title")} class="mb-8">
+      <Section
+        id="settings-subscriptions"
+        title={t("settings.subscriptionProviders.title")}
+        class="mb-8"
+      >
         <p class="mb-4 text-sm text-cf-text-muted">
           {t("settings.subscriptionProviders.subtitle")}
         </p>
@@ -768,7 +822,7 @@ export default function SettingsPage() {
       </Section>
 
       {/* API Keys Section */}
-      <Section title={t("settings.apiKey.title")} class="mb-8">
+      <Section id="settings-apikeys" title={t("settings.apiKey.title")} class="mb-8">
         {/* Create new key */}
         <div class="mb-4 flex gap-2">
           <Input
@@ -826,7 +880,7 @@ export default function SettingsPage() {
 
       {/* User Management (admin only) */}
       <Show when={auth.user()?.role === "admin"}>
-        <Section title={t("settings.users.title")} class="mb-8">
+        <Section id="settings-users" title={t("settings.users.title")} class="mb-8">
           <Table<User>
             columns={userColumns}
             data={users() ?? []}
@@ -838,7 +892,7 @@ export default function SettingsPage() {
 
       {/* Developer Tools Section (only visible in dev mode) */}
       <Show when={devMode()}>
-        <Section title={t("settings.devTools")} class="mb-8">
+        <Section id="settings-devtools" title={t("settings.devTools")} class="mb-8">
           <h4 class="mb-3 text-sm font-medium text-cf-text-secondary">
             {t("settings.benchmark.title")}
           </h4>

@@ -4,6 +4,7 @@ import { Card } from "../composites/Card";
 import { SectionHeader } from "../composites/SectionHeader";
 
 export interface SectionProps {
+  id?: string;
   title: string;
   description?: string;
   action?: JSX.Element;
@@ -12,10 +13,10 @@ export interface SectionProps {
 }
 
 export function Section(props: SectionProps): JSX.Element {
-  const [local] = splitProps(props, ["title", "description", "action", "class", "children"]);
+  const [local] = splitProps(props, ["id", "title", "description", "action", "class", "children"]);
 
   return (
-    <div class={local.class}>
+    <div id={local.id} class={local.class}>
       <SectionHeader
         title={local.title}
         description={local.description}
