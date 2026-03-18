@@ -1217,7 +1217,7 @@
 
 **Large Effort (phase-level):**
 - [ ] STUB-001: A2A task persistence to PostgreSQL + execution routing to agent backends (`internal/port/a2a/handler.go`)
-- [ ] STUB-010: SWE-agent backend adapter implementation (`docs/features/04-agent-orchestration.md`)
+- [x] STUB-010: SWE-agent backend adapter implementation (`workers/codeforge/backends/sweagent.py`) (2026-03-17)
 
 **No Action Needed (intentional designs):**
 - STUB-007/008: GitHub OAuth + Subscription 501 gates (feature-gated by design)

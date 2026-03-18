@@ -86,13 +86,11 @@
 - **Fix:** (1) Add monotonic `sequence_number` to trajectory events in Go, dedup in frontend. (2) Re-hydrate from API on WS reconnect.
 - **Effort:** Medium (Go backend change + frontend dedup logic)
 
-### STUB-010: SWE-agent Backend Not Yet Implemented (Docs)
-- **File:** `docs/features/04-agent-orchestration.md:20`
+### ~~STUB-010: SWE-agent Backend Not Yet Implemented (Docs)~~ **FIXED 2026-03-17**
+- **File:** `workers/codeforge/backends/sweagent.py`
 - **Phase:** Phase 9+
-- **Description:** SWE-agent backend marked "Not yet implemented" in feature table. All other backends (Aider, Goose, OpenHands, OpenCode, Plandex) are done.
-- **Impact:** Users cannot use SWE-agent as an agent backend.
-- **Fix:** Implement SWE-agent backend adapter following existing backend pattern.
-- **Effort:** Large (new backend adapter, Docker integration, tests)
+- **Description:** ~~SWE-agent backend marked "Not yet implemented" in feature table.~~ Implemented `SweagentExecutor` as CLI subprocess wrapper following OpenCode pattern. Registered in default router.
+- **Tests:** `workers/tests/test_sweagent_backend.py` (15 tests)
 
 ---
 
@@ -199,7 +197,7 @@ See `docs/todo.md` lines 1167-1200 for full list.
 | Category | Count | IDs |
 |----------|-------|-----|
 | **CRITICAL** | **1** (~~3~~) | STUB-001, ~~STUB-002~~, STUB-003 |
-| **HIGH** | **6** (~~7~~) | STUB-004, ~~STUB-005~~, STUB-006 through STUB-010 |
+| **HIGH** | **5** (~~7~~) | STUB-004, ~~STUB-005~~, STUB-006 through STUB-009, ~~STUB-010~~ |
 | **MEDIUM** | **4** (~~5~~) | ~~STUB-011~~, STUB-012 through STUB-015 |
 | **LOW** | **8** | STUB-016 through STUB-023 |
 | **INFO** | ~255 | Test stubs (no action) |
@@ -224,7 +222,7 @@ See `docs/todo.md` lines 1167-1200 for full list.
 
 **Large effort (phase-level work):**
 9. STUB-001 — A2A task persistence & execution
-10. STUB-010 — SWE-agent backend implementation
+10. ~~STUB-010 — SWE-agent backend implementation~~ **COMPLETED 2026-03-17**
 
 **No action needed:**
 - STUB-007, STUB-008 (intentional feature gates)

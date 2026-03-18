@@ -17,7 +17,7 @@ Coordination of various AI coding agents through a **unified** orchestration lay
 | OpenHands | `adapter/openhands/` | `backends/openhands.py` | CLI wrapper (requires CLI installed) | code-edit, browser, sandbox |
 | OpenCode | `adapter/opencode/` | `backends/opencode.py` | CLI wrapper (requires CLI installed) | code-edit, lsp |
 | Plandex | `adapter/plandex/` | `backends/plandex.py` | CLI wrapper (requires CLI installed) | code-edit, planning, multi-file |
-| SWE-agent | `adapter/sweagent/` | -- | Phase 9+ | Not yet implemented |
+| SWE-agent | -- | `backends/sweagent.py` | CLI wrapper (requires Docker) | code-edit, sandbox, multi-file |
 
 All Go backends implement the `agentbackend.Backend` interface with capability declarations. All Python backends implement the `BackendExecutor` protocol (see below).
 
