@@ -231,7 +231,7 @@ Detailed analysis: docs/research/market-analysis.md
   - HTTP: native fetch API + thin wrapper (~30-50 LOC)
   - State: SolidJS built-in signals/stores/context (no external state library)
   - Icons: Unicode symbols + inline SVG (no icon library dependency)
-  - Typography: Outfit (display headings) + IBM Plex Sans (body), self-hosted woff2 in `frontend/public/fonts/`
+  - Typography: Outfit (display headings) + SUSE Mono (body), self-hosted woff2 in `frontend/public/fonts/`
   - Design System: Living page at `/design-system` (dev-mode only), token docs in `frontend/src/ui/DESIGN-SYSTEM.md`
   - Onboarding: 3-step wizard on first login (`codeforge-onboarding-completed` localStorage key) -- `frontend/src/features/onboarding/OnboardingWizard.tsx`
   - NOT used: axios, styled-components, Kobalte, shadcn-solid, Socket.IO, Redux/Zustand
