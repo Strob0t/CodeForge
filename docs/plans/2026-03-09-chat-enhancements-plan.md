@@ -281,7 +281,7 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
 
   async function handleAllowAlways() {
     await handleDecision("allow");
-    // TODO: persist policy rule for this tool via separate API call
+    // NOTE: Implemented — POST /policies/allow-always (preset cloning, rule prepend, idempotent)
   }
 
   const progressPercent = () => (remaining() / timeout) * 100;

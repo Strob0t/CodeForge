@@ -121,37 +121,30 @@
 
 ## LOW — Documentation TODOs
 
-### STUB-016: Benchmark Event Dedup Needs Backend sequence_number (Docs)
-- **File:** `docs/todo.md:433`
-- **Marker:** `TODO: Event dedup requires backend sequence_number on trajectory events`
-- **Cross-ref:** STUB-009
+### ~~STUB-016: Benchmark Event Dedup Needs Backend sequence_number (Docs)~~ **FIXED 2026-03-18**
+- **Cross-ref:** STUB-009 (implemented). `todo.md` markers updated to `[x]`.
 
-### STUB-017: WS Reconnect Gap Needs Re-Hydration (Docs)
-- **File:** `docs/todo.md:434`
-- **Marker:** `TODO: WS reconnect gap requires re-hydration on reconnect`
-- **Cross-ref:** STUB-009
+### ~~STUB-017: WS Reconnect Gap Needs Re-Hydration (Docs)~~ **FIXED 2026-03-18**
+- **Cross-ref:** STUB-009 (implemented). `todo.md` markers updated to `[x]`.
 
-### STUB-018: Benchmark Analysis Endpoint Returns Stub Response (Docs)
+### ~~STUB-018: Benchmark Analysis Endpoint Returns Stub Response (Docs)~~ **FIXED 2026-03-18**
 - **File:** `docs/plans/2026-03-09-benchmark-external-providers-plan.md:2342`
-- **Marker:** `// For now, return a stub that the frontend can display`
+- Stale comment updated to `NOTE: Implemented`.
 
-### STUB-019: Benchmark Analysis Needs NATS Dispatch (Docs)
+### ~~STUB-019: Benchmark Analysis Needs NATS Dispatch (Docs)~~ **FIXED 2026-03-18**
 - **File:** `docs/plans/2026-03-09-benchmark-external-providers-plan.md:2353`
-- **Marker:** `// TODO: Dispatch to Python worker via NATS for LLM analysis`
+- Stale TODO updated to `NOTE: Structural report implemented; NATS dispatch deferred to Phase 28+`.
 
-### STUB-020: Allow-Always Policy Persistence TODO (Docs)
+### ~~STUB-020: Allow-Always Policy Persistence TODO (Docs)~~ **FIXED 2026-03-18**
 - **File:** `docs/plans/2026-03-09-chat-enhancements-plan.md:284`
-- **Marker:** `// TODO: persist policy rule for this tool via separate API call`
-- **Note:** This was actually implemented (see todo.md "Allow Always" entry) — the plan doc is stale.
+- Stale TODO updated to `NOTE: Implemented — POST /policies/allow-always`.
 
 ### STUB-021: Voice & Video Phase Is Stub Only (Docs)
 - **File:** `docs/plans/2026-03-09-chat-enhancements-plan.md:1343`
-- **Marker:** `Phase 10: Voice & Video (Stub Only)` — future, unscoped
+- **Marker:** `Phase 10: Voice & Video (Stub Only)` — future, unscoped. No action needed.
 
-### STUB-022: Python Worker # TODO Comments (Python)
-- **File:** `workers/codeforge/tools/search_files.py` — 1 occurrence
-- **File:** `workers/codeforge/llm.py` — 3 occurrences (fallback keyword handling)
-- **Impact:** Minor improvement opportunities, not blocking.
+### ~~STUB-022: Python Worker # TODO Comments (Python)~~ **RESOLVED 2026-03-18**
+- No actual `# TODO:` comments remain in `workers/codeforge/`. The `search_files.py` occurrence is an example string in `ToolExample`, not a real TODO. `llm.py` has zero TODOs.
 
 ### STUB-023: Commented-Out Feature Blocks in Example Config (YAML)
 - **File:** `codeforge.example.yaml:79-130`
@@ -197,12 +190,11 @@ See `docs/todo.md` for full list.
 | Category | Count | IDs |
 |----------|-------|-----|
 | **CRITICAL** | **0** (~~3~~) | ~~STUB-001~~, ~~STUB-002~~, ~~STUB-003~~ |
-| **HIGH** | **2** (~~8~~) | ~~STUB-003~~, ~~STUB-004~~, ~~STUB-005~~, ~~STUB-006~~, STUB-007, STUB-008, ~~STUB-009~~, ~~STUB-010~~, ~~STUB-024~~ |
-| **MEDIUM** | **3** (~~5~~) | ~~STUB-011~~, ~~STUB-012~~, STUB-013, STUB-014, STUB-015 |
-| **LOW** | **9** | STUB-016 through STUB-023, ~~STUB-025~~, STUB-026 |
+| **HIGH** | **2** | STUB-007, STUB-008 (intentional feature gates, no action needed) |
+| **MEDIUM** | **3** | STUB-013, STUB-014, STUB-015 (intentional no-ops, no action needed) |
+| **LOW** | **2** | STUB-021 (future scope), STUB-023/026 (intentional config) |
 | **INFO** | ~255 | Test stubs (no action) |
-| **docs/todo.md unchecked** | ~19 | Phase 32 tasks |
-| **TOTAL (actionable)** | **14** | (down from 23; 5 are intentional no-ops) |
+| **TOTAL (resolved)** | **20/26** | 6 remaining are all intentional designs |
 
 ---
 

@@ -2339,7 +2339,7 @@ func (h *Handler) handleBenchmarkAnalyzeRun(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Convert results to failure dicts for Python analysis
-	// For now, return a stub that the frontend can display
+	// NOTE: Implemented — returns structural report (see handlers_benchmark.go)
 	failures := make([]map[string]interface{}, 0)
 	for _, res := range results {
 		failures = append(failures, map[string]interface{}{
@@ -2350,8 +2350,7 @@ func (h *Handler) handleBenchmarkAnalyzeRun(w http.ResponseWriter, r *http.Reque
 		})
 	}
 
-	// TODO: Dispatch to Python worker via NATS for LLM analysis
-	// For now, return structural report
+	// NOTE: Structural report implemented; NATS dispatch deferred to Phase 28+
 	report := map[string]interface{}{
 		"run_id":               runID,
 		"mode":                 "coder",

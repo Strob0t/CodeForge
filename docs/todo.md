@@ -430,8 +430,8 @@
 - [x] (2026-03-16) Mini score bars on feature rows (green/yellow/red color coding)
 - [x] (2026-03-16) ETA display when total_tasks known
 - [x] (2026-03-16) Indeterminate progress bar fix for unknown total_tasks
-- TODO: Event dedup requires backend sequence_number on trajectory events
-- TODO: WS reconnect gap requires re-hydration on reconnect
+- [x] (2026-03-18) Event dedup: backend `sequence_number` on trajectory events (migration 077, Go eventstore, frontend dedup)
+- [x] (2026-03-18) WS reconnect gap: `after_sequence` REST param, frontend gap-fill on reconnect
 - Spec: `docs/superpowers/specs/2026-03-16-benchmark-live-feed-density-design.md`
 - Plan: `docs/superpowers/plans/2026-03-16-benchmark-live-feed-improvements.md`
 
