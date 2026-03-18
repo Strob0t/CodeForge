@@ -135,7 +135,7 @@ Detailed analysis: docs/research/market-analysis.md
   - HandoffMessage Pattern (agent handoff between specialists) — `internal/domain/orchestration/handoff.go`, `internal/service/handoff.go`, `workers/codeforge/tools/handoff.py`
   - Human Feedback Provider Protocol (Web GUI, Slack, Email extensible) — `internal/port/feedback/provider.go`, `internal/adapter/slack/feedback.go`, `internal/adapter/email/feedback.go`
 - **Coding Agent Insights (Cline, Devika):**
-  - Plan/Act Mode Pattern (separate LLM configs per phase, user toggle)
+  - Plan/Act Mode Pattern (separate LLM configs per phase, user toggle) — **implemented** (`workers/codeforge/plan_act.py`, `internal/service/conversation_agent.go`)
   - Shadow Git Checkpoints (isolated git repo for rollback)
   - Ask/Say Approval Pattern (granular permissions per tool category)
   - MCP as standard extensibility protocol for tools
@@ -181,9 +181,10 @@ Detailed analysis: docs/research/market-analysis.md
   - Message Quarantine: risk scoring, admin review hold, Evaluate/Approve/Reject — `internal/service/quarantine.go`, migration 049
   - Persistent Agent Identity: fingerprint, stats accumulation, inbox — `internal/domain/agent/agent.go`
   - War Room: live multi-agent collaboration view — `frontend/src/features/project/WarRoom.tsx`
-- **Benchmark & Evaluation System (Phase 26 + 28):** — **implemented**
-  - Phase 26: Provider interface pattern, evaluator plugins (LLMJudge, FunctionalTest, SPARC), 3 runner types, external providers (HumanEval, MBPP, SWE-bench)
+- **Benchmark & Evaluation System (Phase 26 + 28 + Phase 5 Ecosystem):** — **implemented**
+  - Phase 26: Provider interface pattern, evaluator plugins (LLMJudge, FunctionalTest, SPARC, FilesystemState), 3 runner types, external providers (HumanEval, MBPP, SWE-bench, DPAI Arena, Terminal-Bench)
   - Phase 28 (R2E-Gym/EntroPO): Hybrid verification pipeline, trajectory verifier, multi-rollout scaling, diversity-aware MAB (entropy-UCB1), DPO export, SWE-GEN synthetic tasks — `workers/codeforge/evaluation/`
+  - Phase 5 Ecosystem: DPAI Arena provider (simple), Terminal-Bench provider (agent) with FilesystemStateEvaluator, RLVR training pipeline export (`GET /benchmarks/runs/{id}/export/rlvr`)
 - **Contract-First Review/Refactor (Phase 31):** — **implemented**
   - Boundary Detection: LLM-based identification of API, data, inter-service, cross-language boundaries — `internal/domain/boundary/`
   - Review-Refactor Pipeline: 4-step sequential (boundary-analyzer -> contract-reviewer -> reviewer -> refactorer) — `internal/domain/pipeline/presets.go`

@@ -1,6 +1,6 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-03-16
+> Last update: 2026-03-18
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
 
@@ -272,3 +272,23 @@ SVG-based design canvas with 7 tools (select, rect, ellipse, freehand, text, ann
 ### E2E Test Expansion & Verification Tooling (COMPLETED)
 
 Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests verifying full billing error -> classify -> mark exhausted -> model switch chain). File CRUD Playwright E2E (`frontend/e2e/file-crud.spec.ts`, 4 tests). Feature description Playwright E2E (`frontend/e2e/feature-description.spec.ts`, 4 tests). Verification trend tracking in `scripts/verify-features.sh` (`--trend` flag, JSON history with git SHA/branch/timestamp in `data/verification-history/`). Agent-eval benchmark run with `mistral/mistral-large-latest` (0/300 -- model could not produce code, infrastructure verified working).
+
+### Phase 5 Ecosystem: Benchmark Providers + RLVR Export (COMPLETED)
+
+**C3: DPAI Arena + Terminal-Bench Providers.** Two new benchmark providers: `DPAIArenaProvider` (BenchmarkType.SIMPLE, HuggingFace `DPAI/arena` dataset, functional_tests + llm_judge) and `TerminalBenchProvider` (BenchmarkType.AGENT, filesystem state verification). New `FilesystemStateEvaluator` compares expected vs actual filesystem state (file existence, content match, expected-missing checks). Go `defaultSuites` updated. 56 Python tests.
+
+**C4: RLVR Training Pipeline Export.** New export pipeline for Reinforcement Learning from Verifiable Rewards. Python `RLVRExporter` with `compute_rlvr_reward()` (weighted average, functional_test 2x weight, clamped [0,1]) and `format_rlvr_entry()`. Go `ExportRLVRDataset()` service method + `ComputeRLVRReward()`. HTTP endpoint `GET /api/v1/benchmarks/runs/{id}/export/rlvr` supporting JSONL (default) and JSON formats. 36 tests (19 Python + 13 Go service + 4 Go handler).
+
+### Quality & Performance — Phase 1 Quick Wins (COMPLETED)
+
+**A1: Stall Detection + Escape.** `StallDetector` class with deque-based sliding window and FNV-64a hash ring for detecting repeated tool calls. Integrated into `AgentLoopExecutor.run()`. Publishes `trajectory.stall_detected` events. 22 tests.
+
+**B3: Adaptive Context Budget.** `ClassifyComplexity()` with 7 heuristics + task-type boost. `ComplexityBudget()` composes with PhaseAware + Adaptive decay. 17 tests.
+
+**C2: Confidence-Based Early Stopping.** `EarlyStopChecker` for multi-rollout runs with quorum + threshold. Integrated into `MultiRolloutRunner.run()`. Configurable via `CODEFORGE_EARLY_STOP_THRESHOLD` / `CODEFORGE_EARLY_STOP_QUORUM`. 15 tests.
+
+### Quality & Performance — Phase 2 Core Quality (COMPLETED)
+
+**A3: Plan/Act Mode Toggle.** Two-phase agent execution: plan phase (read-only tools: read_file, search_files, glob_files, list_directory) then act phase (all tools). `PlanActController` in Python with auto-transition after configurable iterations (`CODEFORGE_PLAN_ACT_MAX_ITERATIONS`, default 10). Enabled automatically for modes with autonomy >= 4 via `plan_act_enabled` NATS field. Routing tag `"plan"` for LLM scenario routing in plan phase. 37 tests (29 Python + 8 Go).
+
+**B2: Semantic Deduplication of Context Candidates.** SimHash-based near-duplicate detection for context candidates from multiple retrieval sources (BM25, semantic search, GraphRAG). `simhash64()` (64-bit fingerprint via trigram shingles + FNV-64a), `hammingDistance()` (XOR + popcount), `deduplicateCandidates()` (greedy dedup, threshold 3 bits, keeps highest-priority). Integrated into `assembleAndPack()` before token budget packing. 26 tests.

@@ -1420,10 +1420,11 @@ Agents maintain persistent identity across sessions with fingerprint, stats accu
 
 #### Benchmark Provider Interface (Phase 26)
 
-The benchmark system uses a provider registry pattern (matching the hexagonal architecture). External code-gen providers (HumanEval, MBPP, BigCodeBench, SWE-bench) register via the provider interface. Three runner types (Simple, ToolUse, Agent) support different evaluation modes.
+The benchmark system uses a provider registry pattern (matching the hexagonal architecture). External code-gen providers (HumanEval, MBPP, BigCodeBench, SWE-bench, DPAI Arena, Terminal-Bench) register via the provider interface. Three runner types (Simple, ToolUse, Agent) support different evaluation modes.
 
-- Evaluator plugins: LLMJudge, FunctionalTest, SPARC (composable pipeline)
+- Evaluator plugins: LLMJudge, FunctionalTest, SPARC, FilesystemState (composable pipeline)
 - Go API: multi-compare, cost analysis, leaderboard, WebSocket progress events
+- Export pipelines: DPO training pairs, RLVR dataset (`GET /api/v1/benchmarks/runs/{id}/export/rlvr`)
 
 #### Hybrid Verification and Test-Time Scaling (Phase 28)
 
