@@ -11,7 +11,8 @@
 ### ~~STUB-001: A2A In-Memory Task Store (Go)~~ **FIXED 2026-03-17**
 - **File:** `internal/port/a2a/handler.go` (deleted)
 - **Phase:** A2A Phase 2-3
-- **Description:** ~~Entire A2A handler was a discovery-only stub with in-memory task store.~~ Deleted the entire legacy `internal/port/a2a/` package (dead code, zero external imports). The real A2A implementation lives in `internal/adapter/a2a/` (SDK-based, PostgreSQL persistence) and `internal/service/a2a.go`. Python worker receives A2A tasks via NATS (`a2a.task.created`) and executes them through the `A2AHandlerMixin`.
+- **Description:** ~~Entire A2A handler was a discovery-only stub with in-memory task store.~~ Deleted the entire legacy `internal/port/a2a/` package (dead code, zero external imports). The real A2A implementation lives in `internal/adapter/a2a/` (SDK-based, PostgreSQL persistence) and `internal/service/a2a.go`. Python worker receives A2A tasks via NATS (`a2a.task.created`) and executes them through the `A2AHandlerMixin` with a dedicated `AgentExecutor.execute_a2a_task()` method that builds A2A-specific system prompts incorporating skill context.
+- **Tests:** `workers/tests/test_a2a_executor.py` (8 tests), `workers/tests/test_a2a_mixin_executor.py` (4 tests), `workers/tests/test_consumer_a2a.py` (9 tests) — 21 total
 
 ### ~~STUB-002: StubBackendExecutor.info Raises NotImplementedError (Python)~~ **FIXED 2026-03-17**
 - **File:** `workers/codeforge/backends/_base.py:99`

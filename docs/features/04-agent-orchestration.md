@@ -718,6 +718,8 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 - Dynamic `AgentCard` at `/.well-known/agent.json` with skills from registered modes
 - SDK-based handler via `a2a-go` — JSON-RPC task lifecycle (submit/working/completed/failed)
 - `AgentExecutor` bridges A2A tasks to CodeForge's NATS-based execution pipeline
+- Python worker: dedicated `AgentExecutor.execute_a2a_task()` with A2A-specific system prompts (skill context, cost tracking)
+- `A2AHandlerMixin` publishes WORKING state before execution, then COMPLETED/FAILED with trust-stamped payloads
 - Trust annotations stamped on all inbound tasks (origin="a2a", level=untrusted)
 - Quarantine evaluation before task execution (Phase 23B integration)
 - Bearer token authentication middleware with configurable API keys
@@ -782,6 +784,9 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 | `internal/middleware/a2a_auth.go` | Bearer token auth middleware |
 | `internal/domain/a2a/` | Domain types (A2ATask, RemoteAgent) |
 | `internal/adapter/postgres/store_a2a.go` | PostgreSQL persistence |
+| `workers/codeforge/consumer/_a2a.py` | Python A2A handler mixin (NATS consumer) |
+| `workers/codeforge/executor.py` | `execute_a2a_task()` — A2A-specific LLM execution |
+| `workers/codeforge/a2a_protocol.py` | A2ATaskState enum and helpers |
 
 **Security Hardening (Phase 27P):**
 

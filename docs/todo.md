@@ -1212,11 +1212,11 @@
 - [ ] STUB-004: Wire actual budget tracking + stall detection into conversation agent template data (`internal/service/conversation_agent.go:150-151`)
 - [ ] STUB-003: Implement review trigger dispatch to boundary-analyzer agent loop (`workers/codeforge/consumer/_review.py:35`)
 - [ ] STUB-009: Add trajectory event `sequence_number` (Go) + frontend dedup + WS reconnect re-hydration (`frontend/src/features/benchmarks/BenchmarkPage.tsx:131-135`)
-- [ ] STUB-006: Build A2A agent card skills dynamically from mode registry + backend capabilities (`internal/port/a2a/agentcard.go:4-32`)
+- [x] STUB-006: ~~Build A2A agent card skills dynamically~~ Deleted legacy `internal/port/a2a/` package; real agent card served by `internal/adapter/a2a/` (2026-03-17)
 - [ ] STUB-012: Defer StepBinding creation until orchestrator assigns real resources (`internal/service/review.go:267`)
 
 **Large Effort (phase-level):**
-- [ ] STUB-001: A2A task persistence to PostgreSQL + execution routing to agent backends (`internal/port/a2a/handler.go`)
+- [x] STUB-001: ~~A2A task persistence + execution routing~~ Deleted legacy `internal/port/a2a/`; real impl in `internal/adapter/a2a/` + `internal/service/a2a.go`; Python `execute_a2a_task()` with 21 tests (2026-03-17)
 - [ ] STUB-010: SWE-agent backend adapter implementation (`docs/features/04-agent-orchestration.md`)
 
 **No Action Needed (intentional designs):**
