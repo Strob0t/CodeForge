@@ -1296,23 +1296,23 @@
 - [ ] B2.6: Integrate into `BuildConversationContext()`
 - [ ] B2.7: Run regression tests
 
-#### Phase 3 — Context Intelligence (~10h total)
+#### Phase 3 — Context Intelligence (COMPLETED)
 
-**B1: LLM-Based Re-Ranking of Retrieval Results (~4h)**
-- [ ] B1.1-B1.4: Write reranker tests (reorder, prompt format, fallback, routing tags)
-- [ ] B1.5: Add NATS subjects in `queue.go` + `_subjects.py`
-- [ ] B1.6: Implement `ContextReranker` in `workers/codeforge/consumer/_context.py`
-- [ ] B1.7-B1.7b: Add NATS handler + Go integration test
-- [ ] B1.8: Integrate into Go `ContextOptimizerService`
-- [ ] B1.9-B1.11: Add config + verify JetStream + run tests
+**B1: LLM-Based Re-Ranking of Retrieval Results**
+- [x] (2026-03-18) B1.1-B1.4: Write reranker tests (reorder, prompt format, fallback, routing tags)
+- [x] (2026-03-18) B1.5: Add NATS subjects in `queue.go` + `_subjects.py`
+- [x] (2026-03-18) B1.6: Implement `ContextReranker` in `workers/codeforge/context_reranker.py`
+- [x] (2026-03-18) B1.7-B1.7b: Add NATS handler (`ContextHandlerMixin`) + Go integration test
+- [x] (2026-03-18) B1.8: Integrate into Go `ContextOptimizerService` (syncWaiter + `assembleAndPack()`)
+- [x] (2026-03-18) B1.9-B1.11: Add config (`CODEFORGE_CONTEXT_RERANK_ENABLED/MODEL`) + verify JetStream + run tests
 
-**A2: Conversation Summarization at Context Exhaustion (~6h)**
-- [ ] A2.1-A2.4: Write summarization tests (threshold, tail preservation, prompt, routing tags)
-- [ ] A2.5: Implement `ConversationSummarizer` class in `workers/codeforge/history.py`
-- [ ] A2.6: Implement `_summarize_history()` async method
-- [ ] A2.7: Add `async summarize_if_needed()` pre-processing step (separate from sync `build_messages()`)
-- [ ] A2.8: Add `CODEFORGE_SUMMARIZE_THRESHOLD` env var
-- [ ] A2.9: Run regression tests
+**A2: Conversation Summarization at Context Exhaustion**
+- [x] (2026-03-18) A2.1-A2.4: Write summarization tests (threshold, tail preservation, prompt, routing tags)
+- [x] (2026-03-18) A2.5: Implement `ConversationSummarizer` class in `workers/codeforge/history.py`
+- [x] (2026-03-18) A2.6: Implement `_summarize_history()` async method
+- [x] (2026-03-18) A2.7: Add `async summarize_if_needed()` pre-processing step in `_conversation.py`
+- [x] (2026-03-18) A2.8: Add `CODEFORGE_SUMMARIZE_THRESHOLD` env var + wire into NATS payload
+- [x] (2026-03-18) A2.9: Run regression tests (16 new tests pass, no regressions)
 
 #### Phase 4 — Advanced Features (~12h total)
 
