@@ -241,7 +241,7 @@ class ConversationHandlerMixin:
         registry: object,
         fallback_models: list[str],
     ) -> AgentLoopResult:
-        """Dispatch to simple chat or agentic loop based on run_msg.agentic."""
+        """Dispatch to simple chat, Claude Code, or LiteLLM agentic loop."""
         if not run_msg.agentic:
             return await self._run_simple_chat(
                 run_msg,
@@ -252,6 +252,57 @@ class ConversationHandlerMixin:
                 fallback_models=fallback_models,
             )
 
+        # Claude Code execution path
+        if primary_model.startswith("claudecode/"):
+            from codeforge.claude_code_executor import ClaudeCodeExecutor
+
+            cc_executor = ClaudeCodeExecutor(
+                workspace_path=run_msg.workspace_path,
+                runtime=runtime,
+            )
+            result = await cc_executor.run(
+                messages=messages,
+                model=primary_model,
+                max_turns=run_msg.termination.max_steps or 50,
+                system_prompt=run_msg.system_prompt,
+            )
+            # If Claude Code failed and we have fallbacks, try LiteLLM path
+            if result.error and fallback_models:
+                next_model = fallback_models[0]
+                remaining = fallback_models[1:]
+                await runtime.send_output(f"\n[Claude Code unavailable. Switching to {next_model}]\n")
+                return await self._execute_litellm_loop(
+                    run_msg,
+                    messages,
+                    next_model,
+                    routing,
+                    runtime,
+                    registry,
+                    remaining,
+                )
+            return result
+
+        return await self._execute_litellm_loop(
+            run_msg,
+            messages,
+            primary_model,
+            routing,
+            runtime,
+            registry,
+            fallback_models,
+        )
+
+    async def _execute_litellm_loop(
+        self,
+        run_msg: ConversationRunStartMessage,
+        messages: list[dict],
+        primary_model: str,
+        routing: object,
+        runtime: RuntimeClient,
+        registry: object,
+        fallback_models: list[str],
+    ) -> AgentLoopResult:
+        """Run the LiteLLM-based agentic loop with optional multi-rollout."""
         from codeforge.agent_loop import AgentLoopExecutor, ConversationRolloutExecutor, LoopConfig
 
         executor = AgentLoopExecutor(
@@ -764,7 +815,9 @@ class ConversationHandlerMixin:
 
                     models = expand_wildcard_models(raw_models)
                     models = filter_keyless_models(models)
-                    return get_blocklist().filter_available(models)
+                    models = get_blocklist().filter_available(models)
+                    await self._append_claude_code_model(models)
+                    return models
                 logger.warning("Go Core /llm/available returned no reachable models")
         except Exception as exc:
             logger.debug("Go Core /llm/available unavailable, falling back to LiteLLM", error=str(exc))
@@ -789,10 +842,20 @@ class ConversationHandlerMixin:
             models = filter_keyless_models(models)
             if not models:
                 logger.warning("LiteLLM /v1/models returned empty model list")
-            return get_blocklist().filter_available(models)
+            models = get_blocklist().filter_available(models)
+            await self._append_claude_code_model(models)
+            return models
         except Exception as exc:
             logger.warning("failed to fetch models from LiteLLM", exc_info=True, error=str(exc))
             return []
+
+    @staticmethod
+    async def _append_claude_code_model(models: list[str]) -> None:
+        """Append ``claudecode/default`` to the model list if CLI is available."""
+        from codeforge.claude_code_availability import is_claude_code_available
+
+        if await is_claude_code_available():
+            models.append("claudecode/default")
 
     async def _build_fallback_chain(
         self,
