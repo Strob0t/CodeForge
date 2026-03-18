@@ -500,10 +500,17 @@ docs/
 │   ├── 01-project-dashboard.md      # Pillar 1: Multi-repo management
 │   ├── 02-roadmap-feature-map.md    # Pillar 2: Visual roadmap, specs, PM sync
 │   ├── 03-multi-llm-provider.md     # Pillar 3: LiteLLM, routing, cost tracking
-│   └── 04-agent-orchestration.md    # Pillar 4: Agent modes, execution, safety
+│   ├── 04-agent-orchestration.md    # Pillar 4: Agent modes, execution, safety
+│   ├── 05-chat-enhancements.md      # Chat UI features, HITL, notifications
+│   └── 06-visual-design-canvas.md   # SVG canvas, triple-output export
+├── specs/                           # Design specifications (*-design.md)
+├── plans/                           # Implementation plans (*-plan.md)
+├── testing/                         # Test plans (*-testplan.md) and reports (*-report.md)
+├── audits/                          # Schema, UX, and code audits
 ├── architecture/                    # Detailed architecture documents
 │   └── adr/                         # Architecture Decision Records
-└── research/                        # Market research & analysis
+├── research/                        # Market research & analysis
+└── prompts/                         # Prompt templates
 ```
 
 ### TODO Tracking Rules
@@ -525,6 +532,10 @@ docs/
 | Completed milestone | `docs/project-status.md`, `docs/todo.md` |
 | New directory/port/env var | `docs/dev-setup.md` |
 | Core pillar changes | `CLAUDE.md`, relevant `docs/features/*.md` |
+| New design spec | `docs/specs/*-design.md`, `docs/todo.md` |
+| New implementation plan | `docs/plans/*-plan.md`, `docs/todo.md` |
+| Test results/plans | `docs/testing/`, `docs/todo.md` |
+| Audit findings | `docs/audits/`, `docs/todo.md` |
 | Any code change | `docs/todo.md` (mark task done or add new tasks) |
 
 ### Feature Documentation Rules
