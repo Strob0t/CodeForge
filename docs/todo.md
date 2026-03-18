@@ -1209,20 +1209,26 @@
 - [x] STUB-011: Refactor `detectGoalFiles()` to use intermediate `DetectedGoal` type (2026-03-17)
 
 **Medium Effort:**
-- [x] STUB-004: Wire actual budget tracking + stall detection into conversation agent template data (2026-03-18)
+- [x] STUB-004: Wire stall detection (`countStallIterations`) into conversation agent template data (2026-03-18) — BudgetPercent still 0.0, needs Python worker cost reporting
 - [x] STUB-003: Implement review trigger dispatch to boundary-analyzer agent loop (`workers/codeforge/consumer/_review.py:35`) (2026-03-18)
 - [x] STUB-009: Add trajectory event `sequence_number` (Go) + frontend dedup + WS reconnect re-hydration (`frontend/src/features/benchmarks/BenchmarkPage.tsx:131-135`) (2026-03-18)
-- [x] STUB-006: Build A2A agent card skills dynamically from mode registry + backend capabilities (2026-03-18)
-- [x] STUB-012: Defer StepBinding creation until orchestrator assigns real resources (2026-03-18)
+- [x] STUB-006: A2A agent card skills already built dynamically in SDK-based `CardBuilder` (`internal/adapter/a2a/agentcard.go`) (2026-03-18)
+- [x] STUB-012: Pipeline `Instantiate()` auto-generates TaskID/AgentID UUIDs when nil (2026-03-18)
 
 **Large Effort (phase-level):**
-- [ ] STUB-001: A2A task persistence to PostgreSQL + execution routing to agent backends (`internal/port/a2a/handler.go`)
+- [x] STUB-001: A2A Python consumer mixin (`workers/codeforge/consumer/_a2a.py`) + PostgreSQL persistence already in SDK implementation (2026-03-18) — Cleanup: delete dead code `internal/port/a2a/`
 - [x] STUB-010: SWE-agent backend adapter implementation (`workers/codeforge/backends/sweagent.py`) (2026-03-17)
+
+**Small Effort (new from 2026-03-18 scan):**
+- [ ] STUB-024: Wire re-run benchmark button onClick in PromptOptimizationPanel (`frontend/src/features/benchmarks/PromptOptimizationPanel.tsx:173`)
+- [ ] STUB-025: Remove deprecated `activeTool` prop from CanvasModal interface (`frontend/src/features/canvas/CanvasModal.tsx:33-34`)
+- [ ] Cleanup: Delete dead code `internal/port/a2a/` (zero imports, merge artifact)
+- [ ] STUB-004 (remaining): Wire BudgetPercent from Python worker cost reporting
 
 **No Action Needed (intentional designs):**
 - STUB-007/008: GitHub OAuth + Subscription 501 gates (feature-gated by design)
 - STUB-013/014/015: Intentional no-ops (_BenchmarkRuntime, StubBackendExecutor.cancel, useCRUDForm fallback)
-- STUB-016-023: Documentation TODOs (tracked in plan docs or cross-referenced above)
+- STUB-016-023, STUB-026: Documentation TODOs and intentional config exclusions
 
 **Modular Prompt System (Phases A-F)**
 - [x] Phase A: Domain types (PromptEntry, AssemblyContext, Category, Conditions) + YAML loader + tests (2026-03-17)

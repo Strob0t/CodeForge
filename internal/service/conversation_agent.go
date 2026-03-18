@@ -128,7 +128,6 @@ func (s *ConversationService) buildConversationContextEntries(
 }
 
 // evaluateReminders checks runtime conditions and returns matching reminder texts.
-// Parameters ctx and conversationID are reserved for future budget/stall tracking integration.
 func (s *ConversationService) evaluateReminders(
 	_ context.Context,
 	_ string,
@@ -162,10 +161,6 @@ func (s *ConversationService) evaluateReminders(
 		}
 	}
 
-	// Don't inject all reminders on every turn -- that wastes tokens.
-	// Return the rendered reminders so the pipeline is exercised; the caller
-	// (SendMessageAgentic/WithMode) passes them to the NATS payload which
-	// the Python worker injects into the system prompt.
 	return result
 }
 

@@ -1,6 +1,6 @@
 # CodeForge — Stub & Placeholder Tracker
 
-> Generated: 2026-03-17 via stub-finder scan.
+> Generated: 2026-03-17 via stub-finder scan. Updated: 2026-03-18 (reconciled after STUB-001/010 implementation).
 > This document tracks ALL stubs, placeholders, and unimplemented code paths across the codebase.
 > Each item has a unique ID (STUB-NNN) for cross-referencing in commits and todo.md.
 
@@ -8,13 +8,12 @@
 
 ## CRITICAL — Production Stubs (will fail or silently no-op)
 
-### STUB-001: A2A In-Memory Task Store (Go)
-- **File:** `internal/port/a2a/handler.go:3,24,29`
+### ~~STUB-001: A2A In-Memory Task Store (Go)~~ **FIXED 2026-03-18**
+- **File:** ~~`internal/port/a2a/handler.go`~~ (legacy, dead code)
 - **Phase:** A2A Phase 2-3
-- **Description:** Entire A2A handler is marked `STATUS: Phase 2-3 stub — discovery-only implementation`. Tasks are accepted via `POST /a2a/tasks` but stored only in `map[string]*TaskResponse` — lost on restart, never dispatched to agent backends.
-- **Impact:** A2A protocol endpoints accept tasks but they are lost on restart and never executed.
-- **Fix:** Persist tasks to PostgreSQL, route to agent backends for execution.
-- **Effort:** Large (new migration, service layer, NATS integration)
+- **Description:** ~~Tasks stored in-memory only.~~ The legacy `internal/port/a2a/handler.go` was superseded by the SDK-based implementation in `internal/adapter/a2a/` (PostgreSQL persistence via migration 054, `store_a2a.go`). Python consumer mixin `workers/codeforge/consumer/_a2a.py` handles inbound A2A tasks via NATS (`a2a.task.created` -> execute -> `a2a.task.complete`).
+- **Tests:** `workers/tests/test_consumer_a2a.py` (9 tests), `workers/tests/test_a2a_executor.py` (8 tests), `workers/tests/test_a2a_mixin_executor.py` (4 tests)
+- **Cleanup:** `internal/port/a2a/` is dead code (zero imports) — should be deleted. Re-introduced by merge artifact.
 
 ### ~~STUB-002: StubBackendExecutor.info Raises NotImplementedError (Python)~~ **FIXED 2026-03-17**
 - **File:** `workers/codeforge/backends/_base.py:99`
@@ -34,17 +33,13 @@
 
 ## HIGH — Incomplete Features (partially implemented)
 
-### STUB-004: Budget Tracking & Stall Detection Hardcoded to Zero (Go)
-- **File:** `internal/service/conversation_agent.go:150-151`
+### STUB-004: Budget Tracking & Stall Detection Hardcoded to Zero (Go) — **PARTIALLY FIXED 2026-03-18**
+- **File:** `internal/service/conversation_agent.go:149-152`
 - **Phase:** Phase 17 (Agentic Conversation Loop)
-- **Description:** Template data for dynamic system reminders uses hardcoded zeros:
-  ```go
-  "BudgetPercent":   0.0, // TODO: Wire actual budget tracking
-  "StallIterations": 0,   // TODO: Wire stall detection
-  ```
-- **Impact:** Dynamic system reminders cannot warn agents about budget exhaustion or stall conditions.
-- **Fix:** Read actual budget percentage from cost tracking service, stall iteration count from agent loop state.
-- **Effort:** Medium (wire existing services into template data)
+- **Description:** `StallIterations` now wired via `countStallIterations(history)` which counts consecutive non-progress tool calls. `BudgetPercent` is still hardcoded to `0.0` — Python worker does not yet report running cost back to Go.
+- **Remaining:** Wire `BudgetPercent` when Python worker reports running cost via NATS.
+- **Tests:** `internal/service/prompt_assembler_test.go` (table-driven `countStallIterations` tests)
+- **Effort:** Small (remaining: wire cost from Python worker)
 
 ### ~~STUB-005: UpdateConversationMode/Model Are No-Op Stubs (Go)~~ **FIXED 2026-03-17**
 - **File:** `internal/adapter/postgres/store_conversation.go`
@@ -52,13 +47,11 @@
 - **Description:** ~~Both methods were no-op stubs.~~ Added `mode` and `model` columns (migration 076), updated all CRUD queries, implemented real UPDATE methods with tenant isolation.
 - **Tests:** `TestConversation_SetMode_Persisted`, `TestConversation_SetModel_Persisted`
 
-### STUB-006: A2A Agent Card Skills Are Hardcoded (Go)
-- **File:** `internal/port/a2a/agentcard.go:4-32`
+### ~~STUB-006: A2A Agent Card Skills Are Hardcoded (Go)~~ **FIXED 2026-03-18**
+- **File:** `internal/adapter/a2a/agentcard.go` (SDK-based CardBuilder)
 - **Phase:** A2A Phase 2-3
-- **Description:** Comment: "Skills are hardcoded placeholders. In Phase 2-3 these will be populated dynamically." Only 2 static skills ("code-task", "decompose") returned regardless of actual agent capabilities.
-- **Impact:** A2A agent card does not reflect actual registered backends or mode configurations.
-- **Fix:** Build skills dynamically from mode registry and agent backend capabilities.
-- **Effort:** Medium (query mode presets + backend registry at card build time)
+- **Description:** ~~Skills hardcoded.~~ The SDK-based `CardBuilder` in `internal/adapter/a2a/agentcard.go` builds skills dynamically from registered `ModeInfo` entries. Falls back to a single "code-task" skill when no modes are registered. The legacy `internal/port/a2a/agentcard.go` also has dynamic skills but is dead code.
+- **Tests:** `internal/port/a2a/handler_test.go` (legacy), `internal/adapter/a2a/` (SDK integration)
 
 ### STUB-007: GitHub OAuth Returns 501 When Unconfigured (Go)
 - **File:** `internal/adapter/http/handlers_github_oauth.go:10-12,27-28`
@@ -102,13 +95,11 @@
 - **Description:** ~~`detectGoalFiles()` returned partial ProjectGoal objects.~~ Introduced `DetectedGoal` intermediate type (no ID/ProjectID/TenantID). `ToProjectGoal(projectID)` converts to full `ProjectGoal` with required fields.
 - **Tests:** `TestDetectedGoal_NoProjectIDOrTenantID`, `TestDetectedGoal_ToProjectGoal` + all existing detection tests pass
 
-### STUB-012: Review Pipeline Creates Placeholder StepBindings (Go)
-- **File:** `internal/service/review.go:267`
+### ~~STUB-012: Review Pipeline Creates Placeholder StepBindings (Go)~~ **FIXED 2026-03-18**
+- **File:** `internal/service/review.go:267`, `internal/domain/pipeline/pipeline.go:144`
 - **Phase:** Phase 31
-- **Description:** Creates StepBinding objects with temporary UUIDs for TaskID and AgentID. Orchestrator replaces these later.
-- **Impact:** Intermediate state with placeholder UUIDs — works but fragile.
-- **Fix:** Defer binding creation until orchestrator assigns real resources.
-- **Effort:** Small (refactor binding creation timing)
+- **Description:** ~~Placeholder UUIDs.~~ `pipeline.Instantiate()` now auto-generates TaskID/AgentID UUIDs when bindings are nil or have empty fields. `review.go` passes nil bindings, removing manual placeholder creation.
+- **Tests:** `TestInstantiate_EmptyBinding_AutoFills`, `TestInstantiate_PartialBindings_AutoFill`
 
 ### STUB-013: _BenchmarkRuntime No-Op Methods (Python)
 - **File:** `workers/codeforge/consumer/_benchmark.py:433-457`
@@ -175,6 +166,29 @@
 - **Description:** 4 commented-out feature sections (MCP, benchmark, A2A, routing). All features are implemented and enabled in production config — example file intentionally disables for simplicity.
 - **Impact:** None — correct behavior for example configs.
 
+### STUB-024: Disabled Re-Run Benchmark Button (TypeScript)
+- **File:** `frontend/src/features/benchmarks/PromptOptimizationPanel.tsx:173`
+- **Phase:** Benchmark System
+- **Description:** "Re-run Benchmark" button permanently disabled (`disabled` attr, no `onClick`). Comment: `{/* Re-run placeholder */}`.
+- **Impact:** Users cannot rerun benchmarks from the Prompt Optimization panel.
+- **Fix:** Wire onClick to trigger a new benchmark run for the current prompt variant.
+- **Effort:** Small
+
+### STUB-025: Deprecated activeTool Prop in CanvasModal (TypeScript)
+- **File:** `frontend/src/features/canvas/CanvasModal.tsx:33-34`
+- **Phase:** Phase 32 (Visual Design Canvas)
+- **Description:** `activeTool?: CanvasTool` prop marked `@deprecated`. Unused at runtime.
+- **Impact:** None.
+- **Fix:** Remove deprecated prop from interface.
+- **Effort:** Trivial
+
+### STUB-026: GitHub Copilot Provider Commented Out in LiteLLM Config (YAML)
+- **File:** `litellm/config.yaml:76-85`
+- **Description:** `github_copilot/*` provider block commented out. Device-code auth blocks LiteLLM startup. Token exchange handled by Go Core.
+- **Impact:** None — intentional exclusion.
+- **Fix:** N/A unless LiteLLM adds async auth.
+- **Effort:** N/A
+
 ---
 
 ## INFO — Test Stubs (expected, no action needed)
@@ -187,8 +201,8 @@
 
 ## Unchecked Items in docs/todo.md
 
-**20 unchecked `[ ]` items** — all in Phase 32 (Visual Design Canvas).
-See `docs/todo.md` lines 1167-1200 for full list.
+**23 unchecked `[ ]` items** — Phase 32 (Visual Design Canvas) + remaining stubs.
+See `docs/todo.md` for full list.
 
 ---
 
@@ -196,35 +210,41 @@ See `docs/todo.md` lines 1167-1200 for full list.
 
 | Category | Count | IDs |
 |----------|-------|-----|
-| **CRITICAL** | **1** (~~3~~) | STUB-001, ~~STUB-002~~, STUB-003 |
-| **HIGH** | **5** (~~7~~) | STUB-004, ~~STUB-005~~, STUB-006 through STUB-009, ~~STUB-010~~ |
-| **MEDIUM** | **4** (~~5~~) | ~~STUB-011~~, STUB-012 through STUB-015 |
-| **LOW** | **8** | STUB-016 through STUB-023 |
+| **CRITICAL** | **0** (~~3~~) | ~~STUB-001~~, ~~STUB-002~~, STUB-003 (demoted to HIGH — no-op, not data loss) |
+| **HIGH** | **4** (~~8~~) | STUB-003, STUB-004 (partial), ~~STUB-005~~, ~~STUB-006~~, STUB-007, STUB-008, STUB-009, ~~STUB-010~~, STUB-024 |
+| **MEDIUM** | **3** (~~5~~) | ~~STUB-011~~, ~~STUB-012~~, STUB-013, STUB-014, STUB-015 |
+| **LOW** | **10** | STUB-016 through STUB-023, STUB-025, STUB-026 |
 | **INFO** | ~255 | Test stubs (no action) |
-| **docs/todo.md unchecked** | 20 | Phase 32 tasks |
-| **TOTAL (actionable)** | **23** | |
+| **docs/todo.md unchecked** | 23 | Phase 32 + remaining stubs |
+| **TOTAL (actionable)** | **17** | (down from 23) |
 
 ---
 
 ## Recommended Fix Order
 
-**Quick wins — COMPLETED 2026-03-17:**
-1. ~~STUB-002 — Convert StubBackendExecutor to ABC (`@abstractmethod`)~~
+**COMPLETED 2026-03-17:**
+1. ~~STUB-002 — Convert StubBackendExecutor to ABC~~
 2. ~~STUB-005 — Add mode/model columns to conversations table~~
 3. ~~STUB-011 — Goal discovery type refactor~~
 
-**Medium effort:**
-4. STUB-004 — Wire budget tracking & stall detection
-5. STUB-003 — Implement review trigger dispatch
-6. STUB-009 — Event dedup + WS reconnect gap
-7. STUB-006 — Dynamic A2A agent card skills
-8. STUB-012 — Refactor placeholder StepBindings
+**COMPLETED 2026-03-18:**
+4. ~~STUB-001 — A2A task persistence & execution (Python consumer + SDK integration)~~
+5. ~~STUB-006 — Dynamic A2A agent card skills (already in SDK CardBuilder)~~
+6. ~~STUB-010 — SWE-agent backend implementation~~
+7. ~~STUB-012 — Pipeline auto-generates StepBindings~~
+8. ~~STUB-004 (partial) — Stall detection wired~~
 
-**Large effort (phase-level work):**
-9. STUB-001 — A2A task persistence & execution
-10. ~~STUB-010 — SWE-agent backend implementation~~ **COMPLETED 2026-03-17**
+**Remaining — small effort:**
+9. STUB-004 (remaining) — Wire BudgetPercent from Python worker cost reporting
+10. STUB-024 — Wire re-run benchmark button onClick
+11. STUB-025 — Remove deprecated CanvasModal activeTool prop
+12. Cleanup: delete dead code `internal/port/a2a/` (merge artifact, zero imports)
+
+**Remaining — medium effort:**
+13. STUB-003 — Implement review trigger dispatch
+14. STUB-009 — Event dedup + WS reconnect gap
 
 **No action needed:**
 - STUB-007, STUB-008 (intentional feature gates)
 - STUB-013, STUB-014, STUB-015 (intentional no-ops)
-- STUB-016 through STUB-023 (docs/config, tracked elsewhere)
+- STUB-016 through STUB-023, STUB-026 (docs/config, tracked elsewhere)
