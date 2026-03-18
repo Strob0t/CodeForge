@@ -64,15 +64,6 @@ export const teamStatusVariant: Record<string, BadgeVariant> = {
   failed: "danger",
 };
 
-// Team role → badge variant
-export const teamRoleVariant: Record<string, BadgeVariant> = {
-  coder: "info",
-  reviewer: "primary",
-  tester: "success",
-  documenter: "warning",
-  planner: "danger",
-};
-
 // Agent status → badge variant
 export const agentStatusVariant: Record<string, BadgeVariant> = {
   idle: "success",
@@ -126,19 +117,4 @@ export const kbCategoryVariant: Record<string, BadgeVariant> = {
 export const scopeTypeVariant: Record<string, BadgeVariant> = {
   shared: "info",
   global: "primary",
-};
-
-// User role → badge variant
-export const userRoleVariant: Record<string, BadgeVariant> = {
-  admin: "danger",
-  user: "default",
-};
-
-// VCS provider → badge variant
-export const vcsProviderVariant: Record<string, BadgeVariant> = {
-  github: "default",
-  gitlab: "warning",
-  bitbucket: "info",
-  gitea: "success",
-  svn: "primary",
 };

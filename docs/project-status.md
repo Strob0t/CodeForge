@@ -292,3 +292,13 @@ Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests
 **A3: Plan/Act Mode Toggle.** Two-phase agent execution: plan phase (read-only tools: read_file, search_files, glob_files, list_directory) then act phase (all tools). `PlanActController` in Python with auto-transition after configurable iterations (`CODEFORGE_PLAN_ACT_MAX_ITERATIONS`, default 10). Enabled automatically for modes with autonomy >= 4 via `plan_act_enabled` NATS field. Routing tag `"plan"` for LLM scenario routing in plan phase. 37 tests (29 Python + 8 Go).
 
 **B2: Semantic Deduplication of Context Candidates.** SimHash-based near-duplicate detection for context candidates from multiple retrieval sources (BM25, semantic search, GraphRAG). `simhash64()` (64-bit fingerprint via trigram shingles + FNV-64a), `hammingDistance()` (XOR + popcount), `deduplicateCandidates()` (greedy dedup, threshold 3 bits, keeps highest-priority). Integrated into `assembleAndPack()` before token budget packing. 26 tests.
+
+### Database Schema Audit & Remediation (COMPLETED)
+
+**Full audit** of 78 migrations, 60+ tables, 40+ store files using automated `db_schema_audit.py` + 4 parallel deep-analysis agents. Pre-remediation score: 48/100 (Grade D). Post-remediation: Critical 3->1, High 42->25, Total 120->104.
+
+**7 remediation migrations (079-085):** tenant_id columns on channel_messages/channel_members, 7 missing FK indexes, 5 GIN indexes on JSONB columns, 6 redundant index drops, tenant-prefixed composite index fix, ON DELETE CASCADE on channels, REAL->NUMERIC(12,6) for precision columns.
+
+**14 tenant isolation query fixes** across 5 store files: store_channel.go (3 queries), store_conversation.go (4 queries), store_a2a.go (4 queries), store_vcsaccount.go (2 queries), store_mcp.go (1 query). All cross-tenant data access paths closed using JOIN, subquery, and direct WHERE patterns with `tenantFromCtx(ctx)`.
+
+**Connection pool tuning:** MaxConns 15->50, MinConns 2->10, MaxConnLifetime 1h->30m, MaxConnIdleTime 10m->5m, HealthCheck 1m->30s. Audit report: `docs/audit/schema-audit-2026-03-18.md`.

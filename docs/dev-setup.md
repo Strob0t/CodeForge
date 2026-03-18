@@ -418,8 +418,8 @@ Example:
 | `server.port` | `CODEFORGE_PORT` | `8080` | HTTP server port |
 | `server.cors_origin` | `CODEFORGE_CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin |
 | `postgres.dsn` | `DATABASE_URL` | `postgres://codeforge:...` | PostgreSQL DSN |
-| `postgres.max_conns` | `CODEFORGE_PG_MAX_CONNS` | `15` | Max DB connections |
-| `postgres.min_conns` | `CODEFORGE_PG_MIN_CONNS` | `2` | Min DB connections |
+| `postgres.max_conns` | `CODEFORGE_PG_MAX_CONNS` | `50` | Max DB connections |
+| `postgres.min_conns` | `CODEFORGE_PG_MIN_CONNS` | `10` | Min DB connections |
 | `nats.url` | `NATS_URL` | `nats://localhost:4222` | NATS server URL |
 | `litellm.url` | `LITELLM_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `litellm.master_key` | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
