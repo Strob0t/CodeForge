@@ -47,6 +47,9 @@ import type { TableColumn } from "~/ui/composites/Table";
 import { ShortcutsSection } from "./ShortcutsSection";
 
 export default function SettingsPage() {
+  onMount(() => {
+    document.title = "Settings - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();

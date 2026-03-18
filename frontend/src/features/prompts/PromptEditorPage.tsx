@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { PromptSectionRow } from "~/api/types";
@@ -24,6 +24,9 @@ const MERGE_OPTIONS = ["replace", "prepend", "append"];
 const SCOPE_OPTIONS = ["global"];
 
 export default function PromptEditorPage() {
+  onMount(() => {
+    document.title = "Prompts - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
@@ -142,7 +145,7 @@ export default function PromptEditorPage() {
         <Button onClick={() => crud.startCreate()} size="sm">
           {t("prompts.add")}
         </Button>
-        <Button onClick={() => void handlePreview()} size="sm" variant="ghost">
+        <Button onClick={() => void handlePreview()} size="sm" variant="secondary">
           {t("prompts.preview")}
         </Button>
       </div>

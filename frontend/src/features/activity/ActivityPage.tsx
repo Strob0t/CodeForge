@@ -1,5 +1,5 @@
 import { useSearchParams } from "@solidjs/router";
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import type { WSMessage } from "~/api/websocket";
 import { useWebSocket } from "~/components/WebSocketProvider";
@@ -307,6 +307,9 @@ export function ActivityContent() {
 }
 
 export default function ActivityPage() {
+  onMount(() => {
+    document.title = "Activity - CodeForge";
+  });
   const { t } = useI18n();
   const [params, setParams] = useSearchParams();
   const activeTab = (): string => {

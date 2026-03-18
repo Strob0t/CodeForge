@@ -1,5 +1,5 @@
 import { A } from "@solidjs/router";
-import { createMemo, createResource, For, Show } from "solid-js";
+import { createMemo, createResource, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type {
@@ -14,6 +14,9 @@ import { Card, LoadingState, PageLayout, StatCard, Table } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
 
 export default function CostDashboardPage() {
+  onMount(() => {
+    document.title = "Costs - CodeForge";
+  });
   const { t, fmt } = useI18n();
   const [globalCosts] = createResource(() => api.costs.global());
 

@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateMCPServerRequest, MCPServer, MCPServerTool, MCPTestResult } from "~/api/types";
@@ -52,6 +52,9 @@ const FORM_DEFAULTS: MCPFormState = {
 };
 
 export default function MCPServersPage() {
+  onMount(() => {
+    document.title = "MCP Servers - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [servers, { refetch }] = createResource(() => api.mcp.listServers());

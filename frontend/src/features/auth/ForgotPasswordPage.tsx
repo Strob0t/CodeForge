@@ -1,4 +1,4 @@
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, type JSX, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { useAsyncAction } from "~/hooks";
@@ -6,6 +6,9 @@ import { useI18n } from "~/i18n";
 import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function ForgotPasswordPage(): JSX.Element {
+  onMount(() => {
+    document.title = "Forgot Password - CodeForge";
+  });
   const { t } = useI18n();
 
   const [email, setEmail] = createSignal("");

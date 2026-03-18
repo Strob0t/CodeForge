@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Project, ProjectHealth } from "~/api/types";
@@ -15,6 +15,9 @@ import KpiStrip from "./KpiStrip";
 import ProjectCard from "./ProjectCard";
 
 export default function DashboardPage() {
+  onMount(() => {
+    document.title = "Dashboard - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();

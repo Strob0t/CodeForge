@@ -1,5 +1,13 @@
 import { useParams } from "@solidjs/router";
-import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 
 import { api } from "~/api/client";
 import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
@@ -174,12 +182,20 @@ export default function ProjectDetailPage() {
   let containerRef: HTMLDivElement | undefined;
 
   onMount(() => {
+    document.title = "Project - CodeForge";
     const savedRatio = localStorage.getItem(SPLIT_RATIO_KEY);
     if (savedRatio) {
       const n = Number(savedRatio);
       if (n >= MIN_SPLIT && n <= MAX_SPLIT) setSplitRatio(n);
     }
     setRoadmapCollapsed(localStorage.getItem(ROADMAP_COLLAPSED_KEY) === "true");
+  });
+
+  createEffect(() => {
+    const p = project();
+    if (p) {
+      document.title = p.name + " - CodeForge";
+    }
   });
 
   function persistSplit(ratio: number) {

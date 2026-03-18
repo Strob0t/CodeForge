@@ -6,6 +6,7 @@ import {
   For,
   Match,
   onCleanup,
+  onMount,
   Show,
   Switch,
 } from "solid-js";
@@ -91,6 +92,9 @@ const PROVIDER_TYPE_MAP: Record<string, BenchmarkType> = {
 };
 
 export default function BenchmarkPage() {
+  onMount(() => {
+    document.title = "Benchmarks - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { onMessage, connected } = useWebSocket();
