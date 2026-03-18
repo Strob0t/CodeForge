@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -10,6 +11,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -28,6 +32,8 @@ type ContextOptimizerService struct {
 	lsp           *LSPService
 	goalSvc       *GoalDiscoveryService
 	modelRegistry *ModelRegistry
+	queue         messagequeue.Queue
+	rerankWaiter  *syncWaiter[messagequeue.ContextRerankResultPayload]
 
 	// Guard against redundant builds for the same task (#16).
 	buildMu    sync.Mutex
@@ -37,10 +43,11 @@ type ContextOptimizerService struct {
 // NewContextOptimizerService creates a ContextOptimizerService.
 func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrator, limits *config.Limits) *ContextOptimizerService {
 	return &ContextOptimizerService{
-		store:      store,
-		orchCfg:    orchCfg,
-		limits:     limits,
-		builtTasks: make(map[string]bool),
+		store:        store,
+		orchCfg:      orchCfg,
+		limits:       limits,
+		rerankWaiter: newSyncWaiter[messagequeue.ContextRerankResultPayload]("context-rerank"),
+		builtTasks:   make(map[string]bool),
 	}
 }
 
@@ -68,6 +75,9 @@ func (s *ContextOptimizerService) SetLSP(l *LSPService) {
 func (s *ContextOptimizerService) SetGoalService(svc *GoalDiscoveryService) {
 	s.goalSvc = svc
 }
+
+// SetQueue wires the message queue for NATS-based reranking.
+func (s *ContextOptimizerService) SetQueue(q messagequeue.Queue) { s.queue = q }
 
 // GetPackByTask returns the existing context pack for a task, if any.
 func (s *ContextOptimizerService) GetPackByTask(ctx context.Context, taskID string) (*cfcontext.ContextPack, error) {
@@ -301,6 +311,16 @@ func (s *ContextOptimizerService) assembleAndPack(
 		return candidates[i].Priority > candidates[j].Priority
 	})
 
+	// LLM re-ranking (if enabled and queue is available).
+	if s.orchCfg.ContextRerankEnabled && s.queue != nil && len(candidates) > 1 {
+		reranked, err := s.RerankSync(ctx, projectID, prompt, candidates)
+		if err != nil {
+			slog.Warn("context rerank failed, using original order", "error", err)
+		} else {
+			candidates = reranked
+		}
+	}
+
 	// Pack entries within budget.
 	for i := range candidates {
 		if tokensUsed+candidates[i].Tokens > available {
@@ -460,6 +480,94 @@ func (s *ContextOptimizerService) fetchGraphEntries(ctx context.Context, project
 
 	slog.Info("graph context entries", "project_id", projectID, "hits", len(entries), "seeds", len(seedSymbols))
 	return entries
+}
+
+// ---------------------------------------------------------------------------
+// LLM context re-ranking (Phase 3 — Context Intelligence)
+// ---------------------------------------------------------------------------
+
+// contextEntriesToRerankPayload converts domain entries to NATS rerank payloads.
+func contextEntriesToRerankPayload(entries []cfcontext.ContextEntry) []messagequeue.ContextRerankEntryPayload {
+	out := make([]messagequeue.ContextRerankEntryPayload, len(entries))
+	for i, e := range entries {
+		out[i] = messagequeue.ContextRerankEntryPayload{
+			Path: e.Path, Kind: string(e.Kind), Content: e.Content,
+			Priority: e.Priority, Tokens: e.Tokens,
+		}
+	}
+	return out
+}
+
+// rerankPayloadToContextEntries converts NATS rerank payloads back to domain entries.
+func rerankPayloadToContextEntries(payloads []messagequeue.ContextRerankEntryPayload) []cfcontext.ContextEntry {
+	out := make([]cfcontext.ContextEntry, len(payloads))
+	for i, p := range payloads {
+		out[i] = cfcontext.ContextEntry{
+			Kind: cfcontext.EntryKind(p.Kind), Path: p.Path, Content: p.Content,
+			Priority: p.Priority, Tokens: p.Tokens,
+		}
+	}
+	return out
+}
+
+// RerankSync sends context entries to the Python worker for LLM re-ranking
+// and blocks until the result arrives or the timeout expires.
+func (s *ContextOptimizerService) RerankSync(ctx context.Context, projectID, query string, entries []cfcontext.ContextEntry) ([]cfcontext.ContextEntry, error) {
+	requestID := uuid.New().String()
+	ch := s.rerankWaiter.register(requestID)
+	defer s.rerankWaiter.unregister(requestID)
+
+	payload := messagequeue.ContextRerankRequestPayload{
+		RequestID: requestID,
+		ProjectID: projectID,
+		Query:     query,
+		Entries:   contextEntriesToRerankPayload(entries),
+		Model:     s.orchCfg.ContextRerankModel,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return entries, fmt.Errorf("marshal rerank request: %w", err)
+	}
+	if err := s.queue.Publish(ctx, messagequeue.SubjectContextRerankRequest, data); err != nil {
+		return entries, fmt.Errorf("publish rerank request: %w", err)
+	}
+
+	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	select {
+	case result := <-ch:
+		if result.Error != "" {
+			return entries, fmt.Errorf("rerank worker: %s", result.Error)
+		}
+		return rerankPayloadToContextEntries(result.Entries), nil
+	case <-tctx.Done():
+		return entries, tctx.Err()
+	}
+}
+
+// HandleRerankResult delivers a rerank result to the waiting caller.
+func (s *ContextOptimizerService) HandleRerankResult(_ context.Context, payload *messagequeue.ContextRerankResultPayload) {
+	s.rerankWaiter.deliver(payload.RequestID, payload)
+}
+
+// StartSubscribers subscribes to NATS subjects for context optimizer results.
+func (s *ContextOptimizerService) StartSubscribers(ctx context.Context) ([]func(), error) {
+	if s.queue == nil {
+		return nil, nil
+	}
+	cancelRerank, err := s.queue.Subscribe(ctx, messagequeue.SubjectContextRerankResult, func(msgCtx context.Context, _ string, data []byte) error {
+		var payload messagequeue.ContextRerankResultPayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return fmt.Errorf("unmarshal context rerank result: %w", err)
+		}
+		s.HandleRerankResult(msgCtx, &payload)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("subscribe context rerank result: %w", err)
+	}
+	return []func(){cancelRerank}, nil
 }
 
 // scanWorkspaceFiles reads workspace files and scores them against the task prompt.
