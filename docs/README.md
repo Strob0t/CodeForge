@@ -23,6 +23,8 @@ Each of the four core pillars has its own feature spec:
 | Roadmap/Feature-Map | [features/02-roadmap-feature-map.md](features/02-roadmap-feature-map.md) | Foundation implemented |
 | Multi-LLM Provider | [features/03-multi-llm-provider.md](features/03-multi-llm-provider.md) | Foundation implemented |
 | Agent Orchestration | [features/04-agent-orchestration.md](features/04-agent-orchestration.md) | Core implemented |
+| Chat Enhancements | [features/05-chat-enhancements.md](features/05-chat-enhancements.md) | Implemented |
+| Visual Design Canvas | [features/06-visual-design-canvas.md](features/06-visual-design-canvas.md) | Implemented |
 
 ### Architecture Details
 
@@ -39,15 +41,27 @@ Each of the four core pillars has its own feature spec:
 | [research/aider-deep-analysis.md](research/aider-deep-analysis.md) | Deep dive into Aider architecture |
 | [research/protocol-analysis.md](research/protocol-analysis.md) | Protocol and standards analysis (MCP, A2A, AG-UI, LSP, OTEL) |
 
-### Plans & Audits
+### Design Specs, Plans & Testing
+
+| Directory | Purpose |
+|---|---|
+| [specs/](specs/) | Design specifications (`*-design.md`) |
+| [plans/](plans/) | Implementation plans (`*-plan.md`) |
+| [testing/](testing/) | Test plans (`*-testplan.md`) and test reports (`*-report.md`) |
+
+### Audits
 
 | Document | Purpose |
 |---|---|
-| [plans/](plans/) | Phase-specific implementation plans |
-| [audit/](audit/) | Schema and code audits |
-| [backend-qa-testplan.md](backend-qa-testplan.md) | Backend QA test coverage |
-| [e2e-test-plan.md](e2e-test-plan.md) | E2E testing strategy |
-| [code-review-2026-03-05.md](code-review-2026-03-05.md) | Code review findings |
+| [audits/2026-03-18-schema-audit.md](audits/2026-03-18-schema-audit.md) | Database schema audit (score, findings, remediation) |
+| [audits/ux-ui-audit.md](audits/ux-ui-audit.md) | Frontend UX/UI automated audit |
+| [audits/stub-tracker.md](audits/stub-tracker.md) | Stub/placeholder inventory and status |
+
+### Prompts
+
+| Document | Purpose |
+|---|---|
+| [prompts/stub-finder.md](prompts/stub-finder.md) | Claude Code prompt for stub discovery |
 
 ### Documentation Rules
 
