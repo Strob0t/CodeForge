@@ -42,12 +42,14 @@ COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
         "gemini/gemini-2.0-flash",
     ],
     ComplexityTier.COMPLEX: [
+        "claudecode/default",
         "github_copilot/gpt-4o",
         "anthropic/claude-sonnet-4",
         "openai/gpt-4o",
         "gemini/gemini-2.5-pro",
     ],
     ComplexityTier.REASONING: [
+        "claudecode/default",
         "github_copilot/o3-mini",
         "anthropic/claude-opus-4.6",
         "openai/gpt-4o",
