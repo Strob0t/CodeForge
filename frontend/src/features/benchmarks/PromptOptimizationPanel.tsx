@@ -18,6 +18,7 @@ export function PromptOptimizationPanel(props: PromptOptimizationPanelProps) {
   const [loading, setLoading] = createSignal(false);
   const [accepted, setAccepted] = createSignal<Set<string>>(new Set());
   const [rejected, setRejected] = createSignal<Set<string>>(new Set());
+  const [rerunning, setRerunning] = createSignal(false);
 
   const handleAnalyze = async () => {
     setLoading(true);
@@ -168,10 +169,31 @@ export function PromptOptimizationPanel(props: PromptOptimizationPanelProps) {
               </div>
             </Show>
 
-            {/* Re-run placeholder */}
             <div class="flex justify-end pt-2">
-              <Button size="sm" variant="secondary" disabled>
-                {t("benchmark.rerunBenchmark")}
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={rerunning()}
+                onClick={async () => {
+                  setRerunning(true);
+                  try {
+                    const run = await api.benchmarks.getRun(props.runId);
+                    await api.benchmarks.createRun({
+                      suite_id: props.suiteId,
+                      model: run.model,
+                      metrics: run.metrics,
+                      benchmark_type: run.benchmark_type,
+                      exec_mode: run.exec_mode,
+                    });
+                    toast("success", "Benchmark re-run started");
+                  } catch {
+                    toast("error", "Failed to start re-run");
+                  } finally {
+                    setRerunning(false);
+                  }
+                }}
+              >
+                {rerunning() ? "Starting..." : t("benchmark.rerunBenchmark")}
               </Button>
             </div>
           </div>

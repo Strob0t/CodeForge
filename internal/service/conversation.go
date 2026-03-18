@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
@@ -86,6 +87,7 @@ type ConversationService struct {
 	contextOpt      *ContextOptimizerService
 	llmKeySvc       *LLMKeyService
 	promptAssembler *PromptAssembler
+	events          eventstore.Store
 
 	// completionWaiters allows in-process consumers (e.g. autoagent) to wait for
 	// a conversation run to finish without creating a second NATS subscription.
@@ -147,6 +149,9 @@ func (s *ConversationService) SetLLMKeyService(svc *LLMKeyService) { s.llmKeySvc
 
 // SetPromptAssembler configures the modular prompt assembler for system prompt generation.
 func (s *ConversationService) SetPromptAssembler(a *PromptAssembler) { s.promptAssembler = a }
+
+// SetEventStore configures access to trajectory events for budget tracking.
+func (s *ConversationService) SetEventStore(es eventstore.Store) { s.events = es }
 
 // resolveModel picks the best available model using priority:
 // AgentConfig.DefaultModel > ConversationModel (explicit config) > ModelRegistry.BestModel (auto-discovery).
