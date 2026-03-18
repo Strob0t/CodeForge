@@ -437,18 +437,19 @@ type SkillDraftEvent struct {
 
 // TrajectoryEventPayload is broadcast with enriched trajectory data for live feeds.
 type TrajectoryEventPayload struct {
-	RunID     string  `json:"run_id"`
-	ProjectID string  `json:"project_id"`
-	EventType string  `json:"event_type"`
-	ToolName  string  `json:"tool_name,omitempty"`
-	Model     string  `json:"model,omitempty"`
-	Input     string  `json:"input,omitempty"`
-	Output    string  `json:"output,omitempty"`
-	Success   *bool   `json:"success,omitempty"`
-	Step      int     `json:"step,omitempty"`
-	CostUSD   float64 `json:"cost_usd,omitempty"`
-	TokensIn  int64   `json:"tokens_in,omitempty"`
-	TokensOut int64   `json:"tokens_out,omitempty"`
+	RunID          string  `json:"run_id"`
+	ProjectID      string  `json:"project_id"`
+	EventType      string  `json:"event_type"`
+	SequenceNumber int64   `json:"sequence_number"`
+	ToolName       string  `json:"tool_name,omitempty"`
+	Model          string  `json:"model,omitempty"`
+	Input          string  `json:"input,omitempty"`
+	Output         string  `json:"output,omitempty"`
+	Success        *bool   `json:"success,omitempty"`
+	Step           int     `json:"step,omitempty"`
+	CostUSD        float64 `json:"cost_usd,omitempty"`
+	TokensIn       int64   `json:"tokens_in,omitempty"`
+	TokensOut      int64   `json:"tokens_out,omitempty"`
 }
 
 // ChannelMessageEvent is broadcast when a new message is posted in a channel.

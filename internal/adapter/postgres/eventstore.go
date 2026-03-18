@@ -25,13 +25,16 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 }
 
 // Append inserts a new event into the agent_events table.
+// The database assigns sequence_number via the sequence default; the assigned value
+// is written back to ev.SequenceNumber.
 func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 	tid := middleware.TenantIDFromContext(ctx)
-	_, err := s.pool.Exec(ctx,
+	err := s.pool.QueryRow(ctx,
 		`INSERT INTO agent_events (tenant_id, agent_id, task_id, project_id, run_id, event_type, payload, request_id, version, tool_name, model, tokens_in, tokens_out, cost_usd)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		 RETURNING sequence_number`,
 		tid, ev.AgentID, ev.TaskID, ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version,
-		ev.ToolName, ev.Model, ev.TokensIn, ev.TokensOut, ev.CostUSD)
+		ev.ToolName, ev.Model, ev.TokensIn, ev.TokensOut, ev.CostUSD).Scan(&ev.SequenceNumber)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
@@ -39,13 +42,13 @@ func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 }
 
 // eventColumns is the SELECT column list for agent_events queries.
-const eventColumns = `id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, created_at, tool_name, model, tokens_in, tokens_out, cost_usd`
+const eventColumns = `id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, sequence_number, created_at, tool_name, model, tokens_in, tokens_out, cost_usd`
 
 // scanEvent scans a row into an AgentEvent including per-tool token columns.
 func scanEvent(scanner interface{ Scan(dest ...any) error }, ev *event.AgentEvent) error {
 	return scanner.Scan(
 		&ev.ID, &ev.AgentID, &ev.TaskID, &ev.ProjectID, &ev.RunID,
-		&ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.CreatedAt,
+		&ev.Type, &ev.Payload, &ev.RequestID, &ev.Version, &ev.SequenceNumber, &ev.CreatedAt,
 		&ev.ToolName, &ev.Model, &ev.TokensIn, &ev.TokensOut, &ev.CostUSD,
 	)
 }
@@ -132,6 +135,11 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 		args = append(args, *filter.Before)
 		argIdx++
 	}
+	if filter.AfterSequence > 0 {
+		conditions = append(conditions, fmt.Sprintf("sequence_number > $%d", argIdx))
+		args = append(args, filter.AfterSequence)
+		argIdx++
+	}
 
 	where := strings.Join(conditions, " AND ")
 
@@ -144,7 +152,7 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 
 	// Fetch limit+1 to detect hasMore.
 	fetchSQL := fmt.Sprintf(
-		`SELECT %s FROM agent_events WHERE %s ORDER BY version ASC LIMIT $%d`,
+		`SELECT %s FROM agent_events WHERE %s ORDER BY sequence_number ASC LIMIT $%d`,
 		eventColumns, where, argIdx)
 	args = append(args, limit+1)
 

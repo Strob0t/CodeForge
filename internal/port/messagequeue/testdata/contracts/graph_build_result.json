@@ -3,8 +3,5 @@
   "status": "ready",
   "node_count": 350,
   "edge_count": 1200,
-  "languages": [
-    "go",
-    "python"
-  ]
+  "languages": ["go", "python"]
 }

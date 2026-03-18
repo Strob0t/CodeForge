@@ -93,7 +93,7 @@ const PROVIDER_TYPE_MAP: Record<string, BenchmarkType> = {
 export default function BenchmarkPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
-  const { onMessage } = useWebSocket();
+  const { onMessage, connected } = useWebSocket();
   const [runs, { refetch }] = createResource(() => api.benchmarks.listRuns());
   const [suites] = createResource(() => api.benchmarks.listSuites());
 
@@ -128,16 +128,12 @@ export default function BenchmarkPage() {
     }
 
     // ---- Live feed state updates ----
-    // TODO: Event dedup — API hydration and WS may overlap, producing duplicate events.
-    //       Backend should add a monotonic sequence_number to trajectory events so the
-    //       frontend can skip events already fetched via the REST hydration endpoint.
-    // TODO: WS reconnect gap — if the WebSocket disconnects and reconnects, events emitted
-    //       during the gap are lost. A re-hydration from API on reconnect would fill that gap.
     if (msg.type === "trajectory.event") {
       const p = msg.payload as {
         run_id: string;
         project_id: string;
         event_type: string;
+        sequence_number?: number;
         tool_name?: string;
         model?: string;
         input?: string;
@@ -149,12 +145,19 @@ export default function BenchmarkPage() {
         tokens_out?: number;
       };
       updateRunState(p.run_id, (state) => {
+        // Dedup: skip events already seen via REST hydration or prior WS delivery.
+        const seqNum = p.sequence_number ?? 0;
+        if (seqNum > 0 && seqNum <= state.lastSequenceNumber) {
+          return state;
+        }
+
         const evt: LiveFeedEvent = {
           id: crypto.randomUUID(),
           timestamp: Date.now(),
           run_id: p.run_id,
           project_id: p.project_id ?? "",
           event_type: p.event_type,
+          sequence_number: seqNum,
           tool_name: p.tool_name,
           model: p.model,
           input: p.input,
@@ -191,7 +194,15 @@ export default function BenchmarkPage() {
           }
         }
 
-        return { ...state, events: trimmed, stats, features, lastEventId: evt.id };
+        const newSeq = seqNum > state.lastSequenceNumber ? seqNum : state.lastSequenceNumber;
+        return {
+          ...state,
+          events: trimmed,
+          stats,
+          features,
+          lastEventId: evt.id,
+          lastSequenceNumber: newSeq,
+        };
       });
     }
 
@@ -327,6 +338,9 @@ export default function BenchmarkPage() {
 
           const lastEvent = events.length > 0 ? events[events.length - 1] : null;
 
+          // Track the maximum sequence_number from REST for dedup against WS events.
+          const maxSeq = events.reduce((max, e) => Math.max(max, e.sequence_number ?? 0), 0);
+
           updateRunState(run.id, (prev) => ({
             events: prev.events.length > events.length ? prev.events : events,
             progress: prev.progress ?? progress,
@@ -334,12 +348,57 @@ export default function BenchmarkPage() {
             stats: prev.hydratedFromApi ? prev.stats : stats,
             hydratedFromApi: true,
             lastEventId: prev.lastEventId ?? lastEvent?.id ?? null,
+            lastSequenceNumber: Math.max(prev.lastSequenceNumber, maxSeq),
           }));
         })
         .catch((err: unknown) => {
           console.warn(`[LiveFeed] hydration failed for run ${run.id}:`, err);
           updateRunState(run.id, (prev) => ({ ...prev, hydratedFromApi: true }));
         });
+    }
+  });
+
+  // WS reconnect gap-fill: when the WebSocket reconnects, re-fetch events
+  // since the last known sequence_number to fill any gaps from the disconnect.
+  const [wasConnected, setWasConnected] = createSignal(false);
+  createEffect(() => {
+    const isConnected = connected();
+    const prev = wasConnected();
+    setWasConnected(isConnected);
+
+    // Only trigger gap-fill on actual reconnect (was disconnected, now connected).
+    if (!isConnected || !prev === !isConnected) return;
+    if (!prev && isConnected) {
+      const runList = runs();
+      if (!runList) return;
+      const runningRuns = runList.filter((r: BenchmarkRun) => r.status === "running");
+      for (const run of runningRuns) {
+        const state = liveFeedStates().get(run.id);
+        if (!state || state.lastSequenceNumber === 0) continue;
+
+        api.trajectory
+          .get(run.id, { limit: 500, after_sequence: state.lastSequenceNumber })
+          .then((trajectory) => {
+            const gapEvents = trajectory.events.map(agentEventToLiveFeedEvent);
+            if (gapEvents.length === 0) return;
+
+            const maxSeq = gapEvents.reduce((max, e) => Math.max(max, e.sequence_number ?? 0), 0);
+
+            updateRunState(run.id, (prev) => {
+              const merged = [...prev.events, ...gapEvents];
+              const trimmed =
+                merged.length > MAX_EVENTS ? merged.slice(merged.length - MAX_EVENTS) : merged;
+              return {
+                ...prev,
+                events: trimmed,
+                lastSequenceNumber: Math.max(prev.lastSequenceNumber, maxSeq),
+              };
+            });
+          })
+          .catch((err: unknown) => {
+            console.warn(`[LiveFeed] reconnect gap-fill failed for run ${run.id}:`, err);
+          });
+      }
     }
   });
 

@@ -59,16 +59,17 @@ const (
 
 // AgentEvent represents a single immutable event in an agent's execution trajectory.
 type AgentEvent struct {
-	ID        string          `json:"id"`
-	AgentID   string          `json:"agent_id"`
-	TaskID    string          `json:"task_id"`
-	ProjectID string          `json:"project_id"`
-	RunID     string          `json:"run_id,omitempty"`
-	Type      Type            `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-	RequestID string          `json:"request_id,omitempty"`
-	Version   int             `json:"version"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID             string          `json:"id"`
+	AgentID        string          `json:"agent_id"`
+	TaskID         string          `json:"task_id"`
+	ProjectID      string          `json:"project_id"`
+	RunID          string          `json:"run_id,omitempty"`
+	Type           Type            `json:"type"`
+	Payload        json.RawMessage `json:"payload"`
+	RequestID      string          `json:"request_id,omitempty"`
+	Version        int             `json:"version"`
+	SequenceNumber int64           `json:"sequence_number"`
+	CreatedAt      time.Time       `json:"created_at"`
 	// Per-tool token tracking (populated for run.toolcall.result events).
 	ToolName  string  `json:"tool_name,omitempty"`
 	Model     string  `json:"model,omitempty"`

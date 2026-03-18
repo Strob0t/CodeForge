@@ -28,17 +28,9 @@
   "mode": {
     "id": "coder",
     "prompt_prefix": "You are an expert Go developer.",
-    "tools": [
-      "read_file",
-      "write_file",
-      "bash"
-    ],
-    "denied_tools": [
-      "deploy"
-    ],
-    "denied_actions": [
-      "rm -rf /"
-    ],
+    "tools": ["read_file", "write_file", "bash"],
+    "denied_tools": ["deploy"],
+    "denied_actions": ["rm -rf /"],
     "required_artifact": "code",
     "llm_scenario": "default",
     "output_schema": "{\"type\":\"object\"}"
@@ -64,10 +56,7 @@
       "description": "MCP server for filesystem operations",
       "transport": "stdio",
       "command": "/usr/local/bin/mcp-filesystem",
-      "args": [
-        "--root",
-        "/workspace"
-      ],
+      "args": ["--root", "/workspace"],
       "url": "http://localhost:3001",
       "env": {
         "MCP_LOG_LEVEL": "debug"
@@ -78,14 +67,8 @@
       "enabled": true
     }
   ],
-  "tools": [
-    "read_file",
-    "write_file",
-    "bash"
-  ],
-  "microagent_prompts": [
-    "When working with Go, always run gofmt."
-  ],
+  "tools": ["read_file", "write_file", "bash"],
+  "microagent_prompts": ["When working with Go, always run gofmt."],
   "trust": {
     "origin": "internal",
     "trust_level": "full",

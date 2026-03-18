@@ -732,11 +732,15 @@ export const api = {
   },
 
   trajectory: {
-    get: (runId: string, opts?: { types?: string; cursor?: string; limit?: number }) => {
+    get: (
+      runId: string,
+      opts?: { types?: string; cursor?: string; limit?: number; after_sequence?: number },
+    ) => {
       const params = new URLSearchParams();
       if (opts?.types) params.set("types", opts.types);
       if (opts?.cursor) params.set("cursor", opts.cursor);
       if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.after_sequence) params.set("after_sequence", String(opts.after_sequence));
       const qs = params.toString();
       return request<TrajectoryPage>(
         `/runs/${encodeURIComponent(runId)}/trajectory${qs ? `?${qs}` : ""}`,
