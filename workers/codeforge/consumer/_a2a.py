@@ -47,16 +47,12 @@ class A2AHandlerMixin:
                     working_msg.model_dump_json().encode(),
                 )
 
-            # Execute via the simple executor path.
-            from codeforge.models import TaskMessage
-
-            task = TaskMessage(
-                id=req.task_id,
-                project_id="",
-                title=f"A2A task: {req.task_id}",
+            # Execute via the dedicated A2A executor path.
+            result = await self._executor.execute_a2a_task(
+                task_id=req.task_id,
+                skill_id=req.skill_id,
                 prompt=req.prompt,
             )
-            result = await self._executor.execute(task)
 
             # Publish completion back to Go using validated enum state.
             state = A2ATaskState.COMPLETED if result.status.value == "completed" else A2ATaskState.FAILED

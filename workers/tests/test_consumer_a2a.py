@@ -11,7 +11,7 @@ from codeforge.a2a_protocol import A2ATaskState
 from codeforge.consumer._a2a import A2AHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._subjects import SUBJECT_A2A_TASK_COMPLETE
-from codeforge.models import A2ATaskCreatedMessage
+from codeforge.models import A2ATaskCreatedMessage, TaskResult, TaskStatus
 
 # ---------------------------------------------------------------------------
 # Test harness
@@ -56,11 +56,10 @@ def _a2a_payload(task_id: str = "a2a-1") -> dict:
 
 async def test_a2a_task_created_success() -> None:
     """Successful task publishes WORKING then COMPLETED states."""
-    from codeforge.backends._base import TaskResult
-    from codeforge.models import TaskStatus
-
     mixin = _TestMixin()
-    mixin._executor.execute = AsyncMock(return_value=TaskResult(status=TaskStatus.COMPLETED, output="done"))
+    mixin._executor.execute_a2a_task = AsyncMock(
+        return_value=TaskResult(task_id="a2a-1", status=TaskStatus.COMPLETED, output="done"),
+    )
     msg = _make_msg(_a2a_payload())
 
     await mixin._handle_a2a_task_created(msg)
@@ -79,11 +78,10 @@ async def test_a2a_task_created_success() -> None:
 
 async def test_a2a_executor_failure_publishes_failed() -> None:
     """When executor returns failed status, FAILED is published."""
-    from codeforge.backends._base import TaskResult
-    from codeforge.models import TaskStatus
-
     mixin = _TestMixin()
-    mixin._executor.execute = AsyncMock(return_value=TaskResult(status=TaskStatus.FAILED, error="timeout"))
+    mixin._executor.execute_a2a_task = AsyncMock(
+        return_value=TaskResult(task_id="a2a-1", status=TaskStatus.FAILED, error="timeout"),
+    )
     msg = _make_msg(_a2a_payload())
 
     await mixin._handle_a2a_task_created(msg)
@@ -97,7 +95,7 @@ async def test_a2a_executor_failure_publishes_failed() -> None:
 async def test_a2a_exception_publishes_failure() -> None:
     """When executor raises, failure completion is published and msg is acked."""
     mixin = _TestMixin()
-    mixin._executor.execute = AsyncMock(side_effect=RuntimeError("boom"))
+    mixin._executor.execute_a2a_task = AsyncMock(side_effect=RuntimeError("boom"))
     msg = _make_msg(_a2a_payload())
 
     await mixin._handle_a2a_task_created(msg)
@@ -112,11 +110,10 @@ async def test_a2a_exception_publishes_failure() -> None:
 
 async def test_a2a_duplicate_skipped() -> None:
     """Duplicate task_id is acked but not executed a second time."""
-    from codeforge.backends._base import TaskResult
-    from codeforge.models import TaskStatus
-
     mixin = _TestMixin()
-    mixin._executor.execute = AsyncMock(return_value=TaskResult(status=TaskStatus.COMPLETED, output="ok"))
+    mixin._executor.execute_a2a_task = AsyncMock(
+        return_value=TaskResult(task_id="dup-1", status=TaskStatus.COMPLETED, output="ok"),
+    )
     msg1 = _make_msg(_a2a_payload("dup-1"))
     msg2 = _make_msg(_a2a_payload("dup-1"))
 
@@ -124,17 +121,16 @@ async def test_a2a_duplicate_skipped() -> None:
     await mixin._handle_a2a_task_created(msg2)
 
     # Executor called only once
-    assert mixin._executor.execute.call_count == 1
+    assert mixin._executor.execute_a2a_task.call_count == 1
     msg2.ack.assert_called_once()
 
 
 async def test_a2a_trust_stamped() -> None:
     """Completed payload has trust annotation."""
-    from codeforge.backends._base import TaskResult
-    from codeforge.models import TaskStatus
-
     mixin = _TestMixin()
-    mixin._executor.execute = AsyncMock(return_value=TaskResult(status=TaskStatus.COMPLETED, output="ok"))
+    mixin._executor.execute_a2a_task = AsyncMock(
+        return_value=TaskResult(task_id="a2a-1", status=TaskStatus.COMPLETED, output="ok"),
+    )
     msg = _make_msg(_a2a_payload())
 
     await mixin._handle_a2a_task_created(msg)
@@ -184,15 +180,14 @@ async def test_a2a_cancel_invalid_json_acks() -> None:
 
 async def test_a2a_no_js_handling() -> None:
     """When _js is None, executor still runs but no publish occurs."""
-    from codeforge.backends._base import TaskResult
-    from codeforge.models import TaskStatus
-
     mixin = _TestMixin()
     mixin._js = None
-    mixin._executor.execute = AsyncMock(return_value=TaskResult(status=TaskStatus.COMPLETED, output="ok"))
+    mixin._executor.execute_a2a_task = AsyncMock(
+        return_value=TaskResult(task_id="a2a-1", status=TaskStatus.COMPLETED, output="ok"),
+    )
     msg = _make_msg(_a2a_payload())
 
     await mixin._handle_a2a_task_created(msg)
 
-    mixin._executor.execute.assert_called_once()
+    mixin._executor.execute_a2a_task.assert_called_once()
     msg.ack.assert_called_once()
