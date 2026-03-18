@@ -6,6 +6,7 @@ import {
   For,
   Match,
   onCleanup,
+  onMount,
   Show,
   Switch,
 } from "solid-js";
@@ -40,6 +41,7 @@ import {
   Select,
   Tabs,
 } from "~/ui";
+import { ChartTrophyIcon } from "~/ui/icons/EmptyStateIcons";
 
 import { BenchmarkCompare } from "./BenchmarkCompare";
 import { BenchmarkLiveFeed } from "./BenchmarkLiveFeed";
@@ -91,6 +93,9 @@ const PROVIDER_TYPE_MAP: Record<string, BenchmarkType> = {
 };
 
 export default function BenchmarkPage() {
+  onMount(() => {
+    document.title = "Benchmarks - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { onMessage, connected } = useWebSocket();
@@ -633,7 +638,7 @@ export default function BenchmarkPage() {
 
           {/* Run List */}
           <Show when={!runs.loading} fallback={<LoadingState />}>
-            <Show when={runs()?.length} fallback={<EmptyState title={t("benchmark.empty")} />}>
+            <Show when={runs()?.length} fallback={<EmptyState illustration={<ChartTrophyIcon />} title={t("benchmark.empty")} description={t("benchmark.emptyDescription")} />}>
               <div class="space-y-3">
                 <For each={runs()}>
                   {(run: BenchmarkRun) => (

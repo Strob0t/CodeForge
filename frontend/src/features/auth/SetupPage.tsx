@@ -8,6 +8,9 @@ import { useI18n } from "~/i18n";
 import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function SetupPage(): JSX.Element {
+  onMount(() => {
+    document.title = "Setup - CodeForge";
+  });
   const { t } = useI18n();
   const { login } = useAuth();
   const navigate = useNavigate();

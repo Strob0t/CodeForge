@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { PromptSectionRow } from "~/api/types";
@@ -18,12 +18,16 @@ import {
   Select,
   Textarea,
 } from "~/ui";
+import { DocumentPenIcon } from "~/ui/icons/EmptyStateIcons";
 
 const MERGE_OPTIONS = ["replace", "prepend", "append"];
 
 const SCOPE_OPTIONS = ["global"];
 
 export default function PromptEditorPage() {
+  onMount(() => {
+    document.title = "Prompts - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
@@ -142,7 +146,7 @@ export default function PromptEditorPage() {
         <Button onClick={() => crud.startCreate()} size="sm">
           {t("prompts.add")}
         </Button>
-        <Button onClick={() => void handlePreview()} size="sm" variant="ghost">
+        <Button onClick={() => void handlePreview()} size="sm" variant="secondary">
           {t("prompts.preview")}
         </Button>
       </div>
@@ -244,7 +248,7 @@ export default function PromptEditorPage() {
       <Show when={!sections.loading} fallback={<LoadingState />}>
         <Show
           when={(sections() ?? []).length > 0}
-          fallback={<EmptyState title={t("prompts.empty")} />}
+          fallback={<EmptyState illustration={<DocumentPenIcon />} title={t("prompts.empty")} description={t("prompts.emptyDescription")} />}
         >
           <div class="space-y-2">
             <For each={sections()}>

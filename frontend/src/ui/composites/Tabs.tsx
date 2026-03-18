@@ -27,8 +27,8 @@ export function Tabs(props: TabsProps): JSX.Element {
   };
 
   const itemBase: Record<TabsVariant, string> = {
-    underline: "px-4 py-2 text-sm font-medium transition-colors -mb-px border-b-2",
-    pills: "px-3 py-1.5 text-sm font-medium rounded-cf-sm transition-colors",
+    underline: "px-4 py-2 text-sm font-medium transition-all duration-200 -mb-px border-b-2",
+    pills: "px-3 py-1.5 text-sm font-medium rounded-cf-sm transition-all duration-200",
   };
 
   function itemClass(item: TabItem): string {

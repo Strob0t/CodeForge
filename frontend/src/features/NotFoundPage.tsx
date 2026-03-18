@@ -1,10 +1,13 @@
 import { useNavigate } from "@solidjs/router";
-import type { JSX } from "solid-js";
+import { type JSX, onMount } from "solid-js";
 
 import { useI18n } from "~/i18n";
 import { Button } from "~/ui";
 
 export default function NotFoundPage(): JSX.Element {
+  onMount(() => {
+    document.title = "Not Found - CodeForge";
+  });
   const { t } = useI18n();
   const navigate = useNavigate();
 

@@ -1,5 +1,5 @@
 import { useSearchParams } from "@solidjs/router";
-import { Show } from "solid-js";
+import { onMount, Show } from "solid-js";
 
 import { KnowledgeBasesContent } from "~/features/knowledgebases/KnowledgeBasesPage";
 import { ScopesContent } from "~/features/scopes/ScopesPage";
@@ -7,6 +7,9 @@ import { useI18n } from "~/i18n";
 import { PageLayout, Tabs } from "~/ui";
 
 export default function KnowledgePage() {
+  onMount(() => {
+    document.title = "Knowledge - CodeForge";
+  });
   const { t } = useI18n();
   const [params, setParams] = useSearchParams();
   const activeTab = (): string => {

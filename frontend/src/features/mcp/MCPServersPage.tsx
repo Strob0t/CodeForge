@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateMCPServerRequest, MCPServer, MCPServerTool, MCPTestResult } from "~/api/types";
@@ -23,6 +23,7 @@ import {
   Table,
   Textarea,
 } from "~/ui";
+import { ServerPlugIcon } from "~/ui/icons/EmptyStateIcons";
 import type { TableColumn } from "~/ui/composites/Table";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,9 @@ const FORM_DEFAULTS: MCPFormState = {
 };
 
 export default function MCPServersPage() {
+  onMount(() => {
+    document.title = "MCP Servers - CodeForge";
+  });
   const { t } = useI18n();
   const { show: toast } = useToast();
   const [servers, { refetch }] = createResource(() => api.mcp.listServers());
@@ -515,7 +519,7 @@ export default function MCPServersPage() {
 
       {/* Server list */}
       <Show when={!servers.loading && !servers.error}>
-        <Show when={(servers() ?? []).length > 0} fallback={<EmptyState title={t("mcp.empty")} />}>
+        <Show when={(servers() ?? []).length > 0} fallback={<EmptyState illustration={<ServerPlugIcon />} title={t("mcp.empty")} description={t("mcp.emptyDescription")} />}>
           <Table<MCPServer> columns={serverColumns} data={servers() ?? []} rowKey={(s) => s.id} />
 
           {/* Expandable tools sections below the table */}

@@ -1,6 +1,15 @@
 import type { RouteSectionProps } from "@solidjs/router";
 import { useLocation } from "@solidjs/router";
-import { createEffect, createResource, ErrorBoundary, type JSX, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  ErrorBoundary,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 
 import { api } from "~/api/client";
 import type { HealthStatus } from "~/api/types";
@@ -17,11 +26,13 @@ import { useWebSocket, WebSocketProvider } from "~/components/WebSocketProvider"
 import ChannelList from "~/features/channels/ChannelList";
 import NotificationBell from "~/features/notifications/NotificationBell";
 import { addNotification, getUnreadCount } from "~/features/notifications/notificationStore";
+import { OnboardingWizard } from "~/features/onboarding/OnboardingWizard";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
 import { ShortcutProvider } from "~/shortcuts";
 import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
+import { CodeForgeLogo } from "~/ui/icons/CodeForgeLogo";
 import { NavSection } from "~/ui/layout";
 import {
   ActivityIcon,
@@ -116,10 +127,21 @@ function AppShell(props: {
         <div class="flex flex-1 overflow-hidden">
           <Sidebar>
             <Sidebar.Header>
-              <div>
-                <h1 class="text-xl font-bold">{t("app.title")}</h1>
-                <p class="mt-1 text-xs text-cf-text-muted">{t("app.version")}</p>
-              </div>
+              <Show
+                when={!collapsed()}
+                fallback={
+                  <Tooltip text={`${t("app.title")} ${t("app.version")}`} placement="right">
+                    <CodeForgeLogo size={24} class="text-cf-text-primary" />
+                  </Tooltip>
+                }
+              >
+                <Tooltip text={t("app.version")} placement="bottom">
+                  <div class="flex items-center gap-2">
+                    <CodeForgeLogo size={28} class="text-cf-text-primary" />
+                    <h1 class="font-bold text-cf-text-primary">{t("app.title")}</h1>
+                  </div>
+                </Tooltip>
+              </Show>
             </Sidebar.Header>
 
             <Sidebar.Nav>
@@ -328,7 +350,28 @@ const KNOWN_ROUTES = new Set([
 function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const [health] = createResource(() => api.health.check());
   const { connected } = useWebSocket();
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
+
+  // -- Onboarding wizard (first-time users) ---------------------------------
+  const [showOnboarding, setShowOnboarding] = createSignal(false);
+
+  onMount(async () => {
+    if (localStorage.getItem("codeforge-onboarding-completed")) return;
+    const checkProjects = async () => {
+      if (!isAuthenticated()) return;
+      try {
+        const projects = await api.projects.list();
+        if (Array.isArray(projects) && projects.length === 0) {
+          setShowOnboarding(true);
+        }
+      } catch {
+        // Ignore errors (not authenticated yet, etc.)
+      }
+    };
+    // Small delay to let auth initialise
+    setTimeout(() => void checkProjects(), 500);
+  });
 
   const isPublicPage = (): boolean =>
     location.pathname === "/login" ||
@@ -352,6 +395,9 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
                 <AppShell health={health} connected={connected}>
                   {props.children}
                 </AppShell>
+                <Show when={showOnboarding()}>
+                  <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+                </Show>
               </RouteGuard>
             </Show>
           </ShortcutProvider>

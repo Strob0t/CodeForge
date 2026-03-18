@@ -81,9 +81,7 @@ function SidebarHeader(props: SidebarProps): JSX.Element {
         (local.class ? " " + local.class : "")
       }
     >
-      <Show when={!collapsed() || isMobile()}>
-        <div class="min-w-0">{local.children}</div>
-      </Show>
+      <div class="min-w-0">{local.children}</div>
       <Show
         when={isMobile()}
         fallback={

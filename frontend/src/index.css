@@ -175,11 +175,67 @@
    --------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
+   Typography — Display Font (Outfit)
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Outfit";
+  src: url("/fonts/Outfit-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Outfit";
+  src: url("/fonts/Outfit-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Outfit";
+  src: url("/fonts/Outfit-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
+   Typography — Body Font (IBM Plex Sans)
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
    Tailwind v4 @theme — register design tokens as first-class utilities
    Enables class="bg-cf-accent text-cf-danger" etc.
    --------------------------------------------------------------------------- */
 
 @theme {
+  /* Typography */
+  --font-display: "Outfit", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+
   /* Accent */
   --color-cf-accent: var(--cf-accent);
   --color-cf-accent-hover: var(--cf-accent-hover);
@@ -250,6 +306,21 @@
   /* Skeleton */
   --color-cf-skeleton-base: var(--cf-skeleton-base);
   --color-cf-skeleton-shine: var(--cf-skeleton-shine);
+}
+
+/* ---------------------------------------------------------------------------
+   Typography — global font assignments
+   --------------------------------------------------------------------------- */
+
+body {
+  font-family: var(--font-body);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
 }
 
 /* ---------------------------------------------------------------------------

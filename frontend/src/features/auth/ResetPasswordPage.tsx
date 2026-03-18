@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, type JSX, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { useAsyncAction } from "~/hooks";
@@ -7,6 +7,9 @@ import { useI18n } from "~/i18n";
 import { Alert, Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function ResetPasswordPage(): JSX.Element {
+  onMount(() => {
+    document.title = "Reset Password - CodeForge";
+  });
   const { t } = useI18n();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

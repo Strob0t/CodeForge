@@ -15,6 +15,7 @@ import BenchmarkPage from "./features/benchmarks/BenchmarkPage.tsx";
 import ChannelView from "./features/channels/ChannelView.tsx";
 import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
+import DesignSystemPage from "./features/dev/DesignSystemPage.tsx";
 import KnowledgePage from "./features/knowledge/KnowledgePage.tsx";
 import AIConfigPage from "./features/llm/AIConfigPage.tsx";
 import MCPServersPage from "./features/mcp/MCPServersPage.tsx";
@@ -49,6 +50,7 @@ render(
       <Route path="/settings" component={SettingsPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />
       <Route path="/channels/:id" component={ChannelView} />
+      <Route path="/design-system" component={DesignSystemPage} />
       <Route path="*404" component={NotFoundPage} />
     </Router>
   ),

@@ -1,5 +1,5 @@
 import { useSearchParams } from "@solidjs/router";
-import { Show } from "solid-js";
+import { onMount, Show } from "solid-js";
 
 import { ModelsContent } from "~/features/llm/ModelsPage";
 import { ModesContent } from "~/features/modes/ModesPage";
@@ -7,6 +7,9 @@ import { useI18n } from "~/i18n";
 import { PageLayout, Tabs } from "~/ui";
 
 export default function AIConfigPage() {
+  onMount(() => {
+    document.title = "AI Config - CodeForge";
+  });
   const { t } = useI18n();
   const [params, setParams] = useSearchParams();
   const activeTab = (): string => {

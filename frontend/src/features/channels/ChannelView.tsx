@@ -29,6 +29,9 @@ function channelTypeBadgeVariant(type: string): "primary" | "info" | "default" {
 // ---------------------------------------------------------------------------
 
 export default function ChannelView() {
+  onMount(() => {
+    document.title = "Channel - CodeForge";
+  });
   const params = useParams<{ id: string }>();
 
   let messagesEndRef: HTMLDivElement | undefined;

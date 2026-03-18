@@ -1,5 +1,7 @@
 import { type JSX, Show, splitProps } from "solid-js";
 
+import { PageTransition } from "~/ui/layout/PageTransition";
+
 export interface PageLayoutProps {
   title: string;
   description?: string;
@@ -12,7 +14,7 @@ export function PageLayout(props: PageLayoutProps): JSX.Element {
   const [local] = splitProps(props, ["title", "description", "action", "class", "children"]);
 
   return (
-    <div class={`h-full overflow-y-auto${local.class ? ` ${local.class}` : ""}`}>
+    <PageTransition class={`h-full overflow-y-auto${local.class ? ` ${local.class}` : ""}`}>
       <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 class="text-xl sm:text-2xl font-bold text-cf-text-primary">{local.title}</h1>
@@ -25,6 +27,6 @@ export function PageLayout(props: PageLayoutProps): JSX.Element {
         </Show>
       </div>
       {local.children}
-    </div>
+    </PageTransition>
   );
 }

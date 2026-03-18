@@ -1,5 +1,5 @@
 import { useSearchParams } from "@solidjs/router";
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import type { WSMessage } from "~/api/websocket";
 import { useWebSocket } from "~/components/WebSocketProvider";
@@ -7,6 +7,7 @@ import { severityVariant } from "~/config/statusVariants";
 import { AuditContent } from "~/features/audit/AuditTrailPage";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, EmptyState, PageLayout, Select, Tabs } from "~/ui";
+import { TimelinePulseIcon } from "~/ui/icons/EmptyStateIcons";
 
 /** A single activity entry shown in the stream */
 interface ActivityEntry {
@@ -258,7 +259,9 @@ export function ActivityContent() {
           <Card>
             <Card.Body>
               <EmptyState
+                illustration={entries().length === 0 ? <TimelinePulseIcon /> : undefined}
                 title={entries().length === 0 ? t("activity.empty") : t("activity.noMatch")}
+                description={entries().length === 0 ? t("activity.emptyDescription") : undefined}
               />
             </Card.Body>
           </Card>
@@ -307,6 +310,9 @@ export function ActivityContent() {
 }
 
 export default function ActivityPage() {
+  onMount(() => {
+    document.title = "Activity - CodeForge";
+  });
   const { t } = useI18n();
   const [params, setParams] = useSearchParams();
   const activeTab = (): string => {

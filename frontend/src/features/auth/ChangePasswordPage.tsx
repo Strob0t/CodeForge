@@ -1,5 +1,5 @@
 import { useNavigate } from "@solidjs/router";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, type JSX, onMount, Show } from "solid-js";
 
 import { useAuth } from "~/components/AuthProvider";
 import { useAsyncAction } from "~/hooks";
@@ -7,6 +7,9 @@ import { useI18n } from "~/i18n";
 import { Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function ChangePasswordPage(): JSX.Element {
+  onMount(() => {
+    document.title = "Change Password - CodeForge";
+  });
   const { t } = useI18n();
   const { changePassword, user, logout } = useAuth();
   const navigate = useNavigate();
