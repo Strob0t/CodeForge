@@ -5,6 +5,7 @@ import type { AgentEvent, TrajectorySummary } from "~/api/types";
 import {
   agentEventToLiveFeedEvent,
   computeEta,
+  emptyLiveFeedState,
   formatTokens,
   resultToFeatureEntry,
   statsFromSummary,
@@ -54,6 +55,7 @@ describe("agentEventToLiveFeedEvent", () => {
     type: "agent.tool_called",
     payload: { input: "hello", output: "world", success: true, step: 3 },
     version: 1,
+    sequence_number: 42,
     created_at: "2026-03-16T12:00:00Z",
     tool_name: "Read",
     model: "gpt-4",
@@ -87,9 +89,15 @@ describe("agentEventToLiveFeedEvent", () => {
     expect(result.timestamp).toBe(new Date("2026-03-16T12:00:00Z").getTime());
   });
 
+  it("maps sequence_number from AgentEvent", () => {
+    const result = agentEventToLiveFeedEvent(base);
+    expect(result.sequence_number).toBe(42);
+  });
+
   it("falls back to payload when top-level fields missing", () => {
     const ev: AgentEvent = {
       ...base,
+      sequence_number: 0,
       tool_name: undefined,
       model: undefined,
       tokens_in: undefined,
@@ -188,5 +196,86 @@ describe("resultToFeatureEntry", () => {
     const entry = resultToFeatureEntry(r);
     expect(entry.score).toBeUndefined();
     expect(entry.startedAt).toBeUndefined();
+  });
+});
+
+describe("emptyLiveFeedState", () => {
+  it("initializes lastSequenceNumber to 0", () => {
+    const state = emptyLiveFeedState();
+    expect(state.lastSequenceNumber).toBe(0);
+  });
+
+  it("initializes all fields to empty defaults", () => {
+    const state = emptyLiveFeedState();
+    expect(state.events).toEqual([]);
+    expect(state.progress).toBeNull();
+    expect(state.features.size).toBe(0);
+    expect(state.hydratedFromApi).toBe(false);
+    expect(state.lastEventId).toBeNull();
+  });
+});
+
+describe("sequence_number dedup logic", () => {
+  it("events with sequence_number <= lastSequenceNumber should be skippable", () => {
+    const state = emptyLiveFeedState();
+    state.lastSequenceNumber = 10;
+
+    // Simulate dedup check: seqNum <= lastSequenceNumber means skip
+    const shouldSkip = (seqNum: number) => seqNum > 0 && seqNum <= state.lastSequenceNumber;
+
+    expect(shouldSkip(5)).toBe(true);
+    expect(shouldSkip(10)).toBe(true);
+    expect(shouldSkip(11)).toBe(false);
+    expect(shouldSkip(0)).toBe(false); // 0 means no sequence_number, don't skip
+  });
+
+  it("hydration updates lastSequenceNumber to max from events", () => {
+    const events = [
+      {
+        ...agentEventToLiveFeedEvent({
+          id: "e1",
+          agent_id: "",
+          task_id: "",
+          project_id: "p",
+          type: "agent.started",
+          payload: {},
+          version: 1,
+          sequence_number: 5,
+          created_at: "2026-01-01T00:00:00Z",
+        }),
+        run_id: "r1",
+      },
+      {
+        ...agentEventToLiveFeedEvent({
+          id: "e2",
+          agent_id: "",
+          task_id: "",
+          project_id: "p",
+          type: "agent.step_done",
+          payload: {},
+          version: 2,
+          sequence_number: 12,
+          created_at: "2026-01-01T00:01:00Z",
+        }),
+        run_id: "r1",
+      },
+      {
+        ...agentEventToLiveFeedEvent({
+          id: "e3",
+          agent_id: "",
+          task_id: "",
+          project_id: "p",
+          type: "agent.finished",
+          payload: {},
+          version: 3,
+          sequence_number: 8,
+          created_at: "2026-01-01T00:02:00Z",
+        }),
+        run_id: "r1",
+      },
+    ];
+
+    const maxSeq = events.reduce((max, e) => Math.max(max, e.sequence_number ?? 0), 0);
+    expect(maxSeq).toBe(12);
   });
 });

@@ -649,18 +649,19 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 		}
 
 		s.hub.BroadcastEvent(msgCtx, ws.EventTrajectoryEvent, ws.TrajectoryEventPayload{
-			RunID:     payload.RunID,
-			ProjectID: payload.ProjectID,
-			EventType: payload.EventType,
-			ToolName:  payload.ToolName,
-			Model:     payload.Model,
-			Input:     payload.Input,
-			Output:    payload.Output,
-			Success:   payload.Success,
-			Step:      payload.Step,
-			CostUSD:   payload.CostUSD,
-			TokensIn:  payload.TokensIn,
-			TokensOut: payload.TokensOut,
+			RunID:          payload.RunID,
+			ProjectID:      payload.ProjectID,
+			EventType:      payload.EventType,
+			SequenceNumber: ev.SequenceNumber,
+			ToolName:       payload.ToolName,
+			Model:          payload.Model,
+			Input:          payload.Input,
+			Output:         payload.Output,
+			Success:        payload.Success,
+			Step:           payload.Step,
+			CostUSD:        payload.CostUSD,
+			TokensIn:       payload.TokensIn,
+			TokensOut:      payload.TokensOut,
 		})
 
 		// Action suggestion events get a dedicated AG-UI broadcast.

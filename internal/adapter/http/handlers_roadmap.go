@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -424,6 +425,13 @@ func (h *Handlers) GetTrajectory(w http.ResponseWriter, r *http.Request) {
 	if types := r.URL.Query().Get("types"); types != "" {
 		for _, t := range strings.Split(types, ",") {
 			filter.Types = append(filter.Types, event.Type(strings.TrimSpace(t)))
+		}
+	}
+
+	// Support gap-fill queries: return events after a given sequence number.
+	if afterSeq := r.URL.Query().Get("after_sequence"); afterSeq != "" {
+		if v, err := strconv.ParseInt(afterSeq, 10, 64); err == nil && v > 0 {
+			filter.AfterSequence = v
 		}
 	}
 

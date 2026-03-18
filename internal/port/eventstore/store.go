@@ -10,9 +10,10 @@ import (
 
 // TrajectoryFilter controls which events are returned by LoadTrajectory.
 type TrajectoryFilter struct {
-	Types  []event.Type `json:"types,omitempty"`
-	After  *time.Time   `json:"after,omitempty"`
-	Before *time.Time   `json:"before,omitempty"`
+	Types         []event.Type `json:"types,omitempty"`
+	After         *time.Time   `json:"after,omitempty"`
+	Before        *time.Time   `json:"before,omitempty"`
+	AfterSequence int64        `json:"after_sequence,omitempty"` // return events with sequence_number > this value
 }
 
 // TrajectoryPage is a cursor-paginated page of events.

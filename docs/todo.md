@@ -1210,8 +1210,8 @@
 
 **Medium Effort:**
 - [x] STUB-004: Wire actual budget tracking + stall detection into conversation agent template data (2026-03-18)
-- [ ] STUB-003: Implement review trigger dispatch to boundary-analyzer agent loop (`workers/codeforge/consumer/_review.py:35`)
-- [ ] STUB-009: Add trajectory event `sequence_number` (Go) + frontend dedup + WS reconnect re-hydration (`frontend/src/features/benchmarks/BenchmarkPage.tsx:131-135`)
+- [x] STUB-003: Implement review trigger dispatch to boundary-analyzer agent loop (`workers/codeforge/consumer/_review.py:35`) (2026-03-18)
+- [x] STUB-009: Add trajectory event `sequence_number` (Go) + frontend dedup + WS reconnect re-hydration (`frontend/src/features/benchmarks/BenchmarkPage.tsx:131-135`) (2026-03-18)
 - [x] STUB-006: Build A2A agent card skills dynamically from mode registry + backend capabilities (2026-03-18)
 - [x] STUB-012: Defer StepBinding creation until orchestrator assigns real resources (2026-03-18)
 

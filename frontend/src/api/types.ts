@@ -207,6 +207,7 @@ export interface AgentEvent {
   payload: Record<string, unknown>;
   request_id?: string;
   version: number;
+  sequence_number: number;
   created_at: string;
   // Per-tool tracking (populated for tool_called/step_done events)
   tool_name?: string;
@@ -1688,6 +1689,7 @@ export interface LiveFeedEvent {
   run_id: string;
   project_id: string;
   event_type: "agent.step_done" | "agent.tool_called" | "agent.finished" | (string & {});
+  sequence_number?: number;
   tool_name?: string;
   model?: string;
   input?: string;

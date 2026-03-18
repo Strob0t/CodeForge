@@ -38,6 +38,7 @@ export interface LiveFeedState {
   stats: AggregateStats;
   hydratedFromApi: boolean;
   lastEventId: string | null;
+  lastSequenceNumber: number;
 }
 
 // ---- Helpers ----
@@ -61,6 +62,7 @@ export function emptyLiveFeedState(): LiveFeedState {
     stats: emptyStats(),
     hydratedFromApi: false,
     lastEventId: null,
+    lastSequenceNumber: 0,
   };
 }
 
@@ -89,6 +91,7 @@ export function agentEventToLiveFeedEvent(ev: AgentEvent): LiveFeedEvent {
     run_id: "",
     project_id: ev.project_id,
     event_type: ev.type,
+    sequence_number: ev.sequence_number,
     tool_name: ev.tool_name ?? (ev.payload.tool_name as string | undefined),
     model: ev.model ?? (ev.payload.model as string | undefined),
     input: ev.payload.input as string | undefined,
