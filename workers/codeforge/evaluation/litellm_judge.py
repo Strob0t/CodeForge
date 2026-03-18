@@ -25,11 +25,12 @@ class LiteLLMJudge(DeepEvalBaseLLM):
     def __init__(
         self,
         model: str = "",
-        base_url: str = "http://codeforge-litellm:4000/v1",
+        base_url: str = "",
         api_key: str = "",
         timeout: float = 120.0,
     ) -> None:
         model = model or _DEFAULT_JUDGE_MODEL
+        base_url = base_url or os.environ.get("LITELLM_BASE_URL", "http://localhost:4000") + "/v1"
         api_key = api_key or os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
         self.model_name = model
         self._base_url = base_url.rstrip("/")
@@ -50,7 +51,10 @@ class LiteLLMJudge(DeepEvalBaseLLM):
             "temperature": 0.0,
         }
         if schema is not None:
-            payload["response_format"] = {"type": "json_object"}
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
+            }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base_url}/chat/completions",
@@ -72,7 +76,10 @@ class LiteLLMJudge(DeepEvalBaseLLM):
             "temperature": 0.0,
         }
         if schema is not None:
-            payload["response_format"] = {"type": "json_object"}
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
+            }
         with httpx.Client(timeout=self._timeout) as client:
             resp = client.post(
                 f"{self._base_url}/chat/completions",

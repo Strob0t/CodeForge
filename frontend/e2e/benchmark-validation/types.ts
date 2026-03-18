@@ -7,7 +7,19 @@
 // --- Test Matrix Types ---
 
 export type BenchmarkType = "simple" | "tool_use" | "agent";
-export type MetricName = "llm_judge" | "functional_test" | "sparc" | "trajectory_verifier";
+export type MetricName =
+  | "llm_judge"
+  | "functional_test"
+  | "sparc"
+  | "trajectory_verifier"
+  | "correctness"
+  | "faithfulness"
+  | "relevance"
+  | "coherence"
+  | "fluency"
+  | "tool_correctness"
+  | "answer_relevancy"
+  | "contextual_precision";
 export type BlockStatus = "passed" | "failed" | "partial" | "skipped";
 export type TestStatus = "passed" | "failed" | "skipped";
 

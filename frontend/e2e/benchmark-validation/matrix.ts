@@ -3,17 +3,24 @@
  * Derived from the spec: docs/superpowers/specs/2026-03-11-benchmark-validation-design.md
  *
  * Each entry maps to one benchmark run. Spec files filter by block number.
+ *
+ * Test Matrix Design:
+ * - Block 1: Simple benchmarks (e2e-quick, 2 tasks each)
+ * - Block 2: Tool-use benchmarks (e2e-quick, 2 tasks each)
+ * - Block 3: Agent benchmarks (e2e-quick, 2 tasks each)
+ * - Block 4: Intelligent routing (auto model, e2e-quick, 2 tasks)
+ * - Block 5: Error scenarios (invalid input, graceful failure)
+ * - Block 6: Multi-metric & suite-based runs
  */
 
 import type { TestCase, ErrorTestCase } from "./types";
 
-export const DEFAULT_MODEL = "lm_studio/qwen3-30b-a3b";
+export const DEFAULT_MODEL = "lm_studio/qwen/qwen3-30b-a3b";
 
 /** All valid suite x benchmark-type x metric combinations. */
 export const VALIDATION_MATRIX: TestCase[] = [
   // --- Block 1: Simple Benchmarks ---
   // Uses e2e-quick dataset (2 tasks) for fast validation.
-  // External providers (humaneval, mbpp, etc.) have 100+ tasks each — too slow for E2E.
   { id: "1.1", block: 1, suite: "codeforge_simple", type: "simple", metrics: ["llm_judge"] },
   {
     id: "1.2",
@@ -66,9 +73,6 @@ export const VALIDATION_MATRIX: TestCase[] = [
     metrics: ["llm_judge", "functional_test", "sparc", "trajectory_verifier"],
     expectation: "All evaluator scores present (functional_test may be 0)",
   },
-  // External agent suites (swebench, sparcbench, aider_polyglot) have 100+ tasks each.
-  // At ~4 min/task with local models, these would take hours — too slow for E2E.
-  // Registration is validated in Block 0 (difficulty audit).
 
   // --- Block 4: Routing ---
   {
@@ -78,6 +82,32 @@ export const VALIDATION_MATRIX: TestCase[] = [
     type: "simple",
     metrics: ["llm_judge"],
     model: "auto",
+  },
+
+  // --- Block 6: Multi-Metric & Extended Scenarios ---
+  {
+    id: "6.1",
+    block: 6,
+    suite: "codeforge_simple",
+    type: "simple",
+    metrics: ["correctness", "faithfulness"],
+    expectation: "Both LLM judge dimensions produce individual scores",
+  },
+  {
+    id: "6.2",
+    block: 6,
+    suite: "codeforge_simple",
+    type: "simple",
+    metrics: ["correctness", "tool_correctness", "answer_relevancy"],
+    expectation: "Extended metric names accepted and scored",
+  },
+  {
+    id: "6.3",
+    block: 6,
+    suite: "codeforge_simple",
+    type: "simple",
+    metrics: ["correctness", "contextual_precision", "faithfulness"],
+    expectation: "All 3 metrics produce scores without errors",
   },
 ];
 
@@ -125,7 +155,7 @@ export const ERROR_SCENARIOS: ErrorTestCase[] = [
       metrics: ["nonexistent_evaluator"],
       benchmark_type: "simple",
     },
-    expectation: "Graceful degradation: falls back to llm_judge",
+    expectation: "Rejected by Go validation (HTTP 400)",
   },
   {
     id: "5.5",

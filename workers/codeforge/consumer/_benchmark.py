@@ -252,6 +252,8 @@ class BenchmarkHandlerMixin:
                 ),
                 SUBJECT_BENCHMARK_RUN_RESULT,
             )
+            # Ack to prevent infinite NATS redelivery — error result is already published.
+            await msg.ack()
 
     async def _resolve_effective_llm(self, req: object, log: structlog.BoundLogger) -> object:
         """Resolve the effective LLM client, wrapping with router for auto mode."""
@@ -719,7 +721,16 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
     from codeforge.evaluation.evaluators.trajectory_verifier import TrajectoryVerifierEvaluator
 
     # Metric names that map to LLMJudgeEvaluator
-    llm_judge_metrics = {"correctness", "faithfulness", "relevance", "coherence", "fluency"}
+    llm_judge_metrics = {
+        "correctness",
+        "faithfulness",
+        "relevance",
+        "coherence",
+        "fluency",
+        "tool_correctness",
+        "answer_relevancy",
+        "contextual_precision",
+    }
 
     evaluators = []
     collected_llm_metrics: list[str] = []
@@ -742,7 +753,8 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
         else:
             valid_names = (
                 "llm_judge, functional_test, sparc, trajectory_verifier, "
-                "logprob_verifier, correctness, faithfulness, relevance, coherence, fluency"
+                "logprob_verifier, correctness, faithfulness, relevance, coherence, fluency, "
+                "tool_correctness, answer_relevancy, contextual_precision"
             )
             raise ValueError(f"unknown evaluator/metric: {name!r}. Valid: {valid_names}")
 

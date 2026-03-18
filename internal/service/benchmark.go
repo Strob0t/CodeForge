@@ -829,6 +829,9 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 		run.Status = benchmark.StatusCompleted
 	} else {
 		run.Status = benchmark.StatusFailed
+		if payload.Error != "" {
+			run.ErrorMessage = payload.Error
+		}
 	}
 
 	// Store summary scores if provided.
