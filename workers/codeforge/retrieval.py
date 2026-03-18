@@ -356,15 +356,6 @@ def _file_sha256(path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _RetrieverConfig:
-    """Internal configuration for the retriever HTTP client."""
-
-    base_url: str
-    api_key: str
-    embedding_model: str = "text-embedding-3-small"
-
-
 class HybridRetriever:
     """Combines BM25 keyword search with LiteLLM embedding cosine similarity."""
 

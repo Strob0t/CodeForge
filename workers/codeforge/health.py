@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -21,9 +21,3 @@ class HealthHandler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         pass  # Suppress default stderr logging
-
-
-def serve(port: int = 8081) -> None:
-    """Start the health check server."""
-    server = HTTPServer(("", port), HealthHandler)
-    server.serve_forever()

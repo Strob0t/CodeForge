@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from opentelemetry import context, trace
+from opentelemetry import context
 from opentelemetry.propagate import extract, inject
 
 if TYPE_CHECKING:
@@ -31,17 +31,3 @@ def inject_trace_context(headers: dict[str, str] | None = None) -> dict[str, str
     carrier = dict(headers) if headers else {}
     inject(carrier)
     return carrier
-
-
-def start_consumer_span(
-    span_name: str,
-    headers: dict[str, str] | None,
-) -> tuple[trace.Span, object]:
-    """Extract trace context and start a new span as a child.
-
-    Returns (span, token) — caller must end the span and detach the token.
-    """
-    ctx, token = extract_trace_context(headers)
-    tracer = trace.get_tracer("codeforge")
-    span = tracer.start_span(span_name, context=ctx)
-    return span, token

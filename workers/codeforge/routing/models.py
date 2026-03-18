@@ -90,14 +90,6 @@ class ModelStats:
 
 
 @dataclass(frozen=True)
-class CascadeConfig:
-    enabled: bool = False
-    confidence_threshold: float = 0.7
-    max_steps: int = 3
-    strategy: str = "cheap_first"
-
-
-@dataclass(frozen=True)
 class CascadeStep:
     model: str
     confidence_threshold: float = 0.7
