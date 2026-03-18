@@ -7,7 +7,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -296,12 +295,12 @@ func (s *ContextOptimizerService) assembleAndPack(
 		return nil, 0
 	}
 
-	// Sort by priority descending.
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].Priority > candidates[j].Priority
-	})
+	// Deduplicate near-duplicate candidates using SimHash (B2).
+	// This removes overlapping content from different retrieval sources
+	// (BM25, semantic search, GraphRAG) before packing into the token budget.
+	candidates = deduplicateCandidates(candidates, defaultDedupThreshold)
 
-	// Pack entries within budget.
+	// Pack entries within budget (already sorted by priority descending from dedup).
 	for i := range candidates {
 		if tokensUsed+candidates[i].Tokens > available {
 			continue

@@ -1289,12 +1289,12 @@
 - [x] A3.9: Integrate into `run()` and `_do_llm_iteration()` in `agent_loop.py`
 - [x] A3.10-A3.11: Add `CODEFORGE_PLAN_ACT_MAX_ITERATIONS` env var (default 10) + all tests passing
 
-**B2: Semantic Deduplication of Context Candidates (~3h)**
-- [ ] B2.1-B2.3b: Write dedup tests (overlapping lines, cross-file, no-dupes, simhash edge cases)
-- [ ] B2.4: Implement `simhash64()` + `hammingDistance()` in `internal/service/context_optimizer.go`
-- [ ] B2.5: Implement `deduplicateCandidates()` in `context_optimizer.go`
-- [ ] B2.6: Integrate into `BuildConversationContext()`
-- [ ] B2.7: Run regression tests
+**B2: Semantic Deduplication of Context Candidates (~3h)** ✅ 2026-03-18
+- [x] B2.1-B2.3b: Write dedup tests (overlapping lines, cross-file, no-dupes, simhash edge cases) — 26 tests in `dedup_test.go`
+- [x] B2.4: Implement `simhash64()` + `hammingDistance()` in `internal/service/dedup.go`
+- [x] B2.5: Implement `deduplicateCandidates()` in `dedup.go`
+- [x] B2.6: Integrate into `assembleAndPack()` in `context_optimizer.go`
+- [x] B2.7: Run regression tests — all 11 context optimizer tests pass
 
 #### Phase 3 — Context Intelligence (~10h total)
 
