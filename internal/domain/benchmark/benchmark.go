@@ -270,6 +270,17 @@ type TrainingPair struct {
 	ScoreGap float64       `json:"score_gap"`
 }
 
+// --- Phase 5/C4: RLVR Training Pipeline Export ---
+
+// RLVREntry represents one RLVR (Reinforcement Learning from Verifiable Rewards)
+// training entry: a prompt/response pair with a scalar reward signal.
+type RLVREntry struct {
+	Prompt   string            `json:"prompt"`
+	Response string            `json:"response"`
+	Reward   float64           `json:"reward"`
+	Metadata map[string]string `json:"metadata"`
+}
+
 // --- Phase 26G: Cost Analysis, Leaderboard, Benchmark Progress ---
 
 // CostBreakdown holds cost details for a single task in a benchmark run.

@@ -50,6 +50,8 @@ var defaultSuites = []benchmark.CreateSuiteRequest{
 	{Name: "LiveCodeBench", Type: benchmark.TypeSimple, ProviderName: "livecodebench"},
 	{Name: "SPARCBench", Type: benchmark.TypeAgent, ProviderName: "sparcbench"},
 	{Name: "Aider Polyglot", Type: benchmark.TypeAgent, ProviderName: "aider_polyglot"},
+	{Name: "DPAI Arena", Type: benchmark.TypeSimple, ProviderName: "dpai_arena"},
+	{Name: "Terminal-Bench", Type: benchmark.TypeAgent, ProviderName: "terminal_bench"},
 }
 
 // SeedDefaultSuites creates built-in benchmark suites if they don't exist.
@@ -650,6 +652,72 @@ func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.Trai
 		CostUSD:     r.CostUSD,
 		TokensTotal: r.TokensIn + r.TokensOut,
 	}
+}
+
+// ComputeRLVRReward computes an RLVR reward from evaluation scores.
+// Strategy: weighted average where functional_test scores get 2x weight.
+// All other scores get 1x weight. Result is clamped to [0.0, 1.0].
+func ComputeRLVRReward(scores map[string]float64) float64 {
+	if len(scores) == 0 {
+		return 0.0
+	}
+
+	var totalWeighted, totalWeight float64
+	for key, value := range scores {
+		weight := 1.0
+		if key == "functional_test" {
+			weight = 2.0
+		}
+		totalWeighted += value * weight
+		totalWeight += weight
+	}
+
+	if totalWeight == 0.0 {
+		return 0.0
+	}
+
+	avg := totalWeighted / totalWeight
+
+	// Clamp to [0.0, 1.0].
+	if avg > 1.0 {
+		return 1.0
+	}
+	if avg < 0.0 {
+		return 0.0
+	}
+	return avg
+}
+
+// ExportRLVRDataset generates RLVR training entries from a benchmark run.
+// Each result becomes one entry with prompt, response, scalar reward, and metadata.
+func (s *BenchmarkService) ExportRLVRDataset(ctx context.Context, runID string) ([]benchmark.RLVREntry, error) {
+	run, err := s.store.GetBenchmarkRun(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("run: %w", err)
+	}
+	results, err := s.store.ListBenchmarkResults(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("results: %w", err)
+	}
+
+	entries := make([]benchmark.RLVREntry, 0, len(results))
+	for i := range results {
+		scores := make(map[string]float64)
+		_ = json.Unmarshal(results[i].Scores, &scores) //nolint:errcheck // best effort
+
+		entries = append(entries, benchmark.RLVREntry{
+			Prompt:   results[i].TaskName,
+			Response: results[i].ActualOutput,
+			Reward:   ComputeRLVRReward(scores),
+			Metadata: map[string]string{
+				"task_id": results[i].TaskID,
+				"model":   run.Model,
+				"run_id":  runID,
+			},
+		})
+	}
+
+	return entries, nil
 }
 
 // HandleBenchmarkRunResult processes a benchmark.run.result message from Python.

@@ -283,6 +283,34 @@ func (h *Handlers) BenchmarkLeaderboard(w http.ResponseWriter, r *http.Request) 
 
 // --- Phase 28E: Training Data Export ---
 
+// ExportRLVRData handles GET /api/v1/benchmarks/runs/{id}/export/rlvr
+func (h *Handlers) ExportRLVRData(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "run id is required")
+		return
+	}
+	entries, err := h.Benchmarks.ExportRLVRDataset(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, err, "export RLVR data")
+		return
+	}
+
+	format := strings.ToLower(r.URL.Query().Get("format"))
+	if format == "json" {
+		writeJSON(w, http.StatusOK, entries)
+		return
+	}
+
+	// Default: JSONL (ndjson) -- one JSON object per line.
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"rlvr_dataset.jsonl\"")
+	enc := json.NewEncoder(w)
+	for i := range entries {
+		_ = enc.Encode(entries[i])
+	}
+}
+
 // ExportTrainingData handles GET /api/v1/benchmarks/runs/{id}/export/training
 func (h *Handlers) ExportTrainingData(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
