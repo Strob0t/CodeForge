@@ -16,10 +16,10 @@ import {
   FormField,
   GridLayout,
   Input,
-  LoadingState,
   ModelCombobox,
   PageLayout,
 } from "~/ui";
+import { SkeletonCard } from "~/ui/composites/SkeletonCard";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 const MODEL_FORM_DEFAULTS = {
@@ -219,7 +219,9 @@ export function ModelsContent() {
       </Show>
 
       <Show when={models.loading}>
-        <LoadingState message={t("models.loading")} />
+        <GridLayout>
+          <For each={[1, 2, 3]}>{() => <SkeletonCard />}</For>
+        </GridLayout>
       </Show>
 
       <Show when={models.error}>

@@ -89,7 +89,16 @@ export default function CostDashboardPage() {
         </Card.Header>
         <Card.Body class="p-0">
           <Show when={!globalCosts.loading} fallback={<SkeletonTable columns={5} rows={4} />}>
-            <Show when={(globalCosts() ?? []).length > 0} fallback={<EmptyState illustration={<CoinsWalletIcon />} title={t("costs.empty")} description={t("costs.emptyDescription")} />}>
+            <Show
+              when={(globalCosts() ?? []).length > 0}
+              fallback={
+                <EmptyState
+                  illustration={<CoinsWalletIcon />}
+                  title={t("costs.empty")}
+                  description={t("costs.emptyDescription")}
+                />
+              }
+            >
               <Table<ProjectCostSummary>
                 columns={projectColumns}
                 data={globalCosts() ?? []}

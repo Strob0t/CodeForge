@@ -42,6 +42,7 @@ import {
   Table,
   Textarea,
 } from "~/ui";
+import { SkeletonCard } from "~/ui/composites/SkeletonCard";
 import type { TableColumn } from "~/ui/composites/Table";
 
 import { ShortcutsSection } from "./ShortcutsSection";
@@ -643,10 +644,7 @@ export default function SettingsPage() {
 
       {/* LLM Health */}
       <Section title={t("settings.llm.title")} class="mb-8">
-        <Show
-          when={!llmHealth.loading}
-          fallback={<p class="text-sm text-cf-text-muted">{t("settings.llm.checking")}</p>}
-        >
+        <Show when={!llmHealth.loading} fallback={<SkeletonCard variant="stat" />}>
           <Show
             when={llmHealth()}
             fallback={<Alert variant="error">{t("settings.llm.unavailable")}</Alert>}
