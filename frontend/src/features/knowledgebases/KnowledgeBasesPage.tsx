@@ -20,6 +20,7 @@ import {
   PageLayout,
   Select,
 } from "~/ui";
+import { BrainBookIcon } from "~/ui/icons/EmptyStateIcons";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 const KB_FORM_DEFAULTS = {
@@ -195,7 +196,7 @@ export function KnowledgeBasesContent() {
       </Show>
 
       <Show when={!kbs.loading}>
-        <Show when={sorted().length} fallback={<EmptyState title={t("kb.empty")} />}>
+        <Show when={sorted().length} fallback={<EmptyState illustration={<BrainBookIcon />} title={t("kb.empty")} description={t("kb.emptyDescription")} />}>
           <GridLayout>
             <For each={sorted()}>
               {(kb) => (

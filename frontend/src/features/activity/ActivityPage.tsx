@@ -7,6 +7,7 @@ import { severityVariant } from "~/config/statusVariants";
 import { AuditContent } from "~/features/audit/AuditTrailPage";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, EmptyState, PageLayout, Select, Tabs } from "~/ui";
+import { TimelinePulseIcon } from "~/ui/icons/EmptyStateIcons";
 
 /** A single activity entry shown in the stream */
 interface ActivityEntry {
@@ -258,7 +259,9 @@ export function ActivityContent() {
           <Card>
             <Card.Body>
               <EmptyState
+                illustration={entries().length === 0 ? <TimelinePulseIcon /> : undefined}
                 title={entries().length === 0 ? t("activity.empty") : t("activity.noMatch")}
+                description={entries().length === 0 ? t("activity.emptyDescription") : undefined}
               />
             </Card.Body>
           </Card>

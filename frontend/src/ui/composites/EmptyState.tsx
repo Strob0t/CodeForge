@@ -3,12 +3,13 @@ import { type JSX, Show, splitProps } from "solid-js";
 export interface EmptyStateProps {
   title: string;
   description?: string;
+  illustration?: JSX.Element;
   action?: JSX.Element;
   class?: string;
 }
 
 export function EmptyState(props: EmptyStateProps): JSX.Element {
-  const [local] = splitProps(props, ["title", "description", "action", "class"]);
+  const [local] = splitProps(props, ["title", "description", "illustration", "action", "class"]);
 
   return (
     <div
@@ -17,6 +18,9 @@ export function EmptyState(props: EmptyStateProps): JSX.Element {
         (local.class ? " " + local.class : "")
       }
     >
+      <Show when={local.illustration}>
+        <div class="mb-4">{local.illustration}</div>
+      </Show>
       <p class="text-lg font-medium text-cf-text-secondary">{local.title}</p>
       <Show when={local.description}>
         <p class="mt-1 text-sm text-cf-text-muted">{local.description}</p>

@@ -18,6 +18,7 @@ import {
   Select,
   Textarea,
 } from "~/ui";
+import { DocumentPenIcon } from "~/ui/icons/EmptyStateIcons";
 
 const MERGE_OPTIONS = ["replace", "prepend", "append"];
 
@@ -247,7 +248,7 @@ export default function PromptEditorPage() {
       <Show when={!sections.loading} fallback={<LoadingState />}>
         <Show
           when={(sections() ?? []).length > 0}
-          fallback={<EmptyState title={t("prompts.empty")} />}
+          fallback={<EmptyState illustration={<DocumentPenIcon />} title={t("prompts.empty")} description={t("prompts.emptyDescription")} />}
         >
           <div class="space-y-2">
             <For each={sections()}>

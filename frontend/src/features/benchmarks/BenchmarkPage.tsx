@@ -41,6 +41,7 @@ import {
   Select,
   Tabs,
 } from "~/ui";
+import { ChartTrophyIcon } from "~/ui/icons/EmptyStateIcons";
 
 import { BenchmarkCompare } from "./BenchmarkCompare";
 import { BenchmarkLiveFeed } from "./BenchmarkLiveFeed";
@@ -637,7 +638,7 @@ export default function BenchmarkPage() {
 
           {/* Run List */}
           <Show when={!runs.loading} fallback={<LoadingState />}>
-            <Show when={runs()?.length} fallback={<EmptyState title={t("benchmark.empty")} />}>
+            <Show when={runs()?.length} fallback={<EmptyState illustration={<ChartTrophyIcon />} title={t("benchmark.empty")} description={t("benchmark.emptyDescription")} />}>
               <div class="space-y-3">
                 <For each={runs()}>
                   {(run: BenchmarkRun) => (

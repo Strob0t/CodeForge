@@ -10,8 +10,10 @@ import type {
   ToolCostSummary,
 } from "~/api/types";
 import { useI18n } from "~/i18n";
-import { Card, LoadingState, PageLayout, StatCard, Table } from "~/ui";
+import { Card, EmptyState, PageLayout, StatCard, Table } from "~/ui";
+import { SkeletonTable } from "~/ui/composites/SkeletonTable";
 import type { TableColumn } from "~/ui/composites/Table";
+import { CoinsWalletIcon } from "~/ui/icons/EmptyStateIcons";
 
 export default function CostDashboardPage() {
   onMount(() => {
@@ -86,13 +88,14 @@ export default function CostDashboardPage() {
           <h3 class="text-lg font-semibold text-cf-text-primary">{t("costs.byProject")}</h3>
         </Card.Header>
         <Card.Body class="p-0">
-          <Show when={!globalCosts.loading} fallback={<LoadingState />}>
-            <Table<ProjectCostSummary>
-              columns={projectColumns}
-              data={globalCosts() ?? []}
-              rowKey={(p) => p.project_id}
-              emptyMessage={t("costs.empty")}
-            />
+          <Show when={!globalCosts.loading} fallback={<SkeletonTable columns={5} rows={4} />}>
+            <Show when={(globalCosts() ?? []).length > 0} fallback={<EmptyState illustration={<CoinsWalletIcon />} title={t("costs.empty")} description={t("costs.emptyDescription")} />}>
+              <Table<ProjectCostSummary>
+                columns={projectColumns}
+                data={globalCosts() ?? []}
+                rowKey={(p) => p.project_id}
+              />
+            </Show>
           </Show>
         </Card.Body>
       </Card>

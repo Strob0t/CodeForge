@@ -23,6 +23,7 @@ import {
   Table,
   Textarea,
 } from "~/ui";
+import { ServerPlugIcon } from "~/ui/icons/EmptyStateIcons";
 import type { TableColumn } from "~/ui/composites/Table";
 
 // ---------------------------------------------------------------------------
@@ -518,7 +519,7 @@ export default function MCPServersPage() {
 
       {/* Server list */}
       <Show when={!servers.loading && !servers.error}>
-        <Show when={(servers() ?? []).length > 0} fallback={<EmptyState title={t("mcp.empty")} />}>
+        <Show when={(servers() ?? []).length > 0} fallback={<EmptyState illustration={<ServerPlugIcon />} title={t("mcp.empty")} description={t("mcp.emptyDescription")} />}>
           <Table<MCPServer> columns={serverColumns} data={servers() ?? []} rowKey={(s) => s.id} />
 
           {/* Expandable tools sections below the table */}
