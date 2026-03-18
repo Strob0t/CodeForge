@@ -18,16 +18,10 @@ func Validate(subject string, data []byte) error {
 	// Map subject to payload struct for structural validation.
 	var target any
 	switch {
-	case subject == SubjectTaskCreated:
-		target = &TaskCreatedPayload{}
 	case subject == SubjectTaskResult:
 		target = &TaskResultPayload{}
-	case subject == SubjectTaskOutput:
-		target = &TaskOutputPayload{}
 	case subject == SubjectTaskCancel:
 		target = &TaskCancelPayload{}
-	case subject == SubjectAgentStatus:
-		target = &AgentStatusPayload{}
 	case subject == SubjectRetrievalIndexRequest:
 		target = &RetrievalIndexRequestPayload{}
 	case subject == SubjectRetrievalIndexResult:

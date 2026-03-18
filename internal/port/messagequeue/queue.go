@@ -34,12 +34,10 @@ type Queue interface {
 
 // Subject constants for NATS subjects used by CodeForge.
 const (
-	SubjectTaskCreated = "tasks.created"
-	SubjectTaskAgent   = "tasks.agent"  // tasks.agent.{backend} — dispatched to specific backend
-	SubjectTaskResult  = "tasks.result" // results from workers
-	SubjectTaskOutput  = "tasks.output" // streaming output lines from workers
-	SubjectTaskCancel  = "tasks.cancel" // cancel a running task
-	SubjectAgentStatus = "agents.status"
+	SubjectTaskAgent   = "tasks.agent"   // tasks.agent.{backend} — dispatched to specific backend
+	SubjectTaskResult  = "tasks.result"  // results from workers
+	SubjectTaskOutput  = "tasks.output"  // streaming output lines from workers
+	SubjectTaskCancel  = "tasks.cancel"  // cancel a running task
 	SubjectAgentOutput = "agents.output" // Python → Go: per-line backend output
 
 	// Run protocol subjects (Phase 4B step-by-step execution)
@@ -59,7 +57,6 @@ const (
 	SubjectQualityGateResult  = "runs.qualitygate.result"  // Python → Go: gate outcome
 
 	// Context subjects (Phase 5D)
-	SubjectContextPacked = "context.packed"         // Go → Python: context pack ready for run
 	SubjectSharedUpdated = "context.shared.updated" // Go → all: shared context changed
 
 	// Context re-ranking subjects (Phase 3 — Context Intelligence)
@@ -99,9 +96,6 @@ const (
 	// Evaluation subjects (Phase 20G — GEMMAS)
 	SubjectEvalGemmasRequest = "evaluation.gemmas.request" // Go → Python: compute GEMMAS metrics
 	SubjectEvalGemmasResult  = "evaluation.gemmas.result"  // Python → Go: GEMMAS metric results
-
-	// Agent identity subjects (Phase 23C)
-	SubjectAgentMessage = "agents.message" // Go → Go: agent-to-agent inbox message
 
 	// A2A subjects (Phase 27)
 	SubjectA2ATaskCreated  = "a2a.task.created"  // Go → Python: inbound A2A task received

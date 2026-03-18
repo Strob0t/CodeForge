@@ -5,13 +5,6 @@ import (
 	"testing"
 )
 
-func TestValidateValidTaskCreated(t *testing.T) {
-	data := []byte(`{"task_id":"t1","project_id":"p1","title":"Fix","prompt":"do it"}`)
-	if err := Validate(SubjectTaskCreated, data); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestValidateValidTaskResult(t *testing.T) {
 	data := []byte(`{"task_id":"t1","project_id":"p1","status":"completed","output":"ok","files":[],"error":"","tokens_in":10,"tokens_out":5,"cost_usd":0.001}`)
 	if err := Validate(SubjectTaskResult, data); err != nil {
@@ -19,23 +12,9 @@ func TestValidateValidTaskResult(t *testing.T) {
 	}
 }
 
-func TestValidateValidTaskOutput(t *testing.T) {
-	data := []byte(`{"task_id":"t1","project_id":"p1","agent_id":"a1","line":"hello world"}`)
-	if err := Validate(SubjectTaskOutput, data); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestValidateValidTaskCancel(t *testing.T) {
 	data := []byte(`{"task_id":"t1"}`)
 	if err := Validate(SubjectTaskCancel, data); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestValidateValidAgentStatus(t *testing.T) {
-	data := []byte(`{"agent_id":"a1","project_id":"p1","status":"running"}`)
-	if err := Validate(SubjectAgentStatus, data); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -58,7 +37,7 @@ func TestValidateUnknownSubject(t *testing.T) {
 
 func TestValidateInvalidJSON(t *testing.T) {
 	data := []byte(`{not valid json`)
-	err := Validate(SubjectTaskCreated, data)
+	err := Validate(SubjectTaskCancel, data)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -68,11 +47,11 @@ func TestValidateInvalidJSON(t *testing.T) {
 }
 
 func TestValidateInvalidSchema(t *testing.T) {
-	// Valid JSON but cannot unmarshal into TaskCreatedPayload
+	// Valid JSON but cannot unmarshal into TaskCancelPayload
 	// (numbers where strings expected won't cause unmarshal errors in Go,
 	// but completely wrong structure will)
 	data := []byte(`"just a string"`)
-	err := Validate(SubjectTaskCreated, data)
+	err := Validate(SubjectTaskCancel, data)
 	if err == nil {
 		t.Fatal("expected schema validation error")
 	}
@@ -84,7 +63,7 @@ func TestValidateInvalidSchema(t *testing.T) {
 func TestValidateEmptyJSON(t *testing.T) {
 	// Empty object is valid JSON and valid for all schemas (all fields are zero-value).
 	data := []byte(`{}`)
-	if err := Validate(SubjectTaskCreated, data); err != nil {
+	if err := Validate(SubjectTaskCancel, data); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

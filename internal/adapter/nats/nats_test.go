@@ -152,9 +152,9 @@ func TestQueue_DLQ(t *testing.T) {
 	q := testConnect(t)
 	ctx := context.Background()
 
-	// Use tasks.created — the validator requires TaskCreatedPayload structure.
+	// Use tasks.cancel — the validator requires TaskCancelPayload structure.
 	// Publishing invalid JSON triggers immediate DLQ via validation failure.
-	subject := messagequeue.SubjectTaskCreated
+	subject := messagequeue.SubjectTaskCancel
 	dlqSubject := subject + ".dlq"
 
 	// Subscribe to the main subject so the consumer processes the message.

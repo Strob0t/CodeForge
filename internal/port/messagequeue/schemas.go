@@ -6,14 +6,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
 
-// TaskCreatedPayload is the schema for tasks.created messages.
-type TaskCreatedPayload struct {
-	TaskID    string `json:"task_id"`
-	ProjectID string `json:"project_id"`
-	Title     string `json:"title"`
-	Prompt    string `json:"prompt"`
-}
-
 // TaskResultPayload is the schema for tasks.result messages.
 type TaskResultPayload struct {
 	TaskID    string   `json:"task_id"`
@@ -27,25 +19,10 @@ type TaskResultPayload struct {
 	CostUSD   float64  `json:"cost_usd"`
 }
 
-// TaskOutputPayload is the schema for tasks.output messages.
-type TaskOutputPayload struct {
-	TaskID    string `json:"task_id"`
-	ProjectID string `json:"project_id"`
-	AgentID   string `json:"agent_id"`
-	Line      string `json:"line"`
-}
-
 // TaskCancelPayload is the schema for tasks.cancel messages.
 type TaskCancelPayload struct {
 	TaskID   string `json:"task_id"`
 	TenantID string `json:"tenant_id,omitempty"`
-}
-
-// AgentStatusPayload is the schema for agents.status messages.
-type AgentStatusPayload struct {
-	AgentID   string `json:"agent_id"`
-	ProjectID string `json:"project_id"`
-	Status    string `json:"status"`
 }
 
 // --- Run protocol payloads (Phase 4B) ---
@@ -188,14 +165,6 @@ type ContextEntryPayload struct {
 	Content  string `json:"content"`
 	Tokens   int    `json:"tokens"`
 	Priority int    `json:"priority"`
-}
-
-// ContextPackedPayload notifies the worker that a context pack is available for a run.
-type ContextPackedPayload struct {
-	RunID     string                `json:"run_id"`
-	TaskID    string                `json:"task_id"`
-	ProjectID string                `json:"project_id"`
-	Entries   []ContextEntryPayload `json:"entries"`
 }
 
 // SharedContextUpdatedPayload notifies that a team's shared context has changed.
@@ -410,29 +379,6 @@ type MCPServerDefPayload struct {
 	Env         map[string]string `json:"env,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Enabled     bool              `json:"enabled"`
-}
-
-// MCPServerStatusPayload is published when an MCP server's connection status changes.
-type MCPServerStatusPayload struct {
-	RunID    string `json:"run_id"`
-	ServerID string `json:"server_id"`
-	Status   string `json:"status"` // registered, connected, disconnected, error
-	Error    string `json:"error,omitempty"`
-}
-
-// MCPToolPayload describes a single tool discovered on an MCP server.
-type MCPToolPayload struct {
-	ServerID    string          `json:"server_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema,omitempty"`
-}
-
-// MCPToolDiscoveryPayload is published when tools are discovered on MCP servers.
-type MCPToolDiscoveryPayload struct {
-	RunID    string           `json:"run_id"`
-	ServerID string           `json:"server_id"`
-	Tools    []MCPToolPayload `json:"tools"`
 }
 
 // --- Conversation run payloads (Phase 17C) ---
