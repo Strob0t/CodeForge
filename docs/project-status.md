@@ -233,7 +233,7 @@ Live feed state lifted from child `BenchmarkLiveFeed` component to parent `Bench
 
 **Bug 5 (Low) — LLM Judge Context Overflow:** Added `compress_for_context()` head+tail truncation utility (`workers/codeforge/evaluation/evaluators/prompt_compressor.py`). LLM Judge and Trajectory Verifier compress inputs to conservative budgets (4K/2K chars). Error fallback distinguishes `context_overflow` from `evaluation_failed`. 18 tests.
 
-18 files changed, 2478 insertions, 109 deletions. Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`. Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`.
+18 files changed, 2478 insertions, 109 deletions. Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`. Plan: `docs/plans/2026-03-11-benchmark-findings-fixes-plan.md`.
 
 ### Benchmark Validation Round 2 — Bugs 6-10 + External Suite Fixes (COMPLETED)
 
@@ -301,4 +301,4 @@ Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests
 
 **14 tenant isolation query fixes** across 5 store files: store_channel.go (3 queries), store_conversation.go (4 queries), store_a2a.go (4 queries), store_vcsaccount.go (2 queries), store_mcp.go (1 query). All cross-tenant data access paths closed using JOIN, subquery, and direct WHERE patterns with `tenantFromCtx(ctx)`.
 
-**Connection pool tuning:** MaxConns 15->50, MinConns 2->10, MaxConnLifetime 1h->30m, MaxConnIdleTime 10m->5m, HealthCheck 1m->30s. Audit report: `docs/audit/schema-audit-2026-03-18.md`.
+**Connection pool tuning:** MaxConns 15->50, MinConns 2->10, MaxConnLifetime 1h->30m, MaxConnIdleTime 10m->5m, HealthCheck 1m->30s. Audit report: `docs/audits/2026-03-18-schema-audit.md`.

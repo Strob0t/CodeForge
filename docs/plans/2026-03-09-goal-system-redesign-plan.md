@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python (tool executor, runtime client), Go (AG-UI events, trajectory handler, mode preset), TypeScript/SolidJS (GoalProposalCard, ChatPanel handler)
 
-**Design Doc:** `docs/plans/2026-03-09-goal-system-redesign.md`
+**Design Doc:** `docs/specs/2026-03-09-goal-system-redesign-design.md`
 
 ---
 

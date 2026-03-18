@@ -10,7 +10,7 @@
 
 **Worktree:** `/workspaces/CodeForge/.worktrees/ux-ui-audit-fixes`
 **Branch:** `feature/ux-ui-audit-fixes`
-**Spec:** `docs/superpowers/specs/2026-03-18-ux-ui-audit-fixes-design.md`
+**Spec:** `docs/specs/2026-03-18-ux-ui-audit-fixes-design.md`
 
 ---
 

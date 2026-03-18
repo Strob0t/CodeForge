@@ -1,7 +1,7 @@
 # UX/UI Audit Fixes — Design Spec
 
 **Date:** 2026-03-18
-**Source:** `docs/ux-ui-audit.md` (automated Playwright audit)
+**Source:** `docs/audits/ux-ui-audit.md` (automated Playwright audit)
 **Scope:** Full coverage (17 atomic tasks across 3 layers)
 **Execution:** Layer-cake — Quick Wins first, then Medium-Term, then Strategic
 

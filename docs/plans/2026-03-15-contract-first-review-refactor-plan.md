@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.25, PostgreSQL 18 (pgx v5, goose migrations), NATS JetStream, SolidJS + TypeScript, Python 3.12
 
-**Spec:** `docs/superpowers/specs/2026-03-15-contract-first-review-refactor-design.md`
+**Spec:** `docs/specs/2026-03-15-contract-first-review-refactor-design.md`
 
 ---
 

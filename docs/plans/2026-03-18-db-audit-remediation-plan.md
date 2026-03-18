@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go (pgx v5), PostgreSQL 18, goose migrations
 
-**Spec:** `docs/audit/schema-audit-2026-03-18.md`
+**Spec:** `docs/audits/2026-03-18-schema-audit.md`
 
 ---
 
@@ -650,13 +650,13 @@ git commit -m "fix(config): tune connection pool defaults for multi-tenant produ
 ## Task 13: Update audit report and documentation
 
 **Files:**
-- Modify: `docs/audit/schema-audit-2026-03-18.md` (add remediation status)
+- Modify: `docs/audits/2026-03-18-schema-audit.md` (add remediation status)
 - Modify: `docs/todo.md` (mark audit items done, add new tasks)
 - Modify: `CLAUDE.md` (update architecture notes if needed)
 
 - [ ] **Step 1: Add remediation section to audit report**
 
-Append to `docs/audit/schema-audit-2026-03-18.md`:
+Append to `docs/audits/2026-03-18-schema-audit.md`:
 ```markdown
 ## Remediation Status (2026-03-18)
 
@@ -686,7 +686,7 @@ Mark database audit remediation tasks as done.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/audit/schema-audit-2026-03-18.md docs/todo.md
+git add docs/audits/2026-03-18-schema-audit.md docs/todo.md
 git commit -m "docs: update audit report with remediation status"
 ```
 

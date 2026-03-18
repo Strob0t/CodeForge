@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.25 (chi, pgx, NATS), Python 3.12 (Pydantic, structlog, LiteLLM), TypeScript/SolidJS, PostgreSQL 18
 
-**Design doc:** `docs/plans/2026-03-09-benchmark-external-providers-design.md`
+**Design doc:** `docs/specs/2026-03-09-benchmark-external-providers-design.md`
 
 ---
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go (domain, service, HTTP, DB migration), Python (skills module, tools, consumer, parsers, safety), PostgreSQL (migration), YAML (meta-skill)
 
-**Design Document:** `docs/plans/2026-03-09-auto-agent-skills-design.md`
+**Design Document:** `docs/specs/2026-03-09-auto-agent-skills-design.md`
 
 ---
 

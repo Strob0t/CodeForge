@@ -8,7 +8,7 @@
 
 **Tech Stack:** SolidJS, Tailwind CSS v4, `window.matchMedia` for JS-level breakpoints
 
-**Design Doc:** `docs/plans/2026-03-08-mobile-responsive-design.md`
+**Design Doc:** `docs/specs/2026-03-08-mobile-responsive-design.md`
 
 ---
 

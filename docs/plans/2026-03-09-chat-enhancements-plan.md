@@ -8,7 +8,7 @@
 
 **Tech Stack:** SolidJS + Tailwind CSS (frontend), Go 1.25 + chi + pgx (backend), Python 3.12 + psycopg3 (workers), PostgreSQL 18, NATS JetStream.
 
-**Design Doc:** `docs/plans/2026-03-09-chat-enhancements-design.md`
+**Design Doc:** `docs/specs/2026-03-09-chat-enhancements-design.md`
 
 ---
 

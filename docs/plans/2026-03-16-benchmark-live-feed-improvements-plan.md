@@ -8,7 +8,7 @@
 
 **Tech Stack:** SolidJS signals/stores, TypeScript, vitest, existing REST API (`/runs/{id}/trajectory`, `/benchmarks/runs/{id}/results`), existing WebSocket events.
 
-**Spec:** `docs/superpowers/specs/2026-03-16-benchmark-live-feed-density-design.md`
+**Spec:** `docs/specs/2026-03-16-benchmark-live-feed-density-design.md`
 
 ---
 

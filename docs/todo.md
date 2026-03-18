@@ -203,7 +203,7 @@
 - [x] (2026-03-15) **Bug 5 — LLM Judge Context Overflow (Low):** Evaluators exceeded local model context limits. Added `compress_for_context()` head+tail truncation in `workers/codeforge/evaluation/evaluators/prompt_compressor.py`. Enhanced error fallback distinguishes `context_overflow` from `evaluation_failed`. 18 tests in `workers/tests/test_prompt_compressor.py`.
 - [x] (2026-03-15) Updated E2E test assertions in `block-3-agent.spec.ts`, `block-4-routing.spec.ts`, `block-5-errors.spec.ts` to verify all fixes
 - Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
-- Plan: `docs/superpowers/plans/2026-03-11-benchmark-findings-fixes.md`
+- Plan: `docs/plans/2026-03-11-benchmark-findings-fixes-plan.md`
 
 #### Benchmark Validation E2E Round 2 — Bugs 6-10 + External Suite Fixes (COMPLETED)
 - [x] (2026-03-15) **Bug 6 — Agent Provider Wrong Kwarg (High):** `datasets_dir=` → `dataset_path=` in `_benchmark.py:405`
@@ -418,7 +418,7 @@
 - [x] (2026-03-10) TypeScript: `LiveFeedEvent` + `BenchmarkLiveProgress` types in `api/types.ts`
 - [x] (2026-03-10) Frontend: `BenchmarkLiveFeed.tsx` — virtualized auto-scrolling feed with `@tanstack/solid-virtual`, feature accordions, progress header, elapsed timer
 - [x] (2026-03-10) Integration: Wired into `BenchmarkPage.tsx` for selected running runs
-- Design: `docs/plans/2026-03-10-benchmark-live-feed-design.md`
+- Design: `docs/specs/2026-03-10-benchmark-live-feed-design.md`
 - Plan: `docs/plans/2026-03-10-benchmark-live-feed-plan.md`
 
 #### Benchmark Live Feed — State Persistence & Density Improvements (COMPLETED)
@@ -432,8 +432,8 @@
 - [x] (2026-03-16) Indeterminate progress bar fix for unknown total_tasks
 - [x] (2026-03-18) Event dedup: backend `sequence_number` on trajectory events (migration 077, Go eventstore, frontend dedup)
 - [x] (2026-03-18) WS reconnect gap: `after_sequence` REST param, frontend gap-fill on reconnect
-- Spec: `docs/superpowers/specs/2026-03-16-benchmark-live-feed-density-design.md`
-- Plan: `docs/superpowers/plans/2026-03-16-benchmark-live-feed-improvements.md`
+- Spec: `docs/specs/2026-03-16-benchmark-live-feed-density-design.md`
+- Plan: `docs/plans/2026-03-16-benchmark-live-feed-improvements-plan.md`
 
 #### Agent-Eval Benchmark Results (2026-03-10)
 - [x] (2026-03-10) Ran `/agent-eval mistral/mistral-large-latest` — auto-agent pipeline end-to-end
@@ -476,7 +476,7 @@
 
 ### E2E Playwright Test Findings (2026-03-09)
 
-> Report: [docs/plans/2026-03-09-e2e-playwright-test-report.md](plans/2026-03-09-e2e-playwright-test-report.md)
+> Report: [docs/testing/2026-03-09-e2e-playwright-report.md](testing/2026-03-09-e2e-playwright-report.md)
 > 5 findings from interactive end-to-end Playwright MCP test of full agent evaluation workflow.
 
 #### F4: Workspace Path Resolution Bug (Priority: CRITICAL)
@@ -685,7 +685,7 @@
 
 ### Auto-Agent Skills System (Phase 31)
 
-> Design: [docs/plans/2026-03-09-auto-agent-skills-design.md](plans/2026-03-09-auto-agent-skills-design.md)
+> Design: [docs/specs/2026-03-09-auto-agent-skills-design.md](specs/2026-03-09-auto-agent-skills-design.md)
 > Plan: [docs/plans/2026-03-09-auto-agent-skills-plan.md](plans/2026-03-09-auto-agent-skills-plan.md)
 > Goal: Auto-agent automatically selects and uses relevant skills via LLM, with multi-format import, agent-generated skills, and prompt injection protection.
 
@@ -833,7 +833,7 @@
 
 ### Benchmark External Providers, Auto-Routing & Prompt Optimization (COMPLETED)
 
-> Design: [docs/plans/2026-03-09-benchmark-external-providers-design.md](plans/2026-03-09-benchmark-external-providers-design.md)
+> Design: [docs/specs/2026-03-09-benchmark-external-providers-design.md](specs/2026-03-09-benchmark-external-providers-design.md)
 > Plan: [docs/plans/2026-03-09-benchmark-external-providers-plan.md](plans/2026-03-09-benchmark-external-providers-plan.md)
 
 - [x] (2026-03-09) Migration 068: routing tracking columns (selected_model, routing_reason, fallback_chain, fallback_count, provider_errors)
@@ -912,7 +912,7 @@
 
 ### Integration Testing Strategy (A + B + C)
 
-> Design: [docs/plans/2026-03-08-integration-testing-design.md](plans/2026-03-08-integration-testing-design.md)
+> Design: [docs/specs/2026-03-08-integration-testing-design.md](specs/2026-03-08-integration-testing-design.md)
 > Goal: Verify that all 30 major features work together across Go, Python, and Frontend layers.
 > Tracking: [docs/feature-verification-matrix.md](feature-verification-matrix.md)
 
@@ -1106,8 +1106,8 @@
 
 #### Project Workflow Redesign (COMPLETED -- 2026-03-09)
 
-> Plan: `docs/plans/2026-03-09-project-workflow-impl-plan.md`
-> Design: `docs/plans/2026-03-09-project-workflow-redesign.md`
+> Plan: `docs/plans/2026-03-09-project-workflow-plan.md`
+> Design: `docs/specs/2026-03-09-project-workflow-redesign-design.md`
 
 - [x] Reorder project tabs: Files, Goals, Roadmap, Feature Map, War Room, Sessions, Trajectory, Audit (2026-03-09)
 - [x] Add i18n keys for onboarding, empty states, and chat suggestions (2026-03-09)
@@ -1201,7 +1201,7 @@
 
 #### Stub & Placeholder Cleanup (2026-03-17)
 
-> Tracker: `docs/stub-tracker.md` (full details, file:line references, effort estimates)
+> Tracker: `docs/audits/stub-tracker.md` (full details, file:line references, effort estimates)
 
 **Quick Wins (small effort, high impact):**
 - [x] STUB-002: Convert `StubBackendExecutor` to ABC with `@abstractmethod` on `info` property (2026-03-17)
@@ -1249,7 +1249,7 @@
 
 ### Quality & Performance Improvements (2026-03-18)
 
-> Spec: `docs/superpowers/specs/2026-03-18-quality-performance-improvements-design.md`
+> Spec: `docs/specs/2026-03-18-quality-performance-improvements-design.md`
 > Based on: Current LLM-for-coding research (2025/26), codebase analysis, identified gaps
 > 12 measures, 90+ atomic TODOs, 5 implementation phases
 

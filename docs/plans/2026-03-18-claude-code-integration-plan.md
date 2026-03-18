@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, claude-code-sdk, pytest, pytest-asyncio
 
-**Spec:** `docs/superpowers/specs/2026-03-18-claude-code-integration-design.md`
+**Spec:** `docs/specs/2026-03-18-claude-code-integration-design.md`
 
 **Errata (from plan review):**
 - Policy decisions use `"allow"` / `"deny"`, NOT `"approve"` (matches `ToolCallDecision` model)

@@ -969,6 +969,6 @@ To run this test plan:
 
 1. Ensure the full stack is running (see Prerequisites above)
 2. Start a Claude Code session with `playwright-mcp` tools available
-3. Tell Claude Code: "Follow the test plan at `docs/plans/2026-03-17-interactive-qa-testplan.md`"
+3. Tell Claude Code: "Follow the test plan at `docs/testing/2026-03-17-interactive-qa-testplan.md`"
 4. Claude Code will execute phases sequentially (0-3), then core chat (4-7), then features (8-14) in parallel where possible
 5. Phase 15 generates the final report

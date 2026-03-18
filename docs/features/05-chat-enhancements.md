@@ -3,7 +3,7 @@
 > **Status:** Implemented (2026-03-10)
 > **Branch:** `feature/chat-enhancements`
 > **Plan:** [docs/plans/2026-03-09-chat-enhancements-plan.md](../plans/2026-03-09-chat-enhancements-plan.md)
-> **Design:** [docs/plans/2026-03-09-chat-enhancements-design.md](../plans/2026-03-09-chat-enhancements-design.md)
+> **Design:** [docs/specs/2026-03-09-chat-enhancements-design.md](../specs/2026-03-09-chat-enhancements-design.md)
 
 ## Overview
 

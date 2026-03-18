@@ -8,7 +8,7 @@
 
 **Tech Stack:** SolidJS, TypeScript, Tailwind CSS
 
-**Design doc:** `docs/plans/2026-03-09-project-workflow-redesign.md`
+**Design doc:** `docs/specs/2026-03-09-project-workflow-redesign-design.md`
 
 ---
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go (chi, pgx), SolidJS, @unovis/ts + @unovis/solid, Tailwind CSS v4
 
-**Design Doc:** `docs/plans/2026-03-08-dashboard-polish-design.md`
+**Design Doc:** `docs/specs/2026-03-08-dashboard-polish-design.md`
 
 ---
 
