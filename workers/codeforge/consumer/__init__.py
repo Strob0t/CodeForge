@@ -25,6 +25,7 @@ from codeforge.consumer._backend_health import BackendHealthHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._benchmark import BenchmarkHandlerMixin
 from codeforge.consumer._compact import CompactHandlerMixin
+from codeforge.consumer._context import ContextHandlerMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.consumer._graph import GraphHandlerMixin
 from codeforge.consumer._handoff import HandoffHandlerMixin
@@ -43,6 +44,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_AGENT,
     SUBJECT_BACKEND_HEALTH_REQUEST,
     SUBJECT_BENCHMARK_RUN_REQUEST,
+    SUBJECT_CONTEXT_RERANK_REQUEST,
     SUBJECT_CONVERSATION_COMPACT_REQUEST,
     SUBJECT_CONVERSATION_RUN_START,
     SUBJECT_EVAL_GEMMAS_REQUEST,
@@ -95,6 +97,7 @@ class TaskConsumer(
     GraphHandlerMixin,
     ConversationHandlerMixin,
     CompactHandlerMixin,
+    ContextHandlerMixin,
     BenchmarkHandlerMixin,
     MemoryHandlerMixin,
     HandoffHandlerMixin,
@@ -165,6 +168,7 @@ class TaskConsumer(
             (SUBJECT_SUBAGENT_SEARCH_REQUEST, self._handle_subagent_search),
             (SUBJECT_GRAPH_BUILD_REQUEST, self._handle_graph_build),
             (SUBJECT_GRAPH_SEARCH_REQUEST, self._handle_graph_search),
+            (SUBJECT_CONTEXT_RERANK_REQUEST, self._handle_context_rerank),
             (SUBJECT_CONVERSATION_RUN_START, self._handle_conversation_run),
             (SUBJECT_CONVERSATION_COMPACT_REQUEST, self._handle_conversation_compact),
             (SUBJECT_BENCHMARK_RUN_REQUEST, self._handle_benchmark_run),
