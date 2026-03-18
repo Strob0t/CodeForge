@@ -461,6 +461,7 @@ type ConversationRunStartPayload struct {
 	SessionMeta       *SessionMetaPayload          `json:"session_meta,omitempty"`       // Session operation context (Phase B2/B3)
 	Reminders         []string                     `json:"reminders,omitempty"`          // Pre-evaluated reminder texts (Phase E)
 	PlanActEnabled    bool                         `json:"plan_act_enabled,omitempty"`   // Plan/Act mode toggle (A3)
+	RolloutCount      int                          `json:"rollout_count,omitempty"`      // Multi-rollout count for inference-time scaling (Phase 4 A4)
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.

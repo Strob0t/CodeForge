@@ -12,6 +12,7 @@ from codeforge.routing.models import (
     PromptAnalysis,
     RoutingConfig,
     RoutingDecision,
+    RoutingMetadata,
     RoutingPlan,
 )
 
@@ -128,6 +129,43 @@ class HybridRouter:
                 return decision
 
         return self._complexity_fallback(analysis, max_cost)
+
+    def route_with_metadata(
+        self,
+        prompt: str,
+        max_cost: float | None = None,
+        profile: RoutingProfile | None = None,
+    ) -> tuple[RoutingDecision | None, RoutingMetadata | None]:
+        """Route and return both decision and transparent metadata (C1)."""
+        if not self._config.enabled:
+            return None, None
+
+        decision = self.route(prompt, max_cost=max_cost, profile=profile)
+        if decision is None:
+            return None, None
+
+        # Build alternatives from tier defaults excluding selected model.
+        available = self._effective_models
+        tier_defaults = COMPLEXITY_DEFAULTS.get(decision.complexity_tier, [])
+        alternatives: list[dict[str, object]] = []
+        for model in tier_defaults:
+            if model == decision.model or model not in available:
+                continue
+            score = 0.5  # default score for complexity-layer alternatives
+            if self._mab is not None:
+                mab_score = self._mab.score(model, decision.task_type, decision.complexity_tier)
+                if mab_score is not None:
+                    score = mab_score
+            alternatives.append({"model": model, "score": score})
+
+        metadata = RoutingMetadata(
+            complexity_tier=decision.complexity_tier,
+            selected_model=decision.model,
+            reason=decision.reasoning,
+            mab_score=decision.confidence,
+            alternatives=tuple(alternatives),
+        )
+        return decision, metadata
 
     def route_with_fallbacks(
         self,

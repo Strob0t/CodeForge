@@ -13,10 +13,12 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
 from opentelemetry import trace
@@ -129,6 +131,7 @@ class LoopConfig:
     task_type: str = ""
     provider_api_key: str = ""
     plan_act_enabled: bool = False
+    rollout_id: int = -1  # -1 = not a rollout
 
 
 @dataclass
@@ -144,6 +147,7 @@ class _LoopState:
     error: str = ""
     tool_messages: list[ConversationMessagePayload] = field(default_factory=list)
     failed_models: set[str] = field(default_factory=set)
+    quality_tracker: object | None = None  # IterationQualityTracker, set at runtime
 
 
 class AgentLoopExecutor:
@@ -303,7 +307,8 @@ class AgentLoopExecutor:
         all intermediate tool messages, and accumulated cost/token stats.
         """
         cfg = config or LoopConfig()
-        state = _LoopState(model=cfg.model)
+        quality_tracker = IterationQualityTracker()
+        state = _LoopState(model=cfg.model, quality_tracker=quality_tracker)
         stall_detector = StallDetector()
 
         # Check experience pool cache before starting the loop
@@ -326,6 +331,9 @@ class AgentLoopExecutor:
             if await self._check_stall(stall_detector, messages, state):
                 break
 
+            # Check mid-loop model switch before LLM call (C1).
+            _check_model_switch(quality_tracker, cfg)
+
             # Auto-transition from plan to act when max plan iterations reached.
             _check_plan_act_transition(plan_act, messages)
 
@@ -338,6 +346,9 @@ class AgentLoopExecutor:
 
             # Record tool calls in the stall detector from the latest step.
             self._record_tool_calls_for_stall(state, stall_detector)
+
+            # End iteration for quality tracking (C1).
+            quality_tracker.end_iteration()
 
             # Check termination conditions.
             if cfg.max_cost > 0 and state.total_cost >= cfg.max_cost:
@@ -652,7 +663,7 @@ class AgentLoopExecutor:
                     self._append_tool_result(tc, blocked_msg, messages, state)
                     continue
 
-            await self._execute_tool_call(tc, messages, state)
+            await self._execute_tool_call(tc, messages, state, quality_tracker=state.quality_tracker)
             if self._runtime.is_cancelled:
                 # Append placeholder results for remaining tool calls so the
                 # message history stays balanced (required by strict providers
@@ -668,6 +679,7 @@ class AgentLoopExecutor:
         tc: ToolCallPart,
         messages: list[dict[str, object]],
         state: _LoopState,
+        quality_tracker: IterationQualityTracker | None = None,
     ) -> None:
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
@@ -780,6 +792,11 @@ class AgentLoopExecutor:
             except Exception as exc:
                 logger.debug("failed to publish tool_called trajectory event: %s", exc)
 
+            # Record tool outcome for quality tracking (C1).
+            qt = quality_tracker or (state.quality_tracker if state else None)
+            if qt is not None:
+                qt.record(tool_success=result.success, output_length=len(result_text))
+
             # Emit action suggestion after file-modifying tool calls.
             if result.success and tc.name in ("edit_file", "write_file"):
                 try:
@@ -826,6 +843,236 @@ class AgentLoopExecutor:
         msg = _build_tool_result_message(tc, content)
         state.tool_messages.append(msg)
         messages.append(_payload_to_dict(msg))
+
+
+# ---------------------------------------------------------------------------
+# C1.6 — IterationQualityTracker (routing transparency + mid-loop model switch)
+# ---------------------------------------------------------------------------
+
+_QUALITY_WINDOW = 3
+_LOW_QUALITY_THRESHOLD = 0.3
+_MIN_MEANINGFUL_OUTPUT = 50
+
+
+class IterationQualityTracker:
+    """Track per-iteration quality signals for mid-loop model switching (C1)."""
+
+    MAX_SWITCHES: int = 2
+
+    def __init__(self) -> None:
+        self._records: deque[float] = deque(maxlen=_QUALITY_WINDOW)
+        self._iteration_signals: list[float] = []
+        self.switch_count: int = 0
+
+    def record(self, tool_success: bool, output_length: int) -> None:
+        """Record a single tool call outcome within the current iteration."""
+        if tool_success and output_length >= _MIN_MEANINGFUL_OUTPUT:
+            self._records.append(1.0)
+        elif tool_success:
+            self._records.append(0.0)  # success but empty/short output
+        else:
+            self._records.append(0.0)
+
+    def signal(self) -> float:
+        """Compute quality signal from the last N tool calls. 0.5 if no data."""
+        if not self._records:
+            return 0.5
+        return sum(self._records) / len(self._records)
+
+    def end_iteration(self) -> None:
+        """Mark end of an iteration, recording its signal for consecutive-low tracking."""
+        self._iteration_signals.append(self.signal())
+        self._records.clear()
+
+    def should_switch(self) -> bool:
+        """Return True if 2+ consecutive iterations had low quality AND switches remain."""
+        if self.switch_count >= self.MAX_SWITCHES:
+            return False
+        if len(self._iteration_signals) < 2:
+            return False
+        last_two = self._iteration_signals[-2:]
+        return all(s < _LOW_QUALITY_THRESHOLD for s in last_two)
+
+    def register_switch(self) -> None:
+        """Record that a model switch occurred."""
+        self.switch_count += 1
+        self._iteration_signals.clear()
+
+    @staticmethod
+    def bump_tier(current: object) -> object:
+        """Bump complexity tier by one level, capping at REASONING."""
+        from codeforge.routing.models import ComplexityTier
+
+        order = [ComplexityTier.SIMPLE, ComplexityTier.MEDIUM, ComplexityTier.COMPLEX, ComplexityTier.REASONING]
+        try:
+            idx = order.index(current)
+        except ValueError:
+            return ComplexityTier.MEDIUM
+        return order[min(idx + 1, len(order) - 1)]
+
+
+# ---------------------------------------------------------------------------
+# A4 — Inference-Time Scaling helpers
+# ---------------------------------------------------------------------------
+
+
+async def _snapshot_workspace(workspace_path: str, rollout_id: int) -> None:
+    """Snapshot workspace state via git stash."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "stash",
+        "push",
+        "-m",
+        f"rollout-{rollout_id}",
+        "--include-untracked",
+        cwd=workspace_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+
+
+async def _restore_workspace(workspace_path: str) -> None:
+    """Restore workspace state via git checkout + clean."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "checkout",
+        ".",
+        cwd=workspace_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "clean",
+        "-fd",
+        cwd=workspace_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+
+
+def _select_best_rollout(
+    results: list[object],
+    scores: list[float],
+) -> int:
+    """Select the best rollout index by score, excluding errored results."""
+    best_idx = 0
+    best_score = -1.0
+    for i, (result, score) in enumerate(zip(results, scores, strict=True)):
+        has_error = bool(getattr(result, "error", ""))
+        effective_score = score if not has_error else -1.0
+        if effective_score > best_score:
+            best_score = effective_score
+            best_idx = i
+    return best_idx
+
+
+def _should_early_stop(
+    outputs: list[str],
+    exit_codes: list[int],
+    total_rollouts: int,
+    threshold: float = 0.9,
+    quorum: int = 3,
+) -> bool:
+    """Return True if enough rollouts agree to stop early."""
+    if total_rollouts <= 3:
+        return False
+    if len(outputs) < quorum:
+        return False
+
+    # Check if quorum of outputs are similar AND all have exit_code == 0.
+    n = len(outputs)
+    for i in range(n):
+        if exit_codes[i] != 0:
+            continue
+        cluster = [i]
+        for j in range(i + 1, n):
+            if exit_codes[j] != 0:
+                continue
+            sim = SequenceMatcher(None, outputs[i], outputs[j]).ratio()
+            if sim >= threshold:
+                cluster.append(j)
+        if len(cluster) >= quorum:
+            return True
+    return False
+
+
+class ConversationRolloutExecutor:
+    """Multi-rollout wrapper for agent loop conversations (A4)."""
+
+    def __init__(
+        self,
+        agent_loop_executor: AgentLoopExecutor,
+        rollout_count: int,
+        workspace_path: str,
+    ) -> None:
+        self._executor = agent_loop_executor
+        self._rollout_count = rollout_count
+        self._workspace = workspace_path
+
+    async def execute(
+        self,
+        messages: list[dict[str, object]],
+        config: LoopConfig,
+    ) -> AgentLoopResult:
+        """Execute rollouts and return the best result."""
+        # Non-git workspace: fall back to single rollout.
+        if self._rollout_count > 1 and not os.path.isdir(os.path.join(self._workspace, ".git")):
+            logger.warning("rollout requested but no .git found, falling back to single")
+            result = await self._executor.run(messages, config=config)
+            result.metadata = {"fallback_reason": "no_git_repo"}
+            return result
+
+        # Single rollout: pass through directly.
+        if self._rollout_count <= 1:
+            return await self._executor.run(messages, config=config)
+
+        results: list[AgentLoopResult] = []
+        outputs: list[str] = []
+        exit_codes: list[int] = []
+        total_cost = 0.0
+        total_tokens_in = 0
+        total_tokens_out = 0
+
+        for rollout_id in range(self._rollout_count):
+            if rollout_id > 0:
+                await _restore_workspace(self._workspace)
+
+            # Set rollout_id on config for tracking.
+            config.rollout_id = rollout_id
+
+            await _snapshot_workspace(self._workspace, rollout_id)
+            result = await self._executor.run(list(messages), config=config)
+            results.append(result)
+            outputs.append(result.final_content)
+            exit_codes.append(1 if result.error else 0)
+            total_cost += result.total_cost
+            total_tokens_in += result.total_tokens_in
+            total_tokens_out += result.total_tokens_out
+
+            # Early stopping check.
+            if _should_early_stop(outputs, exit_codes, self._rollout_count):
+                logger.info("early stop at rollout %d/%d", rollout_id + 1, self._rollout_count)
+                break
+
+        # Score rollouts (simple: use content length as proxy; errors score 0).
+        scores = [len(r.final_content) / max(len(r.final_content), 1) if not r.error else 0.0 for r in results]
+        best_idx = _select_best_rollout(results, scores)
+        best = results[best_idx]
+
+        return AgentLoopResult(
+            final_content=best.final_content,
+            tool_messages=best.tool_messages,
+            total_cost=total_cost,
+            total_tokens_in=total_tokens_in,
+            total_tokens_out=total_tokens_out,
+            step_count=best.step_count,
+            model=best.model,
+            error=best.error,
+        )
 
 
 async def _record_routing_outcome(
@@ -1019,6 +1266,24 @@ def _init_plan_act(cfg: LoopConfig, messages: list[dict[str, object]]) -> object
 
 
 _PLAN_ACT_MARKER = "\n\nYou are in "
+
+
+def _check_model_switch(quality_tracker: IterationQualityTracker, cfg: LoopConfig) -> None:
+    """Bump complexity tier and log if quality tracker recommends a model switch (C1)."""
+    if not quality_tracker.should_switch() or not cfg.routing_layer:
+        return
+    from codeforge.routing.models import ComplexityTier
+
+    old_tier = cfg.complexity_tier
+    new_tier = quality_tracker.bump_tier(ComplexityTier(old_tier) if old_tier else ComplexityTier.SIMPLE)
+    quality_tracker.register_switch()
+    cfg.complexity_tier = str(new_tier)
+    logger.info(
+        "mid-loop model switch: tier %s -> %s (switch #%d)",
+        old_tier,
+        new_tier,
+        quality_tracker.switch_count,
+    )
 
 
 def _check_plan_act_transition(plan_act: object, messages: list[dict[str, object]]) -> None:

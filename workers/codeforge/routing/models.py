@@ -59,6 +59,17 @@ class RoutingDecision:
 
 
 @dataclass(frozen=True)
+class RoutingMetadata:
+    """Transparent routing metadata for observability (C1)."""
+
+    complexity_tier: ComplexityTier
+    selected_model: str
+    reason: str
+    mab_score: float = 0.0
+    alternatives: tuple[dict[str, object], ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class RoutingPlan:
     primary: RoutingDecision
     fallbacks: tuple[str, ...] = field(default_factory=tuple)

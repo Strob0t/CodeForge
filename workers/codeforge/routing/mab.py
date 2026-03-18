@@ -148,6 +148,22 @@ class MABModelSelector:
 
         return selected
 
+    def score(
+        self,
+        model: str,
+        task_type: TaskType | str,
+        complexity_tier: ComplexityTier | str,
+    ) -> float | None:
+        """Return the UCB1 score for a single model, or None if no stats."""
+        stats_list = self._get_stats(str(task_type), str(complexity_tier))
+        total_trials = sum(s.trial_count for s in stats_list)
+        if total_trials == 0:
+            return None
+        for s in stats_list:
+            if s.model_name == model:
+                return self._ucb1_score(s, total_trials)
+        return None
+
     def invalidate_cache(self) -> None:
         """Force cache refresh on next select."""
         self._cache.clear()

@@ -9,6 +9,7 @@ from codeforge.routing.models import (
     PromptAnalysis,
     RoutingConfig,
     RoutingDecision,
+    RoutingMetadata,
     RoutingPlan,
     TaskType,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "PromptAnalysis",
     "RoutingConfig",
     "RoutingDecision",
+    "RoutingMetadata",
     "RoutingPlan",
     "TaskType",
 ]

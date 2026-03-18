@@ -380,6 +380,12 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Evaluate system reminders.
 	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
 
+	// Resolve rollout count (only for autonomy >= 4, capped at 8).
+	rolloutCount := 1
+	if s.agentCfg != nil && s.agentCfg.ConversationRolloutCount > 1 && modeAutonomy >= 4 {
+		rolloutCount = min(s.agentCfg.ConversationRolloutCount, 8)
+	}
+
 	payload := messagequeue.ConversationRunStartPayload{
 		RunID:             runID,
 		ConversationID:    conversationID,
@@ -402,6 +408,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		TenantID:          tenantctx.FromContext(ctx),
 		SessionMeta:       sessionMeta,
 		Reminders:         reminders,
+		RolloutCount:      rolloutCount,
 	}
 
 	data, err := json.Marshal(payload)

@@ -276,6 +276,7 @@ func loadEnv(cfg *Config) {
 	setBool(&cfg.Agent.ContextEnabled, "CODEFORGE_AGENT_CONTEXT_ENABLED")
 	setInt(&cfg.Agent.ContextBudget, "CODEFORGE_AGENT_CONTEXT_BUDGET")
 	setInt(&cfg.Agent.ContextPromptReserve, "CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE")
+	setInt(&cfg.Agent.ConversationRolloutCount, "CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT")
 
 	// Quarantine
 	setBool(&cfg.Quarantine.Enabled, "CODEFORGE_QUARANTINE_ENABLED")
