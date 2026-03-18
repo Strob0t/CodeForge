@@ -12,6 +12,12 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
+from codeforge.evaluation.runners._similarity import normalized_edit_distance
+from codeforge.evaluation.runners.early_stopping import EarlyStopChecker
+
+# Backward-compatible alias (used by compute_diversity and external callers).
+_normalized_edit_distance = normalized_edit_distance
+
 if TYPE_CHECKING:
     from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline, VerificationResult
     from codeforge.evaluation.providers.base import EvalScore, ExecutionResult, TaskSpec
@@ -54,6 +60,16 @@ class RolloutOutcome:
     is_best: bool = False
 
 
+@dataclass
+class MultiRolloutMetadata:
+    """Metadata about the multi-rollout execution, including early stopping."""
+
+    early_stopped: bool = False
+    completed_rollouts: int = 0
+    skipped_rollouts: int = 0
+    total_rollouts: int = 0
+
+
 class MultiRolloutRunner:
     """Wraps any benchmark runner to execute N independent rollouts per task.
 
@@ -79,14 +95,50 @@ class MultiRolloutRunner:
 
     async def run_task(self, task: TaskSpec) -> list[RolloutOutcome]:
         """Run the task N times and return all outcomes with selection markers."""
-        # Phase 1: Execute N independent rollouts.
+        # Phase 1: Execute N independent rollouts with early stopping.
         outcomes: list[RolloutOutcome] = []
+        checker = EarlyStopChecker()
+        early_stopped = False
+
         for i in range(self._rollout_count):
             run_result = await self._inner.run_task(task)
-            outcomes.append(RolloutOutcome(rollout_id=i, result=run_result.execution, eval_score=run_result.eval_score))
+            outcome = RolloutOutcome(
+                rollout_id=i,
+                result=run_result.execution,
+                eval_score=run_result.eval_score,
+            )
+            outcomes.append(outcome)
+
+            # Feed the checker with completed rollout data.
+            eval_avg = run_result.eval_score.average_score() if run_result.eval_score else 0.0
+            checker.add_rollout(
+                i,
+                run_result.execution.actual_output,
+                run_result.execution.exit_code,
+                eval_avg,
+            )
+
+            # Check for early stop (only meaningful when rollout_count > 3,
+            # since with <= 3 all rollouts run anyway).
+            if self._rollout_count > 3 and checker.should_stop():
+                early_stopped = True
+                logger.info(
+                    "early-stop triggered",
+                    task_id=task.id,
+                    completed=checker.completed_count,
+                    total=self._rollout_count,
+                    skipped=self._rollout_count - checker.completed_count,
+                )
+                break
 
         if self._rollout_count == 1:
             outcomes[0].is_best = True
+            self._metadata = MultiRolloutMetadata(
+                early_stopped=False,
+                completed_rollouts=1,
+                skipped_rollouts=0,
+                total_rollouts=1,
+            )
             return outcomes
 
         # Phase 2: Compute diversity scores.
@@ -96,7 +148,14 @@ class MultiRolloutRunner:
             outcome.diversity_score = div_score
 
         # Phase 3: Select best.
-        if self._strategy == "best" and self._hybrid is not None:
+        if early_stopped:
+            # Use the checker's cluster-based selection.
+            best_id = checker.best_from_cluster()
+            for o in outcomes:
+                if o.rollout_id == best_id:
+                    o.is_best = True
+                    break
+        elif self._strategy == "best" and self._hybrid is not None:
             await self._select_best_hybrid(task, outcomes)
         elif self._strategy == "majority":
             self._select_majority(outcomes)
@@ -108,7 +167,19 @@ class MultiRolloutRunner:
             # No pipeline or unknown strategy: first rollout is best (fallback).
             outcomes[0].is_best = True
 
+        self._metadata = MultiRolloutMetadata(
+            early_stopped=early_stopped,
+            completed_rollouts=len(outcomes),
+            skipped_rollouts=self._rollout_count - len(outcomes),
+            total_rollouts=self._rollout_count,
+        )
+
         return outcomes
+
+    @property
+    def last_run_metadata(self) -> MultiRolloutMetadata:
+        """Return metadata from the most recent run_task() call."""
+        return getattr(self, "_metadata", MultiRolloutMetadata())
 
     async def _select_best_hybrid(self, task: TaskSpec, outcomes: list[RolloutOutcome]) -> None:
         """Use hybrid verification to select the best rollout."""
@@ -195,48 +266,3 @@ def compute_diversity(outputs: list[str]) -> list[float]:
         scores.append(total_dist / (n - 1))
 
     return scores
-
-
-def _normalized_edit_distance(a: str, b: str) -> float:
-    """Compute normalized Levenshtein distance between two strings.
-
-    Returns a value in [0.0, 1.0] where 0 = identical, 1 = completely different.
-    Uses a fast approximation for long strings to avoid O(n*m) cost.
-    """
-    if a == b:
-        return 0.0
-
-    max_len = max(len(a), len(b))
-    if max_len == 0:
-        return 0.0
-
-    # For very long strings, use character frequency approximation.
-    if max_len > 5000:
-        return _char_freq_distance(a, b)
-
-    # Standard Levenshtein with two-row optimization.
-    la, lb = len(a), len(b)
-    if la > lb:
-        a, b = b, a
-        la, lb = lb, la
-
-    prev = list(range(la + 1))
-    for j in range(1, lb + 1):
-        curr = [j] + [0] * la
-        for i in range(1, la + 1):
-            cost = 0 if a[i - 1] == b[j - 1] else 1
-            curr[i] = min(curr[i - 1] + 1, prev[i] + 1, prev[i - 1] + cost)
-        prev = curr
-
-    return prev[la] / max_len
-
-
-def _char_freq_distance(a: str, b: str) -> float:
-    """Approximate string distance using character frequency vectors."""
-    from collections import Counter
-
-    ca, cb = Counter(a), Counter(b)
-    all_chars = set(ca) | set(cb)
-    diff = sum(abs(ca.get(c, 0) - cb.get(c, 0)) for c in all_chars)
-    total = sum(ca.values()) + sum(cb.values())
-    return diff / total if total > 0 else 0.0

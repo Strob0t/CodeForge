@@ -10,8 +10,11 @@ This is the heart of the interactive agent. The loop:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -45,7 +48,69 @@ logger = logging.getLogger(__name__)
 
 _tracer = tracing_manager.get_tracer()
 
+STALL_ESCAPE_PROMPT = (
+    "<SYSTEM: You are repeating the same action without progress. "
+    "Stop and try a fundamentally different approach. If you were reading, "
+    "start writing. If you were searching, use what you found.>"
+)
+
 DEFAULT_MAX_ITERATIONS = 50
+
+
+class StallDetector:
+    """Detect when the agent repeats the same tool call and force escape.
+
+    Maintains a sliding window of recent ``(tool_name, args_hash)`` tuples.
+    If *stall_threshold* or more entries in the last *window_size* are
+    identical, the agent is considered stalled.  After two escape attempts
+    the detector signals that the loop should abort.
+    """
+
+    def __init__(self, window_size: int = 5, stall_threshold: int = 3) -> None:
+        self._window: deque[tuple[str, str]] = deque(maxlen=window_size)
+        self._threshold = stall_threshold
+        self._escape_count = 0
+
+    @staticmethod
+    def _hash_args(args: dict[str, object]) -> str:
+        raw = json.dumps(args, sort_keys=True)[:200]
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def record(self, tool_name: str, args: dict[str, object]) -> None:
+        """Append a tool call to the sliding window."""
+        self._window.append((tool_name, self._hash_args(args)))
+
+    def is_stalled(self) -> bool:
+        """Return True if >= threshold entries in the window are identical."""
+        if len(self._window) < self._threshold:
+            return False
+        counts = Counter(self._window)
+        return counts.most_common(1)[0][1] >= self._threshold
+
+    def get_repeated_action(self) -> str | None:
+        """Return the tool name of the most-repeated action, or None."""
+        if not self._window:
+            return None
+        counts = Counter(self._window)
+        entry, count = counts.most_common(1)[0]
+        if count >= self._threshold:
+            return entry[0]  # tool_name from (tool_name, args_hash)
+        return None
+
+    def record_escape(self) -> None:
+        """Record that an escape prompt was injected."""
+        self._escape_count += 1
+
+    def should_abort(self) -> bool:
+        """Return True if the loop should abort (>= 2 escape attempts)."""
+        return self._escape_count >= 2
+
+    def get_abort_info(self) -> dict[str, object]:
+        """Return structured info about the stall for error reporting."""
+        return {
+            "repeated_action": self.get_repeated_action(),
+            "escape_count": self._escape_count,
+        }
 
 
 @dataclass
@@ -238,6 +303,7 @@ class AgentLoopExecutor:
         """
         cfg = config or LoopConfig()
         state = _LoopState(model=cfg.model)
+        stall_detector = StallDetector()
 
         # Check experience pool cache before starting the loop
         user_prompt = self._extract_user_prompt(messages)
@@ -254,12 +320,19 @@ class AgentLoopExecutor:
                 state.error = "cancelled"
                 break
 
+            # Stall detection check.
+            if await self._check_stall(stall_detector, messages, state):
+                break
+
             result = await self._do_llm_iteration(cfg, tools_array, messages, state, iteration)
             if result is not None:
                 # result is True for "stop" (final text), string for error.
                 if isinstance(result, str):
                     state.error = result
                 break
+
+            # Record tool calls in the stall detector from the latest step.
+            self._record_tool_calls_for_stall(state, stall_detector)
 
             # Check termination conditions.
             if cfg.max_cost > 0 and state.total_cost >= cfg.max_cost:
@@ -368,6 +441,46 @@ class AgentLoopExecutor:
             logger.warning("output_schema validation failed: %s", exc)
             state.error = f"output_schema validation failed: {exc}"
         return state
+
+    async def _check_stall(
+        self,
+        stall_detector: StallDetector,
+        messages: list[dict[str, object]],
+        state: _LoopState,
+    ) -> bool:
+        """Check for stall and handle abort or escape injection.
+
+        Returns True if the loop should break (abort), False otherwise.
+        """
+        if stall_detector.should_abort():
+            abort_info = stall_detector.get_abort_info()
+            state.error = (
+                f"stall detected: repeated {abort_info['repeated_action']} "
+                f"after {abort_info['escape_count']} escape attempts"
+            )
+            logger.warning("agent loop aborted due to stall: %s", state.error)
+            try:
+                await self._runtime.publish_trajectory_event(
+                    {
+                        "event_type": "stall_detected",
+                        "repeated_action": abort_info["repeated_action"],
+                        "escape_count": abort_info["escape_count"],
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
+            except Exception as exc:
+                logger.debug("failed to publish stall_detected trajectory event: %s", exc)
+            return True
+
+        if stall_detector.is_stalled():
+            logger.info(
+                "stall detected (repeated %s), injecting escape prompt",
+                stall_detector.get_repeated_action(),
+            )
+            messages.append({"role": "user", "content": STALL_ESCAPE_PROMPT})
+            stall_detector.record_escape()
+
+        return False
 
     async def _do_llm_iteration(
         self,
@@ -651,6 +764,27 @@ class AgentLoopExecutor:
                     )
                 except Exception as exc:
                     logger.debug("failed to publish action_suggestion event: %s", exc)
+
+    @staticmethod
+    def _record_tool_calls_for_stall(
+        state: _LoopState,
+        stall_detector: StallDetector,
+    ) -> None:
+        """Record the most recent tool calls in the stall detector.
+
+        Examines tool_messages from the end to find the latest batch of
+        tool-result messages (preceded by an assistant message with tool_calls).
+        """
+        # Walk backwards through tool_messages to find the latest assistant
+        # message with tool_calls, then record each tool call.
+        for msg in reversed(state.tool_messages):
+            if msg.role == "assistant" and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    args: dict[str, object] = (
+                        safe_json_loads(tc.function.arguments, {}) if tc.function.arguments else {}
+                    )
+                    stall_detector.record(tc.function.name, args)
+                break
 
     @staticmethod
     def _append_tool_result(
