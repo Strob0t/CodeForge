@@ -241,3 +241,228 @@ class TestMaxModelSwitches:
         from codeforge.agent_loop import IterationQualityTracker
 
         assert IterationQualityTracker.MAX_SWITCHES == 2
+
+
+# ---------------------------------------------------------------------------
+# C1.5 — Routing metadata trajectory event published from agent loop
+# ---------------------------------------------------------------------------
+
+
+class TestRoutingMetadataTrajectoryEvent:
+    """Verify routing metadata is published as trajectory event during agent loop."""
+
+    @pytest.fixture
+    def _mock_resolve_model(self):
+        from unittest.mock import patch
+
+        with patch("codeforge.agent_loop.resolve_model", return_value="fake-model"):
+            yield
+
+    def _make_runtime(self) -> object:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from codeforge.models import ToolCallDecision
+
+        runtime = MagicMock()
+        runtime.run_id = "run-1"
+        runtime.project_id = "proj-1"
+        runtime.is_cancelled = False
+        runtime.send_output = AsyncMock()
+        runtime.request_tool_call = AsyncMock(
+            return_value=ToolCallDecision(call_id="tc-1", decision="allow", reason="")
+        )
+        runtime.report_tool_result = AsyncMock()
+        runtime.publish_trajectory_event = AsyncMock()
+        return runtime
+
+    @pytest.mark.usefixtures("_mock_resolve_model")
+    async def test_routing_metadata_event_published_on_first_iteration(self) -> None:
+        """When routing_layer is set, a trajectory.routing_decision event is published."""
+        from unittest.mock import AsyncMock
+
+        from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
+        from codeforge.llm import ChatCompletionResponse
+        from codeforge.tools import ToolRegistry
+
+        runtime = self._make_runtime()
+        llm = AsyncMock()
+        llm.chat_completion_stream = AsyncMock(
+            return_value=ChatCompletionResponse(
+                content="Hello!",
+                tool_calls=[],
+                finish_reason="stop",
+                tokens_in=10,
+                tokens_out=5,
+                model="openai/gpt-4o-mini",
+                cost_usd=0.001,
+            )
+        )
+        registry = ToolRegistry()
+        executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/workspace")
+        cfg = LoopConfig(
+            model="openai/gpt-4o-mini",
+            routing_layer="complexity",
+            complexity_tier="simple",
+            task_type="code",
+        )
+
+        await executor.run([{"role": "user", "content": "Hi"}], config=cfg)
+
+        # Find the routing_decision trajectory event among all published events.
+        routing_events = [
+            call.args[0]
+            for call in runtime.publish_trajectory_event.call_args_list
+            if isinstance(call.args[0], dict) and call.args[0].get("event_type") == "trajectory.routing_decision"
+        ]
+        assert len(routing_events) >= 1, (
+            "Expected at least one trajectory.routing_decision event, "
+            f"got events: {[c.args[0].get('event_type') for c in runtime.publish_trajectory_event.call_args_list]}"
+        )
+        event = routing_events[0]
+        assert event["selected_model"] == "openai/gpt-4o-mini"
+        assert event["complexity_tier"] == "simple"
+        assert "reason" in event
+
+    @pytest.mark.usefixtures("_mock_resolve_model")
+    async def test_no_routing_event_when_routing_layer_empty(self) -> None:
+        """When routing_layer is empty, no trajectory.routing_decision event is published."""
+        from unittest.mock import AsyncMock
+
+        from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
+        from codeforge.llm import ChatCompletionResponse
+        from codeforge.tools import ToolRegistry
+
+        runtime = self._make_runtime()
+        llm = AsyncMock()
+        llm.chat_completion_stream = AsyncMock(
+            return_value=ChatCompletionResponse(
+                content="Hello!",
+                tool_calls=[],
+                finish_reason="stop",
+                tokens_in=10,
+                tokens_out=5,
+                model="fake-model",
+                cost_usd=0.001,
+            )
+        )
+        registry = ToolRegistry()
+        executor = AgentLoopExecutor(llm, registry, runtime, "/tmp/workspace")
+        cfg = LoopConfig(model="fake-model")  # No routing_layer
+
+        await executor.run([{"role": "user", "content": "Hi"}], config=cfg)
+
+        routing_events = [
+            call.args[0]
+            for call in runtime.publish_trajectory_event.call_args_list
+            if isinstance(call.args[0], dict) and call.args[0].get("event_type") == "trajectory.routing_decision"
+        ]
+        assert len(routing_events) == 0
+
+
+# ---------------------------------------------------------------------------
+# C1.6 — Model switch publishes routing trajectory event
+# ---------------------------------------------------------------------------
+
+
+class TestModelSwitchTrajectoryEvent:
+    """Verify that _check_model_switch publishes a trajectory event."""
+
+    def test_check_model_switch_bumps_tier_and_logs(self) -> None:
+        """_check_model_switch should bump complexity_tier on cfg when quality is low."""
+        from codeforge.agent_loop import IterationQualityTracker, LoopConfig, _check_model_switch
+
+        tracker = IterationQualityTracker()
+        cfg = LoopConfig(
+            model="openai/gpt-4o-mini",
+            routing_layer="complexity",
+            complexity_tier="simple",
+            task_type="code",
+        )
+        # Simulate 2 low-quality iterations.
+        for _ in range(2):
+            tracker.record(tool_success=False, output_length=0)
+            tracker.record(tool_success=False, output_length=0)
+            tracker.record(tool_success=False, output_length=0)
+            tracker.end_iteration()
+
+        assert tracker.should_switch() is True
+        _check_model_switch(tracker, cfg)
+        assert cfg.complexity_tier == "medium"
+        assert tracker.switch_count == 1
+
+    def test_check_model_switch_noop_without_routing_layer(self) -> None:
+        """_check_model_switch does nothing when routing_layer is empty."""
+        from codeforge.agent_loop import IterationQualityTracker, LoopConfig, _check_model_switch
+
+        tracker = IterationQualityTracker()
+        cfg = LoopConfig(model="fake-model", routing_layer="", complexity_tier="simple")
+        # Simulate 2 low-quality iterations.
+        for _ in range(2):
+            tracker.record(tool_success=False, output_length=0)
+            tracker.record(tool_success=False, output_length=0)
+            tracker.record(tool_success=False, output_length=0)
+            tracker.end_iteration()
+
+        assert tracker.should_switch() is True
+        _check_model_switch(tracker, cfg)
+        # No switch because routing_layer is empty.
+        assert cfg.complexity_tier == "simple"
+        assert tracker.switch_count == 0
+
+
+# ---------------------------------------------------------------------------
+# C1.7 — resolve_model_with_routing returns metadata
+# ---------------------------------------------------------------------------
+
+
+class TestResolveModelWithRoutingMetadata:
+    """Verify resolve_model_with_routing populates routing_metadata when available."""
+
+    def test_resolve_with_router_returns_metadata(self) -> None:
+        """When HybridRouter is provided, result includes routing_metadata."""
+        from codeforge.llm import resolve_model_with_routing
+        from codeforge.routing.complexity import ComplexityAnalyzer
+        from codeforge.routing.models import RoutingConfig
+        from codeforge.routing.router import HybridRouter
+
+        router = HybridRouter(
+            complexity=ComplexityAnalyzer(),
+            mab=None,
+            meta=None,
+            available_models=["openai/gpt-4o-mini", "anthropic/claude-haiku-3.5"],
+            config=RoutingConfig(enabled=True, mab_enabled=False, llm_meta_enabled=False),
+        )
+        result = resolve_model_with_routing(
+            prompt="Write a hello world program",
+            scenario="",
+            router=router,
+        )
+        assert result.model != ""
+        assert result.routing_layer != ""
+        assert result.routing_metadata is not None
+        assert result.routing_metadata.selected_model == result.model
+        assert isinstance(result.routing_metadata.reason, str)
+
+    def test_resolve_without_router_has_no_metadata(self) -> None:
+        """Without a router, routing_metadata is None."""
+        from codeforge.llm import resolve_model_with_routing
+
+        result = resolve_model_with_routing(prompt="hello", scenario="", router=None)
+        assert result.routing_metadata is None
+
+    def test_resolve_with_disabled_router_has_no_metadata(self) -> None:
+        """With a disabled router, routing_metadata is None."""
+        from codeforge.llm import resolve_model_with_routing
+        from codeforge.routing.complexity import ComplexityAnalyzer
+        from codeforge.routing.models import RoutingConfig
+        from codeforge.routing.router import HybridRouter
+
+        router = HybridRouter(
+            complexity=ComplexityAnalyzer(),
+            mab=None,
+            meta=None,
+            available_models=["openai/gpt-4o-mini"],
+            config=RoutingConfig(enabled=False),
+        )
+        result = resolve_model_with_routing(prompt="hello", scenario="", router=router)
+        assert result.routing_metadata is None

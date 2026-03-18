@@ -252,7 +252,7 @@ class ConversationHandlerMixin:
                 fallback_models=fallback_models,
             )
 
-        from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
+        from codeforge.agent_loop import AgentLoopExecutor, ConversationRolloutExecutor, LoopConfig
 
         executor = AgentLoopExecutor(
             llm=self._llm,
@@ -273,7 +273,20 @@ class ConversationHandlerMixin:
             task_type=routing.task_type,
             provider_api_key=run_msg.provider_api_key,
             plan_act_enabled=run_msg.plan_act_enabled,
+            routing_metadata=getattr(routing, "routing_metadata", None),
         )
+
+        # Use multi-rollout executor when rollout_count > 1.
+        rollout_count = max(1, min(run_msg.rollout_count, 8))
+        if rollout_count > 1:
+            rollout_exec = ConversationRolloutExecutor(
+                agent_loop_executor=executor,
+                rollout_count=rollout_count,
+                workspace_path=run_msg.workspace_path,
+                runtime=runtime,
+            )
+            return await rollout_exec.execute(messages, config=loop_cfg)
+
         return await executor.run(messages, config=loop_cfg)
 
     async def _run_simple_chat(

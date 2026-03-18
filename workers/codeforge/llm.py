@@ -19,6 +19,8 @@ from codeforge.routing.rate_tracker import get_tracker
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from codeforge.routing.models import RoutingMetadata
+
 logger = logging.getLogger(__name__)
 
 # Default model — empty means auto-discover from LiteLLM.
@@ -184,6 +186,7 @@ class RoutingResult:
     routing_layer: str = ""
     complexity_tier: str = ""
     task_type: str = ""
+    routing_metadata: RoutingMetadata | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +250,7 @@ def resolve_model_with_routing(
         from codeforge.routing.router import HybridRouter
 
         if isinstance(router, HybridRouter):
-            decision = router.route(prompt, max_cost=max_cost)
+            decision, metadata = router.route_with_metadata(prompt, max_cost=max_cost)
             if decision is not None:
                 logger.info(
                     "routing_decision model=%s layer=%s tier=%s task=%s",
@@ -262,6 +265,7 @@ def resolve_model_with_routing(
                     routing_layer=str(decision.routing_layer),
                     complexity_tier=str(decision.complexity_tier),
                     task_type=str(decision.task_type),
+                    routing_metadata=metadata,
                 )
 
     # Fallback: tag-based routing via LiteLLM.
