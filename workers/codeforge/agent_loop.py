@@ -128,6 +128,7 @@ class LoopConfig:
     complexity_tier: str = ""
     task_type: str = ""
     provider_api_key: str = ""
+    plan_act_enabled: bool = False
 
 
 @dataclass
@@ -311,6 +312,7 @@ class AgentLoopExecutor:
         if cached_result is not None:
             return cached_result
 
+        plan_act = _init_plan_act(cfg, messages)
         tools_array = self._tools.get_openai_tools()
         loop_start = time.monotonic()
 
@@ -324,7 +326,10 @@ class AgentLoopExecutor:
             if await self._check_stall(stall_detector, messages, state):
                 break
 
-            result = await self._do_llm_iteration(cfg, tools_array, messages, state, iteration)
+            # Auto-transition from plan to act when max plan iterations reached.
+            _check_plan_act_transition(plan_act, messages)
+
+            result = await self._do_llm_iteration(cfg, tools_array, messages, state, iteration, plan_act=plan_act)
             if result is not None:
                 # result is True for "stop" (final text), string for error.
                 if isinstance(result, str):
@@ -489,6 +494,7 @@ class AgentLoopExecutor:
         messages: list[dict[str, object]],
         state: _LoopState,
         iteration: int,
+        plan_act: object | None = None,
     ) -> bool | str | None:
         """Run one LLM iteration. Returns True on stop, error string on failure, None to continue."""
         llm_decision = await self._runtime.request_tool_call(tool="LLM", command="chat_completion")
@@ -554,7 +560,9 @@ class AgentLoopExecutor:
         if full_text and not pending_sends:
             await self._runtime.send_output(full_text)
 
-        return await self._process_llm_response(cfg, state, response, llm_decision, full_text, messages)
+        return await self._process_llm_response(
+            cfg, state, response, llm_decision, full_text, messages, plan_act=plan_act
+        )
 
     async def _process_llm_response(
         self,
@@ -564,6 +572,7 @@ class AgentLoopExecutor:
         llm_decision: ToolCallDecision,
         full_text: str,
         messages: list[dict[str, object]],
+        plan_act: object | None = None,
     ) -> bool | None:
         """Process LLM response: update state, report results, execute tool calls."""
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
@@ -623,6 +632,26 @@ class AgentLoopExecutor:
 
         for i, tc in enumerate(response.tool_calls):
             state.step_count += 1
+
+            # Plan/Act phase gate: handle transition_to_act tool or block disallowed tools.
+            if plan_act is not None and plan_act.enabled:
+                if tc.name == "transition_to_act":
+                    plan_act.transition_to_act()
+                    logger.info("plan/act: transitioned to act phase via tool call")
+                    _update_system_suffix(messages, plan_act.get_system_suffix())
+                    self._append_tool_result(
+                        tc, "Transitioned to ACT phase. All tools are now available.", messages, state
+                    )
+                    continue
+                if not plan_act.is_tool_allowed(tc.name):
+                    blocked_msg = (
+                        f"Tool '{tc.name}' is not available in PLAN phase. "
+                        "Only read-only tools (read_file, search_files, glob_files, list_directory) are allowed. "
+                        "Call 'transition_to_act' when your plan is ready."
+                    )
+                    self._append_tool_result(tc, blocked_msg, messages, state)
+                    continue
+
             await self._execute_tool_call(tc, messages, state)
             if self._runtime.is_cancelled:
                 # Append placeholder results for remaining tool calls so the
@@ -970,3 +999,52 @@ def sanitize_tool_messages(messages: list[dict[str, object]]) -> list[dict[str, 
         if "tool_call_id" not in msg or not msg["tool_call_id"]:
             msg["tool_call_id"] = f"_sanitized_{id(msg)}"
     return messages
+
+
+# --- Plan/Act helpers ---
+
+
+def _init_plan_act(cfg: LoopConfig, messages: list[dict[str, object]]) -> object:
+    """Initialize the Plan/Act controller and inject the system prompt suffix."""
+    from codeforge.plan_act import PlanActController, get_max_plan_iterations
+
+    plan_act = PlanActController(
+        enabled=cfg.plan_act_enabled,
+        max_plan_iterations=get_max_plan_iterations(),
+    )
+    suffix = plan_act.get_system_suffix()
+    if suffix:
+        _append_system_suffix(messages, suffix)
+    return plan_act
+
+
+_PLAN_ACT_MARKER = "\n\nYou are in "
+
+
+def _check_plan_act_transition(plan_act: object, messages: list[dict[str, object]]) -> None:
+    """Auto-transition from plan to act when max plan iterations reached."""
+    if plan_act.should_auto_transition():
+        plan_act.transition_to_act()
+        logger.info("plan/act auto-transition to act phase after %d plan iterations", plan_act.plan_iterations)
+        _update_system_suffix(messages, plan_act.get_system_suffix())
+
+
+def _append_system_suffix(messages: list[dict[str, object]], suffix: str) -> None:
+    """Append plan/act suffix to the first system message."""
+    for msg in messages:
+        if msg.get("role") == "system":
+            content = msg.get("content", "")
+            msg["content"] = str(content) + suffix if content else suffix
+            return
+
+
+def _update_system_suffix(messages: list[dict[str, object]], new_suffix: str) -> None:
+    """Replace plan/act suffix on the first system message (phase transition)."""
+    for msg in messages:
+        if msg.get("role") == "system":
+            content = str(msg.get("content", ""))
+            idx = content.find(_PLAN_ACT_MARKER)
+            if idx >= 0:
+                content = content[:idx]
+            msg["content"] = content + new_suffix
+            return

@@ -262,6 +262,7 @@ class ConversationHandlerMixin:
             complexity_tier=routing.complexity_tier,
             task_type=routing.task_type,
             provider_api_key=run_msg.provider_api_key,
+            plan_act_enabled=run_msg.plan_act_enabled,
         )
         return await executor.run(messages, config=loop_cfg)
 

@@ -445,6 +445,7 @@ class ConversationRunStartMessage(BaseModel):
     trust: TrustAnnotation | None = None
     routing_enabled: bool = False
     agentic: bool = True
+    plan_act_enabled: bool = False
     provider_api_key: str = ""
     tenant_id: str = ""
     session_meta: SessionMetaPayload | None = None
@@ -454,6 +455,12 @@ class ConversationRunStartMessage(BaseModel):
     @classmethod
     def _coerce_list_fields(cls, v: list | None) -> list:
         return coerce_none_to_list(v)
+
+    @field_validator("plan_act_enabled", mode="before")
+    @classmethod
+    def _coerce_plan_act(cls, v: bool | None) -> bool:
+        """Go may omit or send null for false booleans; coerce to False."""
+        return bool(v) if v is not None else False
 
 
 class ConversationRunCompleteMessage(BaseModel):

@@ -460,6 +460,7 @@ type ConversationRunStartPayload struct {
 	TenantID          string                       `json:"tenant_id,omitempty"`          // Tenant isolation for background jobs
 	SessionMeta       *SessionMetaPayload          `json:"session_meta,omitempty"`       // Session operation context (Phase B2/B3)
 	Reminders         []string                     `json:"reminders,omitempty"`          // Pre-evaluated reminder texts (Phase E)
+	PlanActEnabled    bool                         `json:"plan_act_enabled,omitempty"`   // Plan/Act mode toggle (A3)
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.
