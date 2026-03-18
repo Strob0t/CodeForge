@@ -1358,3 +1358,30 @@
 - [ ] Claude Code: model selection override (claudecode/claude-sonnet-4)
 - [x] Claude Code: read CODEFORGE_CLAUDECODE_MAX_TURNS, _TIMEOUT, _TIERS from env (2026-03-18)
 - [x] Claude Code: update docs/dev-setup.md with new env vars (2026-03-18)
+
+#### UX/UI Audit Implementation (COMPLETED 2026-03-18)
+
+> 17 atomic tasks across 3 layers implementing UX/UI improvements.
+
+**Layer 1 — Quick Wins (6 tasks):**
+- [x] (2026-03-18) Q1: Added anvil SVG favicon (`frontend/public/favicon.svg`)
+- [x] (2026-03-18) Q2: Per-page document titles (17 pages)
+- [x] (2026-03-18) Q3: Fixed Prompts Preview button variant (ghost -> secondary)
+- [x] (2026-03-18) Q4: Debounced WebSocket reconnect banner (2s delay + 3s initial suppress)
+- [x] (2026-03-18) Q5: Abbreviated KPI labels for mobile viewport
+- [x] (2026-03-18) Q6: Hover effects + click-to-navigate on project cards
+
+**Layer 2 — Medium-Term (7 tasks):**
+- [x] (2026-03-18) M1: SVG empty state illustrations for 6 pages (MCP, Knowledge, Benchmarks, Prompts, Activity, Costs)
+- [x] (2026-03-18) M2: Page transition fade-in animations (PageTransition component)
+- [x] (2026-03-18) M3: Skeleton loaders replacing "Loading..." text on AI Config, Costs, Settings
+- [x] (2026-03-18) M4: Sticky section navigation on Settings page (9 sections, IntersectionObserver)
+- [x] (2026-03-18) M5: Project Detail graceful degradation (per-panel ErrorBoundary)
+- [x] (2026-03-18) M6: Anvil brand mark in sidebar header (CodeForgeLogo component)
+- [x] (2026-03-18) M7: Collapsible model cards on AI Config page (expand/collapse all)
+
+**Layer 3 — Strategic (4 tasks):**
+- [x] (2026-03-18) S1: Typography system -- Outfit (display) + IBM Plex Sans (body), self-hosted woff2 in `frontend/public/fonts/`
+- [x] (2026-03-18) S2: Micro-interactions -- button press, card hover lift, tab animation, KPI count-up, toast slide-in, modal fade+scale
+- [x] (2026-03-18) S3: Living design system page at `/design-system` (dev-mode only) + `frontend/src/ui/DESIGN-SYSTEM.md`
+- [x] (2026-03-18) S4: 3-step onboarding wizard for first-time users (Connect Code -> Configure AI -> Create Project)

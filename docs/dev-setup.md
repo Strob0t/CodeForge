@@ -178,6 +178,9 @@ CodeForge/
 │   ├── e2e/                  # Playwright E2E tests (5 browser specs + 12 LLM API specs)
 │   │   └── llm/              # LLM E2E test suite (95 tests, no browser needed)
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
+│   ├── public/
+│   │   ├── favicon.svg       # Anvil brand favicon
+│   │   └── fonts/            # Self-hosted woff2 (Outfit, IBM Plex Sans — 6 files)
 │   ├── playwright.config.ts  # Playwright configuration (browser E2E)
 │   ├── playwright.llm.config.ts  # Playwright configuration (LLM API E2E)
 │   └── src/
@@ -185,13 +188,17 @@ CodeForge/
 │       │   ├── tokens/       # ThemeDefinition, built-in themes (Nord, Solarized)
 │       │   ├── primitives/   # Button, Input, Select, Badge, Alert, Spinner, etc.
 │       │   ├── composites/   # Card, Modal, Table, Tabs, ConfirmDialog, etc.
-│       │   ├── layout/       # Sidebar, NavLink, PageLayout, Section
+│       │   ├── layout/       # Sidebar, NavLink, PageLayout, PageTransition, Section
+│       │   ├── icons/        # CodeForgeLogo, EmptyStateIcons (SVG components)
+│       │   ├── DESIGN-SYSTEM.md  # Design token documentation
 │       │   └── index.ts      # Barrel: import { Button, Card } from "~/ui"
 │       ├── features/
 │       │   ├── activity/     # Activity feed
 │       │   ├── audit/        # Audit trail viewer
 │       │   ├── auth/         # Login, auth guards
 │       │   ├── benchmarks/   # BenchmarkPage (dev-mode evaluation dashboard)
+│       │   ├── dev/          # DesignSystemPage (dev-mode living style guide)
+│       │   ├── onboarding/   # OnboardingWizard (3-step first-time user flow)
 │       │   ├── costs/        # CostDashboardPage (global cost overview)
 │       │   ├── dashboard/    # Project list, ProjectCard
 │       │   ├── knowledgebases/ # Knowledge base management
@@ -259,6 +266,18 @@ The `codeforge-playwright` container provides browser automation via Model Conte
 **Important:** The MCP session is ephemeral -- if the container restarts, all active MCP
 sessions become invalid ("Session not found"). You must reconnect from the MCP client
 (e.g., restart Claude Code or the MCP client process) after a container restart.
+
+### Design System Page (Dev-Mode Only)
+
+The living design system page is available at `http://localhost:3000/design-system` when the backend runs with `APP_ENV=development`. It renders all design tokens, typography scale, color palette, component variants, and micro-interaction examples. Token documentation is maintained in `frontend/src/ui/DESIGN-SYSTEM.md`.
+
+### Font Files
+
+Self-hosted woff2 font files live in `frontend/public/fonts/` (6 files total). Outfit (display headings) and IBM Plex Sans (body text) are loaded via `@font-face` in global CSS. No external CDN or npm font packages are used.
+
+### Onboarding Wizard
+
+A 3-step onboarding wizard is shown on first login when the user has 0 projects. The steps guide through: Connect Code (repository setup), Configure AI (LLM provider), Create Project. Completion is stored in `localStorage` under the key `codeforge-onboarding-completed`. The wizard does not appear again once completed. Implementation: `frontend/src/features/onboarding/OnboardingWizard.tsx` with 3 step components.
 
 ### Running Linting Manually
 

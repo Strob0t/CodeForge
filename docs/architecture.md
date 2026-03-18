@@ -1824,6 +1824,35 @@ Five goal kinds: `vision`, `requirement`, `constraint`, `state`, `context`. Safe
 frontend/
   src/
     features/            # Feature modules (dashboard, roadmap, agents, llm)
+    features/dev/        # Dev-mode pages (DesignSystemPage)
+    features/onboarding/ # Onboarding wizard (3-step first-time user flow)
     shared/              # Shared components, primitives, utils
+    ui/                  # Design system (tokens, primitives, composites, layout)
+    ui/icons/            # Brand icons (CodeForgeLogo, EmptyStateIcons)
+    ui/layout/           # Layout components (PageTransition, Sidebar, etc.)
     api/                 # API client, WebSocket handler
+  public/
+    favicon.svg          # Anvil brand favicon
+    fonts/               # Self-hosted woff2 (Outfit, IBM Plex Sans)
 ```
+
+#### Typography System
+
+Two typefaces, self-hosted as woff2 in `frontend/public/fonts/` (no external CDN, no new npm dependencies):
+
+- **Outfit** -- display headings (h1-h3, hero text, brand elements)
+- **IBM Plex Sans** -- body text, UI labels, code-adjacent prose
+
+Font files are loaded via `@font-face` declarations in the global CSS. Six weight variants total (Outfit 400/600/700, IBM Plex Sans 400/500/600).
+
+#### Design System Page
+
+A living style guide available at `/design-system` in development mode only (`APP_ENV=development`). Renders all design tokens, typography scale, color palette, component variants, and micro-interaction examples. Token documentation lives in `frontend/src/ui/DESIGN-SYSTEM.md`.
+
+#### Onboarding Wizard
+
+A 3-step wizard shown on first login when the user has 0 projects. Steps: Connect Code (repository setup), Configure AI (LLM provider), Create Project. Completion state is stored in `localStorage` under the key `codeforge-onboarding-completed`. The wizard is implemented in `frontend/src/features/onboarding/OnboardingWizard.tsx` with individual step components.
+
+#### Page Transitions
+
+The `PageTransition` component (`frontend/src/ui/layout/PageTransition.tsx`) wraps page content with a CSS fade-in animation for smooth route transitions. Applied consistently across all routed pages.

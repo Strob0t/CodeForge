@@ -94,6 +94,14 @@ POST   /api/v1/projects/{id}/checkout      # Switch branch
 - [x] Batch operations: `POST /projects/batch/{delete,pull,status}` endpoints, concurrent fan-out, frontend multi-select with batch action bar.
 - [x] Cross-repo search: `POST /search` aggregation endpoint, frontend SearchPage with debounced input, project filter, results with code snippets.
 
+### UX/UI Improvements (2026-03-18)
+
+- [x] **Project card hover effects:** Cards lift with shadow on hover and are fully clickable to navigate to the project detail page.
+- [x] **KPI mobile abbreviations:** Dashboard KPI labels abbreviate on narrow viewports (e.g., "Success Rate" -> "Success") to prevent overflow.
+- [x] **Empty state illustrations:** SVG illustrations on 6 pages (MCP, Knowledge, Benchmarks, Prompts, Activity, Costs) replace blank content when no data exists.
+- [x] **Skeleton loaders:** AI Config, Costs, and Settings pages show skeleton loaders instead of "Loading..." text.
+- [x] **Per-panel ErrorBoundary:** Project Detail page wraps each tab panel in an ErrorBoundary for graceful degradation -- a single broken panel does not crash the entire page.
+
 ### Open Items
 
 > **Task tracking:** See [docs/todo.md](../todo.md) for current open items related to Project Dashboard.
