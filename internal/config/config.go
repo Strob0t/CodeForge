@@ -404,11 +404,11 @@ func Defaults() Config {
 		},
 		Postgres: Postgres{
 			DSN:             "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable",
-			MaxConns:        15,
-			MinConns:        2,
-			MaxConnLifetime: time.Hour,
-			MaxConnIdleTime: 10 * time.Minute,
-			HealthCheck:     time.Minute,
+			MaxConns:        50,
+			MinConns:        10,
+			MaxConnLifetime: 30 * time.Minute,
+			MaxConnIdleTime: 5 * time.Minute,
+			HealthCheck:     30 * time.Second,
 		},
 		NATS: NATS{
 			URL: "nats://localhost:4222",
