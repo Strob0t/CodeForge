@@ -254,7 +254,7 @@ class ConversationHandlerMixin:
 
         # Claude Code execution path
         if primary_model.startswith("claudecode/"):
-            from codeforge.claude_code_executor import ClaudeCodeExecutor
+            from codeforge.claude_code_executor import ClaudeCodeExecutor, get_default_max_turns
 
             cc_executor = ClaudeCodeExecutor(
                 workspace_path=run_msg.workspace_path,
@@ -263,7 +263,7 @@ class ConversationHandlerMixin:
             result = await cc_executor.run(
                 messages=messages,
                 model=primary_model,
-                max_turns=run_msg.termination.max_steps or 50,
+                max_turns=run_msg.termination.max_steps or get_default_max_turns(),
                 system_prompt=run_msg.system_prompt,
             )
             # If Claude Code failed and we have fallbacks, try LiteLLM path

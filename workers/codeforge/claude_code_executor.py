@@ -59,9 +59,29 @@ _MAP_TOOL_TO_POLICY: dict[str, str] = {
 # Default model for cost estimation when Claude Code doesn't report one.
 _DEFAULT_MODEL = "anthropic/claude-sonnet-4"
 
-# Concurrency limit and timeout from environment.
+# Concurrency limit from environment (read once at import time).
 _MAX_CONCURRENT = int(os.environ.get("CODEFORGE_CLAUDECODE_MAX_CONCURRENT", "5"))
-_TIMEOUT_SECONDS = int(os.environ.get("CODEFORGE_CLAUDECODE_TIMEOUT", "300"))
+
+
+def get_default_max_turns() -> int:
+    """Return the default max_turns from env var or 50."""
+    return int(os.environ.get("CODEFORGE_CLAUDECODE_MAX_TURNS", "50"))
+
+
+def get_timeout_seconds() -> int:
+    """Return the CLI timeout from env var or 300."""
+    return int(os.environ.get("CODEFORGE_CLAUDECODE_TIMEOUT", "300"))
+
+
+def get_enabled_tiers() -> set[str]:
+    """Return the set of complexity tiers that include Claude Code.
+
+    Reads from ``CODEFORGE_CLAUDECODE_TIERS`` (comma-separated).
+    Default: ``COMPLEX,REASONING``.
+    """
+    raw = os.environ.get("CODEFORGE_CLAUDECODE_TIERS", "COMPLEX,REASONING")
+    return {t.strip() for t in raw.split(",") if t.strip()}
+
 
 # Module-level semaphore (lazy-init to avoid event-loop issues at import time).
 _semaphore: asyncio.Semaphore | None = None
@@ -332,7 +352,7 @@ class ClaudeCodeExecutor:
 
             stdout, stderr = await asyncio.wait_for(
                 self._process.communicate(),
-                timeout=_TIMEOUT_SECONDS,
+                timeout=get_timeout_seconds(),
             )
 
             if self._process.returncode != 0:
@@ -353,7 +373,7 @@ class ClaudeCodeExecutor:
             if self._process is not None and self._process.returncode is None:
                 self._process.terminate()
             return AgentLoopResult(
-                error=f"Claude Code CLI timed out after {_TIMEOUT_SECONDS}s",
+                error=f"Claude Code CLI timed out after {get_timeout_seconds()}s",
                 model=acc.model,
                 metadata={"executor": "claude-code-cli"},
             )

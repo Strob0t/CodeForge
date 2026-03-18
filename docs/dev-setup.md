@@ -476,6 +476,12 @@ Example:
 | `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
 | `CODEFORGE_PLANDEX_PATH` | `plandex` | Path to Plandex CLI binary |
 | `CODEFORGE_OPENHANDS_URL` | `http://localhost:3000` | OpenHands service URL |
+| `CODEFORGE_CLAUDECODE_ENABLED` | `false` | Enable Claude Code as routing target |
+| `CODEFORGE_CLAUDECODE_PATH` | `claude` | Path to Claude Code CLI binary |
+| `CODEFORGE_CLAUDECODE_MAX_TURNS` | `50` | Default max agentic turns per Claude Code run |
+| `CODEFORGE_CLAUDECODE_TIMEOUT` | `300` | CLI subprocess timeout in seconds |
+| `CODEFORGE_CLAUDECODE_TIERS` | `COMPLEX,REASONING` | Complexity tiers that include Claude Code (comma-separated) |
+| `CODEFORGE_CLAUDECODE_MAX_CONCURRENT` | `5` | Max parallel Claude Code runs per worker |
 
 ### Health Endpoints
 

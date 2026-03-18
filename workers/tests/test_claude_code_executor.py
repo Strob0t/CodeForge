@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import types
 from unittest.mock import AsyncMock, patch
@@ -176,3 +177,51 @@ class TestPolicyCallback:
             path="",
         )
         assert isinstance(result, _FakePermissionResultAllow)
+
+
+# ---------------------------------------------------------------------------
+# Environment variable configuration tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnvVarConfig:
+    """Tests for CODEFORGE_CLAUDECODE_* env var support."""
+
+    def test_default_max_turns(self) -> None:
+        from codeforge.claude_code_executor import get_default_max_turns
+
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CODEFORGE_CLAUDECODE_MAX_TURNS", None)
+            assert get_default_max_turns() == 50
+
+    def test_custom_max_turns(self) -> None:
+        from codeforge.claude_code_executor import get_default_max_turns
+
+        with patch.dict("os.environ", {"CODEFORGE_CLAUDECODE_MAX_TURNS": "100"}):
+            assert get_default_max_turns() == 100
+
+    def test_default_timeout(self) -> None:
+        from codeforge.claude_code_executor import get_timeout_seconds
+
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CODEFORGE_CLAUDECODE_TIMEOUT", None)
+            assert get_timeout_seconds() == 300
+
+    def test_custom_timeout(self) -> None:
+        from codeforge.claude_code_executor import get_timeout_seconds
+
+        with patch.dict("os.environ", {"CODEFORGE_CLAUDECODE_TIMEOUT": "600"}):
+            assert get_timeout_seconds() == 600
+
+    def test_default_tiers(self) -> None:
+        from codeforge.claude_code_executor import get_enabled_tiers
+
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("CODEFORGE_CLAUDECODE_TIERS", None)
+            assert get_enabled_tiers() == {"COMPLEX", "REASONING"}
+
+    def test_custom_tiers(self) -> None:
+        from codeforge.claude_code_executor import get_enabled_tiers
+
+        with patch.dict("os.environ", {"CODEFORGE_CLAUDECODE_TIERS": "SIMPLE,MEDIUM,COMPLEX"}):
+            assert get_enabled_tiers() == {"SIMPLE", "MEDIUM", "COMPLEX"}

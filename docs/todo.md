@@ -1356,5 +1356,5 @@
   - Availability detection with caching
 - [ ] Claude Code: E2E manual test with live CLI
 - [ ] Claude Code: model selection override (claudecode/claude-sonnet-4)
-- [ ] Claude Code: read CODEFORGE_CLAUDECODE_MAX_TURNS, _TIMEOUT, _TIERS from env
-- [ ] Claude Code: update docs/dev-setup.md with new env vars
+- [x] Claude Code: read CODEFORGE_CLAUDECODE_MAX_TURNS, _TIMEOUT, _TIERS from env (2026-03-18)
+- [x] Claude Code: update docs/dev-setup.md with new env vars (2026-03-18)
