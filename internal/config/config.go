@@ -229,6 +229,8 @@ type Orchestrator struct {
 	GraphMaxHops              int           `yaml:"graph_max_hops"`              // Max hops for graph traversal (default: 2)
 	GraphTopK                 int           `yaml:"graph_top_k"`                 // Top-K results for graph search (default: 10)
 	GraphHopDecay             float64       `yaml:"graph_hop_decay"`             // Score decay per hop (default: 0.7)
+	ContextRerankEnabled      bool          `yaml:"context_rerank_enabled"`      // Enable LLM re-ranking of context entries (default: false)
+	ContextRerankModel        string        `yaml:"context_rerank_model"`        // Model to use for re-ranking (empty = default)
 }
 
 // Runtime holds agent execution engine configuration.
