@@ -374,42 +374,6 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Progress-slide animation — used by ui/primitives/ProgressBar
-   --------------------------------------------------------------------------- */
-
-@keyframes cf-progress-slide {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(300%);
-  }
-}
-
-/* ---------------------------------------------------------------------------
-   Pacman animations — used by ui/primitives/PacmanSpinner
-   --------------------------------------------------------------------------- */
-
-@keyframes cf-pacman-chomp {
-  0%,
-  100% {
-    d: path("M 50 15 L 50 15 A 12 12 0 1 1 50 15");
-  }
-  50% {
-    d: path("M 50 15 L 62 9 A 12 12 0 1 1 62 21");
-  }
-}
-
-@keyframes cf-dot-orbit {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ---------------------------------------------------------------------------
    Fade-in animation — page transitions
    --------------------------------------------------------------------------- */
 

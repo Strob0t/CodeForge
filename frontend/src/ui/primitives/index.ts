@@ -5,8 +5,6 @@ export { Checkbox } from "./Checkbox";
 export { FormField } from "./FormField";
 export { Input } from "./Input";
 export { Label } from "./Label";
-export { PacmanSpinner } from "./PacmanSpinner";
-export { ProgressBar } from "./ProgressBar";
 export { Select } from "./Select";
 export { Skeleton } from "./Skeleton";
 export { Spinner } from "./Spinner";
