@@ -196,7 +196,16 @@ export function KnowledgeBasesContent() {
       </Show>
 
       <Show when={!kbs.loading}>
-        <Show when={sorted().length} fallback={<EmptyState illustration={<BrainBookIcon />} title={t("kb.empty")} description={t("kb.emptyDescription")} />}>
+        <Show
+          when={sorted().length}
+          fallback={
+            <EmptyState
+              illustration={<BrainBookIcon />}
+              title={t("kb.empty")}
+              description={t("kb.emptyDescription")}
+            />
+          }
+        >
           <GridLayout>
             <For each={sorted()}>
               {(kb) => (

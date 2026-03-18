@@ -654,21 +654,27 @@ export default function ProjectDetailPage() {
                       </Button>
                     </div>
                     <Show when={leftTab() === "files"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0">
                           <FilePanel projectId={params.id} onNavigate={handleNavigate} />
                         </div>
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "goals"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0">
                           <GoalsPanel projectId={params.id} onNavigate={handleNavigate} />
                         </div>
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "roadmap"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 overflow-y-auto px-4 pb-4">
                           <RoadmapPanel
                             projectId={params.id}
@@ -679,7 +685,9 @@ export default function ProjectDetailPage() {
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "featuremap"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0">
                           <FeatureMapPanel
                             projectId={params.id}
@@ -690,21 +698,27 @@ export default function ProjectDetailPage() {
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "warroom"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0">
                           <WarRoom projectId={params.id} onNavigate={handleNavigate} />
                         </div>
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "sessions"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                           <SessionPanel projectId={params.id} onNavigate={handleNavigate} />
                         </div>
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "trajectory"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                           <TrajectoryTabContent
                             projectId={params.id}
@@ -716,14 +730,18 @@ export default function ProjectDetailPage() {
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "audit"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                           <AuditTable projectId={params.id} />
                         </div>
                       </ErrorBoundary>
                     </Show>
                     <Show when={leftTab() === "boundaries"}>
-                      <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                           <BoundariesPanel projectId={params.id} />
                         </div>
@@ -778,7 +796,9 @@ export default function ProjectDetailPage() {
                     </div>
                   </Show>
                   <ActiveWorkPanel projectId={params.id} />
-                  <ErrorBoundary fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}>
+                  <ErrorBoundary
+                    fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                  >
                     <ChatPanel projectId={params.id} activeTab={leftTab()} />
                   </ErrorBoundary>
                 </div>

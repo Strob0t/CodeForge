@@ -638,7 +638,16 @@ export default function BenchmarkPage() {
 
           {/* Run List */}
           <Show when={!runs.loading} fallback={<LoadingState />}>
-            <Show when={runs()?.length} fallback={<EmptyState illustration={<ChartTrophyIcon />} title={t("benchmark.empty")} description={t("benchmark.emptyDescription")} />}>
+            <Show
+              when={runs()?.length}
+              fallback={
+                <EmptyState
+                  illustration={<ChartTrophyIcon />}
+                  title={t("benchmark.empty")}
+                  description={t("benchmark.emptyDescription")}
+                />
+              }
+            >
               <div class="space-y-3">
                 <For each={runs()}>
                   {(run: BenchmarkRun) => (

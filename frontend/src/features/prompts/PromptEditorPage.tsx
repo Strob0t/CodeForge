@@ -248,7 +248,13 @@ export default function PromptEditorPage() {
       <Show when={!sections.loading} fallback={<LoadingState />}>
         <Show
           when={(sections() ?? []).length > 0}
-          fallback={<EmptyState illustration={<DocumentPenIcon />} title={t("prompts.empty")} description={t("prompts.emptyDescription")} />}
+          fallback={
+            <EmptyState
+              illustration={<DocumentPenIcon />}
+              title={t("prompts.empty")}
+              description={t("prompts.emptyDescription")}
+            />
+          }
         >
           <div class="space-y-2">
             <For each={sections()}>

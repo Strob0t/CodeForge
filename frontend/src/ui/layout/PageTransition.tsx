@@ -1,4 +1,4 @@
-import { type JSX, createSignal, onMount } from "solid-js";
+import { createSignal, type JSX, onMount } from "solid-js";
 
 import { cx } from "~/utils/cx";
 
@@ -12,10 +12,7 @@ export function PageTransition(props: PageTransitionProps): JSX.Element {
   onMount(() => setMounted(true));
 
   return (
-    <div class={cx(
-      mounted() && "animate-[cf-fade-in_0.15s_ease-out]",
-      props.class
-    )}>
+    <div class={cx(mounted() && "animate-[cf-fade-in_0.15s_ease-out]", props.class)}>
       {props.children}
     </div>
   );
