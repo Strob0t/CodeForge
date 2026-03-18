@@ -93,6 +93,7 @@ Detailed analysis: docs/research/market-analysis.md
 - **Cost Management:** Budget limits per task/project/user, auto-tracking
 - **Go text/template Prompt Templates:** Prompts in separate `.tmpl` files via `//go:embed`, not in code
 - **BM25S Keyword Retrieval:** BM25-based retrieval for code search and tool recommendation
+- **SimHash Context Deduplication:** 64-bit SimHash fingerprints with hamming distance threshold to eliminate near-duplicate context candidates from multiple retrieval sources — `internal/service/dedup.go`
 - **Real-time State via WebSocket:** Live updates for agent status, logs, costs
 - **Frontend:** SolidJS + Tailwind CSS
 - **Agentic Conversation Loop (Phase 17):**

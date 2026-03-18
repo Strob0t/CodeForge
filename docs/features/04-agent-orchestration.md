@@ -896,3 +896,25 @@ Each pipeline step gets a scaled context budget:
 - contract-reviewer: 60% (focused on boundary files)
 - reviewer: 50% (focused on changed layer)
 - refactorer: 70% (needs review context + code)
+
+## Quality & Performance Improvements
+
+### Plan/Act Mode Toggle (A3)
+
+Two-phase agent execution separating reasoning from action:
+
+- **Plan phase:** Read-only tools only (`read_file`, `search_files`, `glob_files`, `list_directory`). Routing tag `"plan"` for LLM scenario routing.
+- **Act phase:** All tools available. Standard routing tag.
+- **Transition:** LLM calls virtual `transition_to_act` tool, or auto-transition after `CODEFORGE_PLAN_ACT_MAX_ITERATIONS` (default 10).
+- **Activation:** Automatic for modes with `autonomy >= 4` (e.g., prototyper, boundary-analyzer) via `plan_act_enabled` NATS field.
+- **Key files:** `workers/codeforge/plan_act.py` (controller), `workers/codeforge/agent_loop.py` (integration), `internal/service/conversation_agent.go` (dispatcher), `internal/port/messagequeue/schemas.go` (payload)
+
+### Semantic Deduplication of Context Candidates (B2)
+
+SimHash-based near-duplicate detection eliminates overlapping content from multiple retrieval sources before token budget packing:
+
+- **`simhash64(text)`** — 64-bit fingerprint via 3-character shingle hashing (FNV-64a)
+- **`hammingDistance(a, b)`** — bit-level similarity via XOR + popcount
+- **`deduplicateCandidates(candidates, threshold)`** — greedy dedup sorted by priority descending; default threshold 3 bits (~95% similarity)
+- **Integration point:** `assembleAndPack()` in `context_optimizer.go`, between candidate gathering and token budget packing
+- **Key files:** `internal/service/dedup.go`, `internal/service/context_optimizer.go`
