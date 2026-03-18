@@ -48,7 +48,10 @@ export function Modal(props: ModalProps): JSX.Element {
 
   return (
     <Show when={local.open}>
-      {(() => { onOpen(); return null; })()}
+      {(() => {
+        onOpen();
+        return null;
+      })()}
       <Portal>
         <div
           class={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 transition-opacity duration-200 ${mounted() ? "opacity-100" : "opacity-0"}`}

@@ -63,7 +63,9 @@ const KpiCard: Component<KpiCardProps> = (props) => {
           {arrow()} {Math.abs(props.delta).toFixed(1)}%
         </p>
       </Show>
-      <p class="text-xl font-bold text-[var(--cf-text-primary)]">{formatCountUp(animatedCount(), props.value)}</p>
+      <p class="text-xl font-bold text-[var(--cf-text-primary)]">
+        {formatCountUp(animatedCount(), props.value)}
+      </p>
       <p class="text-xs text-[var(--cf-text-muted)]">
         <span class="hidden sm:inline">{props.label}</span>
         <span class="sm:hidden">{props.shortLabel}</span>
