@@ -178,8 +178,8 @@ func (s *Store) UpsertMCPServerTools(ctx context.Context, serverID string, tools
 
 // ListMCPServerTools returns all cached tools for an MCP server.
 func (s *Store) ListMCPServerTools(ctx context.Context, serverID string) ([]mcp.ServerTool, error) {
-	const q = `SELECT server_id, name, description, input_schema FROM mcp_server_tools WHERE server_id = $1 ORDER BY name`
-	rows, err := s.pool.Query(ctx, q, serverID)
+	const q = `SELECT t.server_id, t.name, t.description, t.input_schema FROM mcp_server_tools t JOIN mcp_servers s ON s.id = t.server_id WHERE t.server_id = $1 AND s.tenant_id = $2 ORDER BY t.name`
+	rows, err := s.pool.Query(ctx, q, serverID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list mcp server tools %s: %w", serverID, err)
 	}
