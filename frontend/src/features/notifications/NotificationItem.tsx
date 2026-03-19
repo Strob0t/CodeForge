@@ -1,6 +1,6 @@
+import { useNavigate } from "@solidjs/router";
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
-import { useNavigate } from "@solidjs/router";
 
 import { cx } from "~/utils/cx";
 
