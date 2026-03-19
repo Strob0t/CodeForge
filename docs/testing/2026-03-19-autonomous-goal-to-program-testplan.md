@@ -323,33 +323,43 @@ For regression testing (scheduled/cron):
 
 **CRITICAL:** Claude Code MUST start and verify every service. Do NOT assume anything is already running. Check each service and start it if missing.
 
-### Step 0a: Start Infrastructure Services (Docker)
+### WSL2 Docker Networking — CRITICAL
+
+> **Known issue:** In WSL2 environments, Docker container port mappings (`0.0.0.0:4000 -> container:4000`)
+> are NOT reachable via `localhost` from inside the WSL2 instance. This affects ALL Docker services
+> (NATS, LiteLLM, PostgreSQL). Services running directly on the host (Go backend, frontend) ARE
+> reachable at localhost.
+>
+> **Solution:** Dynamically resolve container IPs via `docker inspect` and use those IPs for all
+> Docker service URLs. The Go backend and frontend run on the host and are reachable at localhost.
+
+### Step 0a: Start Docker Services & Resolve Container IPs
 
 1. **Check and start Docker services:**
    ```bash
    docker compose ps --format '{{.Name}}: {{.State}}' 2>/dev/null
-   ```
-
-2. **Start missing services:**
-   ```bash
    docker compose up -d postgres nats litellm
    ```
 
-3. **Wait for healthy state:**
+2. **Resolve container IPs** (MUST be done before starting any non-Docker service):
+   ```bash
+   NATS_IP=$(docker inspect codeforge-nats 2>/dev/null | grep -m1 '"IPAddress"' | grep -oP '[\d.]+')
+   LITELLM_IP=$(docker inspect codeforge-litellm 2>/dev/null | grep -m1 '"IPAddress"' | grep -oP '[\d.]+')
+   POSTGRES_IP=$(docker inspect codeforge-postgres 2>/dev/null | grep -m1 '"IPAddress"' | grep -oP '[\d.]+')
+   echo "NATS: $NATS_IP | LiteLLM: $LITELLM_IP | Postgres: $POSTGRES_IP"
+   ```
+   -> Store all three IPs — they are needed for worker startup
+
+3. **Wait for healthy state** (use container IPs, NOT localhost):
    ```bash
    # Postgres
    docker compose exec postgres pg_isready -U codeforge
-   # NATS (check monitoring port)
-   curl -s http://localhost:8222/varz | head -1
+   # NATS
+   curl -s "http://${NATS_IP}:8222/varz" | head -c 50
    # LiteLLM
-   curl -s http://localhost:4000/health
+   curl -s "http://${LITELLM_IP}:4000/health" -H "Authorization: Bearer sk-codeforge-dev" | head -c 50
    ```
-
-4. **Find NATS container IP** (needed for WSL2 — localhost:4222 may not work):
-   ```bash
-   docker inspect codeforge-nats | grep -m1 '"IPAddress"' | grep -oP '[\d.]+'
-   ```
-   -> Store as `NATS_IP`
+   -> All three must respond. If any fail, check `docker compose logs <service>`.
 
 ### Step 0b: Start Go Backend
 
@@ -357,6 +367,7 @@ For regression testing (scheduled/cron):
    ```bash
    curl -s http://localhost:8080/health 2>/dev/null || echo "NOT_RUNNING"
    ```
+   Note: Go backend runs on the host, so `localhost:8080` works.
 
 2. **If not running — start in background:**
    ```bash
@@ -378,6 +389,7 @@ For regression testing (scheduled/cron):
    ```bash
    curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo "NOT_RUNNING"
    ```
+   Note: Frontend runs on the host, so `localhost:3000` works.
 
 2. **If not running — start in background:**
    ```bash
@@ -394,30 +406,62 @@ For regression testing (scheduled/cron):
 
 ### Step 0d: Start Python Worker
 
-1. **Check if worker is running:**
+> **CRITICAL env vars:** The Python worker connects to Docker services (NATS, LiteLLM) that are
+> NOT reachable at localhost in WSL2. You MUST use the container IPs resolved in Step 0a.
+> The env var for LiteLLM is `LITELLM_BASE_URL` (NOT `LITELLM_URL`).
+
+1. **Kill any stale worker (bytecache + old process):**
    ```bash
-   pgrep -f "codeforge.consumer" > /dev/null && echo "RUNNING" || echo "NOT_RUNNING"
+   pkill -f "codeforge.consumer" 2>/dev/null || true
+   find /workspaces/CodeForge/workers -name "*.pyc" -delete 2>/dev/null
+   find /workspaces/CodeForge/workers -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
    ```
 
-2. **If not running — start in background:**
+2. **Start worker with correct env vars:**
    ```bash
    cd /workspaces/CodeForge && \
+     PYTHONPATH=/workspaces/CodeForge/workers \
      NATS_URL="nats://${NATS_IP}:4222" \
+     LITELLM_BASE_URL="http://${LITELLM_IP}:4000" \
+     LITELLM_MASTER_KEY="sk-codeforge-dev" \
+     DATABASE_URL="postgresql://codeforge:codeforge_dev@${POSTGRES_IP}:5432/codeforge" \
      APP_ENV=development \
      .venv/bin/python -m codeforge.consumer > /tmp/codeforge-worker.log 2>&1 &
    ```
 
-3. **Wait for worker ready (check log for startup message):**
+   **Env var reference:**
+   | Env Var | Source | Example |
+   |---------|--------|---------|
+   | `NATS_URL` | Container IP from Step 0a | `nats://172.18.0.3:4222` |
+   | `LITELLM_BASE_URL` | Container IP from Step 0a | `http://172.18.0.6:4000` |
+   | `LITELLM_MASTER_KEY` | Static | `sk-codeforge-dev` |
+   | `DATABASE_URL` | Container IP from Step 0a | `postgresql://codeforge:codeforge_dev@172.18.0.2:5432/codeforge` |
+   | `APP_ENV` | Static | `development` |
+   | `PYTHONPATH` | Static | `/workspaces/CodeForge/workers` |
+
+3. **Wait for worker ready:**
    ```bash
    for i in $(seq 1 15); do
-     grep -q "Consumer started\|connected\|listening" /tmp/codeforge-worker.log 2>/dev/null && echo "READY" && break
+     grep -q "consumer started\|JetStream\|subscribed" /tmp/codeforge-worker.log 2>/dev/null && echo "READY" && break
      sleep 2
    done
    ```
 
+4. **Verify worker can reach LiteLLM** (check log for model fetch):
+   ```bash
+   sleep 5
+   grep -i "failed to fetch models\|ConnectError\|LITELLM" /tmp/codeforge-worker.log | tail -3
+   ```
+   -> If "failed to fetch models" or "ConnectError" appears: LITELLM_BASE_URL is wrong.
+      Re-check container IP: `docker inspect codeforge-litellm | grep IPAddress`
+
 ### Step 0e: Verify All Services & Login via Browser
 
-1. `browser_navigate` -> `http://localhost:3000`
+> **Playwright-MCP note:** The Playwright browser runs inside a Docker container.
+> It cannot reach `localhost` on the host. Use `http://host.docker.internal:3000` for all
+> browser navigation.
+
+1. `browser_navigate` -> `http://host.docker.internal:3000`
 2. `browser_snapshot` -> login page visible? Look for email/password fields
 
 3. Login with seeded admin:
@@ -432,9 +476,9 @@ For regression testing (scheduled/cron):
      method: 'POST',
      headers: {'Content-Type': 'application/json'},
      body: JSON.stringify({email: 'admin@localhost', password: 'Changeme123'})
-   }).then(r => r.json()).then(d => d.token)
+   }).then(r => r.json()).then(d => d.access_token)
    ```
-   -> Store as `ENV.token`
+   -> Store as `ENV.token` (field is `access_token`, NOT `token`)
 
 5. Model discovery:
    ```js
@@ -448,7 +492,9 @@ For regression testing (scheduled/cron):
 
 **Validation:**
 - All 6 services running: postgres, nats, litellm, go backend, frontend, python worker
-- Frontend renders (not blank, no JS errors)
+- Container IPs resolved and stored
+- Worker log shows no "ConnectError" for NATS or LiteLLM
+- Frontend renders via `host.docker.internal:3000`
 - Backend responds with `dev_mode: true`
 - Login succeeds, dashboard visible
 - At least 1 model available
@@ -459,6 +505,11 @@ Docker services not starting?
 ├─ Docker daemon not running -> ABORT: "Start Docker first"
 ├─ Port conflict -> docker compose down, then up again
 └─ postgres unhealthy -> Check docker compose logs postgres
+
+Container IPs empty?
+├─ Container not running -> docker compose up -d <service>
+├─ grep pattern wrong -> Use: docker inspect <name> | jq '.[0].NetworkSettings.Networks[].IPAddress'
+└─ Network mismatch -> docker network ls, check compose network name
 
 Go backend fails to start?
 ├─ Port 8080 in use -> kill existing process: lsof -ti:8080 | xargs kill
@@ -471,21 +522,31 @@ Frontend fails to start?
 ├─ node_modules missing -> cd frontend && npm install
 └─ Build errors -> Check /tmp/codeforge-frontend.log
 
-Worker fails to start?
-├─ NATS unreachable -> Find correct NATS container IP (WSL2 issue)
-│  docker inspect codeforge-nats | grep IPAddress
-├─ .venv not found -> cd /workspaces/CodeForge && poetry install
-├─ Import errors -> Check /tmp/codeforge-worker.log
+Worker can't reach LiteLLM?
+├─ Wrong env var name -> MUST be LITELLM_BASE_URL (not LITELLM_URL)
+├─ Container IP changed -> Re-resolve: docker inspect codeforge-litellm | grep IPAddress
+├─ LiteLLM not healthy -> docker compose logs litellm
+└─ 401 Unauthorized -> Check LITELLM_MASTER_KEY=sk-codeforge-dev
+
+Worker can't reach NATS?
+├─ Same WSL2 issue -> Use container IP, not localhost
+├─ Container IP changed -> Re-resolve: docker inspect codeforge-nats | grep IPAddress
+└─ NATS not started -> docker compose up -d nats
+
+Worker ModuleNotFoundError?
+├─ PYTHONPATH not set -> MUST include /workspaces/CodeForge/workers
+├─ .venv missing -> cd /workspaces/CodeForge && poetry install
 └─ bytecache stale -> find workers -name "*.pyc" -delete
 
-Frontend unreachable after all services started?
-├─ Timeout -> Check /tmp/codeforge-frontend.log
-├─ Blank page -> browser_console_messages for JS errors
-└─ Error page -> browser_take_screenshot + check backend logs
+Playwright browser can't reach frontend?
+├─ Used localhost -> MUST use http://host.docker.internal:3000
+├─ Frontend not started -> Check /tmp/codeforge-frontend.log
+└─ Port wrong -> Verify frontend runs on port 3000
 
 Login fails?
 ├─ "Invalid credentials" -> Check DB seeding (admin@localhost / Changeme123)
 ├─ 502/503 -> Backend crashed -> Check /tmp/codeforge-backend.log
+├─ Token field wrong -> Response uses "access_token", not "token"
 └─ Stuck on login page -> browser_console_messages, check CORS
 
 No models found?
