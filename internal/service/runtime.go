@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
@@ -53,6 +54,7 @@ type RuntimeService struct {
 	feedbackProviders   []feedbackPort.Provider
 	metrics             *cfotel.Metrics
 	runSpans            sync.Map // map[runID]trace.Span
+	goalSvc             *GoalDiscoveryService
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -130,6 +132,28 @@ func (s *RuntimeService) SetQuarantineService(q *QuarantineService) {
 // SetMetrics sets the OTEL metrics collector.
 func (s *RuntimeService) SetMetrics(m *cfotel.Metrics) {
 	s.metrics = m
+}
+
+// SetGoalService sets the goal discovery service for auto-persisting agent-proposed goals.
+func (s *RuntimeService) SetGoalService(svc *GoalDiscoveryService) {
+	s.goalSvc = svc
+}
+
+// PersistGoalProposal creates a project goal from an agent proposal.
+// Returns nil without error if no GoalDiscoveryService is wired.
+func (s *RuntimeService) PersistGoalProposal(ctx context.Context, projectID, kind, title, content string, priority int) error {
+	if s.goalSvc == nil {
+		return nil
+	}
+	req := &goal.CreateRequest{
+		Kind:     goal.GoalKind(kind),
+		Title:    title,
+		Content:  content,
+		Priority: priority,
+		Source:   "agent",
+	}
+	_, err := s.goalSvc.Create(ctx, projectID, req)
+	return err
 }
 
 // SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
@@ -705,6 +729,15 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 					Priority:   proposal.Data.Priority,
 					GoalID:     proposal.Data.GoalID,
 				})
+
+				// Auto-persist goal proposals with action "create" to the database.
+				if s.goalSvc != nil && proposal.Data.Action == "create" {
+					if createErr := s.PersistGoalProposal(msgCtx, payload.ProjectID, proposal.Data.Kind, proposal.Data.Title, proposal.Data.Content, proposal.Data.Priority); createErr != nil {
+						slog.Warn("auto-persist goal failed", "project_id", payload.ProjectID, "title", proposal.Data.Title, "error", createErr)
+					} else {
+						slog.Info("goal auto-persisted", "project_id", payload.ProjectID, "title", proposal.Data.Title, "kind", proposal.Data.Kind)
+					}
+				}
 			}
 		}
 

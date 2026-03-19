@@ -13,6 +13,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
+	goalPkg "github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -1248,5 +1249,142 @@ func TestHandleToolCallResult_FailedToolAGUIError(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// ============================================================================
+// PersistGoalProposal tests
+// ============================================================================
+
+// goalTrackingMockStore wraps extRuntimeMockStore and tracks created goals.
+type goalTrackingMockStore struct {
+	extRuntimeMockStore
+	mu3         sync.Mutex
+	goalCreated []goalPkg.ProjectGoal
+}
+
+func (m *goalTrackingMockStore) CreateProjectGoal(_ context.Context, g *goalPkg.ProjectGoal) error {
+	m.mu3.Lock()
+	defer m.mu3.Unlock()
+	g.ID = fmt.Sprintf("goal-%d", len(m.goalCreated)+1)
+	g.CreatedAt = time.Now()
+	g.UpdatedAt = time.Now()
+	m.goalCreated = append(m.goalCreated, *g)
+	return nil
+}
+
+// TestPersistGoalProposal_Success verifies that PersistGoalProposal creates
+// a goal in the database via GoalDiscoveryService.
+func TestPersistGoalProposal_Success(t *testing.T) {
+	store := &goalTrackingMockStore{
+		extRuntimeMockStore: extRuntimeMockStore{
+			runtimeMockStore: runtimeMockStore{
+				projects: []project.Project{
+					{ID: "proj-goal", Name: "goal-project", WorkspacePath: "/tmp/goal"},
+				},
+				agents: []agent.Agent{
+					{ID: "agent-1", ProjectID: "proj-goal", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
+				},
+				tasks: []task.Task{
+					{ID: "task-1", ProjectID: "proj-goal", Title: "Fix bug", Prompt: "Fix it", Status: task.StatusPending},
+				},
+			},
+		},
+	}
+	queue := &runtimeMockQueue{}
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	runtimeCfg := config.Runtime{}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
+
+	// Wire GoalDiscoveryService
+	goalSvc := service.NewGoalDiscoveryService(store)
+	svc.SetGoalService(goalSvc)
+
+	ctx := context.Background()
+	err := svc.PersistGoalProposal(ctx, "proj-goal", "requirement", "Add auth", "Implement OAuth2", 80)
+	if err != nil {
+		t.Fatalf("PersistGoalProposal: %v", err)
+	}
+
+	store.mu3.Lock()
+	defer store.mu3.Unlock()
+	if len(store.goalCreated) != 1 {
+		t.Fatalf("expected 1 goal created, got %d", len(store.goalCreated))
+	}
+
+	g := store.goalCreated[0]
+	if g.ProjectID != "proj-goal" {
+		t.Errorf("expected project_id %q, got %q", "proj-goal", g.ProjectID)
+	}
+	if g.Kind != goalPkg.KindRequirement {
+		t.Errorf("expected kind %q, got %q", goalPkg.KindRequirement, g.Kind)
+	}
+	if g.Title != "Add auth" {
+		t.Errorf("expected title %q, got %q", "Add auth", g.Title)
+	}
+	if g.Content != "Implement OAuth2" {
+		t.Errorf("expected content %q, got %q", "Implement OAuth2", g.Content)
+	}
+	if g.Priority != 80 {
+		t.Errorf("expected priority 80, got %d", g.Priority)
+	}
+	if g.Source != "agent" {
+		t.Errorf("expected source %q, got %q", "agent", g.Source)
+	}
+}
+
+// TestPersistGoalProposal_NilGoalService verifies that PersistGoalProposal
+// returns nil when no GoalDiscoveryService is wired.
+func TestPersistGoalProposal_NilGoalService(t *testing.T) {
+	svc, _ := newExtRuntimeTestEnv()
+	ctx := context.Background()
+
+	// Do NOT call SetGoalService — goalSvc remains nil
+	err := svc.PersistGoalProposal(ctx, "proj-1", "requirement", "Add auth", "Implement OAuth2", 80)
+	if err != nil {
+		t.Fatalf("expected nil error when goalSvc is nil, got: %v", err)
+	}
+}
+
+// TestPersistGoalProposal_InvalidKind verifies that PersistGoalProposal
+// returns a validation error for an invalid goal kind.
+func TestPersistGoalProposal_InvalidKind(t *testing.T) {
+	store := &goalTrackingMockStore{
+		extRuntimeMockStore: extRuntimeMockStore{
+			runtimeMockStore: runtimeMockStore{
+				projects: []project.Project{
+					{ID: "proj-goal", Name: "goal-project", WorkspacePath: "/tmp/goal"},
+				},
+				agents: []agent.Agent{
+					{ID: "agent-1", ProjectID: "proj-goal", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
+				},
+				tasks: []task.Task{
+					{ID: "task-1", ProjectID: "proj-goal", Title: "Fix bug", Prompt: "Fix it", Status: task.StatusPending},
+				},
+			},
+		},
+	}
+	queue := &runtimeMockQueue{}
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	runtimeCfg := config.Runtime{}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
+
+	goalSvc := service.NewGoalDiscoveryService(store)
+	svc.SetGoalService(goalSvc)
+
+	ctx := context.Background()
+	err := svc.PersistGoalProposal(ctx, "proj-goal", "invalid-kind", "Title", "Content", 50)
+	if err == nil {
+		t.Fatal("expected validation error for invalid kind")
+	}
+
+	store.mu3.Lock()
+	defer store.mu3.Unlock()
+	if len(store.goalCreated) != 0 {
+		t.Fatalf("expected 0 goals created for invalid kind, got %d", len(store.goalCreated))
 	}
 }

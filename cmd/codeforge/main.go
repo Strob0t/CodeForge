@@ -613,6 +613,7 @@ func run() error {
 	projectSvc.SetGoalDiscovery(goalSvc)
 	conversationSvc.SetGoalService(goalSvc)
 	contextOptSvc.SetGoalService(goalSvc)
+	runtimeSvc.SetGoalService(goalSvc)
 	slog.Info("goal discovery service initialized")
 
 	// --- Skill Service (Phase 22D) ---
