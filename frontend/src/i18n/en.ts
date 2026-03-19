@@ -1606,6 +1606,7 @@ const en = {
   // -- Empty states ----------------------------------------------------------
   "empty.files": "No workspace linked. Clone a repo or adopt a local directory.",
   "empty.files.action": "Setup Workspace",
+  "empty.files.select": "Select a file from the tree to view or edit.",
   "empty.goals": "No goals defined yet.",
   "empty.goals.action": "Start a chat to define goals together",
   "empty.roadmap": "Define goals first, then the agent can create a roadmap.",

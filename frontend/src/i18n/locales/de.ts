@@ -1626,6 +1626,7 @@ const de: Translations = {
   "empty.files":
     "Kein Workspace verknuepft. Klone ein Repo oder uebernimm ein lokales Verzeichnis.",
   "empty.files.action": "Workspace einrichten",
+  "empty.files.select": "Datei im Dateibaum auswaehlen zum Anzeigen oder Bearbeiten.",
   "empty.goals": "Noch keine Ziele definiert.",
   "empty.goals.action": "Starte einen Chat um gemeinsam Ziele zu definieren",
   "empty.roadmap": "Definiere zuerst Ziele, dann kann der Agent eine Roadmap erstellen.",

@@ -658,7 +658,11 @@ export default function ProjectDetailPage() {
                         fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
                       >
                         <div class="flex-1 min-h-0">
-                          <FilePanel projectId={params.id} onNavigate={handleNavigate} />
+                          <FilePanel
+                            projectId={params.id}
+                            hasWorkspace={!!p().workspace_path}
+                            onNavigate={handleNavigate}
+                          />
                         </div>
                       </ErrorBoundary>
                     </Show>

@@ -30,6 +30,8 @@ interface OpenTab {
 
 export interface FilePanelProps {
   projectId: string;
+  /** Whether the project has a linked workspace directory. */
+  hasWorkspace?: boolean;
   onNavigate?: (target: string) => void;
   /** Called when user right-clicks a file/folder and selects "Add to Context". */
   onAddToContext?: (path: string) => void;
@@ -724,13 +726,17 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
             when={currentTab()}
             fallback={
               <div class="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                <p class="text-sm text-cf-text-muted">{t("empty.files")}</p>
-                <button
-                  class="text-sm text-cf-accent hover:underline"
-                  onClick={() => props.onNavigate?.("setup")}
-                >
-                  {t("empty.files.action")}
-                </button>
+                <p class="text-sm text-cf-text-muted">
+                  {props.hasWorkspace ? t("empty.files.select") : t("empty.files")}
+                </p>
+                <Show when={!props.hasWorkspace}>
+                  <button
+                    class="text-sm text-cf-accent hover:underline"
+                    onClick={() => props.onNavigate?.("setup")}
+                  >
+                    {t("empty.files.action")}
+                  </button>
+                </Show>
               </div>
             }
           >
