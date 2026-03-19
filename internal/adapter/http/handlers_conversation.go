@@ -155,6 +155,15 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// BypassConversationApprovals handles POST /api/v1/conversations/{id}/bypass-approvals.
+func (h *Handlers) BypassConversationApprovals(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if h.Runtime != nil {
+		h.Runtime.BypassConversationApprovals(id)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "bypassed", "conversation_id": id})
+}
+
 // CompactConversation handles POST /api/v1/conversations/{id}/compact.
 // Dispatches a compaction request to summarise the conversation history.
 func (h *Handlers) CompactConversation(w http.ResponseWriter, r *http.Request) {

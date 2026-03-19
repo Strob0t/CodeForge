@@ -388,6 +388,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.Get("/conversations/{id}/messages", h.ListConversationMessages)
 		r.Post("/conversations/{id}/messages", h.SendConversationMessage)
 		r.Post("/conversations/{id}/stop", h.StopConversation)
+		r.Post("/conversations/{id}/bypass-approvals", h.BypassConversationApprovals)
 		r.Get("/conversations/{id}/session", h.GetConversationSession)
 		r.Post("/conversations/{id}/fork", h.ForkConversation)
 		r.Post("/conversations/{id}/rewind", h.RewindConversation)

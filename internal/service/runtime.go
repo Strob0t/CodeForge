@@ -50,6 +50,7 @@ type RuntimeService struct {
 	budgetAlerts        sync.Map // map["runID:threshold"]bool — dedup budget alerts
 	pendingApprovals    sync.Map // map["runID:callID"]chan string — HITL approval channels
 	cancelledConvRuns   sync.Map // map[conversationID]bool — cancelled conversation runs (fast reject)
+	bypassedConvRuns    sync.Map // map[conversationID]bool — conversations with "bypass all permissions"
 	quarantine          *QuarantineService
 	feedbackProvidersMu sync.RWMutex
 	feedbackProviders   []feedbackPort.Provider
@@ -103,6 +104,19 @@ func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
 }
 
 // RegisterFeedbackProvider adds a feedback provider for HITL fan-out.
+// BypassConversationApprovals marks a conversation so all future tool-call
+// requests are auto-approved without HITL wait.
+func (s *RuntimeService) BypassConversationApprovals(conversationID string) {
+	s.bypassedConvRuns.Store(conversationID, true)
+	slog.Info("conversation approvals bypassed", "conversation_id", conversationID)
+}
+
+// IsConversationBypassed returns true if the conversation has "bypass all" enabled.
+func (s *RuntimeService) IsConversationBypassed(conversationID string) bool {
+	_, ok := s.bypassedConvRuns.Load(conversationID)
+	return ok
+}
+
 func (s *RuntimeService) RegisterFeedbackProvider(p feedbackPort.Provider) {
 	s.feedbackProvidersMu.Lock()
 	s.feedbackProviders = append(s.feedbackProviders, p)

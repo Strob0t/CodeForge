@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 
 import { cx } from "~/utils/cx";
 
@@ -13,6 +14,7 @@ export interface NotificationItemProps {
   notification: Notification;
   onMarkRead: (id: string) => void;
   onArchive: (id: string) => void;
+  onClose?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,9 +45,15 @@ function formatRelativeTime(timestamp: number): string {
 // ---------------------------------------------------------------------------
 
 export default function NotificationItem(props: NotificationItemProps): JSX.Element {
+  const navigate = useNavigate();
+
   function handleClick() {
     if (!props.notification.read) {
       props.onMarkRead(props.notification.id);
+    }
+    if (props.notification.actionUrl) {
+      props.onClose?.();
+      navigate(props.notification.actionUrl);
     }
   }
 
@@ -84,17 +92,6 @@ export default function NotificationItem(props: NotificationItemProps): JSX.Elem
           </span>
         </div>
         <p class="mt-0.5 text-xs text-cf-text-muted line-clamp-2">{props.notification.message}</p>
-        <Show
-          when={props.notification.type === "permission_request" && props.notification.actionUrl}
-        >
-          <a
-            href={props.notification.actionUrl}
-            class="mt-1 inline-block text-xs font-medium text-cf-accent hover:underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            View
-          </a>
-        </Show>
       </div>
 
       {/* Archive button (visible on hover) */}

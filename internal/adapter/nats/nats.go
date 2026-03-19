@@ -142,8 +142,9 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 		FilterSubject:     subject,
 		AckPolicy:         jetstream.AckExplicitPolicy,
 		DeliverGroup:      "codeforge-go",
-		AckWait:           30 * time.Second,
+		AckWait:           90 * time.Second,
 		MaxDeliver:        maxRetries + 1,
+		MaxAckPending:     100,
 		InactiveThreshold: 5 * time.Minute,
 	})
 	if err != nil {

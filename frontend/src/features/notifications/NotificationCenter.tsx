@@ -128,6 +128,7 @@ export default function NotificationCenter(props: NotificationCenterProps): JSX.
                   notification={notification}
                   onMarkRead={markRead}
                   onArchive={archiveNotification}
+                  onClose={props.onClose}
                 />
               )}
             </For>

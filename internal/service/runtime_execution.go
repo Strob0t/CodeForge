@@ -249,10 +249,16 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		"profile", result.Profile,
 	)
 
-	// HITL: when policy says "ask", check if the profile mode allows auto-approval.
+	// HITL: when policy says "ask", check bypass / auto-approval before blocking.
 	if decision == policy.DecisionAsk {
-		profile, profileOK := s.policy.GetProfile(policyProfile)
-		if profileOK && (profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate) {
+		if s.IsConversationBypassed(req.RunID) {
+			decision = policy.DecisionAllow
+			slog.Info("conversation HITL bypassed (bypass-all)",
+				"conversation_id", req.RunID,
+				"call_id", req.CallID,
+				"tool", req.Tool,
+			)
+		} else if profile, profileOK := s.policy.GetProfile(policyProfile); profileOK && (profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate) {
 			decision = policy.DecisionAllow
 			slog.Info("conversation HITL auto-approved (full-auto profile)",
 				"conversation_id", req.RunID,

@@ -85,23 +85,32 @@ function AppShell(props: {
   const { isMobile } = useBreakpoint();
   const { activeRuns } = useConversationRuns();
   const { onAGUIEvent } = useWebSocket();
+  const location = useLocation();
+  const currentProjectId = (): string | undefined => {
+    const match = location.pathname.match(/^\/projects\/([^/]+)/);
+    return match ? match[1] : undefined;
+  };
 
   // Subscribe to AG-UI events and feed the notification store
   const offPermission = onAGUIEvent("agui.permission_request", (ev) => {
+    const projectId = currentProjectId();
     addNotification({
       type: "permission_request",
       title: "Approval Required",
       message: `Agent requests permission for: ${ev.tool || "action"}`,
       metadata: { run_id: ev.run_id, call_id: ev.call_id },
+      actionUrl: projectId ? `/projects/${projectId}?tab=chat` : undefined,
     });
   });
 
   const offRunFinished = onAGUIEvent("agui.run_finished", (ev) => {
     const failed = ev.status === "failed" || ev.status === "error";
+    const projectId = currentProjectId();
     addNotification({
       type: failed ? "run_failed" : "run_complete",
       title: failed ? "Run Failed" : "Run Complete",
       message: ev.error ? `Run ${ev.run_id}: ${ev.error}` : `Run ${ev.run_id} ${ev.status}`,
+      actionUrl: projectId ? `/projects/${projectId}?tab=chat` : undefined,
     });
   });
 
