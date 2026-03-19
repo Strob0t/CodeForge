@@ -1461,6 +1461,212 @@ func TestConversationToolCall_ConfigPolicyPresetFallback(t *testing.T) {
 	}
 }
 
+// TestConversationToolCall_HITLBypassForFullAutoProfile verifies that when a
+// conversation's project uses a full-auto profile (ModeAcceptEdits or ModeDelegate),
+// a tool call that evaluates to "ask" is auto-approved without blocking for HITL.
+// This test MUST complete fast (<5s) and NOT block for the 60s approval timeout.
+func TestConversationToolCall_HITLBypassForFullAutoProfile(t *testing.T) {
+	// Create a custom profile with ModeAcceptEdits that has an explicit "ask" rule for Bash.
+	customProfile := policy.PolicyProfile{
+		Name: "full-auto-with-ask-rule",
+		Mode: policy.ModeAcceptEdits,
+		Rules: []policy.PermissionRule{
+			{Specifier: policy.ToolSpecifier{Tool: "Read"}, Decision: policy.DecisionAllow},
+			{Specifier: policy.ToolSpecifier{Tool: "Bash"}, Decision: policy.DecisionAsk}, // would normally block for HITL
+		},
+		Termination: policy.TerminationCondition{
+			MaxSteps: 50,
+		},
+	}
+
+	store := &extRuntimeMockStore{
+		runtimeMockStore: runtimeMockStore{
+			projects: []project.Project{
+				{ID: "proj-auto", Name: "auto-project", WorkspacePath: "/tmp/auto", PolicyProfile: "full-auto-with-ask-rule"},
+			},
+			agents: []agent.Agent{
+				{ID: "agent-1", ProjectID: "proj-auto", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
+			},
+			tasks: []task.Task{
+				{ID: "task-1", ProjectID: "proj-auto", Title: "Fix bug", Prompt: "Fix it", Status: task.StatusPending},
+			},
+		},
+		conversations: []conversation.Conversation{
+			{ID: "conv-auto", ProjectID: "proj-auto", Title: "Auto conv"},
+		},
+	}
+	queue := &runtimeMockQueue{}
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+
+	policySvc := service.NewPolicyService("supervised-ask-all", []policy.PolicyProfile{customProfile})
+	runtimeCfg := config.Runtime{
+		ApprovalTimeoutSeconds: 2, // Short timeout to prove bypass (should never be reached)
+	}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
+
+	// Use a tight context deadline to fail fast if HITL blocks.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req := messagequeue.ToolCallRequestPayload{
+		RunID:   "conv-auto",
+		CallID:  "call-auto-1",
+		Tool:    "Bash",
+		Command: "go build",
+	}
+	err := svc.HandleToolCallRequest(ctx, &req)
+	if err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
+	if !ok {
+		t.Fatal("expected tool call response on NATS")
+	}
+	var resp messagequeue.ToolCallResponsePayload
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Decision != "allow" {
+		t.Fatalf("expected auto-approved 'allow' for full-auto profile, got %q (reason: %s)", resp.Decision, resp.Reason)
+	}
+}
+
+// TestRunToolCall_HITLBypassForFullAutoProfile verifies that run-based tool calls
+// with a full-auto profile (ModeAcceptEdits) auto-approve "ask" decisions without
+// blocking for HITL. This test MUST complete fast (<5s).
+func TestRunToolCall_HITLBypassForFullAutoProfile(t *testing.T) {
+	customProfile := policy.PolicyProfile{
+		Name: "full-auto-with-ask-rule",
+		Mode: policy.ModeAcceptEdits,
+		Rules: []policy.PermissionRule{
+			{Specifier: policy.ToolSpecifier{Tool: "Read"}, Decision: policy.DecisionAllow},
+			{Specifier: policy.ToolSpecifier{Tool: "Bash"}, Decision: policy.DecisionAsk},
+		},
+		Termination: policy.TerminationCondition{
+			MaxSteps: 50,
+		},
+	}
+
+	store := &extRuntimeMockStore{
+		runtimeMockStore: runtimeMockStore{
+			projects: []project.Project{
+				{ID: "proj-auto-run", Name: "auto-run-project", WorkspacePath: "/tmp/auto-run"},
+			},
+			agents: []agent.Agent{
+				{ID: "agent-1", ProjectID: "proj-auto-run", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
+			},
+			tasks: []task.Task{
+				{ID: "task-1", ProjectID: "proj-auto-run", Title: "Fix bug", Prompt: "Fix it", Status: task.StatusPending},
+			},
+			runs: []run.Run{
+				{
+					ID:            "run-auto",
+					TaskID:        "task-1",
+					AgentID:       "agent-1",
+					ProjectID:     "proj-auto-run",
+					PolicyProfile: "full-auto-with-ask-rule",
+					Status:        run.StatusRunning,
+					StartedAt:     time.Now(),
+				},
+			},
+		},
+	}
+	queue := &runtimeMockQueue{}
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+
+	policySvc := service.NewPolicyService("supervised-ask-all", []policy.PolicyProfile{customProfile})
+	runtimeCfg := config.Runtime{
+		ApprovalTimeoutSeconds: 2,
+	}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req := messagequeue.ToolCallRequestPayload{
+		RunID:   "run-auto",
+		CallID:  "call-auto-run-1",
+		Tool:    "Bash",
+		Command: "go build",
+	}
+	err := svc.HandleToolCallRequest(ctx, &req)
+	if err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
+	if !ok {
+		t.Fatal("expected tool call response on NATS")
+	}
+	var resp messagequeue.ToolCallResponsePayload
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Decision != "allow" {
+		t.Fatalf("expected auto-approved 'allow' for full-auto run profile, got %q (reason: %s)", resp.Decision, resp.Reason)
+	}
+}
+
+// TestConversationToolCall_HITLNotBypassedForNonFullAutoProfile verifies that
+// non-full-auto profiles (e.g., ModeDefault) still trigger HITL wait when
+// policy evaluates to "ask". The test uses a short timeout to verify blocking behavior.
+func TestConversationToolCall_HITLNotBypassedForNonFullAutoProfile(t *testing.T) {
+	store := &extRuntimeMockStore{
+		runtimeMockStore: runtimeMockStore{
+			projects: []project.Project{
+				{ID: "proj-supervised", Name: "supervised-project", WorkspacePath: "/tmp/supervised", PolicyProfile: "supervised-ask-all"},
+			},
+			agents: []agent.Agent{
+				{ID: "agent-1", ProjectID: "proj-supervised", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
+			},
+			tasks: []task.Task{
+				{ID: "task-1", ProjectID: "proj-supervised", Title: "Fix bug", Prompt: "Fix it", Status: task.StatusPending},
+			},
+		},
+		conversations: []conversation.Conversation{
+			{ID: "conv-supervised", ProjectID: "proj-supervised", Title: "Supervised conv"},
+		},
+	}
+	queue := &runtimeMockQueue{}
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+
+	// supervised-ask-all has ModeDefault which should NOT auto-approve.
+	policySvc := service.NewPolicyService("supervised-ask-all", nil)
+	runtimeCfg := config.Runtime{
+		ApprovalTimeoutSeconds: 1, // Very short so we can test blocking behavior quickly
+	}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
+
+	ctx := context.Background()
+	req := messagequeue.ToolCallRequestPayload{
+		RunID:   "conv-supervised",
+		CallID:  "call-supervised-1",
+		Tool:    "Bash",
+		Command: "go build",
+	}
+	err := svc.HandleToolCallRequest(ctx, &req)
+	if err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+
+	// Should get a "deny" decision because the HITL timeout expired (no user approved).
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
+	if !ok {
+		t.Fatal("expected tool call response on NATS")
+	}
+	var resp messagequeue.ToolCallResponsePayload
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Decision != "deny" {
+		t.Fatalf("expected 'deny' for supervised profile after HITL timeout, got %q", resp.Decision)
+	}
+}
+
 // TestConversationToolCall_DefaultProfileFallback verifies that when both
 // PolicyProfile and config["policy_preset"] are empty, the service's
 // DefaultProfile() is used instead of a hardcoded "default" string.

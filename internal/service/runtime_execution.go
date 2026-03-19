@@ -93,15 +93,25 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		"reason", result.Reason,
 	)
 
-	// HITL: when policy says "ask", wait for user approval via WebSocket/HTTP.
+	// HITL: when policy says "ask", check if the profile mode allows auto-approval.
 	if decision == policy.DecisionAsk {
-		decision = s.waitForApproval(ctx, r.ID, req.CallID, req.Tool, req.Command, req.Path)
-		slog.Info("HITL approval resolved",
-			"run_id", r.ID,
-			"call_id", req.CallID,
-			"tool", req.Tool,
-			"decision", decision,
-		)
+		if profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate {
+			decision = policy.DecisionAllow
+			slog.Info("HITL auto-approved (full-auto profile)",
+				"run_id", r.ID,
+				"call_id", req.CallID,
+				"tool", req.Tool,
+				"profile", r.PolicyProfile,
+			)
+		} else {
+			decision = s.waitForApproval(ctx, r.ID, req.CallID, req.Tool, req.Command, req.Path)
+			slog.Info("HITL approval resolved",
+				"run_id", r.ID,
+				"call_id", req.CallID,
+				"tool", req.Tool,
+				"decision", decision,
+			)
+		}
 	}
 
 	// Record event
@@ -234,15 +244,26 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		"profile", result.Profile,
 	)
 
-	// HITL: when policy says "ask", wait for user approval via WebSocket/HTTP.
+	// HITL: when policy says "ask", check if the profile mode allows auto-approval.
 	if decision == policy.DecisionAsk {
-		decision = s.waitForApproval(ctx, req.RunID, req.CallID, req.Tool, req.Command, req.Path)
-		slog.Info("conversation HITL resolved",
-			"conversation_id", req.RunID,
-			"call_id", req.CallID,
-			"tool", req.Tool,
-			"decision", decision,
-		)
+		profile, profileOK := s.policy.GetProfile(policyProfile)
+		if profileOK && (profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate) {
+			decision = policy.DecisionAllow
+			slog.Info("conversation HITL auto-approved (full-auto profile)",
+				"conversation_id", req.RunID,
+				"call_id", req.CallID,
+				"tool", req.Tool,
+				"profile", policyProfile,
+			)
+		} else {
+			decision = s.waitForApproval(ctx, req.RunID, req.CallID, req.Tool, req.Command, req.Path)
+			slog.Info("conversation HITL resolved",
+				"conversation_id", req.RunID,
+				"call_id", req.CallID,
+				"tool", req.Tool,
+				"decision", decision,
+			)
+		}
 	}
 
 	// Broadcast WS tool call status.
