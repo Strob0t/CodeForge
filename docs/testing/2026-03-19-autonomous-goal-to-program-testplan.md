@@ -89,14 +89,154 @@ Each test run picks **one scenario**. Scenarios are ordered by difficulty and ex
 
 | Tool | S1 Easy | S2 Medium | S3 Hard | S4 Expert |
 |------|---------|-----------|---------|-----------|
-| **Write** | Heavy (create all files) | Heavy (create modules) | Light (new files only) | Heavy (new + config) |
-| **Read** | None | Light (check existing) | Heavy (understand codebase) | Heavy (understand + validate) |
-| **Edit** | None | None | Heavy (modify existing code) | Heavy (refactor + extend) |
-| **Bash** | Light (run script) | Medium (pytest, pip) | Heavy (tests, lint, git) | Heavy (npm, build, test, lint) |
-| **Search** | None | Light (find patterns) | Heavy (find implementation points) | Heavy (trace dependencies) |
-| **Glob** | None | Light (find test files) | Medium (find related files) | Heavy (find configs, types) |
-| **ListDir** | None | Light (check structure) | Medium (navigate codebase) | Medium (explore structure) |
+| **write_file** | Heavy (create all files) | Heavy (8+ modules, tests, config) | Light (1 new test file only) | Heavy (12+ src, tests, configs) |
+| **read_file** | None | 3+ (README, failing tests) | **10+** (models, CLI, storage, tests, conftest) | 5+ (type errors, failing tests) |
+| **edit_file** | Light (fix errors) | 5+ (wire entry point, fix tests/lint) | **10+** (models 3, CLI 4, storage 1, README 1) | 8+ (fix type errors 4, validation 3) |
+| **bash** | Light (pytest, py_compile) | 12+ (mkdir, py_compile, pytest, ruff, git, smoke) | **15+** (pytest 5x, smoke 4x, ruff, git 3x, migration) | **20+** (npm install, tsc 6x, npm test 3x, build 2x, curl 3x, git 3x) |
+| **search_files** | None | 1-2 (check imports) | **5+** (find definitions, imports, edit points) | 4+ (find types, check `any`, patterns) |
+| **glob_files** | None | 2 (Python files, configs) | 3 (Python files, tests, configs) | 3 (TS files, tests, structure) |
+| **list_directory** | None | 2 (workspace, verify structure) | **3** (workspace, package, tests) | 2 (workspace, src) |
 | **propose_goal** | 3-4 goals | 5-7 goals | 6-8 goals | 8-12 goals |
+
+### Minimum Tool Call Counts
+
+| Metric | S1 | S2 | S3 | S4 |
+|--------|----|----|----|----|
+| **Total calls** | 20-30 | **33+** | **47+** | **54+** |
+| **Unique tools** | 3-4 | 6-7 | 7 | 7 |
+| **Explore-before-edit calls** | 0 | 5-8 | **8-12** | 6-8 |
+| **Build-verify cycles** | 1 | 3-4 | 5-6 | **6-8** |
+| **Error-recovery edits** | 0-2 | 2-4 | 3-5 | 4-6 |
+| **Git operations** | 0-1 | 2-3 | 3-4 | 3-4 |
+
+### Expected Tool Call Pipeline per Scenario
+
+> **Real coding agents (Aider, SWE-agent, OpenHands) follow a structured pipeline,
+> NOT random tool calls.** Each scenario must validate this pipeline:
+>
+> 1. **Explore** → list_directory, glob_files, read_file (understand workspace)
+> 2. **Search** → search_files (find patterns, definitions, edit points)
+> 3. **Build** → write_file, bash mkdir (create structure)
+> 4. **Implement** → write_file, edit_file (create/modify code)
+> 5. **Verify** → bash py_compile/tsc, bash pytest/npm test (compile + test)
+> 6. **Fix** → read_file (understand error), edit_file (fix), bash (re-verify)
+> 7. **Quality** → bash ruff/eslint, search_files (check patterns)
+> 8. **Commit** → bash git add/commit
+
+#### S2 Pipeline: Multi-Module Python CLI (6 phases)
+
+```
+Phase 1 — Explore (5-8 calls):
+  list_directory "." → glob "**/*.py" → glob "**/*.toml" → read README.md → search "import" in *.py
+
+Phase 2 — Project Setup (4-6 calls):
+  write pyproject.toml → bash "mkdir -p task_manager tests"
+  → write task_manager/__init__.py → write task_manager/__main__.py
+  → bash "python -m py_compile task_manager/__init__.py"
+
+Phase 3 — Core Implementation (8-12 calls):
+  write models.py → bash "python -c 'from task_manager.models import Task'"
+  → write storage.py → bash "python -c 'from task_manager.storage import load_tasks'"
+  → write cli.py → bash "python -m task_manager --help"
+  → edit __main__.py (wire entry) → bash "python -m task_manager add --title test"
+
+Phase 4 — Test Suite (6-10 calls):
+  write tests/__init__.py → write tests/conftest.py
+  → write tests/test_models.py → write tests/test_storage.py → write tests/test_cli.py
+  → bash "pytest tests/ -v" → read (failing test) → edit (fix) → bash "pytest -v"
+
+Phase 5 — Quality (4-6 calls):
+  bash "py_compile task_manager/*.py" → bash "ruff check task_manager/ tests/"
+  → edit (fix lint) → write README.md → bash "python -m task_manager --help"
+
+Phase 6 — Git (2-3 calls):
+  bash "git add -A" → bash "git status" → bash "git commit -m 'feat: CLI task manager'"
+```
+
+#### S3 Pipeline: Brownfield Feature Extension (7 phases)
+
+```
+Phase 1 — Codebase Discovery (8-12 calls):
+  list_directory "." recursive → glob "**/*.py" → glob "**/test_*.py" → glob "**/*.toml"
+  → read README.md → read pyproject.toml → list_directory "task_manager" → list_directory "tests"
+
+Phase 2 — Code Understanding (10-15 calls):
+  read models.py → read cli.py → read storage.py
+  → search "class Task" in *.py → search "def add" in *.py
+  → search "argparse|add_parser|subparser" → search "json.dump|json.load" in *.py
+  → read tests/test_cli.py → read tests/conftest.py → search "def test_" in test_*.py
+
+Phase 3 — Baseline Verification (2-3 calls):
+  bash "pytest tests/ -v" (all pass?) → bash "python -m task_manager --help"
+
+Phase 4 — Data Model Extension (6-8 calls):
+  read models.py → edit models.py (add tags field) → edit models.py (update to_dict)
+  → edit models.py (update from_dict with default [])
+  → bash "python -c 'from task_manager.models import Task; t=Task(...); print(t.tags)'"
+  → bash "pytest tests/test_models.py -v" (regression check)
+
+Phase 5 — CLI Extension (6-10 calls):
+  read cli.py → search "add_parser|add_argument.*title"
+  → edit cli.py (add --tags argument) → edit cli.py (add search subparser)
+  → edit cli.py (implement search handler) → edit cli.py (show tags in list)
+  → bash "python -m task_manager add --title test --tags a,b"
+  → bash "python -m task_manager search --tag a"
+  → bash "pytest tests/ -v" (ALL tests still pass)
+
+Phase 6 — Storage Migration (4-6 calls):
+  read storage.py → edit storage.py (add tags default)
+  → bash (create old-format JSON, load it) → bash "pytest tests/ -v"
+
+Phase 7 — New Tests + Docs + Git (8-12 calls):
+  read tests/test_cli.py (follow existing patterns)
+  → write tests/test_tags.py → bash "pytest tests/test_tags.py -v"
+  → bash "pytest tests/ -v" (ALL pass) → read README.md → edit README.md (add tags docs)
+  → bash "ruff check" → bash "git diff --stat" → bash "git add -A && git commit"
+```
+
+#### S4 Pipeline: TypeScript REST API (8 phases)
+
+```
+Phase 1 — Project Bootstrap (6-8 calls):
+  list_directory "." → bash "npm init -y" → edit package.json (add scripts)
+  → write tsconfig.json → bash "npm install typescript express @types/express"
+  → bash "npm install -D vitest @types/node"
+  → bash "mkdir -p src/routes src/models src/storage src/middleware tests"
+  → write .gitignore
+
+Phase 2 — Types & Models (5-7 calls):
+  write src/models/bookmark.ts → write src/models/errors.ts → write src/models/validation.ts
+  → bash "npx tsc --noEmit" → edit (fix type errors) → bash "npx tsc --noEmit"
+
+Phase 3 — Storage Layer (5-7 calls):
+  write src/storage/store.ts → write src/storage/memory.ts → write src/storage/file.ts
+  → bash "npx tsc --noEmit" → search "BookmarkStore" in *.ts
+
+Phase 4 — HTTP Server + Routes (8-12 calls):
+  write src/server.ts → write src/routes/bookmarks.ts → write src/middleware/error-handler.ts
+  → write src/index.ts → bash "npx tsc --noEmit" → read (type error file)
+  → edit (fix imports/types) → bash "npx tsc --noEmit" → bash "npm run build"
+  → bash "npm start & sleep 2 && curl localhost:3000/bookmarks && kill %1"
+
+Phase 5 — Validation & Errors (6-8 calls):
+  read src/routes/bookmarks.ts → edit (add URL validation) → edit (add field checks)
+  → edit src/middleware/error-handler.ts → bash "npx tsc --noEmit"
+  → bash (start + curl POST invalid → expect 400)
+  → search ": any" in *.ts → glob "src/**/*.ts"
+
+Phase 6 — Test Suite (8-12 calls):
+  write tests/bookmarks.test.ts → write tests/validation.test.ts → write tests/storage.test.ts
+  → bash "npm test" → read (failing test) → search "describe|it(" in *.test.ts
+  → edit (fix test/source) → bash "npm test" → bash "npm run build"
+
+Phase 7 — Quality (4-6 calls):
+  bash "npx tsc --noEmit --strict" → search ": any|as any|<any>" in *.ts
+  → bash "npx eslint src/" → glob "src/**/*.ts" → bash "wc -l src/**/*.ts"
+
+Phase 8 — Docs + Git (4-6 calls):
+  write README.md → bash (start + curl for README examples)
+  → bash "git add -A && git status" → bash "git commit"
+```
 
 ---
 
@@ -1350,10 +1490,25 @@ This phase runs **concurrently with Phase 6** — check for these events on ever
 7. `browser_take_screenshot` -> "Phase 6: Execution Complete" (capture after agent finishes)
 
 **Validation:**
-- Agent executed for at least 5 tool call iterations
+- Agent executed for minimum tool call count (see table below)
 - At least 1 git commit in the test branch
 - Agent run completed (not stuck/stalled)
 - No unhandled errors
+- Tool call diversity matches expected pipeline (explore → search → build → verify)
+
+**Minimum tool call thresholds per scenario:**
+
+| Check | S1 | S2 | S3 | S4 |
+|-------|----|----|----|----|
+| Total tool calls | >= 15 | >= 33 | >= 47 | >= 54 |
+| Unique tools used | >= 3 | >= 6 | >= 7 | >= 7 |
+| search_files calls | 0 | >= 1 | >= 5 | >= 4 |
+| read_file calls | 0 | >= 3 | >= 10 | >= 5 |
+| bash calls | >= 2 | >= 12 | >= 15 | >= 20 |
+| Build-verify cycles | >= 1 | >= 3 | >= 5 | >= 6 |
+
+If agent finishes with fewer calls than minimum, it likely skipped exploration
+or verification steps. Record as PARTIAL and note which pipeline phases were skipped.
 
 **Decision Tree:**
 ```
