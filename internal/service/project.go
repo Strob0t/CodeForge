@@ -488,6 +488,21 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 				Name:   "detect_stack",
 				Status: "completed",
 			})
+
+			// Persist detected languages to project config for onboarding pipeline.
+			if len(stack.Languages) > 0 {
+				langJSON, marshalErr := json.Marshal(stack.Languages)
+				if marshalErr == nil {
+					if p.Config == nil {
+						p.Config = make(map[string]string)
+					}
+					p.Config["detected_languages"] = string(langJSON)
+					if updateErr := s.store.UpdateProject(ctx, p); updateErr != nil {
+						slog.Warn("setup: failed to persist detected languages",
+							"project_id", id, "error", updateErr)
+					}
+				}
+			}
 		}
 	} else {
 		result.Steps = append(result.Steps, project.SetupStep{

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1475,6 +1476,95 @@ func TestSetPolicyProfile_ProjectNotFound(t *testing.T) {
 	err := svc.SetPolicyProfile(context.Background(), "nonexistent", "my-custom-policy")
 	if err == nil {
 		t.Fatal("expected error for nonexistent project")
+	}
+}
+
+func TestSetupProjectPersistsDetectedLanguages(t *testing.T) {
+	// Create a temp workspace with a go.mod file so ScanWorkspace detects Go.
+	wsDir := t.TempDir()
+	goModPath := filepath.Join(wsDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module example.com/test\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
+
+	store := &mockStore{
+		projects: []project.Project{{
+			ID:            "p1",
+			Name:          "Go Project",
+			WorkspacePath: wsDir,
+		}},
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	result, err := svc.SetupProject(context.Background(), "p1", "tenant", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !result.StackDetected {
+		t.Fatal("expected StackDetected to be true")
+	}
+
+	// Verify the project's Config was updated with detected_languages.
+	updated := store.projects[0]
+	if updated.Config == nil {
+		t.Fatal("expected Config to be non-nil after stack detection")
+	}
+	langJSON, ok := updated.Config["detected_languages"]
+	if !ok {
+		t.Fatal("expected detected_languages key in Config")
+	}
+	if !strings.Contains(langJSON, `"go"`) {
+		t.Errorf("expected detected_languages to contain \"go\", got %s", langJSON)
+	}
+
+	// Verify it round-trips as valid JSON.
+	var langs []project.Language
+	if jsonErr := json.Unmarshal([]byte(langJSON), &langs); jsonErr != nil {
+		t.Fatalf("detected_languages is not valid JSON: %v", jsonErr)
+	}
+	if len(langs) == 0 {
+		t.Fatal("expected at least one language in detected_languages")
+	}
+	found := false
+	for _, lang := range langs {
+		if lang.Name == "go" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected language 'go' in detected_languages, got %v", langs)
+	}
+}
+
+func TestSetupProjectPersistsDetectedLanguagesUpdateFails(t *testing.T) {
+	// Even when UpdateProject fails, SetupProject should still succeed
+	// (the persist is best-effort, logged as warning).
+	wsDir := t.TempDir()
+	goModPath := filepath.Join(wsDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module example.com/test\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
+
+	store := &mockStore{
+		projects: []project.Project{{
+			ID:            "p1",
+			Name:          "Go Project",
+			WorkspacePath: wsDir,
+		}},
+		updateProjectErr: errors.New("db write failed"),
+	}
+	svc := NewProjectService(store, t.TempDir())
+
+	result, err := svc.SetupProject(context.Background(), "p1", "tenant", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Setup should still report stack detected even though persist failed.
+	if !result.StackDetected {
+		t.Fatal("expected StackDetected to be true despite update failure")
 	}
 }
 
