@@ -2,7 +2,7 @@
 # Runs as part of CI to enforce performance and accessibility standards
 ci:
   collect:
-    staticDistDir: dist
+    staticDistDir: frontend/dist
   assert:
     assertions:
       categories:performance:

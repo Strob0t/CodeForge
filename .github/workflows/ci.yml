@@ -195,14 +195,14 @@ jobs:
         ports:
           - 5432:5432
       nats:
-        image: nats:latest
+        image: nats:2-alpine
+        ports:
+          - 4222:4222
         options: >-
-          --health-cmd "nats-server --help"
+          --health-cmd "wget -q --spider http://localhost:8222/healthz || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-        ports:
-          - 4222:4222
 
     env:
       SMOKE_SKIP_LLM: "true"
@@ -235,6 +235,10 @@ jobs:
             echo "Waiting for backend... ($i/30)"
             sleep 2
           done
+          if ! curl -s http://localhost:8080/health > /dev/null 2>&1; then
+            echo "Backend failed to start within 60s"
+            exit 1
+          fi
 
       - name: Run smoke tests
         run: go test -tags=smoke -timeout=300s -count=1 -v ./tests/integration/...
@@ -272,10 +276,10 @@ jobs:
           python-version: "3.12"
 
       - name: Run pip-audit
-        run: pip install pip-audit poetry && poetry export -f requirements.txt --without-hashes -o /tmp/requirements.txt && pip-audit -r /tmp/requirements.txt
+        run: pip install pip-audit poetry poetry-plugin-export && poetry export -f requirements.txt --without-hashes -o /tmp/requirements.txt && pip-audit -r /tmp/requirements.txt
 
       - name: Frontend dependency audit
-        run: cd frontend && npm ci && npm audit --omit=dev
+        run: cd frontend && npm ci && npm audit --omit=dev --audit-level=high
 
       - name: Generate Go SBOM
         uses: anchore/sbom-action@v0

@@ -29,7 +29,7 @@ const en = {
 
   // -- App shell ------------------------------------------------------------
   "app.title": "CodeForge",
-  "app.version": "v0.1.0",
+  "app.version": `v${__APP_VERSION__}`,
   "app.nav.dashboard": "Dashboard",
   "app.nav.costs": "Costs",
   "app.nav.models": "Models",

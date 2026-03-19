@@ -34,4 +34,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 USER codeforge
 
-ENTRYPOINT ["python", "-m", "codeforge_worker"]
+ENTRYPOINT ["python", "-m", "codeforge.consumer"]

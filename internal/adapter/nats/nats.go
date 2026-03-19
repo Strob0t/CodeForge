@@ -157,7 +157,7 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 		go q.handleMessage(ctx, msg, handler)
 	})
 	if err != nil {
-		return nil, fmt.Errorf("nats consume: %%w", err)
+		return nil, fmt.Errorf("nats consume: %w", err)
 	}
 
 	return cons.Stop, nil

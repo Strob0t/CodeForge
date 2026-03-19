@@ -510,6 +510,26 @@ files = [
 ]
 
 [[package]]
+name = "claude-code-sdk"
+version = "0.0.25"
+description = "Python SDK for Claude Code"
+optional = true
+python-versions = ">=3.10"
+groups = ["main"]
+markers = "extra == \"claudecode\""
+files = [
+    {file = "claude_code_sdk-0.0.25-py3-none-any.whl", hash = "sha256:3d6a4ef958182f311d6050776d2675d9b39650a2db221c582a0a5156472dcee3"},
+    {file = "claude_code_sdk-0.0.25.tar.gz", hash = "sha256:0d9e1eba432d4fe8a2f75f06ec9bb4c310f39b1d55246e7e4b2c69bfdd69eab3"},
+]
+
+[package.dependencies]
+anyio = ">=4.0.0"
+mcp = ">=0.1.0"
+
+[package.extras]
+dev = ["anyio[trio] (>=4.0.0)", "mypy (>=1.0.0)", "pytest (>=7.0.0)", "pytest-asyncio (>=0.20.0)", "pytest-cov (>=4.0.0)", "ruff (>=0.1.0)"]
+
+[[package]]
 name = "click"
 version = "8.3.1"
 description = "Composable command line interface toolkit"
@@ -4198,9 +4218,10 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
+claudecode = ["claude-code-sdk"]
 hf = ["datasets"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "c120d08f7d7c54d2fb90fcd99043b26c2f4b9b6a3edfc2d870aac2be5f3af35e"
+content-hash = "64bf0ce754e7b3b143d93d28df16c11f8a776f3158c16f938a8f5ea254321a36"

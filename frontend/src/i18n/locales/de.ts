@@ -31,7 +31,7 @@ const de: Translations = {
 
   // -- App shell ------------------------------------------------------------
   "app.title": "CodeForge",
-  "app.version": "v0.1.0",
+  "app.version": `v${__APP_VERSION__}`,
   "app.nav.dashboard": "Dashboard",
   "app.nav.costs": "Kosten",
   "app.nav.models": "Modelle",

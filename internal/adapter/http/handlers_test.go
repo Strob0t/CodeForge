@@ -10,6 +10,7 @@ import (
 	neturl "net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,6 +65,7 @@ import (
 
 // mockStore implements database.Store for testing.
 type mockStore struct {
+	mu                  sync.Mutex
 	projects            []project.Project
 	agents              []agent.Agent
 	tasks               []task.Task
@@ -110,10 +112,14 @@ type mockStore struct {
 }
 
 func (m *mockStore) ListProjects(_ context.Context) ([]project.Project, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.projects, nil
 }
 
 func (m *mockStore) GetProject(_ context.Context, id string) (*project.Project, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i := range m.projects {
 		if m.projects[i].ID == id {
 			return &m.projects[i], nil
@@ -123,6 +129,8 @@ func (m *mockStore) GetProject(_ context.Context, id string) (*project.Project, 
 }
 
 func (m *mockStore) CreateProject(_ context.Context, req *project.CreateRequest) (*project.Project, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	p := project.Project{
 		ID:       "test-id",
 		Name:     req.Name,
@@ -133,6 +141,8 @@ func (m *mockStore) CreateProject(_ context.Context, req *project.CreateRequest)
 }
 
 func (m *mockStore) UpdateProject(_ context.Context, p *project.Project) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i := range m.projects {
 		if m.projects[i].ID == p.ID {
 			m.projects[i] = *p
@@ -143,6 +153,8 @@ func (m *mockStore) UpdateProject(_ context.Context, p *project.Project) error {
 }
 
 func (m *mockStore) DeleteProject(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i := range m.projects {
 		if m.projects[i].ID == id {
 			m.projects = append(m.projects[:i], m.projects[i+1:]...)
@@ -1937,8 +1949,8 @@ func TestVersionEndpoint(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if result["version"] != "0.1.0" {
-		t.Fatalf("expected version 0.1.0, got %q", result["version"])
+	if result["version"] == "" {
+		t.Fatal("expected non-empty version string")
 	}
 }
 

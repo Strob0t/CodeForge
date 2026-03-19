@@ -60,7 +60,7 @@ func TestNewServer(t *testing.T) {
 	cfg := cfmcp.ServerConfig{
 		Addr:    ":3001",
 		Name:    "test-server",
-		Version: "0.1.0",
+		Version: "0.8.0",
 	}
 	s := cfmcp.NewServer(cfg, cfmcp.ServerDeps{})
 	if s == nil {
@@ -75,7 +75,7 @@ func TestServerStartStop(t *testing.T) {
 	cfg := cfmcp.ServerConfig{
 		Addr:    ":0",
 		Name:    "test-server",
-		Version: "0.1.0",
+		Version: "0.8.0",
 	}
 	s := cfmcp.NewServer(cfg, cfmcp.ServerDeps{})
 
@@ -106,7 +106,7 @@ func TestToolRegistration(t *testing.T) {
 			},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.1.0"}, deps)
+	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
 
 	tools := s.MCPServer().ListTools()
 	if len(tools) != 4 {
@@ -142,7 +142,7 @@ func TestHandleListProjects(t *testing.T) {
 			},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.1.0"}, deps)
+	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
 
 	ctx := context.Background()
 
@@ -184,7 +184,7 @@ func TestHandleGetRunStatus(t *testing.T) {
 			},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.1.0"}, deps)
+	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
 
 	tools := s.MCPServer().ListTools()
 	runTool, ok := tools["get_run_status"]
@@ -223,7 +223,7 @@ func TestHandleGetRunStatusMissingArg(t *testing.T) {
 	deps := cfmcp.ServerDeps{
 		RunReader: &mockRunReader{runs: map[string]*run.Run{}},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.1.0"}, deps)
+	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
 
 	tools := s.MCPServer().ListTools()
 	runTool, ok := tools["get_run_status"]
@@ -244,7 +244,7 @@ func TestHandleGetRunStatusMissingArg(t *testing.T) {
 }
 
 func TestHandleNilDeps(t *testing.T) {
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.1.0"}, cfmcp.ServerDeps{})
+	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, cfmcp.ServerDeps{})
 
 	tools := s.MCPServer().ListTools()
 	listTool, ok := tools["list_projects"]
@@ -272,7 +272,7 @@ func TestHandleGetCostSummary(t *testing.T) {
 			},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.1.0"}, deps)
+	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
 
 	tools := s.MCPServer().ListTools()
 	costTool, ok := tools["get_cost_summary"]

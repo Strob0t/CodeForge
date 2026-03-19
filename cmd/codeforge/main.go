@@ -54,6 +54,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/resilience"
 	"github.com/Strob0t/CodeForge/internal/secrets"
 	"github.com/Strob0t/CodeForge/internal/service"
+	cfversion "github.com/Strob0t/CodeForge/internal/version"
 )
 
 func main() {
@@ -808,7 +809,7 @@ func run() error {
 			}
 
 			// Build components.
-			cardBuilder := cfa2a.NewCardBuilder(a2aBaseURL, modeInfos, "0.1.0")
+			cardBuilder := cfa2a.NewCardBuilder(a2aBaseURL, modeInfos, cfversion.Version)
 			taskStoreAdapter := cfa2a.NewTaskStoreAdapter(store)
 			executor := cfa2a.NewExecutor(store, queue, hub, modeIDs)
 
@@ -837,7 +838,7 @@ func run() error {
 		mcpServer = cfmcp.NewServer(cfmcp.ServerConfig{
 			Addr:    fmt.Sprintf(":%d", cfg.MCP.ServerPort),
 			Name:    "codeforge",
-			Version: "0.1.0",
+			Version: cfversion.Version,
 		}, cfmcp.ServerDeps{
 			ProjectLister: store,
 			RunReader:     store,

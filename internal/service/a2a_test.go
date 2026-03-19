@@ -139,7 +139,7 @@ func newMockAgentCardServer() *httptest.Server {
 		"name":        "TestAgent",
 		"description": "A test agent",
 		"url":         "http://localhost:9999",
-		"version":     "0.1.0",
+		"version":     "0.8.0",
 		"skills": []map[string]any{
 			{"id": "code", "name": "Code", "description": "Write code"},
 		},

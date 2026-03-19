@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-19
 **Scenario:** S1 (Easy - CSV-to-JSON Converter)
-**Runs:** 3 (Run 1+2 blocked by infra bugs, Run 3 successful)
+**Runs:** 4 (Run 1+2 blocked by infra bugs, Run 3+4 executed successfully)
 **Model:** openai/container (LM Studio qwen3-30b-a3b local)
 
 ---
@@ -104,20 +104,51 @@ The agent tried to create a CSV with unclosed quotes to trigger csv.Error but in
 7. **Stall detection works** — agent correctly aborted after repeated failures
 8. **Quality instructions in prompt help** — agent ran bash (5x) for testing
 
+## Run 4: Clean Slate (post all fixes, clean project)
+
+| Metric | Value |
+|--------|-------|
+| Agent steps | ~5 |
+| Tool calls | 10 (6 LLM, 2 write_file, 1 edit_file, 1 bash) |
+| Files created | 1 (csv2json.py only — test file missing) |
+| Git commits | 0 |
+| Duration | ~10 min |
+| Exit reason | Run completed (no stall) |
+
+**Validation:**
+- csv2json.py: SYNTAX OK, --help PASS, conversion PASS, error handling PASS (exit 1)
+- test_csv2json.py: NOT CREATED
+- Git commit: NOT DONE
+- Tool calls: 10 (below S1 minimum of 15)
+
+**Assessment:** The goroutine NATS fix works (no more policy timeouts). The local model
+produces a correct csv2json.py but stops before creating tests or committing.
+Tool call count is low — model doesn't follow the full pipeline.
+
 ## Overall Result
 
-**PARTIAL** — The autonomous pipeline works end-to-end. The program is functionally correct.
-Test file has a minor syntax error from the local model. A stronger model (Claude, GPT-4) would
-likely produce clean code on the first attempt.
+**PARTIAL** — The autonomous pipeline works end-to-end. The main program (csv2json.py) is
+functionally correct across all runs. Test file quality varies by run (syntax errors from
+local model). A stronger model (Claude, GPT-4) would likely produce clean code on first attempt.
 
 ### Comparison Across Runs
 
-| Run | Model | Steps | Tool Calls | Program | Tests | Commit |
-|-----|-------|-------|------------|---------|-------|--------|
-| 1 | N/A | 0 | 0 | N/A | N/A | N/A | (blocked by infra) |
-| 2 | openai/container | 4 | 4 | PASS | FAIL | PASS | (previous session) |
-| 3 | openai/container | 23 | 46 | PASS | FAIL | FAIL | (stall, no commit) |
+| Run | Model | Steps | Tool Calls | Program | Tests | Commit | Notes |
+|-----|-------|-------|------------|---------|-------|--------|-------|
+| 1 | N/A | 0 | 0 | N/A | N/A | N/A | Blocked by infra (NATS timeout) |
+| 2 | openai/container | 4 | 4 | PASS | FAIL | PASS | First successful end-to-end |
+| 3 | openai/container | 23 | 46 | PASS | FAIL | FAIL | Most thorough (quality prompt) |
+| 4 | openai/container | ~5 | 10 | PASS | SKIP | FAIL | Clean slate, test file not created |
 
-Run 3 was much more thorough (46 vs 4 tool calls, 15 edit iterations) due to the quality
-instructions in the prompt. The agent actively tried to fix issues but the local model
-introduced a syntax error it couldn't self-correct.
+### Infrastructure Fix Impact
+
+| Fix | Run 1-2 | Run 3 | Run 4 |
+|-----|---------|-------|-------|
+| NATS goroutine dispatch | No | No | **Yes** |
+| NATS purge before run | No | Yes | Yes |
+| Auto-onboarding disabled | No | Yes | Yes |
+| Policy timeout | **30s blocked** | **30s blocked** | **No timeout** |
+| Tool calls processed | 4 (then blocked) | 46 (with delays) | 10 (instant) |
+
+Run 4 proves the goroutine fix works: zero NATS policy timeouts, instant tool call processing.
+The lower tool call count is a model quality issue, not infrastructure.
