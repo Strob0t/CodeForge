@@ -196,11 +196,17 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	proj, projErr := s.store.GetProject(ctx, conv.ProjectID)
 	if projErr == nil {
 		policyProfile = proj.PolicyProfile
+		// Fall back to config["policy_preset"] if dedicated field is empty.
+		if policyProfile == "" {
+			if preset, ok := proj.Config["policy_preset"]; ok && preset != "" {
+				policyProfile = preset
+			}
+		}
 	}
 
-	// If no policy profile is set, allow by default (conversation mode).
+	// If no policy profile is set, use the service default.
 	if policyProfile == "" {
-		policyProfile = "default"
+		policyProfile = s.policy.DefaultProfile()
 	}
 
 	if _, ok := s.policy.GetProfile(policyProfile); !ok {

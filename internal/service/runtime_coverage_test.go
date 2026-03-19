@@ -1388,3 +1388,142 @@ func TestPersistGoalProposal_InvalidKind(t *testing.T) {
 		t.Fatalf("expected 0 goals created for invalid kind, got %d", len(store.goalCreated))
 	}
 }
+
+// TestConversationToolCall_ConfigPolicyPresetFallback verifies that when a
+// project has an empty PolicyProfile but config["policy_preset"] is set, the
+// config value is used as fallback for conversation tool-call evaluation.
+func TestConversationToolCall_ConfigPolicyPresetFallback(t *testing.T) {
+	// Project has empty PolicyProfile but config["policy_preset"] = "plan-readonly".
+	// Service default is "trusted-mount-autonomous" (would allow Write).
+	// The config fallback should use "plan-readonly" (ModePlan -> deny writes).
+	//
+	// Without the fix, PolicyProfile="" causes fallback to hardcoded "default"
+	// (unknown profile -> allow). With the fix, config["policy_preset"] =
+	// "plan-readonly" is used, which denies Edit/Write.
+	store := &extRuntimeMockStore{
+		runtimeMockStore: runtimeMockStore{
+			projects: []project.Project{
+				{
+					ID:            "proj-cfg",
+					Name:          "cfg-project",
+					WorkspacePath: "/tmp/cfg",
+					PolicyProfile: "", // empty — should fall back to config
+					Config:        map[string]string{"policy_preset": "plan-readonly"},
+				},
+			},
+			agents: []agent.Agent{
+				{ID: "agent-1", ProjectID: "proj-cfg", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
+			},
+			tasks: []task.Task{
+				{ID: "task-1", ProjectID: "proj-cfg", Title: "Fix bug", Prompt: "Fix it", Status: task.StatusPending},
+			},
+		},
+		conversations: []conversation.Conversation{
+			{ID: "conv-cfg", ProjectID: "proj-cfg", Title: "Config fallback conv"},
+		},
+	}
+	queue := &runtimeMockQueue{}
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+
+	// Service default is trusted-mount-autonomous — would allow Write.
+	// But config fallback to "plan-readonly" should deny it.
+	policySvc := service.NewPolicyService("trusted-mount-autonomous", nil)
+	runtimeCfg := config.Runtime{}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
+
+	ctx := context.Background()
+	req := messagequeue.ToolCallRequestPayload{
+		RunID:  "conv-cfg",
+		CallID: "call-cfg-1",
+		Tool:   "Edit", // Edit is denied in plan-readonly
+		Path:   "main.go",
+	}
+	if err := svc.HandleToolCallRequest(ctx, &req); err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
+	if !ok {
+		t.Fatal("expected tool call response message on NATS")
+	}
+	var resp messagequeue.ToolCallResponsePayload
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	// "plan-readonly" uses ModePlan which denies Edit (no matching allow rule).
+	// Without the config fallback, the hardcoded "default" (unknown profile)
+	// would allow the call.
+	if resp.Decision == string(policy.DecisionAllow) {
+		t.Fatalf("expected denial for Edit via config policy_preset=plan-readonly, got %q (reason: %s)",
+			resp.Decision, resp.Reason)
+	}
+}
+
+// TestConversationToolCall_DefaultProfileFallback verifies that when both
+// PolicyProfile and config["policy_preset"] are empty, the service's
+// DefaultProfile() is used instead of a hardcoded "default" string.
+func TestConversationToolCall_DefaultProfileFallback(t *testing.T) {
+	// Both PolicyProfile and config are empty.
+	// Service default is "plan-readonly" (denies Edit).
+	// Without the fix, the hardcoded "default" (unknown profile) would allow.
+	// With the fix, DefaultProfile() = "plan-readonly" is used -> deny.
+	store := &extRuntimeMockStore{
+		runtimeMockStore: runtimeMockStore{
+			projects: []project.Project{
+				{
+					ID:            "proj-def",
+					Name:          "def-project",
+					WorkspacePath: "/tmp/def",
+					PolicyProfile: "",
+					Config:        map[string]string{}, // no policy_preset
+				},
+			},
+			agents: []agent.Agent{
+				{ID: "agent-1", ProjectID: "proj-def", Name: "test-agent", Backend: "aider", Status: agent.StatusIdle, Config: map[string]string{}},
+			},
+			tasks: []task.Task{
+				{ID: "task-1", ProjectID: "proj-def", Title: "Fix bug", Prompt: "Fix it", Status: task.StatusPending},
+			},
+		},
+		conversations: []conversation.Conversation{
+			{ID: "conv-def", ProjectID: "proj-def", Title: "Default fallback conv"},
+		},
+	}
+	queue := &runtimeMockQueue{}
+	bc := &runtimeMockBroadcaster{}
+	es := &runtimeMockEventStore{}
+
+	// Service default is "plan-readonly" — Edit should be denied.
+	policySvc := service.NewPolicyService("plan-readonly", nil)
+	runtimeCfg := config.Runtime{}
+	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
+
+	ctx := context.Background()
+	req := messagequeue.ToolCallRequestPayload{
+		RunID:  "conv-def",
+		CallID: "call-def-1",
+		Tool:   "Edit",
+		Path:   "main.go",
+	}
+	if err := svc.HandleToolCallRequest(ctx, &req); err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
+	if !ok {
+		t.Fatal("expected tool call response message on NATS")
+	}
+	var resp messagequeue.ToolCallResponsePayload
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	// "plan-readonly" denies Edit. Without the fix, the hardcoded "default"
+	// (unknown profile) would allow the call.
+	if resp.Decision == string(policy.DecisionAllow) {
+		t.Fatalf("expected denial for Edit via DefaultProfile()=plan-readonly, got %q (reason: %s)",
+			resp.Decision, resp.Reason)
+	}
+}
