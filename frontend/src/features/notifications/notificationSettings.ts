@@ -14,7 +14,7 @@ const STORAGE_KEY = "codeforge_notification_settings";
 
 const DEFAULTS: NotificationSettings = {
   enablePush: true,
-  enableSound: true,
+  enableSound: false,
   soundType: "default",
   notifyOn: {
     permissionRequest: true,
