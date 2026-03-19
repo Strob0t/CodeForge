@@ -1149,28 +1149,45 @@ Feature creation fails per milestone?
    **S1 prompt:**
    ```
    Create a CSV-to-JSON converter script in this workspace. Follow the roadmap below exactly.
-   Commit your changes when done.
-   RULES: Use only Python standard library. Keep it simple. Run the test when done.
+
+   RULES:
+   - Use only Python standard library (csv, json, argparse). Keep it simple.
+   - Run the tests when done to verify they pass.
+   - Before committing: verify syntax with `python -m py_compile csv2json.py`
+   - Fix any syntax errors or import issues before committing.
+   - Commit your changes when everything is clean.
+
    ROADMAP: [AI_ROADMAP]
    ```
 
    **S2 prompt:**
    ```
    Build a Python CLI task manager in this workspace. Follow the roadmap exactly,
-   implementing each milestone in order. Commit after each milestone.
-   RULES: Use argparse for CLI, dataclasses for models, json for storage, pytest for tests.
-   No external dependencies beyond pytest. If unsure, ask me.
+   implementing each milestone in order.
+
+   RULES:
+   - Use argparse for CLI, dataclasses for models, json for storage, pytest for tests.
+   - No external dependencies beyond pytest.
+   - After each milestone: run `python -m py_compile` on changed files to catch syntax errors.
+   - After test suite milestone: run `python -m pytest -v` and fix any failures.
+   - Before final commit: verify `python -m task_manager --help` works.
+   - Commit after each milestone.
+
    ROADMAP: [AI_ROADMAP]
    ```
 
    **S3 prompt:**
    ```
    This workspace contains an existing Python task manager. Your job is to ADD a tags feature.
-   IMPORTANT: Read and understand the existing code FIRST before making any changes.
-   Do NOT rewrite files from scratch - EDIT existing files to add the feature.
-   All existing tests MUST still pass after your changes.
-   Follow the roadmap exactly. Commit after each milestone.
-   If you are unsure about the existing architecture, ask me.
+
+   RULES:
+   - Read and understand the existing code FIRST before making any changes.
+   - Do NOT rewrite files from scratch — EDIT existing files to add the feature.
+   - After each edit: run `python -m py_compile <file>` to catch syntax errors immediately.
+   - Run `python -m pytest -v` after changes to ensure ALL existing tests still pass.
+   - Fix any lint errors or import issues you introduce.
+   - Commit after each milestone.
+
    ROADMAP: [AI_ROADMAP]
    ```
 
@@ -1178,10 +1195,15 @@ Feature creation fails per milestone?
    ```
    Build a TypeScript REST API for a bookmark manager in this workspace.
    Follow the roadmap exactly, implementing each milestone in order.
-   RULES: TypeScript strict mode, no 'any' types. ES modules. Express or native http.
-   Run 'npm run build' after code changes to catch type errors early.
-   Run 'npm test' after implementing the test suite. Commit after each milestone.
-   If you are unsure, ask me.
+
+   RULES:
+   - TypeScript strict mode, no 'any' types. ES modules. Express or native http.
+   - After writing code: run `npm run build` to catch TypeScript errors IMMEDIATELY.
+   - Fix all type errors before moving to the next milestone.
+   - After test suite milestone: run `npm test` and fix failures.
+   - Before final commit: verify `npx eslint src/` passes (if ESLint configured).
+   - Commit after each milestone.
+
    ROADMAP: [AI_ROADMAP]
    ```
 
@@ -1616,6 +1638,164 @@ Functional test fails?
 
 ---
 
+## Phase 7b: Code Quality Checks (Linting, Import Sort, Build)
+
+**Goal:** Verify the generated code passes language-specific quality checks.
+These are run **in addition** to the functional validation in Phase 7.
+
+> **Error feedback to agents:** CodeForge feeds tool errors (including build/lint failures)
+> back to the LLM as `{"role": "tool", "content": "Error: exit code 1\n--- stderr ---\n..."}`.
+> The agent sees the full error output and can decide to fix the code. Correction hints are
+> auto-appended (e.g., "Hint: The file was not found. Use list_directory...").
+>
+> **Quality Gates:** CodeForge has a post-agent Quality Gate system (`QualityGateExecutor`)
+> that can auto-run tests/lint after the agent finishes. However, this only applies to
+> Run-based execution, not Conversation-based. For conversation flows, Claude Code must
+> verify code quality explicitly via the steps below.
+>
+> **Agent self-correction:** If the agent encounters build/lint errors during execution,
+> it should fix them autonomously. The quality checks below validate whether the FINAL
+> output is clean — if not, send the errors back to the agent for a fix attempt.
+
+### Quality Checks by Scenario
+
+#### S1 (Python — single script):
+
+1. **Syntax check:**
+   ```bash
+   python -m py_compile csv2json.py && echo "SYNTAX OK" || echo "SYNTAX ERROR"
+   python -m py_compile test_csv2json.py && echo "SYNTAX OK" || echo "SYNTAX ERROR"
+   ```
+   -> Both must exit 0
+
+2. **Import sort (isort dry-run):**
+   ```bash
+   python -m isort --check-only --diff csv2json.py test_csv2json.py 2>&1
+   ```
+   -> Exit 0 = imports sorted correctly. If isort not available, skip (not required).
+
+3. **Linting (ruff or flake8):**
+   ```bash
+   python -m ruff check csv2json.py test_csv2json.py 2>&1 || \
+   python -m flake8 csv2json.py test_csv2json.py 2>&1 || \
+   echo "No linter available — SKIP"
+   ```
+   -> 0 errors preferred. Warnings acceptable. If no linter installed, SKIP.
+
+4. **Type check (optional):**
+   ```bash
+   python -m mypy csv2json.py 2>&1 || echo "mypy not available — SKIP"
+   ```
+
+#### S2 (Python — multi-module):
+
+All S1 checks PLUS:
+
+5. **Package importable:**
+   ```bash
+   python -c "import task_manager" && echo "IMPORT OK" || echo "IMPORT ERROR"
+   ```
+
+6. **Build check (pip install):**
+   ```bash
+   pip install -e . 2>&1 && echo "BUILD OK" || echo "BUILD ERROR"
+   ```
+   -> Must exit 0 if pyproject.toml exists
+
+#### S3 (Python — brownfield):
+
+All S2 checks PLUS:
+
+7. **Regression lint (only changed files):**
+   ```bash
+   git diff --name-only HEAD~1 -- '*.py' | xargs python -m ruff check 2>&1
+   ```
+   -> New code must not introduce lint errors
+
+#### S4 (TypeScript):
+
+1. **TypeScript compile:**
+   ```bash
+   npm run build 2>&1
+   ```
+   -> Must exit 0. This is the PRIMARY quality check — catches type errors, missing imports, syntax.
+
+2. **ESLint:**
+   ```bash
+   npx eslint src/ 2>&1 || echo "No ESLint config — SKIP"
+   ```
+
+3. **Import sort (eslint-plugin-import or similar):**
+   ```bash
+   npx eslint src/ --rule '{"import/order": "error"}' 2>&1 || echo "SKIP"
+   ```
+
+4. **No `any` types (strict mode validation):**
+   ```bash
+   grep -rn ": any\|as any\|<any>" src/ --include="*.ts" | grep -v node_modules | head -10
+   ```
+   -> 0 matches = PASS
+
+5. **Package.json scripts defined:**
+   ```bash
+   node -e "const p=require('./package.json'); console.log('build:',!!p.scripts?.build,'test:',!!p.scripts?.test)"
+   ```
+   -> Both must be `true`
+
+### Quality Check Validation Matrix
+
+| Check | S1 | S2 | S3 | S4 | Required |
+|-------|----|----|----|----|----------|
+| Syntax / Compile | `py_compile` | `py_compile` | `py_compile` | `tsc` (npm build) | **Yes** |
+| Linting | ruff/flake8 | ruff/flake8 | ruff (changed only) | ESLint | No (skip if unavailable) |
+| Import sort | isort | isort | isort | ESLint import/order | No |
+| Type check | mypy | mypy | mypy | tsc strict | S4: Yes, others: No |
+| Package build | N/A | pip install -e . | N/A | npm run build | S2/S4: Yes |
+
+### Error Feedback Loop
+
+If quality checks fail, send the errors back to the agent for self-correction:
+
+1. **Collect all failing check outputs**
+2. **Send in chat:**
+   ```
+   The code has quality issues. Please fix them:
+
+   [SYNTAX ERROR] csv2json.py line 15: SyntaxError: unexpected indent
+   [LINT] csv2json.py:8:1: F401 'os' imported but unused
+   [IMPORT SORT] csv2json.py: imports not sorted (stdlib before third-party)
+
+   Fix these issues and commit the changes.
+   ```
+3. **Wait for agent to execute tool calls** (Write/Edit to fix files)
+4. **Re-run quality checks** (1 retry allowed)
+5. **Record final result** as PASS (all clean), PARTIAL (syntax OK but lint warnings), or FAIL
+
+### Decision Tree
+```
+Syntax/compile fails?
+├─ Send error to agent: "Fix the syntax error: [error output]"
+├─ Wait for agent fix (1 attempt)
+└─ Re-check. Still fails -> FAIL
+
+Lint errors?
+├─ Critical (undefined vars, unused imports) -> Send to agent for fix
+├─ Style warnings (line length, naming) -> PARTIAL (acceptable)
+└─ No linter available -> SKIP
+
+Import sort wrong?
+├─ Send to agent: "Fix import order: [isort diff]"
+├─ Or accept as PARTIAL (cosmetic issue)
+└─ No isort available -> SKIP
+
+Build fails (S2/S4)?
+├─ Missing dependency -> Send to agent: "Add missing dependency"
+├─ Type error (S4) -> Send to agent: "Fix TypeScript error"
+└─ Config error -> Send to agent: "Fix pyproject.toml/tsconfig.json"
+```
+
+---
+
 ## Phase 8: Report & Cleanup
 
 **Goal:** Collect metrics, generate report, preserve test branch.
@@ -1741,6 +1921,13 @@ Functional test fails?
    - Tools used:     N/7 unique tools
    - Expected:       [from Tool Call Coverage Matrix for scenario]
    - Match:          PASS/PARTIAL/FAIL
+
+   CODE QUALITY (Phase 7b):
+   - Syntax/Compile:  PASS/FAIL
+   - Linting:         PASS/PARTIAL/SKIP (N errors, N warnings)
+   - Import Sort:     PASS/SKIP
+   - Build:           PASS/FAIL/N/A
+   - Agent self-fix:  N attempts (did agent fix errors when fed back?)
 
    OVERALL: PASS / PARTIAL / FAIL
    ============================================
