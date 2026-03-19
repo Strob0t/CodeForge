@@ -5,10 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
 import { readFileSync } from "fs";
 
-const appVersion = readFileSync(
-  resolve(__dirname, "..", "VERSION"),
-  "utf-8",
-).trim();
+const appVersion = readFileSync(resolve(__dirname, "..", "VERSION"), "utf-8").trim();
 
 export default defineConfig({
   plugins: [solid(), tailwindcss()],

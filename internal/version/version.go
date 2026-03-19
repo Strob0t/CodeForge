@@ -2,6 +2,7 @@ package version
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,8 +16,10 @@ func init() {
 		return
 	}
 	// Dev fallback: read VERSION file from working directory or project root.
-	for _, path := range []string{"VERSION", "../VERSION", "../../VERSION"} {
-		if b, err := os.ReadFile(path); err == nil {
+	for _, rel := range []string{"VERSION", "../VERSION", "../../VERSION"} {
+		p := filepath.Clean(rel)
+		b, err := os.ReadFile(p) //nolint:gosec // paths are hardcoded constants
+		if err == nil {
 			Version = strings.TrimSpace(string(b))
 			return
 		}

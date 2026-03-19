@@ -868,7 +868,7 @@ No workspace_path?
 
 4. **Wait for agent response:**
    - `browser_wait_for` -> Assistant message appears (may take 30-120s depending on model)
-   - Poll with `browser_snapshot` every 15s, up to 5 minutes
+   - Poll with `browser_snapshot` every 15s, up to 15 minutes (local models are slow)
    - Look for: streaming text, tool call indicators, GoalProposalCards
 
 5. **If agent asks clarifying questions** (assistant message contains `?` but no GoalProposalCards):
@@ -1436,7 +1436,14 @@ This phase runs **concurrently with Phase 6** — check for these events on ever
 
 **Steps:**
 
-1. **Monitoring loop** (run for up to 30 minutes):
+1. **Monitoring loop** (run for up to 60 minutes — local models need more time):
+
+   > **PATIENCE IS CRITICAL.** Weak/local models (Ollama, LM Studio) are 5-10x slower
+   > than cloud models. A task that takes GPT-4 5 minutes may take a local 30b model
+   > 30-60 minutes. DO NOT abort early — every tool call is a valuable data point.
+   > The goal is to collect data on how different models handle the task, not to get
+   > the fastest result. A model that takes 50 tool calls and makes 15 errors but
+   > eventually succeeds tells us MORE than a model that gives up after 5 calls.
 
    Every 30 seconds:
    - `browser_snapshot` -> Observe:
@@ -1512,7 +1519,7 @@ or verification steps. Record as PARTIAL and note which pipeline phases were ski
 
 **Decision Tree:**
 ```
-Agent stuck (no progress for 5 minutes)?
+Agent stuck (no NEW tool calls for 10 minutes)?
 ├─ PermissionRequestCard pending -> Approve it (Phase 5b)
 ├─ Agent asking question -> Answer it (Phase 5b)
 ├─ Stall detected -> Wait for auto-abort, then send "Continue with next milestone"
@@ -2121,15 +2128,31 @@ Features required for full automation but potentially not yet implemented:
 
 ## Estimated Resources per Scenario
 
+> **Local models (Ollama, LM Studio) take 3-10x longer than cloud models.**
+> The times below show ranges for cloud (fast) and local (slow) models.
+> DO NOT abort a run just because it's slow — the data from slow models
+> is equally valuable for benchmarking and routing decisions.
+
 | Metric | S1 Easy | S2 Medium | S3 Hard | S4 Expert |
 |--------|---------|-----------|---------|-----------|
-| **Time** | 10-15 min | 20-35 min | 25-45 min | 30-60 min |
-| **LLM Cost** | $0.20-$1.00 | $0.50-$3.00 | $1.00-$5.00 | $2.00-$8.00 |
-| **Tokens** | ~30K-80K | ~80K-200K | ~100K-300K | ~150K-400K |
-| **Screenshots** | ~8 | ~12 | ~14 | ~16 |
-| **Browser interactions** | ~30-50 | ~50-80 | ~60-100 | ~80-120 |
-| **Expected tool calls** | 5-15 | 15-40 | 25-60 | 40-80 |
-| **Expected unique tools** | 2 (Write, Bash) | 4-5 | 6-7 | 6-7 |
+| **Time (cloud model)** | 5-10 min | 10-20 min | 15-30 min | 20-45 min |
+| **Time (local model)** | 15-45 min | 30-90 min | 45-120 min | 60-180 min |
+| **Max wait before abort** | 60 min | 120 min | 150 min | 180 min |
+| **LLM Cost (cloud)** | $0.20-$1.00 | $0.50-$3.00 | $1.00-$5.00 | $2.00-$8.00 |
+| **LLM Cost (local)** | $0.00 | $0.00 | $0.00 | $0.00 |
+| **Expected tool calls** | 15-50 | 33-80 | 47-120 | 54-150 |
+| **Expected unique tools** | 3-4 | 6-7 | 7 | 7 |
+
+### Why Local Model Data Matters
+
+Every tool call from a weak model is a data point that helps:
+1. **Routing decisions** — which tasks need strong models vs weak ones?
+2. **Quality thresholds** — at what point should the system switch models?
+3. **Benchmark scores** — how do different models compare on the same task?
+4. **Error patterns** — where do weak models fail? (edit_file old_text mismatches, syntax errors, stalls)
+5. **Cost optimization** — can a $0 local model handle S1? S2? Where's the cutoff?
+
+A run that takes 50 tool calls with 15 errors tells us MORE than one that takes 5 calls and gives up.
 
 ---
 
