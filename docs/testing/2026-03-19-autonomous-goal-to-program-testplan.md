@@ -361,6 +361,52 @@ For regression testing (scheduled/cron):
    ```
    -> All three must respond. If any fail, check `docker compose logs <service>`.
 
+### Step 0a2: Purge NATS JetStream (CRITICAL for fresh test runs)
+
+> **Why:** Old unacked messages from previous sessions accumulate in the NATS JetStream
+> `CODEFORGE` stream. These stale messages block new consumers — the Go backend processes
+> them sequentially, and any HITL-wait message (60s timeout) blocks all subsequent messages.
+> **A fresh stream is REQUIRED for reliable test execution.**
+
+1. **Kill any running Go backend and Python worker** (they hold NATS consumer locks):
+   ```bash
+   pkill -f "exe/codeforge" 2>/dev/null || true
+   pkill -f "codeforge.consumer" 2>/dev/null || true
+   sleep 2
+   ```
+
+2. **Purge the NATS stream and delete stale consumers:**
+   ```python
+   import asyncio, nats
+   async def purge():
+       nc = await nats.connect('nats://${NATS_IP}:4222')
+       js = nc.jetstream()
+       await js.purge_stream('CODEFORGE')
+       for name in ['codeforge-go-runs-toolcall-request',
+                     'codeforge-go-runs-toolcall-result',
+                     'codeforge-go-conversation-run-complete',
+                     'codeforge-go-runs-complete',
+                     'codeforge-go-runs-heartbeat',
+                     'codeforge-go-runs-output',
+                     'codeforge-go-runs-trajectory-event']:
+           try: await js.delete_consumer('CODEFORGE', name)
+           except: pass
+       await nc.close()
+       print('NATS stream purged, stale consumers deleted')
+   asyncio.run(purge())
+   ```
+
+3. **Verify stream is empty:**
+   ```bash
+   curl -s "http://${NATS_IP}:8222/jsz" | python3 -c "
+   import sys,json; d=json.load(sys.stdin)
+   msgs = sum(s.get('state',{}).get('messages',0) for a in d.get('account_details',[]) for s in a.get('stream_detail',[]))
+   print(f'Messages in stream: {msgs}')
+   assert msgs == 0, 'Stream not empty!'
+   "
+   ```
+   -> Expected: `Messages in stream: 0`
+
 ### Step 0b: Start Go Backend
 
 1. **Check if backend is running:**
@@ -425,6 +471,7 @@ For regression testing (scheduled/cron):
      LITELLM_BASE_URL="http://${LITELLM_IP}:4000" \
      LITELLM_MASTER_KEY="sk-codeforge-dev" \
      DATABASE_URL="postgresql://codeforge:codeforge_dev@${POSTGRES_IP}:5432/codeforge" \
+     CODEFORGE_ROUTING_ENABLED=false \
      APP_ENV=development \
      .venv/bin/python -m codeforge.consumer > /tmp/codeforge-worker.log 2>&1 &
    ```
@@ -436,6 +483,7 @@ For regression testing (scheduled/cron):
    | `LITELLM_BASE_URL` | Container IP from Step 0a | `http://172.18.0.6:4000` |
    | `LITELLM_MASTER_KEY` | Static | `sk-codeforge-dev` |
    | `DATABASE_URL` | Container IP from Step 0a | `postgresql://codeforge:codeforge_dev@172.18.0.2:5432/codeforge` |
+   | `CODEFORGE_ROUTING_ENABLED` | Static | `false` (use explicit model from payload, not auto-router) |
    | `APP_ENV` | Static | `development` |
    | `PYTHONPATH` | Static | `/workspaces/CodeForge/workers` |
 
@@ -1064,6 +1112,17 @@ Feature creation fails per milestone?
 ## Phase 5: Autonomous Execution
 
 **Goal:** Start an agentic chat conversation that executes the roadmap tasks.
+
+> **CRITICAL:** The message MUST be sent via API (not browser UI) with an explicit `model` field
+> to bypass the auto-router which may select an unhealthy/offline model. Use `"model": "openai/container"`
+> for local LM Studio or any other healthy model from LiteLLM `/health`.
+>
+> The project MUST have autonomy level 4 (Full-Auto) set — either via Advanced Settings during
+> project creation, or via `POST /api/v1/projects/{id}` with `{"config":{"autonomy_level":"4"}}`.
+> Without this, HITL approval requests will block the agent loop.
+>
+> If HITL cards appear despite full-auto: use `POST /conversations/{id}/bypass-approvals` to
+> auto-approve all future tool calls for that conversation.
 
 **Steps:**
 
