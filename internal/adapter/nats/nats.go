@@ -152,55 +152,60 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 	}
 
 	cons, err := consumer.Consume(func(msg jetstream.Msg) {
-		// Extract request ID and trace context from NATS headers
-		msgCtx := ctx
-		hdrs := msg.Headers()
-		if hdrs != nil {
-			if reqID := hdrs.Get(headerRequestID); reqID != "" {
-				msgCtx = logger.WithRequestID(msgCtx, reqID)
-			}
-			msgCtx = extractTraceContext(msgCtx, hdrs)
-		}
+		// Dispatch to goroutine so slow handlers (HITL approval waits)
+		// do not block other messages on the same consumer.
+		go q.handleMessage(ctx, msg, handler)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("nats consume: %%w", err)
+	}
 
-		// Schema validation — reject invalid messages immediately to DLQ
-		if err := messagequeue.Validate(msg.Subject(), msg.Data()); err != nil {
-			slog.Error("message validation failed",
-				"subject", msg.Subject(),
-				"request_id", logger.RequestID(msgCtx),
-				"error", err,
-			)
+	return cons.Stop, nil
+}
+
+// handleMessage processes a single NATS message with validation, error handling, and ack/nak.
+func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler messagequeue.Handler) {
+	msgCtx := ctx
+	hdrs := msg.Headers()
+	if hdrs != nil {
+		if reqID := hdrs.Get(headerRequestID); reqID != "" {
+			msgCtx = logger.WithRequestID(msgCtx, reqID)
+		}
+		msgCtx = extractTraceContext(msgCtx, hdrs)
+	}
+
+	if err := messagequeue.Validate(msg.Subject(), msg.Data()); err != nil {
+		slog.Error("message validation failed",
+			"subject", msg.Subject(),
+			"request_id", logger.RequestID(msgCtx),
+			"error", err,
+		)
+		q.moveToDLQ(ctx, msg)
+		return
+	}
+
+	if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
+		retries := retryCount(hdrs)
+		slog.Error("message handler failed",
+			"subject", msg.Subject(),
+			"request_id", logger.RequestID(msgCtx),
+			"retry", retries,
+			"error", err,
+		)
+
+		if retries >= maxRetries {
 			q.moveToDLQ(ctx, msg)
 			return
 		}
 
-		if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
-			retries := retryCount(hdrs)
-			slog.Error("message handler failed",
-				"subject", msg.Subject(),
-				"request_id", logger.RequestID(msgCtx),
-				"retry", retries,
-				"error", err,
-			)
-
-			if retries >= maxRetries {
-				q.moveToDLQ(ctx, msg)
-				return
-			}
-
-			if nakErr := msg.NakWithDelay(nakDelay); nakErr != nil {
-				slog.Error("nats nak failed", "error", nakErr)
-			}
-			return
+		if nakErr := msg.NakWithDelay(nakDelay); nakErr != nil {
+			slog.Error("nats nak failed", "error", nakErr)
 		}
-		if ackErr := msg.Ack(); ackErr != nil {
-			slog.Error("nats ack failed", "error", ackErr)
-		}
-	})
-	if err != nil {
-		return nil, fmt.Errorf("nats consume: %w", err)
+		return
 	}
-
-	return cons.Stop, nil
+	if ackErr := msg.Ack(); ackErr != nil {
+		slog.Error("nats ack failed", "error", ackErr)
+	}
 }
 
 // moveToDLQ acks the original message and publishes a copy to {subject}.dlq.
