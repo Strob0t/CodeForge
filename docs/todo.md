@@ -1385,3 +1385,47 @@
 - [x] (2026-03-18) S2: Micro-interactions -- button press, card hover lift, tab animation, KPI count-up, toast slide-in, modal fade+scale
 - [x] (2026-03-18) S3: Living design system page at `/design-system` (dev-mode only) + `frontend/src/ui/DESIGN-SYSTEM.md`
 - [x] (2026-03-18) S4: 3-step onboarding wizard for first-time users (Connect Code -> Configure AI -> Create Project)
+
+---
+
+#### Bugs Found During Autonomous Goal-to-Program Test (2026-03-19)
+
+> Discovered during S1 testplan execution (`docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md`).
+> These are product bugs blocking autonomous agent execution end-to-end.
+
+**Bug 1 — Model Router ignores LiteLLM health status (Priority: HIGH)**
+- [ ] `model_resolver.py:111-116` picks first model alphabetically, ignores whether it's healthy or unhealthy
+- [ ] `key_filter.py` excludes all models for providers without API keys, even local models (e.g. `openai/container` for LM Studio requires `OPENAI_API_KEY` despite being local)
+- [ ] `_conversation.py:144` routing overrides explicit `model` field from NATS payload — explicit model choice from user/API should take precedence over router
+- [ ] Add health-aware model selection: query `GET /health` and filter out unhealthy endpoints before selecting best model
+- References: `workers/codeforge/model_resolver.py`, `workers/codeforge/routing/key_filter.py`, `workers/codeforge/consumer/_conversation.py:138-146`
+
+**Bug 2 — NATS JetStream backlog from cancelled conversations blocks new runs (Priority: CRITICAL)**
+- [ ] Cancelled conversations (`POST /conversations/{id}/cancel`) leave unacked NATS messages in JetStream
+- [ ] Go backend processes old backlog messages before new ones (FIFO ordering)
+- [ ] New conversation's `runs.toolcall.request` times out (30s) because Go is busy with old messages
+- [ ] Fix: On conversation cancel, ack/NAK all pending NATS messages for that run ID
+- [ ] Fix: Add run-ID filter in `HandleToolCallRequest` — reject requests for cancelled/completed runs immediately
+- [ ] Fix: Consider per-conversation NATS subjects or consumer groups to prevent cross-conversation blocking
+- References: `internal/service/runtime_execution.go`, `internal/service/conversation.go`, `workers/codeforge/runtime.py`
+
+**Bug 3 — Worker env var naming inconsistency (Priority: LOW)**
+- [x] (2026-03-19) `LITELLM_URL` vs `LITELLM_BASE_URL` — code reads `LITELLM_BASE_URL`, documented in testplan
+- [ ] Some worker code uses `os.environ.get("LITELLM_BASE_URL")` inline instead of reading from `WorkerSettings` — 3 occurrences in `_conversation.py` (lines 741, 826) and `_benchmark.py` (lines 53, 76) bypass centralized config
+- [ ] Fix: Replace all inline `os.environ.get("LITELLM_BASE_URL")` with `self._litellm_url` from constructor
+- References: `workers/codeforge/config.py:132`, `workers/codeforge/consumer/_conversation.py:741,826`
+
+**Bug 4 — Onboarding agent blocks project setup (Priority: MEDIUM)**
+- [ ] Auto-onboarding conversation dispatches immediately on project creation with `supervised` autonomy
+- [ ] HITL approval cards for `list_directory`/`glob_files` tools are not visible in chat UI (tool calls time out silently after 60s)
+- [ ] Onboarding conversation cannot be stopped cleanly — zombie NATS messages remain (see Bug 2)
+- [ ] Fix option A: Set onboarding conversation autonomy to `full-auto` (level 4) so tool calls auto-approve
+- [ ] Fix option B: Make onboarding non-agentic (simple chat, no tool calls) for initial greeting
+- [ ] Fix option C: Show HITL approval cards in chat immediately even during onboarding
+- References: `internal/adapter/http/handlers.go` (auto-onboarding trigger), `internal/service/conversation.go`
+
+**Bug 5 — WSL2 Docker port mapping unreachable from host (Priority: LOW, environment-specific)**
+- [x] (2026-03-19) Documented in testplan Phase 0 — container IPs must be used instead of localhost
+- [ ] Add `dev-setup.md` section for WSL2-specific Docker networking workarounds
+- [ ] Consider adding a `scripts/resolve-docker-ips.sh` helper that exports correct env vars
+- References: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md` Phase 0
