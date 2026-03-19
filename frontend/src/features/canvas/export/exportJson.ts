@@ -94,7 +94,7 @@ export function exportJson(
   };
 }
 
-/** Strip the large dataUrl from image data, keep only the file name. */
+/** Strip the large dataUrl from image data, keep only the file name for export. */
 function stripImageDataUrl(data: ImageData): ElementData {
-  return { originalName: data.originalName };
+  return { originalName: data.originalName } as unknown as ElementData;
 }

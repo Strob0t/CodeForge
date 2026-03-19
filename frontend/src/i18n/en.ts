@@ -894,6 +894,7 @@ const en = {
   "trajectory.input": "Input",
   "trajectory.output": "Output",
   "trajectory.errorOutput": "Error",
+  "trajectory.rewind": "Rewind",
   "trajectory.rewindConfirm":
     "Rewind to this event? This will create a new session from this point.",
   "trajectory.rewindConfirmBtn": "Rewind",

@@ -34,7 +34,7 @@ import {
   suiteToDataset,
   getSuiteByProvider,
 } from "./helpers";
-import { DEFAULT_MODEL, VALIDATION_MATRIX, ERROR_SCENARIOS, getBlockCases } from "./matrix";
+import { DEFAULT_MODEL, ERROR_SCENARIOS, getBlockCases } from "./matrix";
 
 // Increase timeout for local model runs (~2 min/task)
 test.setTimeout(900_000); // 15 min per test

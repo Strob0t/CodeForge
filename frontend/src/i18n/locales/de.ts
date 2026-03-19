@@ -891,6 +891,7 @@ const de: Translations = {
   "trajectory.input": "Eingabe",
   "trajectory.output": "Ausgabe",
   "trajectory.errorOutput": "Fehler",
+  "trajectory.rewind": "Zurueckspulen",
   "trajectory.rewindConfirm":
     "Zu diesem Event zurueckspulen? Dies erstellt eine neue Session ab diesem Punkt.",
   "trajectory.rewindConfirmBtn": "Zurueckspulen",
@@ -954,6 +955,7 @@ const de: Translations = {
 
   // -- Activity stream --------------------------------------------------------
   "activity.title": "Aktivit\u00e4t",
+  "activity.emptyDescription": "Aktivitaeten werden hier angezeigt, wenn Agenten arbeiten.",
   "activity.connected": "Live",
   "activity.disconnected": "Getrennt",
   "activity.filterLabel": "Eventtyp filtern",
@@ -1054,6 +1056,7 @@ const de: Translations = {
 
   // -- Knowledge Bases (Phase 12K) -------------------------------------------
   "kb.title": "Wissensbasen",
+  "kb.emptyDescription": "Erstelle eine Wissensbasis, um den Agent-Kontext zu verbessern.",
   "kb.description": "Kuratierte Wissensmodule f\u00fcr Agent-Kontext",
   "kb.empty": "Keine Wissensbasen verf\u00fcgbar",
   "kb.loading": "Wissensbasen werden geladen\u2026",

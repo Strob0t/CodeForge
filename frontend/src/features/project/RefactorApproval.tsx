@@ -28,7 +28,7 @@ export default function RefactorApproval() {
 
   const cleanup = onMessage((msg) => {
     if (msg.type === "refactor.approval_required") {
-      setRequest(msg.payload as ApprovalRequest);
+      setRequest(msg.payload as unknown as ApprovalRequest);
     }
   });
   onCleanup(cleanup);
