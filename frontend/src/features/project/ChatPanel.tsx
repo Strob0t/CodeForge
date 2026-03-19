@@ -225,39 +225,9 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
   });
 
-  // Proactive greeting on first chat open for a project
-  const greetingKey = () => `codeforge:greeted:${props.projectId}`;
-  const [greeted, setGreeted] = createSignal(localStorage.getItem(greetingKey()) === "true");
-
-  createEffect(() => {
-    const convId = activeConversation();
-    const msgs = messages();
-    const key = greetingKey();
-    // Trigger greeting only when:
-    // 1. Conversation is loaded
-    // 2. No messages exist yet (fresh conversation)
-    // 3. Not already greeted for this project
-    // 4. Not currently sending
-    if (convId && msgs && msgs.length === 0 && !greeted() && !sending()) {
-      setGreeted(true);
-      localStorage.setItem(key, "true");
-      const greetingPrompt =
-        "[Project Onboarding] Please greet me and summarize what you know about this project " +
-        "(tech stack, structure, any detected specs or goals). " +
-        "Then help me define goals and create an MVP plan.";
-      setSending(true);
-      api.conversations
-        .send(convId, { content: greetingPrompt })
-        .then(() => refetchMessages())
-        .then(() => scrollToBottom())
-        .catch(() => {
-          // If greeting fails, allow retry next time
-          localStorage.removeItem(key);
-          setGreeted(false);
-        })
-        .finally(() => setSending(false));
-    }
-  });
+  // Auto-onboarding greeting disabled — it dispatches an agentic conversation
+  // that makes tool calls, blocking the NATS pipeline for other conversations.
+  // Users can manually send a greeting or use the "AI Discover" button instead.
 
   // --- AG-UI event subscriptions ---
 
@@ -811,10 +781,12 @@ export default function ChatPanel(props: ChatPanelProps) {
               {(msg) => (
                 <li class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div
-                    class={`max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm ${
+                    class={`rounded-cf-md px-4 py-2 text-sm ${
                       msg.role === "user"
-                        ? "bg-cf-accent text-white whitespace-pre-wrap"
-                        : "bg-cf-bg-surface-alt text-cf-text-primary"
+                        ? "max-w-[90%] sm:max-w-[75%] bg-cf-accent text-white whitespace-pre-wrap"
+                        : msg.tool_calls && msg.tool_calls.length > 0
+                          ? "max-w-[95%] sm:max-w-[90%] bg-cf-bg-surface-alt text-cf-text-primary"
+                          : "max-w-[90%] sm:max-w-[75%] bg-cf-bg-surface-alt text-cf-text-primary"
                     }`}
                   >
                     <Show when={msg.role === "assistant"} fallback={msg.content}>
@@ -907,7 +879,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           {/* Active tool calls from AG-UI events — grouped with vertical line */}
           <Show when={toolCalls().length > 0}>
             <div class="flex justify-start">
-              <div class="max-w-[90%] sm:max-w-[75%] w-full border-l-2 border-cf-accent/40 pl-3 ml-2">
+              <div class="max-w-[95%] sm:max-w-[90%] w-full border-l-2 border-cf-accent/40 pl-3 ml-2">
                 <Show when={stepCount() > 0}>
                   <div class="mb-1 text-xs text-cf-text-muted">
                     Step {stepCount()} {"\u00B7"} {toolCalls().length} tool call
