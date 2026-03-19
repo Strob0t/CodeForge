@@ -1355,7 +1355,7 @@
   - COMPLEXITY_DEFAULTS: claudecode/default in COMPLEX + REASONING
   - Availability detection with caching
 - [ ] Claude Code: E2E manual test with live CLI
-- [ ] Claude Code: model selection override (claudecode/claude-sonnet-4)
+- [x] (2026-03-19) Claude Code: model selection override (claudecode/claude-sonnet-4) <!-- audit: implemented in claude_code_executor.py + conversation routing -->
 - [x] Claude Code: read CODEFORGE_CLAUDECODE_MAX_TURNS, _TIMEOUT, _TIERS from env (2026-03-18)
 - [x] Claude Code: update docs/dev-setup.md with new env vars (2026-03-18)
 
@@ -1381,7 +1381,7 @@
 - [x] (2026-03-18) M7: Collapsible model cards on AI Config page (expand/collapse all)
 
 **Layer 3 — Strategic (4 tasks):**
-- [x] (2026-03-18) S1: Typography system -- Outfit (display) + IBM Plex Sans (body), self-hosted woff2 in `frontend/public/fonts/`
+- [x] (2026-03-18) S1: Typography system -- Outfit (display) + Source Sans 3 (body), self-hosted woff2 in `frontend/public/fonts/`
 - [x] (2026-03-18) S2: Micro-interactions -- button press, card hover lift, tab animation, KPI count-up, toast slide-in, modal fade+scale
 - [x] (2026-03-18) S3: Living design system page at `/design-system` (dev-mode only) + `frontend/src/ui/DESIGN-SYSTEM.md`
 - [x] (2026-03-18) S4: 3-step onboarding wizard for first-time users (Connect Code -> Configure AI -> Create Project)
