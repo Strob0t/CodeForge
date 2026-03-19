@@ -110,6 +110,12 @@ func (h *Handlers) StopConversation(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "stop conversation")
 		return
 	}
+	// Mark the conversation run as cancelled in RuntimeService so that
+	// in-flight NATS tool-call requests are rejected immediately instead
+	// of blocking the queue until timeout.
+	if h.Runtime != nil {
+		h.Runtime.MarkConversationRunCancelled(id)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled", "conversation_id": id})
 }
 

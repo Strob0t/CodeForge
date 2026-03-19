@@ -141,8 +141,11 @@ class ConversationHandlerMixin:
                 router=router,
                 max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
             )
-            primary_model = routing.model or run_msg.model
-            if routing.model:
+            # Explicit model from NATS payload takes precedence over routing.
+            primary_model = run_msg.model or routing.model
+            if run_msg.model and routing.model and routing.model != run_msg.model:
+                log.info("explicit model overrides routing", explicit=run_msg.model, routed=routing.model)
+            elif not run_msg.model and routing.model:
                 log.info("routing selected model", model=routing.model, scenario=scenario)
 
             fallback_models = await self._build_fallback_chain(
@@ -733,18 +736,18 @@ class ConversationHandlerMixin:
             from codeforge.routing.meta_router import LLMMetaRouter
 
             litellm_key = self._litellm_key
+            litellm_base = self._litellm_url
 
             def _llm_call(model: str, prompt: str) -> str | None:
                 """Synchronous LLM call for meta-router classification."""
                 import httpx
 
-                litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
                 headers: dict[str, str] = {"Content-Type": "application/json"}
                 if litellm_key:
                     headers["Authorization"] = f"Bearer {litellm_key}"
                 try:
                     resp = httpx.post(
-                        f"{litellm_url}/v1/chat/completions",
+                        f"{litellm_base}/v1/chat/completions",
                         json={
                             "model": model,
                             "messages": [{"role": "user", "content": prompt}],
@@ -823,13 +826,12 @@ class ConversationHandlerMixin:
             logger.debug("Go Core /llm/available unavailable, falling back to LiteLLM", error=str(exc))
 
         # --- Fallback: direct LiteLLM query (no health filtering) ---
-        litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
         litellm_headers: dict[str, str] = {}
         if self._litellm_key:
             litellm_headers["Authorization"] = f"Bearer {self._litellm_key}"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{litellm_url}/v1/models", headers=litellm_headers)
+                resp = await client.get(f"{self._litellm_url}/v1/models", headers=litellm_headers)
             if resp.status_code != 200:
                 logger.warning("LiteLLM /v1/models returned status %d", resp.status_code)
                 return []

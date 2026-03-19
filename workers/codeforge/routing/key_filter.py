@@ -27,10 +27,19 @@ _KEYLESS_PROVIDERS: frozenset[str] = frozenset({"ollama", "lm_studio"})
 # Track which providers we've already warned about to avoid log spam.
 _warned_providers: set[str] = set()
 
+# Models known to be healthy (populated by set_healthy_models).
+_healthy_models: set[str] = set()
+
 
 def reset_warnings() -> None:
     """Clear the warned-providers set (for test teardown)."""
     _warned_providers.clear()
+
+
+def set_healthy_models(models: set[str]) -> None:
+    """Update the set of models known to be healthy from LiteLLM /health."""
+    global _healthy_models
+    _healthy_models = models
 
 
 def _has_key(provider: str) -> bool:
@@ -46,14 +55,20 @@ def _has_key(provider: str) -> bool:
 
 
 def filter_keyless_models(models: list[str]) -> list[str]:
-    """Return only models whose provider has an API key set.
+    """Return only models whose provider has an API key set OR are known healthy.
 
     Models without a ``provider/`` prefix are always kept.
     Unknown providers are always kept (safe default).
+    Models reported as healthy by LiteLLM /health are always kept (local models).
     """
     kept: list[str] = []
     for model in models:
         if "/" not in model:
+            kept.append(model)
+            continue
+        # Always keep models that LiteLLM reports as healthy (covers local
+        # models like openai/container backed by LM Studio).
+        if model in _healthy_models:
             kept.append(model)
             continue
         provider = model.split("/", 1)[0]

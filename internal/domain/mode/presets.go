@@ -291,7 +291,7 @@ func BuiltinModes() []Mode {
 			Tools:        []string{"Read", "Glob", "Grep", "ListDir", "propose_goal", "Write"},
 			DeniedTools:  []string{"Edit", "Bash"},
 			LLMScenario:  "think",
-			Autonomy:     2,
+			Autonomy:     4,
 			PromptPrefix: "",
 		},
 		// Review-refactor pipeline modes (Phase 31).

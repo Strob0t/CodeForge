@@ -49,6 +49,7 @@ type RuntimeService struct {
 	runTimeouts         sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
 	budgetAlerts        sync.Map // map["runID:threshold"]bool — dedup budget alerts
 	pendingApprovals    sync.Map // map["runID:callID"]chan string — HITL approval channels
+	cancelledConvRuns   sync.Map // map[conversationID]bool — cancelled conversation runs (fast reject)
 	quarantine          *QuarantineService
 	feedbackProvidersMu sync.RWMutex
 	feedbackProviders   []feedbackPort.Provider
@@ -90,6 +91,15 @@ func (s *RuntimeService) SetContextOptimizer(co *ContextOptimizerService) {
 // Used by the OrchestratorService to advance execution plans.
 func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.Status)) {
 	s.onRunComplete = fn
+}
+
+// MarkConversationRunCancelled records that a conversation-based run has been
+// cancelled so that subsequent tool-call requests are rejected immediately
+// without waiting for policy evaluation.
+func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
+	s.cancelledConvRuns.Store(conversationID, true)
+	s.cleanupRunState(conversationID)
+	slog.Info("conversation run marked cancelled", "conversation_id", conversationID)
 }
 
 // RegisterFeedbackProvider adds a feedback provider for HITL fan-out.

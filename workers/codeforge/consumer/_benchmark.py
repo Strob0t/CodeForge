@@ -46,11 +46,11 @@ def _litellm_headers() -> dict[str, str]:
 
 async def _fetch_available_models() -> list[str]:
     """Fetch model IDs from LiteLLM /v1/models endpoint."""
-    import os
-
     import httpx
 
-    litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+    from codeforge.config import WorkerSettings
+
+    litellm_url = WorkerSettings().litellm_url
     headers = _litellm_headers()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -69,11 +69,11 @@ async def _fetch_configured_models() -> list[str]:
     Unlike /v1/models which may return wildcard-expanded models,
     /model/info returns only explicitly configured model entries.
     """
-    import os
-
     import httpx
 
-    litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+    from codeforge.config import WorkerSettings
+
+    litellm_url = WorkerSettings().litellm_url
     headers = _litellm_headers()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

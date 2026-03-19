@@ -190,6 +190,11 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		)
 	}()
 
+	// Fast-reject: if this conversation run was cancelled, deny immediately.
+	if _, cancelled := s.cancelledConvRuns.Load(req.RunID); cancelled {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run cancelled")
+	}
+
 	conv, err := s.store.GetConversation(ctx, req.RunID)
 	if err != nil {
 		// Neither a run nor a conversation — likely a stale NATS message.

@@ -52,14 +52,32 @@ def expand_wildcard_models(raw_ids: list[str]) -> list[str]:
     return result
 
 
+def _fetch_healthy_models(litellm_url: str, headers: dict[str, str]) -> set[str]:
+    """Query LiteLLM /health and return model names of healthy endpoints."""
+    try:
+        resp = httpx.get(f"{litellm_url}/health", headers=headers, timeout=5.0)
+        if resp.status_code != 200:
+            return set()
+        data = resp.json()
+        healthy: set[str] = set()
+        for ep in data.get("healthy_endpoints", []):
+            model = ep.get("model", ep.get("model_name", ""))
+            if model:
+                healthy.add(model)
+        return healthy
+    except Exception:
+        return set()
+
+
 class _ModelCache:
     """Thread-safe cached list of available models from LiteLLM."""
 
-    __slots__ = ("_best", "_last_refresh", "_lock", "_models")
+    __slots__ = ("_best", "_healthy", "_last_refresh", "_lock", "_models")
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._models: list[str] = []
+        self._healthy: set[str] = set()
         self._best: str = ""
         self._last_refresh: float = 0.0
 
@@ -87,45 +105,75 @@ class _ModelCache:
         headers: dict[str, str] = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
+
+        healthy = _fetch_healthy_models(litellm_url, headers)
+        from codeforge.routing.key_filter import set_healthy_models
+
+        set_healthy_models(healthy)
+
+        models = self._fetch_and_filter_models(litellm_url, headers)
+        if models is None:
+            return
+
+        best = _select_best_model(models, healthy)
+
+        with self._lock:
+            self._models = models
+            self._healthy = healthy
+            self._best = best
+            self._last_refresh = time.monotonic()
+
+        if models:
+            logger.info(
+                "model_resolver: discovered %d models, %d healthy, best=%s",
+                len(models),
+                len(healthy),
+                best,
+            )
+        else:
+            logger.warning("model_resolver: no models available from LiteLLM")
+
+    @staticmethod
+    def _fetch_and_filter_models(litellm_url: str, headers: dict[str, str]) -> list[str] | None:
+        """Fetch models from LiteLLM and apply key filter. Returns None on error."""
         try:
             resp = httpx.get(f"{litellm_url}/v1/models", headers=headers, timeout=5.0)
             if resp.status_code != 200:
                 logger.warning("model_resolver: LiteLLM /v1/models returned %d", resp.status_code)
-                return
+                return None
             data = resp.json()
             raw_ids = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
             models = expand_wildcard_models(raw_ids)
             from codeforge.routing.key_filter import filter_keyless_models
 
-            models = filter_keyless_models(models)
+            return filter_keyless_models(models)
         except Exception as exc:
             logger.warning("model_resolver: failed to fetch from LiteLLM: %s", exc, exc_info=True)
-            return
+            return None
 
-        # Pick best model, skipping providers with known rate-limit / auth errors.
-        best = ""
-        if models:
-            from codeforge.routing.rate_tracker import get_tracker
 
-            tracker = get_tracker()
-            for m in models:
-                provider = m.split("/")[0] if "/" in m else ""
-                if provider and tracker.is_exhausted(provider):
-                    continue
-                best = m
-                break
-            if not best:
-                best = models[0]  # all exhausted — fall back to first
+def _select_best_model(models: list[str], healthy: set[str]) -> str:
+    """Pick the best model: prefer healthy, skip exhausted providers."""
+    if not models:
+        return ""
+    from codeforge.routing.rate_tracker import get_tracker
 
-        with self._lock:
-            self._models = models
-            self._best = best
-            self._last_refresh = time.monotonic()
+    tracker = get_tracker()
 
-        if models:
-            logger.info("model_resolver: discovered %d models, best=%s", len(models), models[0])
-        else:
-            logger.warning("model_resolver: no models available from LiteLLM")
+    def _first_available(candidates: list[str]) -> str:
+        for m in candidates:
+            provider = m.split("/")[0] if "/" in m else ""
+            if provider and tracker.is_exhausted(provider):
+                continue
+            return m
+        return ""
+
+    # First: healthy + non-exhausted.
+    best = _first_available([m for m in models if m in healthy])
+    # Second: any non-exhausted.
+    if not best:
+        best = _first_available(models)
+    return best or models[0]
 
 
 # Module-level singleton.
