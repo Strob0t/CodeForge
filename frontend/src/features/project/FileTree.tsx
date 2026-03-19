@@ -350,7 +350,7 @@ export default function FileTree(props: FileTreeProps): JSX.Element {
 
   return (
     <div
-      class="overflow-y-auto text-sm"
+      class="overflow-y-auto text-sm min-h-full"
       onContextMenu={(e: MouseEvent) => {
         // Right-click on empty area triggers root-level context menu
         if (props.onContextMenu && e.target === e.currentTarget) {
