@@ -12,12 +12,9 @@
 This is a **runbook for Claude Code sessions** using playwright-mcp tools. Claude Code drives the CodeForge frontend interactively, observes results via `browser_snapshot`, and adapts via Decision Trees when steps fail.
 
 **Prerequisites:**
-- CodeForge full stack running in development mode
-- `docker compose up -d postgres nats litellm`
-- `APP_ENV=development go run ./cmd/codeforge/`
-- `cd frontend && npm run dev`
-- Python worker running (see MEMORY.md)
-- At least one LLM model configured (any provider)
+- Playwright-MCP connected (`/mcp` shows playwright-mcp)
+- At least one LLM API key configured (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
+- **Claude Code is responsible for starting ALL required services** — see Phase 0
 
 **Execution:**
 - Follow phases 0-8 sequentially (strict order — each gates the next)
@@ -320,27 +317,117 @@ For regression testing (scheduled/cron):
 
 ---
 
-## Phase 0: Environment Discovery & Login
+## Phase 0: Service Startup & Environment Discovery & Login
 
-**Goal:** Verify all services running, login, discover available models.
+**Goal:** Ensure ALL required services are running, then login and discover models.
 
-**Steps:**
+**CRITICAL:** Claude Code MUST start and verify every service. Do NOT assume anything is already running. Check each service and start it if missing.
+
+### Step 0a: Start Infrastructure Services (Docker)
+
+1. **Check and start Docker services:**
+   ```bash
+   docker compose ps --format '{{.Name}}: {{.State}}' 2>/dev/null
+   ```
+
+2. **Start missing services:**
+   ```bash
+   docker compose up -d postgres nats litellm
+   ```
+
+3. **Wait for healthy state:**
+   ```bash
+   # Postgres
+   docker compose exec postgres pg_isready -U codeforge
+   # NATS (check monitoring port)
+   curl -s http://localhost:8222/varz | head -1
+   # LiteLLM
+   curl -s http://localhost:4000/health
+   ```
+
+4. **Find NATS container IP** (needed for WSL2 — localhost:4222 may not work):
+   ```bash
+   docker inspect codeforge-nats | grep -m1 '"IPAddress"' | grep -oP '[\d.]+'
+   ```
+   -> Store as `NATS_IP`
+
+### Step 0b: Start Go Backend
+
+1. **Check if backend is running:**
+   ```bash
+   curl -s http://localhost:8080/health 2>/dev/null || echo "NOT_RUNNING"
+   ```
+
+2. **If not running — start in background:**
+   ```bash
+   cd /workspaces/CodeForge && APP_ENV=development go run ./cmd/codeforge/ > /tmp/codeforge-backend.log 2>&1 &
+   ```
+
+3. **Wait for backend ready (poll up to 60s):**
+   ```bash
+   for i in $(seq 1 30); do
+     curl -s http://localhost:8080/health | grep -q '"ok"' && echo "READY" && break
+     sleep 2
+   done
+   ```
+   -> Expected: `READY`
+
+### Step 0c: Start Frontend Dev Server
+
+1. **Check if frontend is running:**
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo "NOT_RUNNING"
+   ```
+
+2. **If not running — start in background:**
+   ```bash
+   cd /workspaces/CodeForge/frontend && npm run dev > /tmp/codeforge-frontend.log 2>&1 &
+   ```
+
+3. **Wait for frontend ready (poll up to 30s):**
+   ```bash
+   for i in $(seq 1 15); do
+     curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null | grep -q "200" && echo "READY" && break
+     sleep 2
+   done
+   ```
+
+### Step 0d: Start Python Worker
+
+1. **Check if worker is running:**
+   ```bash
+   pgrep -f "codeforge.consumer" > /dev/null && echo "RUNNING" || echo "NOT_RUNNING"
+   ```
+
+2. **If not running — start in background:**
+   ```bash
+   cd /workspaces/CodeForge && \
+     NATS_URL="nats://${NATS_IP}:4222" \
+     APP_ENV=development \
+     .venv/bin/python -m codeforge.consumer > /tmp/codeforge-worker.log 2>&1 &
+   ```
+
+3. **Wait for worker ready (check log for startup message):**
+   ```bash
+   for i in $(seq 1 15); do
+     grep -q "Consumer started\|connected\|listening" /tmp/codeforge-worker.log 2>/dev/null && echo "READY" && break
+     sleep 2
+   done
+   ```
+
+### Step 0e: Verify All Services & Login via Browser
 
 1. `browser_navigate` -> `http://localhost:3000`
 2. `browser_snapshot` -> login page visible? Look for email/password fields
-3. `browser_evaluate`:
-   ```js
-   fetch('/api/v1/health').then(r => r.json())
-   ```
-   -> Expected: `{ status: "ok", dev_mode: true }`
 
-4. Login with seeded admin:
+3. Login with seeded admin:
    - `browser_fill_form` -> email: `admin@localhost`, password: `Changeme123`
    - `browser_click` -> Login/Submit button
    - `browser_snapshot` -> Dashboard page visible? (project cards or empty state)
 
-5. Store auth token for API calls:
+4. Store auth token for API calls:
    ```js
+   // browser_evaluate
    fetch('/api/v1/auth/login', {
      method: 'POST',
      headers: {'Content-Type': 'application/json'},
@@ -349,8 +436,9 @@ For regression testing (scheduled/cron):
    ```
    -> Store as `ENV.token`
 
-6. Model discovery:
+5. Model discovery:
    ```js
+   // browser_evaluate
    fetch('/api/v1/llm/discover', {
      method: 'POST',
      headers: {'Authorization': 'Bearer ' + ENV.token}
@@ -359,6 +447,7 @@ For regression testing (scheduled/cron):
    -> Store `ENV.models`, identify tool-capable models
 
 **Validation:**
+- All 6 services running: postgres, nats, litellm, go backend, frontend, python worker
 - Frontend renders (not blank, no JS errors)
 - Backend responds with `dev_mode: true`
 - Login succeeds, dashboard visible
@@ -366,14 +455,37 @@ For regression testing (scheduled/cron):
 
 **Decision Tree:**
 ```
-Frontend unreachable?
-├─ Timeout -> ABORT: "Frontend dev server not started (npm run dev)"
+Docker services not starting?
+├─ Docker daemon not running -> ABORT: "Start Docker first"
+├─ Port conflict -> docker compose down, then up again
+└─ postgres unhealthy -> Check docker compose logs postgres
+
+Go backend fails to start?
+├─ Port 8080 in use -> kill existing process: lsof -ti:8080 | xargs kill
+├─ Migration errors -> Check /tmp/codeforge-backend.log
+├─ Missing env vars -> Ensure APP_ENV=development
+└─ Build errors -> go build ./cmd/codeforge/ first to check
+
+Frontend fails to start?
+├─ Port 3000 in use -> kill existing: lsof -ti:3000 | xargs kill
+├─ node_modules missing -> cd frontend && npm install
+└─ Build errors -> Check /tmp/codeforge-frontend.log
+
+Worker fails to start?
+├─ NATS unreachable -> Find correct NATS container IP (WSL2 issue)
+│  docker inspect codeforge-nats | grep IPAddress
+├─ .venv not found -> cd /workspaces/CodeForge && poetry install
+├─ Import errors -> Check /tmp/codeforge-worker.log
+└─ bytecache stale -> find workers -name "*.pyc" -delete
+
+Frontend unreachable after all services started?
+├─ Timeout -> Check /tmp/codeforge-frontend.log
 ├─ Blank page -> browser_console_messages for JS errors
-└─ Error page -> browser_take_screenshot + ABORT
+└─ Error page -> browser_take_screenshot + check backend logs
 
 Login fails?
 ├─ "Invalid credentials" -> Check DB seeding (admin@localhost / Changeme123)
-├─ 502/503 -> ABORT: "Go backend not started"
+├─ 502/503 -> Backend crashed -> Check /tmp/codeforge-backend.log
 └─ Stuck on login page -> browser_console_messages, check CORS
 
 No models found?
