@@ -1,4 +1,8 @@
 // Package mode defines the Mode domain entity for agent specialization.
+//
+// Naming convention: Mode IDs use snake_case (e.g. "api_tester", "goal_researcher").
+// YAML filenames also use snake_case (e.g. "api_tester.yaml").
+// YAML internal IDs use dot-prefixed snake_case (e.g. "mode.api_tester").
 package mode
 
 import (
