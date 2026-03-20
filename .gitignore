@@ -74,3 +74,6 @@ __debug_bin*
 
 # Dev tools (not part of the project)
 /tools/
+
+# -- Test artifacts (agent test run outputs) ------
+tmp/
