@@ -324,6 +324,81 @@ func TestBenchmarkService_Leaderboard_NoSuiteFilter(t *testing.T) {
 	}
 }
 
+func TestRegisterSuite_AutoDerivesTypeFromProvider(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerName string
+		wantType     benchmark.BenchmarkType
+	}{
+		{"humaneval derives simple", "humaneval", benchmark.TypeSimple},
+		{"swebench derives agent", "swebench", benchmark.TypeAgent},
+		{"codeforge_tool_use derives tool_use", "codeforge_tool_use", benchmark.TypeToolUse},
+		{"mbpp derives simple", "mbpp", benchmark.TypeSimple},
+		{"terminal_bench derives agent", "terminal_bench", benchmark.TypeAgent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newBenchMockStore()
+			svc := service.NewBenchmarkService(store, "")
+			ctx := context.Background()
+
+			req := &benchmark.CreateSuiteRequest{
+				Name:         "Test Suite",
+				ProviderName: tt.providerName,
+				// Type intentionally omitted.
+			}
+
+			suite, err := svc.RegisterSuite(ctx, req)
+			if err != nil {
+				t.Fatalf("RegisterSuite() error = %v", err)
+			}
+			if suite.Type != tt.wantType {
+				t.Errorf("suite.Type = %q, want %q", suite.Type, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestRegisterSuite_ExplicitTypeNotOverridden(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	req := &benchmark.CreateSuiteRequest{
+		Name:         "Custom Suite",
+		Type:         benchmark.TypeAgent,
+		ProviderName: "humaneval", // Default would be "simple", but explicit "agent" wins.
+	}
+
+	suite, err := svc.RegisterSuite(ctx, req)
+	if err != nil {
+		t.Fatalf("RegisterSuite() error = %v", err)
+	}
+	if suite.Type != benchmark.TypeAgent {
+		t.Errorf("suite.Type = %q, want %q (explicit type should not be overridden)", suite.Type, benchmark.TypeAgent)
+	}
+}
+
+func TestRegisterSuite_UnknownProviderWithoutTypeFailsValidation(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	req := &benchmark.CreateSuiteRequest{
+		Name:         "Unknown Provider Suite",
+		ProviderName: "totally_unknown",
+		// Type omitted — unknown provider cannot auto-derive.
+	}
+
+	_, err := svc.RegisterSuite(ctx, req)
+	if err == nil {
+		t.Fatal("expected validation error for unknown provider without explicit type")
+	}
+	if !strings.Contains(err.Error(), "invalid benchmark type") {
+		t.Errorf("expected 'invalid benchmark type' error, got: %v", err)
+	}
+}
+
 // benchMockQueue is a minimal NATS queue mock for benchmark tests.
 type benchMockQueue struct {
 	published []benchPublishedMsg
@@ -469,6 +544,209 @@ func TestWatchdog_SkipsCompletedRuns(t *testing.T) {
 	}
 	if r.ErrorMessage != "" {
 		t.Errorf("expected empty ErrorMessage, got: %s", r.ErrorMessage)
+	}
+}
+
+func TestWatchdog_PerTypeTimeout_SimpleRunTimesOutFaster(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// A simple run created 45 minutes ago should be marked failed even with a
+	// 2-hour global timeout because simple runs have a 30-minute per-type timeout.
+	store.benchRuns["simple-old"] = &benchmark.Run{
+		ID:            "simple-old",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeSimple,
+		CreatedAt:     time.Now().Add(-45 * time.Minute),
+	}
+
+	svc.RunWatchdogOnce(ctx, 2*time.Hour) // global timeout = 2h
+
+	r := store.benchRuns["simple-old"]
+	if r.Status != benchmark.StatusFailed {
+		t.Errorf("expected simple run to be failed after 45 min, got %q", r.Status)
+	}
+	if !strings.Contains(r.ErrorMessage, "30m") {
+		t.Errorf("ErrorMessage should reference 30m timeout, got: %s", r.ErrorMessage)
+	}
+}
+
+func TestWatchdog_PerTypeTimeout_AgentRunSurvivesLonger(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// An agent run created 3 hours ago should NOT be marked failed because
+	// agent runs have a 4-hour per-type timeout.
+	store.benchRuns["agent-running"] = &benchmark.Run{
+		ID:            "agent-running",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeAgent,
+		CreatedAt:     time.Now().Add(-3 * time.Hour),
+	}
+
+	svc.RunWatchdogOnce(ctx, 2*time.Hour) // global timeout = 2h
+
+	r := store.benchRuns["agent-running"]
+	if r.Status != benchmark.StatusRunning {
+		t.Errorf("expected agent run to still be running after 3h, got %q", r.Status)
+	}
+	if r.ErrorMessage != "" {
+		t.Errorf("expected empty ErrorMessage, got: %s", r.ErrorMessage)
+	}
+}
+
+func TestWatchdog_PerTypeTimeout_AgentRunTimesOutAt4h(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// An agent run created 5 hours ago should be marked failed (exceeds 4h).
+	store.benchRuns["agent-stale"] = &benchmark.Run{
+		ID:            "agent-stale",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeAgent,
+		CreatedAt:     time.Now().Add(-5 * time.Hour),
+	}
+
+	svc.RunWatchdogOnce(ctx, 2*time.Hour)
+
+	r := store.benchRuns["agent-stale"]
+	if r.Status != benchmark.StatusFailed {
+		t.Errorf("expected agent run to be failed after 5h, got %q", r.Status)
+	}
+	if !strings.Contains(r.ErrorMessage, "4h") {
+		t.Errorf("ErrorMessage should reference 4h timeout, got: %s", r.ErrorMessage)
+	}
+}
+
+func TestWatchdog_PerTypeTimeout_ToolUseRunTimesOutAt1h(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// A tool_use run created 75 minutes ago should be marked failed (exceeds 60 min).
+	store.benchRuns["tooluse-stale"] = &benchmark.Run{
+		ID:            "tooluse-stale",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeToolUse,
+		CreatedAt:     time.Now().Add(-75 * time.Minute),
+	}
+	// A tool_use run created 45 minutes ago should still be running.
+	store.benchRuns["tooluse-young"] = &benchmark.Run{
+		ID:            "tooluse-young",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeToolUse,
+		CreatedAt:     time.Now().Add(-45 * time.Minute),
+	}
+
+	svc.RunWatchdogOnce(ctx, 2*time.Hour)
+
+	stale := store.benchRuns["tooluse-stale"]
+	if stale.Status != benchmark.StatusFailed {
+		t.Errorf("expected tool_use run to be failed after 75 min, got %q", stale.Status)
+	}
+	if !strings.Contains(stale.ErrorMessage, "1h") {
+		t.Errorf("ErrorMessage should reference 1h timeout, got: %s", stale.ErrorMessage)
+	}
+
+	young := store.benchRuns["tooluse-young"]
+	if young.Status != benchmark.StatusRunning {
+		t.Errorf("expected tool_use run to still be running after 45 min, got %q", young.Status)
+	}
+}
+
+func TestWatchdog_PerTypeTimeout_EmptyTypeFallsBackToGlobal(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// Run with empty BenchmarkType created 90 minutes ago.
+	// With a 1-hour global timeout, it should be marked failed.
+	store.benchRuns["no-type-old"] = &benchmark.Run{
+		ID:        "no-type-old",
+		Model:     "gpt-4",
+		Status:    benchmark.StatusRunning,
+		CreatedAt: time.Now().Add(-90 * time.Minute),
+	}
+	// Run with empty BenchmarkType created 30 minutes ago should stay running.
+	store.benchRuns["no-type-young"] = &benchmark.Run{
+		ID:        "no-type-young",
+		Model:     "gpt-4",
+		Status:    benchmark.StatusRunning,
+		CreatedAt: time.Now().Add(-30 * time.Minute),
+	}
+
+	svc.RunWatchdogOnce(ctx, 1*time.Hour) // global = 1h
+
+	old := store.benchRuns["no-type-old"]
+	if old.Status != benchmark.StatusFailed {
+		t.Errorf("expected empty-type run to be failed after 90 min with 1h global timeout, got %q", old.Status)
+	}
+
+	young := store.benchRuns["no-type-young"]
+	if young.Status != benchmark.StatusRunning {
+		t.Errorf("expected empty-type run to still be running after 30 min, got %q", young.Status)
+	}
+}
+
+func TestWatchdog_PerTypeTimeout_MixedTypes(t *testing.T) {
+	store := newBenchMockStore()
+	svc := service.NewBenchmarkService(store, "")
+	ctx := context.Background()
+
+	// All runs created 45 minutes ago. With 2h global timeout:
+	// - simple (30m limit) -> should FAIL
+	// - tool_use (60m limit) -> should SURVIVE
+	// - agent (4h limit) -> should SURVIVE
+	// - empty type (2h global) -> should SURVIVE
+	store.benchRuns["mix-simple"] = &benchmark.Run{
+		ID:            "mix-simple",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeSimple,
+		CreatedAt:     time.Now().Add(-45 * time.Minute),
+	}
+	store.benchRuns["mix-tooluse"] = &benchmark.Run{
+		ID:            "mix-tooluse",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeToolUse,
+		CreatedAt:     time.Now().Add(-45 * time.Minute),
+	}
+	store.benchRuns["mix-agent"] = &benchmark.Run{
+		ID:            "mix-agent",
+		Model:         "gpt-4",
+		Status:        benchmark.StatusRunning,
+		BenchmarkType: benchmark.TypeAgent,
+		CreatedAt:     time.Now().Add(-45 * time.Minute),
+	}
+	store.benchRuns["mix-empty"] = &benchmark.Run{
+		ID:        "mix-empty",
+		Model:     "gpt-4",
+		Status:    benchmark.StatusRunning,
+		CreatedAt: time.Now().Add(-45 * time.Minute),
+	}
+
+	svc.RunWatchdogOnce(ctx, 2*time.Hour)
+
+	if store.benchRuns["mix-simple"].Status != benchmark.StatusFailed {
+		t.Error("expected simple run to be failed")
+	}
+	if store.benchRuns["mix-tooluse"].Status != benchmark.StatusRunning {
+		t.Error("expected tool_use run to still be running")
+	}
+	if store.benchRuns["mix-agent"].Status != benchmark.StatusRunning {
+		t.Error("expected agent run to still be running")
+	}
+	if store.benchRuns["mix-empty"].Status != benchmark.StatusRunning {
+		t.Error("expected empty-type run to still be running")
 	}
 }
 

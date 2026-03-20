@@ -324,6 +324,13 @@ func (h *Handlers) ExportTrainingData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return an empty JSON array for consistency when there are no pairs,
+	// regardless of format. An empty JSONL body (zero bytes) confuses clients.
+	if len(pairs) == 0 {
+		writeJSONList(w, http.StatusOK, pairs)
+		return
+	}
+
 	format := strings.ToLower(r.URL.Query().Get("format"))
 	if format == "json" {
 		writeJSON(w, http.StatusOK, pairs)

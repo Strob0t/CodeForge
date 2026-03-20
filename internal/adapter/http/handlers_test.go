@@ -3496,3 +3496,97 @@ func TestListRemoteBranches_URLValidation(t *testing.T) {
 		})
 	}
 }
+
+// errorEventStore implements eventstore.Store and returns configurable errors for trajectory methods.
+type errorEventStore struct {
+	mockEventStore
+	loadPage *eventstore.TrajectoryPage
+	loadErr  error
+	statsErr error
+}
+
+func (e *errorEventStore) LoadTrajectory(_ context.Context, _ string, _ eventstore.TrajectoryFilter, _ string, _ int) (*eventstore.TrajectoryPage, error) {
+	return e.loadPage, e.loadErr
+}
+
+func (e *errorEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
+	if e.statsErr != nil {
+		return nil, e.statsErr
+	}
+	return &eventstore.TrajectorySummary{}, nil
+}
+
+func TestGetTrajectory_NoEvents_Returns200Empty(t *testing.T) {
+	es := &errorEventStore{
+		loadErr:  fmt.Errorf("no events found"),
+		statsErr: fmt.Errorf("no events found"),
+	}
+	h := &cfhttp.Handlers{Events: es}
+
+	req := httptest.NewRequest("GET", "/api/v1/runs/nonexistent-run/trajectory?limit=50", http.NoBody)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "nonexistent-run")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+
+	h.GetTrajectory(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]json.RawMessage
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if _, ok := resp["events"]; !ok {
+		t.Fatal("response missing 'events' key")
+	}
+	if _, ok := resp["stats"]; !ok {
+		t.Fatal("response missing 'stats' key")
+	}
+
+	var events []json.RawMessage
+	if err := json.Unmarshal(resp["events"], &events); err != nil {
+		t.Fatalf("failed to decode events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected empty events, got %d", len(events))
+	}
+
+	var hasMore bool
+	if err := json.Unmarshal(resp["has_more"], &hasMore); err != nil {
+		t.Fatalf("failed to decode has_more: %v", err)
+	}
+	if hasMore {
+		t.Fatal("expected has_more=false")
+	}
+}
+
+func TestGetTrajectory_LoadOK_StatsError_Returns200(t *testing.T) {
+	es := &errorEventStore{
+		loadPage: &eventstore.TrajectoryPage{},
+		statsErr: fmt.Errorf("stats computation failed"),
+	}
+	h := &cfhttp.Handlers{Events: es}
+
+	req := httptest.NewRequest("GET", "/api/v1/runs/some-run/trajectory", http.NoBody)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "some-run")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+
+	h.GetTrajectory(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]json.RawMessage
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if _, ok := resp["stats"]; !ok {
+		t.Fatal("response missing 'stats' key")
+	}
+}

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os as _os
 import tempfile
 import time
 from typing import TYPE_CHECKING
@@ -32,6 +33,39 @@ if TYPE_CHECKING:
 
 
 logger = structlog.get_logger()
+
+
+# --- Parallel benchmark execution helpers ---
+
+
+def _get_benchmark_semaphore() -> asyncio.Semaphore:
+    """Create a semaphore with configurable max parallelism."""
+    max_parallel = int(_os.environ.get("BENCHMARK_MAX_PARALLEL", "3"))
+    return asyncio.Semaphore(max_parallel)
+
+
+_benchmark_semaphore: asyncio.Semaphore | None = None
+
+
+def _ensure_benchmark_semaphore() -> asyncio.Semaphore:
+    """Lazily initialize and return the module-level benchmark semaphore."""
+    global _benchmark_semaphore
+    if _benchmark_semaphore is None:
+        _benchmark_semaphore = _get_benchmark_semaphore()
+    return _benchmark_semaphore
+
+
+def _handle_task_exception(task: asyncio.Task[None]) -> None:
+    """Log unhandled exceptions from spawned benchmark tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "benchmark task failed with unhandled exception",
+            task_name=task.get_name(),
+            error=str(exc),
+        )
 
 
 def _litellm_headers() -> dict[str, str]:
@@ -131,10 +165,9 @@ class BenchmarkHandlerMixin:
     """Handles benchmark.run.request and evaluation.gemmas.request messages."""
 
     async def _handle_benchmark_run(self, msg: nats.aio.msg.Msg) -> None:
-        """Handle a benchmark run request (dev-mode only)."""
+        """Validate, deduplicate, ack, then dispatch benchmark execution as a background task."""
         import os
 
-        from codeforge.evaluation.pipeline import EvaluationPipeline
         from codeforge.models import BenchmarkRunRequest, BenchmarkRunResult
 
         if os.getenv("APP_ENV") != "development":
@@ -178,68 +211,12 @@ class BenchmarkHandlerMixin:
             # Results are published back via NATS regardless of success/failure.
             await msg.ack()
 
-            log.info("benchmark run started")
-
-            start = time.monotonic()
-            evaluators = _build_evaluators(req.evaluators, req.model)
-
-            # Always build a regular pipeline for per-task scoring.
-            pipeline = EvaluationPipeline(evaluators)
-            # Phase 28A: Build hybrid pipeline separately for multi-rollout selection.
-            hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
-
-            # Auto-routing: wrap LLM with routing for per-task model selection.
-            effective_llm = await self._resolve_effective_llm(req, log)
-
-            # Build per-task progress callbacks for real-time WS updates.
-            on_start, on_complete = _build_progress_callbacks(self._js, req.run_id)
-
-            if benchmark_type == "tool_use":
-                results = await _run_tool_use_benchmark(
-                    req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                )
-            elif benchmark_type == "agent":
-                results = await _run_agent_benchmark(
-                    req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                )
-            else:
-                results = await _run_simple_benchmark(
-                    req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                )
-
-            # Annotate results with routing metadata.
-            if req.model == "auto" and hasattr(effective_llm, "routing_log"):
-                _annotate_routing(results, effective_llm.routing_log)
-
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            summary = _compute_summary(results, elapsed_ms)
-
-            if req.model == "auto":
-                summary["routing_report"] = _compute_routing_report(results)
-
-            result = BenchmarkRunResult(
-                run_id=req.run_id,
-                tenant_id=req.tenant_id,
-                status="completed",
-                results=results,
-                summary=summary,
-                total_cost=summary.get("total_cost_usd", 0.0),
-                total_tokens=summary.get("total_tokens_in", 0) + summary.get("total_tokens_out", 0),
-                total_duration_ms=summary.get("elapsed_ms", 0),
+            # Dispatch execution as a background task with semaphore-based concurrency.
+            task = asyncio.create_task(
+                self._execute_benchmark_run(req, log),
+                name=f"benchmark-{req.run_id}",
             )
-
-            if self._js is not None:
-                await self._js.publish(
-                    SUBJECT_BENCHMARK_RUN_RESULT,
-                    result.model_dump_json().encode(),
-                )
-
-            log.info(
-                "benchmark run completed",
-                task_count=len(results),
-                elapsed_ms=elapsed_ms,
-                avg_score=summary.get("avg_score", 0),
-            )
+            task.add_done_callback(_handle_task_exception)
 
         except Exception as exc:
             log.exception("benchmark run failed")
@@ -254,6 +231,98 @@ class BenchmarkHandlerMixin:
             )
             # Ack to prevent infinite NATS redelivery — error result is already published.
             await msg.ack()
+
+    async def _execute_benchmark_run(
+        self,
+        req: object,
+        log: structlog.BoundLogger,
+    ) -> None:
+        """Run the benchmark pipeline under a concurrency-limiting semaphore.
+
+        Called as a background task from ``_handle_benchmark_run``.  The NATS
+        message has already been acked, so this method only publishes results
+        (success or error) back to NATS.
+        """
+        from codeforge.evaluation.pipeline import EvaluationPipeline
+        from codeforge.models import BenchmarkRunResult
+
+        async with _ensure_benchmark_semaphore():
+            try:
+                log.info("benchmark run started")
+
+                start = time.monotonic()
+                evaluators = _build_evaluators(req.evaluators, req.model)
+
+                # Always build a regular pipeline for per-task scoring.
+                pipeline = EvaluationPipeline(evaluators)
+                # Phase 28A: Build hybrid pipeline separately for multi-rollout selection.
+                hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
+
+                # Auto-routing: wrap LLM with routing for per-task model selection.
+                effective_llm = await self._resolve_effective_llm(req, log)
+
+                # Build per-task progress callbacks for real-time WS updates.
+                on_start, on_complete = _build_progress_callbacks(self._js, req.run_id)
+
+                benchmark_type = req.benchmark_type or "simple"
+                if benchmark_type == "tool_use":
+                    results = await _run_tool_use_benchmark(
+                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                    )
+                elif benchmark_type == "agent":
+                    results = await _run_agent_benchmark(
+                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                    )
+                else:
+                    results = await _run_simple_benchmark(
+                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                    )
+
+                # Annotate results with routing metadata.
+                if req.model == "auto" and hasattr(effective_llm, "routing_log"):
+                    _annotate_routing(results, effective_llm.routing_log)
+
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                summary = _compute_summary(results, elapsed_ms)
+
+                if req.model == "auto":
+                    summary["routing_report"] = _compute_routing_report(results)
+
+                result = BenchmarkRunResult(
+                    run_id=req.run_id,
+                    tenant_id=req.tenant_id,
+                    status="completed",
+                    results=results,
+                    summary=summary,
+                    total_cost=summary.get("total_cost_usd", 0.0),
+                    total_tokens=summary.get("total_tokens_in", 0) + summary.get("total_tokens_out", 0),
+                    total_duration_ms=summary.get("elapsed_ms", 0),
+                )
+
+                if self._js is not None:
+                    await self._js.publish(
+                        SUBJECT_BENCHMARK_RUN_RESULT,
+                        result.model_dump_json().encode(),
+                    )
+
+                log.info(
+                    "benchmark run completed",
+                    task_count=len(results),
+                    elapsed_ms=elapsed_ms,
+                    avg_score=summary.get("avg_score", 0),
+                )
+
+            except Exception as exc:
+                log.exception("benchmark run failed")
+                await self._publish_error(
+                    BenchmarkRunResult(
+                        run_id=req.run_id,
+                        tenant_id=req.tenant_id,
+                        status="failed",
+                        error=str(exc),
+                    ),
+                    SUBJECT_BENCHMARK_RUN_RESULT,
+                )
 
     async def _resolve_effective_llm(self, req: object, log: structlog.BoundLogger) -> object:
         """Resolve the effective LLM client, wrapping with router for auto mode."""

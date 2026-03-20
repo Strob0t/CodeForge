@@ -443,15 +443,16 @@ func (h *Handlers) GetTrajectory(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.Events.LoadTrajectory(r.Context(), runID, filter, cursor, limit)
 	if err != nil {
-		writeDomainError(w, err, "run not found")
-		return
+		// Return empty result for runs with no events yet (e.g. still running).
+		page = &eventstore.TrajectoryPage{
+			Events: []event.AgentEvent{},
+		}
 	}
 
 	// Include stats in the response.
 	stats, err := h.Events.TrajectoryStats(r.Context(), runID)
 	if err != nil {
-		writeDomainError(w, err, "run not found")
-		return
+		stats = &eventstore.TrajectorySummary{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
