@@ -34,9 +34,29 @@ type Queue struct {
 	breaker *resilience.Breaker
 }
 
+// reconnectOpts returns NATS connection options for automatic reconnection
+// and error reporting. Extracted for testability.
+func reconnectOpts() []nats.Option {
+	return []nats.Option{
+		nats.MaxReconnects(60),
+		nats.ReconnectWait(2 * time.Second),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			if err != nil {
+				slog.Warn("nats disconnected", "error", err)
+			}
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			slog.Info("nats reconnected", "url", nc.ConnectedUrl())
+		}),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			slog.Error("nats async error", "error", err)
+		}),
+	}
+}
+
 // Connect establishes a connection to NATS and ensures the JetStream stream exists.
 func Connect(ctx context.Context, url string) (*Queue, error) {
-	nc, err := nats.Connect(url)
+	nc, err := nats.Connect(url, reconnectOpts()...)
 	if err != nil {
 		return nil, fmt.Errorf("nats connect: %w", err)
 	}
