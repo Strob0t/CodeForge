@@ -470,19 +470,47 @@ func parseLocations(raw json.RawMessage) ([]lspDomain.Location, error) {
 	}
 
 	// LSP definition can return Location | Location[] | LocationLink[].
-	// Try array first.
+	// See: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_definition
+
+	// Try Location[] first.
 	var locs []lspDomain.Location
-	if err := json.Unmarshal(raw, &locs); err == nil {
+	if err := json.Unmarshal(raw, &locs); err == nil && len(locs) > 0 && locs[0].URI != "" {
 		return locs, nil
 	}
 
-	// Try single location.
+	// Try single Location.
 	var loc lspDomain.Location
-	if err := json.Unmarshal(raw, &loc); err == nil {
+	if err := json.Unmarshal(raw, &loc); err == nil && loc.URI != "" {
 		return []lspDomain.Location{loc}, nil
 	}
 
+	// FIX-108: Try LocationLink[] (LSP 3.14+). Convert to Location by
+	// using targetUri + targetRange, discarding originSelectionRange.
+	var links []locationLink
+	if err := json.Unmarshal(raw, &links); err == nil && len(links) > 0 {
+		result := make([]lspDomain.Location, 0, len(links))
+		for i := range links {
+			if links[i].TargetURI != "" {
+				result = append(result, lspDomain.Location{
+					URI:   links[i].TargetURI,
+					Range: links[i].TargetRange,
+				})
+			}
+		}
+		if len(result) > 0 {
+			return result, nil
+		}
+	}
+
 	return nil, fmt.Errorf("unexpected definition result format")
+}
+
+// locationLink represents an LSP LocationLink (3.14+).
+// See: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#locationLink
+type locationLink struct {
+	TargetURI            string          `json:"targetUri"`
+	TargetRange          lspDomain.Range `json:"targetRange"`
+	TargetSelectionRange lspDomain.Range `json:"targetSelectionRange"`
 }
 
 // extractHoverContents normalizes the hover contents field to a markdown string.

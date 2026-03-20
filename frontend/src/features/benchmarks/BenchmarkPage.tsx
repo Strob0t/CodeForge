@@ -356,8 +356,9 @@ export default function BenchmarkPage() {
             lastSequenceNumber: Math.max(prev.lastSequenceNumber, maxSeq),
           }));
         })
-        .catch((err: unknown) => {
-          console.warn(`[LiveFeed] hydration failed for run ${run.id}:`, err);
+        .catch(() => {
+          // FIX-104: Silently mark as hydrated on failure — the WS live feed
+          // will continue to provide updates. Hydration is best-effort.
           updateRunState(run.id, (prev) => ({ ...prev, hydratedFromApi: true }));
         });
     }
@@ -400,8 +401,8 @@ export default function BenchmarkPage() {
               };
             });
           })
-          .catch((err: unknown) => {
-            console.warn(`[LiveFeed] reconnect gap-fill failed for run ${run.id}:`, err);
+          .catch(() => {
+            // FIX-104: Gap-fill is best-effort — WS will catch up on next event.
           });
       }
     }

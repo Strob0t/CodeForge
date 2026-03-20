@@ -1,4 +1,9 @@
-"""Pre-validation filter: remove models whose provider has no API key configured."""
+"""Pre-validation filter: remove models whose provider has no API key configured.
+
+TODO: FIX-110: This module uses module-level singletons (_warned_providers,
+_healthy_models). Consider dependency injection or a KeyFilter class to
+improve testability and avoid global mutable state.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +30,8 @@ PROVIDER_KEY_MAP: dict[str, str] = {
 _KEYLESS_PROVIDERS: frozenset[str] = frozenset({"ollama", "lm_studio"})
 
 # Track which providers we've already warned about to avoid log spam.
+# FIX-111: No lock needed — Python asyncio runs on a single thread,
+# so concurrent coroutines never execute simultaneously.
 _warned_providers: set[str] = set()
 
 # Models known to be healthy (populated by set_healthy_models).

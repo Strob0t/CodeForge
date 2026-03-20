@@ -831,7 +831,12 @@ func run() error {
 		api.Use(rateLimiter.Handler)
 		api.Use(middleware.Idempotency(idempotencyKV))
 
-		cfhttp.MountRoutes(api, handlers, cfg.Webhook)
+		// FIX-084: Stricter rate limiter for auth endpoints (brute-force protection).
+		authRL := middleware.NewRateLimiter(cfg.Rate.AuthPerSecond, cfg.Rate.AuthBurst)
+		authRLCleanup := authRL.StartCleanup(cfg.Rate.CleanupInterval, cfg.Rate.MaxIdleTime)
+		defer authRLCleanup()
+
+		cfhttp.MountRoutes(api, handlers, cfg.Webhook, cfhttp.WithAuthRateLimiter(authRL))
 
 		// A2A protocol routes (Phase 27 — SDK-based)
 		if cfg.A2A.Enabled {
@@ -853,7 +858,8 @@ func run() error {
 			}
 
 			// Build components.
-			cardBuilder := cfa2a.NewCardBuilder(a2aBaseURL, modeInfos, cfversion.Version)
+			cardBuilder := cfa2a.NewCardBuilder(a2aBaseURL, modeInfos, cfversion.Version,
+				cfa2a.WithStreaming(cfg.A2A.Streaming))
 			taskStoreAdapter := cfa2a.NewTaskStoreAdapter(store)
 			executor := cfa2a.NewExecutor(store, queue, hub, modeIDs)
 

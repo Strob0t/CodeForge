@@ -173,6 +173,8 @@ func loadEnv(cfg *Config) {
 	setInt(&cfg.Rate.Burst, "CODEFORGE_RATE_BURST")
 	setDuration(&cfg.Rate.CleanupInterval, "CODEFORGE_RATE_CLEANUP_INTERVAL")
 	setDuration(&cfg.Rate.MaxIdleTime, "CODEFORGE_RATE_MAX_IDLE_TIME")
+	setFloat64(&cfg.Rate.AuthPerSecond, "CODEFORGE_RATE_AUTH_RPS")
+	setInt(&cfg.Rate.AuthBurst, "CODEFORGE_RATE_AUTH_BURST")
 	setInt(&cfg.Git.MaxConcurrent, "CODEFORGE_GIT_MAX_CONCURRENT")
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
@@ -262,6 +264,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.A2A.Transport, "CODEFORGE_A2A_TRANSPORT")
 	setInt(&cfg.A2A.MaxTasks, "CODEFORGE_A2A_MAX_TASKS")
 	setBool(&cfg.A2A.AllowOpen, "CODEFORGE_A2A_ALLOW_OPEN")
+	setBool(&cfg.A2A.Streaming, "CODEFORGE_A2A_STREAMING")
 
 	// AG-UI
 	setBool(&cfg.AGUI.Enabled, "CODEFORGE_AGUI_ENABLED")

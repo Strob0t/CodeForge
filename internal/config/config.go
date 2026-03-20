@@ -342,6 +342,8 @@ type Rate struct {
 	Burst             int           `yaml:"burst"`
 	CleanupInterval   time.Duration `yaml:"cleanup_interval"` // Stale bucket cleanup interval (default: 5m)
 	MaxIdleTime       time.Duration `yaml:"max_idle_time"`    // Remove buckets idle longer than this (default: 10m)
+	AuthPerSecond     float64       `yaml:"auth_per_second"`  // Stricter rate for auth endpoints (default: 0.167 = 10/min)
+	AuthBurst         int           `yaml:"auth_burst"`       // Burst for auth endpoints (default: 5)
 }
 
 // Idempotency holds idempotency key middleware configuration.
@@ -367,6 +369,7 @@ type A2A struct {
 	Transport string   `yaml:"transport"`  // "jsonrpc" (default) | "rest"
 	MaxTasks  int      `yaml:"max_tasks"`  // Max concurrent A2A tasks (default: 100)
 	AllowOpen bool     `yaml:"allow_open"` // Allow unauthenticated AgentCard discovery (default: true)
+	Streaming bool     `yaml:"streaming"`  // FIX-109: Advertise streaming capability in AgentCard (default: false)
 }
 
 // AGUI holds AG-UI (Agent-User Interaction) protocol configuration.
@@ -432,6 +435,8 @@ func Defaults() Config {
 			Burst:             100,
 			CleanupInterval:   5 * time.Minute,
 			MaxIdleTime:       10 * time.Minute,
+			AuthPerSecond:     10.0 / 60.0, // 10 req/min
+			AuthBurst:         5,
 		},
 		Git: Git{
 			MaxConcurrent: 5,

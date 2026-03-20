@@ -56,15 +56,17 @@ func (s *Store) GetUserByEmail(ctx context.Context, email, tenantID string) (*us
 }
 
 func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, error) {
+	// FIX-094: Explicit column list excluding password_hash — listing users
+	// should never expose credential data to the API layer.
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
+		SELECT id, email, name, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
 		FROM users WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (user.User, error) {
 		var u user.User
-		err := r.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+		err := r.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
 		return u, err
 	})
 }

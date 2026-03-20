@@ -6,6 +6,10 @@ import (
 )
 
 // TaskState represents the state of an A2A task (matches A2A spec v0.3.0).
+//
+// FIX-099: Spelling convention: The A2A protocol and Go stdlib use "canceled"
+// (American). All CodeForge-internal code uses "cancelled" (British) for
+// consistency. Both spellings are intentional — do not "fix" either.
 type TaskState string
 
 const (

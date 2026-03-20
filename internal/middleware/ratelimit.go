@@ -141,6 +141,11 @@ func (rl *RateLimiter) Len() int {
 // realIP extracts the client IP from RemoteAddr.
 // Proxy headers (X-Forwarded-For, X-Real-Ip) are NOT trusted because
 // they can be spoofed by attackers to bypass rate limiting.
+//
+// TODO: FIX-096: Add per-user rate limiting for authenticated endpoints.
+// For authenticated requests, key on user ID (from JWT) in addition to IP.
+// This prevents a single compromised account from exhausting rate limits
+// for all users behind a shared IP (e.g., corporate NAT).
 func realIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

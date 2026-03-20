@@ -1405,7 +1405,7 @@ def _check_model_switch(quality_tracker: IterationQualityTracker, cfg: LoopConfi
 
 def _check_plan_act_transition(plan_act: PlanActController, messages: list[dict[str, object]]) -> None:
     """Auto-transition from plan to act when max plan iterations reached."""
-    if plan_act.should_auto_transition():
+    if plan_act.tick_and_should_transition():
         plan_act.transition_to_act()
         logger.info("plan/act auto-transition to act phase after %d plan iterations", plan_act.plan_iterations)
         _update_system_suffix(messages, plan_act.get_system_suffix())

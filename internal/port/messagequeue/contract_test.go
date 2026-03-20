@@ -438,6 +438,25 @@ func sampleA2ATaskCompletePayload() mq.A2ATaskCompletePayload {
 	}
 }
 
+// TODO: FIX-086: The following NATS subjects lack contract test coverage.
+// Each needs a sample payload factory, fixture entry, and key-field verification:
+//
+//  - tasks.agent / tasks.result / tasks.output / tasks.cancel (legacy task dispatch)
+//  - runs.start / runs.toolcall.request / runs.toolcall.response / runs.toolcall.result
+//  - runs.complete / runs.cancel / runs.output / runs.heartbeat
+//  - runs.qualitygate.request / runs.qualitygate.result
+//  - context.shared.updated / context.rerank.request / context.rerank.result
+//  - conversation.run.cancel / conversation.compact.request / conversation.compact.complete
+//  - mcp.server.status / mcp.tools.discovered
+//  - memory.store / memory.recall / memory.recall.result
+//  - handoff.request
+//  - runs.trajectory.event
+//  - backends.health.request / backends.health.result
+//  - review.trigger.request / review.trigger.complete / review.boundary.analyzed
+//  - review.approval.required / review.approval.response
+//  - prompt.evolution.reflect / prompt.evolution.reflect.complete
+//  - prompt.evolution.mutate.complete / prompt.evolution.promoted / prompt.evolution.reverted
+
 // --- Fixture generation and round-trip tests ---
 
 // fixtureEntry maps a NATS subject to its sample payload for fixture generation.

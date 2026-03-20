@@ -269,6 +269,12 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
 }
 
 // sanitizeConsumerName builds a deterministic durable consumer name from a subject.
+//
+// FIX-087: Consumer naming convention:
+//   - Go consumers: prefix "codeforge-go-" + sanitized subject (dots→dashes, wildcards→"all")
+//   - Python consumers: prefix "codeforge-py-" + sanitized subject (see workers/codeforge/consumer/__init__.py)
+//   - This ensures unique, deterministic names per language per subject.
+//   - Examples: "codeforge-go-conversation-run-start", "codeforge-py-benchmark-run-request"
 func sanitizeConsumerName(prefix, subject string) string {
 	r := strings.NewReplacer(".", "-", "*", "all", ">", "all")
 	return prefix + r.Replace(subject)

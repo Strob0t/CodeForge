@@ -1,4 +1,10 @@
-"""FakeLLM test harness — duck-types LiteLLMClient for deterministic testing."""
+"""FakeLLM test harness — duck-types LiteLLMClient for deterministic testing.
+
+TODO: FIX-101: This FakeLLM is imported from 10+ test files. If additional
+test doubles (e.g., FakeNATS, FakeStore) are created, consider extracting
+all shared test helpers into a ``tests/helpers/`` package to reduce
+duplication and centralize test infrastructure.
+"""
 
 from __future__ import annotations
 

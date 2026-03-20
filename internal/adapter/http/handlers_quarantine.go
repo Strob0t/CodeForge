@@ -8,6 +8,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 )
 
+// FIX-097: Quarantine handlers are intentionally unexported (lowercase).
+// They are admin-only and registered via method values in routes.go within
+// the same package. No external package needs to reference them directly.
+
 // listQuarantinedMessages handles GET /api/v1/quarantine?project_id=...&status=...&limit=...&offset=...
 func (h *Handlers) listQuarantinedMessages(w http.ResponseWriter, r *http.Request) {
 	if h.Quarantine == nil {

@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import functools
-from typing import Any
+from collections.abc import Callable, Coroutine
 
 from codeforge.tools._base import ToolResult
 
+# FIX-089: Replace broad Any with specific callable types.
+# The decorated function is an async tool method with a fixed signature.
+ToolMethod = Callable[..., Coroutine[object, object, ToolResult]]
+
 
 def catch_os_error(
-    func: Any,
-) -> Any:
+    func: ToolMethod,
+) -> ToolMethod:
     """Decorator: catches OSError and returns a failed ToolResult."""
 
     @functools.wraps(func)
-    async def wrapper(self: Any, arguments: dict, workspace_path: str) -> ToolResult:
+    async def wrapper(self: object, arguments: dict[str, object], workspace_path: str) -> ToolResult:
         try:
             return await func(self, arguments, workspace_path)
         except OSError as exc:

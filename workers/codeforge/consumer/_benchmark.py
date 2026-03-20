@@ -93,7 +93,8 @@ async def _fetch_available_models() -> list[str]:
             return []
         data = resp.json()
         return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
-    except Exception:
+    except Exception as exc:
+        logger.warning("failed to fetch available models from LiteLLM", error=str(exc))
         return []
 
 
@@ -126,7 +127,8 @@ async def _fetch_configured_models() -> list[str]:
             if litellm_model and litellm_model != name:
                 models.append(litellm_model)
         return models
-    except Exception:
+    except Exception as exc:
+        logger.warning("failed to fetch configured models from LiteLLM", error=str(exc))
         return []
 
 
