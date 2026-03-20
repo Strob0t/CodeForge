@@ -3,6 +3,9 @@
 # --- Build stage ---
 FROM golang:1.25-alpine AS build
 
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+
 RUN apk add --no-cache git ca-certificates
 
 WORKDIR /src
@@ -11,10 +14,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /codeforge ./cmd/codeforge
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X github.com/Strob0t/CodeForge/internal/version.Version=${APP_VERSION} -X github.com/Strob0t/CodeForge/internal/version.GitSHA=${GIT_SHA}" \
+    -o /codeforge ./cmd/codeforge
 
 # --- Runtime stage ---
 FROM alpine:3.21
+
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+
+LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}"
 
 RUN apk add --no-cache git ca-certificates tzdata
 

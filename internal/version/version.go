@@ -6,10 +6,13 @@ import (
 	"strings"
 )
 
-// Version is the application version. It can be overridden at build time via:
+// Version is the application version. Override at build time via:
 //
-//	go build -ldflags "-X github.com/Strob0t/CodeForge/internal/version.Version=$(cat VERSION)"
+//	go build -ldflags "-X github.com/Strob0t/CodeForge/internal/version.Version=$(cat VERSION) -X github.com/Strob0t/CodeForge/internal/version.GitSHA=$(git rev-parse --short HEAD)"
 var Version = ""
+
+// GitSHA is the git commit hash. Set at build time via ldflags.
+var GitSHA = ""
 
 func init() {
 	if Version != "" {

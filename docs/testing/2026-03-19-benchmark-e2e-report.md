@@ -241,6 +241,216 @@ Checks 6.6–6.8 were created successfully but remain queued in the NATS worker.
 
 ---
 
+## Recommendations
+
+### REC-1: Parallel Benchmark Run Processing with Dependency Awareness (Critical)
+
+**Problem:** The Python worker processes benchmark runs strictly sequentially. In `workers/codeforge/consumer/__init__.py:271`, `await handler(msg)` blocks the entire message loop for the `benchmark.run.request` subject. A single agent run (15-30 min) blocks all subsequent runs, even if they are completely independent. During this E2E test, Phase 4 and 6 runs waited >30 min in the queue behind Phase 3b agent runs.
+
+**Root Cause Analysis:**
+- `_message_loop()` fetches `batch=1` and awaits the handler synchronously (`:233,271`)
+- The benchmark handler (`_benchmark.py:179`) acks the NATS message early, then awaits the full run (`_run_simple_benchmark` / `_run_agent_benchmark`) which can take minutes to hours
+- Tasks within a run are also sequential: `runners/_base.py:run_tasks()` iterates with `await self.run_task(task)` in a for-loop
+- The Go side already supports concurrency (`MaxAckPending: 100` in `nats.go:147`), but the Python consumer serializes everything
+
+**Why This Matters:**
+- A single user running 6 simple benchmarks waits 6x instead of near-1x
+- Multiple users sharing one worker cannot run benchmarks concurrently
+- E2E test suite takes >2h instead of ~30 min because runs queue sequentially
+- The NATS architecture is designed for parallelism (`MaxAckPending: 100`) but the consumer doesn't exploit it
+
+**Recommended Fix:** Add a configurable `asyncio.Semaphore` to the benchmark handler, spawning runs as concurrent tasks instead of awaiting them inline. This requires careful consideration of which runs can safely parallelize and which must wait for predecessors.
+
+**Key Design Considerations:**
+- Runs against different datasets/suites are always independent — safe to parallelize
+- Multi-rollout runs (rollout_count > 1) create N internal sub-runs that are independent per rollout but must all complete before the run is marked finished — the `MultiRolloutRunner` already handles this internally
+- LLM rate limits are the real constraint, not data dependencies — the semaphore should be sized based on LLM provider capacity, not arbitrary
+- Cost tracking is per-run and thread-safe (each run has its own `RunResult`) — no shared mutable state between runs
+- Agent runs with `exec_mode: mount` share the filesystem — two agent runs modifying the same project workspace must NOT run in parallel. Sandbox mode is safe.
+
+**Implementation Sketch:**
+
+```python
+# workers/codeforge/consumer/_benchmark.py
+_semaphore = asyncio.Semaphore(int(os.environ.get("BENCHMARK_MAX_PARALLEL", "3")))
+
+async def _handle_benchmark_run(self, msg):
+    req = BenchmarkRunRequest.model_validate_json(msg.data)
+    if self._is_duplicate(f"bench-{req.run_id}"):
+        await msg.ack()
+        return
+    await msg.ack()
+    # Spawn as concurrent task instead of awaiting inline
+    asyncio.create_task(self._execute_benchmark_run(req))
+
+async def _execute_benchmark_run(self, req):
+    async with _semaphore:
+        # existing run logic here
+        ...
+```
+
+**Files to Change:**
+- `workers/codeforge/consumer/__init__.py` — no change needed (already runs loops via `asyncio.gather`)
+- `workers/codeforge/consumer/_benchmark.py` — spawn `create_task` + semaphore guard
+- `workers/codeforge/evaluation/runners/_base.py` — optionally parallelize tasks within a run (lower priority)
+- Environment: `BENCHMARK_MAX_PARALLEL` env var (default 3)
+
+**Risks:**
+- LLM API rate limits may cause cascading failures if too many parallel runs hit the same provider — mitigate with per-provider rate tracking (already exists in routing layer)
+- Agent mount-mode runs sharing a workspace could corrupt files — guard with workspace lock or reject parallel mount runs to same project
+
+---
+
+### REC-2: Trajectory Endpoint Should Return Empty Result, Not 500 (High)
+
+**Problem:** `GET /api/v1/runs/{id}/trajectory?limit=200` returns HTTP 500 when a run is in `running` state and has no trajectory events yet. The frontend `BenchmarkLiveFeed` component calls this endpoint to hydrate state on page load (`BenchmarkPage.tsx:243`), causing 4 console errors and failed hydration warnings for every running run visible on the page.
+
+**Root Cause:** In `handlers_roadmap.go:444-446`, `LoadTrajectory()` returns an error when no events exist for the given run ID. The handler passes this to `writeDomainError()` which maps it to HTTP 500 because the error is not a recognized domain error type. Similarly, `TrajectoryStats()` at line 451 fails for the same reason.
+
+**Why This Matters:**
+- Frontend logs errors on every page load if any run is in `running` state — noisy console, poor DX
+- The LiveFeed hydration logic (`liveFeedState.ts`) treats the 500 as a fatal error and skips hydration, so when the run does produce events, the UI doesn't show them until page reload
+- HTTP 500 implies a server bug, but this is a normal state (run hasn't produced events yet)
+
+**Recommended Fix:** Return HTTP 200 with an empty events array and zero stats instead of 500.
+
+```go
+// handlers_roadmap.go:444-448
+page, err := h.Events.LoadTrajectory(r.Context(), runID, filter, cursor, limit)
+if err != nil {
+    // Return empty result instead of error for runs with no events
+    page = &eventstore.TrajectoryPage{Events: []event.Event{}, Cursor: "", HasMore: false, Total: 0}
+}
+
+stats, err := h.Events.TrajectoryStats(r.Context(), runID)
+if err != nil {
+    stats = &eventstore.TrajectoryStats{}
+}
+```
+
+**Alternative:** If distinguishing "run not found" from "run exists but no events" is important, check run existence first via the benchmark service, then return 404 for truly missing runs and 200 with empty data for existing runs with no events.
+
+**Files to Change:**
+- `internal/adapter/http/handlers_roadmap.go:444-455` — graceful fallback to empty result
+- No frontend changes needed (LiveFeed already handles empty events arrays)
+
+---
+
+### REC-3: Training Export Should Return Empty Array, Not Empty Body (Medium)
+
+**Problem:** `GET /runs/{id}/export/training` (default JSONL format) returns HTTP 200 with a completely empty response body when no training pairs exist. The JSON format correctly returns `[]`, but the default JSONL format writes nothing because the `for i := range pairs` loop at `handlers_benchmark.go:337` iterates zero times.
+
+**Root Cause:** The handler at `handlers_benchmark.go:314-340` sets `Content-Type: application/x-ndjson` and `Content-Disposition: attachment` headers, then iterates over pairs. If `pairs` is empty, nothing is written to the response body after the headers. The client receives headers but no body — which is technically valid HTTP but confusing for API consumers.
+
+**Why This Matters:**
+- API consumers (scripts, notebooks) parsing JSONL expect either valid JSONL lines or an explicit empty indicator
+- An empty body with a `Content-Disposition: attachment` header triggers a zero-byte file download in browsers
+- The JSON format (`?format=json`) correctly returns `[]` — behavior should be consistent
+
+**Recommended Fix:** Write an empty JSON array `[]` as JSONL when no pairs exist, or add a comment header line:
+
+```go
+// handlers_benchmark.go:336-339
+if len(pairs) == 0 {
+    // Write empty JSON array for consistency with ?format=json
+    w.Header().Set("Content-Type", "application/json")
+    writeJSON(w, http.StatusOK, []benchmark.TrainingPair{})
+    return
+}
+enc := json.NewEncoder(w)
+for i := range pairs {
+    _ = enc.Encode(pairs[i])
+}
+```
+
+**Alternative (simpler):** Always use JSON format when pairs are empty, only switch to JSONL for non-empty results. This avoids sending a zero-byte file download.
+
+**Files to Change:**
+- `internal/adapter/http/handlers_benchmark.go:336-339` — empty-check before JSONL loop
+
+---
+
+### REC-4: Suite Creation Should Auto-Derive Type from Provider (Low)
+
+**Problem:** `POST /benchmarks/suites` requires the `type` field explicitly. If omitted, `CreateSuiteRequest.Validate()` at `benchmark.go:86` calls `r.Type.IsValid()` on a zero-value (empty string), which returns `false` and rejects the request with `"invalid benchmark type"`. During the E2E test, the first suite creation attempt with only `name`, `description`, `provider_name` failed until `type` was added manually.
+
+**Root Cause:** The validation is correct (empty type is invalid), but the API forces callers to know the type even when the provider already implies it. Every provider has an inherent type: `codeforge_simple` → `simple`, `humaneval` → `simple`, `swebench` → `agent`, etc. The seeded suites in the database already have this mapping.
+
+**Why This Matters:**
+- Poor API ergonomics — caller must duplicate information that the server already knows
+- The frontend Create Suite form has a `type` text field that users must fill manually, but it could auto-populate when a provider is selected
+- Not a bug per se, but creates unnecessary friction
+
+**Recommended Fix:** Add a provider-to-type mapping and auto-derive type when not provided:
+
+```go
+// benchmark.go — add to Validate() or to the service layer
+var providerDefaultType = map[string]BenchmarkType{
+    "codeforge_simple": TypeSimple,
+    "codeforge_tool_use": TypeToolUse,
+    "codeforge_agent": TypeAgent,
+    "humaneval": TypeSimple,
+    "mbpp": TypeSimple,
+    "bigcodebench": TypeSimple,
+    "cruxeval": TypeSimple,
+    "livecodebench": TypeSimple,
+    "swebench": TypeAgent,
+    "sparcbench": TypeAgent,
+    "aider_polyglot": TypeAgent,
+    "terminal_bench": TypeAgent,
+    "dpai_arena": TypeSimple,
+}
+
+// In RegisterSuite() service method, before Validate():
+if req.Type == "" {
+    if dt, ok := providerDefaultType[req.ProviderName]; ok {
+        req.Type = dt
+    }
+}
+```
+
+**Files to Change:**
+- `internal/service/benchmark.go` — auto-derive type before validation in `RegisterSuite()`
+- `internal/domain/benchmark/benchmark.go` — add `providerDefaultType` map
+- Frontend: `SuiteManagement.tsx` — auto-populate type field on provider selection (optional, nice-to-have)
+
+---
+
+### REC-5: Configurable Watchdog Timeout per Suite (Low)
+
+**Problem:** The benchmark watchdog has a single global timeout (2h, configurable via `BENCHMARK_WATCHDOG_TIMEOUT`). Agent external suites (SPARCBench, Aider Polyglot) with local models legitimately need >2h, while simple runs (e2e-quick) should fail much sooner if stuck.
+
+**Root Cause:** `cmd/codeforge/main.go` starts a single watchdog goroutine that scans all `running` runs against one timeout value. There is no per-suite or per-type differentiation.
+
+**Why This Matters:**
+- With a global 2h timeout: simple runs stuck for 2h waste resources before being cleaned up
+- With a shorter timeout: agent runs on slow models are incorrectly killed
+- As the number of suites grows, a single timeout becomes increasingly inappropriate
+
+**Recommended Fix:** Add an optional `timeout` field to `benchmark.Suite` and `CreateSuiteRequest`. The watchdog checks `suite.Timeout` first, falls back to the global default. This requires a DB migration to add the column.
+
+```go
+// Watchdog logic (benchmark.go, watchdog goroutine):
+for _, run := range staleRuns {
+    timeout := globalTimeout
+    if run.Suite != nil && run.Suite.Timeout > 0 {
+        timeout = run.Suite.Timeout
+    }
+    if time.Since(run.CreatedAt) > timeout {
+        markFailed(run, "watchdog timeout")
+    }
+}
+```
+
+**Alternatively** (simpler, no DB change): Use benchmark type as heuristic — `simple` gets 30 min, `tool_use` gets 1h, `agent` gets 4h. This covers 90% of cases without per-suite config.
+
+**Files to Change:**
+- `internal/domain/benchmark/benchmark.go` — add `Timeout` field to `Suite` (optional)
+- `internal/service/benchmark.go` — watchdog uses per-suite or per-type timeout
+- `internal/adapter/postgres/store_benchmark.go` — migration for `timeout` column (if per-suite approach)
+
+---
+
 ## Test Environment
 
 | Component | Version/Config |

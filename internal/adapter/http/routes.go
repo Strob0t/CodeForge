@@ -39,7 +39,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		// Version
 		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"version":"%s"}`, version.Version)
+			_, _ = fmt.Fprintf(w, `{"version":"%s","git_sha":"%s"}`, version.Version, version.GitSHA)
 		})
 
 		// Projects

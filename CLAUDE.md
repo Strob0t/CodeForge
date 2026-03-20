@@ -468,6 +468,63 @@ cd frontend && npx playwright test --config=playwright.llm.config.ts
 - Helper module: `frontend/e2e/llm/llm-helpers.ts`
 - Dedicated config: `frontend/playwright.llm.config.ts` (no browser, sequential execution)
 
+### Autonomous Goal-to-Program Test (Playwright-MCP)
+
+Testplan: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md`
+Tool complexity plan: `docs/plans/tool-call-complexity-plan.md`
+
+**Critical Startup Sequence (MUST follow in order):**
+1. `docker compose up -d postgres nats litellm`
+2. Resolve container IPs (`localhost` ports BROKEN in WSL2):
+   ```bash
+   NATS_IP=$(docker inspect codeforge-nats | grep -m1 '"IPAddress"' | grep -oP '[\d.]+')
+   LITELLM_IP=$(docker inspect codeforge-litellm | grep -m1 '"IPAddress"' | grep -oP '[\d.]+')
+   POSTGRES_IP=$(docker inspect codeforge-postgres | grep -m1 '"IPAddress"' | grep -oP '[\d.]+')
+   ```
+3. Purge NATS JetStream (old messages block consumers):
+   ```python
+   await js.purge_stream('CODEFORGE')
+   # + delete stale Go consumers (codeforge-go-runs-toolcall-request, etc.)
+   ```
+4. Start Go backend: `APP_ENV=development go run ./cmd/codeforge/`
+5. **VERIFY** toolcall consumer exists via NATS monitoring: `curl http://${NATS_IP}:8222/jsz?consumers=1`
+6. Start Python worker with container IPs:
+   ```bash
+   PYTHONPATH=/workspaces/CodeForge/workers \
+     NATS_URL="nats://${NATS_IP}:4222" \
+     LITELLM_BASE_URL="http://${LITELLM_IP}:4000" \
+     LITELLM_MASTER_KEY="sk-codeforge-dev" \
+     DATABASE_URL="postgresql://codeforge:codeforge_dev@${POSTGRES_IP}:5432/codeforge" \
+     CODEFORGE_ROUTING_ENABLED=false \
+     APP_ENV=development \
+     .venv/bin/python -m codeforge.consumer
+   ```
+7. Start frontend: `cd frontend && npm run dev`
+8. Playwright-MCP browser uses `http://host.docker.internal:3000` (not localhost)
+
+**Key env vars:**
+- `LITELLM_BASE_URL` (NOT `LITELLM_URL`) — code reads `LITELLM_BASE_URL`
+- `CODEFORGE_ROUTING_ENABLED=false` — auto-router picks unhealthy models; use explicit model in payload
+- Auth token response field: `access_token` (NOT `token`)
+
+**Project setup:**
+- Set autonomy to 4 (Full-Auto) + `policy_preset: trusted-mount-autonomous`
+- TestRepo clone often fails — use local workspace creation as fallback
+- Auto-onboarding greeting is disabled (ChatPanel.tsx) — no more NATS pipeline blocking
+- Send execution messages via API with `"model": "openai/container"` (or any healthy model)
+
+**Timeouts for local models (Ollama, LM Studio):**
+- Local models are 3-10x slower than cloud models
+- S1 Easy: up to 60 min, S4 Expert: up to 180 min
+- DO NOT abort early — every tool call is valuable benchmark data
+- Monitor via API polling, not browser (Playwright-MCP disconnects during long waits)
+- "Stuck" = no NEW tool calls for 10 minutes (not just slow)
+
+**HITL handling:**
+- Auto-approve by polling Go backend logs: `grep "HITL approval requested" /tmp/codeforge-backend.log`
+- Approve via: `POST /api/v1/runs/{convId}/approve/{callId}` with `{"decision":"allow"}`
+- Bypass all future approvals: `POST /conversations/{id}/bypass-approvals`
+
 ## Git Workflow
 
 - **Commits only on `staging`** — never directly on `main`, unless the user explicitly instructs otherwise
