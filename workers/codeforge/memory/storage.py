@@ -85,7 +85,7 @@ class MemoryStore:
 
         # Fetch candidate memories from DB
         kind_filter = ""
-        params: list[object] = [req.project_id]
+        params: list[str | float] = [req.tenant_id, req.project_id]
         if req.kind is not None:
             kind_filter = " AND kind = %s"
             params.append(req.kind.value)
@@ -94,7 +94,7 @@ class MemoryStore:
             "SELECT id, tenant_id, project_id, agent_id, run_id,"
             "       content, kind, importance, embedding, metadata, created_at"
             " FROM agent_memories"
-            " WHERE project_id = %s"
+            " WHERE tenant_id = %s AND project_id = %s"
         )
         query = base_query + kind_filter + " ORDER BY created_at DESC LIMIT 500"
         async with self._db.cursor() as cur:
