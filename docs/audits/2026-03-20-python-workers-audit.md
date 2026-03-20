@@ -3,9 +3,9 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 170 files (26,135 lines)
-**Score: 72/100 -- Grade: C**
+**Score: 72/100 -- Grade: C** (post-fix: 97/100 -- Grade: A)
 
-> Warning: Score below 75 indicates significant issues requiring attention before production deployment.
+> Most critical and high-severity findings have been fixed.
 
 ---
 
@@ -87,49 +87,49 @@ The agentic loop in `agent_loop.py` (1395 lines) is well-structured:
 
 ## Code Review Findings
 
-### CRITICAL-001: Bash Tool Has No Command Sanitization
+### CRITICAL-001: Bash Tool Has No Command Sanitization -- **FIXED**
 
 - **File:** `workers/codeforge/tools/bash.py:74-82`
 - **Description:** The `BashTool.execute()` method passes the user-provided `command` string directly to `bash -c` without any sanitization, blocklist checking, or escaping. While the Go control plane's policy engine provides a first line of defense (the tool call goes through `runtime.request_tool_call()` which checks policy rules), the Python tool itself performs zero validation. If policy is misconfigured or set to `trusted-mount-autonomous` (autonomy level 4+), any command runs unrestricted -- including destructive filesystem operations, network exfiltration via curl/wget, or privilege escalation.
 - **Impact:** Full system compromise if policy layer fails or is configured permissively. In mount execution mode, the bash tool runs directly on the host filesystem.
 - **Recommendation:** Add a command blocklist at the Python tool level as defense-in-depth. The Go side has `CommandSafetyEvaluator` but the Python side should also reject obviously destructive patterns (e.g., `rm -rf /`, `mkfs`, `dd if=/dev/zero`, piped curl-to-bash). This matches the "8 Safety Layers" architecture where Command Safety should be enforced at multiple levels.
 
-### HIGH-001: Memory Storage Missing Tenant ID Filter in Recall
+### HIGH-001: Memory Storage Missing Tenant ID Filter in Recall -- **FIXED**
 
 - **File:** `workers/codeforge/memory/storage.py:86-99`
 - **Description:** The `MemoryStore.recall()` method filters only by `project_id` but does NOT filter by `tenant_id`. The SQL query is `WHERE project_id = %s` without any `AND tenant_id = %s` clause. In a multi-tenant deployment, this allows one tenant's agent to recall memories from another tenant's project if they share the same project ID structure.
 - **Impact:** Cross-tenant data leakage in memory recall. Violates the tenant isolation requirement stated in CLAUDE.md ("ALL tenant-scoped queries: AND tenant_id = $N").
 - **Recommendation:** Add `AND tenant_id = %s` to the recall query. The `MemoryStore.__init__` already hardcodes tenant_id as `"00000000-0000-0000-0000-000000000000"` for storage -- this should be parameterized and used consistently for both store and recall.
 
-### HIGH-002: Glob Tool Missing Path Traversal Protection
+### HIGH-002: Glob Tool Missing Path Traversal Protection -- **FIXED**
 
 - **File:** `workers/codeforge/tools/glob_files.py:53-58`
 - **Description:** The `GlobFilesTool` does NOT call `resolve_safe_path()` to validate the glob pattern. While `Path.glob()` operates relative to the workspace and `relative_to(workspace)` is used, a crafted pattern like `../../etc/passwd` could potentially match files outside the workspace before the `relative_to` call filters results. The `relative_to` call would raise `ValueError` for paths outside workspace, but this error is not caught and would surface as an unhandled exception.
 - **Impact:** Potential path traversal via glob patterns. The `relative_to` would raise an exception rather than leak data, but it would crash the tool execution ungracefully.
 - **Recommendation:** Add explicit path validation. Either call `resolve_safe_path()` on each matched path before including it, or wrap the `relative_to` call in a try/except to skip paths outside the workspace, or sanitize the glob pattern to reject `..` components.
 
-### HIGH-003: Quality Gate Runs Arbitrary Shell Commands
+### HIGH-003: Quality Gate Runs Arbitrary Shell Commands -- **FIXED**
 
 - **File:** `workers/codeforge/qualitygate.py:60-94`
 - **Description:** `QualityGateExecutor._run_command()` receives test and lint commands from the Go control plane and runs them via `shlex.split()` + `create_subprocess_exec()`. While `shlex.split()` provides basic parsing, the commands themselves come from project configuration and could contain injected payloads if project config is compromised.
 - **Impact:** Arbitrary command execution if project configuration is manipulated. The timeout (120s default) limits duration but not damage.
 - **Recommendation:** Validate commands against an allowlist of known test/lint tools (pytest, ruff, eslint, go test, etc.) or at minimum reject commands containing shell metacharacters beyond what `shlex` handles.
 
-### HIGH-004: Use of `object` Type Annotation Instead of Proper Types
+### HIGH-004: Use of `object` Type Annotation Instead of Proper Types -- **FIXED**
 
 - **File:** `workers/codeforge/agent_loop.py:135,151,543,621`
 - **Description:** The `LoopConfig.routing_metadata` is typed as `object | None`, `_LoopState.quality_tracker` is typed as `object | None`, and `plan_act` parameters are typed as `object | None`. This violates the project's strict type safety principle ("No `any`/`interface{}`/`Any`"). It prevents IDE autocompletion, type checking, and makes the code harder to maintain.
 - **Impact:** Loss of type safety across the core agent loop. Bugs from incorrect attribute access would only be caught at runtime.
 - **Recommendation:** Use proper type annotations: `RoutingMetadata | None`, `IterationQualityTracker | None`, `PlanActController | None`. Use `TYPE_CHECKING` guards if needed to avoid circular imports.
 
-### HIGH-005: Unbounded Growth of `_processed_ids` Set
+### HIGH-005: Unbounded Growth of `_processed_ids` Set -- **FIXED**
 
 - **File:** `workers/codeforge/consumer/_base.py:32-44`
 - **Description:** The `_processed_ids` dedup set uses `ClassVar[set[str]]` with a max of 10,000 entries. When the limit is exceeded, it evicts "the oldest half" -- but `set` is unordered in Python, so the eviction is random, not FIFO. Furthermore, the eviction is not thread-safe: multiple concurrent handlers could trigger eviction simultaneously, and since this is a class variable shared across all mixin instances and accessed from multiple asyncio tasks, there is a potential for race conditions under high load.
 - **Impact:** Under sustained high throughput, random eviction could allow recent messages to be evicted while old ones remain, defeating the dedup purpose. The set will continue to grow between eviction events.
 - **Recommendation:** Replace with `collections.OrderedDict` for FIFO eviction, or use a TTL-based cache like `cachetools.TTLCache`. Since all access is within a single asyncio event loop (not multi-threaded), the race condition risk is minimal in practice, but the eviction strategy should still be FIFO.
 
-### MEDIUM-001: Rollout Scoring Always Returns 1.0 for Non-Error Results
+### MEDIUM-001: Rollout Scoring Always Returns 1.0 for Non-Error Results -- **FIXED**
 
 - **File:** `workers/codeforge/agent_loop.py:1105`
 - **Description:** The rollout scoring formula is `len(r.final_content) / max(len(r.final_content), 1)` which always evaluates to 1.0 when `final_content` is non-empty (and 0.0 when it is empty, but then `error` is also set). This means the "best rollout" selection degrades to picking the first non-errored result, making the multi-rollout feature ineffective.
@@ -143,35 +143,35 @@ The agentic loop in `agent_loop.py` (1395 lines) is well-structured:
 - **Impact:** Low probability duplicate processing under burst conditions. The current `_is_duplicate()` marks-then-checks in one call which mitigates this somewhat, but the window exists between `_is_duplicate()` returning False and the message being fully processed.
 - **Recommendation:** The current design is acceptable for asyncio since set operations are atomic within a single event loop tick, but document this assumption clearly.
 
-### MEDIUM-003: Synchronous HTTP Calls in Async Context (Routing)
+### MEDIUM-003: Synchronous HTTP Calls in Async Context (Routing) -- **FIXED**
 
 - **File:** `workers/codeforge/consumer/_conversation.py:688-729,741-769`
 - **Description:** The `_load_stats()` and `_llm_call()` closures inside `_get_hybrid_router()` use synchronous `httpx.get()` and `httpx.post()` respectively. These are called from within the async consumer context. While they are wrapped in synchronous functions passed to the routing layer, they will block the asyncio event loop during execution.
 - **Impact:** During model routing, the entire consumer event loop blocks for up to 5s (stats) or 30s (meta-router LLM call), preventing other message processing.
 - **Recommendation:** Make these async and use `asyncio.to_thread()` if the routing layer requires synchronous callables, or refactor the routing layer to accept async callables.
 
-### MEDIUM-004: Duplicate Embedding Computation Code
+### MEDIUM-004: Duplicate Embedding Computation Code -- **FIXED**
 
 - **File:** `workers/codeforge/memory/storage.py:141-149` and `workers/codeforge/memory/experience.py:179-187`
 - **Description:** Both `MemoryStore._compute_embedding()` and `ExperiencePool._compute_embedding()` have identical implementations: call `self._llm.embedding(text)`, convert to numpy array, catch exceptions. This violates the DRY principle.
 - **Impact:** Maintenance burden -- any change to embedding computation must be replicated in two places.
 - **Recommendation:** Extract into a shared utility function in `memory/__init__.py` or a dedicated `memory/embedding.py` module.
 
-### LOW-001: Broad `Any` Type Usage in Tool Framework
+### LOW-001: Broad `Any` Type Usage in Tool Framework -- **FIXED**
 
 - **File:** `workers/codeforge/tools/_error_handler.py:11-13`, `workers/codeforge/tools/_base.py:29`
 - **Description:** The `catch_os_error` decorator uses `Any` for the function parameter and wrapper parameters. `ToolDefinition.parameters` uses `dict[str, Any]`. While `Any` is more acceptable for JSON schema dicts, it still violates the strict type safety principle.
 - **Impact:** Minor -- reduced type checking coverage in the tool framework.
 - **Recommendation:** For the decorator, use `TypeVar` with proper bounds. For parameters, consider a dedicated `JSONSchema` type alias.
 
-### LOW-002: Plan/Act Transition Has Side Effect in Check Method
+### LOW-002: Plan/Act Transition Has Side Effect in Check Method -- **FIXED**
 
 - **File:** `workers/codeforge/plan_act.py:60-69`
 - **Description:** `should_auto_transition()` increments `self.plan_iterations` as a side effect of being called. This means calling the method multiple times per iteration would advance the counter incorrectly. It is currently only called once per iteration in `_check_plan_act_transition()`, but the side effect is surprising and fragile.
 - **Impact:** If `should_auto_transition()` is called from a new location, the counter would advance incorrectly, causing premature phase transition.
 - **Recommendation:** Separate the increment from the check: add an explicit `advance_plan_iteration()` method.
 
-### LOW-003: Signal Handler Closure Captures Stale Reference
+### LOW-003: Signal Handler Closure Captures Stale Reference -- **FIXED**
 
 - **File:** `workers/codeforge/consumer/__init__.py:309`
 - **Description:** `lambda: asyncio.create_task(consumer.stop())` captures `consumer` by closure. If `consumer` is reassigned before the signal fires (unlikely in the current code), the lambda would reference the wrong object. More importantly, `asyncio.create_task()` within a signal handler is correct for asyncio but relies on the event loop still running.
@@ -333,3 +333,21 @@ The agentic loop in `agent_loop.py` (1395 lines) is well-structured:
 - **Decompose `_conversation.py`** (933 lines): Extract routing setup, skill injection, and MCP management into separate helper modules.
 - **Add integration tests** for the NATS consumer message flow -- currently there appear to be no tests for the consumer mixins.
 - **Document the `_handle_request()` template** pattern formally, as it is the backbone of all consumer behavior.
+
+---
+
+## Fix Status
+
+| Severity | Total | Fixed | Unfixed |
+|----------|------:|------:|--------:|
+| CRITICAL | 1     | 1     | 0       |
+| HIGH     | 5     | 5     | 0       |
+| MEDIUM   | 4     | 3     | 1       |
+| LOW      | 4     | 3     | 1       |
+| **Total**| **14**| **12**| **2**   |
+
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (1 MEDIUM x 2) - (1 LOW x 1) = **97/100 -- Grade: A**
+
+**Remaining unfixed findings:**
+- MEDIUM-002: Idempotency set not safe under concurrent access pattern (documented assumption)
+- LOW-004: Inconsistent logging libraries (logging vs structlog)

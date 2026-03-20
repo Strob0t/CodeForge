@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 20 files
-**Score: 72/100 — Grade: C**
+**Score: 72/100 -- Grade: C** (post-fix: 100/100 -- Grade: A)
 
 ---
 
@@ -94,7 +94,7 @@ Docker build workflow triggers on push to main/staging and tags, builds all 3 im
 
 ### CRITICAL
 
-#### C1. SQL Injection in restore-postgres.sh
+#### C1. SQL Injection in restore-postgres.sh -- **FIXED**
 **File:** `scripts/restore-postgres.sh:37`
 **Severity:** CRITICAL (-15)
 
@@ -114,7 +114,7 @@ psql -d postgres -v dbname="$DB" -c \
 
 ### HIGH
 
-#### H1. No Resource Limits on Any Service
+#### H1. No Resource Limits on Any Service -- **FIXED**
 **File:** `docker-compose.yml` (all services), `docker-compose.prod.yml` (all services)
 **Severity:** HIGH (-5)
 
@@ -129,7 +129,7 @@ deploy:
       cpus: "2.0"
 ```
 
-#### H2. Hardcoded Private IP in litellm/config.yaml
+#### H2. Hardcoded Private IP in litellm/config.yaml -- **FIXED**
 **File:** `litellm/config.yaml:29`
 **Severity:** HIGH (-5)
 
@@ -141,7 +141,7 @@ A developer's local network IP is hardcoded in the LM Studio configuration. This
 
 **Recommendation:** Use an environment variable: `api_base: "os.environ/LM_STUDIO_BASE_URL"` and set `LM_STUDIO_BASE_URL` in docker-compose.yml with a default of `http://host.docker.internal:1234/v1`.
 
-#### H3. No Health Check for Worker in Production
+#### H3. No Health Check for Worker in Production -- **FIXED**
 **File:** `docker-compose.prod.yml:133-152`
 **Severity:** HIGH (-5)
 
@@ -160,7 +160,7 @@ healthcheck:
 
 ### MEDIUM
 
-#### M1. NATS Monitoring Port 8222 Exposed in Dev Compose
+#### M1. NATS Monitoring Port 8222 Exposed in Dev Compose -- **FIXED**
 **File:** `docker-compose.yml:90`
 **Severity:** MEDIUM (-2)
 
@@ -175,7 +175,7 @@ The production compose file correctly omits this port mapping (line 52 shows no 
 
 **Recommendation:** Consider binding to localhost only: `"127.0.0.1:8222:8222"`, or move to a profile like `dev`.
 
-#### M2. No Restart Policy in Dev Compose
+#### M2. No Restart Policy in Dev Compose -- **FIXED**
 **File:** `docker-compose.yml` (all services)
 **Severity:** MEDIUM (-2)
 
@@ -183,7 +183,7 @@ The development compose file has no `restart` policy on any service (postgres, n
 
 **Recommendation:** Add `restart: unless-stopped` to at least postgres, nats, and litellm in the dev compose.
 
-#### M3. Blue-Green References Missing Traefik Config
+#### M3. Blue-Green References Missing Traefik Config -- **FIXED**
 **File:** `docker-compose.blue-green.yml:13`
 **Severity:** MEDIUM (-2)
 
@@ -200,7 +200,7 @@ The blue-green overlay references `./traefik/traefik.yaml` but this file does no
 
 ### LOW
 
-#### L1. No HEALTHCHECK Instruction in Dockerfiles
+#### L1. No HEALTHCHECK Instruction in Dockerfiles -- **FIXED**
 **File:** `Dockerfile`, `Dockerfile.frontend`, `Dockerfile.worker`
 **Severity:** LOW (-1)
 
@@ -212,7 +212,7 @@ HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
   CMD wget --spider -q http://localhost:8080/health || exit 1
 ```
 
-#### L2. CI NATS Service Missing JetStream Flag
+#### L2. CI NATS Service Missing JetStream Flag -- **FIXED**
 **File:** `.github/workflows/ci.yml:33-41`
 **Severity:** LOW (-1)
 
@@ -228,7 +228,7 @@ Any integration test that depends on JetStream (streams, consumers, KV store) wi
 
 **Recommendation:** Add command options: `--jetstream --store_dir /data -m 8222`.
 
-#### L3. .dockerignore Missing Coverage of Test and Doc Directories
+#### L3. .dockerignore Missing Coverage of Test and Doc Directories -- **FIXED**
 **File:** `.dockerignore`
 **Severity:** LOW (-1)
 
@@ -295,3 +295,19 @@ Comprehensive: govulncheck, pip-audit, npm audit, and SBOM generation (Go + Fron
 2. **Network segmentation in production** -- Define separate networks (e.g., `backend` for nats/postgres, `frontend` for core/nginx) to limit blast radius. Currently prod compose has no explicit network definition, defaulting to a single shared network.
 3. **Secrets management** -- Consider Docker secrets or an external vault for production credentials instead of environment variables, which appear in `docker inspect` output.
 4. **tmpfs for read-only containers** -- The `read_only: true` containers (core, worker) may need tmpfs mounts for `/tmp` if the application writes temporary files.
+
+---
+
+## Fix Status
+
+| Severity | Total | Fixed | Unfixed |
+|----------|------:|------:|--------:|
+| CRITICAL | 1     | 1     | 0       |
+| HIGH     | 3     | 3     | 0       |
+| MEDIUM   | 3     | 3     | 0       |
+| LOW      | 3     | 3     | 0       |
+| **Total**| **10**| **10**| **0**   |
+
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (0 MEDIUM x 2) - (0 LOW x 1) = **100/100 -- Grade: A**
+
+**All findings in this audit have been fixed.**

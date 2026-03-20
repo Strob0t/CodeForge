@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 22 files
-**Score: 72/100 -- Grade: C**
+**Score: 72/100 -- Grade: C** (post-fix: 98/100 -- Grade: A)
 
 ---
 
@@ -66,7 +66,7 @@ The architecture correctly separates the MCP server (Go exposes CodeForge to ext
 
 ## Code Review Findings
 
-### CRITICAL-001: MCP Server Listens Without Authentication
+### CRITICAL-001: MCP Server Listens Without Authentication -- **FIXED**
 
 **File:** `internal/adapter/mcp/server.go:70-73`, `cmd/codeforge/main.go:878-893`
 
@@ -87,7 +87,7 @@ s.httpSrv = mcpserver.NewStreamableHTTPServer(mcpSrv,
 
 ---
 
-### HIGH-001: MCP Server Start() Silently Swallows Listen Errors
+### HIGH-001: MCP Server Start() Silently Swallows Listen Errors -- **FIXED**
 
 **File:** `internal/adapter/mcp/server.go:79-87`
 
@@ -110,7 +110,7 @@ func (s *Server) Start() error {
 
 ---
 
-### HIGH-002: A2A Cancel Payload Uses Inline map[string]string Instead of Typed Schema
+### HIGH-002: A2A Cancel Payload Uses Inline map[string]string Instead of Typed Schema -- **FIXED**
 
 **File:** `internal/adapter/a2a/executor.go:96`
 
@@ -140,7 +140,7 @@ The code is well-written and has good test coverage, but it has no integration p
 
 ---
 
-### MEDIUM-002: A2A TaskStoreAdapter.List() Ignores ListTasksRequest Filter
+### MEDIUM-002: A2A TaskStoreAdapter.List() Ignores ListTasksRequest Filter -- **FIXED**
 
 **File:** `internal/adapter/a2a/taskstore.go:51`
 
@@ -157,7 +157,7 @@ func (a *TaskStoreAdapter) List(ctx context.Context, _ *sdka2a.ListTasksRequest)
 
 ---
 
-### MEDIUM-003: A2A Executor Silences json.Marshal Errors
+### MEDIUM-003: A2A Executor Silences json.Marshal Errors -- **FIXED**
 
 **File:** `internal/adapter/a2a/executor.go:60`, `internal/adapter/a2a/executor.go:96`
 
@@ -175,7 +175,7 @@ While `json.Marshal` rarely fails for these simple types, discarding errors viol
 
 ---
 
-### MEDIUM-004: MCP Resources Are Static Only -- No Parameterized Resource Templates
+### MEDIUM-004: MCP Resources Are Static Only -- No Parameterized Resource Templates -- **FIXED**
 
 **File:** `internal/adapter/mcp/resources.go`
 
@@ -188,7 +188,7 @@ This means agents must use the `get_project` tool to fetch individual projects, 
 
 ---
 
-### LOW-001: MCP AuthMiddleware Defined But Never Used
+### LOW-001: MCP AuthMiddleware Defined But Never Used -- **FIXED**
 
 **File:** `internal/adapter/mcp/auth.go:11`
 
@@ -199,7 +199,7 @@ The `AuthMiddleware` function is exported and fully implemented but never called
 
 ---
 
-### LOW-002: LSP parseLocations Does Not Handle LocationLink Response Format
+### LOW-002: LSP parseLocations Does Not Handle LocationLink Response Format -- **FIXED**
 
 **File:** `internal/adapter/lsp/client.go:468-481`
 
@@ -219,7 +219,7 @@ if err := json.Unmarshal(raw, &locs); err == nil {
 
 ---
 
-### LOW-003: A2A AgentCard Hardcodes Streaming=false
+### LOW-003: A2A AgentCard Hardcodes Streaming=false -- **FIXED**
 
 **File:** `internal/adapter/a2a/agentcard.go:48`
 
@@ -308,3 +308,20 @@ The `readLoop` correctly dispatches responses to pending callers and handles `te
 | **Deductions** | | **-36** |
 | **Overlap adjustment** | | +8 (CRITICAL-001 and LOW-001 are same root cause) |
 | **Final Score** | | **72** |
+
+---
+
+## Fix Status
+
+| Severity | Total | Fixed | Unfixed |
+|----------|------:|------:|--------:|
+| CRITICAL | 1     | 1     | 0       |
+| HIGH     | 2     | 2     | 0       |
+| MEDIUM   | 4     | 3     | 1       |
+| LOW      | 3     | 3     | 0       |
+| **Total**| **10**| **9** | **1**   |
+
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (1 MEDIUM x 2) - (0 LOW x 1) = **98/100 -- Grade: A**
+
+**Remaining unfixed findings:**
+- MEDIUM-001: LSP adapter is 700+ lines of dead code (never imported) -- integration or removal still needed

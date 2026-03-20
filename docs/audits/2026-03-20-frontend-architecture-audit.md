@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 260 files (TS/TSX across frontend/src)
-**Score: 78/100 -- Grade: B**
+**Score: 78/100 -- Grade: B** (post-fix: 81/100 -- Grade: B)
 
 ---
 
@@ -135,7 +135,7 @@
     index.ts           -- re-exports assembled api object
   ```
 
-### MEDIUM-001: WebSocket Payload Uses `as unknown as` Type Casting
+### MEDIUM-001: WebSocket Payload Uses `as unknown as` Type Casting -- **FIXED**
 
 - **File:** `frontend/src/api/websocket.ts:211`
 - **File:** `frontend/src/features/project/ProjectDetailPage.tsx:343-356`
@@ -145,14 +145,14 @@
 - **Impact:** If the backend changes payload shapes, the frontend will silently receive malformed data with no error until a property access fails at an unexpected point.
 - **Recommendation:** Add a lightweight runtime validation layer using type guards or a minimal schema check. For the AG-UI path, the discriminated union already narrows the type -- extend this pattern to the generic WS events in `ProjectDetailPage.tsx` by defining a `WSEventMap` similar to `AGUIEventMap`.
 
-### MEDIUM-002: Hardcoded Magic Number for Token Budget
+### MEDIUM-002: Hardcoded Magic Number for Token Budget -- **FIXED**
 
 - **File:** `frontend/src/features/project/ChatPanel.tsx:1087`
 - **Description:** `tokensTotal={120000}` is hardcoded in the `SessionFooter` component call. This should come from the backend config (`MaxContextTokens`) or at minimum be a named constant.
 - **Impact:** If the backend changes the max context window, the frontend will show incorrect progress gauges.
 - **Recommendation:** Define a constant in `config/constants.ts` (e.g., `DEFAULT_MAX_CONTEXT_TOKENS = 120_000`) or fetch it from the backend settings API.
 
-### MEDIUM-003: Module-Level Singleton Stores Without Disposal
+### MEDIUM-003: Module-Level Singleton Stores Without Disposal -- **FIXED**
 
 - **File:** `frontend/src/features/notifications/notificationStore.ts:34`
 - **File:** `frontend/src/features/project/contextFilesStore.ts:7`
@@ -167,7 +167,7 @@
 - **Impact:** Regression detection relies entirely on E2E tests, which are slower and more brittle. Refactoring large components (like ChatPanel) is risky without unit tests.
 - **Recommendation:** Prioritize unit tests for: (1) Business logic in hooks (`useAsyncAction`, `useCRUDForm`), (2) Store modules (`notificationStore`, `commandStore`), (3) Critical UI components (`ChatPanel` event handling, `AuthProvider` token lifecycle), (4) The API client retry/cache logic.
 
-### LOW-001: console.warn Statements in Production Code
+### LOW-001: console.warn Statements in Production Code -- **FIXED**
 
 - **File:** `frontend/src/features/benchmarks/BenchmarkPage.tsx:360,404`
 - **Description:** Two `console.warn` calls exist in the benchmark live feed reconnection logic. While they aid debugging, they pollute the browser console in production.
@@ -230,3 +230,25 @@
 - Type-safe API client with retry, caching, and offline support
 - Comprehensive type definitions mirroring Go domain types
 - Feature-based file organization with co-located stores
+
+---
+
+## Fix Status
+
+| Severity | Total | Fixed | Unfixed |
+|----------|------:|------:|--------:|
+| CRITICAL | 0     | 0     | 0       |
+| HIGH     | 3     | 0     | 3       |
+| MEDIUM   | 4     | 3     | 1       |
+| LOW      | 3     | 1     | 2       |
+| **Total**| **10**| **4** | **6**   |
+
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (3 HIGH x 5) - (1 MEDIUM x 2) - (2 LOW x 1) = **81/100 -- Grade: B**
+
+**Remaining unfixed findings:**
+- HIGH-001: ChatPanel.tsx exceeds 1100 lines (refactoring opportunity)
+- HIGH-002: SettingsPage.tsx is a 1056-line God component (refactoring opportunity)
+- HIGH-003: Monolithic API client 1481 lines (refactoring opportunity)
+- MEDIUM-004: Sparse unit test coverage for components
+- LOW-002: ESLint disable comment density in ChatPanel
+- LOW-003: Inline SVG duplication across features

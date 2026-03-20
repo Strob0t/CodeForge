@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 37 files (routes.go, helpers.go, crud.go, handlers.go, 30 handlers_*.go, middleware.go)
-**Score: 72/100 -- Grade: C**
+**Score: 72/100 -- Grade: C** (post-fix: 96/100 -- Grade: A)
 
 ---
 
@@ -598,37 +598,37 @@ JSON tags use **snake_case** consistently across all request/response structs (e
 
 ## Code Review Findings
 
-### CRITICAL-001: Internal Error Message Leakage in Search Endpoints
+### CRITICAL-001: Internal Error Message Leakage in Search Endpoints -- **FIXED**
 - **File:** `internal/adapter/http/handlers_search.go:43,101`
 - **Description:** The `SearchConversations` and `GlobalSearch` handlers expose internal error messages to clients by concatenating `err.Error()` into the response: `"search failed: " + err.Error()`. This can leak database connection strings, table names, or other internal details.
 - **Impact:** Information disclosure vulnerability. Internal errors may reveal PostgreSQL query details, table names, or other system internals to external callers.
 - **Recommendation:** Replace with `writeInternalError(w, err)` which logs the error server-side and returns a generic "internal server error" message. Or use `writeError(w, http.StatusInternalServerError, "search failed")` without the error details.
 
-### HIGH-001: Mixed PathValue vs URLParam for Route Parameter Extraction
+### HIGH-001: Mixed PathValue vs URLParam for Route Parameter Extraction -- **FIXED**
 - **File:** `internal/adapter/http/handlers_benchmark.go:102,162,198,260,288,316` and `handlers_benchmark_analyze.go:12`
 - **Description:** Benchmark handlers use `r.PathValue("id")` (Go 1.22+ net/http), while all other handlers use `chi.URLParam(r, "id")`. When using chi router, `PathValue` may not be populated because chi uses its own context key for URL parameters. This means these handlers may receive an empty `id` when routed through chi.
 - **Impact:** All benchmark `PathValue("id")` calls could silently return empty strings, causing "run id is required" errors for valid requests, or worse, operating on empty IDs. The `handleGet`/`handleDelete` calls from crud.go use `chi.URLParam` correctly, masking this for some endpoints. But `CancelBenchmarkRun`, `ExportBenchmarkResults`, `UpdateBenchmarkSuite`, `BenchmarkCostAnalysis`, `ExportRLVRData`, `ExportTrainingData`, and `AnalyzeBenchmarkRun` are all affected.
 - **Recommendation:** Replace all `r.PathValue("id")` with `chi.URLParam(r, "id")` (or the local `urlParam(r, "id")` alias) for consistency and correctness with the chi router.
 
-### HIGH-002: Inconsistent Error Response Format in LLM Keys Handler
+### HIGH-002: Inconsistent Error Response Format in LLM Keys Handler -- **FIXED**
 - **File:** `internal/adapter/http/handlers_llm_keys.go:16,32,53`
 - **Description:** Three handlers use `http.Error(w, "unauthorized", http.StatusUnauthorized)` instead of `writeError(w, http.StatusUnauthorized, "not authenticated")`. `http.Error()` sets Content-Type to `text/plain` and writes a plain text body, while all other handlers return `application/json` with `{"error": "..."}`. This breaks the API contract for any client expecting consistent JSON error responses.
 - **Impact:** Clients parsing JSON error responses will get parse errors when these endpoints return plain text. The inconsistent Content-Type header (`text/plain` vs `application/json`) can confuse HTTP client libraries.
 - **Recommendation:** Replace all three `http.Error()` calls with `writeError(w, http.StatusUnauthorized, "not authenticated")` to match the rest of the API.
 
-### HIGH-003: Inconsistent Delete Response Pattern
+### HIGH-003: Inconsistent Delete Response Pattern -- **FIXED**
 - **File:** `internal/adapter/http/handlers_session.go:80` (DeleteBranchProtectionRule)
 - **Description:** `DeleteBranchProtectionRule` returns `200 {"status":"deleted"}` while every other delete handler returns `204 No Content`. This is the only delete endpoint that returns a JSON body.
 - **Impact:** Clients implementing generic delete logic will fail or behave unexpectedly on this one endpoint. The 200+body pattern violates the established convention.
 - **Recommendation:** Change to `w.WriteHeader(http.StatusNoContent)` with no response body, matching all other delete handlers.
 
-### HIGH-004: No Pagination on Most List Endpoints
+### HIGH-004: No Pagination on Most List Endpoints -- **FIXED**
 - **File:** Multiple (handlers.go, handlers_conversation.go, handlers_agent_features.go, etc.)
 - **Description:** Approximately 40+ list endpoints return all records without pagination. Only trajectory (`GetTrajectory`), audit trail (`GlobalAuditTrail`, `ProjectAuditTrail`), and channel messages (`ListChannelMessages`) implement cursor-based pagination with `cursor` and `limit` parameters. All other list endpoints (projects, agents, tasks, conversations, runs, modes, skills, microagents, etc.) return unbounded result sets.
 - **Impact:** As the system grows, these endpoints will cause performance degradation, memory pressure, and potentially timeout errors. A project with thousands of conversations, for example, will return all of them in a single response.
 - **Recommendation:** Implement cursor-based or offset pagination consistently across all list endpoints. At minimum, add `limit` with a sensible default (e.g., 50) and `offset`/`cursor` parameters.
 
-### MEDIUM-001: Verb-in-URL Violations
+### MEDIUM-001: Verb-in-URL Violations -- **FIXED**
 - **File:** `internal/adapter/http/routes.go` (multiple lines)
 - **Description:** Several endpoints use verbs in URLs, violating RESTful naming conventions:
   - `POST /llm/models/delete` -- should be `DELETE /llm/models/{id}`
@@ -640,25 +640,25 @@ JSON tags use **snake_case** consistently across all request/response structs (e
 - **Impact:** Inconsistency with RESTful conventions. `POST /llm/models/delete` is particularly problematic since it uses POST instead of DELETE and has a verb in the URL.
 - **Recommendation:** For `POST /llm/models/delete`, consider proxying through a proper `DELETE /llm/models/{id}` endpoint. For action endpoints like decompose/detect, these are acceptable as RPC-style actions under REST (they are not CRUD operations), but should be documented as such.
 
-### MEDIUM-002: Duplicate Query Parameter Parser Functions
+### MEDIUM-002: Duplicate Query Parameter Parser Functions -- **FIXED**
 - **File:** `internal/adapter/http/helpers.go:42` and `internal/adapter/http/handlers_quarantine.go:137`
 - **Description:** Two nearly identical functions exist for parsing integer query parameters: `queryParamInt()` in helpers.go (enforces `n > 0`) and `queryInt()` in handlers_quarantine.go (allows zero/negative values). This creates maintenance burden and subtle behavior differences.
 - **Impact:** Inconsistent handling of edge cases. `queryParamInt` rejects zero values (returns default), while `queryInt` allows them. Quarantine's offset=0 works correctly only because it uses `queryInt`.
 - **Recommendation:** Remove `queryInt` from handlers_quarantine.go. Modify `queryParamInt` to accept a `minValue` parameter, or create a `queryParamIntRange(min, max)` variant that handles the offset=0 case.
 
-### MEDIUM-003: Missing Pagination Envelope Consistency
+### MEDIUM-003: Missing Pagination Envelope Consistency -- **FIXED**
 - **File:** Multiple handler files
 - **Description:** List responses use three different formats: (1) bare arrays `[...]` (most endpoints), (2) paginated objects `{"events":[], "cursor":"...", "has_more":true, "total":N}` (trajectory), (3) wrapped objects `{"results":[], "count":N}` (scope search). There is no consistent response envelope.
 - **Impact:** Clients cannot implement generic list handling. Adding pagination later requires a breaking change for bare-array responses.
 - **Recommendation:** Define a standard list envelope: `{"data": [], "total": N, "cursor": "", "has_more": false}`. Apply it consistently to all list endpoints. Bare arrays are acceptable for small, bounded enumerations (providers, modes).
 
-### MEDIUM-004: No 422 Unprocessable Entity Usage for Validation Errors
+### MEDIUM-004: No 422 Unprocessable Entity Usage for Validation Errors -- **FIXED**
 - **File:** `internal/adapter/http/helpers.go:104` (writeError for validation)
 - **Description:** All validation errors return `400 Bad Request`. The API does not use `422 Unprocessable Entity` for semantic validation failures (e.g., valid JSON but invalid field values). The only 422 usage is in `handlers_skill_import.go:50` for safety rejection.
 - **Impact:** Clients cannot distinguish between malformed requests (true 400) and semantically invalid requests (should be 422). RFC 4918 defines 422 specifically for this purpose.
 - **Recommendation:** Use 400 for malformed JSON / missing fields, and 422 for business rule validation failures (invalid enum values, constraint violations, etc.).
 
-### MEDIUM-005: Error Detail Leakage in EvaluateStep
+### MEDIUM-005: Error Detail Leakage in EvaluateStep -- **FIXED**
 - **File:** `internal/adapter/http/handlers_orchestration.go:119`
 - **Description:** The `EvaluateStep` handler exposes internal error details: `fmt.Sprintf("review evaluation failed: %v", err)`. This can leak internal service details.
 - **Impact:** Internal error messages from the review router service could be exposed to API clients.
@@ -758,3 +758,23 @@ The following endpoints exist in code but are not mentioned in any `docs/feature
 | | **Final Score** | **72/100** |
 
 Bonus points awarded for: consistent error struct (+3), generic CRUD factories (+3), null-safe lists (+2), proper HTTP semantics for most CRUD (+3), body size limiting (+2), security headers (+2), role-based access control (+3), snake_case consistency (+3).
+
+---
+
+## Fix Status
+
+| Severity | Total | Fixed | Unfixed |
+|----------|------:|------:|--------:|
+| CRITICAL | 1     | 1     | 0       |
+| HIGH     | 4     | 4     | 0       |
+| MEDIUM   | 5     | 5     | 0       |
+| LOW      | 4     | 0     | 4       |
+| **Total**| **14**| **10**| **4**   |
+
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (0 MEDIUM x 2) - (4 LOW x 1) = **96/100 -- Grade: A**
+
+**Remaining unfixed findings:**
+- LOW-001: Quarantine handlers use lowercase method names
+- LOW-002: Batch operations use POST for DELETE semantics
+- LOW-003: Inconsistent status message spelling (cancelled/canceled)
+- LOW-004: Missing PATCH usage for partial updates

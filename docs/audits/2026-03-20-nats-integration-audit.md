@@ -3,9 +3,9 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 22 files
-**Score: 68/100 -- Grade: C**
+**Score: 68/100 -- Grade: C** (post-fix: 96/100 -- Grade: A)
 
-> Warning: Score is below 75. Several HIGH and MEDIUM findings require attention before production readiness.
+> Warning: Original score was below 75. Most findings have been fixed.
 
 ---
 
@@ -82,7 +82,7 @@ All three patterns are well-implemented with appropriate ack semantics.
 
 ## Code Review Findings
 
-### CRITICAL-001: No NATS Reconnect Configuration
+### CRITICAL-001: No NATS Reconnect Configuration -- **FIXED**
 
 - **File:** `internal/adapter/nats/nats.go:39`
 - **Description:** `nats.Connect(url)` is called with zero options. The NATS Go client defaults to `MaxReconnects: 60` and `ReconnectWait: 2s`, but there are no disconnect/reconnect handlers, no custom reconnect buffer size, and no error handler. In a Docker environment with container restarts, the default 2-minute reconnect window may be insufficient. More critically, there is no logging or alerting when a disconnect occurs -- the system silently reconnects (or silently fails).
@@ -104,21 +104,21 @@ All three patterns are well-implemented with appropriate ack semantics.
   )
   ```
 
-### HIGH-001: Validator Covers Only 14 of 50+ Subjects
+### HIGH-001: Validator Covers Only 14 of 50+ Subjects -- **FIXED**
 
 - **File:** `internal/port/messagequeue/validator.go:20-56`
 - **Description:** The `Validate` function has explicit schema checks for only 14 subjects: `SubjectTaskResult`, `SubjectTaskCancel`, 4 retrieval subjects, 2 sub-agent subjects, 2 GEMMAS subjects, and 4 benchmark subjects. All other subjects (40+) fall through to the `default` case, which logs a warning and returns nil (passes validation). This means conversation run messages, run protocol messages, review messages, memory messages, A2A messages, graph messages, repomap messages, prompt evolution messages, and all other payloads are never structurally validated on the Go side.
 - **Impact:** Malformed messages for the majority of subjects bypass validation and reach handlers, potentially causing panics, silent data corruption, or difficult-to-debug failures.
 - **Recommendation:** Add all payload types to the validator switch statement. Since all payloads have corresponding Go structs, this is straightforward. Consider generating the switch from a subject-to-type registry to prevent future drift.
 
-### HIGH-002: Type Mismatch -- int64 vs int for Token Counts
+### HIGH-002: Type Mismatch -- int64 vs int for Token Counts -- **FIXED**
 
 - **File:** `internal/port/messagequeue/schemas.go:98-99` vs `workers/codeforge/models.py:153-154`
 - **Description:** Go `ToolCallResultPayload` uses `int64` for `TokensIn`/`TokensOut`, and Go `RunCompletePayload` also uses `int64` (line 114-115). However, Go `ConversationRunCompletePayload` uses `int` (line 464-465), while Go `TaskResultPayload` uses `int` (line 17-18). Python uses `int` for all of them (unbounded). The inconsistency within Go itself (`int` vs `int64` for the same semantic field) can cause silent truncation on 32-bit platforms or confusion when reading/maintaining the code.
 - **Impact:** On 32-bit Go targets (unlikely but possible in embedded/CI), `int` is 32-bit and would truncate at ~2.1 billion tokens. More practically, the inconsistency is a maintenance hazard.
 - **Recommendation:** Standardize all token count fields to `int64` in Go (or `int` if 64-bit is guaranteed). The JSON wire format handles both identically.
 
-### HIGH-003: Missing tenant_id in RunStartPayload
+### HIGH-003: Missing tenant_id in RunStartPayload -- **FIXED**
 
 - **File:** `internal/port/messagequeue/schemas.go:44-60`
 - **Description:** `RunStartPayload` (the legacy run protocol, Phase 4B) has no `tenant_id` field, unlike `ConversationRunStartPayload` which added it. The Python `RunStartMessage` model also has a `tenant_id` field (line 102), creating a Go-Python contract mismatch. Go will never serialize `tenant_id` for run starts, but Python expects it (with an empty default).
@@ -132,28 +132,28 @@ All three patterns are well-implemented with appropriate ack semantics.
 - **Impact:** Rare duplicate processing of the same message when two loops handle the same subject (unlikely in current architecture since each subject has its own loop, but the `_is_duplicate` is called with custom keys like `f"run-{run_id}"` that could collide across loops).
 - **Recommendation:** Use an `asyncio.Lock` around the check-and-add operation, or at minimum document that the current design relies on the per-subject-single-loop invariant.
 
-### MEDIUM-002: DLQ Messages May Not Be Routed to a Captured Stream
+### MEDIUM-002: DLQ Messages May Not Be Routed to a Captured Stream -- **FIXED**
 
 - **File:** `internal/adapter/nats/nats.go:212-238` and `workers/codeforge/consumer/_base.py:62-73`
 - **Description:** DLQ messages are published to `{subject}.dlq` (e.g., `tasks.cancel.dlq`). Since the JetStream stream captures `tasks.>`, the wildcard does capture `.dlq` suffixed subjects. However, there is no dedicated DLQ consumer or monitoring. DLQ messages accumulate silently in the stream without alerting or reprocessing capability.
 - **Impact:** Failed messages are durably stored but never acted upon. Operators have no visibility into DLQ accumulation without manually querying JetStream.
 - **Recommendation:** Add a DLQ monitoring endpoint or periodic log that reports DLQ message counts. Consider a separate DLQ stream with alerting.
 
-### MEDIUM-003: Retry-Count Header Never Incremented
+### MEDIUM-003: Retry-Count Header Never Incremented -- **FIXED**
 
 - **File:** `internal/adapter/nats/nats.go:188-204`
 - **Description:** When a handler fails and the message is nak'd with delay (`msg.NakWithDelay(nakDelay)`), the `Retry-Count` header is read but never incremented. The `retryCount(hdrs)` function reads the header, but nak'ing a message does not add/update this header. JetStream redelivery uses its own `NumDelivered` metadata, not a custom header. The `maxRetries` check against this header will only match if a publisher explicitly sets `Retry-Count: 3`.
 - **Impact:** The retry-count-based DLQ escalation in `handleMessage` never triggers via organic redelivery. Messages that continuously fail will be redelivered up to `MaxDeliver: 4` times by JetStream (line 146), after which JetStream drops them -- but the Go code's DLQ logic based on `Retry-Count` header is dead code for naturally redelivered messages.
 - **Recommendation:** Either (a) use JetStream's `msg.Metadata().NumDelivered` to count retries instead of a custom header, or (b) increment the `Retry-Count` header before nak'ing. Option (a) is preferred as it uses the built-in mechanism.
 
-### MEDIUM-004: Python Defines SUBJECT_CONVERSATION_COMPACT_COMPLETE Without Go Counterpart
+### MEDIUM-004: Python Defines SUBJECT_CONVERSATION_COMPACT_COMPLETE Without Go Counterpart -- **FIXED**
 
 - **File:** `workers/codeforge/consumer/_subjects.py:64`
 - **Description:** Python defines `SUBJECT_CONVERSATION_COMPACT_COMPLETE = "conversation.compact.complete"` and publishes to it in `_compact.py:56`. However, Go's `queue.go` has no corresponding `SubjectConversationCompactComplete` constant, and no Go subscriber listens for this subject.
 - **Impact:** Compact completion results are published to NATS but never consumed. The messages accumulate in the JetStream stream (captured by `conversation.>`) without being processed. The Go side that triggered the compact has no way to know it completed.
 - **Recommendation:** Add `SubjectConversationCompactComplete = "conversation.compact.complete"` to Go's `queue.go` and subscribe to it in the compact trigger service.
 
-### MEDIUM-005: Validator Accepts Empty JSON Objects as Valid
+### MEDIUM-005: Validator Accepts Empty JSON Objects as Valid -- **FIXED**
 
 - **File:** `internal/port/messagequeue/validator.go:58` and `validator_test.go:63-69`
 - **Description:** The validator uses `json.Unmarshal(data, target)` which succeeds for `{}` against any struct (all fields get zero values). The test `TestValidateEmptyJSON` explicitly verifies this behavior. However, payloads like `TaskResultPayload` with an empty `task_id` or `BenchmarkRunRequestPayload` with an empty `run_id` are semantically invalid.
@@ -174,7 +174,7 @@ All three patterns are well-implemented with appropriate ack semantics.
 - **Impact:** No functional impact. Minor documentation gap.
 - **Recommendation:** Add a brief comment in each file explaining the dual-consumer design.
 
-### LOW-003: Python _benchmark.py Uses Bare except at Line 96-97
+### LOW-003: Python _benchmark.py Uses Bare except at Line 96-97 -- **FIXED**
 
 - **File:** `workers/codeforge/consumer/_benchmark.py:96-97`
 - **Description:** `_fetch_available_models()` uses `except Exception:` with no logging (`return []`). Similarly `_fetch_configured_models()` at line 130. While these are fallback paths, silently swallowing errors violates the project's coding principle "Errors should never pass silently."
@@ -212,3 +212,22 @@ All three patterns are well-implemented with appropriate ack semantics.
 - The mixin-based Python consumer architecture scales well as new subject groups are added.
 - The contract test infrastructure with fixture generation is a strong foundation -- it just needs broader coverage.
 - The dual deduplication strategy (JetStream `Nats-Msg-Id` at the publisher + in-memory `_processed_ids` at the consumer) provides defense in depth.
+
+---
+
+## Fix Status
+
+| Severity | Total | Fixed | Unfixed |
+|----------|------:|------:|--------:|
+| CRITICAL | 1     | 1     | 0       |
+| HIGH     | 3     | 3     | 0       |
+| MEDIUM   | 5     | 4     | 1       |
+| LOW      | 3     | 1     | 2       |
+| **Total**| **12**| **9** | **3**   |
+
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (1 MEDIUM x 2) - (2 LOW x 1) = **96/100 -- Grade: A**
+
+**Remaining unfixed findings:**
+- MEDIUM-001: `_processed_ids` not thread-safe (asyncio)
+- LOW-001: Contract tests do not cover all subjects
+- LOW-002: Inconsistent consumer name prefixes undocumented

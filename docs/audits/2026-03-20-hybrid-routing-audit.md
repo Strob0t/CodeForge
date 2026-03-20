@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review of the 3-Layer Cascade Routing System
 **Files Reviewed:** 11 production files (1,781 lines) + 14 test files (3,402 lines)
-**Score: 72/100 -- Grade: C**
+**Score: 72/100 -- Grade: C** (post-fix: 98/100 -- Grade: A)
 
 ---
 
@@ -79,7 +79,7 @@ The ComplexityAnalyzer uses only precompiled regex patterns and set lookups. No 
 
 ### CRITICAL
 
-#### C1: Reward Computation Uses Hardcoded Default Config
+#### C1: Reward Computation Uses Hardcoded Default Config -- **FIXED**
 
 **File:** `workers/codeforge/agent_loop.py:1179`
 ```python
@@ -100,7 +100,7 @@ The `_record_routing_outcome()` function always creates a fresh `RoutingConfig()
 
 ### HIGH
 
-#### H1: Cascade Layer Ordering Contradicts Documentation
+#### H1: Cascade Layer Ordering Contradicts Documentation -- **FIXED**
 
 **File:** `workers/codeforge/routing/router.py:98-133`
 
@@ -110,7 +110,7 @@ The `route()` method tries MAB first (line 110), then LLMMetaRouter (line 128), 
 
 **Fix:** Update documentation to describe the architecture as: "ComplexityAnalyzer (analysis) feeds into a 3-layer selection cascade: MAB -> LLMMetaRouter -> ComplexityFallback."
 
-#### H2: 9 Config Fields Not Loaded from YAML/Env
+#### H2: 9 Config Fields Not Loaded from YAML/Env -- **FIXED**
 
 **File:** `workers/codeforge/llm.py:276-303`
 
@@ -132,7 +132,7 @@ The `load_routing_config()` function constructs a `RoutingConfig` but omits 9 of
 
 **Fix:** Add the missing `_resolve_*` calls for all 9 fields in `load_routing_config()`.
 
-#### H3: Routing Defaults to Enabled (True)
+#### H3: Routing Defaults to Enabled (True) -- **FIXED**
 
 **File:** `workers/codeforge/llm.py:283`
 ```python
@@ -151,7 +151,7 @@ The project has documented this as a known footgun: CLAUDE.md says `CODEFORGE_RO
 
 ### MEDIUM
 
-#### M1: Blocklist `is_blocked()` Has TOCTOU Race
+#### M1: Blocklist `is_blocked()` Has TOCTOU Race -- **FIXED**
 
 **File:** `workers/codeforge/routing/blocklist.py:69-79`
 
@@ -174,7 +174,7 @@ The lock is released between reading the entry and checking/mutating it. In a mu
 
 **Fix:** Perform the entire read-check-mutate sequence under a single lock acquisition.
 
-#### M2: `_effective_models` Re-fetches Blocklist Every Call
+#### M2: `_effective_models` Re-fetches Blocklist Every Call -- **FIXED**
 
 **File:** `workers/codeforge/routing/router.py:86-89`
 
@@ -357,3 +357,21 @@ The `RateLimitTracker` (`rate_tracker.py`) respects provider limits through:
 - The test suite is thorough, with nearly 2:1 test-to-production line ratio.
 - The main risks are operational: the config loading gap means operators cannot tune many features they might expect to work, and the default-on behavior has already caused production issues (documented in testing reports).
 - The UCB1 implementation is mathematically sound and the entropy-diversity extension is a thoughtful addition for multi-rollout scenarios.
+
+---
+
+## Fix Status
+
+| Severity | Total | Fixed | Unfixed |
+|----------|------:|------:|--------:|
+| CRITICAL | 1     | 1     | 0       |
+| HIGH     | 3     | 3     | 0       |
+| MEDIUM   | 2     | 2     | 0       |
+| LOW      | 2     | 0     | 2       |
+| **Total**| **8** | **6** | **2**   |
+
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (0 MEDIUM x 2) - (2 LOW x 1) = **98/100 -- Grade: A**
+
+**Remaining unfixed findings:**
+- L1: Module-level singletons reduce testability (design choice, no production impact)
+- L2: `_warned_providers` global mutable set without lock (GIL provides safety)
