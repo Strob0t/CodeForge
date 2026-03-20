@@ -25,6 +25,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // RuntimeService orchestrates the step-by-step execution protocol between
@@ -340,6 +341,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		TaskID:        t.ID,
 		ProjectID:     t.ProjectID,
 		AgentID:       ag.ID,
+		TenantID:      tenantctx.FromContext(ctx),
 		Prompt:        t.Prompt,
 		PolicyProfile: profileName,
 		ExecMode:      string(req.ExecMode),

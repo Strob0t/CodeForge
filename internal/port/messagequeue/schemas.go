@@ -46,6 +46,7 @@ type RunStartPayload struct {
 	TaskID            string                `json:"task_id"`
 	ProjectID         string                `json:"project_id"`
 	AgentID           string                `json:"agent_id"`
+	TenantID          string                `json:"tenant_id,omitempty"` // Tenant isolation for background jobs
 	Prompt            string                `json:"prompt"`
 	PolicyProfile     string                `json:"policy_profile"`
 	ExecMode          string                `json:"exec_mode"`
