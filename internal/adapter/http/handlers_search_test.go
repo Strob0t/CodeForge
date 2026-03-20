@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -104,7 +107,7 @@ func TestGlobalSearch_DefaultLimit(t *testing.T) {
 func TestGlobalSearch_MaxLimit(t *testing.T) {
 	// Verify a request with limit > 100 does not error (capped at 100 internally).
 	r := newTestRouter()
-	body, _ := json.Marshal(map[string]interface{}{"query": "test", "limit": 500})
+	body, _ := json.Marshal(map[string]any{"query": "test", "limit": 500})
 	req := httptest.NewRequest("POST", "/api/v1/search", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -118,7 +121,7 @@ func TestGlobalSearch_MaxLimit(t *testing.T) {
 func TestGlobalSearch_NegativeLimit(t *testing.T) {
 	// Verify a request with negative limit defaults gracefully.
 	r := newTestRouter()
-	body, _ := json.Marshal(map[string]interface{}{"query": "test", "limit": -5})
+	body, _ := json.Marshal(map[string]any{"query": "test", "limit": -5})
 	req := httptest.NewRequest("POST", "/api/v1/search", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -127,6 +130,33 @@ func TestGlobalSearch_NegativeLimit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+}
+
+func TestSearchHandlers_NoInternalErrorLeakage(t *testing.T) {
+	// Guard test: verify the search handler source does NOT concatenate
+	// err.Error() into HTTP responses. The error must be logged server-side
+	// and a generic message returned to the client.
+	src := readHandlerSource(t, "handlers_search.go")
+
+	// The old vulnerable pattern was: "search failed: "+err.Error()
+	if strings.Contains(src, `err.Error()`) {
+		t.Fatal("handlers_search.go must NOT use err.Error() in HTTP responses; log the error and return a generic message")
+	}
+}
+
+// readHandlerSource reads a Go source file from the adapter/http package.
+func readHandlerSource(t *testing.T, name string) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not determine test file location")
+	}
+	dir := filepath.Dir(thisFile)
+	data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // test reads from known package dir
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(data)
 }
 
 func TestGlobalSearch_ResponseStructure(t *testing.T) {

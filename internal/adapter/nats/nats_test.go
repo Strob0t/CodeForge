@@ -346,6 +346,38 @@ func TestQueue_IsConnected(t *testing.T) {
 	}
 }
 
+func TestReconnectOpts(t *testing.T) {
+	opts := reconnectOpts()
+	if len(opts) != 5 {
+		t.Fatalf("expected 5 reconnect options, got %d", len(opts))
+	}
+
+	// Verify MaxReconnects and ReconnectWait are wired by applying the
+	// options to a nats.Options struct.
+	nopts := nats.GetDefaultOptions()
+	for _, o := range opts {
+		if err := o(&nopts); err != nil {
+			t.Fatalf("applying option: %v", err)
+		}
+	}
+
+	if nopts.MaxReconnect != 60 {
+		t.Errorf("MaxReconnect = %d, want 60", nopts.MaxReconnect)
+	}
+	if nopts.ReconnectWait != 2*time.Second {
+		t.Errorf("ReconnectWait = %v, want 2s", nopts.ReconnectWait)
+	}
+	if nopts.DisconnectedErrCB == nil {
+		t.Error("DisconnectErrHandler not set")
+	}
+	if nopts.ReconnectedCB == nil {
+		t.Error("ReconnectHandler not set")
+	}
+	if nopts.AsyncErrorCB == nil {
+		t.Error("ErrorHandler not set")
+	}
+}
+
 // errAlwaysFail is a sentinel error used by handlers that should always fail.
 var errAlwaysFail = errSentinel("handler always fails")
 

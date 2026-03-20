@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import structlog
 
+from codeforge.memory.embedding import compute_embedding
 from codeforge.memory.models import (
     Memory,
     MemoryKind,
@@ -46,7 +47,7 @@ class MemoryStore:
 
     async def store(self, req: MemoryStoreRequest) -> str:
         """Store a new memory, computing its embedding via LLM."""
-        embedding = await self._compute_embedding(req.content)
+        embedding = await compute_embedding(self._llm, req.content)
         embedding_bytes = embedding.tobytes() if embedding is not None else None
 
         async with self._db.cursor() as cur:
@@ -78,14 +79,14 @@ class MemoryStore:
         req: MemoryRecallRequest,
     ) -> list[ScoredMemory]:
         """Recall top-k memories by composite scoring."""
-        query_embedding = await self._compute_embedding(req.query)
+        query_embedding = await compute_embedding(self._llm, req.query)
         if query_embedding is None:
             logger.warning("could not compute query embedding for recall")
             return []
 
         # Fetch candidate memories from DB
         kind_filter = ""
-        params: list[object] = [req.project_id]
+        params: list[str | float] = [req.tenant_id, req.project_id]
         if req.kind is not None:
             kind_filter = " AND kind = %s"
             params.append(req.kind.value)
@@ -94,7 +95,7 @@ class MemoryStore:
             "SELECT id, tenant_id, project_id, agent_id, run_id,"
             "       content, kind, importance, embedding, metadata, created_at"
             " FROM agent_memories"
-            " WHERE project_id = %s"
+            " WHERE tenant_id = %s AND project_id = %s"
         )
         query = base_query + kind_filter + " ORDER BY created_at DESC LIMIT 500"
         async with self._db.cursor() as cur:
@@ -138,12 +139,4 @@ class MemoryStore:
         scored.sort(key=lambda s: s.score, reverse=True)
         return scored[: req.top_k]
 
-    async def _compute_embedding(self, text: str) -> np.ndarray | None:
-        """Compute an embedding vector for the given text."""
-        try:
-            resp = await self._llm.embedding(text)
-            if resp and len(resp) > 0:
-                return np.array(resp, dtype=np.float32)
-        except Exception as exc:
-            logger.warning("embedding computation failed", exc_info=True, error=str(exc))
-        return None
+    # _compute_embedding removed — use codeforge.memory.compute_embedding instead (FIX-056)

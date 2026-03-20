@@ -1,3 +1,11 @@
+// TODO: FIX-105: ChatPanel has high eslint-disable comment density, indicating
+// it needs refactoring into smaller, focused components (message list, input
+// area, toolbar, approval panel). Already noted in HIGH findings.
+//
+// TODO: FIX-106: Inline SVG icons are duplicated across ChatPanel and other
+// components. Extract shared SVG icons into a reusable icon component library
+// (e.g., frontend/src/ui/icons/).
+
 import {
   batch,
   createEffect,
@@ -11,7 +19,13 @@ import {
 } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Conversation, ConversationMessage, MessageImage, Session } from "~/api/types";
+import type {
+  AgentConfig,
+  Conversation,
+  ConversationMessage,
+  MessageImage,
+  Session,
+} from "~/api/types";
 import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
@@ -106,6 +120,17 @@ export default function ChatPanel(props: ChatPanelProps) {
       ? api.conversations.session(cid).catch(() => null as Session | null)
       : Promise.resolve(null as Session | null),
   );
+  // Agent config (max_context_tokens etc.) — fetched once from backend.
+  const DEFAULT_MAX_CONTEXT_TOKENS = 128_000;
+  const [agentConfig] = createResource(
+    () => true,
+    () =>
+      api.agentConfig
+        .get()
+        .catch(() => ({ max_context_tokens: DEFAULT_MAX_CONTEXT_TOKENS }) as AgentConfig),
+  );
+  const maxContextTokens = () => agentConfig()?.max_context_tokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
+
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
   const [attaching, setAttaching] = createSignal(false);
@@ -1084,7 +1109,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           steps={sessionSteps()}
           costUsd={sessionCostUsd()}
           tokensUsed={sessionTokensIn() + sessionTokensOut()}
-          tokensTotal={120000}
+          tokensTotal={maxContextTokens()}
           visible={sessionCostUsd() > 0 || sessionSteps() > 0}
         />
 

@@ -14,8 +14,8 @@ type TaskResultPayload struct {
 	Output    string   `json:"output"`
 	Files     []string `json:"files"`
 	Error     string   `json:"error"`
-	TokensIn  int      `json:"tokens_in"`
-	TokensOut int      `json:"tokens_out"`
+	TokensIn  int64    `json:"tokens_in"`
+	TokensOut int64    `json:"tokens_out"`
 	CostUSD   float64  `json:"cost_usd"`
 }
 
@@ -46,6 +46,7 @@ type RunStartPayload struct {
 	TaskID            string                `json:"task_id"`
 	ProjectID         string                `json:"project_id"`
 	AgentID           string                `json:"agent_id"`
+	TenantID          string                `json:"tenant_id,omitempty"` // Tenant isolation for background jobs
 	Prompt            string                `json:"prompt"`
 	PolicyProfile     string                `json:"policy_profile"`
 	ExecMode          string                `json:"exec_mode"`
@@ -201,8 +202,8 @@ type ContextRerankResultPayload struct {
 	RequestID    string                      `json:"request_id"`
 	Entries      []ContextRerankEntryPayload `json:"entries"`
 	FallbackUsed bool                        `json:"fallback_used"`
-	TokensIn     int                         `json:"tokens_in"`
-	TokensOut    int                         `json:"tokens_out"`
+	TokensIn     int64                       `json:"tokens_in"`
+	TokensOut    int64                       `json:"tokens_out"`
 	CostUSD      float64                     `json:"cost_usd"`
 	Error        string                      `json:"error,omitempty"`
 }
@@ -461,8 +462,8 @@ type ConversationRunCompletePayload struct {
 	Status           string                       `json:"status"`
 	Error            string                       `json:"error,omitempty"`
 	CostUSD          float64                      `json:"cost_usd"`
-	TokensIn         int                          `json:"tokens_in"`
-	TokensOut        int                          `json:"tokens_out"`
+	TokensIn         int64                        `json:"tokens_in"`
+	TokensOut        int64                        `json:"tokens_out"`
 	StepCount        int                          `json:"step_count"`
 	Model            string                       `json:"model"`
 }
@@ -516,8 +517,8 @@ type BenchmarkSummary struct {
 	TaskCount      int     `json:"task_count"`
 	AvgScore       float64 `json:"avg_score"`
 	TotalCostUSD   float64 `json:"total_cost_usd"`
-	TotalTokensIn  int     `json:"total_tokens_in"`
-	TotalTokensOut int     `json:"total_tokens_out"`
+	TotalTokensIn  int64   `json:"total_tokens_in"`
+	TotalTokensOut int64   `json:"total_tokens_out"`
 	ElapsedMs      int64   `json:"elapsed_ms"`
 }
 
@@ -529,7 +530,7 @@ type BenchmarkRunResultPayload struct {
 	Results         []BenchmarkTaskResult `json:"results"`
 	Summary         BenchmarkSummary      `json:"summary"`
 	TotalCost       float64               `json:"total_cost"`
-	TotalTokens     int                   `json:"total_tokens"`
+	TotalTokens     int64                 `json:"total_tokens"`
 	TotalDurationMs int64                 `json:"total_duration_ms"`
 	Error           string                `json:"error,omitempty"`
 }
@@ -543,8 +544,8 @@ type BenchmarkTaskResult struct {
 	ExpectedOutput       string                        `json:"expected_output"`
 	ToolCalls            []map[string]string           `json:"tool_calls"`
 	CostUSD              float64                       `json:"cost_usd"`
-	TokensIn             int                           `json:"tokens_in"`
-	TokensOut            int                           `json:"tokens_out"`
+	TokensIn             int64                         `json:"tokens_in"`
+	TokensOut            int64                         `json:"tokens_out"`
 	DurationMs           int64                         `json:"duration_ms"`
 	EvaluatorScores      map[string]map[string]float64 `json:"evaluator_scores,omitempty"`
 	FilesChanged         []string                      `json:"files_changed,omitempty"`

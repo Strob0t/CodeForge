@@ -1,6 +1,7 @@
 package http
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -40,7 +41,8 @@ func (h *Handlers) SearchConversations(w http.ResponseWriter, r *http.Request) {
 
 	messages, err := h.Conversations.SearchMessages(r.Context(), req.Query, req.ProjectIDs, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "search failed: "+err.Error())
+		slog.Error("conversation search failed", "query", req.Query, "error", err)
+		writeError(w, http.StatusInternalServerError, "search failed")
 		return
 	}
 
@@ -98,7 +100,8 @@ func (h *Handlers) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 
 	results, err := h.Retrieval.GlobalSearch(r.Context(), req.Query, req.ProjectIDs, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "search failed: "+err.Error())
+		slog.Error("global search failed", "query", req.Query, "error", err)
+		writeError(w, http.StatusInternalServerError, "search failed")
 		return
 	}
 

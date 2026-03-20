@@ -36,8 +36,8 @@ type Result struct {
 	Output    string   `json:"output"`
 	Files     []string `json:"files,omitempty"`
 	Error     string   `json:"error,omitempty"`
-	TokensIn  int      `json:"tokens_in"`
-	TokensOut int      `json:"tokens_out"`
+	TokensIn  int64    `json:"tokens_in"`
+	TokensOut int64    `json:"tokens_out"`
 }
 
 // CreateRequest holds the fields needed to create a new task.

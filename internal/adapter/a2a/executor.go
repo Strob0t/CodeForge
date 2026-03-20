@@ -18,6 +18,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// cancelResult is the typed payload published to NATS when canceling a task.
+type cancelResult struct {
+	TaskID string `json:"task_id"`
+}
+
 // Executor implements a2asrv.AgentExecutor for inbound A2A tasks.
 type Executor struct {
 	store database.Store
@@ -57,12 +62,16 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 	}
 
 	// Publish to NATS for worker pickup.
-	payload, _ := json.Marshal(messagequeue.A2ATaskCreatedPayload{
+	payload, marshalErr := json.Marshal(messagequeue.A2ATaskCreatedPayload{
 		TaskID:   taskID,
 		TenantID: tenantctx.FromContext(ctx),
 		SkillID:  "",
 		Prompt:   prompt,
 	})
+	if marshalErr != nil {
+		slog.Error("a2a: failed to marshal task created payload", "task_id", taskID, "error", marshalErr)
+		return fmt.Errorf("marshal a2a task payload: %w", marshalErr)
+	}
 	if err := e.queue.Publish(ctx, messagequeue.SubjectA2ATaskCreated, payload); err != nil {
 		slog.Error("a2a: publish task created", "error", err)
 	}
@@ -93,7 +102,11 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq
 	}
 
 	// Publish cancel to NATS.
-	cancelPayload, _ := json.Marshal(map[string]string{"task_id": taskID})
+	cancelPayload, marshalErr := json.Marshal(cancelResult{TaskID: taskID})
+	if marshalErr != nil {
+		slog.Error("a2a: failed to marshal cancel payload", "task_id", taskID, "error", marshalErr)
+		return fmt.Errorf("marshal a2a cancel payload: %w", marshalErr)
+	}
 	if err := e.queue.Publish(ctx, messagequeue.SubjectA2ATaskCancel, cancelPayload); err != nil {
 		slog.Error("a2a: publish task cancel", "error", err)
 	}

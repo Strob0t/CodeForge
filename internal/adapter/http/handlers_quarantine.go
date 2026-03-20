@@ -2,12 +2,15 @@ package http
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 )
+
+// FIX-097: Quarantine handlers are intentionally unexported (lowercase).
+// They are admin-only and registered via method values in routes.go within
+// the same package. No external package needs to reference them directly.
 
 // listQuarantinedMessages handles GET /api/v1/quarantine?project_id=...&status=...&limit=...&offset=...
 func (h *Handlers) listQuarantinedMessages(w http.ResponseWriter, r *http.Request) {
@@ -23,8 +26,7 @@ func (h *Handlers) listQuarantinedMessages(w http.ResponseWriter, r *http.Reques
 	}
 
 	status := quarantine.Status(r.URL.Query().Get("status"))
-	limit := queryInt(r, "limit", 50)
-	offset := queryInt(r, "offset", 0)
+	limit, offset := parsePagination(r, 50)
 
 	msgs, err := h.Quarantine.List(r.Context(), projectID, status, limit, offset)
 	if err != nil {
@@ -131,17 +133,4 @@ func (h *Handlers) quarantineStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, stats)
-}
-
-// queryInt reads an integer query parameter with a default value.
-func queryInt(r *http.Request, key string, defaultVal int) int {
-	s := r.URL.Query().Get(key)
-	if s == "" {
-		return defaultVal
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return defaultVal
-	}
-	return v
 }

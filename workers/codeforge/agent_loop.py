@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 from collections import Counter, deque
@@ -43,6 +44,8 @@ from codeforge.tracing import tracing_manager
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
     from codeforge.memory.experience import ExperiencePool
+    from codeforge.plan_act import PlanActController
+    from codeforge.routing.models import ComplexityTier, RoutingConfig, RoutingMetadata
     from codeforge.runtime import RuntimeClient
     from codeforge.tools import ToolRegistry
 
@@ -132,7 +135,8 @@ class LoopConfig:
     provider_api_key: str = ""
     plan_act_enabled: bool = False
     rollout_id: int = -1  # -1 = not a rollout
-    routing_metadata: object | None = None  # RoutingMetadata from initial route
+    routing_metadata: RoutingMetadata | None = None  # RoutingMetadata from initial route
+    routing_config: RoutingConfig | None = None  # RoutingConfig instance (active config for reward computation)
 
 
 @dataclass
@@ -148,7 +152,7 @@ class _LoopState:
     error: str = ""
     tool_messages: list[ConversationMessagePayload] = field(default_factory=list)
     failed_models: set[str] = field(default_factory=set)
-    quality_tracker: object | None = None  # IterationQualityTracker, set at runtime
+    quality_tracker: IterationQualityTracker | None = None  # set at runtime
 
 
 class AgentLoopExecutor:
@@ -291,6 +295,7 @@ class AgentLoopExecutor:
                 tokens_out=0,
                 routing_layer=cfg.routing_layer,
                 run_id=self._runtime.run_id,
+                routing_config=cfg.routing_config,
             )
         return await self._try_model_fallback(cfg, state, exc)
 
@@ -540,7 +545,7 @@ class AgentLoopExecutor:
         messages: list[dict[str, object]],
         state: _LoopState,
         iteration: int,
-        plan_act: object | None = None,
+        plan_act: PlanActController | None = None,
     ) -> bool | str | None:
         """Run one LLM iteration. Returns True on stop, error string on failure, None to continue."""
         llm_decision = await self._runtime.request_tool_call(tool="LLM", command="chat_completion")
@@ -618,7 +623,7 @@ class AgentLoopExecutor:
         llm_decision: ToolCallDecision,
         full_text: str,
         messages: list[dict[str, object]],
-        plan_act: object | None = None,
+        plan_act: PlanActController | None = None,
     ) -> bool | None:
         """Process LLM response: update state, report results, execute tool calls."""
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
@@ -666,6 +671,7 @@ class AgentLoopExecutor:
                 tokens_out=response.tokens_out,
                 routing_layer=cfg.routing_layer,
                 run_id=self._runtime.run_id,
+                routing_config=cfg.routing_config,
             )
 
         if not response.tool_calls:
@@ -934,7 +940,7 @@ class IterationQualityTracker:
         self._iteration_signals.clear()
 
     @staticmethod
-    def bump_tier(current: object) -> object:
+    def bump_tier(current: ComplexityTier) -> ComplexityTier:
         """Bump complexity tier by one level, capping at REASONING."""
         from codeforge.routing.models import ComplexityTier
 
@@ -989,8 +995,37 @@ async def _restore_workspace(workspace_path: str) -> None:
     await proc.communicate()
 
 
+def _compute_rollout_score(result: AgentLoopResult) -> float:
+    """Score a single rollout result using quality metrics.
+
+    Scoring formula (0.0-1.0):
+    - 0.0 if the result has an error
+    - Otherwise: weighted combination of content length, step count, and tool usage
+    """
+    if result.error:
+        return 0.0
+
+    content_len = len(result.final_content)
+    if content_len == 0:
+        return 0.0
+
+    # Content quality: logarithmic scale, capped at 1.0
+    # Short outputs (<50 chars) score low; 500+ chars score near 1.0
+    content_score = min(1.0, math.log1p(content_len) / math.log1p(500))
+
+    # Step efficiency: penalize excessive steps (>30 steps starts to reduce score)
+    max_efficient_steps = 30
+    step_score = min(1.0, result.step_count / max_efficient_steps) if result.step_count > 0 else 0.1
+
+    # Tool usage: having tool messages indicates productive work
+    tool_score = min(1.0, len(result.tool_messages) / 5) if result.tool_messages else 0.0
+
+    # Weighted combination: content is most important, then tool usage, then step efficiency
+    return 0.5 * content_score + 0.3 * tool_score + 0.2 * step_score
+
+
 def _select_best_rollout(
-    results: list[object],
+    results: list[AgentLoopResult],
     scores: list[float],
 ) -> int:
     """Select the best rollout index by score, excluding errored results."""
@@ -1101,8 +1136,8 @@ class ConversationRolloutExecutor:
                 early_stopped = True
                 break
 
-        # Score rollouts (simple: use content length as proxy; errors score 0).
-        scores = [len(r.final_content) / max(len(r.final_content), 1) if not r.error else 0.0 for r in results]
+        # Score rollouts using quality tracker data and result metrics.
+        scores = [_compute_rollout_score(r) for r in results]
         best_idx = _select_best_rollout(results, scores)
         best = results[best_idx]
 
@@ -1166,6 +1201,7 @@ async def _record_routing_outcome(
     tokens_out: int,
     routing_layer: str,
     run_id: str,
+    routing_config: RoutingConfig | None = None,
 ) -> None:
     """Post a routing outcome to Go Core for MAB learning. Fire-and-forget."""
     import os
@@ -1176,7 +1212,8 @@ async def _record_routing_outcome(
     from codeforge.routing.reward import compute_reward
 
     quality = 1.0 if success else 0.0
-    reward = compute_reward(success, quality, cost_usd, latency_ms, RoutingConfig())
+    config = routing_config if routing_config is not None else RoutingConfig()
+    reward = compute_reward(success, quality, cost_usd, latency_ms, config)
     core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
     internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
     headers: dict[str, str] = {}
@@ -1331,7 +1368,7 @@ def sanitize_tool_messages(messages: list[dict[str, object]]) -> list[dict[str, 
 # --- Plan/Act helpers ---
 
 
-def _init_plan_act(cfg: LoopConfig, messages: list[dict[str, object]]) -> object:
+def _init_plan_act(cfg: LoopConfig, messages: list[dict[str, object]]) -> PlanActController:
     """Initialize the Plan/Act controller and inject the system prompt suffix."""
     from codeforge.plan_act import PlanActController, get_max_plan_iterations
 
@@ -1366,9 +1403,9 @@ def _check_model_switch(quality_tracker: IterationQualityTracker, cfg: LoopConfi
     )
 
 
-def _check_plan_act_transition(plan_act: object, messages: list[dict[str, object]]) -> None:
+def _check_plan_act_transition(plan_act: PlanActController, messages: list[dict[str, object]]) -> None:
     """Auto-transition from plan to act when max plan iterations reached."""
-    if plan_act.should_auto_transition():
+    if plan_act.tick_and_should_transition():
         plan_act.transition_to_act()
         logger.info("plan/act auto-transition to act phase after %d plan iterations", plan_act.plan_iterations)
         _update_system_suffix(messages, plan_act.get_system_suffix())

@@ -24,6 +24,8 @@ import (
 )
 
 // BenchmarkService manages benchmark runs and results.
+// TODO: decompose into smaller services (RunManager, ResultAggregator, DatasetResolver)
+// to reduce file size (currently 1000+ LOC) and improve testability.
 type BenchmarkService struct {
 	store       database.Store
 	datasetsDir string
@@ -449,7 +451,7 @@ func (s *BenchmarkService) CostAnalysis(ctx context.Context, runID string) (*ben
 	}
 
 	var totalCost float64
-	var totalTokensIn, totalTokensOut int
+	var totalTokensIn, totalTokensOut int64
 	var totalScore float64
 	var scoreCount int
 
@@ -528,7 +530,7 @@ func (s *BenchmarkService) Leaderboard(ctx context.Context, suiteID string) ([]b
 		}
 
 		var totalCost float64
-		var totalTokensIn, totalTokensOut int
+		var totalTokensIn, totalTokensOut int64
 		var totalScore float64
 		var scoreCount int
 
@@ -750,6 +752,17 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 		slog.Warn("benchmark run not found, skipping stale result", "run_id", payload.RunID)
 		return nil
 	}
+
+	// Verify tenant_id from NATS payload matches the run's actual tenant.
+	if payload.TenantID != "" && existing.TenantID != "" && payload.TenantID != existing.TenantID {
+		slog.Warn("NATS payload tenant_id mismatch, using run's tenant_id",
+			"run_id", payload.RunID,
+			"payload_tenant", payload.TenantID,
+			"run_tenant", existing.TenantID,
+		)
+		ctx = tenantctx.WithTenant(ctx, existing.TenantID)
+	}
+
 	if existing.Status == benchmark.StatusCompleted || existing.Status == benchmark.StatusFailed {
 		slog.Info("benchmark run result already processed, skipping", "run_id", payload.RunID)
 		return nil

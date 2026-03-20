@@ -91,7 +91,7 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 	}
 
 	// Broadcast alert to admin UI.
-	s.hub.BroadcastEvent(ctx, ws.EventQuarantineAlert, map[string]interface{}{
+	s.hub.BroadcastEvent(ctx, ws.EventQuarantineAlert, map[string]any{
 		"id":         msg.ID,
 		"project_id": projectID,
 		"subject":    subject,
@@ -123,7 +123,7 @@ func (s *QuarantineService) Approve(ctx context.Context, id, reviewedBy, note st
 		return fmt.Errorf("replay quarantined message: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventQuarantineResolved, map[string]interface{}{
+	s.hub.BroadcastEvent(ctx, ws.EventQuarantineResolved, map[string]any{
 		"id":          id,
 		"project_id":  msg.ProjectID,
 		"action":      "approved",
@@ -149,7 +149,7 @@ func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note str
 		return fmt.Errorf("update quarantine status: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventQuarantineResolved, map[string]interface{}{
+	s.hub.BroadcastEvent(ctx, ws.EventQuarantineResolved, map[string]any{
 		"id":          id,
 		"project_id":  msg.ProjectID,
 		"action":      "rejected",

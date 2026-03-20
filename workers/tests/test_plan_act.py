@@ -80,36 +80,36 @@ class TestPlanActControllerMaxIterations:
         from codeforge.plan_act import PlanActController
 
         ctrl = PlanActController(enabled=True, max_plan_iterations=3)
-        assert ctrl.should_auto_transition() is False  # iteration 1
-        assert ctrl.should_auto_transition() is False  # iteration 2
-        assert ctrl.should_auto_transition() is True  # iteration 3 -> auto-transition
+        assert ctrl.tick_and_should_transition() is False  # iteration 1
+        assert ctrl.tick_and_should_transition() is False  # iteration 2
+        assert ctrl.tick_and_should_transition() is True  # iteration 3 -> auto-transition
 
     def test_auto_transition_does_not_fire_in_act_phase(self) -> None:
         from codeforge.plan_act import PlanActController
 
         ctrl = PlanActController(enabled=True, max_plan_iterations=2)
         ctrl.transition_to_act()
-        assert ctrl.should_auto_transition() is False
+        assert ctrl.tick_and_should_transition() is False
 
     def test_auto_transition_with_default_max(self) -> None:
         from codeforge.plan_act import PlanActController
 
         ctrl = PlanActController(enabled=True)
         for _ in range(9):
-            assert ctrl.should_auto_transition() is False
-        assert ctrl.should_auto_transition() is True  # iteration 10
+            assert ctrl.tick_and_should_transition() is False
+        assert ctrl.tick_and_should_transition() is True  # iteration 10
 
     def test_zero_max_iterations_transitions_immediately(self) -> None:
         from codeforge.plan_act import PlanActController
 
         ctrl = PlanActController(enabled=True, max_plan_iterations=0)
-        assert ctrl.should_auto_transition() is True
+        assert ctrl.tick_and_should_transition() is True
 
     def test_one_max_iteration_transitions_on_first(self) -> None:
         from codeforge.plan_act import PlanActController
 
         ctrl = PlanActController(enabled=True, max_plan_iterations=1)
-        assert ctrl.should_auto_transition() is True
+        assert ctrl.tick_and_should_transition() is True
 
 
 class TestPlanActControllerDisabled:
@@ -135,7 +135,7 @@ class TestPlanActControllerDisabled:
 
         ctrl = PlanActController(enabled=False)
         for _ in range(20):
-            assert ctrl.should_auto_transition() is False
+            assert ctrl.tick_and_should_transition() is False
 
     def test_disabled_transition_is_noop(self) -> None:
         from codeforge.plan_act import PlanActController

@@ -67,7 +67,14 @@ class ModelBlocklist:
         logger.warning("model_blocklist: auth-blocked %s for %.0fs (reason: %s)", model, _AUTH_BLOCK_TTL, reason)
 
     def is_blocked(self, model: str) -> bool:
-        """Return True if *model* is currently blocked (not expired)."""
+        """Return True if *model* is currently blocked (not expired).
+
+        Note: The check-then-remove pattern below has a theoretical TOCTOU race
+        under threading, but in practice this is safe because:
+        1. The codeforge worker uses asyncio (single-threaded event loop).
+        2. The lock protects the dict read; expiry removal is best-effort cleanup.
+        3. A stale block entry only causes a brief extra block period (fail-safe).
+        """
         with self._lock:
             entry = self._blocked.get(model)
         if entry is None:

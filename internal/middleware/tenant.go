@@ -9,7 +9,6 @@ import (
 )
 
 // DefaultTenantID is the single-tenant default used when no X-Tenant-ID header is set.
-// DefaultTenantID is the single-tenant default used when no X-Tenant-ID header is set.
 var DefaultTenantID = tenantctx.DefaultTenantID
 
 const headerTenantID = "X-Tenant-ID"

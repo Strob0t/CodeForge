@@ -39,6 +39,11 @@ services:
       - "max_connections=200"
       - "-c"
       - "log_line_prefix=%t [%p] %q%u@%d "
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
     logging: *default-logging
 
   nats:
@@ -62,6 +67,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
     logging: *default-logging
 
   litellm:
@@ -80,6 +90,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       CHUTES_API_KEY: ${CHUTES_API_KEY:-}
       AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
+      LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
     ports:
       - "${LITELLM_PORT:-4000}:4000"
     volumes:
@@ -94,6 +105,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
     logging: *default-logging
 
   # --- Application ---
@@ -128,6 +144,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
     logging: *default-logging
 
   worker:
@@ -149,6 +170,17 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import codeforge.consumer"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4.0"
     logging: *default-logging
 
   frontend:
@@ -167,6 +199,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
     logging: *default-logging
 
 volumes:

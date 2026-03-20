@@ -13,7 +13,7 @@ import (
 func (h *Handlers) ListLLMKeys(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r.Context())
 	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -29,7 +29,7 @@ func (h *Handlers) ListLLMKeys(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateLLMKey(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r.Context())
 	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *Handlers) CreateLLMKey(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteLLMKey(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r.Context())
 	if u == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 

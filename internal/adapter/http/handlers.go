@@ -32,9 +32,12 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Handlers holds the HTTP handler dependencies.
+// TODO: decompose into domain-specific handler groups (e.g., ProjectHandlers,
+// ConversationHandlers, BenchmarkHandlers) to reduce field count and improve cohesion.
 type Handlers struct {
 	Projects         *service.ProjectService
 	Tasks            *service.TaskService
@@ -99,12 +102,14 @@ type Handlers struct {
 	Channels         *service.ChannelService
 	Subscription     *service.SubscriptionService
 	Limits           *config.Limits
+	AgentConfig      *config.Agent
 	Boundaries       *service.BoundaryService
 	ReviewTrigger    *service.ReviewTriggerService
 	PromptEvolution  *service.PromptEvolutionService
 }
 
 // ListProjects handles GET /api/v1/projects
+// Supports ?limit=N&offset=N query params (default limit=100, offset=0).
 func (h *Handlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.Projects.List(r.Context())
 	if err != nil {
@@ -114,6 +119,8 @@ func (h *Handlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	if projects == nil {
 		projects = []project.Project{}
 	}
+	limit, offset := parsePagination(r, 100)
+	projects = applyPagination(projects, limit, offset)
 	writeJSON(w, http.StatusOK, projects)
 }
 
@@ -260,10 +267,13 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 // autoIndexProject triggers background indexing for all context sources.
 // Called after clone, adopt, or setup to ensure agents get full context.
 // Each index build is independent — failures are logged but don't block.
-func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
+// The tenantID is extracted from the caller's context before spawning goroutines,
+// because context.Background() would lose tenant isolation.
+func (h *Handlers) autoIndexProject(tenantID, projectID, workspacePath string) {
 	if h.RepoMap != nil {
 		go func() {
-			if err := h.RepoMap.RequestGeneration(context.Background(), projectID, nil); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := h.RepoMap.RequestGeneration(ctx, projectID, nil); err != nil {
 				slog.Error("auto repomap generation failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -271,7 +281,8 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 
 	if h.Retrieval != nil {
 		go func() {
-			if err := h.Retrieval.RequestIndex(context.Background(), projectID, workspacePath, ""); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := h.Retrieval.RequestIndex(ctx, projectID, workspacePath, ""); err != nil {
 				slog.Error("auto retrieval index failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -279,7 +290,8 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 
 	if h.Graph != nil {
 		go func() {
-			if err := h.Graph.RequestBuild(context.Background(), projectID, workspacePath); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := h.Graph.RequestBuild(ctx, projectID, workspacePath); err != nil {
 				slog.Error("auto graph build failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -287,7 +299,8 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 
 	if h.ReviewTrigger != nil {
 		go func() {
-			if _, err := h.ReviewTrigger.TriggerReview(context.Background(), projectID, "", "auto-index"); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if _, err := h.ReviewTrigger.TriggerReview(ctx, projectID, "", "auto-index"); err != nil {
 				slog.Error("auto boundary analysis trigger failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -312,7 +325,7 @@ func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.autoIndexProject(id, p.WorkspacePath)
+	h.autoIndexProject(tenantID, id, p.WorkspacePath)
 
 	writeJSON(w, http.StatusOK, p)
 }
@@ -347,7 +360,7 @@ func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.autoIndexProject(id, p.WorkspacePath)
+	h.autoIndexProject(middleware.TenantIDFromContext(r.Context()), id, p.WorkspacePath)
 
 	writeJSON(w, http.StatusOK, p)
 }
@@ -386,7 +399,7 @@ func (h *Handlers) SetupProject(w http.ResponseWriter, r *http.Request) {
 
 	// Trigger background indexing if the project now has a workspace.
 	if p, pErr := h.Projects.Get(r.Context(), id); pErr == nil && p.WorkspacePath != "" {
-		h.autoIndexProject(id, p.WorkspacePath)
+		h.autoIndexProject(tenantID, id, p.WorkspacePath)
 	}
 
 	writeJSON(w, http.StatusOK, result)
@@ -556,6 +569,7 @@ func (h *Handlers) ListRemoteBranches(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListAgents handles GET /api/v1/projects/{id}/agents
+// Supports ?limit=N&offset=N query params (default limit=100, offset=0).
 func (h *Handlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	agents, err := h.Agents.List(r.Context(), projectID)
@@ -566,6 +580,8 @@ func (h *Handlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	if agents == nil {
 		agents = []agent.Agent{}
 	}
+	limit, offset := parsePagination(r, 100)
+	agents = applyPagination(agents, limit, offset)
 	writeJSON(w, http.StatusOK, agents)
 }
 

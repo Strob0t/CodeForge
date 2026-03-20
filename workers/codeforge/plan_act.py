@@ -57,8 +57,11 @@ class PlanActController:
         """Transition from plan to act phase."""
         self.phase = "act"
 
-    def should_auto_transition(self) -> bool:
-        """Check if the plan phase should auto-transition due to max iterations.
+    def tick_and_should_transition(self) -> bool:
+        """Increment plan iteration count and check if auto-transition is due.
+
+        FIX-090: Renamed from should_auto_transition() to make the side effect
+        (incrementing plan_iterations) explicit in the method name.
 
         Returns True when the plan iteration count reaches max_plan_iterations.
         Does not fire when already in act phase or when disabled.

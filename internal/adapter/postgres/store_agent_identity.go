@@ -27,9 +27,9 @@ func (s *Store) IncrementAgentStats(ctx context.Context, id string, costDelta fl
 			success_rate = (success_rate * total_runs + $3) / (total_runs + 1),
 			last_active_at = $4,
 			updated_at   = $4
-		WHERE id = $1`
+		WHERE id = $1 AND tenant_id = $5`
 
-	tag, err := s.pool.Exec(ctx, q, id, costDelta, successVal, now)
+	tag, err := s.pool.Exec(ctx, q, id, costDelta, successVal, now, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "increment agent stats for %s", id)
 }
 
@@ -39,9 +39,9 @@ func (s *Store) UpdateAgentState(ctx context.Context, id string, state map[strin
 	const q = `
 		UPDATE agents
 		SET state = $2, updated_at = $3
-		WHERE id = $1`
+		WHERE id = $1 AND tenant_id = $4`
 
-	tag, err := s.pool.Exec(ctx, q, id, state, now)
+	tag, err := s.pool.Exec(ctx, q, id, state, now, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "update agent state for %s", id)
 }
 
@@ -49,34 +49,35 @@ func (s *Store) UpdateAgentState(ctx context.Context, id string, state map[strin
 func (s *Store) SendAgentMessage(ctx context.Context, msg *agent.InboxMessage) error {
 	msg.CreatedAt = time.Now().UTC()
 	const q = `
-		INSERT INTO agent_inbox (agent_id, from_agent, content, priority, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO agent_inbox (agent_id, from_agent, content, priority, created_at, tenant_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`
 
 	return s.pool.QueryRow(ctx, q,
-		msg.AgentID, msg.FromAgent, msg.Content, msg.Priority, msg.CreatedAt,
+		msg.AgentID, msg.FromAgent, msg.Content, msg.Priority, msg.CreatedAt, tenantFromCtx(ctx),
 	).Scan(&msg.ID)
 }
 
 // ListAgentInbox returns inbox messages for an agent, optionally filtered to unread only.
 func (s *Store) ListAgentInbox(ctx context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
 	var q string
-	var args []interface{}
+	var args []any
 
+	tid := tenantFromCtx(ctx)
 	if unreadOnly {
 		q = `
 			SELECT id, agent_id, from_agent, content, priority, read, created_at
 			FROM agent_inbox
-			WHERE agent_id = $1 AND read = false
+			WHERE agent_id = $1 AND read = false AND tenant_id = $2
 			ORDER BY priority DESC, created_at ASC`
-		args = []interface{}{agentID}
+		args = []any{agentID, tid}
 	} else {
 		q = `
 			SELECT id, agent_id, from_agent, content, priority, read, created_at
 			FROM agent_inbox
-			WHERE agent_id = $1
+			WHERE agent_id = $1 AND tenant_id = $2
 			ORDER BY priority DESC, created_at ASC`
-		args = []interface{}{agentID}
+		args = []any{agentID, tid}
 	}
 
 	rows, err := s.pool.Query(ctx, q, args...)
@@ -95,7 +96,7 @@ func (s *Store) ListAgentInbox(ctx context.Context, agentID string, unreadOnly b
 
 // MarkInboxRead marks a single inbox message as read.
 func (s *Store) MarkInboxRead(ctx context.Context, messageID string) error {
-	const q = `UPDATE agent_inbox SET read = true WHERE id = $1`
-	tag, err := s.pool.Exec(ctx, q, messageID)
+	const q = `UPDATE agent_inbox SET read = true WHERE id = $1 AND tenant_id = $2`
+	tag, err := s.pool.Exec(ctx, q, messageID, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "mark inbox message %s as read", messageID)
 }

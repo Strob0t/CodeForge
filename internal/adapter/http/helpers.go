@@ -105,6 +105,21 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
 }
 
+// validationErrorResponse represents a 422 Unprocessable Entity response with field-level detail.
+type validationErrorResponse struct { //nolint:unused // available for handlers to adopt incrementally
+	Error string `json:"error"`
+	Field string `json:"field,omitempty"`
+}
+
+// writeValidationError returns a 422 Unprocessable Entity with field-level error detail.
+// Use for semantic validation failures (e.g., invalid field values that parsed correctly as JSON).
+func writeValidationError(w http.ResponseWriter, field, message string) { //nolint:unused // available for handlers to adopt incrementally
+	writeJSON(w, http.StatusUnprocessableEntity, validationErrorResponse{
+		Error: message,
+		Field: field,
+	})
+}
+
 func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
@@ -122,6 +137,35 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		slog.Error("unhandled domain error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 	}
+}
+
+// parsePagination extracts limit and offset query parameters with safe defaults.
+// limit is capped at maxLimit (100). offset defaults to 0.
+func parsePagination(r *http.Request, maxLimit int) (limit, offset int) {
+	limit = queryParamInt(r, "limit", maxLimit)
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	offsetStr := r.URL.Query().Get("offset")
+	if offsetStr != "" {
+		n, err := strconv.Atoi(offsetStr)
+		if err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
+// applyPagination slices a result set by offset and limit for in-memory pagination.
+func applyPagination[T any](items []T, limit, offset int) []T {
+	if offset >= len(items) {
+		return []T{}
+	}
+	items = items[offset:]
+	if limit < len(items) {
+		items = items[:limit]
+	}
+	return items
 }
 
 // writeJSONList writes a JSON array response, converting nil slices to empty arrays.

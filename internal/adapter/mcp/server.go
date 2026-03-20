@@ -5,7 +5,10 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net/http"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -20,6 +23,7 @@ type ServerConfig struct {
 	Addr    string
 	Name    string
 	Version string
+	APIKey  string // If non-empty, requests must provide this key via Authorization header.
 }
 
 // ServerDeps holds narrow interfaces for MCP server tool handlers.
@@ -67,23 +71,56 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 	s.registerTools()
 	s.registerResources()
 
-	s.httpSrv = mcpserver.NewStreamableHTTPServer(mcpSrv,
+	// Build StreamableHTTPServer options.
+	opts := []mcpserver.StreamableHTTPOption{
 		mcpserver.WithEndpointPath("/mcp"),
 		mcpserver.WithStateLess(true),
-	)
+	}
+
+	// Wire AuthMiddleware if an API key is configured.
+	if cfg.APIKey != "" {
+		mux := http.NewServeMux()
+		// The StreamableHTTPServer implements http.Handler; wrap it with auth.
+		tmpHTTP := mcpserver.NewStreamableHTTPServer(mcpSrv,
+			mcpserver.WithEndpointPath("/mcp"),
+			mcpserver.WithStateLess(true),
+		)
+		mux.Handle("/mcp", AuthMiddleware(cfg.APIKey, tmpHTTP))
+		httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second} //nolint:gosec // timeout set
+		opts = append(opts, mcpserver.WithStreamableHTTPServer(httpSrv))
+	}
+
+	s.httpSrv = mcpserver.NewStreamableHTTPServer(mcpSrv, opts...)
 
 	return s
 }
 
 // Start begins listening for MCP requests on the configured address.
+// It waits briefly for the listener to bind, returning any immediate
+// errors (e.g. port already in use) instead of swallowing them.
 func (s *Server) Start() error {
 	slog.Info("mcp server starting", "addr", s.cfg.Addr)
+	errCh := make(chan error, 1)
 	go func() {
-		if err := s.httpSrv.Start(s.cfg.Addr); err != nil {
-			slog.Error("mcp server listen error", "error", err)
-		}
+		errCh <- s.httpSrv.Start(s.cfg.Addr)
 	}()
-	return nil
+	// Wait briefly for immediate listen errors (port conflict, permission denied).
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("mcp server listen: %w", err)
+		}
+		return nil // server exited without error (unlikely but safe)
+	case <-time.After(100 * time.Millisecond):
+		// Listener bound successfully; server continues in background.
+		// Drain errors asynchronously so the goroutine is not leaked.
+		go func() {
+			if err := <-errCh; err != nil {
+				slog.Error("mcp server listen error", "error", err)
+			}
+		}()
+		return nil
+	}
 }
 
 // Stop gracefully shuts down the MCP server.

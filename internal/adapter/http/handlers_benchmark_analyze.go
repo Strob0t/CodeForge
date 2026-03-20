@@ -44,14 +44,14 @@ func (h *Handlers) AnalyzeBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	if len(results) > 0 {
 		failureRate = float64(failed) / float64(len(results))
 	}
-	report := map[string]interface{}{
+	report := map[string]any{
 		"run_id":               id,
 		"mode":                 "coder",
 		"model_family":         benchmark.ModelFamily(run.Model),
 		"total_tasks":          len(results),
 		"failed_tasks":         failed,
 		"failure_rate":         failureRate,
-		"tactical_fixes":       []interface{}{},
+		"tactical_fixes":       []any{},
 		"strategic_principles": []string{},
 	}
 	writeJSON(w, http.StatusOK, report)

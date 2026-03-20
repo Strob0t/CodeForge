@@ -64,12 +64,53 @@ def _truncate(text: str) -> str:
     return text[:HALF_OUTPUT] + "\n\n... truncated ...\n\n" + text[-HALF_OUTPUT:]
 
 
+def _check_dangerous_command(command: str) -> str | None:
+    """Defense-in-depth check for dangerous commands.
+
+    The Go policy engine is the primary defense; this is a secondary
+    blocklist at the Python layer to catch catastrophic commands that
+    should never be executed regardless of policy configuration.
+
+    Returns an error message if the command is blocked, None otherwise.
+    """
+    # Normalize for matching: strip leading whitespace, lowercase.
+    normalized = command.strip().lower()
+
+    # Patterns that are dangerous regardless of context.
+    blocked_patterns: list[tuple[str, str]] = [
+        ("rm -rf /", "recursive deletion of root filesystem"),
+        ("rm -rf /*", "recursive deletion of root filesystem"),
+        ("rm -fr /", "recursive deletion of root filesystem"),
+        ("rm -fr /*", "recursive deletion of root filesystem"),
+        ("mkfs.", "filesystem formatting"),
+        ("dd if=", "raw disk write"),
+        (":(){:|:&};:", "fork bomb"),
+        ("> /dev/sda", "raw disk overwrite"),
+        ("chmod -r 777 /", "recursive permission change on root"),
+        ("chown -r ", "recursive ownership change"),
+        ("shutdown", "system shutdown"),
+        ("reboot", "system reboot"),
+        ("init 0", "system halt"),
+        ("init 6", "system reboot"),
+    ]
+
+    for pattern, reason in blocked_patterns:
+        if pattern in normalized:
+            return f"blocked by safety filter: {reason} ({pattern!r})"
+
+    return None
+
+
 class BashTool(ToolExecutor):
     """Execute a bash command with timeout."""
 
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         command = arguments.get("command", "")
         timeout = arguments.get("timeout", 120)
+
+        # Defense-in-depth: block catastrophic commands before execution.
+        if block_reason := _check_dangerous_command(command):
+            return ToolResult(output="", error=block_reason, success=False)
 
         try:
             proc = await asyncio.create_subprocess_exec(

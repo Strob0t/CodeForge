@@ -201,8 +201,8 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 			Output    string   `json:"output"`
 			Files     []string `json:"files"`
 			Error     string   `json:"error"`
-			TokensIn  int      `json:"tokens_in"`
-			TokensOut int      `json:"tokens_out"`
+			TokensIn  int64    `json:"tokens_in"`
+			TokensOut int64    `json:"tokens_out"`
 			CostUSD   float64  `json:"cost_usd"`
 		}
 

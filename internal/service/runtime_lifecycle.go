@@ -201,8 +201,8 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		Status:    aguiStatus,
 		Model:     payload.Model,
 		CostUSD:   payload.CostUSD,
-		TokensIn:  int(payload.TokensIn),
-		TokensOut: int(payload.TokensOut),
+		TokensIn:  payload.TokensIn,
+		TokensOut: payload.TokensOut,
 		Steps:     payload.StepCount,
 	})
 

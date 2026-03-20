@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from codeforge.tools.bash import DEFINITION, BashTool, _truncate
+from codeforge.tools.bash import DEFINITION, BashTool, _check_dangerous_command, _truncate
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -266,3 +266,80 @@ class TestBashEdgeCases:
         assert result.success is True
         assert (tmp_path / "output.txt").exists()
         assert "created" in (tmp_path / "output.txt").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Defense-in-depth: dangerous command blocklist
+# ---------------------------------------------------------------------------
+
+
+class TestBashDangerousCommandBlocklist:
+    """Tests for the defense-in-depth command blocklist (FIX-004)."""
+
+    def test_rm_rf_root(self) -> None:
+        result = _check_dangerous_command("rm -rf /")
+        assert result is not None
+        assert "blocked" in result
+
+    def test_rm_rf_root_wildcard(self) -> None:
+        result = _check_dangerous_command("rm -rf /*")
+        assert result is not None
+
+    def test_rm_fr_root(self) -> None:
+        result = _check_dangerous_command("rm -fr /")
+        assert result is not None
+
+    def test_mkfs(self) -> None:
+        result = _check_dangerous_command("mkfs.ext4 /dev/sda1")
+        assert result is not None
+        assert "filesystem formatting" in result
+
+    def test_dd(self) -> None:
+        result = _check_dangerous_command("dd if=/dev/zero of=/dev/sda bs=1M")
+        assert result is not None
+        assert "raw disk write" in result
+
+    def test_fork_bomb(self) -> None:
+        result = _check_dangerous_command(":(){:|:&};:")
+        assert result is not None
+        assert "fork bomb" in result
+
+    def test_shutdown(self) -> None:
+        result = _check_dangerous_command("shutdown -h now")
+        assert result is not None
+
+    def test_reboot(self) -> None:
+        result = _check_dangerous_command("reboot")
+        assert result is not None
+
+    def test_safe_rm_allowed(self) -> None:
+        """rm on a specific file should NOT be blocked."""
+        result = _check_dangerous_command("rm -rf /tmp/mydir")
+        assert result is None
+
+    def test_safe_echo_allowed(self) -> None:
+        result = _check_dangerous_command("echo hello world")
+        assert result is None
+
+    def test_safe_git_allowed(self) -> None:
+        result = _check_dangerous_command("git status")
+        assert result is None
+
+    def test_case_insensitive(self) -> None:
+        result = _check_dangerous_command("RM -RF /")
+        assert result is not None
+
+    async def test_blocked_command_returns_error(self, tmp_path: Path) -> None:
+        """BashTool.execute should return failure for blocked commands."""
+        tool = BashTool()
+        result = await tool.execute({"command": "rm -rf /"}, str(tmp_path))
+        assert result.success is False
+        assert "blocked" in result.error
+        assert result.output == ""
+
+    async def test_safe_command_still_works(self, tmp_path: Path) -> None:
+        """Ensure the blocklist does not interfere with normal commands."""
+        tool = BashTool()
+        result = await tool.execute({"command": "echo ok"}, str(tmp_path))
+        assert result.success is True
+        assert "ok" in result.output

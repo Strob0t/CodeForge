@@ -77,7 +77,7 @@ func (h *Handlers) DeleteBranchProtectionRule(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, err, "branch protection rule not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- Replay / Audit Trail ---

@@ -54,13 +54,24 @@ class GlobFilesTool(ToolExecutor):
         pattern = arguments.get("pattern", "")
         workspace = Path(workspace_path).resolve()
 
+        # Block patterns with '..' components to prevent path traversal.
+        if ".." in pattern.split("/"):
+            return ToolResult(output="", error="path traversal blocked: '..' not allowed in glob pattern", success=False)
+
         try:
             matches = sorted(workspace.glob(pattern))
         except ValueError as exc:
             return ToolResult(output="", error=str(exc), success=False)
 
-        # Filter to only files and compute relative paths
-        rel_paths = [str(m.relative_to(workspace)) for m in matches if m.is_file()]
+        # Filter to only files within the workspace and compute relative paths.
+        rel_paths: list[str] = []
+        for m in matches:
+            resolved = m.resolve()
+            if not resolved.is_file():
+                continue
+            if not str(resolved).startswith(str(workspace)):
+                continue
+            rel_paths.append(str(resolved.relative_to(workspace)))
 
         if not rel_paths:
             return ToolResult(output="no matches found")

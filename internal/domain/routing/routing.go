@@ -89,8 +89,8 @@ type RoutingOutcome struct {
 	QualityScore float64 `json:"quality_score"`
 	CostUSD      float64 `json:"cost_usd"`
 	LatencyMs    int64   `json:"latency_ms"`
-	TokensIn     int     `json:"tokens_in"`
-	TokensOut    int     `json:"tokens_out"`
+	TokensIn     int64   `json:"tokens_in"`
+	TokensOut    int64   `json:"tokens_out"`
 	Reward       float64 `json:"reward"`
 
 	// Context.

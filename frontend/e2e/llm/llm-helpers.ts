@@ -3,6 +3,10 @@
  * Provides provider discovery, conversation helpers, and assertion utilities.
  *
  * All helpers reuse the existing api-helpers.ts and ws-helpers.ts infrastructure.
+ *
+ * TODO: FIX-103: Some E2E tests still use hardcoded localhost URLs instead of
+ * relying on the `baseURL` from playwright config. Audit all test files and
+ * replace `http://localhost:8080` with the config-driven base URL.
  */
 
 import {

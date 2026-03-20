@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 
 	sdka2a "github.com/a2aproject/a2a-go/a2a"
 
@@ -48,8 +49,16 @@ func (a *TaskStoreAdapter) Get(ctx context.Context, id sdka2a.TaskID) (*sdka2a.T
 }
 
 // List returns tasks matching the filter (implements a2asrv.TaskStore).
-func (a *TaskStoreAdapter) List(ctx context.Context, _ *sdka2a.ListTasksRequest) (*sdka2a.ListTasksResponse, error) {
+func (a *TaskStoreAdapter) List(ctx context.Context, req *sdka2a.ListTasksRequest) (*sdka2a.ListTasksResponse, error) {
 	filter := &database.A2ATaskFilter{}
+	if req != nil {
+		if req.Status != "" {
+			filter.State = string(req.Status)
+		}
+		if req.PageSize > 0 {
+			filter.Limit = req.PageSize
+		}
+	}
 	tasks, _, err := a.store.ListA2ATasks(ctx, filter)
 	if err != nil {
 		return nil, err
@@ -110,10 +119,18 @@ func sdkToDomainTask(t *sdka2a.Task, direction string) *a2adomain.A2ATask {
 		}
 	}
 	if len(t.History) > 0 {
-		dt.History, _ = json.Marshal(t.History)
+		var err error
+		dt.History, err = json.Marshal(t.History)
+		if err != nil {
+			slog.Error("a2a: failed to marshal task history", "task_id", string(t.ID), "error", err)
+		}
 	}
 	if len(t.Artifacts) > 0 {
-		dt.Artifacts, _ = json.Marshal(t.Artifacts)
+		var err error
+		dt.Artifacts, err = json.Marshal(t.Artifacts)
+		if err != nil {
+			slog.Error("a2a: failed to marshal task artifacts", "task_id", string(t.ID), "error", err)
+		}
 	}
 	return dt
 }

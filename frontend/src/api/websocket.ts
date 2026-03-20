@@ -7,6 +7,43 @@ export interface WSMessage {
   payload: Record<string, unknown>;
 }
 
+/**
+ * Parse a raw WebSocket MessageEvent into a typed WSMessage.
+ * Returns null if the data is not valid JSON or lacks the expected shape.
+ */
+export function parseWSMessage(data: unknown): WSMessage | null {
+  if (typeof data !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "type" in parsed &&
+      typeof (parsed as Record<string, unknown>).type === "string"
+    ) {
+      const msg = parsed as Record<string, unknown>;
+      return {
+        type: msg.type as string,
+        payload:
+          typeof msg.payload === "object" && msg.payload !== null
+            ? (msg.payload as Record<string, unknown>)
+            : {},
+      };
+    }
+  } catch {
+    // Malformed JSON
+  }
+  return null;
+}
+
+/**
+ * Validate that a WSMessage payload matches a specific AG-UI event type.
+ * Checks for the presence of the required `run_id` field shared by all AG-UI events.
+ */
+function isAGUIPayload(payload: Record<string, unknown>): boolean {
+  return typeof payload.run_id === "string";
+}
+
 // AG-UI event types following the CopilotKit AG-UI specification.
 export type AGUIEventType =
   | "agui.run_started"
@@ -185,12 +222,11 @@ export function createCodeForgeWS() {
 
   function onMessage(handler: (msg: WSMessage) => void): () => void {
     const listener = (ev: MessageEvent): void => {
-      try {
-        const data = JSON.parse(ev.data as string) as WSMessage;
-        handler(data);
-      } catch {
-        // Ignore malformed WebSocket messages (empty frames, non-JSON data).
+      const msg = parseWSMessage(ev.data);
+      if (msg !== null) {
+        handler(msg);
       }
+      // Silently ignore malformed WebSocket messages (empty frames, non-JSON data).
     };
 
     listeners.push(listener);
@@ -207,8 +243,9 @@ export function createCodeForgeWS() {
     handler: (payload: AGUIEventMap[T]) => void,
   ): () => void {
     return onMessage((msg) => {
-      if (msg.type === type) {
-        handler(msg.payload as unknown as AGUIEventMap[T]);
+      if (msg.type === type && isAGUIPayload(msg.payload)) {
+        // Safe cast: type discriminator + run_id validation ensures correct shape.
+        handler(msg.payload as AGUIEventMap[T]);
       }
     });
   }

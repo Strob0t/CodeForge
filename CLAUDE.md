@@ -152,7 +152,7 @@ MCP + A2A complementary: "MCP for tools, A2A for agents"
 ### LLM Integration
 - **LiteLLM Proxy** as Docker sidecar (port 4000) — no custom LLM provider interface
 - Go + Python communicate via OpenAI-compatible API against LiteLLM
-- **Hybrid Routing (Phase 29):** 3-layer cascade: ComplexityAnalyzer (rule-based, <1ms) -> MABModelSelector (UCB1) -> LLMMetaRouter (cold-start). Enable: `CODEFORGE_ROUTING_ENABLED=true`. Package: `workers/codeforge/routing/`
+- **Hybrid Routing (Phase 29):** Enabled by default (`CODEFORGE_ROUTING_ENABLED=true`). Cascade order: (1) ComplexityAnalyzer (rule-based, <1ms, always runs) -> (2) MABModelSelector (UCB1, primary) -> (3) LLMMetaRouter (cold-start fallback) -> (4) Complexity defaults (final fallback). Package: `workers/codeforge/routing/`
 - LiteLLM uses provider wildcards (`openai/*`, `anthropic/*`) — HybridRouter picks exact model
 - Scenario tags (default/background/think/longContext/review/plan) as fallback when routing disabled
 - OpenRouter as optional provider; GitHub Copilot Token Exchange — `internal/adapter/copilot/client.go`, `POST /api/v1/copilot/exchange`
@@ -331,7 +331,7 @@ Testplan: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md` | Too
 7. Frontend: `cd frontend && npm run dev`
 8. Playwright-MCP browser: `http://host.docker.internal:3000` (not localhost)
 
-**Key env vars:** `LITELLM_BASE_URL` (NOT `LITELLM_URL`), `CODEFORGE_ROUTING_ENABLED=false` (router picks unhealthy models), auth field: `access_token` (NOT `token`)
+**Key env vars:** `LITELLM_BASE_URL` (NOT `LITELLM_URL`), `CODEFORGE_ROUTING_ENABLED=false` (override default=true; avoids router picking unhealthy models in test), auth field: `access_token` (NOT `token`)
 
 **Project setup:**
 - Create project: `POST /projects` with `config: {"autonomy_level": "4", "policy_preset": "trusted-mount-autonomous", "execution_mode": "mount"}`

@@ -14,3 +14,13 @@ data/
 dist/
 coverage/
 .DS_Store
+
+# FIX-114: Exclude non-runtime files to reduce build context size.
+tests/
+docs/
+scripts/
+*.md
+.worktrees/
+.github/
+.vscode/
+tmp/

@@ -5,6 +5,11 @@ export interface AppSettings {
   auto_clone?: boolean;
 }
 
+/** Agent configuration exposed by GET /api/v1/agent-config. */
+export interface AgentConfig {
+  max_context_tokens: number;
+}
+
 /** Matches Go domain/project.Project */
 export interface Project {
   id: string;

@@ -34,9 +34,29 @@ type Queue struct {
 	breaker *resilience.Breaker
 }
 
+// reconnectOpts returns NATS connection options for automatic reconnection
+// and error reporting. Extracted for testability.
+func reconnectOpts() []nats.Option {
+	return []nats.Option{
+		nats.MaxReconnects(60),
+		nats.ReconnectWait(2 * time.Second),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			if err != nil {
+				slog.Warn("nats disconnected", "error", err)
+			}
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			slog.Info("nats reconnected", "url", nc.ConnectedUrl())
+		}),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			slog.Error("nats async error", "error", err)
+		}),
+	}
+}
+
 // Connect establishes a connection to NATS and ensures the JetStream stream exists.
 func Connect(ctx context.Context, url string) (*Queue, error) {
-	nc, err := nats.Connect(url)
+	nc, err := nats.Connect(url, reconnectOpts()...)
 	if err != nil {
 		return nil, fmt.Errorf("nats connect: %w", err)
 	}
@@ -185,7 +205,12 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 	}
 
 	if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
-		retries := retryCount(hdrs)
+		// FIX-050: Use JetStream delivery metadata instead of custom Retry-Count
+		// header (which was never incremented on NAK redelivery).
+		retries := retryCount(hdrs) // fallback for manually-published messages
+		if md, mdErr := msg.Metadata(); mdErr == nil && md.NumDelivered > 0 {
+			retries = int(md.NumDelivered) - 1 // NumDelivered counts from 1
+		}
 		slog.Error("message handler failed",
 			"subject", msg.Subject(),
 			"request_id", logger.RequestID(msgCtx),
@@ -225,9 +250,15 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
 			"error", err,
 		)
 	} else {
+		// FIX-049: Include message ID so operators can monitor DLQ accumulation.
+		msgID := ""
+		if hdrs := msg.Headers(); hdrs != nil {
+			msgID = hdrs.Get("Nats-Msg-Id")
+		}
 		slog.Warn("message moved to DLQ",
 			"subject", msg.Subject(),
 			"dlq_subject", dlqSubject,
+			"msg_id", msgID,
 		)
 	}
 
@@ -238,6 +269,12 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
 }
 
 // sanitizeConsumerName builds a deterministic durable consumer name from a subject.
+//
+// FIX-087: Consumer naming convention:
+//   - Go consumers: prefix "codeforge-go-" + sanitized subject (dots→dashes, wildcards→"all")
+//   - Python consumers: prefix "codeforge-py-" + sanitized subject (see workers/codeforge/consumer/__init__.py)
+//   - This ensures unique, deterministic names per language per subject.
+//   - Examples: "codeforge-go-conversation-run-start", "codeforge-py-benchmark-run-request"
 func sanitizeConsumerName(prefix, subject string) string {
 	r := strings.NewReplacer(".", "-", "*", "all", ">", "all")
 	return prefix + r.Replace(subject)

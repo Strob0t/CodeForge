@@ -18,6 +18,12 @@ const refreshCookieName = "codeforge_refresh"
 // a reverse proxy that set X-Forwarded-Proto: https. Refresh token cookies
 // must only set Secure=true when the client is using HTTPS; otherwise the
 // browser silently discards the cookie.
+//
+// FIX-093: In production behind a TLS-terminating reverse proxy, the proxy
+// MUST set X-Forwarded-Proto: https. If deploying without a reverse proxy,
+// TLS should be configured on the Go server directly (r.TLS != nil).
+// TODO: Consider adding a config flag (e.g., force_secure_cookies) to
+// unconditionally set Secure=true in hardened deployments.
 func isSecureRequest(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
@@ -381,10 +387,10 @@ func (h *Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) 
 		slog.Error("password reset request failed", "error", err)
 	}
 
-	// Log token for development; in production an email would be sent.
+	// Log redacted token for development; in production an email would be sent.
 	if token != "" {
 		slog.Info("password reset token generated (send via email in production)",
-			"email", req.Email, "token", token)
+			"email", req.Email, "token_prefix", token[:8]+"...")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{

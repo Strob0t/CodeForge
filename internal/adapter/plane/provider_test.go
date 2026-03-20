@@ -359,7 +359,7 @@ func TestCreateItem_Success(t *testing.T) {
 		}
 
 		// Decode the request body to verify it was sent correctly
-		var body map[string]interface{}
+		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}

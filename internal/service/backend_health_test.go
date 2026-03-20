@@ -63,9 +63,9 @@ func TestBackendHealth_CheckHealth_HappyPath(t *testing.T) {
 	}
 
 	// Simulate Python worker delivering the result.
-	resultJSON, _ := json.Marshal(map[string]interface{}{
+	resultJSON, _ := json.Marshal(map[string]any{
 		"request_id": requestID,
-		"backends": []map[string]interface{}{
+		"backends": []map[string]any{
 			{
 				"name":         "aider",
 				"display_name": "Aider",
@@ -157,9 +157,9 @@ func TestBackendHealth_CheckHealth_NilResult(t *testing.T) {
 	// a defensive check. We verify the timeout path instead since direct
 	// channel manipulation isn't possible from outside the package.
 	// Let's deliver a valid result with empty backends to verify the path works.
-	resultJSON, _ := json.Marshal(map[string]interface{}{
+	resultJSON, _ := json.Marshal(map[string]any{
 		"request_id": reqPayload["request_id"],
-		"backends":   []interface{}{},
+		"backends":   []any{},
 	})
 	if err := svc.HandleHealthResult(context.Background(), resultJSON); err != nil {
 		t.Fatalf("HandleHealthResult: %v", err)
@@ -199,9 +199,9 @@ func TestBackendHealth_HandleHealthResult_NoWaiter(t *testing.T) {
 	svc := service.NewBackendHealthService(q)
 
 	// Deliver a result for a request_id that nobody is waiting for.
-	resultJSON, _ := json.Marshal(map[string]interface{}{
+	resultJSON, _ := json.Marshal(map[string]any{
 		"request_id": "orphan-request-id",
-		"backends": []map[string]interface{}{
+		"backends": []map[string]any{
 			{"name": "test", "available": true},
 		},
 	})
@@ -263,9 +263,9 @@ func TestBackendHealth_Concurrent(t *testing.T) {
 		if err := json.Unmarshal(msg.data, &reqPayload); err != nil {
 			t.Fatalf("unmarshal request %d: %v", i, err)
 		}
-		resultJSON, _ := json.Marshal(map[string]interface{}{
+		resultJSON, _ := json.Marshal(map[string]any{
 			"request_id": reqPayload["request_id"],
-			"backends": []map[string]interface{}{
+			"backends": []map[string]any{
 				{"name": fmt.Sprintf("backend-%d", i), "available": true},
 			},
 		})

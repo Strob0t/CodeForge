@@ -37,4 +37,8 @@ USER codeforge
 
 EXPOSE 8080
 
+# FIX-112: Container health check for orchestrators (Docker Compose, K8s).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q --spider http://localhost:8080/health || exit 1
+
 ENTRYPOINT ["codeforge"]

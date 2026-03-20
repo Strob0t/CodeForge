@@ -26,6 +26,9 @@ func (s *Store) CreateUser(ctx context.Context, u *user.User) error {
 	return nil
 }
 
+// GetUser retrieves a user by ID. This is intentionally cross-tenant because
+// it is used during authentication flows (token validation, API key lookup)
+// where the caller's tenant context is not yet established.
 func (s *Store) GetUser(ctx context.Context, id string) (*user.User, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
@@ -53,15 +56,17 @@ func (s *Store) GetUserByEmail(ctx context.Context, email, tenantID string) (*us
 }
 
 func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, error) {
+	// FIX-094: Explicit column list excluding password_hash — listing users
+	// should never expose credential data to the API layer.
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
+		SELECT id, email, name, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
 		FROM users WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (user.User, error) {
 		var u user.User
-		err := r.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+		err := r.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
 		return u, err
 	})
 }
@@ -70,14 +75,14 @@ func (s *Store) UpdateUser(ctx context.Context, u *user.User) error {
 	u.UpdatedAt = time.Now().UTC()
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE users SET name = $2, role = $3, enabled = $4, must_change_password = $5, failed_attempts = $6, locked_until = $7, updated_at = $8, password_hash = $9
-		WHERE id = $1`,
-		u.ID, u.Name, u.Role, u.Enabled, u.MustChangePassword, u.FailedAttempts, u.LockedUntil, u.UpdatedAt, u.PasswordHash,
+		WHERE id = $1 AND tenant_id = $10`,
+		u.ID, u.Name, u.Role, u.Enabled, u.MustChangePassword, u.FailedAttempts, u.LockedUntil, u.UpdatedAt, u.PasswordHash, tenantFromCtx(ctx),
 	)
 	return execExpectOne(tag, err, "update user %s", u.ID)
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete user %s", id)
 }
 

@@ -12,7 +12,39 @@ import (
 	"github.com/Strob0t/CodeForge/internal/version"
 )
 
+// routeOptions holds optional configuration for MountRoutes.
+type routeOptions struct {
+	authRateLimiter *middleware.RateLimiter
+}
+
+// RouteOption configures optional behavior in MountRoutes.
+type RouteOption func(*routeOptions)
+
+// WithAuthRateLimiter sets a stricter rate limiter for authentication endpoints
+// (login, forgot-password, reset-password, setup). This limits brute-force
+// attempts independently of the global rate limiter.
+func WithAuthRateLimiter(rl *middleware.RateLimiter) RouteOption {
+	return func(o *routeOptions) { o.authRateLimiter = rl }
+}
+
 // MountRoutes registers all API routes on the given chi router.
+//
+// TODO: FIX-061: Several endpoints use verbs in URLs (e.g., /detect-stack,
+// /parse-repo-url, /discover, /decompose). Migrate to noun-based resources
+// in v2 (breaking change — do not change v1 URLs now).
+//
+// TODO: FIX-063: Not all list endpoints return a consistent pagination envelope
+// (items + total + limit + offset). Audit remaining endpoints for v2.
+//
+// TODO: FIX-095: No CSRF token beyond SameSite cookie. SameSite=Lax is sufficient
+// for JSON API-only endpoints (no form posts). If HTML form support is added in
+// the future, add a CSRF token middleware.
+//
+// TODO: FIX-098: Some DELETE operations use POST (e.g., /llm/models/delete,
+// /projects/batch/delete). Migrate to proper HTTP DELETE in v2 (breaking change).
+//
+// TODO: FIX-100: Partial updates should use PATCH, not PUT. Audit endpoints
+// that accept partial payloads and migrate to PATCH in v2 (breaking change).
 //
 // When /api/v2 is introduced, apply the Deprecation middleware to the v1 group:
 //
@@ -20,7 +52,12 @@ import (
 //	    r.Use(middleware.Deprecation(sunsetDate))
 //	    // ... existing v1 routes ...
 //	})
-func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
+func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...RouteOption) {
+	var ro routeOptions
+	for _, o := range opts {
+		o(&ro)
+	}
+
 	// VCS Webhooks (outside auth, use HMAC/token verification)
 	r.Route("/api/v1/webhooks", func(r chi.Router) {
 		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
@@ -133,6 +170,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 			Post("/runs/{id}/reject", h.RejectRun)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 			Post("/runs/{id}/approve-partial", h.ApproveRunPartial)
+
+		// Agent configuration (frontend-visible config values)
+		r.Get("/agent-config", h.GetAgentConfig)
 
 		// LLM management (proxied to LiteLLM)
 		r.Get("/llm/models", h.ListLLMModels)
@@ -348,14 +388,27 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.With(middleware.RequireRole(user.RoleAdmin)).Put("/settings", h.UpdateSettings)
 
 		// Auth (public routes handled by middleware exemption)
-		r.Post("/auth/login", h.Login)
-		r.Post("/auth/refresh", h.Refresh)
-		r.Get("/auth/setup-status", h.SetupStatus)
-		r.Post("/auth/setup", h.InitialSetup)
-		r.Post("/auth/forgot-password", h.RequestPasswordReset)
-		r.Post("/auth/reset-password", h.ConfirmPasswordReset)
-		r.Get("/auth/github", h.StartGitHubOAuth)
-		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
+		// FIX-084: Apply stricter per-route rate limiting for auth endpoints
+		// to mitigate brute-force attacks independently of the global rate limiter.
+		if ro.authRateLimiter != nil {
+			r.With(ro.authRateLimiter.Handler).Post("/auth/login", h.Login)
+			r.Post("/auth/refresh", h.Refresh)
+			r.Get("/auth/setup-status", h.SetupStatus)
+			r.With(ro.authRateLimiter.Handler).Post("/auth/setup", h.InitialSetup)
+			r.With(ro.authRateLimiter.Handler).Post("/auth/forgot-password", h.RequestPasswordReset)
+			r.With(ro.authRateLimiter.Handler).Post("/auth/reset-password", h.ConfirmPasswordReset)
+			r.Get("/auth/github", h.StartGitHubOAuth)
+			r.Get("/auth/github/callback", h.GitHubOAuthCallback)
+		} else {
+			r.Post("/auth/login", h.Login)
+			r.Post("/auth/refresh", h.Refresh)
+			r.Get("/auth/setup-status", h.SetupStatus)
+			r.Post("/auth/setup", h.InitialSetup)
+			r.Post("/auth/forgot-password", h.RequestPasswordReset)
+			r.Post("/auth/reset-password", h.ConfirmPasswordReset)
+			r.Get("/auth/github", h.StartGitHubOAuth)
+			r.Get("/auth/github/callback", h.GitHubOAuthCallback)
+		}
 
 		// Auth (authenticated)
 		r.Post("/auth/logout", h.Logout)

@@ -26,7 +26,13 @@ export interface Notification {
 }
 
 // ---------------------------------------------------------------------------
-// Store (module-level singleton)
+// Store (module-level singleton — intentionally long-lived)
+//
+// This store persists for the lifetime of the SPA. It is NOT tied to any
+// component lifecycle and does not need disposal via onCleanup(). The SolidJS
+// createStore does not allocate external resources (timers, sockets, etc.)
+// that would leak. AudioContext instances created in playNotificationSound()
+// are short-lived and self-dispose after the oscillator stops.
 // ---------------------------------------------------------------------------
 
 const MAX_NOTIFICATIONS = 50;

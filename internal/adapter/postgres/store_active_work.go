@@ -77,6 +77,11 @@ func (s *Store) ClaimTask(ctx context.Context, taskID, agentID string, version i
 // ReleaseStaleWork finds tasks stuck in running/queued status longer than the
 // given threshold and resets them to pending with no assigned agent.
 // Returns the list of released tasks.
+//
+// INTENTIONALLY CROSS-TENANT: This is a system-level maintenance operation
+// invoked by the scheduler/watchdog to clean up stale work across all tenants.
+// Scoping to a single tenant would leave orphaned tasks in other tenants.
+// The returned tasks include tenant_id so callers can route follow-up actions.
 func (s *Store) ReleaseStaleWork(ctx context.Context, threshold time.Duration) ([]task.Task, error) {
 	const q = `
 		UPDATE tasks

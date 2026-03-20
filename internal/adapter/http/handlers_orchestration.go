@@ -1,7 +1,7 @@
 package http
 
 import (
-	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -116,7 +116,8 @@ func (h *Handlers) EvaluateStep(w http.ResponseWriter, r *http.Request) {
 
 	decision, err := h.ReviewRouter.Evaluate(r.Context(), step, taskDesc)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("review evaluation failed: %v", err))
+		slog.Error("review evaluation failed", "step_id", stepID, "plan_id", planID, "error", err)
+		writeError(w, http.StatusInternalServerError, "review evaluation failed")
 		return
 	}
 

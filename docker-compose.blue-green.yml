@@ -1,5 +1,7 @@
 # Blue-Green deployment overlay for CodeForge
 # Usage: docker compose -f docker-compose.prod.yml -f docker-compose.blue-green.yml up -d
+# Requires: traefik/traefik.yaml (static config) in the project root.
+# TODO: Add TLS certificate configuration and dynamic routing rules for production.
 
 services:
   traefik:

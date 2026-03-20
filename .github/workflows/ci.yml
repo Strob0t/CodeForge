@@ -32,8 +32,13 @@ jobs:
 
       nats:
         image: nats:2-alpine
+        # FIX-113: NATS needs --jetstream and -m 8222 for full integration tests.
+        # GHA services don't support `command`, so tests that need JetStream
+        # should use the smoke test job (which starts NATS via docker compose)
+        # or a step-based `docker run` with explicit command args.
         ports:
           - 4222:4222
+          - 8222:8222
         options: >-
           --health-cmd "wget -q --spider http://localhost:8222/healthz || exit 1"
           --health-interval 10s
@@ -174,6 +179,10 @@ jobs:
       - name: Validate fixtures against Python models
         run: poetry run pytest workers/tests/test_nats_contracts.py -v
 
+  # TODO: FIX-102: Add a dedicated integration test job that runs the full
+  # stack (Go + Python + NATS + PostgreSQL + LiteLLM) with docker compose
+  # and executes cross-language integration tests.
+
   smoke:
     name: Smoke Tests
     needs: [contract]
@@ -196,8 +205,10 @@ jobs:
           - 5432:5432
       nats:
         image: nats:2-alpine
+        # FIX-113: Same JetStream limitation as test-go NATS service above.
         ports:
           - 4222:4222
+          - 8222:8222
         options: >-
           --health-cmd "wget -q --spider http://localhost:8222/healthz || exit 1"
           --health-interval 10s

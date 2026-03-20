@@ -18,6 +18,41 @@ logger = structlog.get_logger()
 
 DEFAULT_TIMEOUT_SECONDS = DEFAULT_QG_TIMEOUT_SECONDS
 
+# Allowlist of approved base commands for quality gate execution.
+# Only the first token (executable name) of each command is checked.
+_ALLOWED_COMMANDS: frozenset[str] = frozenset(
+    {
+        "pytest",
+        "python",
+        "ruff",
+        "mypy",
+        "pylint",
+        "flake8",
+        "black",
+        "isort",
+        "go",
+        "golangci-lint",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "eslint",
+        "prettier",
+        "tsc",
+        "cargo",
+        "make",
+        "pre-commit",
+    }
+)
+
+
+def _is_command_allowed(command: str) -> bool:
+    """Return True if the command's base executable is on the allowlist."""
+    parts = shlex.split(command)
+    if not parts:
+        return False
+    return parts[0] in _ALLOWED_COMMANDS
+
 
 class QualityGateExecutor:
     """Executes test and lint commands and returns pass/fail results."""
@@ -64,6 +99,9 @@ class QualityGateExecutor:
         log: structlog.stdlib.BoundLogger,
     ) -> tuple[bool, str]:
         """Run a shell command and return (passed, output)."""
+        if not _is_command_allowed(command):
+            log.warning("quality gate command rejected: not on allowlist", command=command)
+            return False, f"command not allowed: {command!r}. Only approved commands may run."
         log.debug("running gate command", command=command, cwd=cwd)
         try:
             args = shlex.split(command)

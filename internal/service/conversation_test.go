@@ -765,7 +765,7 @@ func TestPlanActEnabled_PayloadSerialization(t *testing.T) {
 	}
 
 	// Verify JSON contains the field.
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("unmarshal to map: %v", err)
 	}

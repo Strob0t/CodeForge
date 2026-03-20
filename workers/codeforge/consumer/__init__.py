@@ -3,6 +3,10 @@
 The TaskConsumer is composed from handler mixins — each mixin owns a
 related group of NATS message handlers.  The ``main()`` entry point
 at the bottom starts the consumer.
+
+TODO: FIX-092: Python codebase uses both stdlib ``logging`` and ``structlog``.
+Standardize on structlog throughout. Some modules (routing, evaluation) still
+use ``logging.getLogger()`` instead of ``structlog.get_logger()``.
 """
 
 from __future__ import annotations
@@ -305,8 +309,11 @@ async def main() -> None:
     )
 
     loop = asyncio.get_running_loop()
+    # FIX-091: Bind consumer via default argument so the closure captures
+    # the current value, not the variable (prevents stale reference if
+    # the function is ever refactored to reassign consumer).
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(consumer.stop()))
+        loop.add_signal_handler(sig, lambda c=consumer: asyncio.create_task(c.stop()))
 
     await consumer.start()
 
