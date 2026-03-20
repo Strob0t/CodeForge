@@ -381,10 +381,10 @@ func (h *Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) 
 		slog.Error("password reset request failed", "error", err)
 	}
 
-	// Log token for development; in production an email would be sent.
+	// Log redacted token for development; in production an email would be sent.
 	if token != "" {
 		slog.Info("password reset token generated (send via email in production)",
-			"email", req.Email, "token", token)
+			"email", req.Email, "token_prefix", token[:8]+"...")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{

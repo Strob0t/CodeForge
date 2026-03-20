@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -291,6 +293,46 @@ func TestHandleRequestPasswordReset(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 for unknown email, got %d", w.Code)
+	}
+}
+
+func TestHandleRequestPasswordReset_TokenNotLoggedInPlaintext(t *testing.T) {
+	// Capture slog output to verify the reset token is NOT logged in full.
+	var buf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+	httpSetupAdmin(t, r, "tokenlog@test.com")
+
+	body, _ := json.Marshal(map[string]string{"email": "tokenlog@test.com"})
+	req := httptest.NewRequest("POST", "/api/v1/auth/forgot-password", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	logged := buf.String()
+
+	// The log should contain "token_prefix" (redacted), never a bare "token=" with full value.
+	if strings.Contains(logged, "token_prefix") {
+		// Good: redacted version is present.
+		// Verify it ends with "..." (truncated).
+		if !strings.Contains(logged, "...") {
+			t.Fatal("token_prefix in log should end with '...' indicating truncation")
+		}
+	}
+
+	// Verify there is no log attribute named exactly "token" (which would be the full value).
+	// slog text format uses "token=" for key.
+	// We check that "token=" only appears as "token_prefix=", never as a bare "token=".
+	if strings.Contains(logged, " token=") {
+		t.Fatal("full reset token must NOT appear in logs; use token_prefix instead")
 	}
 }
 
