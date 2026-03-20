@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"gopkg.in/yaml.v3"
 
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,6 +41,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/domain/microagent"
+	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -370,6 +373,26 @@ func run() error {
 	// --- Mode Service (Phase 5E) ---
 	modeSvc := service.NewModeService()
 	runtimeSvc.SetModeService(modeSvc)
+	// Auto-load custom modes from .codeforge/modes/ directory.
+	if customModeFiles, globErr := filepath.Glob(".codeforge/modes/*.yaml"); globErr == nil {
+		for _, f := range customModeFiles {
+			data, readErr := os.ReadFile(filepath.Clean(f))
+			if readErr != nil {
+				slog.Warn("failed to read custom mode file", "file", f, "error", readErr)
+				continue
+			}
+			var m mode.Mode
+			if yamlErr := yaml.Unmarshal(data, &m); yamlErr != nil {
+				slog.Warn("failed to parse custom mode file", "file", f, "error", yamlErr)
+				continue
+			}
+			if err := modeSvc.Register(&m); err != nil {
+				slog.Debug("skip custom mode (conflict or invalid)", "id", m.ID, "file", f, "error", err)
+				continue
+			}
+			slog.Info("custom mode loaded", "id", m.ID, "file", f)
+		}
+	}
 	slog.Info("mode service initialized", "modes", len(modeSvc.List()))
 
 	// --- Pipeline Service (Phase 12F) ---
@@ -607,6 +630,26 @@ func run() error {
 	microagentSvc := service.NewMicroagentService(store)
 	runtimeSvc.SetMicroagentService(microagentSvc)
 	conversationSvc.SetMicroagentService(microagentSvc)
+	// Auto-load microagents from .codeforge/microagents/ directory.
+	if agents, loadErr := microagent.LoadFromDirectory(".codeforge/microagents"); loadErr != nil {
+		slog.Warn("failed to load microagents from .codeforge/microagents", "error", loadErr)
+	} else if len(agents) > 0 {
+		loaded := 0
+		for _, ma := range agents {
+			if _, err := microagentSvc.Create(ctx, &microagent.CreateRequest{
+				Name:           ma.Name,
+				Type:           ma.Type,
+				TriggerPattern: ma.TriggerPattern,
+				Description:    ma.Description,
+				Prompt:         ma.Prompt,
+			}); err != nil {
+				slog.Debug("skip microagent (already exists or invalid)", "name", ma.Name, "error", err)
+				continue
+			}
+			loaded++
+		}
+		slog.Info("microagents auto-loaded from .codeforge/microagents", "loaded", loaded, "total", len(agents))
+	}
 	slog.Info("microagent service initialized")
 
 	// --- Goal Discovery Service (Phase 28) ---

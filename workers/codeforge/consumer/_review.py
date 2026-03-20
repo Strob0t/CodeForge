@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 _BOUNDARY_ANALYZER_SYSTEM_PROMPT = (
-    "You are a boundary-analyzer agent. Your task is to analyze the project's codebase "
+    "You are a boundary_analyzer agent. Your task is to analyze the project's codebase "
     "and identify all architectural boundaries: API boundaries, data boundaries, "
     "inter-service boundaries, and cross-language boundaries.\n\n"
     "Instructions:\n"
@@ -57,11 +57,11 @@ class ReviewHandlerMixin:
         )
 
     async def _do_review_trigger(self, request: ReviewTriggerRequestPayload, log: structlog.BoundLogger) -> None:
-        """Dispatch a boundary-analyzer conversation run via NATS."""
+        """Dispatch a boundary_analyzer conversation run via NATS."""
         log.info("review trigger received")
 
         if self._js is None:
-            log.warning("JetStream not available, cannot dispatch boundary-analyzer")
+            log.warning("JetStream not available, cannot dispatch boundary_analyzer")
             return
 
         run_id = str(uuid.uuid4())
@@ -86,7 +86,7 @@ class ReviewHandlerMixin:
             policy_profile="standard",
             agentic=True,
             mode=ModeConfig(
-                id="boundary-analyzer",
+                id="boundary_analyzer",
                 tools=["Read", "Glob", "Grep", "ListDir"],
                 denied_tools=["Write", "Edit", "Bash"],
                 required_artifact="BOUNDARIES.json",
@@ -107,7 +107,7 @@ class ReviewHandlerMixin:
             headers={"Nats-Msg-Id": f"review-boundary-{uuid.uuid4()}"},
         )
 
-        log.info("boundary-analyzer run dispatched", run_id=run_id)
+        log.info("boundary_analyzer run dispatched", run_id=run_id)
 
         # Publish completion event so Go Core knows the trigger was processed.
         complete_payload = {

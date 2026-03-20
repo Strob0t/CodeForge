@@ -18,12 +18,12 @@ var updateGolden = flag.Bool("update", false, "update golden files")
 
 // allModeIDs lists all 24 built-in mode IDs from presets.go.
 var allModeIDs = []string{
-	"api-tester", "architect", "backend-architect", "benchmarker",
-	"boundary-analyzer", "coder", "contract-reviewer", "debugger",
+	"api_tester", "architect", "backend_architect", "benchmarker",
+	"boundary_analyzer", "coder", "contract_reviewer", "debugger",
 	"devops", "documenter", "evaluator", "frontend",
-	"goal-researcher", "infra-maintainer", "lsp-engineer", "moderator",
+	"goal_researcher", "infra_maintainer", "lsp_engineer", "moderator",
 	"orchestrator", "proponent", "prototyper", "refactorer",
-	"reviewer", "security", "tester", "workflow-optimizer",
+	"reviewer", "security", "tester", "workflow_optimizer",
 }
 
 // allCapabilities lists the 3 model capability levels.

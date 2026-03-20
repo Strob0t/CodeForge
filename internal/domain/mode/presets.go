@@ -151,7 +151,7 @@ func BuiltinModes() []Mode {
 			PromptPrefix:     "",
 		},
 		{
-			ID:               "api-tester",
+			ID:               "api_tester",
 			Name:             "API Tester",
 			Description:      "Tests APIs for functional correctness, security, and performance.",
 			Builtin:          true,
@@ -187,7 +187,7 @@ func BuiltinModes() []Mode {
 			PromptPrefix:     "",
 		},
 		{
-			ID:               "backend-architect",
+			ID:               "backend_architect",
 			Name:             "Backend Architect",
 			Description:      "Designs backend systems: services, data models, APIs, and infrastructure patterns.",
 			Builtin:          true,
@@ -200,7 +200,7 @@ func BuiltinModes() []Mode {
 			PromptPrefix:     "",
 		},
 		{
-			ID:               "lsp-engineer",
+			ID:               "lsp_engineer",
 			Name:             "LSP Engineer",
 			Description:      "Designs and plans multi-language LSP orchestration and semantic code graphs.",
 			Builtin:          true,
@@ -239,7 +239,7 @@ func BuiltinModes() []Mode {
 			PromptPrefix:     "",
 		},
 		{
-			ID:               "workflow-optimizer",
+			ID:               "workflow_optimizer",
 			Name:             "Workflow Optimizer",
 			Description:      "Analyzes and optimizes development workflows, identifies bottlenecks, and designs automation.",
 			Builtin:          true,
@@ -252,7 +252,7 @@ func BuiltinModes() []Mode {
 			PromptPrefix:     "",
 		},
 		{
-			ID:               "infra-maintainer",
+			ID:               "infra_maintainer",
 			Name:             "Infrastructure Maintainer",
 			Description:      "Maintains system reliability, security, and performance of infrastructure.",
 			Builtin:          true,
@@ -284,7 +284,7 @@ func BuiltinModes() []Mode {
 	modes = append(modes,
 		// Goal-researcher mode for agent-driven goal discovery (GSD style).
 		Mode{
-			ID:           "goal-researcher",
+			ID:           "goal_researcher",
 			Name:         "Goal Researcher",
 			Description:  "Analyzes a repository and interviews the user to discover project goals (GSD).",
 			Builtin:      true,
@@ -296,7 +296,7 @@ func BuiltinModes() []Mode {
 		},
 		// Review-refactor pipeline modes (Phase 31).
 		Mode{
-			ID:               "boundary-analyzer",
+			ID:               "boundary_analyzer",
 			Name:             "Boundary Analyzer",
 			Description:      "Analyzes project structure to identify boundary files between modules, services, and language layers.",
 			Builtin:          true,
@@ -308,7 +308,7 @@ func BuiltinModes() []Mode {
 			PromptPrefix:     "",
 		},
 		Mode{
-			ID:               "contract-reviewer",
+			ID:               "contract_reviewer",
 			Name:             "Contract Reviewer",
 			Description:      "Reviews cross-layer contracts for consistency between boundary files.",
 			Builtin:          true,

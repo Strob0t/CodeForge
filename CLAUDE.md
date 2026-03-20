@@ -32,7 +32,7 @@ Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
 
 ## Configuration & Tooling
 
-- **YAML for all config files** (comments support) — Modes, Tool Bundles, Settings, Safety, Autonomy, Schedules
+- **YAML for all config files** (comments support) — Modes, Settings, Safety, Autonomy, Schedules
 - **JSON only for:** API responses, event serialization, internal data exchange
 - **Python:** Poetry, Ruff, Pytest | **Go:** golangci-lint, gofmt, goimports | **TS:** ESLint, Prettier
 - **All:** pre-commit hooks (.pre-commit-config.yaml), Docker Compose
@@ -61,7 +61,7 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - **Workflow:** Plan -> Approve -> Execute -> Review -> Deliver (configurable)
 - **Autonomy Levels:** 1=supervised (approve all), 2=semi-auto (approve destructive), 3=auto-edit (approve terminal/deploy), 4=full-auto (safety rules replace user), 5=headless (CI/CD, cron, API)
 - **Modes System:** YAML-configurable roles (architect, coder, reviewer, debugger), per-mode tools/LLM/autonomy/prompt, built-in + custom (`.codeforge/modes/`), DAG pipelines, schedule support
-- **Tool Bundles:** YAML-based declarative tool definitions
+- **Per-Mode Tool Lists:** Tools are defined inline in each Mode struct (`Mode.Tools` / `Mode.DeniedTools`), not as separate YAML bundle files
 - **History Processors:** Context window optimization pipeline
 - **Hook System:** Observer pattern for agent/environment lifecycle
 - **Trajectory:** Recording, replay, inspector, audit trail
@@ -94,7 +94,7 @@ Composite Memory Scoring (Semantic+Recency+Importance) — `workers/codeforge/me
 Plan/Act Mode (**implemented**: `workers/codeforge/plan_act.py`, `internal/service/conversation_agent.go`) | Shadow Git Checkpoints | Ask/Say Approval Pattern | MCP extensibility | .clinerules-like YAML config | Auto-Compact (~80% window) | Diff-based File Review | Sub-Agent Architecture | Agent State Visualization | LLM-driven Web Crawler | Stateless Agent Design (state in core)
 
 **From OpenHands, SWE-agent:**
-Event-Sourcing (EventStream) | Workspace Abstraction (Local/Docker/Remote, self-healing) | AgentHub (CodeAct, Browsing, Delegator, Microagents) | Microagents (YAML+MD trigger-driven) — `internal/domain/microagent/`, `internal/service/microagent.go` | Skills System — `workers/codeforge/skills/`, `internal/service/skill.go` | Risk Management (LLMSecurityAnalyzer) | V0->V1 SDK Migration | RouterLLM via LiteLLM tags — `internal/service/conversation.go`, `workers/codeforge/consumer.py` | ACI (shell for LLMs) | Tool Bundles (YAML) | History Processors | SWE-ReX Sandbox | Mini-SWE-Agent (100 LOC, 74% SWE-bench) | ToolFilterConfig (blocklist + conditional blocking)
+Event-Sourcing (EventStream) | Workspace Abstraction (Local/Docker/Remote, self-healing) | AgentHub (CodeAct, Browsing, Delegator, Microagents) | Microagents (YAML+MD trigger-driven) — `internal/domain/microagent/`, `internal/service/microagent.go` | Skills System — `workers/codeforge/skills/`, `internal/service/skill.go` | Risk Management (LLMSecurityAnalyzer) | V0->V1 SDK Migration | RouterLLM via LiteLLM tags — `internal/service/conversation.go`, `workers/codeforge/consumer.py` | ACI (shell for LLMs) | Per-Mode Tool Lists | History Processors | SWE-ReX Sandbox | Mini-SWE-Agent (100 LOC, 74% SWE-bench) | ToolFilterConfig (blocklist + conditional blocking)
 
 ### Competitor Analysis
 
@@ -121,7 +121,7 @@ Event-Sourcing (EventStream) | Workspace Abstraction (Local/Docker/Remote, self-
 
 **Benchmark & Evaluation (Phase 26+28+5):** Phase 26: Provider interface, evaluator plugins (LLMJudge, FunctionalTest, SPARC, FilesystemState), 3 runners, external providers (HumanEval, MBPP, SWE-bench, DPAI Arena, Terminal-Bench). Phase 28 (R2E-Gym/EntroPO): Hybrid verification, trajectory verifier, multi-rollout, entropy-UCB1 MAB, DPO export, SWE-GEN — `workers/codeforge/evaluation/`. Phase 5: DPAI Arena, Terminal-Bench+FilesystemStateEvaluator, RLVR export (`GET /benchmarks/runs/{id}/export/rlvr`).
 
-**Contract-First Review/Refactor (Phase 31):** Boundary Detection (LLM-based, API/data/inter-service/cross-language) — `internal/domain/boundary/` | Review-Refactor Pipeline (4-step: boundary-analyzer->contract-reviewer->reviewer->refactorer) — `internal/domain/pipeline/presets.go` | 2 Modes: `boundary-analyzer` (read-only, plan), `contract-reviewer` (read-only, review) — `internal/domain/mode/presets.go` | ReviewTriggerService (cascade triggers, SHA dedup) — `internal/service/review_trigger.go` | DiffImpactScorer (3-tier HITL) — `internal/service/diff_impact.go` | Phase-aware Context Budget (100%/60%/50%/70%) — `internal/service/context_budget.go` | waiting_approval status — `internal/service/orchestrator.go` | BoundaryService — `internal/service/boundary.go` | Frontend: RefactorApproval, BoundariesPanel — `frontend/src/features/project/` | NATS: `review.>` wildcard — `internal/port/messagequeue/subjects.go`
+**Contract-First Review/Refactor (Phase 31):** Boundary Detection (LLM-based, API/data/inter-service/cross-language) — `internal/domain/boundary/` | Review-Refactor Pipeline (4-step: boundary_analyzer->contract_reviewer->reviewer->refactorer) — `internal/domain/pipeline/presets.go` | 2 Modes: `boundary_analyzer` (read-only, plan), `contract_reviewer` (read-only, review) — `internal/domain/mode/presets.go` | ReviewTriggerService (cascade triggers, SHA dedup) — `internal/service/review_trigger.go` | DiffImpactScorer (3-tier HITL) — `internal/service/diff_impact.go` | Phase-aware Context Budget (100%/60%/50%/70%) — `internal/service/context_budget.go` | waiting_approval status — `internal/service/orchestrator.go` | BoundaryService — `internal/service/boundary.go` | Frontend: RefactorApproval, BoundariesPanel — `frontend/src/features/project/` | NATS: `review.>` wildcard — `internal/port/messagequeue/subjects.go`
 
 **Visual Design Canvas (Phase 32):** SVG canvas with 7 tools (select, rect, ellipse, freehand, text, annotate, image) — `frontend/src/features/canvas/` | Triple export: PNG (offscreen), ASCII (char grid), JSON | Smart output: vision->PNG+JSON, text-only->ASCII+JSON, basic->JSON | Multimodal pipeline: `MessageImage` Frontend->Go JSONB->NATS->Python content-array->LiteLLM | Migration `075_add_message_images.sql` | `buildCanvasPrompt()` uses `supports_vision` | Spec: `docs/features/06-visual-design-canvas.md`
 

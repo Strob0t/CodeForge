@@ -329,8 +329,8 @@ func TestBuildModePromptFromLibrary_ContainsModeContent(t *testing.T) {
 		{"devops", "DevOps Engineer Mode"},
 		{"frontend", "Frontend Developer Mode"},
 		{"orchestrator", "Orchestrator Mode"},
-		{"boundary-analyzer", "Boundary Analyzer Mode"},
-		{"contract-reviewer", "Contract Reviewer Mode"},
+		{"boundary_analyzer", "Boundary Analyzer Mode"},
+		{"contract_reviewer", "Contract Reviewer Mode"},
 	}
 
 	for _, tt := range tests {

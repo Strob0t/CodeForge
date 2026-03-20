@@ -99,7 +99,7 @@ func (h *Handlers) DeleteProjectGoal(w http.ResponseWriter, r *http.Request) {
 }
 
 // AIDiscoverProjectGoals handles POST /api/v1/projects/{id}/goals/ai-discover.
-// It creates a conversation with the goal-researcher mode and dispatches an agentic run
+// It creates a conversation with the goal_researcher mode and dispatches an agentic run
 // to analyze the repository and ask the user targeted questions for goal creation.
 func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
@@ -144,7 +144,7 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 		})
 	}
 
-	// Dispatch an agentic run with the goal-researcher mode.
+	// Dispatch an agentic run with the goal_researcher mode.
 	initialPrompt := "Analyze this repository and help me define project goals. " +
 		"Start by exploring the codebase structure, then ask me targeted questions."
 
@@ -154,7 +154,7 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.Conversations.SendMessageAgenticWithMode(
-		r.Context(), conv.ID, initialPrompt, "goal-researcher", agenticOpts...,
+		r.Context(), conv.ID, initialPrompt, "goal_researcher", agenticOpts...,
 	); err != nil {
 		slog.Warn("failed to dispatch goal discovery run",
 			"conversation_id", conv.ID,

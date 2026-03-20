@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1003,9 +1002,7 @@ func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID s
 		{Name: "ListDir", Description: "List directory contents"},
 	}
 
-	// If the modular prompt assembler is configured, use it instead of the
-	// monolithic template. This preserves backward compatibility: without an
-	// assembler the old template path is used unchanged.
+	// Use the modular prompt assembler (YAML library) as the sole path.
 	if s.promptAssembler != nil {
 		asmCtx := prompt.AssemblyContext{
 			ModeID:   "coder", // default for conversations
@@ -1016,17 +1013,11 @@ func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID s
 		if result := s.promptAssembler.Assemble(asmCtx, data); result != "" {
 			return result
 		}
-		// Fall through to the legacy template if the assembler produces nothing
-		// (e.g. no YAML files loaded yet).
+		slog.Error("prompt assembler returned empty result, using minimal fallback",
+			"project", data.ProjectName)
 	}
 
-	var buf bytes.Buffer
-	if err := conversationTmpl.Execute(&buf, data); err != nil {
-		slog.Error("conversation: failed to render system prompt template", "error", err)
-		return fmt.Sprintf("You are CodeForge, an AI coding orchestrator. Project: %s", data.ProjectName)
-	}
-
-	return buf.String()
+	return fmt.Sprintf("You are CodeForge, an AI coding orchestrator. Project: %s", data.ProjectName)
 }
 
 // detectStackSummary runs a lightweight stack detection and returns a comma-separated

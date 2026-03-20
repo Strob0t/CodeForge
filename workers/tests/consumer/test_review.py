@@ -1,6 +1,6 @@
 """Tests for ReviewHandlerMixin._do_review_trigger (STUB-003).
 
-Verifies that the review trigger handler dispatches a boundary-analyzer
+Verifies that the review trigger handler dispatches a boundary_analyzer
 conversation run via NATS and publishes a completion event.
 """
 
@@ -114,7 +114,7 @@ class TestDoReviewTriggerHappyPath:
         sample_request: ReviewTriggerRequestPayload,
         log: structlog.BoundLogger,
     ) -> None:
-        """The mode must be set to boundary-analyzer with correct config."""
+        """The mode must be set to boundary_analyzer with correct config."""
         await handler._do_review_trigger(sample_request, log)
 
         calls = mock_js.publish.call_args_list
@@ -123,7 +123,7 @@ class TestDoReviewTriggerHappyPath:
         msg = ConversationRunStartMessage.model_validate(payload)
 
         assert msg.mode is not None
-        assert msg.mode.id == "boundary-analyzer"
+        assert msg.mode.id == "boundary_analyzer"
         assert "Read" in msg.mode.tools
         assert "Glob" in msg.mode.tools
         assert "Grep" in msg.mode.tools

@@ -158,8 +158,8 @@ func TestPhaseAwareContextBudget(t *testing.T) {
 		base    int
 		wantPct int
 	}{
-		{"boundary-analyzer gets full", "boundary-analyzer", 2000, 100},
-		{"contract-reviewer gets 60%", "contract-reviewer", 2000, 60},
+		{"boundary_analyzer gets full", "boundary_analyzer", 2000, 100},
+		{"contract_reviewer gets 60%", "contract_reviewer", 2000, 60},
 		{"reviewer gets 50%", "reviewer", 2000, 50},
 		{"refactorer gets 70%", "refactorer", 2000, 70},
 		{"unknown gets full", "coder", 2000, 100},

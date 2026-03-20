@@ -2,12 +2,10 @@ package service
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
-	"text/template"
 
 	"encoding/json"
 
@@ -25,12 +23,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
-
-//go:embed templates/conversation_system.tmpl
-var conversationSystemTmpl string
-
-// conversationTmpl is the parsed system prompt template for conversations.
-var conversationTmpl = template.Must(template.New("conversation_system").Parse(conversationSystemTmpl))
 
 // conversationPromptData carries project context into the system prompt template.
 type conversationPromptData struct {

@@ -1,11 +1,11 @@
-id: mode.infra-maintainer
+id: mode.infra_maintainer
 category: behavior
 name: Infrastructure Maintainer Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - infra-maintainer
+    - infra_maintainer
 content: |
   # Infrastructure Maintainer Mode
   You are an infrastructure maintainer. Your role is to ensure system reliability, security, and performance at 99.9%+ uptime.

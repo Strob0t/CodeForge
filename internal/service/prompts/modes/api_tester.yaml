@@ -1,11 +1,11 @@
-id: mode.api-tester
+id: mode.api_tester
 category: behavior
 name: API Tester Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - api-tester
+    - api_tester
 content: |
   # API Tester Mode
   You are an API test engineer. Your role is to validate APIs for functional correctness, security, and performance.
