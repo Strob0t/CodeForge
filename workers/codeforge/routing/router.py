@@ -18,6 +18,8 @@ CODEFORGE_ROUTING_ENABLED=false when all providers are unhealthy.
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import TYPE_CHECKING
 
 from codeforge.routing.models import (
@@ -39,6 +41,9 @@ if TYPE_CHECKING:
     from codeforge.routing.rate_tracker import RateLimitTracker
 
 logger = logging.getLogger(__name__)
+
+# TTL for caching the effective (non-blocked) models list.
+_EFFECTIVE_MODELS_CACHE_TTL = float(os.environ.get("CODEFORGE_EFFECTIVE_MODELS_CACHE_TTL", "5.0"))
 
 COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ComplexityTier.SIMPLE: [
@@ -96,12 +101,25 @@ class HybridRouter:
         self._available_models = available_models
         self._config = config
         self._rate_tracker = rate_tracker
+        self._effective_cache: list[str] | None = None
+        self._effective_cache_ts: float = 0.0
 
     @property
     def _effective_models(self) -> list[str]:
+        """Return available models with blocked ones filtered out.
+
+        Caches the result for _EFFECTIVE_MODELS_CACHE_TTL seconds to avoid
+        re-fetching the blocklist on every call.
+        """
+        now = time.monotonic()
+        if self._effective_cache is not None and (now - self._effective_cache_ts) < _EFFECTIVE_MODELS_CACHE_TTL:
+            return self._effective_cache
+
         from codeforge.routing.blocklist import get_blocklist
 
-        return get_blocklist().filter_available(self._available_models)
+        self._effective_cache = get_blocklist().filter_available(self._available_models)
+        self._effective_cache_ts = now
+        return self._effective_cache
 
     def _is_provider_exhausted(self, model: str) -> bool:
         """Return True if the model's provider is currently rate-limited."""
