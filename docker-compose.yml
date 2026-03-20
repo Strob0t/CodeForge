@@ -119,6 +119,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       CHUTES_API_KEY: ${CHUTES_API_KEY:-}
       AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
+      LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_SERVICE_NAME: codeforge-litellm
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
