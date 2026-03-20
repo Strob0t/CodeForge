@@ -18,6 +18,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// cancelResult is the typed payload published to NATS when canceling a task.
+type cancelResult struct {
+	TaskID string `json:"task_id"`
+}
+
 // Executor implements a2asrv.AgentExecutor for inbound A2A tasks.
 type Executor struct {
 	store database.Store
@@ -93,7 +98,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq
 	}
 
 	// Publish cancel to NATS.
-	cancelPayload, _ := json.Marshal(map[string]string{"task_id": taskID})
+	cancelPayload, _ := json.Marshal(cancelResult{TaskID: taskID})
 	if err := e.queue.Publish(ctx, messagequeue.SubjectA2ATaskCancel, cancelPayload); err != nil {
 		slog.Error("a2a: publish task cancel", "error", err)
 	}
