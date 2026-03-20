@@ -16,8 +16,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
@@ -238,6 +240,28 @@ func policyForAutonomy(autonomy int) string {
 	}
 }
 
+// isFullAutoProject checks if the project's policy profile uses an auto-allow mode
+// (ModeAcceptEdits or ModeDelegate), meaning HITL is bypassed and the agent runs autonomously.
+func (s *ConversationService) isFullAutoProject(_ context.Context, proj *project.Project) bool {
+	if s.policySvc == nil {
+		return false
+	}
+	preset := proj.PolicyProfile
+	if preset == "" {
+		if p, ok := proj.Config["policy_preset"]; ok {
+			preset = p
+		}
+	}
+	if preset == "" {
+		return false
+	}
+	profile, ok := s.policySvc.GetProfile(preset)
+	if !ok {
+		return false
+	}
+	return profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate
+}
+
 // SendMessageAgentic stores the user message and dispatches an agentic run to the
 // Python worker via NATS. Streaming results arrive asynchronously via WebSocket.
 // The method returns immediately after dispatch.
@@ -254,6 +278,43 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
+	// Fetch project early so the full-auto gate can inspect it before storing
+	// the user message (SendMessageAgenticWithMode stores its own copy).
+	proj, err := s.db.GetProject(ctx, conv.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+
+	// Full-auto gate: if no goals or open roadmap features exist, redirect to
+	// goal_researcher mode so the agent collaborates with the user on goals first.
+	if s.isFullAutoProject(ctx, proj) && s.goalSvc != nil {
+		goals, _ := s.goalSvc.ListEnabled(ctx, proj.ID)
+		hasOpenGoals := len(goals) > 0
+
+		hasOpenFeatures := false
+		if rm, rmErr := s.db.GetRoadmapByProject(ctx, proj.ID); rmErr == nil && rm != nil {
+			for i := range rm.Milestones {
+				for j := range rm.Milestones[i].Features {
+					if rm.Milestones[i].Features[j].Status != roadmap.FeatureDone && rm.Milestones[i].Features[j].Status != roadmap.FeatureCancelled {
+						hasOpenFeatures = true
+						break
+					}
+				}
+				if hasOpenFeatures {
+					break
+				}
+			}
+		}
+
+		if !hasOpenGoals && !hasOpenFeatures {
+			slog.Info("full-auto gate: no goals or open features, redirecting to goal_researcher",
+				"project_id", proj.ID,
+				"conversation_id", conversationID,
+			)
+			return s.SendMessageAgenticWithMode(ctx, conversationID, req.Content, "goal_researcher")
+		}
+	}
+
 	// Store user message.
 	userMsg := &conversation.Message{
 		ConversationID: conversationID,
@@ -268,12 +329,6 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	history, err := s.db.ListMessages(ctx, conversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
-	}
-
-	// Fetch project for workspace path, policy profile, etc.
-	proj, err := s.db.GetProject(ctx, conv.ProjectID)
-	if err != nil {
-		return fmt.Errorf("get project: %w", err)
 	}
 
 	// Ensure a session exists for this conversation.

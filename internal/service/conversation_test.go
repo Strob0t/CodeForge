@@ -11,9 +11,11 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -24,10 +26,27 @@ type convMockStore struct {
 	conversations []conversation.Conversation
 	messages      []conversation.Message
 	microagents   []microagent.Microagent
+	enabledGoals  []goal.ProjectGoal // override for ListEnabledGoals
+	roadmapVal    *roadmap.Roadmap   // override for GetRoadmapByProject (nil = not found)
+	roadmapSet    bool               // true when roadmapVal override is active
 }
 
 func (m *convMockStore) ListMicroagents(_ context.Context, _ string) ([]microagent.Microagent, error) {
 	return m.microagents, nil
+}
+
+func (m *convMockStore) ListEnabledGoals(_ context.Context, _ string) ([]goal.ProjectGoal, error) {
+	return m.enabledGoals, nil
+}
+
+func (m *convMockStore) GetRoadmapByProject(_ context.Context, _ string) (*roadmap.Roadmap, error) {
+	if m.roadmapSet {
+		if m.roadmapVal == nil {
+			return nil, errMockNotFound
+		}
+		return m.roadmapVal, nil
+	}
+	return nil, errMockNotFound
 }
 
 func (m *convMockStore) CreateConversation(_ context.Context, c *conversation.Conversation) (*conversation.Conversation, error) {
@@ -936,6 +955,245 @@ func TestSendMessageAgenticWithMode_BoundaryAnalyzer_PlanActEnabled(t *testing.T
 
 	if !payload.PlanActEnabled {
 		t.Error("expected PlanActEnabled=true for boundary_analyzer (autonomy=4)")
+	}
+}
+
+// --- Full-Auto Goal Gate Tests ---
+
+func TestFullAutoGate_NoGoalsRedirectsToGoalResearcher(t *testing.T) {
+	// Full-auto project with no goals and no roadmap should redirect to goal_researcher mode.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{
+			ID:            "proj-1",
+			Name:          "test",
+			WorkspacePath: "/tmp/test",
+			PolicyProfile: "trusted-mount-autonomous",
+		},
+	}
+	// No goals: enabledGoals is empty by default.
+	// No roadmap: roadmapSet=false (default) returns errMockNotFound.
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	// Wire policy service with built-in presets.
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	svc.SetPolicyService(policySvc)
+
+	// Wire goal service backed by our store (which returns empty goals).
+	goalSvc := service.NewGoalDiscoveryService(store)
+	svc.SetGoalService(goalSvc)
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Goal Gate Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{Content: "build a CLI tool"})
+	if err != nil {
+		t.Fatalf("SendMessageAgentic: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Verify the payload was dispatched with goal_researcher mode.
+	if payload.Mode == nil {
+		t.Fatal("expected Mode in payload, got nil")
+	}
+	if payload.Mode.ID != "goal_researcher" {
+		t.Errorf("expected mode 'goal_researcher', got %q", payload.Mode.ID)
+	}
+}
+
+func TestFullAutoGate_WithGoalsPassesThrough(t *testing.T) {
+	// Full-auto project with existing goals should NOT redirect.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{
+			ID:            "proj-1",
+			Name:          "test",
+			WorkspacePath: "/tmp/test",
+			PolicyProfile: "trusted-mount-autonomous",
+		},
+	}
+	// Provide goals so the gate passes through.
+	store.enabledGoals = []goal.ProjectGoal{
+		{ID: "g-1", ProjectID: "proj-1", Title: "Build CLI", Enabled: true},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	svc.SetPolicyService(policySvc)
+
+	goalSvc := service.NewGoalDiscoveryService(store)
+	svc.SetGoalService(goalSvc)
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Goal Gate Pass"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{Content: "build a CLI tool"})
+	if err != nil {
+		t.Fatalf("SendMessageAgentic: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Normal dispatch should use the default "coder" mode, NOT goal_researcher.
+	if payload.Mode != nil && payload.Mode.ID == "goal_researcher" {
+		t.Error("expected normal mode (not goal_researcher) when goals exist")
+	}
+}
+
+func TestFullAutoGate_NonFullAutoSkipsGate(t *testing.T) {
+	// Non-full-auto project (supervised-ask-all) with no goals should NOT redirect.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{
+			ID:            "proj-1",
+			Name:          "test",
+			WorkspacePath: "/tmp/test",
+			PolicyProfile: "supervised-ask-all",
+		},
+	}
+	// No goals, no roadmap -- but project is NOT full-auto.
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	svc.SetPolicyService(policySvc)
+
+	goalSvc := service.NewGoalDiscoveryService(store)
+	svc.SetGoalService(goalSvc)
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Non Full-Auto"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{Content: "build a CLI tool"})
+	if err != nil {
+		t.Fatalf("SendMessageAgentic: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Supervised project should NOT trigger goal_researcher redirect.
+	if payload.Mode != nil && payload.Mode.ID == "goal_researcher" {
+		t.Error("expected normal mode (not goal_researcher) for non-full-auto project")
+	}
+}
+
+func TestFullAutoGate_OpenFeaturesPassesThrough(t *testing.T) {
+	// Full-auto project with no goals but open roadmap features should NOT redirect.
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{
+			ID:            "proj-1",
+			Name:          "test",
+			WorkspacePath: "/tmp/test",
+			PolicyProfile: "trusted-mount-autonomous",
+		},
+	}
+	// No goals.
+	// Roadmap with an open feature (in_progress).
+	store.roadmapSet = true
+	store.roadmapVal = &roadmap.Roadmap{
+		ID:        "rm-1",
+		ProjectID: "proj-1",
+		Title:     "v1 Roadmap",
+		Milestones: []roadmap.Milestone{
+			{
+				ID:    "ms-1",
+				Title: "MVP",
+				Features: []roadmap.Feature{
+					{ID: "f-1", Title: "Auth system", Status: roadmap.FeatureInProgress},
+				},
+			},
+		},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
+	svc.SetPolicyService(policySvc)
+
+	goalSvc := service.NewGoalDiscoveryService(store)
+	svc.SetGoalService(goalSvc)
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Open Features"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{Content: "build a CLI tool"})
+	if err != nil {
+		t.Fatalf("SendMessageAgentic: %v", err)
+	}
+
+	_, data := q.snapshot()
+	if len(data) == 0 {
+		t.Fatal("expected NATS payload")
+	}
+
+	var payload messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Open features exist, so no redirect to goal_researcher.
+	if payload.Mode != nil && payload.Mode.ID == "goal_researcher" {
+		t.Error("expected normal mode (not goal_researcher) when open features exist")
 	}
 }
 
