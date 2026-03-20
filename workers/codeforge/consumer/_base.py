@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import structlog
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+_PROCESSED_IDS_MAX = 10_000
+
 
 class ConsumerBaseMixin:
     """Shared helper methods inherited by the TaskConsumer via mixin pattern."""
@@ -28,20 +31,19 @@ class ConsumerBaseMixin:
     _litellm_url: str
     _litellm_key: str
 
-    # Shared idempotency guard: tracks processed message IDs to skip redeliveries.
-    _processed_ids: ClassVar[set[str]] = set()
-    _processed_ids_max = 10_000
+    # Shared idempotency guard: bounded FIFO cache that evicts oldest entries first.
+    _processed_ids: ClassVar[OrderedDict[str, None]] = OrderedDict()
 
     @classmethod
     def _is_duplicate(cls, msg_id: str) -> bool:
         """Return True if *msg_id* was already processed (and mark it as processed)."""
         if msg_id in cls._processed_ids:
+            # Move to end so it stays fresh.
+            cls._processed_ids.move_to_end(msg_id)
             return True
-        cls._processed_ids.add(msg_id)
-        if len(cls._processed_ids) > cls._processed_ids_max:
-            # Evict oldest half (set is unordered, good enough for dedup).
-            to_remove = list(cls._processed_ids)[: cls._processed_ids_max // 2]
-            cls._processed_ids -= set(to_remove)
+        cls._processed_ids[msg_id] = None
+        while len(cls._processed_ids) > _PROCESSED_IDS_MAX:
+            cls._processed_ids.popitem(last=False)  # evict oldest
         return False
 
     @classmethod
