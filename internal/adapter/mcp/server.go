@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -95,14 +96,31 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 }
 
 // Start begins listening for MCP requests on the configured address.
+// It waits briefly for the listener to bind, returning any immediate
+// errors (e.g. port already in use) instead of swallowing them.
 func (s *Server) Start() error {
 	slog.Info("mcp server starting", "addr", s.cfg.Addr)
+	errCh := make(chan error, 1)
 	go func() {
-		if err := s.httpSrv.Start(s.cfg.Addr); err != nil {
-			slog.Error("mcp server listen error", "error", err)
-		}
+		errCh <- s.httpSrv.Start(s.cfg.Addr)
 	}()
-	return nil
+	// Wait briefly for immediate listen errors (port conflict, permission denied).
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("mcp server listen: %w", err)
+		}
+		return nil // server exited without error (unlikely but safe)
+	case <-time.After(100 * time.Millisecond):
+		// Listener bound successfully; server continues in background.
+		// Drain errors asynchronously so the goroutine is not leaked.
+		go func() {
+			if err := <-errCh; err != nil {
+				slog.Error("mcp server listen error", "error", err)
+			}
+		}()
+		return nil
+	}
 }
 
 // Stop gracefully shuts down the MCP server.
