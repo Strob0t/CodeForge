@@ -33,8 +33,8 @@ type Message struct {
 	ToolCalls      json.RawMessage `json:"tool_calls,omitempty"`
 	ToolCallID     string          `json:"tool_call_id,omitempty"`
 	ToolName       string          `json:"tool_name,omitempty"`
-	TokensIn       int             `json:"tokens_in,omitempty"`
-	TokensOut      int             `json:"tokens_out,omitempty"`
+	TokensIn       int64           `json:"tokens_in,omitempty"`
+	TokensOut      int64           `json:"tokens_out,omitempty"`
 	Model          string          `json:"model,omitempty"`
 	Images         json.RawMessage `json:"images,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`

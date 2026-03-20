@@ -449,7 +449,7 @@ func (s *BenchmarkService) CostAnalysis(ctx context.Context, runID string) (*ben
 	}
 
 	var totalCost float64
-	var totalTokensIn, totalTokensOut int
+	var totalTokensIn, totalTokensOut int64
 	var totalScore float64
 	var scoreCount int
 
@@ -528,7 +528,7 @@ func (s *BenchmarkService) Leaderboard(ctx context.Context, suiteID string) ([]b
 		}
 
 		var totalCost float64
-		var totalTokensIn, totalTokensOut int
+		var totalTokensIn, totalTokensOut int64
 		var totalScore float64
 		var scoreCount int
 

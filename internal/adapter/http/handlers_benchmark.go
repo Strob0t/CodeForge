@@ -183,8 +183,8 @@ func (h *Handlers) ExportBenchmarkResults(w http.ResponseWriter, r *http.Request
 				results[i].TaskID,
 				results[i].TaskName,
 				fmt.Sprintf("%.6f", results[i].CostUSD),
-				strconv.Itoa(results[i].TokensIn),
-				strconv.Itoa(results[i].TokensOut),
+				strconv.FormatInt(results[i].TokensIn, 10),
+				strconv.FormatInt(results[i].TokensOut, 10),
 				strconv.FormatInt(results[i].DurationMs, 10),
 			})
 		}

@@ -127,7 +127,7 @@ type Run struct {
 	Status          RunStatus       `json:"status"`
 	SummaryScores   json.RawMessage `json:"summary_scores"`
 	TotalCost       float64         `json:"total_cost"`
-	TotalTokens     int             `json:"total_tokens"`
+	TotalTokens     int64           `json:"total_tokens"`
 	TotalDurationMs int64           `json:"total_duration_ms"`
 	CreatedAt       time.Time       `json:"created_at"`
 	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
@@ -161,8 +161,8 @@ type Result struct {
 	ExpectedOutput string          `json:"expected_output"`
 	ToolCalls      json.RawMessage `json:"tool_calls"`
 	CostUSD        float64         `json:"cost_usd"`
-	TokensIn       int             `json:"tokens_in"`
-	TokensOut      int             `json:"tokens_out"`
+	TokensIn       int64           `json:"tokens_in"`
+	TokensOut      int64           `json:"tokens_out"`
 	DurationMs     int64           `json:"duration_ms"`
 
 	// Phase 26 fields.
@@ -283,7 +283,7 @@ type TrainingEntry struct {
 	Scores      map[string]float64 `json:"scores"`
 	AvgScore    float64            `json:"avg_score"`
 	CostUSD     float64            `json:"cost_usd"`
-	TokensTotal int                `json:"tokens_total"`
+	TokensTotal int64              `json:"tokens_total"`
 }
 
 // TrainingPair is a chosen/rejected pair for DPO/EntroPO training.
@@ -313,8 +313,8 @@ type CostBreakdown struct {
 	TaskID    string  `json:"task_id"`
 	TaskName  string  `json:"task_name"`
 	CostUSD   float64 `json:"cost_usd"`
-	TokensIn  int     `json:"tokens_in"`
-	TokensOut int     `json:"tokens_out"`
+	TokensIn  int64   `json:"tokens_in"`
+	TokensOut int64   `json:"tokens_out"`
 	Score     float64 `json:"score"`
 }
 
@@ -324,8 +324,8 @@ type CostAnalysis struct {
 	Model             string          `json:"model"`
 	SuiteID           string          `json:"suite_id,omitempty"`
 	TotalCostUSD      float64         `json:"total_cost_usd"`
-	TotalTokensIn     int             `json:"total_tokens_in"`
-	TotalTokensOut    int             `json:"total_tokens_out"`
+	TotalTokensIn     int64           `json:"total_tokens_in"`
+	TotalTokensOut    int64           `json:"total_tokens_out"`
 	AvgScore          float64         `json:"avg_score"`
 	CostPerScorePoint float64         `json:"cost_per_score_point"`
 	TokenEfficiency   float64         `json:"token_efficiency"`
@@ -339,8 +339,8 @@ type LeaderboardEntry struct {
 	SuiteID           string  `json:"suite_id,omitempty"`
 	AvgScore          float64 `json:"avg_score"`
 	TotalCostUSD      float64 `json:"total_cost_usd"`
-	TotalTokensIn     int     `json:"total_tokens_in"`
-	TotalTokensOut    int     `json:"total_tokens_out"`
+	TotalTokensIn     int64   `json:"total_tokens_in"`
+	TotalTokensOut    int64   `json:"total_tokens_out"`
 	TaskCount         int     `json:"task_count"`
 	CostPerScorePoint float64 `json:"cost_per_score_point"`
 	TokenEfficiency   float64 `json:"token_efficiency"`
