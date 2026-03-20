@@ -90,7 +90,11 @@ func (s *BenchmarkService) SetQueue(q messagequeue.Queue) { s.queue = q }
 func (s *BenchmarkService) SetHub(hub broadcast.Broadcaster) { s.hub = hub }
 
 // RegisterSuite validates and persists a new benchmark suite.
+// If Type is empty, it is auto-derived from ProviderName.
 func (s *BenchmarkService) RegisterSuite(ctx context.Context, req *benchmark.CreateSuiteRequest) (*benchmark.Suite, error) {
+	if req.Type == "" {
+		req.Type = benchmark.ProviderDefaultType(req.ProviderName)
+	}
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -967,8 +971,24 @@ func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), e
 	}, nil
 }
 
+// watchdogTimeoutForType returns a per-benchmark-type timeout. Simple runs
+// timeout faster (30 min) while agent runs get more time (4h). The
+// globalDefault is returned for unknown or empty types.
+func watchdogTimeoutForType(bt benchmark.BenchmarkType, globalDefault time.Duration) time.Duration {
+	switch bt {
+	case benchmark.TypeSimple:
+		return 30 * time.Minute
+	case benchmark.TypeToolUse:
+		return 60 * time.Minute
+	case benchmark.TypeAgent:
+		return 4 * time.Hour
+	default:
+		return globalDefault
+	}
+}
+
 // RunWatchdogOnce scans for benchmark runs stuck in "running" state beyond the
-// given timeout and marks them as "failed". This prevents orphaned runs when
+// per-type timeout and marks them as "failed". This prevents orphaned runs when
 // a Python worker crashes or a NATS message is lost.
 func (s *BenchmarkService) RunWatchdogOnce(ctx context.Context, timeout time.Duration) {
 	runs, err := s.store.ListBenchmarkRunsFiltered(ctx, &benchmark.RunFilter{Status: benchmark.StatusRunning})
@@ -976,17 +996,18 @@ func (s *BenchmarkService) RunWatchdogOnce(ctx context.Context, timeout time.Dur
 		slog.Warn("watchdog: failed to list running benchmark runs", "error", err)
 		return
 	}
-	cutoff := time.Now().Add(-timeout)
+	now := time.Now()
 	for i := range runs {
 		run := &runs[i]
-		if run.CreatedAt.Before(cutoff) {
+		runTimeout := watchdogTimeoutForType(run.BenchmarkType, timeout)
+		if run.CreatedAt.Before(now.Add(-runTimeout)) {
 			run.Status = benchmark.StatusFailed
-			run.ErrorMessage = fmt.Sprintf("watchdog timeout: run exceeded %s without completion", timeout)
+			run.ErrorMessage = fmt.Sprintf("watchdog timeout: run exceeded %s without completion", runTimeout)
 			if err := s.store.UpdateBenchmarkRun(ctx, run); err != nil {
 				slog.Warn("watchdog: failed to update stale run", "run_id", run.ID, "error", err)
 				continue
 			}
-			slog.Warn("watchdog: marked stale benchmark run as failed", "run_id", run.ID, "age", time.Since(run.CreatedAt))
+			slog.Warn("watchdog: marked stale benchmark run as failed", "run_id", run.ID, "age", now.Sub(run.CreatedAt))
 		}
 	}
 }

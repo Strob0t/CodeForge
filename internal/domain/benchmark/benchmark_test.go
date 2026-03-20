@@ -351,6 +351,41 @@ func TestCreateRunRequest_Validate_UnknownMetric(t *testing.T) {
 	}
 }
 
+func TestProviderDefaultType(t *testing.T) {
+	tests := []struct {
+		provider string
+		want     benchmark.BenchmarkType
+	}{
+		// Simple providers.
+		{"codeforge_simple", benchmark.TypeSimple},
+		{"humaneval", benchmark.TypeSimple},
+		{"mbpp", benchmark.TypeSimple},
+		{"bigcodebench", benchmark.TypeSimple},
+		{"cruxeval", benchmark.TypeSimple},
+		{"livecodebench", benchmark.TypeSimple},
+		{"dpai_arena", benchmark.TypeSimple},
+		// Agent providers.
+		{"codeforge_agent", benchmark.TypeAgent},
+		{"swebench", benchmark.TypeAgent},
+		{"sparcbench", benchmark.TypeAgent},
+		{"aider_polyglot", benchmark.TypeAgent},
+		{"terminal_bench", benchmark.TypeAgent},
+		// Tool-use providers.
+		{"codeforge_tool_use", benchmark.TypeToolUse},
+		// Unknown providers return empty string.
+		{"unknown_provider", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			got := benchmark.ProviderDefaultType(tt.provider)
+			if got != tt.want {
+				t.Errorf("ProviderDefaultType(%q) = %q, want %q", tt.provider, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMultiCompareRequest_Validate(t *testing.T) {
 	req := benchmark.MultiCompareRequest{
 		RunIDs: []string{"run-1", "run-2", "run-3"},

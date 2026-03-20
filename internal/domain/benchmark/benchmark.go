@@ -56,6 +56,31 @@ func (m ExecMode) IsValid() bool {
 	return false
 }
 
+// providerTypeMap maps known provider names to their default BenchmarkType.
+var providerTypeMap = map[string]BenchmarkType{
+	"codeforge_simple": TypeSimple,
+	"humaneval":        TypeSimple,
+	"mbpp":             TypeSimple,
+	"bigcodebench":     TypeSimple,
+	"cruxeval":         TypeSimple,
+	"livecodebench":    TypeSimple,
+	"dpai_arena":       TypeSimple,
+
+	"codeforge_agent": TypeAgent,
+	"swebench":        TypeAgent,
+	"sparcbench":      TypeAgent,
+	"aider_polyglot":  TypeAgent,
+	"terminal_bench":  TypeAgent,
+
+	"codeforge_tool_use": TypeToolUse,
+}
+
+// ProviderDefaultType returns the default BenchmarkType for a known provider name.
+// If the provider is unknown, it returns an empty string (caller should validate).
+func ProviderDefaultType(provider string) BenchmarkType {
+	return providerTypeMap[provider]
+}
+
 // Suite represents a registered benchmark suite (e.g. HumanEval, SWE-bench).
 type Suite struct {
 	ID           string          `json:"id"`
