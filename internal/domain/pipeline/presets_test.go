@@ -20,11 +20,11 @@ func TestBuiltinTemplatesContainReviewRefactor(t *testing.T) {
 		if len(tmpl.Steps) != 4 {
 			t.Errorf("steps = %d, want 4", len(tmpl.Steps))
 		}
-		if tmpl.Steps[0].ModeID != "boundary-analyzer" {
-			t.Errorf("step[0].ModeID = %q, want boundary-analyzer", tmpl.Steps[0].ModeID)
+		if tmpl.Steps[0].ModeID != "boundary_analyzer" {
+			t.Errorf("step[0].ModeID = %q, want boundary_analyzer", tmpl.Steps[0].ModeID)
 		}
-		if tmpl.Steps[1].ModeID != "contract-reviewer" {
-			t.Errorf("step[1].ModeID = %q, want contract-reviewer", tmpl.Steps[1].ModeID)
+		if tmpl.Steps[1].ModeID != "contract_reviewer" {
+			t.Errorf("step[1].ModeID = %q, want contract_reviewer", tmpl.Steps[1].ModeID)
 		}
 		if tmpl.Steps[2].ModeID != "reviewer" {
 			t.Errorf("step[2].ModeID = %q, want reviewer", tmpl.Steps[2].ModeID)

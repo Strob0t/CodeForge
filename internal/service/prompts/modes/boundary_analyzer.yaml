@@ -1,11 +1,11 @@
-id: mode.boundary-analyzer
+id: mode.boundary_analyzer
 category: behavior
 name: Boundary Analyzer Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - boundary-analyzer
+    - boundary_analyzer
 content: |
   # Boundary Analyzer Mode
 

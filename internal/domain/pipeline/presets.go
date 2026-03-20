@@ -48,7 +48,7 @@ func securityAudit() Template {
 }
 
 // reviewRefactor defines a sequential 4-step contract-first review & refactor pipeline:
-// boundary-analyzer → contract-reviewer → reviewer → refactorer.
+// boundary_analyzer → contract_reviewer → reviewer → refactorer.
 func reviewRefactor() Template {
 	return Template{
 		ID:          "review-refactor",
@@ -57,8 +57,8 @@ func reviewRefactor() Template {
 		Builtin:     true,
 		Protocol:    plan.ProtocolSequential,
 		Steps: []Step{
-			{Name: "Boundary Analysis", ModeID: "boundary-analyzer", DeliverMode: "append"},
-			{Name: "Contract Review", ModeID: "contract-reviewer", DeliverMode: "append", DependsOn: []int{0}},
+			{Name: "Boundary Analysis", ModeID: "boundary_analyzer", DeliverMode: "append"},
+			{Name: "Contract Review", ModeID: "contract_reviewer", DeliverMode: "append", DependsOn: []int{0}},
 			{Name: "Code Review", ModeID: "reviewer", DeliverMode: "append", DependsOn: []int{1}},
 			{Name: "Refactoring Proposals", ModeID: "refactorer", DeliverMode: "diff", DependsOn: []int{2}},
 		},

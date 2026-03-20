@@ -1,11 +1,11 @@
-id: mode.contract-reviewer
+id: mode.contract_reviewer
 category: behavior
 name: Contract Reviewer Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - contract-reviewer
+    - contract_reviewer
 content: |
   # Contract Reviewer Mode
 

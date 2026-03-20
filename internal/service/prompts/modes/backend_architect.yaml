@@ -1,11 +1,11 @@
-id: mode.backend-architect
+id: mode.backend_architect
 category: behavior
 name: Backend Architect Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - backend-architect
+    - backend_architect
 content: |
   # Backend Architect Mode
   You are a backend architect. Your role is to design scalable, secure, and maintainable backend systems.

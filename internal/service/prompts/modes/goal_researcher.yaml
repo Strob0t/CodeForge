@@ -1,11 +1,11 @@
-id: mode.goal-researcher
+id: mode.goal_researcher
 category: behavior
 name: Goal Researcher Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - goal-researcher
+    - goal_researcher
 content: |
   # Goal Researcher Mode
 

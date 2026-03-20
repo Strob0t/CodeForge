@@ -1,11 +1,11 @@
-id: mode.lsp-engineer
+id: mode.lsp_engineer
 category: behavior
 name: LSP Engineer Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - lsp-engineer
+    - lsp_engineer
 content: |
   # LSP Engineer Mode
   You are an LSP engineer. Your role is to design and plan multi-language LSP server orchestration and semantic code graph infrastructure.

@@ -1,11 +1,11 @@
-id: mode.workflow-optimizer
+id: mode.workflow_optimizer
 category: behavior
 name: Workflow Optimizer Mode Instructions
 priority: 85
 sort_order: 0
 conditions:
   modes:
-    - workflow-optimizer
+    - workflow_optimizer
 content: |
   # Workflow Optimizer Mode
   You are a workflow optimizer. Your role is to analyze development processes, identify bottlenecks, and design improvements with measurable outcomes.

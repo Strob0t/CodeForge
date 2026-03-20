@@ -635,7 +635,7 @@ func TestSendMessageAgenticWithMode_WithContextEntries(t *testing.T) {
 		{Kind: "file", Path: "docs/PROJECT.md", Content: "# My Project\nGoal: build something."},
 		{Kind: "file", Path: "docs/STATE.md", Content: "## State\nIn progress."},
 	}
-	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "discover goals", "goal-researcher",
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "discover goals", "goal_researcher",
 		service.WithContextEntries(extraEntries),
 	)
 	if err != nil {
@@ -904,7 +904,7 @@ func TestSendMessageAgentic_DefaultMode_PlanActDisabled(t *testing.T) {
 }
 
 func TestSendMessageAgenticWithMode_BoundaryAnalyzer_PlanActEnabled(t *testing.T) {
-	// boundary-analyzer has Autonomy=4, should enable plan/act.
+	// boundary_analyzer has Autonomy=4, should enable plan/act.
 	store := &convMockStore{}
 	store.projects = []project.Project{
 		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
@@ -923,7 +923,7 @@ func TestSendMessageAgenticWithMode_BoundaryAnalyzer_PlanActEnabled(t *testing.T
 		t.Fatalf("Create: %v", err)
 	}
 
-	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "Analyze boundaries", "boundary-analyzer")
+	err = svc.SendMessageAgenticWithMode(ctx, conv.ID, "Analyze boundaries", "boundary_analyzer")
 	if err != nil {
 		t.Fatalf("SendMessageAgenticWithMode: %v", err)
 	}
@@ -935,6 +935,6 @@ func TestSendMessageAgenticWithMode_BoundaryAnalyzer_PlanActEnabled(t *testing.T
 	}
 
 	if !payload.PlanActEnabled {
-		t.Error("expected PlanActEnabled=true for boundary-analyzer (autonomy=4)")
+		t.Error("expected PlanActEnabled=true for boundary_analyzer (autonomy=4)")
 	}
 }

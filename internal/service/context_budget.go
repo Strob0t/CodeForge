@@ -15,11 +15,11 @@ const contextDecayThreshold = 60
 // By turn 15+ the agent has read files and built its own context through
 // tool calls, so injecting more wastes tokens.
 // phaseContextScale maps review pipeline mode IDs to their context budget
-// percentage. Focused phases (reviewer, contract-reviewer) need less context
+// percentage. Focused phases (reviewer, contract_reviewer) need less context
 // than boundary analysis which requires full codebase visibility.
 var phaseContextScale = map[string]int{
-	"boundary-analyzer": 100,
-	"contract-reviewer": 60,
+	"boundary_analyzer": 100,
+	"contract_reviewer": 60,
 	"reviewer":          50,
 	"refactorer":        70,
 }
