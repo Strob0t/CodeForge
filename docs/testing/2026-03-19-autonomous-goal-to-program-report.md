@@ -1,8 +1,8 @@
 # Autonomous Goal-to-Program Test Report
 
-**Date:** 2026-03-19
+**Date:** 2026-03-19 (updated 2026-03-20)
 **Scenario:** S1 (Easy - CSV-to-JSON Converter)
-**Runs:** 4 (Run 1+2 blocked by infra bugs, Run 3+4 executed successfully)
+**Runs:** 6 (Run 1+2 blocked by infra, Run 3+4 executed, Run 5 no workspace, Run 6 full pipeline)
 **Model:** openai/container (LM Studio qwen3-30b-a3b local)
 
 ---
@@ -92,6 +92,7 @@ The agent tried to create a CSV with unclosed quotes to trigger csv.Error but in
 | Goal-researcher autonomy too low | MEDIUM | FIXED (2->4) |
 | NATS sequential processing blocks pipeline | CRITICAL | FIXED (goroutine dispatch) |
 | NATS consumers not recreated after purge | HIGH | DOCUMENTED (restart backend after purge) |
+| CreateProject API ignores local_path | MEDIUM | DOCUMENTED (use AdoptProject after create) |
 
 ## Key Learnings
 
@@ -103,6 +104,8 @@ The agent tried to create a CSV with unclosed quotes to trigger csv.Error but in
 6. **Agent self-correction works** — 15 edit_file calls show iterative fixing
 7. **Stall detection works** — agent correctly aborted after repeated failures
 8. **Quality instructions in prompt help** — agent ran bash (5x) for testing
+9. **workspace_path MUST be set via AdoptProject** — `POST /projects` ignores `local_path`; call `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` after creation
+10. **Local model argparse knowledge gap** — qwen3-30b adds explicit `--help` despite argparse auto-adding it; stronger models likely avoid this
 
 ## Run 4: Clean Slate (post all fixes, clean project)
 
@@ -127,9 +130,11 @@ Tool call count is low — model doesn't follow the full pipeline.
 
 ## Overall Result
 
-**PARTIAL** — The autonomous pipeline works end-to-end. The main program (csv2json.py) is
-functionally correct across all runs. Test file quality varies by run (syntax errors from
-local model). A stronger model (Claude, GPT-4) would likely produce clean code on first attempt.
+**PARTIAL** — The autonomous pipeline works end-to-end. Infrastructure is fully stable (zero
+NATS timeouts since Run 4). The main program (csv2json.py) is structurally correct across all
+runs but has runtime bugs (argparse conflict in Run 6, syntax error in Run 3). Test file quality
+varies by run. No run achieved a git commit. A stronger model (Claude, GPT-4) would likely
+produce clean code on first attempt.
 
 ### Comparison Across Runs
 
@@ -139,16 +144,105 @@ local model). A stronger model (Claude, GPT-4) would likely produce clean code o
 | 2 | openai/container | 4 | 4 | PASS | FAIL | PASS | First successful end-to-end |
 | 3 | openai/container | 23 | 46 | PASS | FAIL | FAIL | Most thorough (quality prompt) |
 | 4 | openai/container | ~5 | 10 | PASS | SKIP | FAIL | Clean slate, test file not created |
+| 5 | openai/container | 11 | 11 | N/A | N/A | FAIL | No workspace_path — tools wrote nowhere |
+| 6 | openai/container | 26 | 26 | FAIL | PASS(syntax) | FAIL | argparse bug, both files created |
 
 ### Infrastructure Fix Impact
 
-| Fix | Run 1-2 | Run 3 | Run 4 |
-|-----|---------|-------|-------|
-| NATS goroutine dispatch | No | No | **Yes** |
-| NATS purge before run | No | Yes | Yes |
-| Auto-onboarding disabled | No | Yes | Yes |
-| Policy timeout | **30s blocked** | **30s blocked** | **No timeout** |
-| Tool calls processed | 4 (then blocked) | 46 (with delays) | 10 (instant) |
+| Fix | Run 1-2 | Run 3 | Run 4 | Run 5 | Run 6 |
+|-----|---------|-------|-------|-------|-------|
+| NATS goroutine dispatch | No | No | **Yes** | **Yes** | **Yes** |
+| NATS purge before run | No | Yes | Yes | Yes | Yes |
+| Auto-onboarding disabled | No | Yes | Yes | Yes | Yes |
+| Workspace path set | Yes | Yes | Yes | **No** | **Yes** |
+| Policy timeout | **30s** | **30s** | None | None | None |
+| Tool calls processed | 4 | 46 | 10 | 11 | 26 (all <520ms) |
 
 Run 4 proves the goroutine fix works: zero NATS policy timeouts, instant tool call processing.
 The lower tool call count is a model quality issue, not infrastructure.
+
+## Run 5: No Workspace Path (2026-03-20)
+
+| Metric | Value |
+|--------|-------|
+| Agent steps | 11 |
+| Tool calls | 11 (4 LLM, 2 write_file, 2 bash, 1 edit_file, 1 list_directory, 1 LLM) |
+| Files created | 0 (workspace_path was empty — tools had no target directory) |
+| Git commits | 0 |
+| Duration | ~10 min |
+| Exit reason | Stall detected (repeated None after 2 escape attempts) |
+
+**Root Cause:** Project was created via `POST /projects` with `local_path` in JSON body, but `CreateRequest` struct has no `local_path` field — it was silently ignored. The `workspace_path` database column remained empty. Must use `POST /projects/{id}/adopt` after creation to set the workspace path.
+
+**Bug Found:** Project creation via API does not set `workspace_path`. The `AdoptProject` endpoint must be called separately. This is not documented and caused silent tool call failures (write_file wrote nowhere).
+
+## Run 6: Full Pipeline with Workspace (2026-03-20)
+
+| Metric | Value |
+|--------|-------|
+| Agent steps | 26 |
+| Tool calls | 26 (19 LLM, 3 edit_file, 2 write_file, 2 bash, 2 list_directory) |
+| Files created | 2 (csv2json.py 53 lines, test_csv2json.py 49 lines) |
+| Git commits | 0 (agent stalled before committing) |
+| Duration | ~25 min |
+| Exit reason | Stall detected (repeated edit_file after 2 escape attempts) |
+| NATS timeouts | 0 (all tool calls < 520ms) |
+
+### Validation (Run 6)
+
+| Check | Result |
+|-------|--------|
+| csv2json.py exists | PASS |
+| test_csv2json.py exists | PASS |
+| Syntax (py_compile) csv2json.py | PASS |
+| Syntax (py_compile) test_csv2json.py | PASS |
+| `--help` exits 0 | FAIL (duplicate --help/-h argument conflict) |
+| Converts valid CSV to JSON | FAIL (same argparse bug) |
+| Missing file returns error + exit 1 | FAIL (same argparse bug) |
+| pytest passes | FAIL (argparse crashes before any test runs) |
+| Git commit | FAIL (agent stalled before committing) |
+
+### Code Quality (Run 6)
+
+| Check | csv2json.py | test_csv2json.py |
+|-------|-------------|------------------|
+| Syntax (py_compile) | PASS | PASS |
+| Lint (ruff) | 1 finding (unused `os` import) | 3 findings (unused imports) |
+
+### Bug Details (Run 6)
+
+**argparse conflict (csv2json.py line 11):**
+```python
+# Agent wrote (line 11):
+parser.add_argument('--help', '-h', action='help', ...)
+# argparse already adds --help/-h by default — this causes:
+# ArgumentError: argument --help/-h: conflicting option strings
+```
+
+**Duplicate except block (csv2json.py lines 38-44):**
+```python
+except ValueError as e:   # line 38
+    print(f'Error: {e}', file=sys.stderr)
+    sys.exit(1)
+except ValueError as e:   # line 42 — unreachable duplicate
+    print(f'Error: {e}', file=sys.stderr)
+    sys.exit(1)
+```
+
+### Tool Call Timeline (Run 6)
+
+| # | Tool | Notes |
+|---|------|-------|
+| 1 | LLM | Initial reasoning |
+| 2 | write_file | Created csv2json.py (v1) |
+| 3 | write_file | Created test_csv2json.py |
+| 4 | bash | Ran pytest (failed — argparse conflict) |
+| 5 | LLM | Analyzed error |
+| 6 | LLM | Continued reasoning |
+| 7 | LLM | Continued reasoning |
+| 8 | bash | Re-ran tests (still failing) |
+| 9 | LLM | More analysis |
+| 10 | edit_file | Modified csv2json.py |
+| 11-26 | LLM/edit/list | Iterative fix attempts + stall |
+
+**Assessment:** The agent correctly created both files and attempted self-correction (3 edit_file calls, 2 bash runs). The local model introduced the argparse bug and couldn't fix it despite multiple attempts. All tool calls processed instantly (< 520ms each), confirming zero NATS infrastructure issues. The workspace_path fix (via AdoptProject) resolved the Run 5 file creation issue.

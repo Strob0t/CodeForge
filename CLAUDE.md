@@ -333,7 +333,12 @@ Testplan: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md` | Too
 
 **Key env vars:** `LITELLM_BASE_URL` (NOT `LITELLM_URL`), `CODEFORGE_ROUTING_ENABLED=false` (router picks unhealthy models), auth field: `access_token` (NOT `token`)
 
-**Project setup:** Autonomy 4 + `policy_preset: trusted-mount-autonomous`. TestRepo clone fails often -> use local workspace. Auto-onboarding disabled (ChatPanel.tsx). Model: `"openai/container"` (or any healthy).
+**Project setup:**
+- Create project: `POST /projects` with `config: {"autonomy_level": "4", "policy_preset": "trusted-mount-autonomous", "execution_mode": "mount"}`
+- **MUST adopt workspace separately:** `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` — CreateProject ignores `local_path` in body
+- TestRepo clone fails often — use local workspace creation instead
+- Auto-onboarding disabled (ChatPanel.tsx)
+- Model: `"openai/container"` (or any healthy model)
 
 **Local model timeouts:** 3-10x slower. S1: up to 60min, S4: up to 180min. DO NOT abort early. Monitor via API, not browser. "Stuck" = no new tool calls for 10min.
 

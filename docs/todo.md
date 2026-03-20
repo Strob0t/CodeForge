@@ -217,6 +217,77 @@
 - Results: Phase 3b external suites 4/5 PASS (LiveCodeBench partial due to HF server limitations), Phase 5 API 12/12 PASS, Phase 6 errors 2/5 PASS
 - Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
 
+#### Benchmark E2E Full Run (2026-03-19) — Findings & Recommendations (OPEN)
+
+> Report: `docs/testing/2026-03-19-benchmark-e2e-report.md`
+> Full API + Playwright-MCP UI test. 86/90 passed, 4 deferred (queue timing).
+
+##### REC-1: Parallel Benchmark Run Processing with Dependency Awareness (Critical)
+
+> **Problem:** Python worker processes runs sequentially (`consumer/__init__.py:271` blocks on `await handler(msg)`).
+> A single agent run (15-30 min) blocks ALL subsequent runs. During E2E test, Phase 4+6 runs waited >30 min.
+> **Root cause:** `_message_loop` fetches `batch=1`, awaits handler inline. Go side supports parallelism
+> (`MaxAckPending: 100`) but Python serializes everything. Tasks within a run are also sequential
+> (`runners/_base.py:run_tasks()` for-loop).
+
+- [ ] REC-1.1: Add `asyncio.Semaphore` to benchmark handler, spawn runs via `asyncio.create_task()` instead of inline `await`
+  - File: `workers/codeforge/consumer/_benchmark.py`
+  - Config: `BENCHMARK_MAX_PARALLEL` env var (default 3)
+  - Constraint: Agent `mount` mode runs sharing the same project workspace MUST NOT run in parallel (file corruption risk). Guard with per-project workspace lock or reject parallel mount runs to same project.
+  - Constraint: LLM rate limits are the real parallelism bottleneck — size semaphore based on provider capacity
+  - Note: Each run already has its own `RunResult` — no shared mutable state between runs, safe to parallelize
+- [ ] REC-1.2: Add structured error handling for concurrent task failures
+  - If a spawned task raises an exception, it must still publish `benchmark.run.result` with `status: "failed"` to NATS
+  - Use `asyncio.create_task()` with an `add_done_callback` that catches and publishes errors
+- [ ] REC-1.3: Update `_message_loop` to support concurrent handlers
+  - File: `workers/codeforge/consumer/__init__.py:271`
+  - Current: `await handler(msg)` — blocks loop
+  - Change: `asyncio.create_task(handler(msg))` — only for benchmark subject, other subjects (conversation, toolcall) remain sequential for ordering guarantees
+- [ ] REC-1.4: Add integration test verifying parallel execution
+  - Create 3 simple runs with different datasets simultaneously
+  - Assert all 3 complete within ~1x single-run duration (not 3x)
+  - Assert results are correct and don't interfere
+
+##### REC-2: Trajectory Endpoint Returns 500 for Running Runs (High)
+
+> **Problem:** `GET /runs/{id}/trajectory` returns HTTP 500 when run has no events yet.
+> Frontend LiveFeed logs errors + skips hydration for all visible running runs.
+> **Location:** `handlers_roadmap.go:444-455`
+
+- [ ] REC-2.1: Return empty result instead of 500 when `LoadTrajectory()` or `TrajectoryStats()` errors
+  - File: `internal/adapter/http/handlers_roadmap.go:444-455`
+  - Fix: On error, set `page = &eventstore.TrajectoryPage{Events: []event.Event{}}` and `stats = &eventstore.TrajectoryStats{}`
+  - Distinguish "run not found" (404) from "no events yet" (200 empty) if needed by checking run existence first
+
+##### REC-3: Training Export Returns Empty Body Instead of Empty Array (Medium)
+
+> **Problem:** JSONL export writes nothing when no pairs exist (for-loop iterates zero times).
+> Client gets headers but zero-byte body. JSON format correctly returns `[]`.
+> **Location:** `handlers_benchmark.go:336-339`
+
+- [ ] REC-3.1: Add empty-check before JSONL loop, fall back to `[]` JSON response when no pairs exist
+  - File: `internal/adapter/http/handlers_benchmark.go:336-339`
+
+##### REC-4: Suite Creation Should Auto-Derive Type from Provider (Low)
+
+> **Problem:** `POST /suites` requires explicit `type` field. Provider already implies type.
+> **Location:** `benchmark.go:86` — `r.Type.IsValid()` rejects empty type
+
+- [ ] REC-4.1: Add provider-to-type mapping, auto-derive in `RegisterSuite()` before `Validate()`
+  - File: `internal/service/benchmark.go` (service layer), `internal/domain/benchmark/benchmark.go` (mapping)
+  - Frontend: auto-populate type field in `SuiteManagement.tsx` on provider selection (nice-to-have)
+
+##### REC-5: Configurable Watchdog Timeout per Suite/Type (Low)
+
+> **Problem:** Single global 2h watchdog. Simple runs stuck 2h before cleanup, agent runs on slow models killed prematurely.
+> **Location:** `cmd/codeforge/main.go` — watchdog goroutine, `internal/service/benchmark.go`
+
+- [ ] REC-5.1: Use benchmark type as heuristic timeout (no DB change needed)
+  - `simple` → 30 min, `tool_use` → 1h, `agent` → 4h
+  - Or: add optional `timeout` field to `Suite` domain model + DB migration
+
+---
+
 #### Benchmark E2E — Remaining Bugs (OPEN)
 
 > Discovered during E2E validation Round 2 (Phase 6 error scenarios).
