@@ -32,6 +32,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Handlers holds the HTTP handler dependencies.
@@ -260,10 +261,13 @@ func (h *Handlers) GetTask(w http.ResponseWriter, r *http.Request) {
 // autoIndexProject triggers background indexing for all context sources.
 // Called after clone, adopt, or setup to ensure agents get full context.
 // Each index build is independent — failures are logged but don't block.
-func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
+// The tenantID is extracted from the caller's context before spawning goroutines,
+// because context.Background() would lose tenant isolation.
+func (h *Handlers) autoIndexProject(tenantID, projectID, workspacePath string) {
 	if h.RepoMap != nil {
 		go func() {
-			if err := h.RepoMap.RequestGeneration(context.Background(), projectID, nil); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := h.RepoMap.RequestGeneration(ctx, projectID, nil); err != nil {
 				slog.Error("auto repomap generation failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -271,7 +275,8 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 
 	if h.Retrieval != nil {
 		go func() {
-			if err := h.Retrieval.RequestIndex(context.Background(), projectID, workspacePath, ""); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := h.Retrieval.RequestIndex(ctx, projectID, workspacePath, ""); err != nil {
 				slog.Error("auto retrieval index failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -279,7 +284,8 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 
 	if h.Graph != nil {
 		go func() {
-			if err := h.Graph.RequestBuild(context.Background(), projectID, workspacePath); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := h.Graph.RequestBuild(ctx, projectID, workspacePath); err != nil {
 				slog.Error("auto graph build failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -287,7 +293,8 @@ func (h *Handlers) autoIndexProject(projectID, workspacePath string) {
 
 	if h.ReviewTrigger != nil {
 		go func() {
-			if _, err := h.ReviewTrigger.TriggerReview(context.Background(), projectID, "", "auto-index"); err != nil {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if _, err := h.ReviewTrigger.TriggerReview(ctx, projectID, "", "auto-index"); err != nil {
 				slog.Error("auto boundary analysis trigger failed", "project_id", projectID, "error", err)
 			}
 		}()
@@ -312,7 +319,7 @@ func (h *Handlers) CloneProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.autoIndexProject(id, p.WorkspacePath)
+	h.autoIndexProject(tenantID, id, p.WorkspacePath)
 
 	writeJSON(w, http.StatusOK, p)
 }
@@ -347,7 +354,7 @@ func (h *Handlers) AdoptProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.autoIndexProject(id, p.WorkspacePath)
+	h.autoIndexProject(middleware.TenantIDFromContext(r.Context()), id, p.WorkspacePath)
 
 	writeJSON(w, http.StatusOK, p)
 }
@@ -386,7 +393,7 @@ func (h *Handlers) SetupProject(w http.ResponseWriter, r *http.Request) {
 
 	// Trigger background indexing if the project now has a workspace.
 	if p, pErr := h.Projects.Get(r.Context(), id); pErr == nil && p.WorkspacePath != "" {
-		h.autoIndexProject(id, p.WorkspacePath)
+		h.autoIndexProject(tenantID, id, p.WorkspacePath)
 	}
 
 	writeJSON(w, http.StatusOK, result)
