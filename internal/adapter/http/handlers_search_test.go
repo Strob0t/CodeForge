@@ -107,7 +107,7 @@ func TestGlobalSearch_DefaultLimit(t *testing.T) {
 func TestGlobalSearch_MaxLimit(t *testing.T) {
 	// Verify a request with limit > 100 does not error (capped at 100 internally).
 	r := newTestRouter()
-	body, _ := json.Marshal(map[string]interface{}{"query": "test", "limit": 500})
+	body, _ := json.Marshal(map[string]any{"query": "test", "limit": 500})
 	req := httptest.NewRequest("POST", "/api/v1/search", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func TestGlobalSearch_MaxLimit(t *testing.T) {
 func TestGlobalSearch_NegativeLimit(t *testing.T) {
 	// Verify a request with negative limit defaults gracefully.
 	r := newTestRouter()
-	body, _ := json.Marshal(map[string]interface{}{"query": "test", "limit": -5})
+	body, _ := json.Marshal(map[string]any{"query": "test", "limit": -5})
 	req := httptest.NewRequest("POST", "/api/v1/search", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

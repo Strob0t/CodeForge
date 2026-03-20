@@ -24,6 +24,8 @@ import (
 )
 
 // BenchmarkService manages benchmark runs and results.
+// TODO: decompose into smaller services (RunManager, ResultAggregator, DatasetResolver)
+// to reduce file size (currently 1000+ LOC) and improve testability.
 type BenchmarkService struct {
 	store       database.Store
 	datasetsDir string

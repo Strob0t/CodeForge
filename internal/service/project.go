@@ -742,7 +742,7 @@ func (s *ProjectService) fetchGiteaRepoInfo(ctx context.Context, parsed *project
 }
 
 // fetchJSON performs a GET request and decodes the JSON response body.
-func fetchJSON(ctx context.Context, url string, dest interface{}) error {
+func fetchJSON(ctx context.Context, url string, dest any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

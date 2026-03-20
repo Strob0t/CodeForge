@@ -36,6 +36,8 @@ import (
 )
 
 // Handlers holds the HTTP handler dependencies.
+// TODO: decompose into domain-specific handler groups (e.g., ProjectHandlers,
+// ConversationHandlers, BenchmarkHandlers) to reduce field count and improve cohesion.
 type Handlers struct {
 	Projects         *service.ProjectService
 	Tasks            *service.TaskService

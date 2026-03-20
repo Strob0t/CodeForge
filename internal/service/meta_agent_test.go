@@ -34,8 +34,8 @@ func newMockLLMServer(t *testing.T, responseBody string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		resp := map[string]interface{}{
-			"choices": []map[string]interface{}{
+		resp := map[string]any{
+			"choices": []map[string]any{
 				{"message": map[string]string{"content": responseBody}},
 			},
 			"usage": map[string]int{"prompt_tokens": 50, "completion_tokens": 100},

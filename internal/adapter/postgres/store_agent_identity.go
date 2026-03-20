@@ -61,7 +61,7 @@ func (s *Store) SendAgentMessage(ctx context.Context, msg *agent.InboxMessage) e
 // ListAgentInbox returns inbox messages for an agent, optionally filtered to unread only.
 func (s *Store) ListAgentInbox(ctx context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
 	var q string
-	var args []interface{}
+	var args []any
 
 	tid := tenantFromCtx(ctx)
 	if unreadOnly {
@@ -70,14 +70,14 @@ func (s *Store) ListAgentInbox(ctx context.Context, agentID string, unreadOnly b
 			FROM agent_inbox
 			WHERE agent_id = $1 AND read = false AND tenant_id = $2
 			ORDER BY priority DESC, created_at ASC`
-		args = []interface{}{agentID, tid}
+		args = []any{agentID, tid}
 	} else {
 		q = `
 			SELECT id, agent_id, from_agent, content, priority, read, created_at
 			FROM agent_inbox
 			WHERE agent_id = $1 AND tenant_id = $2
 			ORDER BY priority DESC, created_at ASC`
-		args = []interface{}{agentID, tid}
+		args = []any{agentID, tid}
 	}
 
 	rows, err := s.pool.Query(ctx, q, args...)

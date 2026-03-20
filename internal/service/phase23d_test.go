@@ -17,10 +17,10 @@ type handoffMockBroadcaster struct {
 
 type broadcastCapture struct {
 	eventType string
-	payload   interface{}
+	payload   any
 }
 
-func (b *handoffMockBroadcaster) BroadcastEvent(_ context.Context, eventType string, payload interface{}) {
+func (b *handoffMockBroadcaster) BroadcastEvent(_ context.Context, eventType string, payload any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.events = append(b.events, broadcastCapture{eventType: eventType, payload: payload})

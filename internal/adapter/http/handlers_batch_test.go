@@ -269,10 +269,10 @@ func TestBatchStatus_ValidRequest(t *testing.T) {
 	}
 
 	var results []struct {
-		ID     string      `json:"id"`
-		OK     bool        `json:"ok"`
-		Error  string      `json:"error,omitempty"`
-		Status interface{} `json:"status,omitempty"`
+		ID     string `json:"id"`
+		OK     bool   `json:"ok"`
+		Error  string `json:"error,omitempty"`
+		Status any    `json:"status,omitempty"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&results); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
