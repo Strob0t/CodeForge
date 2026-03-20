@@ -14,6 +14,13 @@ import (
 
 // MountRoutes registers all API routes on the given chi router.
 //
+// TODO: FIX-061: Several endpoints use verbs in URLs (e.g., /detect-stack,
+// /parse-repo-url, /discover, /decompose). Migrate to noun-based resources
+// in v2 (breaking change — do not change v1 URLs now).
+//
+// TODO: FIX-063: Not all list endpoints return a consistent pagination envelope
+// (items + total + limit + offset). Audit remaining endpoints for v2.
+//
 // When /api/v2 is introduced, apply the Deprecation middleware to the v1 group:
 //
 //	r.Route("/api/v1", func(r chi.Router) {

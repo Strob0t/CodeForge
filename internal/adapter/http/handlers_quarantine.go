@@ -2,7 +2,6 @@ package http
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -23,8 +22,7 @@ func (h *Handlers) listQuarantinedMessages(w http.ResponseWriter, r *http.Reques
 	}
 
 	status := quarantine.Status(r.URL.Query().Get("status"))
-	limit := queryInt(r, "limit", 50)
-	offset := queryInt(r, "offset", 0)
+	limit, offset := parsePagination(r, 50)
 
 	msgs, err := h.Quarantine.List(r.Context(), projectID, status, limit, offset)
 	if err != nil {
@@ -131,17 +129,4 @@ func (h *Handlers) quarantineStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, stats)
-}
-
-// queryInt reads an integer query parameter with a default value.
-func queryInt(r *http.Request, key string, defaultVal int) int {
-	s := r.URL.Query().Get(key)
-	if s == "" {
-		return defaultVal
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return defaultVal
-	}
-	return v
 }

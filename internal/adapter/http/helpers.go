@@ -105,6 +105,21 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, errorResponse{Error: message})
 }
 
+// validationErrorResponse represents a 422 Unprocessable Entity response with field-level detail.
+type validationErrorResponse struct { //nolint:unused // available for handlers to adopt incrementally
+	Error string `json:"error"`
+	Field string `json:"field,omitempty"`
+}
+
+// writeValidationError returns a 422 Unprocessable Entity with field-level error detail.
+// Use for semantic validation failures (e.g., invalid field values that parsed correctly as JSON).
+func writeValidationError(w http.ResponseWriter, field, message string) { //nolint:unused // available for handlers to adopt incrementally
+	writeJSON(w, http.StatusUnprocessableEntity, validationErrorResponse{
+		Error: message,
+		Field: field,
+	})
+}
+
 func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
