@@ -54,6 +54,7 @@ services:
   postgres:
     image: postgres:18-alpine
     container_name: codeforge-postgres
+    restart: unless-stopped
     logging: *default-logging
     ports:
       - "5432:5432"
@@ -84,10 +85,11 @@ services:
   nats:
     image: nats:2-alpine
     container_name: codeforge-nats
+    restart: unless-stopped
     logging: *default-logging
     ports:
       - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:8222:8222"
     command: [ "--jetstream", "--store_dir", "/data", "-m", "8222" ]
     volumes:
       - nats_data:/data
@@ -102,6 +104,7 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     container_name: codeforge-litellm
+    restart: unless-stopped
     logging: *default-logging
     ports:
       - "4000:4000"
