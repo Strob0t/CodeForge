@@ -124,6 +124,35 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 	}
 }
 
+// parsePagination extracts limit and offset query parameters with safe defaults.
+// limit is capped at maxLimit (100). offset defaults to 0.
+func parsePagination(r *http.Request, maxLimit int) (limit, offset int) {
+	limit = queryParamInt(r, "limit", maxLimit)
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	offsetStr := r.URL.Query().Get("offset")
+	if offsetStr != "" {
+		n, err := strconv.Atoi(offsetStr)
+		if err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
+// applyPagination slices a result set by offset and limit for in-memory pagination.
+func applyPagination[T any](items []T, limit, offset int) []T {
+	if offset >= len(items) {
+		return []T{}
+	}
+	items = items[offset:]
+	if limit < len(items) {
+		items = items[:limit]
+	}
+	return items
+}
+
 // writeJSONList writes a JSON array response, converting nil slices to empty arrays.
 func writeJSONList[T any](w http.ResponseWriter, status int, items []T) {
 	if items == nil {

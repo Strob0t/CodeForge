@@ -25,6 +25,7 @@ func (h *Handlers) CreateConversation(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListConversations handles GET /api/v1/projects/{id}/conversations
+// Supports ?limit=N&offset=N query params (default limit=100, offset=0).
 func (h *Handlers) ListConversations(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	conversations, err := h.Conversations.ListByProject(r.Context(), projectID)
@@ -32,6 +33,8 @@ func (h *Handlers) ListConversations(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "project not found")
 		return
 	}
+	limit, offset := parsePagination(r, 100)
+	conversations = applyPagination(conversations, limit, offset)
 	writeJSONList(w, http.StatusOK, conversations)
 }
 

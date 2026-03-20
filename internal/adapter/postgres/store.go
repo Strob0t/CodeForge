@@ -32,10 +32,15 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 // --- Projects ---
 
+// DefaultListLimit is the maximum number of rows returned by unbounded list queries.
+// Callers can request fewer rows but never more than this hard cap.
+const DefaultListLimit = 100
+
 func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at
-		 FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantFromCtx(ctx))
+		 FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC
+		 LIMIT $2`, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -117,7 +122,8 @@ func (s *Store) ListAgents(ctx context.Context, projectID string) ([]agent.Agent
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, project_id, name, backend, mode_id, status, config, resource_limits, version, created_at, updated_at,
 		        total_runs, total_cost, success_rate, state, capabilities, last_active_at
-		 FROM agents WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, projectID, tenantFromCtx(ctx))
+		 FROM agents WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC
+		 LIMIT $3`, projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}

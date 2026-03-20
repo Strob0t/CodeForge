@@ -43,8 +43,9 @@ func (s *Store) GetConversation(ctx context.Context, id string) (*conversation.C
 func (s *Store) ListConversationsByProject(ctx context.Context, projectID string) ([]conversation.Conversation, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, tenant_id, project_id, title, mode, model, created_at, updated_at
-		 FROM conversations WHERE project_id = $1 AND tenant_id = $2 ORDER BY updated_at DESC`,
-		projectID, tenantFromCtx(ctx))
+		 FROM conversations WHERE project_id = $1 AND tenant_id = $2 ORDER BY updated_at DESC
+		 LIMIT $3`,
+		projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}

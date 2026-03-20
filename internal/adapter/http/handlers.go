@@ -106,6 +106,7 @@ type Handlers struct {
 }
 
 // ListProjects handles GET /api/v1/projects
+// Supports ?limit=N&offset=N query params (default limit=100, offset=0).
 func (h *Handlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.Projects.List(r.Context())
 	if err != nil {
@@ -115,6 +116,8 @@ func (h *Handlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	if projects == nil {
 		projects = []project.Project{}
 	}
+	limit, offset := parsePagination(r, 100)
+	projects = applyPagination(projects, limit, offset)
 	writeJSON(w, http.StatusOK, projects)
 }
 
@@ -563,6 +566,7 @@ func (h *Handlers) ListRemoteBranches(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListAgents handles GET /api/v1/projects/{id}/agents
+// Supports ?limit=N&offset=N query params (default limit=100, offset=0).
 func (h *Handlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	agents, err := h.Agents.List(r.Context(), projectID)
@@ -573,6 +577,8 @@ func (h *Handlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	if agents == nil {
 		agents = []agent.Agent{}
 	}
+	limit, offset := parsePagination(r, 100)
+	agents = applyPagination(agents, limit, offset)
 	writeJSON(w, http.StatusOK, agents)
 }
 
