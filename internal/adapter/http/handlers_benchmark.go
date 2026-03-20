@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
@@ -99,7 +101,7 @@ func (h *Handlers) DeleteBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 // CancelBenchmarkRun handles PATCH /api/v1/benchmarks/runs/{id}
 // Sets the run status to "failed" (cancelled).
 func (h *Handlers) CancelBenchmarkRun(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "run id is required")
 		return
@@ -159,7 +161,7 @@ func (h *Handlers) ListBenchmarkDatasets(w http.ResponseWriter, r *http.Request)
 // ExportBenchmarkResults handles GET /api/v1/benchmarks/runs/{id}/export/results
 // Exports results as JSON or CSV.
 func (h *Handlers) ExportBenchmarkResults(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "run id is required")
 		return
@@ -195,7 +197,7 @@ func (h *Handlers) ExportBenchmarkResults(w http.ResponseWriter, r *http.Request
 
 // UpdateBenchmarkSuite handles PUT /api/v1/benchmarks/suites/{id}
 func (h *Handlers) UpdateBenchmarkSuite(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "suite id is required")
 		return
@@ -257,7 +259,7 @@ func (h *Handlers) MultiCompareBenchmarkRuns(w http.ResponseWriter, r *http.Requ
 
 // BenchmarkCostAnalysis handles GET /api/v1/benchmarks/runs/{id}/cost-analysis
 func (h *Handlers) BenchmarkCostAnalysis(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "run id is required")
 		return
@@ -285,7 +287,7 @@ func (h *Handlers) BenchmarkLeaderboard(w http.ResponseWriter, r *http.Request) 
 
 // ExportRLVRData handles GET /api/v1/benchmarks/runs/{id}/export/rlvr
 func (h *Handlers) ExportRLVRData(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "run id is required")
 		return
@@ -313,7 +315,7 @@ func (h *Handlers) ExportRLVRData(w http.ResponseWriter, r *http.Request) {
 
 // ExportTrainingData handles GET /api/v1/benchmarks/runs/{id}/export/training
 func (h *Handlers) ExportTrainingData(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "run id is required")
 		return
