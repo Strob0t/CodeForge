@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -127,6 +130,33 @@ func TestGlobalSearch_NegativeLimit(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+}
+
+func TestSearchHandlers_NoInternalErrorLeakage(t *testing.T) {
+	// Guard test: verify the search handler source does NOT concatenate
+	// err.Error() into HTTP responses. The error must be logged server-side
+	// and a generic message returned to the client.
+	src := readHandlerSource(t, "handlers_search.go")
+
+	// The old vulnerable pattern was: "search failed: "+err.Error()
+	if strings.Contains(src, `err.Error()`) {
+		t.Fatal("handlers_search.go must NOT use err.Error() in HTTP responses; log the error and return a generic message")
+	}
+}
+
+// readHandlerSource reads a Go source file from the adapter/http package.
+func readHandlerSource(t *testing.T, name string) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not determine test file location")
+	}
+	dir := filepath.Dir(thisFile)
+	data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // test reads from known package dir
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(data)
 }
 
 func TestGlobalSearch_ResponseStructure(t *testing.T) {
