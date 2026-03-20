@@ -750,6 +750,17 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 		slog.Warn("benchmark run not found, skipping stale result", "run_id", payload.RunID)
 		return nil
 	}
+
+	// Verify tenant_id from NATS payload matches the run's actual tenant.
+	if payload.TenantID != "" && existing.TenantID != "" && payload.TenantID != existing.TenantID {
+		slog.Warn("NATS payload tenant_id mismatch, using run's tenant_id",
+			"run_id", payload.RunID,
+			"payload_tenant", payload.TenantID,
+			"run_tenant", existing.TenantID,
+		)
+		ctx = tenantctx.WithTenant(ctx, existing.TenantID)
+	}
+
 	if existing.Status == benchmark.StatusCompleted || existing.Status == benchmark.StatusFailed {
 		slog.Info("benchmark run result already processed, skipping", "run_id", payload.RunID)
 		return nil
