@@ -61,9 +61,9 @@ func TestValidateInvalidSchema(t *testing.T) {
 }
 
 func TestValidateEmptyJSON(t *testing.T) {
-	// Empty object is valid JSON and valid for all schemas (all fields are zero-value).
+	// Empty JSON objects are rejected — a valid payload must carry at least one field.
 	data := []byte(`{}`)
-	if err := Validate(SubjectTaskCancel, data); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := Validate(SubjectTaskCancel, data); err == nil {
+		t.Fatal("expected error for empty JSON object, got nil")
 	}
 }
