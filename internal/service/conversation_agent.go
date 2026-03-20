@@ -295,8 +295,11 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Convert history to protocol messages.
 	protoMessages := s.historyToPayload(history)
 
-	// Resolve model.
-	model := s.resolveModel()
+	// Resolve model: explicit request override takes priority over config cascade.
+	model := req.Model
+	if model == "" {
+		model = s.resolveModel()
+	}
 	if model == "" {
 		return fmt.Errorf("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
 	}

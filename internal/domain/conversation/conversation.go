@@ -51,6 +51,7 @@ type SendMessageRequest struct {
 	Content string         `json:"content"`
 	Agentic *bool          `json:"agentic,omitempty"` // Override agentic mode (nil = use project default).
 	Mode    string         `json:"mode,omitempty"`
+	Model   string         `json:"model,omitempty"` // Explicit model override (bypasses resolveModel cascade).
 	Images  []MessageImage `json:"images,omitempty"`
 	UserID  string         `json:"-"` // Set by handler, not from API body.
 }

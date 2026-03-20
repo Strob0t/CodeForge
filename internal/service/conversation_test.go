@@ -938,3 +938,67 @@ func TestSendMessageAgenticWithMode_BoundaryAnalyzer_PlanActEnabled(t *testing.T
 		t.Error("expected PlanActEnabled=true for boundary_analyzer (autonomy=4)")
 	}
 }
+
+func TestSendMessageAgentic_ModelOverride(t *testing.T) {
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "test", WorkspacePath: "/tmp/test"},
+	}
+
+	q := &captureQueue{}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	// Default model is "gpt-4o" via constructor.
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+
+	ctx := context.Background()
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Model Override Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	t.Run("explicit model overrides default", func(t *testing.T) {
+		err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
+			Content: "Hello with override",
+			Model:   "test-override",
+		})
+		if err != nil {
+			t.Fatalf("SendMessageAgentic: %v", err)
+		}
+
+		_, data := q.snapshot()
+		if len(data) == 0 {
+			t.Fatal("expected NATS payload")
+		}
+
+		var payload messagequeue.ConversationRunStartPayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		if payload.Model != "test-override" {
+			t.Errorf("expected model %q, got %q", "test-override", payload.Model)
+		}
+	})
+
+	t.Run("empty model falls back to resolveModel", func(t *testing.T) {
+		err = svc.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
+			Content: "Hello without override",
+		})
+		if err != nil {
+			t.Fatalf("SendMessageAgentic: %v", err)
+		}
+
+		_, data := q.snapshot()
+		var payload messagequeue.ConversationRunStartPayload
+		if err := json.Unmarshal(data, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		if payload.Model != "gpt-4o" {
+			t.Errorf("expected fallback model %q, got %q", "gpt-4o", payload.Model)
+		}
+	})
+}
