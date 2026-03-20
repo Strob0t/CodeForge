@@ -14,9 +14,9 @@ import (
 func (s *Store) CreateAPIKey(ctx context.Context, key *user.APIKey) error {
 	key.CreatedAt = time.Now().UTC()
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO api_keys (id, user_id, name, prefix, key_hash, scopes, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		key.ID, key.UserID, key.Name, key.Prefix, key.KeyHash, key.Scopes, nullTime(key.ExpiresAt), key.CreatedAt,
+		INSERT INTO api_keys (id, user_id, name, prefix, key_hash, scopes, expires_at, created_at, tenant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		key.ID, key.UserID, key.Name, key.Prefix, key.KeyHash, key.Scopes, nullTime(key.ExpiresAt), key.CreatedAt, tenantFromCtx(ctx),
 	)
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
@@ -24,6 +24,9 @@ func (s *Store) CreateAPIKey(ctx context.Context, key *user.APIKey) error {
 	return nil
 }
 
+// GetAPIKeyByHash retrieves an API key by its hash. This is intentionally
+// cross-tenant because it is used during authentication before the caller's
+// tenant context is established.
 func (s *Store) GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIKey, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, user_id, name, prefix, key_hash, scopes, expires_at, created_at
@@ -44,7 +47,7 @@ func (s *Store) GetAPIKeyByHash(ctx context.Context, keyHash string) (*user.APIK
 func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.APIKey, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, user_id, name, prefix, key_hash, scopes, expires_at, created_at
-		FROM api_keys WHERE user_id = $1 ORDER BY created_at`, userID)
+		FROM api_keys WHERE user_id = $1 AND tenant_id = $2 ORDER BY created_at`, userID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)
 	}
@@ -62,6 +65,6 @@ func (s *Store) ListAPIKeysByUser(ctx context.Context, userID string) ([]user.AP
 }
 
 func (s *Store) DeleteAPIKey(ctx context.Context, id, userID string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM api_keys WHERE id = $1 AND user_id = $2`, id, userID)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM api_keys WHERE id = $1 AND user_id = $2 AND tenant_id = $3`, id, userID, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete api key %s", id)
 }
