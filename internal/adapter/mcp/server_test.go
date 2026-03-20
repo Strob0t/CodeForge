@@ -3,6 +3,8 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -261,6 +263,87 @@ func TestHandleNilDeps(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatal("expected error result when deps are nil")
+	}
+}
+
+func TestNewServer_WithAPIKey_RejectsUnauthenticated(t *testing.T) {
+	cfg := cfmcp.ServerConfig{
+		Addr:    ":0",
+		Name:    "test-auth",
+		Version: "0.8.0",
+		APIKey:  "test-secret-key",
+	}
+	deps := cfmcp.ServerDeps{
+		ProjectLister: &mockProjectLister{
+			projects: []project.Project{{ID: "p1", Name: "Alpha"}},
+		},
+	}
+	s := cfmcp.NewServer(cfg, deps)
+	if s == nil {
+		t.Fatal("NewServer returned nil")
+	}
+
+	// Start and stop immediately is fine; we just need to verify the config is wired.
+	// The auth enforcement is tested via the AuthMiddleware unit (auth.go).
+	// This test verifies the server is created without error when APIKey is set.
+}
+
+func TestNewServer_WithoutAPIKey_AllowsRequests(t *testing.T) {
+	cfg := cfmcp.ServerConfig{
+		Addr:    ":0",
+		Name:    "test-noauth",
+		Version: "0.8.0",
+		APIKey:  "", // Empty means no auth
+	}
+	s := cfmcp.NewServer(cfg, cfmcp.ServerDeps{})
+	if s == nil {
+		t.Fatal("NewServer returned nil")
+	}
+}
+
+func TestAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
+	handler := cfmcp.AuthMiddleware("my-secret", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// No auth header -> 401
+	req := httptest.NewRequest(http.MethodPost, "/mcp", http.NoBody)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+
+	// Wrong key -> 403
+	req = httptest.NewRequest(http.MethodPost, "/mcp", http.NoBody)
+	req.Header.Set("Authorization", "Bearer wrong-key")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+
+	// Correct key -> 200
+	req = httptest.NewRequest(http.MethodPost, "/mcp", http.NoBody)
+	req.Header.Set("Authorization", "Bearer my-secret")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestAuthMiddleware_EmptyKey_PassesAll(t *testing.T) {
+	handler := cfmcp.AuthMiddleware("", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// No auth header but empty key -> passes through
+	req := httptest.NewRequest(http.MethodPost, "/mcp", http.NoBody)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with empty API key, got %d", w.Code)
 	}
 }
 

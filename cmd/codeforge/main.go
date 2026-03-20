@@ -882,6 +882,7 @@ func run() error {
 			Addr:    fmt.Sprintf(":%d", cfg.MCP.ServerPort),
 			Name:    "codeforge",
 			Version: cfversion.Version,
+			APIKey:  cfg.MCP.APIKey,
 		}, cfmcp.ServerDeps{
 			ProjectLister: store,
 			RunReader:     store,

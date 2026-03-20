@@ -6,6 +6,8 @@ package mcp
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -20,6 +22,7 @@ type ServerConfig struct {
 	Addr    string
 	Name    string
 	Version string
+	APIKey  string // If non-empty, requests must provide this key via Authorization header.
 }
 
 // ServerDeps holds narrow interfaces for MCP server tool handlers.
@@ -67,10 +70,26 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 	s.registerTools()
 	s.registerResources()
 
-	s.httpSrv = mcpserver.NewStreamableHTTPServer(mcpSrv,
+	// Build StreamableHTTPServer options.
+	opts := []mcpserver.StreamableHTTPOption{
 		mcpserver.WithEndpointPath("/mcp"),
 		mcpserver.WithStateLess(true),
-	)
+	}
+
+	// Wire AuthMiddleware if an API key is configured.
+	if cfg.APIKey != "" {
+		mux := http.NewServeMux()
+		// The StreamableHTTPServer implements http.Handler; wrap it with auth.
+		tmpHTTP := mcpserver.NewStreamableHTTPServer(mcpSrv,
+			mcpserver.WithEndpointPath("/mcp"),
+			mcpserver.WithStateLess(true),
+		)
+		mux.Handle("/mcp", AuthMiddleware(cfg.APIKey, tmpHTTP))
+		httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second} //nolint:gosec // timeout set
+		opts = append(opts, mcpserver.WithStreamableHTTPServer(httpSrv))
+	}
+
+	s.httpSrv = mcpserver.NewStreamableHTTPServer(mcpSrv, opts...)
 
 	return s
 }

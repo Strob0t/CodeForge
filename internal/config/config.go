@@ -379,6 +379,7 @@ type MCP struct {
 	Enabled    bool   `yaml:"enabled"`     // Enable MCP integration (default: false)
 	ServersDir string `yaml:"servers_dir"` // Directory with MCP server YAML definitions
 	ServerPort int    `yaml:"server_port"` // Port for the built-in MCP server (default: 3001)
+	APIKey     string `yaml:"api_key"`     // API key for MCP server authentication (empty = unauthenticated)
 }
 
 // LSP holds Language Server Protocol integration configuration.
