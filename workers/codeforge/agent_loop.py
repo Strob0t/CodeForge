@@ -133,6 +133,7 @@ class LoopConfig:
     plan_act_enabled: bool = False
     rollout_id: int = -1  # -1 = not a rollout
     routing_metadata: object | None = None  # RoutingMetadata from initial route
+    routing_config: object | None = None  # RoutingConfig instance (active config for reward computation)
 
 
 @dataclass
@@ -291,6 +292,7 @@ class AgentLoopExecutor:
                 tokens_out=0,
                 routing_layer=cfg.routing_layer,
                 run_id=self._runtime.run_id,
+                routing_config=cfg.routing_config,
             )
         return await self._try_model_fallback(cfg, state, exc)
 
@@ -666,6 +668,7 @@ class AgentLoopExecutor:
                 tokens_out=response.tokens_out,
                 routing_layer=cfg.routing_layer,
                 run_id=self._runtime.run_id,
+                routing_config=cfg.routing_config,
             )
 
         if not response.tool_calls:
@@ -1166,6 +1169,7 @@ async def _record_routing_outcome(
     tokens_out: int,
     routing_layer: str,
     run_id: str,
+    routing_config: object | None = None,
 ) -> None:
     """Post a routing outcome to Go Core for MAB learning. Fire-and-forget."""
     import os
@@ -1176,7 +1180,8 @@ async def _record_routing_outcome(
     from codeforge.routing.reward import compute_reward
 
     quality = 1.0 if success else 0.0
-    reward = compute_reward(success, quality, cost_usd, latency_ms, RoutingConfig())
+    config = routing_config if routing_config is not None else RoutingConfig()
+    reward = compute_reward(success, quality, cost_usd, latency_ms, config)
     core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
     internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
     headers: dict[str, str] = {}
