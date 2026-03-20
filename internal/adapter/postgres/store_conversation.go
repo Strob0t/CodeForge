@@ -96,9 +96,12 @@ func (s *Store) CreateMessage(ctx context.Context, m *conversation.Message) (*co
 
 func (s *Store) ListMessages(ctx context.Context, conversationID string) ([]conversation.Message, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images, created_at
-		 FROM conversation_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
-		conversationID)
+		`SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls, m.tool_call_id, m.tool_name, m.tokens_in, m.tokens_out, m.model, m.images, m.created_at
+		 FROM conversation_messages m
+		 JOIN conversations c ON c.id = m.conversation_id
+		 WHERE m.conversation_id = $1 AND c.tenant_id = $2
+		 ORDER BY m.created_at ASC`,
+		conversationID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
