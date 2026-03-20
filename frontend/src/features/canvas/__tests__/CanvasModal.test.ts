@@ -1,3 +1,12 @@
+// TODO (FIX-074): Frontend unit test coverage is ~6.2%. Priority areas to add tests:
+//   - api/websocket.ts (parseWSMessage, createCodeForgeWS)
+//   - api/client.ts (request helper, error handling)
+//   - features/project/ChatPanel.tsx (message flow, AG-UI event handling)
+//   - features/notifications/notificationStore.ts (add/mark/archive/clear)
+//   - features/chat/ChatInput.tsx (autocomplete, slash commands)
+//   - ui/ components (Badge, Button, CostDisplay, etc.)
+//   See audit report for full list.
+
 import { describe, expect, it } from "vitest";
 
 import { type CanvasStore, createCanvasStore } from "../canvasState";

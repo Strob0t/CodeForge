@@ -102,6 +102,7 @@ type Handlers struct {
 	Channels         *service.ChannelService
 	Subscription     *service.SubscriptionService
 	Limits           *config.Limits
+	AgentConfig      *config.Agent
 	Boundaries       *service.BoundaryService
 	ReviewTrigger    *service.ReviewTriggerService
 	PromptEvolution  *service.PromptEvolutionService

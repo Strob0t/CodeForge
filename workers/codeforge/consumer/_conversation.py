@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -135,7 +136,10 @@ class ConversationHandlerMixin:
 
             scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
             router = await self._get_hybrid_router()
-            routing = resolve_model_with_routing(
+            # Wrap in to_thread: routing may trigger sync HTTP calls
+            # (_load_stats, _llm_call) that would block the event loop.
+            routing = await asyncio.to_thread(
+                resolve_model_with_routing,
                 prompt=user_prompt,
                 scenario=scenario,
                 router=router,
@@ -886,7 +890,10 @@ class ConversationHandlerMixin:
                         )
                     except ValueError:
                         existing = None
-                plan = router.route_with_fallbacks(
+                # Wrap in to_thread: route_with_fallbacks may trigger sync HTTP calls
+                # (_load_stats, _llm_call) that would block the event loop.
+                plan = await asyncio.to_thread(
+                    router.route_with_fallbacks,
                     prompt=user_prompt,
                     max_cost=max_cost if max_cost > 0 else None,
                     primary=existing,

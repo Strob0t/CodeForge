@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 from collections import Counter, deque
@@ -994,6 +995,35 @@ async def _restore_workspace(workspace_path: str) -> None:
     await proc.communicate()
 
 
+def _compute_rollout_score(result: AgentLoopResult) -> float:
+    """Score a single rollout result using quality metrics.
+
+    Scoring formula (0.0-1.0):
+    - 0.0 if the result has an error
+    - Otherwise: weighted combination of content length, step count, and tool usage
+    """
+    if result.error:
+        return 0.0
+
+    content_len = len(result.final_content)
+    if content_len == 0:
+        return 0.0
+
+    # Content quality: logarithmic scale, capped at 1.0
+    # Short outputs (<50 chars) score low; 500+ chars score near 1.0
+    content_score = min(1.0, math.log1p(content_len) / math.log1p(500))
+
+    # Step efficiency: penalize excessive steps (>30 steps starts to reduce score)
+    max_efficient_steps = 30
+    step_score = min(1.0, result.step_count / max_efficient_steps) if result.step_count > 0 else 0.1
+
+    # Tool usage: having tool messages indicates productive work
+    tool_score = min(1.0, len(result.tool_messages) / 5) if result.tool_messages else 0.0
+
+    # Weighted combination: content is most important, then tool usage, then step efficiency
+    return 0.5 * content_score + 0.3 * tool_score + 0.2 * step_score
+
+
 def _select_best_rollout(
     results: list[AgentLoopResult],
     scores: list[float],
@@ -1106,8 +1136,8 @@ class ConversationRolloutExecutor:
                 early_stopped = True
                 break
 
-        # Score rollouts (simple: use content length as proxy; errors score 0).
-        scores = [len(r.final_content) / max(len(r.final_content), 1) if not r.error else 0.0 for r in results]
+        # Score rollouts using quality tracker data and result metrics.
+        scores = [_compute_rollout_score(r) for r in results]
         best_idx = _select_best_rollout(results, scores)
         best = results[best_idx]
 

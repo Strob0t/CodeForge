@@ -275,3 +275,16 @@ func (h *Handlers) RevertToolCall(w http.ResponseWriter, r *http.Request) {
 		"call_id": callID,
 	})
 }
+
+// GetAgentConfig handles GET /api/v1/agent-config.
+// Returns agent configuration values that the frontend needs (e.g., max_context_tokens).
+func (h *Handlers) GetAgentConfig(w http.ResponseWriter, _ *http.Request) {
+	maxContextTokens := 128_000 // default
+	if h.AgentConfig != nil {
+		maxContextTokens = h.AgentConfig.MaxContextTokens
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int{
+		"max_context_tokens": maxContextTokens,
+	})
+}

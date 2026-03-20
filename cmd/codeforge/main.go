@@ -776,6 +776,7 @@ func run() error {
 		Subscription:     subscriptionSvc,
 		Channels:         service.NewChannelService(store),
 		Limits:           &cfg.Limits,
+		AgentConfig:      &cfg.Agent,
 		Boundaries:       boundarySvc,
 		ReviewTrigger:    reviewTriggerSvc,
 		PromptEvolution:  evoSvc,

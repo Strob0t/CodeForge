@@ -998,6 +998,10 @@ export const api = {
       }),
   },
 
+  agentConfig: {
+    get: () => request<import("./types").AgentConfig>("/agent-config"),
+  },
+
   conversations: {
     create: (projectId: string, data?: import("./types").CreateConversationRequest) =>
       request<import("./types").Conversation>(url`/projects/${projectId}/conversations`, {

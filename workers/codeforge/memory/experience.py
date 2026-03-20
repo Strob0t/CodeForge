@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import numpy as np
 import structlog
 
+from codeforge.memory.embedding import compute_embedding
 from codeforge.memory.scorer import CompositeScorer
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ class ExperiencePool:
     ) -> dict[str, Any] | None:
         """Look up a cached experience entry by task similarity."""
         threshold = threshold or self._threshold
-        query_emb = await self._compute_embedding(task_desc)
+        query_emb = await compute_embedding(self._llm, task_desc)
         if query_emb is None:
             return None
 
@@ -118,7 +119,7 @@ class ExperiencePool:
         run_id: str,
     ) -> str:
         """Store a new experience entry."""
-        embedding = await self._compute_embedding(task_desc)
+        embedding = await compute_embedding(self._llm, task_desc)
         embedding_bytes = embedding.tobytes() if embedding is not None else None
 
         import psycopg
@@ -176,15 +177,7 @@ class ExperiencePool:
             await conn.commit()
         logger.info("experience invalidated", entry_id=entry_id)
 
-    async def _compute_embedding(self, text: str) -> np.ndarray | None:
-        """Compute an embedding vector for the given text."""
-        try:
-            resp = await self._llm.embedding(text)
-            if resp and len(resp) > 0:
-                return np.array(resp, dtype=np.float32)
-        except Exception as exc:
-            logger.warning("embedding computation failed", exc_info=True, error=str(exc))
-        return None
+    # _compute_embedding removed — use codeforge.memory.compute_embedding instead (FIX-056)
 
 
 def exp_cache(

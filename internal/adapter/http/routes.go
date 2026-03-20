@@ -141,6 +141,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 			Post("/runs/{id}/approve-partial", h.ApproveRunPartial)
 
+		// Agent configuration (frontend-visible config values)
+		r.Get("/agent-config", h.GetAgentConfig)
+
 		// LLM management (proxied to LiteLLM)
 		r.Get("/llm/models", h.ListLLMModels)
 		r.Post("/llm/models", h.AddLLMModel)
