@@ -13,6 +13,12 @@ BACKUP_DIR="${BACKUP_DIR:-./backups/postgres}"
 TARGET="${1:?Usage: $0 <backup-file|latest>}"
 DB="${PGDATABASE:-codeforge}"
 
+# Validate DB name: only allow alphanumeric, underscore, hyphen.
+if [[ ! "$DB" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+  echo "ERROR: Invalid database name: $DB (must be alphanumeric/underscore/hyphen only)"
+  exit 1
+fi
+
 if [[ "$TARGET" == "latest" ]]; then
   TARGET="$(find "$BACKUP_DIR" -name "codeforge_*.sql.gz" -print0 | xargs -0 ls -t 2>/dev/null | head -1)"
   if [[ -z "$TARGET" ]]; then
@@ -32,9 +38,9 @@ echo "WARNING: This will DROP and recreate the database."
 read -r -p "Continue? [y/N] " confirm
 [[ "$confirm" =~ ^[Yy]$ ]] || exit 0
 
-# Terminate active connections
-psql -d postgres -c \
-  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB' AND pid <> pg_backend_pid();" \
+# Terminate active connections (use psql variable binding to avoid SQL injection)
+psql -d postgres -v dbname="$DB" -c \
+  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :'dbname' AND pid <> pg_backend_pid();" \
   > /dev/null 2>&1 || true
 
 dropdb --if-exists "$DB"
