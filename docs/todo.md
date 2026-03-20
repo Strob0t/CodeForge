@@ -164,9 +164,9 @@
 - [x] Auto-detection of project goals from workspace files, priority-based context injection
 - [x] LLMClientConfig with env-var-driven retry/timeout, HybridRouter skips exhausted providers
 - [x] Goal system redesign: replaced `manage_goals` HTTP-callback tool with `propose_goal` AG-UI event tool (2026-03-09)
-- [x] Rewritten goal-researcher mode with GSD questioning methodology (interview-first)
+- [x] Rewritten goal_researcher mode with GSD questioning methodology (interview-first)
 - [x] GoalProposalCard UI for approve/reject of agent-proposed goals
-- [x] Context injection: docs/PROJECT.md, REQUIREMENTS.md, STATE.md passed to goal-researcher agent
+- [x] Context injection: docs/PROJECT.md, REQUIREMENTS.md, STATE.md passed to goal_researcher agent
 - [x] Functional options pattern (`AgenticOption`/`WithContextEntries`) for extensible agentic dispatch
 
 #### Unified LLM Path & Global Run Tracking (COMPLETED)
@@ -1162,7 +1162,7 @@
 - [x] Plan domain: waiting_approval step status -- 2026-03-15
 - [x] DB migrations (073 project_boundaries, 074 review_triggers) -- 2026-03-15
 - [x] NATS subjects (review.>) for Go + Python -- 2026-03-15
-- [x] Mode presets: boundary-analyzer, contract-reviewer (24 total) -- 2026-03-15
+- [x] Mode presets: boundary_analyzer, contract_reviewer (24 total) -- 2026-03-15
 - [x] Pipeline template: review-refactor (4-step sequential) -- 2026-03-15
 - [x] DiffImpactScorer (3-tier threshold HITL) -- 2026-03-15
 - [x] Phase-aware context budget (boundary/contract/review/refactor phases) -- 2026-03-15
@@ -1281,7 +1281,7 @@
 
 **Medium Effort:**
 - [x] STUB-004: Wire stall detection (`countStallIterations`) into conversation agent template data (2026-03-18) — BudgetPercent still 0.0, needs Python worker cost reporting
-- [x] STUB-003: Implement review trigger dispatch to boundary-analyzer agent loop (`workers/codeforge/consumer/_review.py:35`) (2026-03-18)
+- [x] STUB-003: Implement review trigger dispatch to boundary_analyzer agent loop (`workers/codeforge/consumer/_review.py:35`) (2026-03-18)
 - [x] STUB-009: Add trajectory event `sequence_number` (Go) + frontend dedup + WS reconnect re-hydration (`frontend/src/features/benchmarks/BenchmarkPage.tsx:131-135`) (2026-03-18)
 - [x] STUB-006: A2A agent card skills already built dynamically in SDK-based `CardBuilder` (`internal/adapter/a2a/agentcard.go`) (2026-03-18)
 - [x] STUB-012: Pipeline `Instantiate()` auto-generates TaskID/AgentID UUIDs when nil (2026-03-18)
@@ -1481,7 +1481,7 @@
 - [x] (2026-03-19) `_benchmark.py` inline env reads replaced with `WorkerSettings().litellm_url`
 
 **Bug 4 — Onboarding agent blocks project setup (Priority: MEDIUM) — FIXED 2026-03-19**
-- [x] (2026-03-19) `goal-researcher` mode autonomy changed from 2 (semi-auto) to 4 (full-auto) — tool calls auto-approve
+- [x] (2026-03-19) `goal_researcher` mode autonomy changed from 2 (semi-auto) to 4 (full-auto) — tool calls auto-approve
 - [ ] HITL approval cards for `list_directory`/`glob_files` tools are not visible in chat UI (tool calls time out silently after 60s) — separate UI bug
 - [x] (2026-03-19) Zombie NATS messages from cancelled conversations now fast-rejected (see Bug 2 fix)
 

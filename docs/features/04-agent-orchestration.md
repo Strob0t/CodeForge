@@ -860,8 +860,8 @@ Automated code review and refactoring cycle for orchestrated projects.
 ### Pipeline: `review-refactor`
 
 4-step sequential pipeline:
-1. **Boundary Analysis** (`boundary-analyzer` mode) -- LLM identifies API, data, inter-service, and cross-language boundary files
-2. **Contract Review** (`contract-reviewer` mode) -- Cross-layer contract consistency checking
+1. **Boundary Analysis** (`boundary_analyzer` mode) -- LLM identifies API, data, inter-service, and cross-language boundary files
+2. **Contract Review** (`contract_reviewer` mode) -- Cross-layer contract consistency checking
 3. **Intra-Layer Review** (`reviewer` mode) -- Standard code quality review within layers
 4. **Refactoring Proposals** (`refactorer` mode) -- Concrete refactoring suggestions with diffs
 
@@ -892,8 +892,8 @@ Deduplication: Same commit SHA within 30min window -> skip (manual bypasses dedu
 ### Phase-aware Context Budget
 
 Each pipeline step gets a scaled context budget:
-- boundary-analyzer: 100% (needs full project overview)
-- contract-reviewer: 60% (focused on boundary files)
+- boundary_analyzer: 100% (needs full project overview)
+- contract_reviewer: 60% (focused on boundary files)
 - reviewer: 50% (focused on changed layer)
 - refactorer: 70% (needs review context + code)
 
@@ -906,7 +906,7 @@ Two-phase agent execution separating reasoning from action:
 - **Plan phase:** Read-only tools only (`read_file`, `search_files`, `glob_files`, `list_directory`). Routing tag `"plan"` for LLM scenario routing.
 - **Act phase:** All tools available. Standard routing tag.
 - **Transition:** LLM calls virtual `transition_to_act` tool, or auto-transition after `CODEFORGE_PLAN_ACT_MAX_ITERATIONS` (default 10).
-- **Activation:** Automatic for modes with `autonomy >= 4` (e.g., prototyper, boundary-analyzer) via `plan_act_enabled` NATS field.
+- **Activation:** Automatic for modes with `autonomy >= 4` (e.g., prototyper, boundary_analyzer) via `plan_act_enabled` NATS field.
 - **Key files:** `workers/codeforge/plan_act.py` (controller), `workers/codeforge/agent_loop.py` (integration), `internal/service/conversation_agent.go` (dispatcher), `internal/port/messagequeue/schemas.go` (payload)
 
 ### Semantic Deduplication of Context Candidates (B2)
