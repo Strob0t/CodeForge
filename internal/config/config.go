@@ -537,7 +537,7 @@ func Defaults() Config {
 		},
 		Auth: Auth{
 			Enabled:             true,
-			JWTSecret:           "",
+			JWTSecret:           "codeforge-dev-jwt-secret-change-in-production", // development default; MUST be overridden in production
 			AccessTokenExpiry:   15 * time.Minute,
 			RefreshTokenExpiry:  7 * 24 * time.Hour,
 			BcryptCost:          12,
