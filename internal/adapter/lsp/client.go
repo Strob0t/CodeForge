@@ -1,5 +1,9 @@
 // Package lsp provides a Language Server Protocol client that manages a single
 // language server process, communicating via JSON-RPC 2.0 over stdio.
+//
+// TODO: LSP adapter is currently unused — wire into project lifecycle when
+// LSP integration is activated (Phase 15D). The handlers in routes.go are
+// registered but the service dependency is nil in production.
 package lsp
 
 import (

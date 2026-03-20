@@ -8,6 +8,8 @@ import (
 )
 
 // registerResources registers all MCP resources on the server.
+// TODO: Add parameterized resource templates (e.g., codeforge://projects/{id},
+// codeforge://projects/{id}/costs) for per-project resource access.
 func (s *Server) registerResources() {
 	s.mcpServer.AddResource(
 		mcplib.NewResource(
