@@ -30,6 +30,26 @@ Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` an
 
 **Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed.
 
+### Critical Startup Order (Manual / Outside Devcontainer)
+
+When starting services manually (not via `setup.sh`), follow this **strict order**.
+Violating the order causes silent NATS message drops (toolcall requests timeout
+after 30s with no error in the logs).
+
+1. **Docker services:** `docker compose up -d postgres nats litellm`
+2. **Purge NATS** (fresh test runs only): Kill Go backend + Python worker **first**,
+   then purge the JetStream stream. Stale consumers from killed processes block new ones.
+3. **Go backend:** `APP_ENV=development go run ./cmd/codeforge/`
+   - MUST start **after** NATS purge -- creates fresh JetStream consumers on startup
+   - Verify: `curl http://localhost:8080/health` returns `{"status":"ok"}`
+4. **Python worker:** Start with container IPs (see WSL2 section in CLAUDE.md)
+   - MUST start **after** Go backend -- both sides need active consumers
+5. **Frontend:** `cd frontend && npm run dev`
+
+**Common pitfall:** A stale Go process (e.g. VSCode debug binary) holds old NATS
+consumers that silently fail after a stream purge. Kill ALL Go processes before
+purging: `ps aux | grep codeforge | grep -v grep`
+
 The container automatically installs Go 1.25, Python 3.12, Node.js 22, Poetry, golangci-lint v2, goimports, Claude Code CLI, Python dependencies (poetry install), Node dependencies (npm install), and Pre-commit Hooks.
 
 ### Project Structure
