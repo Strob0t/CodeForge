@@ -27,6 +27,12 @@ func Validate(subject string, data []byte) error {
 		return fmt.Errorf("invalid JSON on subject %s", subject)
 	}
 
+	// Reject empty JSON objects — a valid payload must carry at least one field.
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "{}" {
+		return fmt.Errorf("empty JSON object on subject %s", subject)
+	}
+
 	// Map subject to payload struct for structural validation.
 	var target any
 	switch {

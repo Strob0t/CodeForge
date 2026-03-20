@@ -205,7 +205,12 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 	}
 
 	if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
-		retries := retryCount(hdrs)
+		// FIX-050: Use JetStream delivery metadata instead of custom Retry-Count
+		// header (which was never incremented on NAK redelivery).
+		retries := retryCount(hdrs) // fallback for manually-published messages
+		if md, mdErr := msg.Metadata(); mdErr == nil && md.NumDelivered > 0 {
+			retries = int(md.NumDelivered) - 1 // NumDelivered counts from 1
+		}
 		slog.Error("message handler failed",
 			"subject", msg.Subject(),
 			"request_id", logger.RequestID(msgCtx),
@@ -245,9 +250,15 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
 			"error", err,
 		)
 	} else {
+		// FIX-049: Include message ID so operators can monitor DLQ accumulation.
+		msgID := ""
+		if hdrs := msg.Headers(); hdrs != nil {
+			msgID = hdrs.Get("Nats-Msg-Id")
+		}
 		slog.Warn("message moved to DLQ",
 			"subject", msg.Subject(),
 			"dlq_subject", dlqSubject,
+			"msg_id", msgID,
 		)
 	}
 
