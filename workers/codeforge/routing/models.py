@@ -103,7 +103,7 @@ class CascadePlan:
 
 @dataclass
 class RoutingConfig:
-    enabled: bool = False
+    enabled: bool = True
     complexity_enabled: bool = True
     mab_enabled: bool = True
     llm_meta_enabled: bool = True

@@ -300,6 +300,18 @@ def load_routing_config() -> object | None:
         latency_weight=_resolve_float("CODEFORGE_ROUTING_LATENCY_WEIGHT", r.get("latency_weight"), 0.2),
         meta_router_model=_resolve_str("CODEFORGE_ROUTING_META_MODEL", r.get("meta_router_model"), ""),
         stats_refresh_interval=_resolve_str("CODEFORGE_ROUTING_STATS_INTERVAL", r.get("stats_refresh_interval"), "5m"),
+        # FIX-039: 9 fields that were defined in RoutingConfig but not loaded from config.
+        mab_cost_penalty=_resolve_float("CODEFORGE_ROUTING_MAB_COST_PENALTY", r.get("mab_cost_penalty"), 0.0),
+        cost_penalty_mode=_resolve_str("CODEFORGE_ROUTING_COST_PENALTY_MODE", r.get("cost_penalty_mode"), "linear"),
+        max_cost_ceiling=_resolve_float("CODEFORGE_ROUTING_MAX_COST_CEILING", r.get("max_cost_ceiling"), 0.10),
+        max_latency_ceiling=_resolve_int("CODEFORGE_ROUTING_MAX_LATENCY_CEILING", r.get("max_latency_ceiling"), 30_000),
+        cascade_enabled=_resolve_bool("CODEFORGE_ROUTING_CASCADE_ENABLED", r.get("cascade_enabled"), False),
+        cascade_confidence_threshold=_resolve_float(
+            "CODEFORGE_ROUTING_CASCADE_CONFIDENCE", r.get("cascade_confidence_threshold"), 0.7
+        ),
+        cascade_max_steps=_resolve_int("CODEFORGE_ROUTING_CASCADE_MAX_STEPS", r.get("cascade_max_steps"), 3),
+        diversity_mode=_resolve_bool("CODEFORGE_ROUTING_DIVERSITY_MODE", r.get("diversity_mode"), False),
+        entropy_weight=_resolve_float("CODEFORGE_ROUTING_ENTROPY_WEIGHT", r.get("entropy_weight"), 0.1),
     )
 
 

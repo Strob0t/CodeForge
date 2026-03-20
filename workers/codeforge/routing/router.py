@@ -1,4 +1,19 @@
-"""HybridRouter — three-layer cascade orchestrator."""
+"""HybridRouter -- three-layer cascade orchestrator.
+
+Routing cascade order (route() method):
+1. ComplexityAnalyzer -- always runs first. Rule-based, <1ms. Produces
+   a PromptAnalysis with complexity_tier and task_type.
+2. MABModelSelector (UCB1) -- primary selection when mab_enabled=True and
+   the selector has been instantiated. Uses bandit statistics to pick the
+   best model for the analyzed tier/task.
+3. LLMMetaRouter -- fallback for cold-start or when MAB has no candidate.
+   Calls a cheap LLM to classify the prompt and pick a model.
+4. Complexity defaults -- final fallback. Maps the complexity tier to a
+   static list of preferred models (COMPLEXITY_DEFAULTS).
+
+Routing is ENABLED by default (RoutingConfig.enabled=True). Disable with
+CODEFORGE_ROUTING_ENABLED=false when all providers are unhealthy.
+"""
 
 from __future__ import annotations
 
