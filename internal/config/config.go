@@ -154,7 +154,7 @@ type Agent struct {
 
 // Auth holds authentication and authorization configuration.
 type Auth struct {
-	Enabled                     bool          `yaml:"enabled"`                        // Enable auth (default: false)
+	Enabled                     bool          `yaml:"enabled"`                        // Enable auth (default: true)
 	JWTSecret                   string        `yaml:"jwt_secret" json:"-"`            // HMAC-SHA256 signing key
 	AccessTokenExpiry           time.Duration `yaml:"access_token_expiry"`            // Access token lifetime (default: 15m)
 	RefreshTokenExpiry          time.Duration `yaml:"refresh_token_expiry"`           // Refresh token lifetime (default: 168h / 7d)
@@ -536,7 +536,7 @@ func Defaults() Config {
 			AutoStart:       true,
 		},
 		Auth: Auth{
-			Enabled:             false,
+			Enabled:             true,
 			JWTSecret:           "",
 			AccessTokenExpiry:   15 * time.Minute,
 			RefreshTokenExpiry:  7 * 24 * time.Hour,

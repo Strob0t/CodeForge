@@ -89,7 +89,11 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 				}
 			}
 
-			// WebSocket auth via ?token= query parameter (P1-5)
+			// WebSocket auth via ?token= query parameter (P1-5).
+			// NOTE: Browsers cannot set custom headers on WebSocket upgrade requests,
+			// so the token must be passed as a query parameter. This exposes the token
+			// in server access logs and browser history. Mitigation: use short-lived
+			// access tokens (default: 15min) and ensure HTTPS in production.
 			if r.URL.Path == "/ws" {
 				tokenParam := r.URL.Query().Get("token")
 				if tokenParam == "" {
@@ -117,7 +121,11 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 			// Try X-API-Key header first.
 			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
 				// Internal service key — Python workers use this for API calls back to Go Core.
+				// By design, the internal service key grants admin access for inter-service
+				// communication (Go Core <-> Python workers). The key is never exposed to
+				// external clients and must be set via CODEFORGE_INTERNAL_KEY env var.
 				if internalKey := os.Getenv("CODEFORGE_INTERNAL_KEY"); internalKey != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(internalKey)) == 1 {
+					slog.Debug("internal service key authenticated", "path", r.URL.Path)
 					svcUser := &user.User{
 						ID:       "00000000-0000-0000-0000-000000000001",
 						Email:    "service@internal",
