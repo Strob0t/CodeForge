@@ -139,17 +139,18 @@ type Benchmark struct {
 
 // Agent holds agentic conversation loop configuration.
 type Agent struct {
-	BuiltinTools             []string `yaml:"builtin_tools"`              // Built-in tools to enable (default: all)
-	DefaultModel             string   `yaml:"default_model"`              // Default LLM model for agentic loops
-	MaxContextTokens         int      `yaml:"max_context_tokens"`         // Max tokens for context window (default: 128000)
-	MaxLoopIterations        int      `yaml:"max_loop_iterations"`        // Max tool-use loop iterations (default: 50)
-	AgenticByDefault         bool     `yaml:"agentic_by_default"`         // Enable agentic mode by default for conversations
-	ToolOutputMaxChars       int      `yaml:"tool_output_max_chars"`      // Max chars for tool output before truncation (default: 10000)
-	ContextEnabled           bool     `yaml:"context_enabled"`            // Enable context optimizer for conversations (default: true)
-	ContextBudget            int      `yaml:"context_budget"`             // Token budget for conversation context (default: 2048)
-	ContextPromptReserve     int      `yaml:"context_prompt_reserve"`     // Tokens reserved for prompt in conversation context (default: 512)
-	ConversationRolloutCount int      `yaml:"conversation_rollout_count"` // Multi-rollout count for inference-time scaling (default: 1, max: 8)
-	SummarizeThreshold       int      `yaml:"summarize_threshold"`        // Message count threshold for auto-summarization (0 = disabled)
+	BuiltinTools             []string       `yaml:"builtin_tools"`              // Built-in tools to enable (default: all)
+	DefaultModel             string         `yaml:"default_model"`              // Default LLM model for agentic loops
+	MaxContextTokens         int            `yaml:"max_context_tokens"`         // Max tokens for context window (default: 128000)
+	MaxLoopIterations        int            `yaml:"max_loop_iterations"`        // Max tool-use loop iterations (default: 50)
+	AgenticByDefault         bool           `yaml:"agentic_by_default"`         // Enable agentic mode by default for conversations
+	ToolOutputMaxChars       int            `yaml:"tool_output_max_chars"`      // Max chars for tool output before truncation (default: 10000)
+	ContextEnabled           bool           `yaml:"context_enabled"`            // Enable context optimizer for conversations (default: true)
+	ContextBudget            int            `yaml:"context_budget"`             // Token budget for conversation context (default: 2048)
+	ContextPromptReserve     int            `yaml:"context_prompt_reserve"`     // Tokens reserved for prompt in conversation context (default: 512)
+	ConversationRolloutCount int            `yaml:"conversation_rollout_count"` // Multi-rollout count for inference-time scaling (default: 1, max: 8)
+	SummarizeThreshold       int            `yaml:"summarize_threshold"`        // Message count threshold for auto-summarization (0 = disabled)
+	PhaseScaling             map[string]int `yaml:"phase_scaling"`              // Phase-aware context budget scaling (mode_id -> percentage, default: boundary_analyzer=100, contract_reviewer=60, reviewer=50, refactorer=70)
 }
 
 // Auth holds authentication and authorization configuration.
