@@ -56,6 +56,11 @@ func TestPolicyProfileValidateErrors(t *testing.T) {
 			errStr: "max_steps must be >= 0",
 		},
 		{
+			name:   "max_steps exceeds upper bound",
+			modify: func(p *PolicyProfile) { p.Termination.MaxSteps = MaxStepsLimit + 1 },
+			errStr: "max_steps must not exceed",
+		},
+		{
 			name:   "negative timeout",
 			modify: func(p *PolicyProfile) { p.Termination.TimeoutSeconds = -5 },
 			errStr: "timeout_seconds must be >= 0",
@@ -77,6 +82,39 @@ func TestPolicyProfileValidateErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.errStr) {
 				t.Errorf("expected error containing %q, got %q", tt.errStr, err.Error())
+			}
+		})
+	}
+}
+
+func TestValidatePolicy_MaxStepsUpperBound(t *testing.T) {
+	tests := []struct {
+		name    string
+		steps   int
+		wantErr bool
+	}{
+		{name: "zero (unlimited)", steps: 0, wantErr: false},
+		{name: "normal value", steps: 500, wantErr: false},
+		{name: "at limit", steps: MaxStepsLimit, wantErr: false},
+		{name: "over limit", steps: MaxStepsLimit + 1, wantErr: true},
+		{name: "way over limit", steps: 100_000, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := PolicyProfile{
+				Name: "test",
+				Mode: ModeDefault,
+				Termination: TerminationCondition{
+					MaxSteps: tt.steps,
+				},
+			}
+			err := p.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error for MaxSteps=%d, got nil", tt.steps)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error for MaxSteps=%d: %v", tt.steps, err)
 			}
 		})
 	}

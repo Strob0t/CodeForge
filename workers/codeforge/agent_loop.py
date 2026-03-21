@@ -340,8 +340,12 @@ class AgentLoopExecutor:
                     model=model,
                     error="",
                 )
+        except (ConnectionError, TimeoutError, OSError) as exc:
+            logger.warning("experience cache lookup failed (transient): %s", exc)
+        except ValueError as exc:
+            logger.error("experience cache data corruption: %s", exc)
         except Exception as exc:
-            logger.warning("experience pool lookup failed, continuing: %s", exc)
+            logger.error("unexpected experience cache error: %s", type(exc).__name__, exc_info=True)
         return None
 
     @_tracer.trace_agent("agent_loop")
