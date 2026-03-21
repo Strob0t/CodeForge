@@ -225,6 +225,12 @@ class AgentLoopExecutor:
             logger.debug("failed to publish routing_decision trajectory event: %s", exc)
 
     @staticmethod
+    def _validate_model_name(model: str) -> bool:
+        """Validate that model name has exactly ``provider/model`` format."""
+        parts = model.split("/")
+        return len(parts) == 2 and all(p.strip() for p in parts)
+
+    @staticmethod
     def _pick_next_fallback(
         cfg: LoopConfig,
         state: _LoopState,
@@ -233,10 +239,14 @@ class AgentLoopExecutor:
         """Return the next untried fallback model, or None if exhausted.
 
         Skips models whose provider is currently rate-limited (via the rate
-        tracker) to avoid wasting time on providers that will 429 again.
+        tracker) or whose name is not in ``provider/model`` format to avoid
+        wasting time on providers that will 429 again.
         """
         for m in cfg.fallback_models:
             if m in state.failed_models:
+                continue
+            if not AgentLoopExecutor._validate_model_name(m):
+                logger.warning("skipping fallback model with invalid format: %r", m)
                 continue
             if rate_tracker is not None:
                 provider = m.split("/", 1)[0] if "/" in m else ""
