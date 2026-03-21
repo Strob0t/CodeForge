@@ -1178,6 +1178,41 @@ func TestProjectServiceDeleteSkipsOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestProjectService_IsUnderWorkspaceRoot(t *testing.T) {
+	wsRoot := t.TempDir()
+	// Create a real subdirectory so EvalSymlinks can resolve it.
+	subDir := filepath.Join(wsRoot, "project-1")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &ProjectService{workspaceRoot: wsRoot}
+
+	if !svc.isUnderWorkspaceRoot(subDir) {
+		t.Error("expected path under workspace root to be accepted")
+	}
+	if svc.isUnderWorkspaceRoot("") {
+		t.Error("expected empty path to be rejected")
+	}
+	if svc.isUnderWorkspaceRoot("/etc/passwd") {
+		t.Error("expected /etc/passwd to be rejected (not under workspace root)")
+	}
+	if svc.isUnderWorkspaceRoot("/nonexistent/path/12345") {
+		t.Error("expected nonexistent path to be rejected")
+	}
+
+	// Verify the workspace root itself is NOT accepted (must be strictly under).
+	if svc.isUnderWorkspaceRoot(wsRoot) {
+		t.Error("expected workspace root itself to be rejected")
+	}
+
+	// Test with empty workspace root.
+	svcEmpty := &ProjectService{workspaceRoot: ""}
+	if svcEmpty.isUnderWorkspaceRoot(subDir) {
+		t.Error("expected any path to be rejected when workspace root is empty")
+	}
+}
+
 func TestProjectServiceAdopt(t *testing.T) {
 	adoptDir := t.TempDir()
 	store := &mockStore{
