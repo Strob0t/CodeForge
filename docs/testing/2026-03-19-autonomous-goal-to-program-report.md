@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-19 (updated 2026-03-20)
 **Scenario:** S1 (Easy - CSV-to-JSON Converter)
-**Runs:** 6 (Run 1+2 blocked by infra, Run 3+4 executed, Run 5 no workspace, Run 6 full pipeline)
+**Runs:** 7 (Run 1+2 infra, Run 3+4 executed, Run 5 no workspace, Run 6 full, Run 7/7b goal-gate fix)
 **Model:** openai/container (LM Studio qwen3-30b-a3b local)
 
 ---
@@ -93,6 +93,7 @@ The agent tried to create a CSV with unclosed quotes to trigger csv.Error but in
 | NATS sequential processing blocks pipeline | CRITICAL | FIXED (goroutine dispatch) |
 | NATS consumers not recreated after purge | HIGH | DOCUMENTED (restart backend after purge) |
 | CreateProject API ignores local_path | MEDIUM | DOCUMENTED (use AdoptProject after create) |
+| Full-auto gate overrides explicit model | HIGH | DOCUMENTED (create goal before agentic run) |
 
 ## Key Learnings
 
@@ -130,11 +131,11 @@ Tool call count is low — model doesn't follow the full pipeline.
 
 ## Overall Result
 
-**PARTIAL** — The autonomous pipeline works end-to-end. Infrastructure is fully stable (zero
-NATS timeouts since Run 4). The main program (csv2json.py) is structurally correct across all
-runs but has runtime bugs (argparse conflict in Run 6, syntax error in Run 3). Test file quality
-varies by run. No run achieved a git commit. A stronger model (Claude, GPT-4) would likely
-produce clean code on first attempt.
+**PARTIAL → PASS (program)** — Run 7b produced a **functionally correct** csv2json.py (--help,
+conversion, error handling all pass). Infrastructure is fully stable (zero NATS timeouts since
+Run 4). Test file quality still varies (sys.argv patching missing). No run achieved a git commit.
+The full-auto gate bug (Run 7) shows that project setup order matters: goals must exist before
+agentic runs on autonomy 4+ projects.
 
 ### Comparison Across Runs
 
@@ -146,6 +147,8 @@ produce clean code on first attempt.
 | 4 | openai/container | ~5 | 10 | PASS | SKIP | FAIL | Clean slate, test file not created |
 | 5 | openai/container | 11 | 11 | N/A | N/A | FAIL | No workspace_path — tools wrote nowhere |
 | 6 | openai/container | 26 | 26 | FAIL | PASS(syntax) | FAIL | argparse bug, both files created |
+| 7 | lm_studio/qwen3 | 0 | 1 | N/A | N/A | N/A | Full-auto gate → goal_researcher → LiteLLM 401 |
+| 7b | openai/container | 12 | 27 | **PASS** | 1/6 | FAIL | First fully correct program! |
 
 ### Infrastructure Fix Impact
 
@@ -246,3 +249,65 @@ except ValueError as e:   # line 42 — unreachable duplicate
 | 11-26 | LLM/edit/list | Iterative fix attempts + stall |
 
 **Assessment:** The agent correctly created both files and attempted self-correction (3 edit_file calls, 2 bash runs). The local model introduced the argparse bug and couldn't fix it despite multiple attempts. All tool calls processed instantly (< 520ms each), confirming zero NATS infrastructure issues. The workspace_path fix (via AdoptProject) resolved the Run 5 file creation issue.
+
+## Run 7/7b: Full-Auto Gate Bug + Successful Fix (2026-03-21)
+
+### Run 7 (failed immediately)
+
+| Metric | Value |
+|--------|-------|
+| Agent steps | 0 |
+| Tool calls | 1 (LLM — rejected) |
+| Error | `LiteLLM 401: Not allowed to access model due to tags configuration` |
+| Duration | <15s |
+
+**Root Cause:** Full-auto gate in `conversation_agent.go:290-314` redirects to `goal_researcher` mode when the project has no goals or open features. This mode sets `LLMScenario: "think"` which adds `tags=['think']` to LLM calls. The `openai/container` model only has tag `background`, so LiteLLM rejects the request.
+
+**Fix:** Create a project goal before sending the agentic message, so the full-auto gate doesn't trigger.
+
+### Run 7b (after goal creation)
+
+| Metric | Value |
+|--------|-------|
+| Agent steps | 12 |
+| Tool calls | 27 (15 LLM, 7 edit_file, 2 write_file, 2 bash, 1 read_file) |
+| Files created | 2 (csv2json.py 35 lines, test_csv2json.py 74 lines) |
+| Git commits | 0 (agent stalled before committing) |
+| Duration | ~17 min |
+| Exit reason | Stall detected (repeated None after 2 escape attempts) |
+| NATS timeouts | 0 |
+
+### Validation (Run 7b)
+
+| Check | Result |
+|-------|--------|
+| csv2json.py exists | PASS |
+| test_csv2json.py exists | PASS |
+| Syntax (py_compile) both files | PASS |
+| `--help` exits 0 | **PASS** (correct argparse output) |
+| Converts valid CSV to JSON | **PASS** (correct JSON array) |
+| Missing file returns error + exit 1 | **PASS** |
+| pytest passes | 1/6 passed (5 test bugs: `sys.argv` not patched) |
+| Git commit | FAIL (stalled before committing) |
+| Lint (ruff) | 6 findings (5 unused vars in tests, 1 unused import) |
+
+### Code Quality (Run 7b)
+
+The main program csv2json.py is **functionally correct** — all 3 runtime checks pass (help, conversion, error handling). The test file has a systematic bug: it sets `args = [...]` but calls `main()` without patching `sys.argv`, so argparse reads the pytest runner args instead.
+
+### Comparison: Run 6 vs Run 7b
+
+| Check | Run 6 | Run 7b |
+|-------|-------|--------|
+| `--help` | FAIL (argparse conflict) | **PASS** |
+| CSV conversion | FAIL (same bug) | **PASS** |
+| Error handling | FAIL (same bug) | **PASS** |
+| Tests passing | 0/? | 1/6 |
+| Program correct | No | **Yes** |
+
+### Bug Found: Full-Auto Gate Model Override
+
+**File:** `internal/service/conversation_agent.go:290-314`
+**Impact:** When `autonomy_level >= 4` and no goals/features exist, the system silently redirects to `goal_researcher` mode, overriding the explicit model from the API request. This causes LiteLLM tag mismatches and 401 errors.
+**Workaround:** Create at least one project goal before sending agentic messages.
+**Proper Fix:** The gate should not override the explicit model, or `goal_researcher` should use the same model/tags as the original request.
