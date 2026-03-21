@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -56,6 +57,15 @@ func (m *mockCostReader) CostSummaryGlobal(_ context.Context) ([]cost.ProjectSum
 	return m.summary, m.err
 }
 
+// validDeps returns a minimal ServerDeps with non-nil implementations for all fields.
+func validDeps() cfmcp.ServerDeps {
+	return cfmcp.ServerDeps{
+		ProjectLister: &mockProjectLister{},
+		RunReader:     &mockRunReader{runs: map[string]*run.Run{}},
+		CostReader:    &mockCostReader{},
+	}
+}
+
 // --- Tests ---
 
 func TestNewServer(t *testing.T) {
@@ -64,12 +74,68 @@ func TestNewServer(t *testing.T) {
 		Name:    "test-server",
 		Version: "0.8.0",
 	}
-	s := cfmcp.NewServer(cfg, cfmcp.ServerDeps{})
+	s := cfmcp.NewServer(cfg, validDeps())
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 	}
 	if s.MCPServer() == nil {
 		t.Fatal("MCPServer() returned nil")
+	}
+}
+
+func TestNewServer_NilDepsPanics(t *testing.T) {
+	tests := []struct {
+		name string
+		deps cfmcp.ServerDeps
+		want string
+	}{
+		{
+			name: "nil ProjectLister",
+			deps: cfmcp.ServerDeps{
+				RunReader:  &mockRunReader{runs: map[string]*run.Run{}},
+				CostReader: &mockCostReader{},
+			},
+			want: "ProjectLister",
+		},
+		{
+			name: "nil RunReader",
+			deps: cfmcp.ServerDeps{
+				ProjectLister: &mockProjectLister{},
+				CostReader:    &mockCostReader{},
+			},
+			want: "RunReader",
+		},
+		{
+			name: "nil CostReader",
+			deps: cfmcp.ServerDeps{
+				ProjectLister: &mockProjectLister{},
+				RunReader:     &mockRunReader{runs: map[string]*run.Run{}},
+			},
+			want: "CostReader",
+		},
+		{
+			name: "all nil",
+			deps: cfmcp.ServerDeps{},
+			want: "ProjectLister",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatal("expected panic for nil dependency")
+				}
+				msg, ok := r.(string)
+				if !ok {
+					t.Fatalf("expected string panic, got %T: %v", r, r)
+				}
+				if !strings.Contains(msg, tc.want) {
+					t.Fatalf("panic message %q should mention %q", msg, tc.want)
+				}
+			}()
+			cfmcp.NewServer(cfmcp.ServerConfig{}, tc.deps)
+		})
 	}
 }
 
@@ -79,7 +145,7 @@ func TestServerStartStop(t *testing.T) {
 		Name:    "test-server",
 		Version: "0.8.0",
 	}
-	s := cfmcp.NewServer(cfg, cfmcp.ServerDeps{})
+	s := cfmcp.NewServer(cfg, validDeps())
 
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -136,12 +202,11 @@ func TestToolRegistration(t *testing.T) {
 }
 
 func TestHandleListProjects(t *testing.T) {
-	deps := cfmcp.ServerDeps{
-		ProjectLister: &mockProjectLister{
-			projects: []project.Project{
-				{ID: "p1", Name: "Alpha"},
-				{ID: "p2", Name: "Beta"},
-			},
+	deps := validDeps()
+	deps.ProjectLister = &mockProjectLister{
+		projects: []project.Project{
+			{ID: "p1", Name: "Alpha"},
+			{ID: "p2", Name: "Beta"},
 		},
 	}
 	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
@@ -179,11 +244,10 @@ func TestHandleListProjects(t *testing.T) {
 }
 
 func TestHandleGetRunStatus(t *testing.T) {
-	deps := cfmcp.ServerDeps{
-		RunReader: &mockRunReader{
-			runs: map[string]*run.Run{
-				"run-abc": {ID: "run-abc", Status: run.StatusCompleted},
-			},
+	deps := validDeps()
+	deps.RunReader = &mockRunReader{
+		runs: map[string]*run.Run{
+			"run-abc": {ID: "run-abc", Status: run.StatusCompleted},
 		},
 	}
 	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
@@ -222,10 +286,7 @@ func TestHandleGetRunStatus(t *testing.T) {
 }
 
 func TestHandleGetRunStatusMissingArg(t *testing.T) {
-	deps := cfmcp.ServerDeps{
-		RunReader: &mockRunReader{runs: map[string]*run.Run{}},
-	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, validDeps())
 
 	tools := s.MCPServer().ListTools()
 	runTool, ok := tools["get_run_status"]
@@ -245,26 +306,8 @@ func TestHandleGetRunStatusMissingArg(t *testing.T) {
 	}
 }
 
-func TestHandleNilDeps(t *testing.T) {
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, cfmcp.ServerDeps{})
-
-	tools := s.MCPServer().ListTools()
-	listTool, ok := tools["list_projects"]
-	if !ok {
-		t.Fatal("list_projects tool not found")
-	}
-
-	ctx := context.Background()
-	result, err := listTool.Handler(ctx, mcplib.CallToolRequest{
-		Params: mcplib.CallToolParams{Name: "list_projects"},
-	})
-	if err != nil {
-		t.Fatalf("handler error: %v", err)
-	}
-	if !result.IsError {
-		t.Fatal("expected error result when deps are nil")
-	}
-}
+// TestHandleNilDeps is now covered by TestNewServer_NilDepsPanics.
+// NewServer panics on nil deps, so runtime nil checks in handlers are unnecessary.
 
 func TestNewServer_WithAPIKey_RejectsUnauthenticated(t *testing.T) {
 	cfg := cfmcp.ServerConfig{
@@ -277,6 +320,8 @@ func TestNewServer_WithAPIKey_RejectsUnauthenticated(t *testing.T) {
 		ProjectLister: &mockProjectLister{
 			projects: []project.Project{{ID: "p1", Name: "Alpha"}},
 		},
+		RunReader:  &mockRunReader{runs: map[string]*run.Run{}},
+		CostReader: &mockCostReader{},
 	}
 	s := cfmcp.NewServer(cfg, deps)
 	if s == nil {
@@ -295,7 +340,7 @@ func TestNewServer_WithoutAPIKey_AllowsRequests(t *testing.T) {
 		Version: "0.8.0",
 		APIKey:  "", // Empty means no auth
 	}
-	s := cfmcp.NewServer(cfg, cfmcp.ServerDeps{})
+	s := cfmcp.NewServer(cfg, validDeps())
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 	}
@@ -348,11 +393,10 @@ func TestAuthMiddleware_EmptyKey_PassesAll(t *testing.T) {
 }
 
 func TestHandleGetCostSummary(t *testing.T) {
-	deps := cfmcp.ServerDeps{
-		CostReader: &mockCostReader{
-			summary: []cost.ProjectSummary{
-				{ProjectID: "p1", ProjectName: "Alpha", Summary: cost.Summary{TotalCostUSD: 42.5, RunCount: 10}},
-			},
+	deps := validDeps()
+	deps.CostReader = &mockCostReader{
+		summary: []cost.ProjectSummary{
+			{ProjectID: "p1", ProjectName: "Alpha", Summary: cost.Summary{TotalCostUSD: 42.5, RunCount: 10}},
 		},
 	}
 	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
