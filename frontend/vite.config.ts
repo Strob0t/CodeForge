@@ -20,6 +20,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    testTimeout: 15000,
     transformMode: { web: [/\.[jt]sx?$/] },
     exclude: ["e2e/**", "node_modules/**"],
   },

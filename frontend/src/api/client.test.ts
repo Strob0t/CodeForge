@@ -1,0 +1,205 @@
+import { describe, expect, it } from "vitest";
+
+import { api, FetchError, getAccessToken, setAccessTokenGetter } from "./client";
+
+describe("API Client", () => {
+  describe("exports", () => {
+    it("should export api object", () => {
+      expect(api).toBeDefined();
+      expect(typeof api).toBe("object");
+    });
+
+    it("should export FetchError class", () => {
+      expect(FetchError).toBeDefined();
+      expect(typeof FetchError).toBe("function");
+    });
+
+    it("should export setAccessTokenGetter function", () => {
+      expect(typeof setAccessTokenGetter).toBe("function");
+    });
+
+    it("should export getAccessToken function", () => {
+      expect(typeof getAccessToken).toBe("function");
+    });
+  });
+
+  describe("api resource groups", () => {
+    it("should have health resource group", () => {
+      expect(api.health).toBeDefined();
+      expect(typeof api.health.check).toBe("function");
+    });
+
+    it("should have projects resource group", () => {
+      expect(api.projects).toBeDefined();
+      expect(typeof api.projects.list).toBe("function");
+      expect(typeof api.projects.get).toBe("function");
+      expect(typeof api.projects.create).toBe("function");
+      expect(typeof api.projects.update).toBe("function");
+      expect(typeof api.projects.delete).toBe("function");
+    });
+
+    it("should have agents resource group", () => {
+      expect(api.agents).toBeDefined();
+      expect(typeof api.agents.list).toBe("function");
+      expect(typeof api.agents.get).toBe("function");
+      expect(typeof api.agents.create).toBe("function");
+    });
+
+    it("should have tasks resource group", () => {
+      expect(api.tasks).toBeDefined();
+      expect(typeof api.tasks.list).toBe("function");
+      expect(typeof api.tasks.get).toBe("function");
+      expect(typeof api.tasks.create).toBe("function");
+    });
+
+    it("should have llm resource group", () => {
+      expect(api.llm).toBeDefined();
+      expect(typeof api.llm.models).toBe("function");
+      expect(typeof api.llm.addModel).toBe("function");
+      expect(typeof api.llm.health).toBe("function");
+    });
+
+    it("should have runs resource group", () => {
+      expect(api.runs).toBeDefined();
+      expect(typeof api.runs.start).toBe("function");
+      expect(typeof api.runs.get).toBe("function");
+      expect(typeof api.runs.cancel).toBe("function");
+      expect(typeof api.runs.approve).toBe("function");
+    });
+
+    it("should have conversations resource group", () => {
+      expect(api.conversations).toBeDefined();
+      expect(typeof api.conversations.create).toBe("function");
+      expect(typeof api.conversations.list).toBe("function");
+      expect(typeof api.conversations.messages).toBe("function");
+      expect(typeof api.conversations.send).toBe("function");
+    });
+
+    it("should have costs resource group", () => {
+      expect(api.costs).toBeDefined();
+      expect(typeof api.costs.global).toBe("function");
+      expect(typeof api.costs.project).toBe("function");
+      expect(typeof api.costs.daily).toBe("function");
+    });
+
+    it("should have dashboard resource group", () => {
+      expect(api.dashboard).toBeDefined();
+      expect(typeof api.dashboard.stats).toBe("function");
+      expect(typeof api.dashboard.projectHealth).toBe("function");
+    });
+
+    it("should have auth resource group", () => {
+      expect(api.auth).toBeDefined();
+      expect(typeof api.auth.login).toBe("function");
+      expect(typeof api.auth.refresh).toBe("function");
+      expect(typeof api.auth.logout).toBe("function");
+      expect(typeof api.auth.me).toBe("function");
+      expect(typeof api.auth.setup).toBe("function");
+    });
+
+    it("should have modes resource group", () => {
+      expect(api.modes).toBeDefined();
+      expect(typeof api.modes.list).toBe("function");
+      expect(typeof api.modes.create).toBe("function");
+    });
+
+    it("should have policies resource group", () => {
+      expect(api.policies).toBeDefined();
+      expect(typeof api.policies.list).toBe("function");
+      expect(typeof api.policies.evaluate).toBe("function");
+    });
+
+    it("should have roadmap resource group", () => {
+      expect(api.roadmap).toBeDefined();
+      expect(typeof api.roadmap.get).toBe("function");
+      expect(typeof api.roadmap.create).toBe("function");
+    });
+
+    it("should have mcp resource group", () => {
+      expect(api.mcp).toBeDefined();
+      expect(typeof api.mcp.listServers).toBe("function");
+      expect(typeof api.mcp.createServer).toBe("function");
+    });
+
+    it("should have benchmarks resource group", () => {
+      expect(api.benchmarks).toBeDefined();
+      expect(typeof api.benchmarks.listRuns).toBe("function");
+      expect(typeof api.benchmarks.createRun).toBe("function");
+    });
+
+    it("should have channels resource group", () => {
+      expect(api.channels).toBeDefined();
+      expect(typeof api.channels.list).toBe("function");
+      expect(typeof api.channels.send).toBe("function");
+    });
+
+    it("should have files resource group", () => {
+      expect(api.files).toBeDefined();
+      expect(typeof api.files.list).toBe("function");
+      expect(typeof api.files.read).toBe("function");
+      expect(typeof api.files.write).toBe("function");
+    });
+
+    it("should have audit resource group", () => {
+      expect(api.audit).toBeDefined();
+      expect(typeof api.audit.list).toBe("function");
+    });
+
+    it("should have scopes resource group", () => {
+      expect(api.scopes).toBeDefined();
+      expect(typeof api.scopes.list).toBe("function");
+      expect(typeof api.scopes.create).toBe("function");
+    });
+
+    it("should have knowledgeBases resource group", () => {
+      expect(api.knowledgeBases).toBeDefined();
+      expect(typeof api.knowledgeBases.list).toBe("function");
+      expect(typeof api.knowledgeBases.create).toBe("function");
+    });
+
+    it("should have settings resource group", () => {
+      expect(api.settings).toBeDefined();
+      expect(typeof api.settings.get).toBe("function");
+      expect(typeof api.settings.update).toBe("function");
+    });
+
+    it("should have users resource group", () => {
+      expect(api.users).toBeDefined();
+      expect(typeof api.users.list).toBe("function");
+      expect(typeof api.users.create).toBe("function");
+    });
+  });
+
+  describe("FetchError", () => {
+    it("should create error with status and body", () => {
+      const err = new FetchError(404, { error: "Not found" });
+      expect(err.status).toBe(404);
+      expect(err.body).toEqual({ error: "Not found" });
+      expect(err.message).toBe("Not found");
+      expect(err.name).toBe("FetchError");
+    });
+
+    it("should be an instance of Error", () => {
+      const err = new FetchError(500, { error: "Server error" });
+      expect(err).toBeInstanceOf(Error);
+    });
+  });
+
+  describe("access token management", () => {
+    it("should return null when no token getter is set", () => {
+      setAccessTokenGetter(null as unknown as () => string | null);
+      // getAccessToken uses optional chaining so this is safe
+      expect(getAccessToken()).toBeNull();
+    });
+
+    it("should return token from getter function", () => {
+      setAccessTokenGetter(() => "test-token-123");
+      expect(getAccessToken()).toBe("test-token-123");
+    });
+
+    it("should return null when getter returns null", () => {
+      setAccessTokenGetter(() => null);
+      expect(getAccessToken()).toBeNull();
+    });
+  });
+});
