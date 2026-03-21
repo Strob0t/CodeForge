@@ -185,7 +185,12 @@ class AgentLoopExecutor:
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 content = msg.get("content", "")
-                return content if isinstance(content, str) else str(content)
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                    return " ".join(text_parts).strip()
+                return str(content)
         return ""
 
     async def _publish_routing_decision(self, cfg: LoopConfig) -> None:
