@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 )
 
 // AnalyzeBenchmarkRun handles POST /api/v1/benchmarks/runs/{id}/analyze.
 func (h *Handlers) AnalyzeBenchmarkRun(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := chi.URLParam(r, "id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "run id required")
 		return

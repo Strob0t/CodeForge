@@ -1,0 +1,12 @@
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "boundaries": [
+    {
+      "path": "/internal/adapter/http/handlers.go",
+      "type": "api",
+      "counterpart": "/internal/port/http.go",
+      "auto_detected": true
+    }
+  ]
+}

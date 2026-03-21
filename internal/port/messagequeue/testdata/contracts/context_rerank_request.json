@@ -1,0 +1,15 @@
+{
+  "request_id": "550e8400-e29b-41d4-a716-446655440030",
+  "project_id": "550e8400-e29b-41d4-a716-446655440001",
+  "query": "How does the authentication work?",
+  "entries": [
+    {
+      "path": "/src/auth.go",
+      "kind": "file",
+      "content": "func Login() {}",
+      "priority": 1,
+      "tokens": 42
+    }
+  ],
+  "model": "openai/gpt-4o"
+}

@@ -1,0 +1,16 @@
+{
+  "request_id": "550e8400-e29b-41d4-a716-446655440030",
+  "entries": [
+    {
+      "path": "/src/auth.go",
+      "kind": "file",
+      "content": "func Login() {}",
+      "priority": 1,
+      "tokens": 42
+    }
+  ],
+  "fallback_used": false,
+  "tokens_in": 500,
+  "tokens_out": 200,
+  "cost_usd": 0.005
+}
