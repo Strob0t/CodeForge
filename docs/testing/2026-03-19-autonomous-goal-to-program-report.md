@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-19 (updated 2026-03-20)
 **Scenario:** S1 (Easy - CSV-to-JSON Converter)
-**Runs:** 7 (Run 1+2 infra, Run 3+4 executed, Run 5 no workspace, Run 6 full, Run 7/7b goal-gate fix)
+**Runs:** 8 (Run 1-4 csv2json, Run 5-6 workspace fix, Run 7/7b goal-gate, Run 8 wc tool)
 **Model:** openai/container (LM Studio qwen3-30b-a3b local)
 
 ---
@@ -94,6 +94,7 @@ The agent tried to create a CSV with unclosed quotes to trigger csv.Error but in
 | NATS consumers not recreated after purge | HIGH | DOCUMENTED (restart backend after purge) |
 | CreateProject API ignores local_path | MEDIUM | DOCUMENTED (use AdoptProject after create) |
 | Full-auto gate overrides explicit model | HIGH | DOCUMENTED (create goal before agentic run) |
+| `openai/container` routes to wrong LiteLLM wildcard | MEDIUM | DOCUMENTED (use `lm_studio/*` for LM Studio) |
 
 ## Key Learnings
 
@@ -311,3 +312,66 @@ The main program csv2json.py is **functionally correct** — all 3 runtime check
 **Impact:** When `autonomy_level >= 4` and no goals/features exist, the system silently redirects to `goal_researcher` mode, overriding the explicit model from the API request. This causes LiteLLM tag mismatches and 401 errors.
 **Workaround:** Create at least one project goal before sending agentic messages.
 **Proper Fix:** The gate should not override the explicit model, or `goal_researcher` should use the same model/tags as the original request.
+
+## Run 8: S1 wc Tool — New Scenario, First Git Commit (2026-03-21)
+
+**Scenario:** S1 (wc tool) — new CodingChallengesFYI-based scenario replacing csv2json
+**Model:** `lm_studio/qwen/qwen3-30b-a3b` (explicit, NOT `openai/container` which routes to wrong LiteLLM entry)
+
+### Setup Notes
+
+- `openai/container` failed with LiteLLM 401 — matches `openai/*` wildcard which requires `OPENAI_API_KEY`
+- Correct model name for LM Studio: `lm_studio/qwen/qwen3-30b-a3b`
+- All previous learnings applied: adopt workspace, create goal, bypass approvals
+
+| Metric | Value |
+|--------|-------|
+| Agent steps | 20 |
+| Tool calls | 41 (17 LLM, 11 edit_file, 4 write_file, 3 read_file, 2 bash) |
+| Files created | 2 (ccwc.py 86 lines, test_ccwc.py 61 lines) |
+| **Git commits** | **1 (FIRST EVER!)** — `93fd3fd Initial implementation of ccwc.py` |
+| Duration | ~38 min |
+| Exit reason | Completed normally (Error: None) |
+| NATS timeouts | 0 |
+
+### Validation (Run 8)
+
+| Check | Result |
+|-------|--------|
+| ccwc.py exists | PASS |
+| test_ccwc.py exists | PASS |
+| Syntax both files | PASS |
+| `-c` byte count | FAIL (returns 0 instead of 35100) |
+| `-l` line count | **PASS** (100 correct) |
+| `-w` word count | FAIL (returns 0 instead of 7011) |
+| Default (no flag) format | PASS (shows 3 numbers) |
+| Stdin mode `-l` | **PASS** (100 correct via pipe) |
+| Missing file error | PARTIAL (message shown but exit 0) |
+| pytest | 0/7 (TypeError: write() arg) |
+| Lint | 1 finding (unused import) |
+| **Git commit** | **PASS** |
+
+### Milestones
+
+1. **First git commit** across all 8 runs — agent completed the full pipeline
+2. **41 tool calls** — highest count, most diverse (5 different tool types)
+3. **11 edit_file iterations** — agent actively self-correcting
+4. **Normal completion** — no stall detection, agent finished on its own
+
+### Bug Found: `openai/container` LiteLLM Routing
+
+The `openai/container` model name matches the `openai/*` wildcard in `litellm/config.yaml` (line 37-40), which requires `OPENAI_API_KEY`. Since no key is set, all calls fail with 401. The correct model name for LM Studio is `lm_studio/qwen/qwen3-30b-a3b`.
+
+### Updated Comparison Across All Runs
+
+| Run | Scenario | Model | Steps | Tool Calls | Program | Tests | Commit |
+|-----|----------|-------|-------|------------|---------|-------|--------|
+| 1 | csv2json | N/A | 0 | 0 | N/A | N/A | N/A |
+| 2 | csv2json | openai/container | 4 | 4 | PASS | FAIL | PASS |
+| 3 | csv2json | openai/container | 23 | 46 | PASS | FAIL | FAIL |
+| 4 | csv2json | openai/container | ~5 | 10 | PASS | SKIP | FAIL |
+| 5 | csv2json | openai/container | 11 | 11 | N/A | N/A | FAIL |
+| 6 | csv2json | openai/container | 26 | 26 | FAIL | PASS(syn) | FAIL |
+| 7 | csv2json | lm_studio/qwen3 | 0 | 1 | N/A | N/A | N/A |
+| 7b | csv2json | openai/container | 12 | 27 | **PASS** | 1/6 | FAIL |
+| **8** | **wc tool** | **lm_studio/qwen3** | **20** | **41** | **PARTIAL** | 0/7 | **PASS** |
