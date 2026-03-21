@@ -47,6 +47,12 @@ logger = logging.getLogger(__name__)
 # TTL for caching the effective (non-blocked) models list.
 _EFFECTIVE_MODELS_CACHE_TTL = float(os.environ.get("CODEFORGE_EFFECTIVE_MODELS_CACHE_TTL", "5.0"))
 
+# Maximum retries for fallback routing when primary + fallback selection fails.
+MAX_ROUTING_RETRIES: int = 3
+
+# Hard deadline (seconds) for the entire route_with_fallbacks call.
+ROUTING_TIMEOUT_SECONDS: float = 30.0
+
 COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ComplexityTier.SIMPLE: [
         "github_copilot/gpt-4o-mini",
@@ -223,9 +229,18 @@ class HybridRouter:
         max_fallbacks: int = 3,
         primary: RoutingDecision | None = None,
         profile: RoutingProfile | None = None,
+        timeout: float = ROUTING_TIMEOUT_SECONDS,
+        max_retries: int = MAX_ROUTING_RETRIES,
     ) -> RoutingPlan:
-        if primary is None:
+        deadline = time.monotonic() + timeout
+        retries = 0
+
+        while primary is None and retries < max_retries:
+            if time.monotonic() > deadline:
+                logger.warning("route_with_fallbacks: timeout after %.1fs", timeout)
+                break
             primary = self.route(prompt, max_cost=max_cost, profile=profile)
+            retries += 1
 
         available = self._effective_models
 
@@ -239,6 +254,10 @@ class HybridRouter:
                 ),
                 fallbacks=tuple(available[:max_fallbacks]),
             )
+
+        if time.monotonic() > deadline:
+            logger.warning("route_with_fallbacks: timeout reached, returning primary only")
+            return RoutingPlan(primary=primary, fallbacks=())
 
         seen: set[str] = {primary.model}
         fallbacks: list[str] = []
