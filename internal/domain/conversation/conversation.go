@@ -2,6 +2,8 @@ package conversation
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 )
 
@@ -22,6 +24,20 @@ type MessageImage struct {
 	Data      string `json:"data"`       // base64 encoded image data
 	MediaType string `json:"media_type"` // e.g. "image/png"
 	AltText   string `json:"alt_text,omitempty"`
+}
+
+// MaxImageSizeBytes is the maximum allowed size for image data (5MB).
+const MaxImageSizeBytes = 5 * 1024 * 1024
+
+// Validate checks that the image has a media type and does not exceed the size limit.
+func (img *MessageImage) Validate() error {
+	if img.MediaType == "" {
+		return errors.New("image media_type is required")
+	}
+	if len(img.Data) > MaxImageSizeBytes {
+		return fmt.Errorf("image data exceeds maximum size (%d bytes)", len(img.Data))
+	}
+	return nil
 }
 
 // Message represents a single message in a conversation.

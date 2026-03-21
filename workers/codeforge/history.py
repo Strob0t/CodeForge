@@ -6,6 +6,7 @@ using a head-and-tail strategy to preserve the most relevant context.
 
 from __future__ import annotations
 
+import base64
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -148,27 +149,33 @@ class ConversationHistoryManager:
 
             # If images present AND role is "user", use content-array format.
             if msg.images and msg.role == "user":
-                content_parts: list[dict[str, object]] = [{"type": "text", "text": content}]
-                content_parts.extend(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{img.media_type};base64,{img.data}"},
-                    }
-                    for img in msg.images
-                )
-                d["content"] = content_parts
+                valid_images = self._filter_valid_images(msg.images)
+                if valid_images:
+                    content_parts: list[dict[str, object]] = [{"type": "text", "text": content}]
+                    content_parts.extend(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{img.media_type};base64,{img.data}"},
+                        }
+                        for img in valid_images
+                    )
+                    d["content"] = content_parts
+                else:
+                    d["content"] = content
             else:
                 d["content"] = content
         elif msg.images and msg.role == "user":
             # Images without text content.
-            content_parts = [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{img.media_type};base64,{img.data}"},
-                }
-                for img in msg.images
-            ]
-            d["content"] = content_parts
+            valid_images = self._filter_valid_images(msg.images)
+            if valid_images:
+                content_parts = [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{img.media_type};base64,{img.data}"},
+                    }
+                    for img in valid_images
+                ]
+                d["content"] = content_parts
 
         if msg.tool_calls:
             d["tool_calls"] = [
@@ -190,6 +197,22 @@ class ConversationHistoryManager:
             d["name"] = msg.name
 
         return d
+
+    @staticmethod
+    def _filter_valid_images(images: list[object]) -> list[object]:
+        """Filter out images with invalid base64 data."""
+        valid: list[object] = []
+        for img in images:
+            try:
+                base64.b64decode(img.data, validate=True)
+            except Exception:
+                logger.warning(
+                    "skipping image with invalid base64 data",
+                    extra={"image_id": getattr(img, "id", "unknown")},
+                )
+                continue
+            valid.append(img)
+        return valid
 
     def _sanitize_tool_pairing(self, messages: list[dict[str, object]]) -> list[dict[str, object]]:
         """Ensure strict tool-call/result pairing, dedup, and ordering.
