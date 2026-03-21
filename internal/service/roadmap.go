@@ -52,6 +52,8 @@ func (s *RoadmapService) Create(ctx context.Context, req roadmap.CreateRoadmapRe
 }
 
 // GetByProject returns the roadmap for a project with all milestones and features.
+// Uses batch loading to avoid N+1 queries: milestones and features are each
+// loaded in a single query, then features are grouped by milestone in Go.
 func (s *RoadmapService) GetByProject(ctx context.Context, projectID string) (*roadmap.Roadmap, error) {
 	r, err := s.store.GetRoadmapByProject(ctx, projectID)
 	if err != nil {
@@ -63,12 +65,20 @@ func (s *RoadmapService) GetByProject(ctx context.Context, projectID string) (*r
 		return nil, fmt.Errorf("load milestones: %w", err)
 	}
 
+	// Batch-load all features for the roadmap in a single query.
+	allFeatures, err := s.store.ListFeaturesByRoadmap(ctx, r.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load features: %w", err)
+	}
+
+	// Group features by milestone ID.
+	featuresByMilestone := make(map[string][]roadmap.Feature, len(milestones))
+	for _, f := range allFeatures {
+		featuresByMilestone[f.MilestoneID] = append(featuresByMilestone[f.MilestoneID], f)
+	}
+
 	for i := range milestones {
-		features, err := s.store.ListFeatures(ctx, milestones[i].ID)
-		if err != nil {
-			return nil, fmt.Errorf("load features for milestone %s: %w", milestones[i].ID, err)
-		}
-		milestones[i].Features = features
+		milestones[i].Features = featuresByMilestone[milestones[i].ID]
 	}
 
 	r.Milestones = milestones
