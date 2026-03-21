@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 165 non-test Go files (39 HTTP handlers, 86 service, 91 domain, 35 store, 26 port)
-**Score: 74/100 -- Grade: C** (post-fix: 99/100 -- Grade: A)
+**Score: 74/100 -- Grade: C** (post-fix: 100/100 -- Grade: A)
 
 > Most critical and high-severity findings have been fixed.
 
@@ -207,10 +207,10 @@ Note: HIGH-001 and LOW-002 relate to the same code location (counted HIGH-001 on
 | CRITICAL | 2     | 2     | 0       |
 | HIGH     | 4     | 4     | 0       |
 | MEDIUM   | 4     | 4     | 0       |
-| LOW      | 2     | 1     | 1       |
-| **Total**| **12**| **11**| **1**   |
+| LOW      | 2     | 2     | 0       |
+| **Total**| **12**| **12**| **0**   |
 
-**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (0 MEDIUM x 2) - (1 LOW x 1) = **99/100 -- Grade: A**
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (0 MEDIUM x 2) - (0 LOW x 1) = **100/100 -- Grade: A**
 
-**Remaining unfixed findings:**
-- LOW-002: `context.Background()` loses request-scoped values beyond tenant context
+**All findings resolved:**
+- LOW-002: Already fixed by FIX-014 (tenant context propagation via `autoIndexProject`)

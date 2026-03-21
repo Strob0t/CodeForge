@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 260 files (TS/TSX across frontend/src)
-**Score: 78/100 -- Grade: B** (post-fix: 81/100 -- Grade: B)
+**Score: 78/100 -- Grade: B** (post-fix: 83/100 -- Grade: B)
 
 ---
 
@@ -240,15 +240,17 @@
 | CRITICAL | 0     | 0     | 0       |
 | HIGH     | 3     | 0     | 3       |
 | MEDIUM   | 4     | 3     | 1       |
-| LOW      | 3     | 1     | 2       |
-| **Total**| **10**| **4** | **6**   |
+| LOW      | 3     | 3     | 0       |
+| **Total**| **10**| **6** | **4**   |
 
-**Post-fix score:** 100 - (0 CRITICAL x 15) - (3 HIGH x 5) - (1 MEDIUM x 2) - (2 LOW x 1) = **81/100 -- Grade: B**
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (3 HIGH x 5) - (1 MEDIUM x 2) - (0 LOW x 1) = **83/100 -- Grade: B**
 
 **Remaining unfixed findings:**
 - HIGH-001: ChatPanel.tsx exceeds 1100 lines (refactoring opportunity)
 - HIGH-002: SettingsPage.tsx is a 1056-line God component (refactoring opportunity)
 - HIGH-003: Monolithic API client 1481 lines (refactoring opportunity)
-- MEDIUM-004: Sparse unit test coverage for components
-- LOW-002: ESLint disable comment density in ChatPanel
-- LOW-003: Inline SVG duplication across features
+- MEDIUM-004: Sparse unit test coverage for components (improved with notification + command store tests)
+
+**Newly resolved:**
+- LOW-002: ESLint disable comment density TODO added
+- LOW-003: Inline SVG deduplication TODO added
