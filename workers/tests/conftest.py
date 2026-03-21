@@ -1,5 +1,11 @@
 """Shared fixtures for the workers test suite.
 
+TODO: FIX-101: Consolidate FakeLLM helpers. Currently FakeLLM lives in
+tests/fake_llm.py and is imported directly. Some test files define their
+own inline mock LLM classes. Unify all fake LLM implementations into a
+single conftest fixture (e.g., `@pytest.fixture def fake_llm()`) so that
+test setup is consistent and mock behavior is centralized.
+
 TODO (FIX-066 to FIX-070): Missing test coverage for the following modules:
   - codeforge/memory/storage.py (MemoryStore: store, recall, embedding edge cases)
   - codeforge/memory/experience.py (ExperiencePool: lookup, store, invalidate)

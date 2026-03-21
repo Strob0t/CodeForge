@@ -2,6 +2,10 @@
 
 Models are blocked with a TTL. After expiry they become eligible again,
 self-healing when API keys are added or billing is restored.
+
+TODO: FIX-110: This module uses a module-level singleton (_blocklist).
+Consider dependency injection (pass ModelBlocklist into HybridRouter via
+constructor) to improve testability and avoid global mutable state.
 """
 
 from __future__ import annotations
