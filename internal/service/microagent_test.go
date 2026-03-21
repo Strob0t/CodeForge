@@ -736,3 +736,84 @@ func TestMicroagentService_Match_DisabledSkipped(t *testing.T) {
 		t.Errorf("Match() returned %d agents, want 0 (disabled agent should be skipped)", len(matched2))
 	}
 }
+
+func TestMicroagentService_Update_InvalidRegex(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeMicroagentStore()
+	svc := NewMicroagentService(store)
+
+	// Create a valid microagent first.
+	created, err := svc.Create(context.Background(), &microagent.CreateRequest{
+		ProjectID:      "proj-1",
+		Name:           "test-agent",
+		Type:           microagent.TypeKnowledge,
+		TriggerPattern: "docker",
+		Prompt:         "test prompt",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		pattern string
+		wantErr string
+	}{
+		{
+			name:    "invalid regex unclosed bracket",
+			pattern: "^[invalid",
+			wantErr: "invalid trigger_pattern regex:",
+		},
+		{
+			name:    "invalid regex unclosed group",
+			pattern: "(abc",
+			wantErr: "invalid trigger_pattern regex:",
+		},
+		{
+			name:    "pattern exceeds max length",
+			pattern: strings.Repeat("a", microagent.MaxTriggerPatternLength+1),
+			wantErr: "trigger_pattern exceeds maximum length",
+		},
+		{
+			name:    "valid substring pattern accepted",
+			pattern: "kubernetes",
+			wantErr: "",
+		},
+		{
+			name:    "valid regex pattern accepted",
+			pattern: "^(error|warn)",
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, updateErr := svc.Update(context.Background(), created.ID, microagent.UpdateRequest{
+				TriggerPattern: tt.pattern,
+			})
+			if tt.wantErr == "" {
+				if updateErr != nil {
+					t.Errorf("Update() error = %v, want nil", updateErr)
+				}
+			} else {
+				if updateErr == nil {
+					t.Errorf("Update() = nil, want error containing %q", tt.wantErr)
+				} else if !strings.Contains(updateErr.Error(), tt.wantErr) {
+					t.Errorf("Update() error = %q, want containing %q", updateErr.Error(), tt.wantErr)
+				}
+			}
+		})
+	}
+
+	// Verify the original pattern was NOT replaced by an invalid one.
+	got, err := svc.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	// Just verify it is not an invalid pattern.
+	if got.TriggerPattern == "^[invalid" || got.TriggerPattern == "(abc" {
+		t.Errorf("TriggerPattern = %q, should not be an invalid regex", got.TriggerPattern)
+	}
+}

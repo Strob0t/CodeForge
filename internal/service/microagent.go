@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -60,6 +61,14 @@ func (s *MicroagentService) Update(ctx context.Context, id string, req microagen
 		m.Name = req.Name
 	}
 	if req.TriggerPattern != "" {
+		if len(req.TriggerPattern) > microagent.MaxTriggerPatternLength {
+			return nil, errors.New("trigger_pattern exceeds maximum length")
+		}
+		if strings.HasPrefix(req.TriggerPattern, "^") || strings.HasPrefix(req.TriggerPattern, "(") {
+			if _, compileErr := regexp.Compile(req.TriggerPattern); compileErr != nil {
+				return nil, fmt.Errorf("invalid trigger_pattern regex: %w", compileErr)
+			}
+		}
 		m.TriggerPattern = req.TriggerPattern
 	}
 	if req.Description != "" {
