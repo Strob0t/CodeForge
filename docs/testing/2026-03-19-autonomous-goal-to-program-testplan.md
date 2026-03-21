@@ -240,197 +240,462 @@ Phase 8 — Docs + Git (4-6 calls):
 
 ---
 
-### S1: Easy — CSV-to-JSON Converter (Greenfield, Single File)
+### S1: Easy — Build Your Own `wc` Tool (Greenfield, Single File)
 
-**Chat Prompt:**
-> "I want a simple Python script called csv2json.py that converts CSV files to JSON. It should read a CSV file path from the command line, parse it, and output a JSON file with the same name but .json extension. Include error handling for missing files and invalid CSV. Add a small test file test_csv2json.py that tests with a sample CSV."
+> Inspired by [CodingChallengesFYI #1: Build Your Own wc](https://codingchallenges.fyi/challenges/challenge-wc/)
 
-**Expected Goals:** 3-4
-- File conversion logic
-- CLI argument parsing
-- Error handling
-- Basic tests
-
-**Expected Roadmap:** 2 milestones, 5-7 features
-- Milestone 1: Core script (argparse, csv parsing, json output)
-- Milestone 2: Error handling + tests
-
-**Primary Tool Calls:** Write (create 2-3 files), Bash (run script, run test)
-
-**Validation Commands:**
-```
-python csv2json.py sample.csv        # -> produces sample.json
-python csv2json.py nonexistent.csv   # -> error message, no crash
-python -m pytest test_csv2json.py -v # -> tests pass
+**Workspace Setup (Claude Code does this before sending the prompt):**
+```bash
+rm -rf /tmp/s1-wc-tool && mkdir -p /tmp/s1-wc-tool
+cd /tmp/s1-wc-tool && git init -b main
+# Create test data file (Lorem Ipsum, ~7000 words)
+python3 -c "
+import textwrap
+text = 'The quick brown fox jumps over the lazy dog. ' * 800
+with open('test.txt', 'w') as f:
+    for i in range(100):
+        f.write(text[i*350:(i+1)*350] + '\n')
+"
+wc test.txt > expected_wc_output.txt
+echo "# Build Your Own wc Tool" > README.md
+git add . && git commit -m "initial: test data"
 ```
 
-**Success Criteria:**
-- `csv2json.py` exists and runs without errors
-- Converts a valid CSV to correct JSON
-- Handles missing file gracefully
-- Test file exists and passes
+**Project Setup (API):**
+```bash
+# 1. Create project
+PROJECT_ID=$(curl -s -X POST /api/v1/projects -d '{"name":"S1-wc-tool","config":{"autonomy_level":"4","policy_preset":"trusted-mount-autonomous","execution_mode":"mount"}}' | jq -r '.id')
+# 2. Adopt workspace (MANDATORY)
+curl -s -X POST /api/v1/projects/$PROJECT_ID/adopt -d '{"path":"/tmp/s1-wc-tool"}'
+# 3. Create goal (MANDATORY — prevents full-auto gate redirect)
+curl -s -X POST /api/v1/projects/$PROJECT_ID/goals -d '{"kind":"requirement","title":"Build wc clone","content":"Build a Python wc clone with -c -l -w -m flags","priority":1}'
+# 4. Create conversation + bypass approvals
+CONV_ID=$(curl -s -X POST /api/v1/projects/$PROJECT_ID/conversations -d '{"title":"S1 wc tool"}' | jq -r '.id')
+curl -s -X POST /api/v1/conversations/$CONV_ID/bypass-approvals
+```
+
+**Chat Prompt (agentic message):**
+```json
+{
+  "content": "Build a Python clone of the Unix wc (word count) tool called ccwc.py.\n\nRequirements:\n1. Count bytes in a file: ccwc -c test.txt\n2. Count lines in a file: ccwc -l test.txt\n3. Count words in a file: ccwc -w test.txt\n4. Count characters in a file: ccwc -m test.txt\n5. Default (no flags): show lines, words, and bytes (like wc with no args)\n6. Read from stdin if no filename given: cat test.txt | python ccwc.py -l\n7. Handle missing file errors gracefully\n8. Write pytest tests in test_ccwc.py covering all flags and edge cases\n9. Commit all files to git\n\nA test file test.txt already exists in the workspace. Compare your output against the real wc command.\nThe workspace is /tmp/s1-wc-tool.",
+  "role": "user",
+  "model": "openai/container",
+  "agentic": true
+}
+```
+
+**Expected Tool Calls:** 15-30
+
+| Tool | Expected Count | Purpose |
+|------|---------------|---------|
+| `read_file` | 1-2 | Read test.txt, README |
+| `write_file` | 2-3 | ccwc.py, test_ccwc.py, README update |
+| `edit_file` | 3-8 | Fix bugs after testing |
+| `bash` | 5-10 | Run ccwc.py with flags, pytest, wc comparison, git |
+| `list_directory` | 0-1 | Check workspace |
+| `LLM` | 5-15 | Reasoning iterations |
+
+**Validation (Claude Code runs after agent completes):**
+```bash
+cd /tmp/s1-wc-tool
+
+# 1. Files exist
+test -f ccwc.py && echo "PASS: ccwc.py exists" || echo "FAIL"
+test -f test_ccwc.py && echo "PASS: test_ccwc.py exists" || echo "FAIL"
+
+# 2. Syntax valid
+python3 -m py_compile ccwc.py && echo "PASS: syntax" || echo "FAIL"
+python3 -m py_compile test_ccwc.py && echo "PASS: test syntax" || echo "FAIL"
+
+# 3. Byte count (-c) matches wc
+EXPECTED=$(wc -c < test.txt | tr -d ' ')
+ACTUAL=$(python3 ccwc.py -c test.txt 2>/dev/null | grep -oP '\d+' | head -1)
+[ "$EXPECTED" = "$ACTUAL" ] && echo "PASS: -c byte count" || echo "FAIL: expected=$EXPECTED actual=$ACTUAL"
+
+# 4. Line count (-l) matches wc
+EXPECTED=$(wc -l < test.txt | tr -d ' ')
+ACTUAL=$(python3 ccwc.py -l test.txt 2>/dev/null | grep -oP '\d+' | head -1)
+[ "$EXPECTED" = "$ACTUAL" ] && echo "PASS: -l line count" || echo "FAIL: expected=$EXPECTED actual=$ACTUAL"
+
+# 5. Word count (-w) matches wc
+EXPECTED=$(wc -w < test.txt | tr -d ' ')
+ACTUAL=$(python3 ccwc.py -w test.txt 2>/dev/null | grep -oP '\d+' | head -1)
+[ "$EXPECTED" = "$ACTUAL" ] && echo "PASS: -w word count" || echo "FAIL: expected=$EXPECTED actual=$ACTUAL"
+
+# 6. Default (no flag) shows lines words bytes
+python3 ccwc.py test.txt 2>/dev/null | grep -qP '\d+\s+\d+\s+\d+' && echo "PASS: default output" || echo "FAIL"
+
+# 7. Stdin mode
+STDIN_RESULT=$(cat test.txt | python3 ccwc.py -l 2>/dev/null | grep -oP '\d+' | head -1)
+[ "$STDIN_RESULT" = "$EXPECTED" ] && echo "PASS: stdin mode" || echo "FAIL"
+
+# 8. Missing file error
+python3 ccwc.py nonexistent.txt 2>/dev/null; [ $? -ne 0 ] && echo "PASS: error handling" || echo "FAIL"
+
+# 9. Pytest
+python3 -m pytest test_ccwc.py -v 2>&1 | tail -5
+
+# 10. Lint
+python3 -m ruff check ccwc.py test_ccwc.py 2>&1 | head -10
+
+# 11. Git
+git log --oneline | head -5
+```
+
+**Success Criteria (minimum for PASS):**
+- `ccwc.py` and `test_ccwc.py` exist with valid syntax
+- `-c`, `-l`, `-w` flags produce correct counts matching `wc`
+- Missing file returns non-zero exit code
+- At least 3/5 pytest tests pass
 
 ---
 
-### S2: Medium — CLI Task Manager (Greenfield, Multi-Module)
+### S2: Medium — Build Your Own `cut` Tool (Greenfield, Multi-Module)
+
+> Inspired by [CodingChallengesFYI #4: Build Your Own cut](https://codingchallenges.fyi/challenges/challenge-cut/)
+
+**Workspace Setup:**
+```bash
+rm -rf /tmp/s2-cut-tool && mkdir -p /tmp/s2-cut-tool
+cd /tmp/s2-cut-tool && git init -b main
+
+# Create tab-separated test data (movie ratings)
+python3 -c "
+lines = [
+    'f0\tf1\tf2\tf3\tf4\tf5',
+    '1\tJohn Smith\t35\tM\t90000\tNew York',
+    '2\tJane Doe\t28\tF\t85000\tSan Francisco',
+    '3\tBob Wilson\t42\tM\t110000\tChicago',
+    '4\tAlice Brown\t31\tF\t95000\tBoston',
+    '5\tCharlie Davis\t55\tM\t120000\tSeattle',
+]
+with open('sample.tsv', 'w') as f:
+    f.write('\n'.join(lines) + '\n')
+
+# CSV test data
+csv_lines = [
+    'id,name,age,city',
+    '1,Alice,30,New York',
+    '2,Bob,25,Los Angeles',
+    '3,Charlie,35,Chicago',
+]
+with open('sample.csv', 'w') as f:
+    f.write('\n'.join(csv_lines) + '\n')
+"
+
+# Generate expected outputs for validation
+cut -f2 sample.tsv > expected_f2.txt
+cut -d',' -f1,3 sample.csv > expected_csv_f13.txt
+
+echo "# Build Your Own cut Tool" > README.md
+git add . && git commit -m "initial: test data"
+```
+
+**Project Setup (API):** Same pattern as S1 with `name: "S2-cut-tool"`, `path: "/tmp/s2-cut-tool"`, goal: "Build cut clone".
 
 **Chat Prompt:**
-> "I want a Python CLI task manager. It should support: adding tasks with a title and optional priority (low/medium/high), listing all tasks filtered by status (open/done), completing a task by ID, deleting a task by ID, persistent storage in a JSON file, a simple test suite that validates all commands, and a README with usage instructions."
-
-**Expected Goals:** 5-7
-- CRUD operations (add, list, complete, delete)
-- Data model (Task with ID, title, priority, status)
-- JSON persistence
-- CLI interface (argparse)
-- Test suite
-- Documentation
-
-**Expected Roadmap:** 6 milestones, 15-20 features
-- Milestone 1: Project Setup (pyproject.toml, package structure)
-- Milestone 2: Core Data Model (dataclass, enums, serialization)
-- Milestone 3: Storage Layer (JSON load/save, atomic writes)
-- Milestone 4: CLI Interface (argparse subcommands)
-- Milestone 5: Test Suite (pytest, fixtures, all commands)
-- Milestone 6: Documentation (README)
-
-**Primary Tool Calls:** Write (create 8-12 files), Read (verify structure), Bash (pytest, pip install), Glob (find test files), Search (check imports)
-
-**Validation Commands:**
+```json
+{
+  "content": "Build a Python clone of the Unix cut tool as a proper Python package.\n\nRequirements:\n1. Create a package structure: cccut/ with __init__.py, __main__.py, parser.py, cutter.py\n2. Field extraction: cccut -f2 sample.tsv (extract field 2, tab-delimited)\n3. Custom delimiter: cccut -f1 -d',' sample.csv\n4. Multiple fields: cccut -f1,3 sample.tsv or cccut -f '1 3' sample.tsv\n5. Read from stdin: cat sample.tsv | python -m cccut -f2\n6. Error handling: missing file, invalid field number, no -f specified\n7. Create pyproject.toml with pytest dependency\n8. Write comprehensive tests in tests/ directory:\n   - tests/__init__.py\n   - tests/test_parser.py (argument parsing)\n   - tests/test_cutter.py (field extraction logic)\n   - tests/test_cli.py (end-to-end CLI tests)\n9. Add a README.md with usage examples\n10. Run ruff for linting, fix any issues\n11. Commit everything to git\n\nTest data files sample.tsv and sample.csv already exist in the workspace.\nCompare output against the real cut command.\nThe workspace is /tmp/s2-cut-tool.",
+  "role": "user",
+  "model": "openai/container",
+  "agentic": true
+}
 ```
-python -m task_manager --help           # -> shows usage
-python -m task_manager add --title "Buy groceries" --priority high
-python -m task_manager list             # -> shows task
-python -m task_manager complete 1       # -> marks done
-python -m task_manager delete 1         # -> removes task
-python -m pytest -v                     # -> all tests pass
+
+**Expected Tool Calls:** 33-60
+
+| Tool | Expected Count | Purpose |
+|------|---------------|---------|
+| `list_directory` | 2 | Check workspace, verify package structure |
+| `glob_files` | 2 | Find Python files, find configs |
+| `read_file` | 3-5 | sample.tsv, sample.csv, README, failing tests |
+| `write_file` | 8-12 | pyproject.toml, 4 package files, 3 test files, README |
+| `edit_file` | 5-10 | Wire entry point, fix tests, fix lint |
+| `bash` | 12-18 | mkdir, py_compile, pytest, ruff, git, smoke tests, cut comparison |
+| `search_files` | 1-2 | Check imports |
+| `LLM` | 10-20 | Reasoning |
+
+**Validation:**
+```bash
+cd /tmp/s2-cut-tool
+
+# 1. Package structure exists
+test -d cccut && test -f cccut/__init__.py && test -f cccut/__main__.py && echo "PASS: package" || echo "FAIL"
+test -f cccut/parser.py && test -f cccut/cutter.py && echo "PASS: modules" || echo "FAIL"
+test -d tests && test -f tests/test_cli.py && echo "PASS: tests dir" || echo "FAIL"
+test -f pyproject.toml && echo "PASS: pyproject.toml" || echo "FAIL"
+
+# 2. Syntax valid
+python3 -m py_compile cccut/__init__.py cccut/__main__.py cccut/parser.py cccut/cutter.py && echo "PASS: syntax" || echo "FAIL"
+
+# 3. Field extraction (-f2, tab-delimited)
+EXPECTED=$(cut -f2 sample.tsv)
+ACTUAL=$(python3 -m cccut -f2 sample.tsv 2>/dev/null)
+[ "$EXPECTED" = "$ACTUAL" ] && echo "PASS: -f2 tab" || echo "FAIL: field 2 mismatch"
+
+# 4. Custom delimiter (-d',')
+EXPECTED=$(cut -d',' -f1,3 sample.csv)
+ACTUAL=$(python3 -m cccut -d',' -f1,3 sample.csv 2>/dev/null)
+[ "$EXPECTED" = "$ACTUAL" ] && echo "PASS: -d, -f1,3" || echo "FAIL: csv field mismatch"
+
+# 5. Stdin mode
+STDIN_RESULT=$(cat sample.tsv | python3 -m cccut -f2 2>/dev/null)
+[ "$STDIN_RESULT" = "$(cut -f2 sample.tsv)" ] && echo "PASS: stdin" || echo "FAIL"
+
+# 6. Error handling
+python3 -m cccut -f2 nonexistent.txt 2>/dev/null; [ $? -ne 0 ] && echo "PASS: missing file error" || echo "FAIL"
+python3 -m cccut sample.tsv 2>/dev/null; [ $? -ne 0 ] && echo "PASS: no -f error" || echo "FAIL"
+
+# 7. Pytest
+python3 -m pytest tests/ -v 2>&1 | tail -10
+
+# 8. Lint
+python3 -m ruff check cccut/ tests/ 2>&1 | head -10
+
+# 9. Git
+git log --oneline | head -5
 ```
 
 **Success Criteria:**
-- `python -m task_manager --help` exits 0
-- Full CRUD cycle works (add -> list -> complete -> delete)
-- `python -m pytest` exits 0
-- JSON file created and valid
+- Proper Python package structure (cccut/ with 4 modules)
+- `-f2` with tab-delimited file matches `cut` output
+- `-d','` custom delimiter works
+- Stdin mode works
+- Tests directory with 3+ test files
+- At least 5/10 pytest tests pass
+- pyproject.toml exists
 
 ---
 
-### S3: Hard — Add Feature to Existing Codebase (Brownfield)
+### S3: Hard — Extend the `cut` Tool with New Features (Brownfield)
 
-**Precondition:** The TestRepo must contain an existing Python project. If the TestRepo is empty or not suitable, use Phase 1 to seed it with the S2 output from a previous run, OR create a starter codebase via `browser_evaluate`:
+> S3 builds on the S2 output. The agent receives an **existing codebase** and must
+> **read, understand, and extend** it without breaking existing functionality.
 
-```js
-// Seed starter codebase via API — creates a basic Flask app with existing routes
-// This gives the agent an existing codebase to READ, UNDERSTAND, and EXTEND
+**Precondition:** S2 must have produced a working `cccut` package. If not available,
+Claude Code seeds a reference implementation before starting S3.
+
+**Workspace Setup:**
+```bash
+# Option A: Use S2 output (if available and working)
+cp -r /tmp/s2-cut-tool /tmp/s3-cut-extended
+cd /tmp/s3-cut-extended && git checkout -b feature/byte-ranges
+
+# Option B: Seed reference implementation (if S2 output not available)
+rm -rf /tmp/s3-cut-extended && mkdir -p /tmp/s3-cut-extended
+cd /tmp/s3-cut-extended && git init -b main
+# [Claude Code creates a minimal working cccut package with tests]
+# This MUST include: cccut/{__init__,__main__,parser,cutter}.py, tests/{__init__,test_cli}.py
+# All existing tests MUST pass before S3 starts
+git add . && git commit -m "initial: working cut clone from S2"
 ```
+
+**Project Setup (API):** Same pattern with `name: "S3-cut-extended"`, `path: "/tmp/s3-cut-extended"`.
 
 **Chat Prompt:**
-> "This project has an existing Python application. I want you to: 1) Explore the codebase to understand the current architecture, 2) Add a new 'tags' feature — each task should support multiple string tags, 3) Add a CLI command 'search' that finds tasks by tag, 4) Update the JSON storage to include tags, 5) Migrate existing data (tasks without tags get an empty list), 6) Add tests for the new feature, 7) Update the README to document the tags feature. Do NOT break existing functionality — all existing tests must still pass after your changes."
-
-**Expected Goals:** 6-8
-- Codebase exploration / understanding
-- Data model extension (tags field)
-- New CLI command (search by tag)
-- Storage migration (backward compatibility)
-- Add tag to existing commands (--tags on add)
-- Test coverage for new feature
-- Documentation update
-- Regression safety (existing tests pass)
-
-**Expected Roadmap:** 5 milestones, 12-18 features
-- Milestone 1: Codebase Analysis (read files, understand architecture)
-- Milestone 2: Data Model Extension (add tags to Task, migration)
-- Milestone 3: CLI Extension (--tags on add, search command)
-- Milestone 4: Storage Update (backward-compatible JSON)
-- Milestone 5: Tests + Docs (new tests, update README)
-
-**Primary Tool Calls:**
-- **Read** — Heavy: agent must read existing models.py, cli.py, storage.py, tests
-- **Search** — Heavy: find where Task is defined, where CLI commands are registered, where JSON is parsed
-- **Glob** — Medium: find all test files, find all Python files
-- **ListDir** — Medium: understand project structure
-- **Edit** — Heavy: modify existing files (add tags field, update CLI, extend storage)
-- **Write** — Light: new test files, possibly new modules
-- **Bash** — Heavy: run existing tests first (regression), run new tests, check lint
-
-**Validation Commands:**
+```json
+{
+  "content": "This project has an existing Python cut tool clone (cccut package). I want you to extend it with new features.\n\nIMPORTANT: First explore the codebase to understand the architecture. Do NOT overwrite existing code blindly.\n\nNew features to add:\n1. Byte range selection: cccut -b1-5 file.txt (extract bytes 1-5 from each line)\n2. Character range selection: cccut -c3-8 file.txt (extract characters 3-8)\n3. Complement mode: cccut --complement -f2 file.tsv (print everything EXCEPT field 2)\n4. Output delimiter: cccut --output-delimiter='|' -f1,3 file.tsv (use | between output fields)\n5. Support field ranges: cccut -f2-4 file.tsv (fields 2, 3, and 4)\n6. Add --version flag showing 'cccut 2.0'\n\nConstraints:\n- ALL existing tests must still pass (zero regressions)\n- Add NEW tests for each new feature in tests/test_ranges.py and tests/test_options.py\n- Update README.md with new feature documentation\n- Run ruff, fix any lint issues\n- Commit with a descriptive message\n\nThe workspace is /tmp/s3-cut-extended.",
+  "role": "user",
+  "model": "openai/container",
+  "agentic": true
+}
 ```
-python -m pytest -v                              # -> ALL tests pass (old + new)
-python -m task_manager add --title "Work" --tags "urgent,office"
-python -m task_manager search --tag "urgent"     # -> finds the task
-python -m task_manager list                      # -> tags visible in output
-cat tasks.json | python -m json.tool             # -> tags field present
+
+**Expected Tool Calls:** 47-80
+
+| Tool | Expected Count | Purpose |
+|------|---------------|---------|
+| `list_directory` | 3 | Workspace, cccut/, tests/ |
+| `glob_files` | 3 | All .py files, test files, configs |
+| `read_file` | 10+ | All existing source files, tests, README, pyproject.toml |
+| `write_file` | 2-3 | New test files (test_ranges.py, test_options.py) |
+| `edit_file` | 10+ | parser.py (add args), cutter.py (byte/char/complement), cli, README |
+| `bash` | 15+ | pytest (5x+), smoke tests, ruff, git, baseline verification |
+| `search_files` | 5+ | Find definitions, imports, argparse setup, edit points |
+| `LLM` | 15-25 | Reasoning |
+
+**Validation:**
+```bash
+cd /tmp/s3-cut-extended
+
+# 1. Existing tests still pass (CRITICAL — no regressions)
+python3 -m pytest tests/test_cli.py -v 2>&1 | tail -5
+EXISTING_PASS=$?
+[ $EXISTING_PASS -eq 0 ] && echo "PASS: no regression" || echo "FAIL: REGRESSION!"
+
+# 2. Byte range (-b1-5)
+echo "Hello World" | python3 -m cccut -b1-5 2>/dev/null | grep -q "Hello" && echo "PASS: -b byte range" || echo "FAIL"
+
+# 3. Character range (-c3-8)
+echo "Hello World" | python3 -m cccut -c3-8 2>/dev/null | grep -q "llo Wo" && echo "PASS: -c char range" || echo "FAIL"
+
+# 4. Complement mode
+echo -e "a\tb\tc" | python3 -m cccut --complement -f2 2>/dev/null | grep -q "a" && echo "PASS: complement" || echo "FAIL"
+
+# 5. Output delimiter
+echo -e "a\tb\tc" | python3 -m cccut --output-delimiter='|' -f1,3 2>/dev/null | grep -q "a|c" && echo "PASS: output delimiter" || echo "FAIL"
+
+# 6. Field range (-f2-4)
+echo -e "a\tb\tc\td\te" | python3 -m cccut -f2-4 2>/dev/null | grep -q "b" && echo "PASS: field range" || echo "FAIL"
+
+# 7. --version
+python3 -m cccut --version 2>/dev/null | grep -q "2.0" && echo "PASS: version" || echo "FAIL"
+
+# 8. New test files exist
+test -f tests/test_ranges.py && echo "PASS: test_ranges.py" || echo "FAIL"
+test -f tests/test_options.py && echo "PASS: test_options.py" || echo "FAIL"
+
+# 9. All tests pass (old + new)
+python3 -m pytest tests/ -v 2>&1 | tail -10
+
+# 10. Lint clean
+python3 -m ruff check cccut/ tests/ 2>&1 | head -5
+
+# 11. Git commit
+git log --oneline | head -5
 ```
 
 **Success Criteria:**
-- All **existing** tests still pass (no regression)
-- New tag-related tests pass
-- `search --tag` command works
-- Tasks can be created with tags
-- Existing tasks without tags don't crash (migration)
-- README updated with tags documentation
+- **Zero regressions** — all existing tests still pass
+- At least 3/6 new features work correctly
+- New test files exist with tests for new features
+- README updated with new feature documentation
+- Agent demonstrated read-before-edit pattern (10+ read_file calls)
 
 ---
 
-### S4: Expert — REST API with Tests and Build Pipeline (TypeScript)
+### S4: Expert — Build Your Own JSON Parser (TypeScript, Strict Types)
+
+> Inspired by [CodingChallengesFYI #2: Build Your Own JSON Parser](https://codingchallenges.fyi/challenges/challenge-json-parser/)
+
+**Workspace Setup:**
+```bash
+rm -rf /tmp/s4-json-parser && mkdir -p /tmp/s4-json-parser
+cd /tmp/s4-json-parser && git init -b main
+
+# Create test JSON files for validation (from JSON.org test suite)
+mkdir -p tests/fixtures
+echo '{}' > tests/fixtures/step1_valid.json
+echo '' > tests/fixtures/step1_invalid.json
+echo '{"key": "value"}' > tests/fixtures/step2_valid.json
+echo '{"key": "value",}' > tests/fixtures/step2_invalid.json  # trailing comma
+echo '{"key1": true, "key2": false, "key3": null, "key4": "value", "key5": 101}' > tests/fixtures/step3_valid.json
+echo '{"key": "value", "nested": {"inner": [1, 2, 3]}, "array": ["a", "b"]}' > tests/fixtures/step4_valid.json
+echo '{"key": "value",, "extra_comma": true}' > tests/fixtures/step4_invalid.json
+
+echo "# Build Your Own JSON Parser" > README.md
+git add . && git commit -m "initial: test fixtures"
+```
+
+**Project Setup (API):** Same pattern with `name: "S4-json-parser"`, `path: "/tmp/s4-json-parser"`.
 
 **Chat Prompt:**
-> "Build a REST API for a bookmark manager using TypeScript and Node.js (no framework — use native http module or Express if needed). It should have: 1) CRUD endpoints for bookmarks (title, url, tags, created_at), 2) Validation (URL format, required fields), 3) In-memory storage with optional JSON file persistence, 4) A test suite using the built-in Node.js test runner or vitest, 5) TypeScript strict mode with proper types (no 'any'), 6) A package.json with build and test scripts, 7) A tsconfig.json configured for ES modules, 8) Error handling with proper HTTP status codes, 9) A README with API documentation and curl examples."
-
-**Expected Goals:** 8-12
-- REST API design (routes, methods, status codes)
-- Bookmark data model (TypeScript interfaces)
-- URL validation
-- CRUD operations
-- In-memory + file persistence
-- TypeScript configuration (strict, ESM)
-- Build pipeline (compile, run, test)
-- Test suite
-- Error handling
-- API documentation
-
-**Expected Roadmap:** 7-8 milestones, 20-30 features
-- Milestone 1: Project Setup (package.json, tsconfig.json, directory structure)
-- Milestone 2: Types & Models (Bookmark interface, validation types, error types)
-- Milestone 3: Storage Layer (in-memory store, JSON persistence, interface)
-- Milestone 4: HTTP Server (routing, request parsing, response helpers)
-- Milestone 5: CRUD Endpoints (GET/POST/PUT/DELETE /bookmarks)
-- Milestone 6: Validation & Error Handling (URL validation, field validation, error responses)
-- Milestone 7: Test Suite (API tests, model tests, storage tests)
-- Milestone 8: Documentation (README with curl examples)
-
-**Primary Tool Calls:**
-- **Write** — Heavy: create 15-25 files (src/, tests/, configs)
-- **Read** — Heavy: verify generated code, check imports
-- **Edit** — Heavy: iterative fixes after test runs fail
-- **Bash** — Heavy: npm init, npm install, tsc (compile), npm test, npm run build, curl tests
-- **Search** — Heavy: find type definitions, trace imports, check error handling
-- **Glob** — Heavy: find all .ts files, find config files, find test files
-- **ListDir** — Medium: verify directory structure
-
-**Validation Commands:**
+```json
+{
+  "content": "Build a JSON parser in TypeScript from scratch (do NOT use JSON.parse).\n\nRequirements:\n1. Project setup:\n   - package.json with build, test, and start scripts\n   - tsconfig.json with strict mode, ES2022 target, ESM modules\n   - Source in src/, tests in tests/\n\n2. Lexer (src/lexer.ts):\n   - Tokenize JSON input into: STRING, NUMBER, TRUE, FALSE, NULL, LBRACE, RBRACE, LBRACKET, RBRACKET, COLON, COMMA\n   - Handle escape sequences in strings (\\n, \\t, \\\", \\\\)\n   - Report line/column for error messages\n\n3. Parser (src/parser.ts):\n   - Recursive descent parser consuming token stream\n   - Support: objects, arrays, strings, numbers, booleans, null\n   - Nested structures (objects in arrays, arrays in objects)\n   - Meaningful error messages with position\n\n4. CLI (src/cli.ts):\n   - Read from file: ccjson file.json (exit 0 if valid, exit 1 if invalid)\n   - Read from stdin: cat file.json | ccjson\n   - Pretty-print mode: ccjson --pretty file.json\n   - Output parsed structure: ccjson --ast file.json\n\n5. Types (src/types.ts):\n   - Token type with discriminated unions\n   - JsonValue type (recursive: string | number | boolean | null | JsonObject | JsonArray)\n   - NO 'any' type anywhere\n\n6. Tests (vitest):\n   - tests/lexer.test.ts — tokenization tests\n   - tests/parser.test.ts — parsing valid/invalid JSON\n   - tests/cli.test.ts — CLI integration tests\n   - Use test fixtures in tests/fixtures/\n\n7. Quality:\n   - npm run build must compile without errors\n   - npm test must pass all tests\n   - No 'any' or 'as any' in source code\n   - ESLint or biome for linting (optional)\n\n8. Commit everything to git\n\nTest fixture files already exist in tests/fixtures/.\nThe workspace is /tmp/s4-json-parser.",
+  "role": "user",
+  "model": "openai/container",
+  "agentic": true
+}
 ```
-npm run build                                    # -> TypeScript compiles without errors
-npm test                                         # -> test suite passes
-npm start &                                      # -> server starts on port 3000
-curl -X POST http://localhost:3000/bookmarks \
-  -H "Content-Type: application/json" \
-  -d '{"title":"GitHub","url":"https://github.com","tags":["dev"]}'
-                                                 # -> 201 Created
-curl http://localhost:3000/bookmarks             # -> returns bookmark list
-curl http://localhost:3000/bookmarks/1           # -> returns single bookmark
-curl -X DELETE http://localhost:3000/bookmarks/1 # -> 204 No Content
-curl -X POST http://localhost:3000/bookmarks \
-  -d '{"title":"Bad"}'                           # -> 400 Bad Request (missing url)
+
+**Expected Tool Calls:** 54-100
+
+| Tool | Expected Count | Purpose |
+|------|---------------|---------|
+| `list_directory` | 2-3 | Workspace, src/, tests/ |
+| `glob_files` | 3 | .ts files, test files, fixtures |
+| `read_file` | 5-8 | Fixture files, type errors, failing tests |
+| `write_file` | 12-18 | package.json, tsconfig, 5+ src files, 3 test files, README, .gitignore |
+| `edit_file` | 8-15 | Fix type errors, fix test failures, add validation |
+| `bash` | 20-30 | npm install, tsc (6x+), npm test (3x+), build, smoke tests, git |
+| `search_files` | 4+ | Check for 'any' types, find imports, verify interfaces |
+| `LLM` | 15-25 | Reasoning |
+
+**Validation:**
+```bash
+cd /tmp/s4-json-parser
+
+# 1. Project structure
+test -f package.json && echo "PASS: package.json" || echo "FAIL"
+test -f tsconfig.json && echo "PASS: tsconfig.json" || echo "FAIL"
+test -f src/lexer.ts && echo "PASS: lexer.ts" || echo "FAIL"
+test -f src/parser.ts && echo "PASS: parser.ts" || echo "FAIL"
+test -f src/types.ts && echo "PASS: types.ts" || echo "FAIL"
+test -f src/cli.ts && echo "PASS: cli.ts" || echo "FAIL"
+
+# 2. TypeScript compiles
+npx tsc --noEmit 2>&1 | tail -5
+TSC_EXIT=$?
+[ $TSC_EXIT -eq 0 ] && echo "PASS: tsc compiles" || echo "FAIL: tsc errors"
+
+# 3. No 'any' types
+ANY_COUNT=$(grep -rn ': any\|as any\|<any>' src/ 2>/dev/null | wc -l)
+[ "$ANY_COUNT" -eq 0 ] && echo "PASS: no any types" || echo "FAIL: $ANY_COUNT any types found"
+
+# 4. Build succeeds
+npm run build 2>&1 | tail -3
+[ $? -eq 0 ] && echo "PASS: build" || echo "FAIL: build error"
+
+# 5. Valid JSON accepted (exit 0)
+echo '{"key": "value"}' | node dist/cli.js 2>/dev/null
+[ $? -eq 0 ] && echo "PASS: valid JSON accepted" || echo "FAIL"
+
+# 6. Invalid JSON rejected (exit 1)
+echo '{"key": "value",}' | node dist/cli.js 2>/dev/null
+[ $? -ne 0 ] && echo "PASS: invalid JSON rejected" || echo "FAIL"
+
+# 7. Nested JSON
+echo '{"a": [1, {"b": true}]}' | node dist/cli.js 2>/dev/null
+[ $? -eq 0 ] && echo "PASS: nested JSON" || echo "FAIL"
+
+# 8. Empty input rejected
+echo '' | node dist/cli.js 2>/dev/null
+[ $? -ne 0 ] && echo "PASS: empty input rejected" || echo "FAIL"
+
+# 9. File mode
+node dist/cli.js tests/fixtures/step4_valid.json 2>/dev/null
+[ $? -eq 0 ] && echo "PASS: file mode" || echo "FAIL"
+
+# 10. Tests pass
+npm test 2>&1 | tail -10
+
+# 11. Test files exist
+test -f tests/lexer.test.ts && echo "PASS: lexer tests" || echo "FAIL"
+test -f tests/parser.test.ts && echo "PASS: parser tests" || echo "FAIL"
+
+# 12. Git
+git log --oneline | head -5
 ```
 
 **Success Criteria:**
-- `npm run build` exits 0 (TypeScript compiles cleanly)
-- `npm test` exits 0
-- Server starts and responds to HTTP requests
-- CRUD cycle works (POST -> GET -> PUT -> DELETE)
-- Invalid requests return proper 4xx errors
-- No `any` types in source code (strict mode)
+- `npm run build` exits 0 (TypeScript compiles cleanly in strict mode)
+- No `any` types in source code
+- Valid JSON accepted (exit 0), invalid JSON rejected (exit 1)
+- Nested structures parsed correctly
+- Test files exist for lexer and parser
+- `npm test` has at least 5 passing tests
 
 ---
+
+### Alternative Scenarios (Rotation Pool)
+
+For repeated testing, rotate through these alternatives to avoid the agent "memorizing" solutions:
+
+| ID | Name | Difficulty | Language | Source |
+|----|------|-----------|----------|--------|
+| S1a | Build Your Own `cat` | Easy | Python | [CodingChallengesFYI](https://codingchallenges.fyi/challenges/challenge-cat/) |
+| S1b | Build Your Own Calculator | Easy | Python | [CodingChallengesFYI](https://codingchallenges.fyi/challenges/challenge-calculator/) |
+| S2a | Build Your Own `sort` Tool | Medium | Python | [CodingChallengesFYI](https://codingchallenges.fyi/challenges/challenge-sort/) |
+| S2b | Build Your Own `uniq` Tool | Medium | Go | [CodingChallengesFYI](https://codingchallenges.fyi/challenges/challenge-uniq/) |
+| S3a | Add `--complement` to `sort` | Hard | Python | Extend S2a output |
+| S3b | Add `--count` + `--repeated` to `uniq` | Hard | Go | Extend S2b output |
+| S4a | Build Your Own `grep` | Expert | Go | [CodingChallengesFYI](https://codingchallenges.fyi/challenges/challenge-grep/) |
+| S4b | Build Your Own URL Shortener | Expert | TypeScript | [CodingChallengesFYI](https://codingchallenges.fyi/challenges/challenge-url-shortener/) |
+
+Each alternative follows the same testplan structure (workspace setup, API setup, prompt, validation, criteria).
 
 ### Scenario Selection Logic
 
@@ -443,17 +708,37 @@ If this is the FIRST test run:
 If S1 passed on a previous run:
   -> Use S2 (Medium) as the primary validation scenario
 
-If S2 passed AND TestRepo has existing code:
+If S2 passed:
   -> Use S3 (Hard) to test brownfield capabilities
+     (S3 REQUIRES S2 output as input — seed if not available)
 
 If S2 passed AND want to test TypeScript/multi-language:
   -> Use S4 (Expert)
 
 For regression testing (scheduled/cron):
-  -> Rotate: S1 -> S2 -> S3 -> S4 -> S1 -> ...
+  -> Rotate: S1 -> S2 -> S3 -> S4 -> S1a -> S2a -> S4a -> ...
+
+For comparison testing:
+  -> Run same scenario with different models (local vs cloud)
 ```
 
 **The scenario ID (S1-S4) must be recorded in the test report.**
+
+### Critical Setup Checklist (ALL scenarios)
+
+Before dispatching any agentic message, Claude Code MUST verify:
+
+- [ ] Docker services running (postgres, nats, litellm)
+- [ ] NATS stream purged
+- [ ] Go backend running with `APP_ENV=development`
+- [ ] Python worker running with `CODEFORGE_ROUTING_ENABLED=false`
+- [ ] Frontend running
+- [ ] Project created via API
+- [ ] **Workspace adopted** via `POST /projects/{id}/adopt` (MANDATORY)
+- [ ] **At least one goal created** via `POST /projects/{id}/goals` (MANDATORY — prevents full-auto gate)
+- [ ] Conversation created and approvals bypassed
+- [ ] Test data files placed in workspace (if required by scenario)
+- [ ] Model `openai/container` (or target model) is healthy in LiteLLM
 
 ---
 
