@@ -9,7 +9,7 @@ import (
 
 func TestNew(t *testing.T) {
 	cfg := config.Logging{Level: "debug", Service: "test-svc"}
-	l, closer := New(cfg)
+	l, closer, _ := New(cfg)
 	defer closer.Close()
 	if l == nil {
 		t.Fatal("expected non-nil logger")
@@ -18,7 +18,7 @@ func TestNew(t *testing.T) {
 
 func TestNewAsync(t *testing.T) {
 	cfg := config.Logging{Level: "debug", Service: "test-svc", Async: true}
-	l, closer := New(cfg)
+	l, closer, _ := New(cfg)
 	if l == nil {
 		t.Fatal("expected non-nil logger")
 	}

@@ -323,6 +323,20 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 
 // --- Internal helpers ---
 
+// AbsoluteMaxExecutionTimeout is the hard upper bound for any run, regardless of
+// policy configuration. It acts as a safety net when stall detection is disabled
+// and no TimeoutSeconds is configured. Even if all other termination conditions
+// are set to 0 (unlimited), this ensures no run can exceed 1 hour of wall time.
+//
+// Defense-in-depth relationship with other safety layers:
+//   - MaxSteps (policy): checked per tool call, capped at 10,000 (MaxStepsLimit)
+//   - TimeoutSeconds (policy): per-policy configurable timeout
+//   - MaxCost (policy): budget-based termination
+//   - HeartbeatTimeout (config): kills unresponsive workers (default: 120s)
+//   - StallDetection (policy): detects non-progress loops
+//   - AbsoluteMaxExecutionTimeout: final fallback, always enforced
+const AbsoluteMaxExecutionTimeout = 3600 * time.Second
+
 func (s *RuntimeService) checkTermination(r *run.Run, profile *policy.PolicyProfile) string {
 	tc := profile.Termination
 
@@ -332,11 +346,18 @@ func (s *RuntimeService) checkTermination(r *run.Run, profile *policy.PolicyProf
 	if tc.MaxCost > 0 && r.CostUSD >= tc.MaxCost {
 		return fmt.Sprintf("max cost reached ($%.2f/$%.2f)", r.CostUSD, tc.MaxCost)
 	}
+
+	elapsed := time.Since(r.StartedAt)
+
 	if tc.TimeoutSeconds > 0 {
-		elapsed := time.Since(r.StartedAt)
 		if elapsed >= time.Duration(tc.TimeoutSeconds)*time.Second {
 			return fmt.Sprintf("timeout reached (%s/%ds)", elapsed.Truncate(time.Second), tc.TimeoutSeconds)
 		}
+	}
+
+	// Absolute safety net: enforce hard timeout regardless of policy configuration.
+	if elapsed >= AbsoluteMaxExecutionTimeout {
+		return fmt.Sprintf("absolute execution timeout reached (%s)", elapsed.Truncate(time.Second))
 	}
 
 	// Check heartbeat timeout
