@@ -18,6 +18,9 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// MaxPromptLength is the maximum allowed prompt length for inbound A2A tasks (100KB).
+const MaxPromptLength = 100_000
+
 // cancelResult is the typed payload published to NATS when canceling a task.
 type cancelResult struct {
 	TaskID string `json:"task_id"`
@@ -47,6 +50,10 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 				break
 			}
 		}
+	}
+
+	if len(prompt) > MaxPromptLength {
+		return fmt.Errorf("prompt exceeds maximum length (%d > %d)", len(prompt), MaxPromptLength)
 	}
 
 	// Create domain task.
