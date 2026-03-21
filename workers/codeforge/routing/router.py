@@ -34,7 +34,9 @@ from codeforge.routing.models import (
 )
 
 if TYPE_CHECKING:
+    from codeforge.routing.blocklist import ModelBlocklist
     from codeforge.routing.complexity import ComplexityAnalyzer
+    from codeforge.routing.key_filter import KeyFilter
     from codeforge.routing.mab import MABModelSelector
     from codeforge.routing.meta_router import LLMMetaRouter
     from codeforge.routing.models import RoutingProfile
@@ -94,6 +96,8 @@ class HybridRouter:
         available_models: list[str],
         config: RoutingConfig,
         rate_tracker: RateLimitTracker | None = None,
+        blocklist: ModelBlocklist | None = None,
+        key_filter: KeyFilter | None = None,
     ) -> None:
         self._complexity = complexity
         self._mab = mab
@@ -101,12 +105,17 @@ class HybridRouter:
         self._available_models = available_models
         self._config = config
         self._rate_tracker = rate_tracker
+        self._blocklist = blocklist
+        self._key_filter = key_filter
         self._effective_cache: list[str] | None = None
         self._effective_cache_ts: float = 0.0
 
     @property
     def _effective_models(self) -> list[str]:
         """Return available models with blocked ones filtered out.
+
+        Uses the injected blocklist if provided, otherwise falls back to the
+        module-level default instance for backward compatibility.
 
         Caches the result for _EFFECTIVE_MODELS_CACHE_TTL seconds to avoid
         re-fetching the blocklist on every call.
@@ -115,9 +124,14 @@ class HybridRouter:
         if self._effective_cache is not None and (now - self._effective_cache_ts) < _EFFECTIVE_MODELS_CACHE_TTL:
             return self._effective_cache
 
-        from codeforge.routing.blocklist import get_blocklist
+        if self._blocklist is not None:
+            bl = self._blocklist
+        else:
+            from codeforge.routing.blocklist import get_blocklist
 
-        self._effective_cache = get_blocklist().filter_available(self._available_models)
+            bl = get_blocklist()
+
+        self._effective_cache = bl.filter_available(self._available_models)
         self._effective_cache_ts = now
         return self._effective_cache
 
