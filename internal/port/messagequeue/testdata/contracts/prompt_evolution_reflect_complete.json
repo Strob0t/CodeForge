@@ -1,0 +1,15 @@
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "mode_id": "coder",
+  "model_family": "anthropic",
+  "tactical_fixes": [
+    {
+      "task_id": "task-1",
+      "failure_description": "Forgot error check",
+      "root_cause": "Missing pattern",
+      "proposed_addition": "Always check err",
+      "confidence": 0.85
+    }
+  ],
+  "strategic_principles": ["Handle errors explicitly"]
+}

@@ -32,6 +32,11 @@ class ConsumerBaseMixin:
     _litellm_key: str
 
     # Shared idempotency guard: bounded FIFO cache that evicts oldest entries first.
+    # FIX-048/FIX-054: Concurrency safety note — Python asyncio uses a single-threaded
+    # event loop, so coroutines never execute simultaneously. The OrderedDict and its
+    # mutations (_is_duplicate, _clear_processed) are safe without locks because
+    # control only yields at `await` points, never mid-method. If this code is ever
+    # used with threading or multiprocessing, a lock must be added.
     _processed_ids: ClassVar[OrderedDict[str, None]] = OrderedDict()
 
     @classmethod

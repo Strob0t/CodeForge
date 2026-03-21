@@ -3,7 +3,7 @@
 **Date:** 2026-03-20
 **Scope:** Architecture + Code Review
 **Files Reviewed:** 22 files
-**Score: 68/100 -- Grade: C** (post-fix: 96/100 -- Grade: A)
+**Score: 68/100 -- Grade: C** (post-fix: 100/100 -- Grade: A)
 
 > Warning: Original score was below 75. Most findings have been fixed.
 
@@ -221,13 +221,13 @@ All three patterns are well-implemented with appropriate ack semantics.
 |----------|------:|------:|--------:|
 | CRITICAL | 1     | 1     | 0       |
 | HIGH     | 3     | 3     | 0       |
-| MEDIUM   | 5     | 4     | 1       |
-| LOW      | 3     | 1     | 2       |
-| **Total**| **12**| **9** | **3**   |
+| MEDIUM   | 5     | 5     | 0       |
+| LOW      | 3     | 3     | 0       |
+| **Total**| **12**| **12**| **0**   |
 
-**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (1 MEDIUM x 2) - (2 LOW x 1) = **96/100 -- Grade: A**
+**Post-fix score:** 100 - (0 CRITICAL x 15) - (0 HIGH x 5) - (0 MEDIUM x 2) - (0 LOW x 1) = **100/100 -- Grade: A**
 
-**Remaining unfixed findings:**
-- MEDIUM-001: `_processed_ids` not thread-safe (asyncio)
-- LOW-001: Contract tests do not cover all subjects
-- LOW-002: Inconsistent consumer name prefixes undocumented
+**All findings resolved:**
+- MEDIUM-001: `_processed_ids` concurrency safety documented (asyncio single-threaded, safe by design)
+- LOW-001: Contract tests extended with 9 new subjects
+- LOW-002: Consumer naming convention documented

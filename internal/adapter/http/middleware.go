@@ -14,6 +14,16 @@ import (
 )
 
 // SecurityHeaders returns middleware that sets standard HTTP security headers.
+//
+// FIX-095: CSRF protection note — explicit CSRF tokens are not needed because:
+//  1. This is an API-only backend (no HTML forms, no cookie-based auth for mutations).
+//  2. Authentication uses Bearer tokens via the Authorization header, which browsers
+//     do not attach automatically to cross-origin requests.
+//  3. CORS middleware restricts allowed origins, blocking cross-origin preflight.
+//  4. SameSite cookie attributes (when cookies are used for sessions) prevent
+//     cross-site request attachment.
+//
+// If cookie-based auth is ever added for browser form submissions, add CSRF tokens.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")

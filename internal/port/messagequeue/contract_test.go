@@ -438,24 +438,126 @@ func sampleA2ATaskCompletePayload() mq.A2ATaskCompletePayload {
 	}
 }
 
-// TODO: FIX-086: The following NATS subjects lack contract test coverage.
-// Each needs a sample payload factory, fixture entry, and key-field verification:
+// FIX-086: Additional sample factories for previously uncovered subjects.
+// The remaining subjects (tasks.*, runs.*, mcp.*, memory.*, handoff.*)
+// still need coverage — tracked in a follow-up TODO below.
+
+func sampleReviewTriggerRequestPayload() mq.ReviewTriggerRequestPayload {
+	return mq.ReviewTriggerRequestPayload{
+		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
+		CommitSHA: "abcdef1234567890abcdef1234567890",
+		Source:    "branch-merge",
+	}
+}
+
+func sampleReviewBoundaryAnalyzedPayload() mq.ReviewBoundaryAnalyzedPayload {
+	return mq.ReviewBoundaryAnalyzedPayload{
+		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
+		Boundaries: []mq.ReviewBoundaryEntry{
+			{Path: "/internal/adapter/http/handlers.go", Type: "api", Counterpart: "/internal/port/http.go", AutoDetected: true},
+		},
+	}
+}
+
+func sampleReviewApprovalRequiredPayload() mq.ReviewApprovalRequiredPayload {
+	return mq.ReviewApprovalRequiredPayload{
+		RunID:     "550e8400-e29b-41d4-a716-446655440020",
+		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
+		DiffStats: mq.ReviewDiffStats{
+			FilesChanged: 5,
+			LinesAdded:   120,
+			LinesRemoved: 30,
+			CrossLayer:   true,
+			Structural:   false,
+		},
+		ImpactLevel: "high",
+	}
+}
+
+func sampleReviewApprovalResponsePayload() mq.ReviewApprovalResponsePayload {
+	return mq.ReviewApprovalResponsePayload{
+		RunID:    "550e8400-e29b-41d4-a716-446655440020",
+		Decision: "approved",
+		Reason:   "Changes look safe.",
+	}
+}
+
+func samplePromptEvolutionReflectPayload() mq.PromptEvolutionReflectPayload {
+	return mq.PromptEvolutionReflectPayload{
+		TenantID:      "550e8400-e29b-41d4-a716-446655440006",
+		ModeID:        "coder",
+		ModelFamily:   "anthropic",
+		CurrentPrompt: "You are an expert Go developer.",
+		Failures:      []map[string]json.RawMessage{{"task_id": json.RawMessage(`"task-1"`)}},
+	}
+}
+
+func samplePromptEvolutionReflectCompletePayload() mq.PromptEvolutionReflectCompletePayload {
+	return mq.PromptEvolutionReflectCompletePayload{
+		TenantID:    "550e8400-e29b-41d4-a716-446655440006",
+		ModeID:      "coder",
+		ModelFamily: "anthropic",
+		TacticalFixes: []mq.PromptEvolutionTacticalFix{
+			{TaskID: "task-1", FailureDescription: "Forgot error check", RootCause: "Missing pattern", ProposedAddition: "Always check err", Confidence: 0.85},
+		},
+		StrategicPrinciples: []string{"Handle errors explicitly"},
+	}
+}
+
+func samplePromptEvolutionMutateCompletePayload() mq.PromptEvolutionMutateCompletePayload {
+	return mq.PromptEvolutionMutateCompletePayload{
+		TenantID:         "550e8400-e29b-41d4-a716-446655440006",
+		ModeID:           "coder",
+		ModelFamily:      "anthropic",
+		VariantContent:   "You are an expert Go developer. Always check errors.",
+		Version:          2,
+		MutationSource:   "reflection",
+		ValidationPassed: true,
+	}
+}
+
+func sampleContextRerankRequestPayload() mq.ContextRerankRequestPayload {
+	return mq.ContextRerankRequestPayload{
+		RequestID: "550e8400-e29b-41d4-a716-446655440030",
+		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
+		Query:     "How does the authentication work?",
+		Entries: []mq.ContextRerankEntryPayload{
+			{Kind: "file", Path: "/src/auth.go", Content: "func Login() {}", Tokens: 42, Priority: 1},
+		},
+		Model: "openai/gpt-4o",
+	}
+}
+
+func sampleContextRerankResultPayload() mq.ContextRerankResultPayload {
+	return mq.ContextRerankResultPayload{
+		RequestID: "550e8400-e29b-41d4-a716-446655440030",
+		Entries: []mq.ContextRerankEntryPayload{
+			{Kind: "file", Path: "/src/auth.go", Content: "func Login() {}", Tokens: 42, Priority: 1},
+		},
+		FallbackUsed: false,
+		TokensIn:     500,
+		TokensOut:    200,
+		CostUSD:      0.005,
+	}
+}
+
+// TODO(FIX-086): The following NATS subjects still need contract test coverage:
 //
 //  - tasks.agent / tasks.result / tasks.output / tasks.cancel (legacy task dispatch)
 //  - runs.start / runs.toolcall.request / runs.toolcall.response / runs.toolcall.result
 //  - runs.complete / runs.cancel / runs.output / runs.heartbeat
 //  - runs.qualitygate.request / runs.qualitygate.result
-//  - context.shared.updated / context.rerank.request / context.rerank.result
+//  - context.shared.updated
 //  - conversation.run.cancel / conversation.compact.request / conversation.compact.complete
 //  - mcp.server.status / mcp.tools.discovered
 //  - memory.store / memory.recall / memory.recall.result
 //  - handoff.request
 //  - runs.trajectory.event
 //  - backends.health.request / backends.health.result
-//  - review.trigger.request / review.trigger.complete / review.boundary.analyzed
-//  - review.approval.required / review.approval.response
-//  - prompt.evolution.reflect / prompt.evolution.reflect.complete
-//  - prompt.evolution.mutate.complete / prompt.evolution.promoted / prompt.evolution.reverted
+//  - prompt.evolution.promoted / prompt.evolution.reverted
 
 // --- Fixture generation and round-trip tests ---
 
@@ -489,6 +591,18 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectGraphSearchResult, sampleGraphSearchResultPayload()},
 		{mq.SubjectA2ATaskCreated, sampleA2ATaskCreatedPayload()},
 		{mq.SubjectA2ATaskComplete, sampleA2ATaskCompletePayload()},
+		// FIX-086: Review/Refactor subjects (Phase 31)
+		{mq.SubjectReviewTriggerRequest, sampleReviewTriggerRequestPayload()},
+		{mq.SubjectReviewBoundaryAnalyzed, sampleReviewBoundaryAnalyzedPayload()},
+		{mq.SubjectReviewApprovalRequired, sampleReviewApprovalRequiredPayload()},
+		{mq.SubjectReviewApprovalResponse, sampleReviewApprovalResponsePayload()},
+		// FIX-086: Prompt evolution subjects (Phase 33)
+		{mq.SubjectPromptEvolutionReflect, samplePromptEvolutionReflectPayload()},
+		{mq.SubjectPromptEvolutionReflectComplete, samplePromptEvolutionReflectCompletePayload()},
+		{mq.SubjectPromptEvolutionMutateComplete, samplePromptEvolutionMutateCompletePayload()},
+		// FIX-086: Context reranking subjects
+		{mq.SubjectContextRerankRequest, sampleContextRerankRequestPayload()},
+		{mq.SubjectContextRerankResult, sampleContextRerankResultPayload()},
 	}
 }
 
@@ -570,6 +684,18 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectGraphSearchResult:       {"project_id", "request_id", "results"},
 		mq.SubjectA2ATaskCreated:          {"task_id", "tenant_id", "skill_id", "prompt"},
 		mq.SubjectA2ATaskComplete:         {"task_id", "state"},
+		// FIX-086: Review/Refactor subjects
+		mq.SubjectReviewTriggerRequest:   {"project_id", "tenant_id", "commit_sha", "source"},
+		mq.SubjectReviewBoundaryAnalyzed: {"project_id", "tenant_id", "boundaries"},
+		mq.SubjectReviewApprovalRequired: {"run_id", "project_id", "tenant_id", "impact_level"},
+		mq.SubjectReviewApprovalResponse: {"run_id", "decision"},
+		// FIX-086: Prompt evolution subjects
+		mq.SubjectPromptEvolutionReflect:         {"tenant_id", "mode_id", "model_family", "current_prompt"},
+		mq.SubjectPromptEvolutionReflectComplete: {"tenant_id", "mode_id", "model_family", "tactical_fixes"},
+		mq.SubjectPromptEvolutionMutateComplete:  {"tenant_id", "mode_id", "variant_content", "version"},
+		// FIX-086: Context reranking subjects
+		mq.SubjectContextRerankRequest: {"request_id", "project_id", "query"},
+		mq.SubjectContextRerankResult:  {"request_id", "entries"},
 	}
 
 	keys, ok := expectedKeys[subject]

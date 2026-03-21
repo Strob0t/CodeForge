@@ -1,0 +1,9 @@
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "mode_id": "coder",
+  "model_family": "anthropic",
+  "variant_content": "You are an expert Go developer. Always check errors.",
+  "version": 2,
+  "mutation_source": "reflection",
+  "validation_passed": true
+}

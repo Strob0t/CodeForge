@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
@@ -65,6 +66,44 @@ func TestStore_Conversation_TenantIsolation(t *testing.T) {
 	t.Run("Delete_SameTenant", func(t *testing.T) {
 		if err := store.DeleteConversation(ctxA, conv.ID); err != nil {
 			t.Fatalf("expected success, got %v", err)
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestConversationStore_SourceScanTenantIsolation (FIX-010, FIX-011, FIX-031)
+// --------------------------------------------------------------------------
+
+func TestConversationStore_SourceScanTenantIsolation(t *testing.T) {
+	const filename = "store_conversation.go"
+	content := readStoreSource(t, filename)
+
+	t.Run("ContainsTenantID", func(t *testing.T) {
+		assertFileContainsTenantID(t, content, filename)
+	})
+
+	t.Run("UsesTenantFromCtx", func(t *testing.T) {
+		assertFileUsesTenantFromCtx(t, content, filename)
+	})
+
+	t.Run("AllQueriesHaveTenantID", func(t *testing.T) {
+		// CreateToolMessages does not pass tenantFromCtx to the INSERT,
+		// but the conversation_id FK ensures tenant scoping. The
+		// subsequent UPDATE explicitly uses tenant_id.
+		assertSQLQueriesHaveTenantID(t, content, filename, nil)
+	})
+
+	t.Run("ListMessages_JoinIncludesTenantID", func(t *testing.T) {
+		// FIX-016 regression guard: ListMessages uses a JOIN to
+		// conversations which must include c.tenant_id.
+		if !strings.Contains(content, "c.tenant_id") {
+			t.Error("ListMessages JOIN must include c.tenant_id for tenant isolation")
+		}
+	})
+
+	t.Run("SearchConversationMessages_UsesTenant", func(t *testing.T) {
+		if !strings.Contains(content, "c.tenant_id = $1") {
+			t.Error("SearchConversationMessages must filter by c.tenant_id")
 		}
 	})
 }
