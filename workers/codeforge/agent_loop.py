@@ -77,13 +77,13 @@ class StallDetector:
         self._escape_count = 0
 
     @staticmethod
-    def _hash_args(args: dict[str, object]) -> str:
-        raw = json.dumps(args, sort_keys=True)[:200]
-        return hashlib.sha256(raw.encode()).hexdigest()
+    def _hash_args(name: str, args: dict[str, object]) -> str:
+        raw = json.dumps(args, sort_keys=True, default=str)
+        return hashlib.sha256(f"{name}:{raw}".encode()).hexdigest()
 
     def record(self, tool_name: str, args: dict[str, object]) -> None:
         """Append a tool call to the sliding window."""
-        self._window.append((tool_name, self._hash_args(args)))
+        self._window.append((tool_name, self._hash_args(tool_name, args)))
 
     def is_stalled(self) -> bool:
         """Return True if >= threshold entries in the window are identical."""
