@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -146,27 +147,39 @@ func (s *Store) UpdateConversationModel(ctx context.Context, conversationID, mod
 func (s *Store) SearchConversationMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error) {
 	tid := tenantFromCtx(ctx)
 
-	baseQuery := `SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls,
+	// Collect parameters and optional filter conditions together.
+	// argIdx tracks the next placeholder ($3, $4, ...) so that each
+	// optional clause gets the correct positional parameter.
+	args := []any{tid, query}
+	argIdx := 3
+
+	var conditions []string
+	if len(projectIDs) > 0 {
+		conditions = append(conditions, fmt.Sprintf("c.project_id = ANY($%d)", argIdx))
+		args = append(args, projectIDs)
+		argIdx++
+	}
+
+	// LIMIT is always parameterized (never interpolated) to prevent injection.
+	limitPlaceholder := fmt.Sprintf("$%d", argIdx)
+	args = append(args, limit)
+
+	filterClause := ""
+	if len(conditions) > 0 {
+		filterClause = " AND " + strings.Join(conditions, " AND ")
+	}
+
+	finalQuery := fmt.Sprintf(`SELECT m.id, m.conversation_id, m.role, m.content, m.tool_calls,
 		m.tool_call_id, m.tool_name, m.tokens_in, m.tokens_out, m.model, m.created_at
 		FROM conversation_messages m
 		JOIN conversations c ON c.id = m.conversation_id
 		WHERE c.tenant_id = $1
 		AND m.content IS NOT NULL AND m.content != ''
-		AND to_tsvector('english', m.content) @@ plainto_tsquery('english', $2)`
+		AND to_tsvector('english', m.content) @@ plainto_tsquery('english', $2)%s
+		ORDER BY ts_rank(to_tsvector('english', m.content), plainto_tsquery('english', $2)) DESC
+		LIMIT %s`, filterClause, limitPlaceholder)
 
-	args := []any{tid, query}
-	argIdx := 3
-
-	if len(projectIDs) > 0 {
-		baseQuery += fmt.Sprintf(" AND c.project_id = ANY($%d)", argIdx)
-		args = append(args, projectIDs)
-		argIdx++
-	}
-
-	baseQuery += fmt.Sprintf(" ORDER BY ts_rank(to_tsvector('english', m.content), plainto_tsquery('english', $2)) DESC LIMIT $%d", argIdx)
-	args = append(args, limit)
-
-	rows, err := s.pool.Query(ctx, baseQuery, args...)
+	rows, err := s.pool.Query(ctx, finalQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("search conversation messages: %w", err)
 	}
