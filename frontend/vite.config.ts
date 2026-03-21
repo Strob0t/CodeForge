@@ -27,6 +27,10 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 3000,
     allowedHosts: true,
+    hmr: {
+      // DevContainer/Codespace: use polling fallback when WS is broken by port forwarding
+      clientPort: 3000,
+    },
     proxy: {
       "/api": "http://localhost:8080",
       "/health": "http://localhost:8080",

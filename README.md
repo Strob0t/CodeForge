@@ -2,210 +2,165 @@
 
 # CodeForge
 
-**Orchestrate AI coding agents across multiple repositories with a single dashboard.**
+**The only self-hosted platform combining project management, visual roadmapping, intelligent LLM routing, and AI agent orchestration -- across all your repositories.**
+
+<!-- TODO: Add demo GIF/screenshot (15-20s: Dashboard -> Chat -> Agent working -> Result) -->
+<!-- ![CodeForge Demo](docs/assets/demo.gif) -->
 
 [![CI](https://github.com/Strob0t/CodeForge/actions/workflows/ci.yml/badge.svg?branch=staging)](https://github.com/Strob0t/CodeForge/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8.svg?logo=go)](https://go.dev)
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB.svg?logo=python)](https://python.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript)](https://typescriptlang.org)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker)](https://docs.docker.com/compose/)
+[![Version](https://img.shields.io/badge/version-0.8.0-green.svg)](VERSION)
+[![GitHub Stars](https://img.shields.io/github/stars/Strob0t/CodeForge?style=social)](https://github.com/Strob0t/CodeForge)
+<!-- TODO: Add Discord badge when server exists -->
+<!-- [![Discord](https://img.shields.io/discord/SERVERID?color=7289da&label=Discord&logo=discord&logoColor=white)](https://discord.gg/INVITE) -->
+
+[![127+ LLM Models](https://img.shields.io/badge/LLM_Models-127+-8A2BE2)](#-intelligent-llm-routing)
+[![21 Agent Modes](https://img.shields.io/badge/Agent_Modes-21-FF6B6B)](#-agent-orchestration)
+[![5 Protocols](https://img.shields.io/badge/Protocols-MCP_|_A2A_|_AG--UI_|_LSP_|_OTEL-00B4D8)](#architecture)
+
+[**Quick Start**](#quick-start) | [**Documentation**](docs/README.md) | [**Architecture**](docs/architecture.md) | [**Roadmap**](docs/project-status.md)
 
 </div>
 
 ---
 
-CodeForge is a self-hosted platform that combines **multi-repo project management**, **visual roadmapping**, **multi-LLM routing**, and **AI agent orchestration** into a single containerized service. Configure agent teams, set safety budgets, and let them work across your codebase — with full audit trails and cost tracking.
+## What is CodeForge?
 
-## Key Features
+Most AI coding tools do one thing well -- Aider for pair programming, Cline for IDE automation, OpenHands for agent orchestration. **CodeForge is the only platform that combines all four pillars** into a single self-hosted Docker stack:
 
-- **Multi-Repo Dashboard** — Manage Git, GitHub, GitLab, SVN, and local repositories from one place
-- **Roadmap & Feature Map** — Visual planning with OpenSpec, Spec Kit, and PM tool sync (GitHub Issues, GitLab, Plane, Gitea)
-- **Multi-LLM Routing** — OpenAI, Claude, Ollama, LM Studio, and more through LiteLLM with scenario-based model selection
-- **Agent Orchestration** — Coordinate coding agents with 5 autonomy levels, 8 built-in modes, and DAG-based execution plans
-- **Safety Layer** — Budget limits, command policies, branch isolation, test/lint gates, stall detection, and rollback
-- **Code-RAG** — Hybrid retrieval (BM25 + semantic search), LLM-guided sub-agent search, and PostgreSQL-backed GraphRAG
-- **Real-Time UI** — SolidJS frontend with WebSocket live updates, dark mode, i18n (EN/DE), and WCAG AA accessibility
-- **Cost Tracking** — Per-run and per-project cost monitoring with budget alerts
-- **Audit Trail** — Event sourcing, trajectory recording, replay, and inspection
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### :file_folder: Multi-Repo Dashboard
+Manage Git, GitHub, GitLab, SVN, Gitea/Forgejo, and local repos from one place. Stack detection, workspace health monitoring, and project-level cost tracking.
+
+</td>
+<td width="50%" valign="top">
+
+### :world_map: Visual Roadmap
+Drag-and-drop feature planning with OpenSpec, Spec Kit, and Autospec support. Bidirectional sync with GitHub Issues, GitLab, and Plane.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### :brain: Intelligent LLM Routing
+127+ models through LiteLLM. 3-layer routing cascade: rule-based complexity analysis (<1ms), UCB1 multi-armed bandit, LLM meta-router fallback. Auto-discovery from Ollama and LM Studio.
+
+</td>
+<td width="50%" valign="top">
+
+### :robot: Agent Orchestration
+Coordinate Aider, Goose, OpenHands, OpenCode, and Plandex with 5 autonomy levels, 21 built-in modes, DAG scheduling, and multi-agent teams. Built-in agentic loop with 7 tools + MCP.
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary><strong>More capabilities</strong></summary>
+
+- **Real-Time Chat** -- Streaming, inline diff review, slash commands, full-text search, notification center, channels with threads
+- **Visual Design Canvas** -- SVG canvas with 7 tools, triple export (PNG/ASCII/JSON), multimodal LLM pipeline with vision support
+- **War Room** -- Live multi-agent collaboration view with swim lanes and handoff arrows
+- **Code-RAG** -- BM25 + semantic search, sub-agent search, PostgreSQL GraphRAG, SimHash dedup
+- **Benchmark System** -- LLM Judge, Functional Test, SPARC, Trajectory Verifier; 8 external providers (HumanEval, SWE-bench, etc.); DPO/RLVR export
+- **Safety Layer** -- 8 controls: budget limits, command policies, branch isolation, test/lint gates, stall detection, rollback, path blocklist, max steps
+- **HITL Approval** -- Permission cards with approve/deny/allow-always, countdown timer, persistent policy rules
+- **Plan/Act Mode** -- Two-phase execution: read-only planning, then full tool access
+- **Trust & Quarantine** -- 4-level trust annotations, risk-scored quarantine, persistent agent identity
+- **Contract-First Review** -- Boundary detection, review-refactor pipeline, diff impact scoring
+- **Goal Discovery** -- Auto-detection of project goals from workspace files
+- **Cost Tracking** -- Per-run and per-project monitoring with budget alerts and per-tool token breakdown
+- **Audit Trail** -- Event sourcing, trajectory recording, replay, and inspection
+
+</details>
+
+## Why CodeForge?
+
+| | Aider | Cline | OpenHands | **CodeForge** |
+|---|:---:|:---:|:---:|:---:|
+| Multi-repo dashboard | - | - | - | **Yes** |
+| Visual roadmap & PM sync | - | - | - | **Yes** |
+| Multi-LLM routing (127+ models) | Partial | Partial | Partial | **Yes** |
+| Multi-agent orchestration | - | - | Yes | **Yes** |
+| Built-in benchmarking | - | - | Yes | **Yes** |
+| Self-hosted, single Docker stack | - | - | Yes | **Yes** |
+| MCP + A2A + AG-UI protocols | MCP | MCP | - | **All three** |
+
+No competitor combines all four pillars. [Full market analysis](docs/research/market-analysis.md)
+
+## Quick Start
+
+### Option A: GitHub Codespaces (zero install)
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Strob0t/CodeForge)
+
+The Dev Container auto-installs Go 1.25, Python 3.12, Node.js 22, and starts infrastructure. Then run:
+
+```bash
+go run ./cmd/codeforge/ &                                    # API on :8080
+cd workers && poetry run python -m codeforge.consumer &      # AI workers
+cd frontend && npm run dev                                   # UI on :3000
+```
+
+### Option B: Run locally
+
+```bash
+git clone https://github.com/Strob0t/CodeForge.git && cd CodeForge
+cp .env.example .env                                         # Add your API keys
+docker compose up -d                                         # PostgreSQL, NATS, LiteLLM
+go run ./cmd/codeforge/ &                                    # API on :8080
+cd workers && poetry run python -m codeforge.consumer &      # AI workers
+cd frontend && npm run dev                                   # UI on :3000
+```
+
+Open [http://localhost:3000](http://localhost:3000) -- default login: `admin@localhost` / `Changeme123`
+
+### Production
+
+```bash
+docker compose -f docker-compose.prod.yml up -d              # All 6 services
+```
 
 ## Architecture
 
 ```
-┌─────────────────────────────┐
-│   SolidJS Frontend (:3000)  │
-│   Tailwind CSS, WebSocket   │
-└──────────┬──────────────────┘
-           │ REST / WebSocket
-┌──────────▼──────────────────┐
-│   Go Core Service (:8080)   │
-│   HTTP, Policies, Lifecycle │
-└──────────┬──────────────────┘
-           │ NATS JetStream
-┌──────────▼──────────────────┐
-│   Python AI Workers         │
-│   LLM Calls, RAG, Agents   │
-└─────────────────────────────┘
+SolidJS Frontend (:3000)  --REST/WS/AG-UI-->  Go Core (:8080)  --NATS JetStream-->  Python Workers
 ```
 
 | Layer | Stack | Purpose |
 |-------|-------|---------|
-| Frontend | TypeScript, SolidJS | Web GUI with real-time updates |
-| Core | Go 1.24, chi, pgx | HTTP/WS server, scheduling, policies |
-| Workers | Python 3.12, NATS | LLM integration, agent execution |
-| Infra | Docker, PostgreSQL 18, NATS, LiteLLM | Containerization, storage, messaging, LLM proxy |
+| Frontend | TypeScript 5.x, SolidJS, Tailwind CSS | Web GUI with real-time updates |
+| Core | Go 1.25, chi v5, pgx v5 | HTTP/WS server, policies, state management |
+| Workers | Python 3.12, LiteLLM, tree-sitter | LLM calls, agent execution, RAG |
+| Infra | Docker, PostgreSQL 18, NATS, LiteLLM | Storage, messaging, LLM proxy |
 
-## Getting Started
+**Protocols:** [MCP](https://modelcontextprotocol.io/) (agent-to-tool) | [A2A](https://github.com/google/a2a-spec) (agent-to-agent) | [AG-UI](https://docs.ag-ui.com/) (agent-to-frontend) | [LSP](https://microsoft.github.io/language-server-protocol/) (code intelligence) | [OpenTelemetry](https://opentelemetry.io/) (tracing)
 
-### Prerequisites
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (WSL2 on Windows)
-- [VS Code](https://code.visualstudio.com/) with [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
-- Git
-
-### Quick Start (Dev Containers)
-
-```bash
-# 1. Clone
-git clone https://github.com/your-org/CodeForge.git
-cd CodeForge
-
-# 2. Environment
-cp .env.example .env
-cp codeforge.yaml.example codeforge.yaml
-
-# 3. Open in VS Code → "Reopen in Container"
-#    (Go, Python, Node.js, Docker-in-Docker auto-installed)
-
-# 4. Start infrastructure
-docker compose up -d
-
-# 5. Start services
-go run ./cmd/codeforge &                              # API on :8080
-cd workers && poetry run python -m codeforge.consumer & # AI workers
-cd frontend && npm run dev                             # UI on :3000
-```
-
-Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
-
-### Production Deployment
-
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-This starts all 6 services (core, worker, frontend, PostgreSQL, NATS, LiteLLM) with health checks, restart policies, and tuned resource limits.
-
-## Testing
-
-```bash
-./scripts/test.sh              # All unit tests
-./scripts/test.sh go           # Go tests only
-./scripts/test.sh python       # Python tests only
-./scripts/test.sh frontend     # Lint + type check + build
-./scripts/test.sh integration  # Integration tests (requires services)
-./scripts/test.sh e2e          # E2E browser tests (requires full stack)
-./scripts/test.sh all          # Everything
-```
+**Design:** Hexagonal architecture, provider registry pattern, zero-config defaults. [Full architecture docs](docs/architecture.md) | [ADRs](docs/architecture/adr/)
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/architecture.md) | System design, patterns, and component interactions |
-| [Dev Setup](docs/dev-setup.md) | Development environment, ports, scripts, and tooling |
-| [Tech Stack](docs/tech-stack.md) | Languages, libraries, and version requirements |
-| [Project Status](docs/project-status.md) | Phase tracking and milestones |
-| [TODO Tracker](docs/todo.md) | Current priorities and task backlog |
-
-### Feature Specs
-
-| Pillar | Document |
-|--------|----------|
-| Project Dashboard | [docs/features/01-project-dashboard.md](docs/features/01-project-dashboard.md) |
-| Roadmap & Feature Map | [docs/features/02-roadmap-feature-map.md](docs/features/02-roadmap-feature-map.md) |
-| Multi-LLM Provider | [docs/features/03-multi-llm-provider.md](docs/features/03-multi-llm-provider.md) |
-| Agent Orchestration | [docs/features/04-agent-orchestration.md](docs/features/04-agent-orchestration.md) |
-
-### Architecture Decision Records
-
-| ADR | Decision |
-|-----|----------|
-| [ADR-001](docs/architecture/adr/001-nats-jetstream-message-queue.md) | NATS JetStream as message queue |
-| [ADR-002](docs/architecture/adr/002-postgresql-database.md) | PostgreSQL 18 as primary database |
-| [ADR-003](docs/architecture/adr/003-config-hierarchy.md) | Hierarchical configuration system |
-| [ADR-004](docs/architecture/adr/004-async-logging.md) | Async logging with buffered channels |
-| [ADR-005](docs/architecture/adr/005-docker-native-logging.md) | Docker-native logging (no ELK/Grafana) |
-| [ADR-006](docs/architecture/adr/006-agent-execution-approach-c.md) | Go control plane + Python runtime |
-| [ADR-007](docs/architecture/adr/007-policy-layer.md) | First-match-wins policy evaluation |
-
-## Project Structure
-
-```
-CodeForge/
-├── cmd/codeforge/          # Go entry point
-├── internal/               # Go core (config, domain, adapters, services)
-│   ├── adapter/            #   HTTP handlers, PostgreSQL, NATS, LiteLLM, Git
-│   ├── domain/             #   Business entities (project, agent, run, plan, ...)
-│   ├── port/               #   Interface definitions (database, cache, events)
-│   └── service/            #   Business logic (runtime, orchestrator, RAG, ...)
-├── workers/codeforge/      # Python AI workers (consumer, executor, retrieval, graphrag)
-├── frontend/src/           # SolidJS frontend (features, components, api, i18n)
-├── tests/                  # Integration and load tests
-├── scripts/                # Build, test, backup, deployment scripts
-├── docs/                   # Documentation, ADRs, feature specs, research
-├── litellm/                # LiteLLM proxy configuration
-├── docker-compose.yml      # Development infrastructure
-└── docker-compose.prod.yml # Production deployment
-```
-
-## Services & Ports
-
-| Port | Service | Description |
-|------|---------|-------------|
-| 3000 | Frontend | SolidJS dev server |
-| 4000 | LiteLLM | LLM routing proxy |
-| 4222 | NATS | Message queue |
-| 5432 | PostgreSQL | Primary database |
-| 8080 | Go Core | REST API + WebSocket |
-| 8222 | NATS Monitor | Monitoring dashboard |
-
-## Configuration
-
-CodeForge uses a hierarchical config system: **defaults < YAML < env vars < CLI flags**.
-
-```bash
-# Copy the example config
-cp codeforge.yaml.example codeforge.yaml
-
-# Or use environment variables
-export CODEFORGE_PORT=8080
-export CODEFORGE_DSN="postgres://..."
-export CODEFORGE_NATS_URL="nats://localhost:4222"
-
-# Or use CLI flags
-go run ./cmd/codeforge --port 8080 --log-level debug
-```
-
-Auth is disabled by default for development. Enable it in `codeforge.yaml`:
-
-```yaml
-auth:
-  enabled: true
-  jwt_secret: "your-secret-here"
-```
+| | |
+|---|---|
+| **[Architecture](docs/architecture.md)** | System design, protocols, patterns |
+| **[Dev Setup](docs/dev-setup.md)** | Ports, config, testing, linting, scripts |
+| **[Tech Stack](docs/tech-stack.md)** | Languages, libraries, versions |
+| **[Project Status](docs/project-status.md)** | 32 phases completed |
+| **[Feature Specs](docs/features/)** | Per-pillar design docs (6 specs) |
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch from `staging`
-3. Make your changes (all code, comments, and commits in English)
-4. Run `pre-commit run --all-files` to verify linting
-5. Run `./scripts/test.sh all` to verify tests
-6. Submit a pull request to `staging`
+3. Run `pre-commit run --all-files` and `./scripts/test.sh all`
+4. Submit a pull request to `staging`
 
-Development happens on `staging`. The `main` branch receives merges only on explicit instruction.
+All code, comments, and commits in English. See [Dev Setup](docs/dev-setup.md) for the full development guide.
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+[GNU Affero General Public License v3.0](LICENSE)
