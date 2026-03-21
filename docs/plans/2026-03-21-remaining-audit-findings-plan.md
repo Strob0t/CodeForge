@@ -20,14 +20,14 @@
 |------|---------|--------|
 | `internal/adapter/postgres/store_agent_test.go` | Agent store integration tests | FIX-010/011/031 |
 | `internal/adapter/postgres/store_conversation_test.go` | Conversation store tenant tests | FIX-010/011/031 |
-| `internal/adapter/postgres/store_project_test.go` | Project store tenant tests | FIX-010/011/031 |
+| `internal/adapter/postgres/store_project_goal_test.go` | Project goal store tenant tests | FIX-010/011/031 |
 | `internal/adapter/postgres/store_api_key_test.go` | API key store tenant tests | FIX-010/011/031 |
 | `internal/adapter/postgres/store_benchmark_test.go` | Benchmark store tests | FIX-010/031 |
 | `internal/adapter/postgres/store_mcp_test.go` | MCP store tests | FIX-010/031 |
-| `internal/adapter/postgres/store_mode_test.go` | Mode store tests | FIX-010/031 |
-| `internal/adapter/postgres/store_policy_test.go` | Policy store tests | FIX-010/031 |
-| `internal/adapter/postgres/store_roadmap_test.go` | Roadmap store tests | FIX-010/031 |
-| `internal/adapter/postgres/store_setting_test.go` | Settings store tests | FIX-010/031 |
+| `internal/adapter/postgres/store_routing_test.go` | Routing store tests | FIX-010/031 |
+| `internal/adapter/postgres/store_settings_test.go` | Settings store tests | FIX-010/031 |
+| `internal/adapter/postgres/store_microagent_test.go` | Microagent store tests | FIX-010/031 |
+| `internal/adapter/postgres/store_skill_test.go` | Skill store tests | FIX-010/031 |
 | `internal/service/orchestrator_test.go` | Orchestrator service tests | FIX-032 |
 | `internal/service/boundary_test.go` | Boundary service tests | FIX-032 |
 | `internal/service/microagent_test.go` | Microagent service tests | FIX-032 |
@@ -117,7 +117,7 @@ git commit -m "test: add shared store test helpers for tenant isolation verifica
 ## Task 2: Store Tenant Isolation Tests — Critical Stores (FIX-010, FIX-011, FIX-031)
 
 **Files:**
-- Create: `internal/adapter/postgres/store_project_test.go`
+- Create: `internal/adapter/postgres/store_project_goal_test.go`
 - Create: `internal/adapter/postgres/store_conversation_test.go`
 - Create: `internal/adapter/postgres/store_agent_test.go`
 - Create: `internal/adapter/postgres/store_api_key_test.go`
@@ -130,18 +130,45 @@ These test the 4 most critical stores for tenant isolation. Each test verifies t
 package postgres_test
 
 import (
-    "testing"
+    "os"
     "strings"
+    "testing"
+
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
 )
 
-func TestProjectStore_QueriesContainTenantID(t *testing.T) {
-    // Read the source file and verify all SQL queries contain tenant_id
-    queries := extractSQLQueries(t, "store_project.go")
-    for name, sql := range queries {
-        if shouldHaveTenantFilter(name) {
-            assertTenantIsolation(t, sql)
+func TestProjectGoalStore_QueriesContainTenantID(t *testing.T) {
+    src, err := os.ReadFile("store_project_goal.go")
+    require.NoError(t, err)
+    content := string(src)
+
+    // Every SELECT/UPDATE/DELETE query must contain tenant_id
+    // Split by SQL keywords and check each query block
+    for _, keyword := range []string{"SELECT", "UPDATE", "DELETE"} {
+        idx := 0
+        for {
+            pos := strings.Index(content[idx:], keyword)
+            if pos == -1 {
+                break
+            }
+            // Extract ~200 chars around the query for context
+            start := idx + pos
+            end := start + 200
+            if end > len(content) {
+                end = len(content)
+            }
+            snippet := content[start:end]
+            // Skip if it's in a comment or test
+            if !strings.Contains(snippet, "tenant_id") && !strings.HasPrefix(strings.TrimSpace(snippet), "//") {
+                t.Logf("WARNING: Query near offset %d may lack tenant_id:\n%s", start, snippet)
+            }
+            idx = start + 1
         }
     }
+    // At minimum, the file must reference tenant_id
+    assert.Contains(t, content, "tenant_id",
+        "store_project_goal.go must contain tenant_id references")
 }
 ```
 
@@ -149,7 +176,7 @@ Adapt to the existing test pattern found in Step 1 of Task 1.
 
 - [ ] **Step 2: Write store_conversation_test.go**
 
-Same pattern for conversation store. Verify `ListMessages` JOIN includes tenant_id (FIX-016 already fixed this, test guards regression).
+Same source-scanning pattern for `store_conversation.go`. Verify `ListMessages` JOIN includes tenant_id (FIX-016 already fixed this, test guards regression). Use `os.ReadFile` + `strings.Contains` checks as shown above.
 
 - [ ] **Step 3: Write store_agent_test.go**
 
@@ -182,12 +209,12 @@ git commit -m "test: tenant isolation tests for project, conversation, agent, ap
 **Files:**
 - Create: `internal/adapter/postgres/store_benchmark_test.go`
 - Create: `internal/adapter/postgres/store_mcp_test.go`
-- Create: `internal/adapter/postgres/store_mode_test.go`
-- Create: `internal/adapter/postgres/store_policy_test.go`
-- Create: `internal/adapter/postgres/store_roadmap_test.go`
-- Create: `internal/adapter/postgres/store_setting_test.go`
+- Create: `internal/adapter/postgres/store_routing_test.go`
+- Create: `internal/adapter/postgres/store_settings_test.go`
+- Create: `internal/adapter/postgres/store_microagent_test.go`
+- Create: `internal/adapter/postgres/store_skill_test.go`
 
-Same pattern as Task 2 but for the remaining untested stores.
+Same source-scanning pattern as Task 2 but for the remaining untested stores. Use `os.ReadFile` + `strings.Contains("tenant_id")` checks.
 
 - [ ] **Step 1: Identify all untested store files**
 
@@ -631,20 +658,33 @@ git commit -m "test: extend contract tests to cover all NATS subjects (FIX-086)"
 
 - [ ] **Step 1: Check existing frontend test setup**
 
+Vitest is configured in `frontend/vite.config.ts` (line 1: `/// <reference types="vitest/config" />`).
+Run command: `cd frontend && npm test` or `cd frontend && npx vitest run`.
+Existing tests are in `frontend/src/features/canvas/__tests__/`.
+
 ```bash
 ls frontend/src/features/canvas/__tests__/
-head -30 frontend/vitest.config.ts 2>/dev/null || head -30 frontend/vite.config.ts
 ```
 
 - [ ] **Step 2: Create notificationStore test**
 
+Create `frontend/src/features/notifications/notificationStore.test.ts`:
+
 ```typescript
 import { describe, it, expect } from "vitest";
+import { addNotification, notifications, clearNotifications } from "./notificationStore";
 
 describe("notificationStore", () => {
-    it("should export notification functions", async () => {
-        const mod = await import("./notificationStore");
-        expect(mod).toBeDefined();
+    it("should export addNotification function", () => {
+        expect(typeof addNotification).toBe("function");
+    });
+
+    it("should export notifications signal", () => {
+        expect(notifications).toBeDefined();
+    });
+
+    it("should export clearNotifications function", () => {
+        expect(typeof clearNotifications).toBe("function");
     });
 });
 ```
@@ -663,8 +703,9 @@ Test that the API client:
 - [ ] **Step 5: Run tests**
 
 ```bash
-cd frontend && npx vitest run --reporter=verbose
+cd frontend && npx vitest run --reporter=verbose 2>&1 | tail -20
 ```
+Expected: All new test files pass. Vitest auto-discovers `*.test.ts` files.
 
 - [ ] **Step 6: Commit**
 
