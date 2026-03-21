@@ -12,10 +12,20 @@ type Closer interface {
 	Close()
 }
 
+// DroppedCounter reports the number of log records dropped due to a full buffer.
+type DroppedCounter interface {
+	DroppedCount() int64
+}
+
 // nopCloser is a no-op Closer for synchronous mode.
 type nopCloser struct{}
 
 func (nopCloser) Close() {}
+
+// nopDroppedCounter always reports zero dropped records (synchronous mode).
+type nopDroppedCounter struct{}
+
+func (nopDroppedCounter) DroppedCount() int64 { return 0 }
 
 // AsyncHandler wraps an slog.Handler with a buffered channel and worker pool.
 type AsyncHandler struct {
