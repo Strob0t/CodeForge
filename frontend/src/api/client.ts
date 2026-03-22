@@ -1,4 +1,3 @@
-import { invalidateCache } from "./cache";
 import { createCoreClient, FetchError, getAccessToken, setAccessTokenGetter } from "./core";
 import { url } from "./factory";
 import { createAgentsResource, createTasksResource } from "./resources/agents";
@@ -7,35 +6,28 @@ import {
   createSubscriptionProvidersResource,
   createVCSAccountsResource,
 } from "./resources/auth";
+import { createBenchmarksResource } from "./resources/benchmarks";
 import { createConversationsResource } from "./resources/conversations";
 import { createFilesResource } from "./resources/files";
+import { createCostsResource, createLLMResource, createProvidersResource } from "./resources/llm";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
+import { createRoadmapResource } from "./resources/roadmap";
 import type {
   ActiveWorkItem,
-  AddModelRequest,
   AgentPerf,
-  AIRoadmapView,
-  BackendList,
-  CostSummary,
-  CreateFeatureRequest,
   CreateMCPServerRequest,
-  CreateMilestoneRequest,
   CreateModeRequest,
   CreatePlanRequest,
-  CreateRoadmapRequest,
   CreateUserRequest,
   DailyCost,
   DashboardStats,
   DecomposeRequest,
-  DetectionResult,
   EvaluationResult,
   ExecutionPlan,
   GraphSearchRequest,
   GraphSearchResult,
   GraphStatus,
   HealthStatus,
-  ImportResult,
-  LLMModel,
   LSPDiagnostic,
   LSPDocumentSymbol,
   LSPHoverResult,
@@ -44,33 +36,24 @@ import type {
   MCPServer,
   MCPServerTool,
   MCPTestResult,
-  Milestone,
   Mode,
-  ModelCostSummary,
   ModelUsage,
   PlanFeatureRequest,
   PlanGraph,
-  PMImportRequest,
   PolicyProfile,
   PolicyToolCall,
   ProjectCostBar,
-  ProjectCostSummary,
   ProjectHealth,
-  ProviderInfo,
-  ProviderList,
   RepoMap,
   RetrievalIndexStatus,
   RetrievalSearchResult,
   ReviewDecision,
-  Roadmap,
-  RoadmapFeature,
   Run,
   RunOutcome,
   SearchRequest,
   StartRunRequest,
   SubAgentSearchRequest,
   SubAgentSearchResult,
-  ToolCostSummary,
   TrajectoryPage,
   UpdateUserRequest,
   User,
@@ -103,30 +86,7 @@ export const api = {
 
   tasks: createTasksResource(core),
 
-  llm: {
-    models: () => request<LLMModel[]>("/llm/models"),
-
-    addModel: (data: AddModelRequest) =>
-      request<undefined>("/llm/models", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }).then((r) => {
-        invalidateCache("/llm");
-        return r;
-      }),
-
-    deleteModel: (modelId: string) =>
-      request<undefined>(url`/llm/models/${modelId}`, {
-        method: "DELETE",
-      }).then((r) => {
-        invalidateCache("/llm");
-        return r;
-      }),
-
-    health: () => request<{ status: string }>("/llm/health"),
-
-    discover: () => request<import("./types").DiscoverModelsResponse>("/llm/discover"),
-  },
+  llm: createLLMResource(core),
 
   runs: {
     start: (data: StartRunRequest) =>
@@ -326,23 +286,7 @@ export const api = {
       }),
   },
 
-  costs: {
-    global: () => request<ProjectCostSummary[]>("/costs"),
-
-    project: (id: string) => request<CostSummary>(url`/projects/${id}/costs`),
-
-    byModel: (id: string) => request<ModelCostSummary[]>(url`/projects/${id}/costs/by-model`),
-
-    daily: (id: string, days = 30) =>
-      request<DailyCost[]>(url`/projects/${id}/costs/daily?days=${days}`),
-
-    recentRuns: (id: string, limit = 20) =>
-      request<Run[]>(url`/projects/${id}/costs/runs?limit=${limit}`),
-
-    byTool: (id: string) => request<ToolCostSummary[]>(url`/projects/${id}/costs/by-tool`),
-
-    byToolForRun: (runId: string) => request<ToolCostSummary[]>(url`/runs/${runId}/costs/by-tool`),
-  },
+  costs: createCostsResource(core),
 
   dashboard: {
     stats: () => request<DashboardStats>("/dashboard/stats"),
@@ -361,79 +305,7 @@ export const api = {
     costByProject: () => request<ProjectCostBar[]>("/dashboard/charts/cost-by-project"),
   },
 
-  roadmap: {
-    get: (projectId: string) => request<Roadmap>(url`/projects/${projectId}/roadmap`),
-
-    create: (projectId: string, data: CreateRoadmapRequest) =>
-      request<Roadmap>(url`/projects/${projectId}/roadmap`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    update: (projectId: string, data: Partial<Roadmap> & { version: number }) =>
-      request<Roadmap>(url`/projects/${projectId}/roadmap`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-
-    delete: (projectId: string) =>
-      request<undefined>(url`/projects/${projectId}/roadmap`, {
-        method: "DELETE",
-      }),
-
-    ai: (projectId: string, format: "json" | "yaml" | "markdown" = "markdown") =>
-      request<AIRoadmapView>(url`/projects/${projectId}/roadmap/ai?format=${format}`),
-
-    detect: (projectId: string) =>
-      request<DetectionResult>(url`/projects/${projectId}/roadmap/detect`, {
-        method: "POST",
-      }),
-
-    createMilestone: (projectId: string, data: CreateMilestoneRequest) =>
-      request<Milestone>(url`/projects/${projectId}/roadmap/milestones`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    updateMilestone: (id: string, data: Partial<Milestone> & { version: number }) =>
-      request<Milestone>(url`/milestones/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-
-    deleteMilestone: (id: string) =>
-      request<undefined>(url`/milestones/${id}`, { method: "DELETE" }),
-
-    createFeature: (milestoneId: string, data: CreateFeatureRequest) =>
-      request<RoadmapFeature>(url`/milestones/${milestoneId}/features`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    updateFeature: (id: string, data: Partial<RoadmapFeature> & { version: number }) =>
-      request<RoadmapFeature>(url`/features/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-
-    deleteFeature: (id: string) => request<undefined>(url`/features/${id}`, { method: "DELETE" }),
-
-    importSpecs: (projectId: string) =>
-      request<ImportResult>(url`/projects/${projectId}/roadmap/import`, {
-        method: "POST",
-      }),
-
-    importPMItems: (projectId: string, data: PMImportRequest) =>
-      request<ImportResult>(url`/projects/${projectId}/roadmap/import/pm`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    syncToFile: (projectId: string) =>
-      request<{ status: string }>(url`/projects/${projectId}/roadmap/sync-to-file`, {
-        method: "POST",
-      }),
-  },
+  roadmap: createRoadmapResource(core),
 
   trajectory: {
     get: (
@@ -501,12 +373,7 @@ export const api = {
       }),
   },
 
-  providers: {
-    git: () => request<ProviderList>("/providers/git"),
-    agent: () => request<BackendList>("/providers/agent"),
-    spec: () => request<ProviderInfo[]>("/providers/spec"),
-    pm: () => request<ProviderInfo[]>("/providers/pm"),
-  },
+  providers: createProvidersResource(core),
   auth: createAuthResource(core),
 
   users: {
@@ -756,98 +623,7 @@ export const api = {
       }),
   },
 
-  // --- Benchmark Mode (Phase 20 + 26G/26H) ---
-  benchmarks: {
-    listRuns: () => request<import("./types").BenchmarkRun[]>("/benchmarks/runs"),
-
-    getRun: (id: string) => request<import("./types").BenchmarkRun>(url`/benchmarks/runs/${id}`),
-
-    createRun: (data: import("./types").CreateBenchmarkRunRequest) =>
-      request<import("./types").BenchmarkRun>("/benchmarks/runs", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    deleteRun: (id: string) =>
-      request<undefined>(url`/benchmarks/runs/${id}`, {
-        method: "DELETE",
-      }),
-
-    listResults: (runId: string) =>
-      request<import("./types").BenchmarkResult[]>(url`/benchmarks/runs/${runId}/results`),
-
-    compare: (runIdA: string, runIdB: string) =>
-      request<import("./types").BenchmarkCompareResult>("/benchmarks/compare", {
-        method: "POST",
-        body: JSON.stringify({ run_id_a: runIdA, run_id_b: runIdB }),
-      }),
-
-    listDatasets: () => request<import("./types").BenchmarkDatasetInfo[]>("/benchmarks/datasets"),
-
-    // Suite CRUD (Phase 26G)
-    listSuites: () => request<import("./types").BenchmarkSuite[]>("/benchmarks/suites"),
-
-    createSuite: (data: {
-      name: string;
-      description?: string;
-      type: string;
-      provider_name: string;
-    }) =>
-      request<import("./types").BenchmarkSuite>("/benchmarks/suites", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    getSuite: (id: string) =>
-      request<import("./types").BenchmarkSuite>(url`/benchmarks/suites/${id}`),
-
-    deleteSuite: (id: string) =>
-      request<undefined>(url`/benchmarks/suites/${id}`, { method: "DELETE" }),
-
-    updateSuite: (
-      id: string,
-      data: { name?: string; description?: string; type?: string; provider_name?: string },
-    ) =>
-      request<import("./types").BenchmarkSuite>(url`/benchmarks/suites/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-
-    cancelRun: (id: string) =>
-      request<import("./types").BenchmarkRun>(url`/benchmarks/runs/${id}`, {
-        method: "PATCH",
-      }),
-
-    exportResultsUrl: (runId: string, format: "json" | "csv" = "json") =>
-      `${BASE}/benchmarks/runs/${encodeURIComponent(runId)}/export/results?format=${format}`,
-
-    // Multi-compare (Phase 26G)
-    compareMulti: (runIds: string[]) =>
-      request<import("./types").MultiCompareEntry[]>("/benchmarks/compare-multi", {
-        method: "POST",
-        body: JSON.stringify({ run_ids: runIds }),
-      }),
-
-    // Cost analysis (Phase 26G)
-    costAnalysis: (runId: string) =>
-      request<import("./types").CostAnalysis>(url`/benchmarks/runs/${runId}/cost-analysis`),
-
-    // Leaderboard (Phase 26G)
-    leaderboard: (suiteId?: string) =>
-      request<import("./types").LeaderboardEntry[]>(
-        `/benchmarks/leaderboard${suiteId ? `?suite_id=${encodeURIComponent(suiteId)}` : ""}`,
-      ),
-
-    // Training data export (Phase 26G)
-    exportTrainingUrl: (runId: string, format: "json" | "jsonl" = "json") =>
-      `${BASE}/benchmarks/runs/${encodeURIComponent(runId)}/export/training?format=${format}`,
-
-    // Prompt optimization analysis
-    analyzeRun: (runId: string) =>
-      request<import("./types").PromptAnalysisReport>(url`/benchmarks/runs/${runId}/analyze`, {
-        method: "POST",
-      }),
-  },
+  benchmarks: createBenchmarksResource(core),
 
   files: createFilesResource(core),
 
