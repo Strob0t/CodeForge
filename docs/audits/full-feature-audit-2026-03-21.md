@@ -1,14 +1,12 @@
 # Full Feature Audit Report
 
-**Date:** 2026-03-21 (initial) | 2026-03-22 (re-audit after fixes)
+**Date:** 2026-03-21 (initial) | 2026-03-22 (re-audit)
 **Scope:** 22 features x 3 dimensions (Completeness, Quality, Security)
-**Methodology:** Spec-first audit — read spec/CLAUDE.md, then verify implementation
-**Prior Audit:** System-level audit 2026-03-20 (122 findings, 98.2% fixed) — this audit is feature-level
-**Fixes Applied:** 30 commits on `audit/feature-audit-fixes` branch, merged to staging
+**Methodology:** Spec-first — read spec/CLAUDE.md, then verify implementation
 
 ---
 
-## 1. Summary Table
+## 1. Score Summary
 
 | # | Feature | D1 | D2 | D3 | Avg | D1p | D2p | D3p | Avgp | Verdict |
 |---|---------|:--:|:--:|:--:|:---:|:---:|:---:|:---:|:----:|---------|
@@ -36,103 +34,164 @@
 | 22 | Frontend Core | 8 | 7 | 7 | 7.3 | 8 | 8 | 8 | 8.0 | PASS |
 | | **AVERAGES** | **7.9** | **6.9** | **7.5** | **7.4** | **8.3** | **8.0** | **8.5** | **8.3** | |
 
-**Original Grade: B- (7.4/10)** | **Post-fix Grade: B+ (8.3/10)** | **Improvement: +0.9**
+D1-D3 = initial scores. D1p-D3p = post-fix scores.
 
-**Original Verdicts:** 11 PASS | 10 NEEDS WORK | 1 CRITICAL
-**Post-fix Verdicts:** 20 PASS | 2 NEEDS WORK | 0 CRITICAL
+**Initial: B- (7.4)** | **Post-fix: B+ (8.3)**
+**Verdicts initial:** 11 PASS, 10 NEEDS WORK, 1 CRITICAL
+**Verdicts post-fix:** 20 PASS, 2 NEEDS WORK, 0 CRITICAL
 
 ---
 
-## 2. Fix Summary
+## 2. Findings by Feature
 
-### Fixes Applied (30 commits, 42 files, +2235/-278 lines)
+### Feature #1: Project Dashboard
+- **MEDIUM** `internal/service/project.go:144` -- `os.RemoveAll(wsPath)` path safety relied on string comparison, not symlink-resolved paths. **Post-fix:** EvalSymlinks added.
+- **LOW** `internal/domain/project/urlparse.go` -- SVN URLs could be spoofed to appear as Git repos.
+- **LOW** Batch operations (`POST /projects/batch/`) not rate-limited.
 
-| Phase | Commits | Findings Fixed | Key Changes |
-|-------|:-------:|:--------------:|-------------|
-| 1: CRITICAL Security | 4 | 5 | ReDoS, SQL injection, MCP auth |
-| 2: Missing Tests | 5 | 5 | Skill, Microagent, Memory, Eventstore, Handoff tests |
-| 3: Security Hardening | 8 | 11 | Path traversal, image validation, handoff hops, tenant checks |
-| 4: Quality Fixes | 10 | 17 | N+1 query, stall hash, routing DI, MaxSteps, logger, timeout |
-| 5: Docs & Config | 3 | 3 | ADR 007, configurable budgets, JWT production check |
-| **TOTAL** | **30** | **41 direct + 22 deferred** | |
+### Feature #2: Roadmap / Feature-Map
+- **MEDIUM** `internal/service/roadmap.go:55-76` -- N+1 query: nested loops for milestones+features. **Post-fix:** Batch-load via `ListFeaturesByRoadmap`.
+- **MEDIUM** `internal/adapter/plane/` -- API key in env var with no rotation mechanism.
+- **LOW** Feature labels not sanitized before storage from untrusted PM tools.
 
-### Critical Findings -- All Resolved
+### Feature #3: Multi-LLM Provider
+- **MEDIUM** `workers/codeforge/routing/blocklist.py:6-9` -- Module-level singleton anti-pattern. **Post-fix:** DI refactor.
+- **MEDIUM** `workers/codeforge/routing/router.py:205-250` -- No timeout or max retry in routing. **Post-fix:** 30s timeout + 3 retries.
+- **MEDIUM** `workers/codeforge/routing/blocklist.py:73-90` -- TOCTOU race condition (documented as safe under asyncio).
+- **LOW** `internal/adapter/litellm/client.go:75-81` -- Vault-based master key loading on every request, no caching.
+- **LOW** `workers/codeforge/routing/key_filter.py:60` -- Whitespace-only API key passes check. **Post-fix:** Explicit strip check.
 
-| Finding | Severity | Status |
-|---------|----------|--------|
-| ReDoS in microagent trigger matching | CRITICAL | FIXED -- length limit + input truncation |
-| Missing service tests (skill, microagent) | CRITICAL | FIXED -- 30+ new tests |
-| SQL injection in eventstore dynamic WHERE | HIGH | FIXED -- safe queryBuilder pattern |
-| SQL construction in conversation search | HIGH | FIXED -- centralized argIdx tracking |
-| MCP tools without per-user authorization | HIGH | FIXED -- nil checks + tenant context |
+### Feature #4: Agent Orchestration
+- **MEDIUM** `workers/codeforge/agent_loop.py:65-100` -- StallDetector truncates args to 200 chars; identical prefixes = false positive. **Post-fix:** Full-args hash.
+- **MEDIUM** `workers/codeforge/agent_loop.py:962-993` -- Subprocess via `bash -c command`. Primary defense: Go policy layer.
+- **MEDIUM** Approval timeout 60s default; no server-side enforcement visible. **Post-fix:** Absolute timeout (3600s) as safety net.
+- **LOW** Experience pool has no versioning of cached results.
 
-### Remaining Open Items (2 features still NEEDS WORK)
+### Feature #5: Chat Enhancements
+- **HIGH** `internal/adapter/postgres/store_conversation.go:161,166` -- SQL query built with `fmt.Sprintf` for parameter indices. Currently safe but fragile. **Post-fix:** Centralized argIdx tracking.
+- **MEDIUM** `frontend/src/features/project/Markdown.tsx:127` -- URL whitelist already blocks `data:` and `javascript:`. **Post-fix:** Documented.
+- **MEDIUM** Conversation search endpoint has no rate limiting.
 
-| Feature | Remaining Gaps | Reason |
-|---------|---------------|--------|
-| #9 A2A | Cancel nil check, AgentCard refresh | Partial fix -- prompt length done, cancel edge case open |
-| #12 Benchmark | RLVR/DPO exports, monolithic service | Deferred -- requires separate implementation plan |
+### Feature #6: Visual Design Canvas
+- **MEDIUM** Max image size (5MB) enforced client-side only. **Post-fix:** Server-side `MaxImageSizeBytes` + `Validate()`.
+- **MEDIUM** `workers/codeforge/history.py:154-155` -- Data URLs injected without base64 format validation. **Post-fix:** `_filter_valid_images()` with `base64.b64decode(validate=True)`.
 
-### Deferred to Separate Plans (Phase 6)
+### Feature #7: Agentic Conversation Loop
+- **MEDIUM** `workers/codeforge/agent_loop.py:302-330` -- Bare `except Exception` masks cache failures. **Post-fix:** Specific exception types.
+- **MEDIUM** `workers/codeforge/agent_loop.py:183-189` -- Image-only messages return empty string. **Post-fix:** Content-array format handling.
+- **MEDIUM** `workers/codeforge/agent_loop.py:249-262` -- Fallback model selection doesn't validate provider format. **Post-fix:** `_validate_model_name()`.
+- **MEDIUM** `internal/domain/conversation/conversation.go:39-55` -- No per-image size validation. **Post-fix:** `MessageImage.Validate()`.
+- **FALSE POSITIVE** `workers/codeforge/agent_loop.py:349` -- quality_tracker flagged as dead code but IS used in the loop.
 
-| Item | Feature | Estimated Effort |
-|------|---------|:----------------:|
-| Hook System (Observer pattern) | #20 | 500+ LOC |
-| Branch Isolation mechanism | #15 | 300+ LOC |
-| CommandSafetyEvaluator service | #15 | 200+ LOC |
-| contract_reviewer + refactorer handlers | #13 | 350+ LOC |
-| RLVR/DPO export endpoints | #12 | 300+ LOC |
-| BenchmarkService decomposition | #12 | Refactor 1000+ LOC |
-| Policy scope cascade | #16 | 200+ LOC |
-| Agent statistics tracking | #11 | 200+ LOC |
-| Agent inbox message routing | #11 | 150+ LOC |
+### Feature #8: Protocol: MCP
+- **HIGH** `internal/adapter/mcp/tools.go` -- All tools return full objects without per-user authorization. **Post-fix:** Nil checks + tenant context verification (partial -- auth middleware doesn't inject tenant).
+- **MEDIUM** `internal/adapter/mcp/server.go:62-70` -- No nil checks on deps. **Post-fix:** Panic-on-nil in `NewServer`.
+
+### Feature #9: Protocol: A2A
+- **MEDIUM** `internal/adapter/a2a/executor.go:42-50` -- No prompt length check. **Post-fix:** `MaxPromptLength = 100_000`.
+- **MEDIUM** `internal/adapter/a2a/executor.go:94-101` -- Cancel doesn't verify task exists before update. Nil dereference risk remains.
+- **MEDIUM** `internal/domain/a2a/task.go:49-68` -- Metadata accepts arbitrary keys/values without schema.
+- **LOW** `internal/adapter/a2a/agentcard.go:43-60` -- No card refresh/invalidation mechanism.
+
+### Feature #10: Protocol: AG-UI
+- **MEDIUM** `internal/adapter/ws/agui_events.go:50-51` -- Tool call args have no JSONSchema enforcement.
+- **MEDIUM** `internal/adapter/ws/agui_events.go:55-61` -- Tool results may contain sensitive data, no redaction.
+- **LOW** `internal/adapter/ws/agui_events.go:41-43` -- Text message content has no size limit.
+
+### Feature #11: Security & Trust
+- **MEDIUM** `internal/service/quarantine.go:34` -- Quarantine.Evaluate doesn't verify project access. **Post-fix:** TODO documented.
+- **MEDIUM** `internal/domain/quarantine/scorer.go:52` -- Invalid UTF-8 silently truncates patterns. **Post-fix:** `utf8.Valid()` check added.
+- **MEDIUM** Agent statistics (TotalRuns, TotalCost, SuccessRate) defined but never updated.
+- **LOW** Unknown trust levels return -1; callers must check.
+
+### Feature #12: Benchmark & Evaluation
+- **MEDIUM** `internal/service/benchmark.go:27-35` -- Monolithic service (1000+ LOC).
+- **MEDIUM** RLVR export endpoint (`GET /benchmarks/runs/{id}/export/rlvr`) not found.
+- **MEDIUM** DPO export path not implemented.
+- **MEDIUM** `internal/service/benchmark.go:resolveDatasetPath` -- Path traversal risk if dataset names not strictly validated.
+
+### Feature #13: Contract-First Review
+- **MEDIUM** `internal/service/review_trigger.go:37` -- No tenant isolation check. **Post-fix:** `GetProject()` tenant-scoped check added.
+- **MEDIUM** contract_reviewer mode handler in Python consumer not found.
+- **MEDIUM** refactorer approval workflow -- Frontend UI exists but no Go HTTP endpoint handler.
+
+### Feature #14: Hybrid Routing
+- **MEDIUM** Module-level singletons in blocklist.py, key_filter.py. **Post-fix:** DI refactor (same as F3).
+- **MEDIUM** No timeout/max retry in route_with_fallbacks. **Post-fix:** 30s timeout + 3 retries (same as F3).
+
+### Feature #15: Safety Layer
+- **MEDIUM** `internal/domain/policy/validate.go` -- MaxSteps validates `< 0` but no upper bound. **Post-fix:** `MaxStepsLimit = 10_000`.
+- **MEDIUM** If stall detection disabled, no timeout triggers agent stop. **Post-fix:** `AbsoluteMaxExecutionTimeout = 3600s`.
+- **MEDIUM** `internal/service/context_budget.go:20-25` -- Phase scaling hardcoded. **Post-fix:** Configurable via overrides parameter.
+- **MEDIUM** CommandSafetyEvaluator as separate service not found.
+- **MEDIUM** Branch Isolation mechanism not found in codebase.
+
+### Feature #16: Policy Layer
+- **LOW** 5th preset `supervised-ask-all` not documented in ADR 007. **Post-fix:** ADR updated.
+- **LOW** Scope resolution (run > project > global) not implemented at service layer.
+- **LOW** Trust-based filtering (`WithTrust()`) defined but unused.
+
+### Feature #17: Memory & Experience Pool
+- **MEDIUM** `internal/service/memory.go` -- No service tests. **Post-fix:** 10 test functions created.
+- **MEDIUM** `workers/codeforge/memory/scorer.py:40-58` -- Weights must sum to 1.0 but no validation. **Post-fix:** `ValueError` on mismatch.
+- **MEDIUM** `workers/codeforge/memory/experience.py:81` -- Division by zero in cosine similarity. **Post-fix:** Explicit zero-vector check.
+- **MEDIUM** `workers/codeforge/memory/experience.py:60-102` -- Creates new DB connection per lookup.
+
+### Feature #18: Microagents & Skills
+- **CRITICAL** `internal/service/microagent.go:106-115` -- ReDoS: user-supplied regex with no timeout/complexity limits. **Post-fix:** `MaxTriggerPatternLength` (512) + input truncation (10K chars).
+- **CRITICAL** `internal/service/skill.go` -- No test file. **Post-fix:** 15 test functions.
+- **CRITICAL** `internal/service/microagent.go` -- No dedicated service test file. **Post-fix:** 15 test functions.
+- **LOW** Case-insensitive substring matching could trigger unintended microagent matches.
+
+### Feature #19: Handoff System
+- **MEDIUM** `workers/codeforge/tools/handoff.py:77-83` -- No cycle detection or max hops limit. **Post-fix:** `MAX_HANDOFF_HOPS = 10`.
+- **MEDIUM** `internal/service/handoff_test.go` -- Only 3 test functions. **Post-fix:** Expanded with quarantine, broadcast, error tests.
+- **MEDIUM** `internal/service/handoff.go:51-52` -- Trust annotation uses SourceAgentID without validating origin.
+
+### Feature #20: Hook & Trajectory
+- **HIGH** `internal/adapter/postgres/eventstore.go:148,155,278` -- SQL injection risk via dynamic WHERE clause. **Post-fix:** Safe `queryBuilder` struct.
+- **MEDIUM** `internal/adapter/postgres/eventstore.go` -- No dedicated test file. **Post-fix:** 11 test functions.
+- **MEDIUM** Hook System (Observer pattern) entirely unimplemented.
+- **MEDIUM** Trajectory events stored in JSONB without schema validation.
+
+### Feature #21: Infrastructure
+- **MEDIUM** `internal/logger/async.go:62-66` -- Channel overflow drops records silently; DroppedCount() not in health checks. **Post-fix:** Exposed in `/health`.
+- **MEDIUM** NATS message validator should verify no unbounded JSONB payloads.
+- **LOW** `internal/config/config.go:545` -- Default JWT secret in code. **Post-fix:** Production startup check rejects default.
+
+### Feature #22: Frontend Core
+- **MEDIUM** `frontend/src/components/AuthProvider.tsx:50-57` -- Token refresh with no jitter (thundering herd). **Post-fix:** `Math.random() * 30_000` jitter.
+- **MEDIUM** `frontend/src/features/project/Markdown.tsx:113-130` -- URL whitelist confirmed safe; documented.
+- **LOW** No client-side rate limit on notifications from compromised backend.
 
 ---
 
 ## 3. Dimension Analysis
 
-| Dimension | Before | After | Delta | Interpretation |
-|-----------|:------:|:-----:|:-----:|----------------|
-| D1 (Completeness) | 7.9 | 8.3 | +0.4 | Improved -- server-side validation, ADR docs |
-| D2 (Code Quality) | 6.9 | 8.0 | +1.1 | Biggest gain -- tests, DI refactor, N+1 fix |
-| D3 (Security) | 7.5 | 8.5 | +1.0 | Strong gain -- ReDoS, SQL, auth, path traversal |
-
-### Biggest Improvements by Feature
-
-| Feature | Before | After | Delta | Key Fix |
-|---------|:------:|:-----:|:-----:|---------|
-| #20 Hook & Trajectory | 5.0 | 8.0 | **+3.0** | SQL injection eliminated via queryBuilder |
-| #18 Microagents & Skills | 7.0 | 9.0 | **+2.0** | ReDoS fixed + 30 tests added |
-| #15 Safety Layer | 6.3 | 7.7 | **+1.4** | MaxSteps bound + absolute timeout |
-| #13 Contract-First Review | 6.3 | 7.7 | **+1.4** | Tenant isolation in review trigger |
+| Dimension | Initial | Post-fix | Delta |
+|-----------|:-------:|:--------:|:-----:|
+| D1 (Completeness) | 7.9 | 8.3 | +0.4 |
+| D2 (Code Quality) | 6.9 | 8.0 | +1.1 |
+| D3 (Security) | 7.5 | 8.5 | +1.0 |
 
 ---
 
-## 4. Verification Evidence
-
-### Test Results (post-fix)
-- Go: All tests pass except pre-existing `TestDetectLanguage/unknown.xyz` (not caused by fixes)
-- Python: Routing module (54 tests pass), memory scorer, experience pool
-- Frontend: Vitest suite passes
-
-### New Test Files Created
-- `internal/service/microagent_test.go` -- 15 test functions (ReDoS, CRUD, trigger matching)
-- `internal/service/skill_test.go` -- 15 test functions (CRUD, validation, defaults)
-- `internal/service/memory_test.go` -- 10 test functions (Store, RecallSync, timeout)
-- `internal/adapter/postgres/eventstore_test.go` -- 11 test functions (queryBuilder)
-- `internal/adapter/a2a/executor_test.go` -- 4 test functions (prompt length, cancel)
-
----
-
-## 5. Architecture Strengths (Preserved)
+## 4. Architecture Strengths (Preserved)
 
 1. **Hexagonal Architecture** -- Clean dependency direction consistently enforced
 2. **Zero `any` / zero `@ts-ignore`** in frontend codebase
-3. **Parameterized SQL throughout** -- now including eventstore (previously fragile)
-4. **Defense in depth** -- Dual deduplication, circuit breakers, trust annotations, 8 safety layers
+3. **Parameterized SQL throughout** -- now including eventstore
+4. **Defense in depth** -- Dual deduplication, circuit breakers, trust annotations, safety layers
 5. **Well-typed API** -- 150+ TypeScript interfaces with `strict: true`
-6. **Safe query patterns** -- New `queryBuilder` struct eliminates manual `fmt.Sprintf` WHERE clauses
+6. **Safe query patterns** -- `queryBuilder` struct eliminates manual `fmt.Sprintf` WHERE clauses
 
 ---
 
-*Initial audit: 2026-03-21 (5 parallel agents). Re-audit: 2026-03-22 (5 parallel agents). Fixes: 30 commits.*
+## 5. Related Documents
+
+- **Fix plan:** `docs/superpowers/plans/2026-03-21-feature-audit-fixes.md`
+- **System-level audit (prior):** `docs/audits/2026-03-20-audit-overview.md`
+
+---
+
+*Initial audit: 2026-03-21. Re-audit: 2026-03-22. Both executed by 5 parallel audit agents.*
