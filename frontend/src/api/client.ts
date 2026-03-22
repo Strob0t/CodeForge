@@ -1,6 +1,8 @@
 import { invalidateCache } from "./cache";
 import { createCoreClient, FetchError, getAccessToken, setAccessTokenGetter } from "./core";
 import { url } from "./factory";
+import { createConversationsResource } from "./resources/conversations";
+import { createBatchResource, createProjectsResource } from "./resources/projects";
 import type {
   ActiveWorkItem,
   AddModelRequest,
@@ -10,7 +12,6 @@ import type {
   AIRoadmapView,
   APIKeyInfo,
   BackendList,
-  Branch,
   ContextPack,
   CostSummary,
   CreateAgentRequest,
@@ -21,7 +22,6 @@ import type {
   CreateMilestoneRequest,
   CreateModeRequest,
   CreatePlanRequest,
-  CreateProjectRequest,
   CreateRoadmapRequest,
   CreateTaskRequest,
   CreateUserRequest,
@@ -32,7 +32,6 @@ import type {
   EvaluationResult,
   ExecutionPlan,
   ForgotPasswordRequest,
-  GitStatus,
   GraphSearchRequest,
   GraphSearchResult,
   GraphStatus,
@@ -59,15 +58,12 @@ import type {
   PMImportRequest,
   PolicyProfile,
   PolicyToolCall,
-  Project,
   ProjectCostBar,
   ProjectCostSummary,
   ProjectHealth,
   ProviderInfo,
   ProviderList,
-  RepoInfo,
   RepoMap,
-  ResetPasswordRequest,
   RetrievalIndexStatus,
   RetrievalSearchResult,
   ReviewDecision,
@@ -106,114 +102,9 @@ export const api = {
     },
   },
 
-  projects: {
-    list: () => request<Project[]>("/projects"),
+  projects: createProjectsResource(core),
 
-    get: (id: string) => request<Project>(url`/projects/${id}`),
-
-    create: (data: CreateProjectRequest) =>
-      request<Project>("/projects", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    update: (id: string, data: import("./types").UpdateProjectRequest) =>
-      request<Project>(url`/projects/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-
-    delete: (id: string) =>
-      request<undefined>(url`/projects/${id}`, {
-        method: "DELETE",
-      }),
-
-    parseRepoURL: (repoUrl: string) =>
-      request<import("./types").ParsedRepoURL>("/parse-repo-url", {
-        method: "POST",
-        body: JSON.stringify({ url: repoUrl }),
-      }),
-
-    repoInfo: (repoUrl: string) =>
-      request<RepoInfo>(`/repos/info?url=${encodeURIComponent(repoUrl)}`),
-
-    clone: (id: string) =>
-      request<Project>(url`/projects/${id}/clone`, {
-        method: "POST",
-      }),
-
-    gitStatus: (id: string) => request<GitStatus>(url`/projects/${id}/git/status`),
-
-    pull: (id: string) =>
-      request<{ status: string }>(url`/projects/${id}/git/pull`, {
-        method: "POST",
-      }),
-
-    branches: (id: string) => request<Branch[]>(url`/projects/${id}/git/branches`),
-
-    checkout: (id: string, branch: string) =>
-      request<{ status: string; branch: string }>(url`/projects/${id}/git/checkout`, {
-        method: "POST",
-        body: JSON.stringify({ branch }),
-      }),
-
-    detectStack: (id: string) =>
-      request<import("./types").StackDetectionResult>(url`/projects/${id}/detect-stack`),
-
-    detectStackByPath: (path: string) =>
-      request<import("./types").StackDetectionResult>("/detect-stack", {
-        method: "POST",
-        body: JSON.stringify({ path }),
-      }),
-
-    setup: (id: string, branch?: string) =>
-      request<import("./types").SetupResult>(url`/projects/${id}/setup`, {
-        method: "POST",
-        body: JSON.stringify(branch ? { branch } : {}),
-      }),
-
-    adopt: (id: string, body: { path: string }) =>
-      request<Project>(url`/projects/${id}/adopt`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-
-    initWorkspace: (id: string) =>
-      request<Project>(url`/projects/${id}/init-workspace`, {
-        method: "POST",
-      }),
-
-    remoteBranches: (repoUrl: string) =>
-      request<{ branches: string[] }>(url`/projects/remote-branches?url=${repoUrl}`).then(
-        (r) => r.branches,
-      ),
-
-    getBoundaries: (id: string) =>
-      request<import("./types").BoundaryConfig>(url`/projects/${id}/boundaries`),
-
-    triggerBoundaryAnalysis: (id: string) =>
-      request<undefined>(url`/projects/${id}/boundaries/analyze`, {
-        method: "POST",
-      }),
-  },
-
-  batch: {
-    deleteProjects: (ids: string[]) =>
-      request<{ id: string; ok: boolean; error?: string }[]>("/projects/batch/delete", {
-        method: "POST",
-        body: JSON.stringify({ ids }),
-      }),
-    pullProjects: (ids: string[]) =>
-      request<{ id: string; ok: boolean; error?: string }[]>("/projects/batch/pull", {
-        method: "POST",
-        body: JSON.stringify({ ids }),
-      }),
-    statusProjects: (ids: string[]) =>
-      request<{ id: string; ok: boolean; error?: string; status?: import("./types").GitStatus }[]>(
-        "/projects/batch/status",
-        { method: "POST", body: JSON.stringify({ ids }) },
-      ),
-  },
+  batch: createBatchResource(core),
 
   agents: {
     list: (projectId: string) => request<Agent[]>(url`/projects/${projectId}/agents`),
@@ -874,54 +765,7 @@ export const api = {
     get: () => request<import("./types").AgentConfig>("/agent-config"),
   },
 
-  conversations: {
-    create: (projectId: string, data?: import("./types").CreateConversationRequest) =>
-      request<import("./types").Conversation>(url`/projects/${projectId}/conversations`, {
-        method: "POST",
-        body: JSON.stringify(data ?? {}),
-      }),
-
-    list: (projectId: string) =>
-      request<import("./types").Conversation[]>(url`/projects/${projectId}/conversations`),
-
-    get: (id: string) => request<import("./types").Conversation>(url`/conversations/${id}`),
-
-    delete: (id: string) =>
-      request<undefined>(url`/conversations/${id}`, {
-        method: "DELETE",
-      }),
-
-    messages: (id: string) =>
-      request<import("./types").ConversationMessage[]>(url`/conversations/${id}/messages`),
-
-    send: (id: string, data: import("./types").SendMessageRequest) =>
-      request<{ status: string; run_id: string; message: string }>(
-        url`/conversations/${id}/messages`,
-        {
-          method: "POST",
-          body: JSON.stringify(data),
-        },
-      ),
-
-    stop: (id: string) =>
-      request<{ status: string; conversation_id: string }>(url`/conversations/${id}/stop`, {
-        method: "POST",
-      }),
-
-    session: (id: string) => request<import("./types").Session>(url`/conversations/${id}/session`),
-
-    fork: (id: string, data?: { from_event_id?: string }) =>
-      request<import("./types").Session>(url`/conversations/${id}/fork`, {
-        method: "POST",
-        body: JSON.stringify(data ?? {}),
-      }),
-
-    rewind: (id: string, data?: { run_id?: string; to_event_id?: string }) =>
-      request<import("./types").Session>(url`/conversations/${id}/rewind`, {
-        method: "POST",
-        body: JSON.stringify(data ?? {}),
-      }),
-  },
+  conversations: createConversationsResource(core),
 
   vcsAccounts: {
     list: () => request<import("./types").VCSAccount[]>("/vcs-accounts"),
