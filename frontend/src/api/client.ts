@@ -1,29 +1,28 @@
 import { invalidateCache } from "./cache";
 import { createCoreClient, FetchError, getAccessToken, setAccessTokenGetter } from "./core";
 import { url } from "./factory";
+import { createAgentsResource, createTasksResource } from "./resources/agents";
+import {
+  createAuthResource,
+  createSubscriptionProvidersResource,
+  createVCSAccountsResource,
+} from "./resources/auth";
 import { createConversationsResource } from "./resources/conversations";
+import { createFilesResource } from "./resources/files";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
 import type {
   ActiveWorkItem,
   AddModelRequest,
-  Agent,
-  AgentEvent,
   AgentPerf,
   AIRoadmapView,
-  APIKeyInfo,
   BackendList,
-  ContextPack,
   CostSummary,
-  CreateAgentRequest,
-  CreateAPIKeyRequest,
-  CreateAPIKeyResponse,
   CreateFeatureRequest,
   CreateMCPServerRequest,
   CreateMilestoneRequest,
   CreateModeRequest,
   CreatePlanRequest,
   CreateRoadmapRequest,
-  CreateTaskRequest,
   CreateUserRequest,
   DailyCost,
   DashboardStats,
@@ -31,16 +30,12 @@ import type {
   DetectionResult,
   EvaluationResult,
   ExecutionPlan,
-  ForgotPasswordRequest,
   GraphSearchRequest,
   GraphSearchResult,
   GraphStatus,
   HealthStatus,
   ImportResult,
-  InitialSetupRequest,
   LLMModel,
-  LoginRequest,
-  LoginResponse,
   LSPDiagnostic,
   LSPDocumentSymbol,
   LSPHoverResult,
@@ -72,11 +67,9 @@ import type {
   Run,
   RunOutcome,
   SearchRequest,
-  SetupStatusResponse,
   StartRunRequest,
   SubAgentSearchRequest,
   SubAgentSearchResult,
-  Task,
   ToolCostSummary,
   TrajectoryPage,
   UpdateUserRequest,
@@ -106,61 +99,9 @@ export const api = {
 
   batch: createBatchResource(core),
 
-  agents: {
-    list: (projectId: string) => request<Agent[]>(url`/projects/${projectId}/agents`),
+  agents: createAgentsResource(core),
 
-    get: (id: string) => request<Agent>(url`/agents/${id}`),
-
-    create: (projectId: string, data: CreateAgentRequest) =>
-      request<Agent>(url`/projects/${projectId}/agents`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    delete: (id: string) => request<undefined>(url`/agents/${id}`, { method: "DELETE" }),
-
-    dispatch: (agentId: string, taskId: string) =>
-      request<{ status: string }>(url`/agents/${agentId}/dispatch`, {
-        method: "POST",
-        body: JSON.stringify({ task_id: taskId }),
-      }),
-
-    stop: (agentId: string, taskId: string) =>
-      request<{ status: string }>(url`/agents/${agentId}/stop`, {
-        method: "POST",
-        body: JSON.stringify({ task_id: taskId }),
-      }),
-
-    active: (projectId: string) => request<Agent[]>(url`/projects/${projectId}/agents/active`),
-  },
-
-  tasks: {
-    list: (projectId: string) => request<Task[]>(url`/projects/${projectId}/tasks`),
-
-    get: (id: string) => request<Task>(url`/tasks/${id}`),
-
-    create: (projectId: string, data: CreateTaskRequest) =>
-      request<Task>(url`/projects/${projectId}/tasks`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    events: (taskId: string) => request<AgentEvent[]>(url`/tasks/${taskId}/events`),
-
-    context: (taskId: string) => request<ContextPack>(url`/tasks/${taskId}/context`),
-
-    buildContext: (taskId: string, projectId: string, teamId?: string) =>
-      request<ContextPack>(url`/tasks/${taskId}/context`, {
-        method: "POST",
-        body: JSON.stringify({ project_id: projectId, team_id: teamId ?? "" }),
-      }),
-
-    claim: (taskId: string, agentId: string) =>
-      request<{ claimed: boolean; reason?: string }>(url`/tasks/${taskId}/claim`, {
-        method: "POST",
-        body: JSON.stringify({ agent_id: agentId }),
-      }),
-  },
+  tasks: createTasksResource(core),
 
   llm: {
     models: () => request<LLMModel[]>("/llm/models"),
@@ -566,86 +507,13 @@ export const api = {
     spec: () => request<ProviderInfo[]>("/providers/spec"),
     pm: () => request<ProviderInfo[]>("/providers/pm"),
   },
-  auth: {
-    login: (data: LoginRequest) =>
-      request<LoginResponse>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    refresh: () =>
-      request<LoginResponse>("/auth/refresh", {
-        method: "POST",
-      }),
-
-    logout: () =>
-      request<{ status: string }>("/auth/logout", {
-        method: "POST",
-      }),
-
-    me: () => request<User>("/auth/me"),
-
-    changePassword: (data: import("./types").ChangePasswordRequest) =>
-      request<{ status: string }>("/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    setupStatus: () => request<SetupStatusResponse>("/auth/setup-status"),
-
-    setup: (data: InitialSetupRequest) =>
-      request<LoginResponse>("/auth/setup", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    forgotPassword: (data: ForgotPasswordRequest) =>
-      request<{ status: string }>("/auth/forgot-password", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    resetPassword: (data: ResetPasswordRequest) =>
-      request<{ status: string }>("/auth/reset-password", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    createAPIKey: (data: CreateAPIKeyRequest) =>
-      request<CreateAPIKeyResponse>("/auth/api-keys", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    listAPIKeys: () => request<APIKeyInfo[]>("/auth/api-keys"),
-
-    deleteAPIKey: (id: string) =>
-      request<undefined>(url`/auth/api-keys/${id}`, {
-        method: "DELETE",
-      }),
-
-    githubOAuth: () => request<{ url: string; state: string }>("/auth/github"),
-  },
+  auth: createAuthResource(core),
 
   users: {
     list: () => request<User[]>("/users"),
-
-    create: (data: CreateUserRequest) =>
-      request<User>("/users", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    update: (id: string, data: UpdateUserRequest) =>
-      request<User>(url`/users/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
-
-    delete: (id: string) =>
-      request<undefined>(url`/users/${id}`, {
-        method: "DELETE",
-      }),
+    create: (data: CreateUserRequest) => core.post<User>("/users", data),
+    update: (id: string, data: UpdateUserRequest) => core.put<User>(url`/users/${id}`, data),
+    delete: (id: string) => core.del<undefined>(url`/users/${id}`),
   },
 
   reviews: {
@@ -767,25 +635,7 @@ export const api = {
 
   conversations: createConversationsResource(core),
 
-  vcsAccounts: {
-    list: () => request<import("./types").VCSAccount[]>("/vcs-accounts"),
-
-    create: (data: import("./types").CreateVCSAccountRequest) =>
-      request<import("./types").VCSAccount>("/vcs-accounts", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-
-    delete: (id: string) =>
-      request<undefined>(url`/vcs-accounts/${id}`, {
-        method: "DELETE",
-      }),
-
-    test: (id: string) =>
-      request<{ status: string }>(url`/vcs-accounts/${id}/test`, {
-        method: "POST",
-      }),
-  },
+  vcsAccounts: createVCSAccountsResource(core),
 
   lsp: {
     start: (projectId: string, languages?: string[]) =>
@@ -999,40 +849,7 @@ export const api = {
       }),
   },
 
-  files: {
-    list: (projectId: string, path = ".") =>
-      request<import("./types").FileEntry[]>(
-        `/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(path)}`,
-      ),
-
-    tree: (projectId: string, maxEntries = 10000) =>
-      request<import("./types").FileEntry[]>(
-        `/projects/${encodeURIComponent(projectId)}/files/tree?max_entries=${maxEntries}`,
-      ),
-
-    read: (projectId: string, path: string) =>
-      request<import("./types").FileContent>(
-        `/projects/${encodeURIComponent(projectId)}/files/content?path=${encodeURIComponent(path)}`,
-      ),
-
-    write: (projectId: string, path: string, content: string) =>
-      request<{ status: string }>(url`/projects/${projectId}/files/content`, {
-        method: "PUT",
-        body: JSON.stringify({ path, content }),
-      }),
-
-    delete: (projectId: string, path: string) =>
-      request<undefined>(
-        `/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(path)}`,
-        { method: "DELETE" },
-      ),
-
-    rename: (projectId: string, oldPath: string, newPath: string) =>
-      request<{ status: string }>(url`/projects/${projectId}/files/rename`, {
-        method: "PATCH",
-        body: JSON.stringify({ old_path: oldPath, new_path: newPath }),
-      }),
-  },
+  files: createFilesResource(core),
 
   autoAgent: {
     start: (projectId: string) =>
@@ -1152,25 +969,7 @@ export const api = {
       }),
   },
 
-  subscriptionProviders: {
-    list: () => request<import("./types").SubscriptionProvidersResponse>("/auth/providers"),
-
-    connect: (provider: string) =>
-      request<import("./types").DeviceFlowResponse>(
-        `/auth/providers/${encodeURIComponent(provider)}/connect`,
-        { method: "POST" },
-      ),
-
-    status: (provider: string) =>
-      request<import("./types").ProviderStatusResponse>(
-        `/auth/providers/${encodeURIComponent(provider)}/status`,
-      ),
-
-    disconnect: (provider: string) =>
-      request<undefined>(`/auth/providers/${encodeURIComponent(provider)}/disconnect`, {
-        method: "DELETE",
-      }),
-  },
+  subscriptionProviders: createSubscriptionProvidersResource(core),
 
   audit: {
     list: (opts?: { action?: string; cursor?: string; limit?: number }) => {
