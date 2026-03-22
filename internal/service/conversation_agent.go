@@ -1103,11 +1103,15 @@ func detectStackSummary(workspacePath string) (string, error) {
 	if len(result.Languages) == 0 {
 		return "", nil
 	}
-	names := make([]string, len(result.Languages))
+	parts := make([]string, len(result.Languages))
 	for i, lang := range result.Languages {
-		names[i] = lang.Name
+		if len(lang.Frameworks) > 0 {
+			parts[i] = fmt.Sprintf("%s (%s)", lang.Name, strings.Join(lang.Frameworks, ", "))
+		} else {
+			parts[i] = lang.Name
+		}
 	}
-	return strings.Join(names, ", "), nil
+	return strings.Join(parts, ", "), nil
 }
 
 // resolveProviderAPIKey attempts to look up the user's per-provider LLM key.
