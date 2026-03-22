@@ -7,6 +7,7 @@ from typing import Any
 
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
 from codeforge.tools._error_handler import catch_os_error
+from codeforge.tools._lint import post_write_check
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,12 @@ class EditFileTool(ToolExecutor):
             ],
         }
 
+        output_msg = f"replaced {old_lines} line(s) with {new_lines} line(s) in {rel}"
+        lint_warning = post_write_check(rel, updated)
+        if lint_warning:
+            output_msg += f"\n\nSyntax warning: {lint_warning}\nPlease review and fix the syntax error."
+
         return ToolResult(
-            output=f"replaced {old_lines} line(s) with {new_lines} line(s) in {rel}",
+            output=output_msg,
             diff=diff_data,
         )
