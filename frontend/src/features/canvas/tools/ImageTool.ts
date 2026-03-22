@@ -7,7 +7,7 @@ export interface ImageToolOptions {
   svgRef: () => SVGSVGElement | undefined;
 }
 
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const DEFAULT_IMAGE_SIZE = 200;
 const MIN_DRAG_SIZE = 5;
 

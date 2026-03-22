@@ -3,14 +3,20 @@ package mcp
 import (
 	"net/http"
 	"strings"
+
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // AuthMiddleware wraps an http.Handler and validates the Authorization header.
 // It checks for a Bearer token or API key matching the expected value.
-// If apiKey is empty, the middleware passes all requests through (auth disabled).
-func AuthMiddleware(apiKey string, next http.Handler) http.Handler {
+// If apiKey is empty, the middleware passes all requests through (auth disabled)
+// but still injects tenant context so downstream handlers always have a tenant ID.
+func AuthMiddleware(apiKey, tenantID string, next http.Handler) http.Handler {
 	if apiKey == "" {
-		return next
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := tenantctx.WithTenant(r.Context(), tenantID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
@@ -30,6 +36,8 @@ func AuthMiddleware(apiKey string, next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// Inject tenant context for downstream handlers.
+		ctx := tenantctx.WithTenant(r.Context(), tenantID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -18,7 +18,7 @@
 | 6 | Visual Design Canvas | 8 | 8 | 8 | 8.0 | NEEDS WORK |
 | 7 | Agentic Conversation Loop | 8 | 7 | 7 | 7.3 | NEEDS WORK |
 | 8 | Protocol: MCP | 8 | 8 | 8 | 8.0 | PASS |
-| 9 | Protocol: A2A | 7 | 7 | 8 | 7.3 | NEEDS WORK |
+| 9 | Protocol: A2A | 8 | 7 | 8 | 7.7 | NEEDS WORK |
 | 10 | Protocol: AG-UI | 6 | 6 | 9 | 7.0 | NEEDS WORK |
 | 11 | Security & Trust | 9 | 8 | 7 | 8.0 | NEEDS WORK |
 | 12 | Benchmark & Evaluation | 8 | 7 | 6 | 7.0 | NEEDS WORK |
@@ -73,7 +73,7 @@
 - **LOW** `internal/adapter/mcp/resources.go:11` -- Parameterized resource templates (`codeforge://projects/{id}`) not implemented. -- OPEN
 
 ### Feature #9: Protocol: A2A
-- **MEDIUM** A2A task result callback to remote agents not implemented. Inbound task creation works, outbound completion not visible. -- OPEN
+- **MEDIUM** A2A task result callback -- **FALSE POSITIVE**: HandleTaskComplete (a2a.go:445) already calls DispatchPushNotifications (a2a.go:377). The audit agent missed the NATS handler wiring (a2a.go:486). -- FIXED
 - **MEDIUM** `internal/adapter/a2a/executor_test.go` -- Only 4 tests. Missing: task-created callback, concurrent cancels, NATS publish failure. -- OPEN
 - **LOW** `internal/adapter/a2a/agentcard.go:22` -- FIX-109: Streaming flag hardcoded, config integration incomplete. -- OPEN
 
@@ -146,7 +146,7 @@
 
 | Dimension | Score | Interpretation |
 |-----------|:-----:|----------------|
-| D1 (Completeness) | 7.8 | Good -- most features implemented; AG-UI event emission and A2A callbacks incomplete |
+| D1 (Completeness) | 7.8 | Good -- most features implemented; AG-UI event emission incomplete; A2A callbacks confirmed working (false positive) |
 | D2 (Code Quality) | 7.5 | Fair -- test gaps in orchestration, AG-UI, frontend; config error handling silent |
 | D3 (Security) | 8.0 | Good -- ReDoS/SQL injection fixed; quarantine tenant isolation and image validation gaps remain |
 

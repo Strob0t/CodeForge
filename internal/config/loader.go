@@ -385,49 +385,67 @@ func setString(dst *string, key string) {
 
 func setInt(dst *int, key string) {
 	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			*dst = n
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid config value", "key", key, "value", v, "error", err)
+			return
 		}
+		*dst = n
 	}
 }
 
 func setInt32(dst *int32, key string) {
 	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 32); err == nil {
-			*dst = int32(n)
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			slog.Warn("ignoring invalid config value", "key", key, "value", v, "error", err)
+			return
 		}
+		*dst = int32(n)
 	}
 }
 
 func setFloat64(dst *float64, key string) {
 	if v := os.Getenv(key); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			*dst = f
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			slog.Warn("ignoring invalid config value", "key", key, "value", v, "error", err)
+			return
 		}
+		*dst = f
 	}
 }
 
 func setInt64(dst *int64, key string) {
 	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			*dst = n
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			slog.Warn("ignoring invalid config value", "key", key, "value", v, "error", err)
+			return
 		}
+		*dst = n
 	}
 }
 
 func setBool(dst *bool, key string) {
 	if v := os.Getenv(key); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			*dst = b
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			slog.Warn("ignoring invalid config value", "key", key, "value", v, "error", err)
+			return
 		}
+		*dst = b
 	}
 }
 
 func setDuration(dst *time.Duration, key string) {
 	if v := os.Getenv(key); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			*dst = d
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			slog.Warn("ignoring invalid config value", "key", key, "value", v, "error", err)
+			return
 		}
+		*dst = d
 	}
 }
 

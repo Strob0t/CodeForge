@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // ServerConfig holds configuration for the MCP server.
@@ -88,15 +89,17 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 		mcpserver.WithStateLess(true),
 	}
 
-	// Wire AuthMiddleware if an API key is configured.
-	if cfg.APIKey != "" {
+	// Wire AuthMiddleware with tenant context injection.
+	// MCP currently uses a shared API key (not per-tenant), so we inject
+	// the default tenant ID for all requests. When per-tenant MCP auth
+	// is added, this should resolve the tenant from the API key.
+	{
 		mux := http.NewServeMux()
-		// The StreamableHTTPServer implements http.Handler; wrap it with auth.
 		tmpHTTP := mcpserver.NewStreamableHTTPServer(mcpSrv,
 			mcpserver.WithEndpointPath("/mcp"),
 			mcpserver.WithStateLess(true),
 		)
-		mux.Handle("/mcp", AuthMiddleware(cfg.APIKey, tmpHTTP))
+		mux.Handle("/mcp", AuthMiddleware(cfg.APIKey, tenantctx.DefaultTenantID, tmpHTTP))
 		httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second} //nolint:gosec // timeout set
 		opts = append(opts, mcpserver.WithStreamableHTTPServer(httpSrv))
 	}

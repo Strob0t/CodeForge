@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,6 +230,66 @@ func TestConversation_SendMessage_EmptyContent(t *testing.T) {
 	_, err := svc.SendMessage(ctx, "conv-1", &conversation.SendMessageRequest{Content: ""})
 	if err == nil {
 		t.Fatal("expected error for empty content")
+	}
+}
+
+func TestSendMessage_ImageTooLarge(t *testing.T) {
+	store := &convMockStore{}
+	store.projects = []project.Project{
+		{ID: "proj-1", Name: "Test", WorkspacePath: "/tmp/test"},
+	}
+	bc := &mockBroadcaster{}
+	modes := service.NewModeService()
+	svc := service.NewConversationService(store, bc, "gpt-4o", modes)
+	q := &captureQueue{}
+	svc.SetQueue(q)
+	svc.SetAgentConfig(&config.Agent{DefaultModel: "gpt-4o"})
+	ctx := context.Background()
+
+	conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "Image Test"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Build an image whose Data field exceeds 15MB.
+	oversizedData := strings.Repeat("A", 16*1024*1024)
+
+	_, err = svc.SendMessage(ctx, conv.ID, &conversation.SendMessageRequest{
+		Content: "Check this image",
+		Images: []conversation.MessageImage{
+			{Data: oversizedData, MediaType: "image/png"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for oversized image")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("expected error about exceeds maximum size, got: %s", err.Error())
+	}
+
+	// Also verify a valid image passes (under 15MB).
+	_, err = svc.SendMessage(ctx, conv.ID, &conversation.SendMessageRequest{
+		Content: "Small image",
+		Images: []conversation.MessageImage{
+			{Data: "iVBORw0KGgo=", MediaType: "image/png"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error for small image, got: %v", err)
+	}
+
+	// Missing media_type should fail validation.
+	_, err = svc.SendMessage(ctx, conv.ID, &conversation.SendMessageRequest{
+		Content: "No media type",
+		Images: []conversation.MessageImage{
+			{Data: "AAAA", MediaType: ""},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for missing media_type")
+	}
+	if !strings.Contains(err.Error(), "media_type is required") {
+		t.Errorf("expected error about media_type, got: %s", err.Error())
 	}
 }
 

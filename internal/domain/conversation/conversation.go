@@ -26,8 +26,8 @@ type MessageImage struct {
 	AltText   string `json:"alt_text,omitempty"`
 }
 
-// MaxImageSizeBytes is the maximum allowed size for image data (5MB).
-const MaxImageSizeBytes = 5 * 1024 * 1024
+// MaxImageSizeBytes is the maximum allowed size for image data (15MB).
+const MaxImageSizeBytes = 15 * 1024 * 1024
 
 // Validate checks that the image has a media type and does not exceed the size limit.
 func (img *MessageImage) Validate() error {

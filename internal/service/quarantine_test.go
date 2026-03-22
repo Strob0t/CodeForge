@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
@@ -20,6 +22,9 @@ type mockQuarantineStore struct {
 
 func newMockQuarantineStore() *mockQuarantineStore {
 	return &mockQuarantineStore{
+		mockStore: mockStore{
+			projects: []project.Project{{ID: "proj-1", Name: "test-project"}},
+		},
 		messages: make(map[string]*quarantine.Message),
 	}
 }
@@ -249,5 +254,57 @@ func TestQuarantineReject(t *testing.T) {
 	msg := store.messages[msgID]
 	if msg.Status != quarantine.StatusRejected {
 		t.Errorf("expected rejected status, got %s", msg.Status)
+	}
+}
+
+func TestQuarantineService_Evaluate_CrossTenantBlocked(t *testing.T) {
+	store := newMockQuarantineStore()
+	// Inject GetProject error to simulate cross-tenant access (project not found for this tenant).
+	store.getProjectErr = domain.ErrNotFound
+
+	svc := NewQuarantineService(store, &mockQueue{}, &mockBroadcaster{}, config.Quarantine{
+		Enabled:             true,
+		QuarantineThreshold: 0.7,
+		BlockThreshold:      0.95,
+		MinTrustBypass:      "verified",
+		ExpiryHours:         72,
+	})
+
+	ann := &trust.Annotation{Origin: "a2a", TrustLevel: trust.LevelUntrusted, SourceID: "ext"}
+	blocked, err := svc.Evaluate(context.Background(), ann, "run.start", []byte(`{}`), "other-tenant-project")
+
+	if !blocked {
+		t.Error("expected message to be blocked for cross-tenant project")
+	}
+	if err == nil {
+		t.Fatal("expected error for cross-tenant project access")
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound wrapped in error, got: %v", err)
+	}
+}
+
+func TestQuarantineService_Evaluate_EmptyProjectIDSkipsTenantCheck(t *testing.T) {
+	store := newMockQuarantineStore()
+	// Even with GetProject failing, empty projectID should skip the check.
+	store.getProjectErr = domain.ErrNotFound
+
+	svc := NewQuarantineService(store, &mockQueue{}, &mockBroadcaster{}, config.Quarantine{
+		Enabled:             true,
+		QuarantineThreshold: 0.7,
+		BlockThreshold:      0.95,
+		MinTrustBypass:      "verified",
+		ExpiryHours:         72,
+	})
+
+	// With empty projectID, tenant check is skipped; clean payload + partial trust = low score.
+	ann := &trust.Annotation{Origin: "mcp", TrustLevel: trust.LevelPartial, SourceID: "ext"}
+	blocked, err := svc.Evaluate(context.Background(), ann, "run.start", []byte(`{}`), "")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if blocked {
+		t.Error("expected message to pass with empty projectID (tenant check skipped)")
 	}
 }

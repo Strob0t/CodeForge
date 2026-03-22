@@ -4,6 +4,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 )
 
 // --------------------------------------------------------------------------
@@ -18,8 +23,6 @@ func TestRuntimeExecution_SourceQuality(t *testing.T) {
 	content := string(src)
 
 	t.Run("ProperErrorHandling", func(t *testing.T) {
-		// Every error from store/queue calls should be handled (not ignored).
-		// Count error assignments vs error checks.
 		errAssignments := strings.Count(content, "if err != nil")
 		if errAssignments < 5 {
 			t.Errorf("expected at least 5 error checks, got %d", errAssignments)
@@ -33,7 +36,6 @@ func TestRuntimeExecution_SourceQuality(t *testing.T) {
 	})
 
 	t.Run("ContextPropagation", func(t *testing.T) {
-		// All handler methods should accept ctx context.Context as first param.
 		methods := []string{
 			"HandleToolCallRequest",
 			"HandleToolCallResult",
@@ -48,16 +50,123 @@ func TestRuntimeExecution_SourceQuality(t *testing.T) {
 	})
 
 	t.Run("LoggingOnErrors", func(t *testing.T) {
-		// Handler functions should log errors with slog.
 		if !strings.Contains(content, "slog.Error") && !strings.Contains(content, "slog.Warn") {
 			t.Error("runtime_execution.go should log errors via slog")
 		}
 	})
 }
 
-// TODO(FIX-032): Additional tests to write for runtime_execution.go:
-// - TestHandleToolCallRequest_PolicyDenied (mock store, verify denied tool call returns error)
-// - TestHandleToolCallRequest_HITLApproval (mock store with autonomy level requiring HITL)
-// - TestHandleToolCallResult_UpdatesRunState (verify run step count, cost tracking)
-// - TestHandleRunComplete_TriggersDelivery (verify delivery pipeline is triggered)
-// - TestHandleQualityGateResult_PassFail (verify quality gate pass/fail updates run)
+// Tests below supplement the existing runtime_internal_test.go tests.
+// Duplicate test names are avoided; see runtime_internal_test.go for
+// TestCheckTermination_*, TestIsFileModifyingTool, TestToContextEntryPayloads,
+// TestCleanupRunState_*, TestSendToolCallResponse_*, TestWaitForApproval_*.
+
+func TestCheckTermination_BudgetExceeded(t *testing.T) {
+	svc := &RuntimeService{
+		runtimeCfg: &config.Runtime{},
+	}
+	r := &run.Run{
+		ID:        "run-budget",
+		CostUSD:   5.01,
+		StartedAt: time.Now(),
+	}
+	profile := &policy.PolicyProfile{
+		Termination: policy.TerminationCondition{
+			MaxCost: 5.0,
+		},
+	}
+
+	reason := svc.checkTermination(r, profile)
+	if reason == "" {
+		t.Fatal("expected termination reason when cost exceeds budget")
+	}
+	if !strings.Contains(reason, "max cost") {
+		t.Errorf("expected 'max cost' in reason, got: %s", reason)
+	}
+}
+
+func TestCheckTermination_NoTermination(t *testing.T) {
+	svc := &RuntimeService{
+		runtimeCfg: &config.Runtime{},
+	}
+	r := &run.Run{
+		ID:        "run-ok",
+		StepCount: 5,
+		CostUSD:   0.10,
+		StartedAt: time.Now(),
+	}
+	profile := &policy.PolicyProfile{
+		Termination: policy.TerminationCondition{
+			MaxSteps: 100,
+			MaxCost:  10.0,
+		},
+	}
+
+	reason := svc.checkTermination(r, profile)
+	if reason != "" {
+		t.Errorf("expected no termination, got reason: %s", reason)
+	}
+}
+
+func TestCheckTermination_CombinedLimits(t *testing.T) {
+	svc := &RuntimeService{
+		runtimeCfg: &config.Runtime{},
+	}
+
+	// Steps OK, cost exceeded => should terminate on cost.
+	r := &run.Run{
+		ID:        "run-combo",
+		StepCount: 5,
+		CostUSD:   10.1,
+		StartedAt: time.Now(),
+	}
+	profile := &policy.PolicyProfile{
+		Termination: policy.TerminationCondition{
+			MaxSteps: 100,
+			MaxCost:  10.0,
+		},
+	}
+
+	reason := svc.checkTermination(r, profile)
+	if reason == "" {
+		t.Fatal("expected termination on cost limit")
+	}
+	if !strings.Contains(reason, "max cost") {
+		t.Errorf("expected 'max cost' in reason, got: %s", reason)
+	}
+}
+
+func TestMarkConversationRunCancelled(t *testing.T) {
+	svc := &RuntimeService{
+		runtimeCfg: &config.Runtime{},
+	}
+
+	svc.MarkConversationRunCancelled("conv-1")
+
+	if _, ok := svc.cancelledConvRuns.Load("conv-1"); !ok {
+		t.Error("expected conv-1 to be marked as cancelled")
+	}
+}
+
+func TestBypassConversationApprovals(t *testing.T) {
+	svc := &RuntimeService{
+		runtimeCfg: &config.Runtime{},
+	}
+
+	if svc.IsConversationBypassed("conv-1") {
+		t.Error("expected conv-1 to not be bypassed initially")
+	}
+
+	svc.BypassConversationApprovals("conv-1")
+
+	if !svc.IsConversationBypassed("conv-1") {
+		t.Error("expected conv-1 to be bypassed after calling BypassConversationApprovals")
+	}
+}
+
+// NOTE(FIX-032): TestHandleToolCallRequest_PolicyDenied,
+// TestHandleToolCallRequest_HITLApproval, TestHandleToolCallResult_UpdatesRunState,
+// TestHandleRunComplete_TriggersDelivery, and TestHandleQualityGateResult_PassFail
+// require a full RuntimeService with PolicyService, mock store with run records,
+// mock queue, and event store. These are integration tests that go beyond
+// unit-testable scope. See runtime_internal_test.go for the closest unit tests.

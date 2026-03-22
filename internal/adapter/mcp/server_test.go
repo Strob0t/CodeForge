@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/cost"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // --- Mocks ---
@@ -347,7 +348,7 @@ func TestNewServer_WithoutAPIKey_AllowsRequests(t *testing.T) {
 }
 
 func TestAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
-	handler := cfmcp.AuthMiddleware("my-secret", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := cfmcp.AuthMiddleware("my-secret", tenantctx.DefaultTenantID, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -379,7 +380,7 @@ func TestAuthMiddleware_RejectsUnauthenticated(t *testing.T) {
 }
 
 func TestAuthMiddleware_EmptyKey_PassesAll(t *testing.T) {
-	handler := cfmcp.AuthMiddleware("", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := cfmcp.AuthMiddleware("", tenantctx.DefaultTenantID, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -390,6 +391,33 @@ func TestAuthMiddleware_EmptyKey_PassesAll(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 with empty API key, got %d", w.Code)
 	}
+}
+
+func TestAuthMiddleware_InjectsTenantContext(t *testing.T) {
+	wantTenant := "tenant-abc-123"
+
+	// With auth enabled: correct key should inject tenant into context.
+	handler := cfmcp.AuthMiddleware("key", wantTenant, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := tenantctx.FromContext(r.Context())
+		if got != wantTenant {
+			t.Errorf("with auth: tenant = %q, want %q", got, wantTenant)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/mcp", http.NoBody)
+	req.Header.Set("Authorization", "Bearer key")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	// With auth disabled (empty key): should still inject tenant into context.
+	noAuthHandler := cfmcp.AuthMiddleware("", wantTenant, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := tenantctx.FromContext(r.Context())
+		if got != wantTenant {
+			t.Errorf("no auth: tenant = %q, want %q", got, wantTenant)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	req = httptest.NewRequest(http.MethodPost, "/mcp", http.NoBody)
+	noAuthHandler.ServeHTTP(httptest.NewRecorder(), req)
 }
 
 func TestHandleGetCostSummary(t *testing.T) {

@@ -219,6 +219,13 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 
+	// Validate images before storing.
+	for i := range req.Images {
+		if err := req.Images[i].Validate(); err != nil {
+			return nil, fmt.Errorf("image %d: %w", i, err)
+		}
+	}
+
 	// Store user message.
 	userMsg := &conversation.Message{
 		ConversationID: conversationID,
