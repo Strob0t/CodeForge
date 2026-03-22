@@ -28,7 +28,7 @@ cp .env.example .env
 
 Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` and select "Dev Containers: Reopen in Container". Wait until `setup.sh` has finished running.
 
-**Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed.
+**Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_BASE_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed.
 
 ### Critical Startup Order (Manual / Outside Devcontainer)
 
@@ -124,8 +124,7 @@ CodeForge/
 │   ├── git/                  # Git worker pool (semaphore-bounded)
 │   ├── logger/               # Async slog JSON logging
 │   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
-│   ├── port/                 # Interfaces + Registries (13 packages)
-│   │   ├── a2a/              # A2A protocol interface
+│   ├── port/                 # Interfaces + Registries (12 packages)
 │   │   ├── agentbackend/     # Agent backend interface + registry
 │   │   ├── benchprovider/    # Benchmark provider interface
 │   │   ├── broadcast/        # Broadcaster interface (WS events)
@@ -138,7 +137,7 @@ CodeForge/
 │   │   ├── notifier/         # Notification interface (Slack, Discord, Email)
 │   │   ├── pmprovider/       # PM provider interface + registry
 │   │   └── specprovider/     # Spec provider interface + registry
-│   ├── adapter/              # Concrete Implementations (31 packages)
+│   ├── adapter/              # Concrete Implementations (33 packages)
 │   │   ├── a2a/              # A2A protocol server/client
 │   │   ├── aider/            # Aider agent backend
 │   │   ├── autospec/         # Autospec spec provider
@@ -163,7 +162,7 @@ CodeForge/
 │   │   ├── otel/             # OpenTelemetry tracing + metrics
 │   │   ├── plandex/          # Plandex agent backend
 │   │   ├── plane/            # Plane.so PM provider
-│   │   ├── postgres/         # PostgreSQL store + 65 migrations
+│   │   ├── postgres/         # PostgreSQL store + 86 migrations
 │   │   ├── ristretto/        # Ristretto in-process cache adapter (L1)
 │   │   ├── slack/            # Slack notification + feedback adapter
 │   │   ├── speckit/          # Spec Kit provider
@@ -195,7 +194,7 @@ CodeForge/
 │       ├── tracing/          # OpenTelemetry tracing
 │       └── trust/            # Trust annotation helpers
 ├── frontend/                 # SolidJS Web GUI
-│   ├── e2e/                  # Playwright E2E tests (5 browser specs + 12 LLM API specs)
+│   ├── e2e/                  # Playwright E2E tests (37 browser specs + 11 LLM API specs)
 │   │   └── llm/              # LLM E2E test suite (95 tests, no browser needed)
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
 │   ├── public/
@@ -369,7 +368,7 @@ cd frontend && npm run test:e2e:headed           # See browser
 cd frontend && npm run test:e2e:report           # View HTML report
 ```
 
-Tests cover health checks (3), sidebar navigation (4), project CRUD (5), cost dashboard (2), and models page (3), totaling 17 tests.
+Tests span 37 spec files covering health checks, navigation, auth, project CRUD, cost dashboard, models, modes, prompts, MCP, benchmarks, canvas, knowledge bases, settings, scopes, war room, accessibility, security, and more.
 
 #### LLM E2E Tests (API-Level)
 
@@ -386,7 +385,7 @@ APP_ENV=development go run ./cmd/codeforge/ &
 cd frontend && npx playwright test --config=playwright.llm.config.ts
 ```
 
-95 tests across 12 spec files covering: prerequisites (6), model management (10), simple conversation (12), agentic conversation (10), streaming AG-UI (10), multi-provider (5), routing (10), cost tracking (12), MCP tools (10), benchmarks (7), cleanup (3). Helper module: `frontend/e2e/llm/llm-helpers.ts`.
+95 tests across 11 spec files covering: prerequisites (6), model management (10), simple conversation (12), agentic conversation (10), streaming AG-UI (10), multi-provider (5), routing (10), cost tracking (12), MCP tools (10), benchmarks (7), cleanup (3). Helper module: `frontend/e2e/llm/llm-helpers.ts`.
 
 #### Integration Tests
 
@@ -460,7 +459,7 @@ Example:
 | `postgres.max_conns` | `CODEFORGE_PG_MAX_CONNS` | `50` | Max DB connections |
 | `postgres.min_conns` | `CODEFORGE_PG_MIN_CONNS` | `10` | Min DB connections |
 | `nats.url` | `NATS_URL` | `nats://localhost:4222` | NATS server URL |
-| `litellm.url` | `LITELLM_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
+| `litellm.url` | `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `litellm.master_key` | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
 | `litellm.conversation_model` | `CODEFORGE_CONVERSATION_MODEL` | (auto-detect) | LLM model for chat conversations (empty = auto-select strongest) |
 | `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` | Log level |
@@ -494,7 +493,7 @@ Example:
 | `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY` | `168h` | Refresh token lifetime (7d) |
 | `auth.bcrypt_cost` | `CODEFORGE_AUTH_BCRYPT_COST` | `12` | Bcrypt work factor |
 | `auth.default_admin_email` | `CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
-| `auth.default_admin_pass` | `CODEFORGE_AUTH_DEFAULT_ADMIN_PASS` | `changeme123` | Seed admin password |
+| `auth.default_admin_pass` | `CODEFORGE_AUTH_DEFAULT_ADMIN_PASS` | `` | Seed admin password |
 | `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
 | `github.client_id` | `GITHUB_CLIENT_ID` | `` | GitHub OAuth App Client ID |
 | `github.client_secret` | `GITHUB_CLIENT_SECRET` | `` | GitHub OAuth App Client Secret |
@@ -505,7 +504,7 @@ Example:
 | ENV Variable | Default | Description |
 |---|---|---|
 | `NATS_URL` | `nats://localhost:4222` | NATS server URL |
-| `LITELLM_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
+| `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
 | `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level |
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
@@ -687,7 +686,7 @@ See `.env.example` for all configurable values.
 | CODEFORGE_CORS_ORIGIN     | http://localhost:3000                     | Allowed CORS origin             |
 | DATABASE_URL              | postgres://...@codeforge-postgres:5432/codeforge (devcontainer) | PostgreSQL connection string |
 | NATS_URL                  | nats://codeforge-nats:4222 (devcontainer) | NATS server URL                 |
-| LITELLM_URL               | http://codeforge-litellm:4000 (devcontainer) | LiteLLM Proxy URL               |
+| LITELLM_BASE_URL               | http://codeforge-litellm:4000 (devcontainer) | LiteLLM Proxy URL               |
 | LITELLM_MASTER_KEY        | sk-codeforge-dev (devcontainer)          | Master Key for LiteLLM Proxy    |
 | DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint          |
 | DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings          |
@@ -701,7 +700,7 @@ See `.env.example` for all configurable values.
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
 | OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |
 | CODEFORGE_OTEL_ENABLED    | false                                    | Enable OpenTelemetry tracing    |
-| CODEFORGE_OTEL_ENDPOINT   | jaeger:4317                              | OTLP gRPC endpoint              |
+| CODEFORGE_OTEL_ENDPOINT   | localhost:4317                              | OTLP gRPC endpoint              |
 | CODEFORGE_OTEL_SERVICE_NAME | codeforge-core                          | OTEL service name               |
 | CODEFORGE_OTEL_SAMPLE_RATE | 1.0                                     | Trace sampling rate (0.0-1.0)   |
 | CODEFORGE_A2A_ENABLED     | false                                    | Enable A2A protocol endpoints   |
@@ -715,7 +714,7 @@ See `.env.example` for all configurable values.
 | CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY | 168h                             | Refresh token lifetime (7d)     |
 | CODEFORGE_AUTH_BCRYPT_COST | 12                                      | Bcrypt work factor              |
 | CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL | admin@localhost                  | Seed admin email                |
-| CODEFORGE_AUTH_DEFAULT_ADMIN_PASS | changeme123                      | Seed admin password             |
+| CODEFORGE_AUTH_DEFAULT_ADMIN_PASS |                                  | Seed admin password             |
 | CODEFORGE_LLM_MAX_RETRIES  | 2                                        | Max retry attempts per LLM call |
 | CODEFORGE_LLM_BACKOFF_BASE | 2.0                                      | Exponential backoff base (sec)  |
 | CODEFORGE_LLM_BACKOFF_MAX  | 60.0                                     | Maximum backoff cap (sec)       |
@@ -734,7 +733,7 @@ See `.env.example` for all configurable values.
 | CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD | 0.7                      | Steps below this get routed to review |
 | CODEFORGE_ORCH_REVIEW_ROUTER_MODEL |                                  | LLM model for review evaluation  |
 | CODEFORGE_COPILOT_ENABLED   | false                                    | Enable GitHub Copilot token exchange |
-| CODEFORGE_ROUTING_ENABLED   | false                                    | Enable hybrid intelligent routing |
+| CODEFORGE_ROUTING_ENABLED   | true                                     | Enable hybrid intelligent routing |
 | CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable experience pool caching   |
 
 ### Distributed Tracing (OpenTelemetry)
@@ -766,7 +765,7 @@ Both Go Core and Python Workers share the same environment variables:
 | ENV Variable | Default | Description |
 |---|---|---|
 | `CODEFORGE_OTEL_ENABLED` | `false` | Master switch for tracing + metrics |
-| `CODEFORGE_OTEL_ENDPOINT` | `jaeger:4317` | OTLP gRPC endpoint |
+| `CODEFORGE_OTEL_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint |
 | `CODEFORGE_OTEL_SERVICE_NAME` | `codeforge-core` / `codeforge-worker` | Service name in traces |
 | `CODEFORGE_OTEL_INSECURE` | `true` | Use insecure gRPC (set `false` for production TLS) |
 | `CODEFORGE_OTEL_SAMPLE_RATE` | `1.0` | Trace sampling rate (0.0-1.0) |
@@ -776,7 +775,7 @@ Or use the YAML config file (`codeforge.yaml`):
 ```yaml
 otel:
   enabled: true
-  endpoint: "jaeger:4317"
+  endpoint: "localhost:4317"
   service_name: "codeforge-core"
   insecure: true
   sample_rate: 1.0
@@ -1244,7 +1243,7 @@ npx playwright test --config=e2e/benchmark-validation/playwright.validation.conf
 | Problem | Cause | Fix |
 |---|---|---|
 | All benchmark endpoints return 403 | Missing `APP_ENV=development` | Restart backend with `APP_ENV=development go run ./cmd/codeforge/` |
-| Run stays "running" forever | Python worker not connected to NATS, or LiteLLM unreachable | Check `docker compose logs nats litellm`, verify NATS_URL and LITELLM_URL |
+| Run stays "running" forever | Python worker not connected to NATS, or LiteLLM unreachable | Check `docker compose logs nats litellm`, verify NATS_URL and LITELLM_BASE_URL |
 | All scores are 0 | Local model context too small for LLM Judge | Expected with small local models; use a model with 32K+ context or a cloud provider |
 | "model not found" error | Model name not registered in LiteLLM | Check `litellm-config.yaml`, run `curl http://codeforge-litellm:4000/v1/models` |
 | "dataset not found" error | YAML file not in `configs/benchmarks/` | Verify the file exists and is valid YAML |
@@ -1321,7 +1320,7 @@ Three-layer intelligent model routing that replaces manual tag-based LiteLLM rou
 
 | ENV Variable | Default | Description |
 |---|---|---|
-| `CODEFORGE_ROUTING_ENABLED` | `false` | Master switch for intelligent routing |
+| `CODEFORGE_ROUTING_ENABLED` | `true` | Master switch for intelligent routing |
 | `CODEFORGE_ROUTING_COMPLEXITY_ENABLED` | `true` | Enable Layer 1 (rule-based complexity analysis) |
 | `CODEFORGE_ROUTING_MAB_ENABLED` | `true` | Enable Layer 2 (UCB1 multi-armed bandit) |
 | `CODEFORGE_ROUTING_LLM_META_ENABLED` | `true` | Enable Layer 3 (LLM-as-router cold-start) |

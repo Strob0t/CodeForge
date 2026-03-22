@@ -15,7 +15,7 @@ CodeForge automatically detects which spec tools, PM platforms, and roadmap arti
 ### Three-Tier Auto-Detection
 
 - Spec-Driven Detectors (repo files): OpenSpec (`openspec/`), Spec Kit (`.specify/`), Autospec (`specs/spec.yaml`), ADR/RFC.
-- Platform Detectors (API-based): GitHub Issues, GitLab Issues, Plane.so, OpenProject.
+- Platform Detectors (API-based): GitHub Issues, GitLab Issues, Plane.so. <!-- OpenProject: NOT IMPLEMENTED as of 2026-03-22 -->
 - **File-Based Detectors** (simple markers): ROADMAP.md, TASKS.md, backlog/, CHANGELOG.md.
 
 Each detector implements `specprovider.SpecProvider` or `pmprovider.PMProvider` and self-registers via `init()`. This follows the same pattern as git providers.
@@ -43,7 +43,8 @@ Each detector implements `specprovider.SpecProvider` or `pmprovider.PMProvider` 
 ```mermaid
 flowchart LR
     CF["CodeForge Roadmap Model"]
-    PM["External PM\n(Plane, GitHub, OpenProject)"]
+    PM["External PM\n(Plane, GitHub)"]
+    %% NOTE: OpenProject integration is NOT IMPLEMENTED as of 2026-03-22
     SPECS["Repo Specs\n(OpenSpec, Spec Kit, Autospec)"]
 
     CF <-- "Sync" --> PM

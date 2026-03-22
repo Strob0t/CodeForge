@@ -64,7 +64,7 @@ Python Worker (build OpenAI content-array format)
 ```typescript
 interface CanvasElement {
   id: string;
-  type: "rect" | "ellipse" | "freehand" | "text" | "image" | "annotation";
+  type: "rect" | "ellipse" | "freehand" | "text" | "image" | "annotation" | "polygon";
   x: number; y: number; width: number; height: number;
   rotation: number; zIndex: number;
   style: ElementStyle;

@@ -94,8 +94,8 @@ The control plane manages three execution modes:
 
 #### Neutral
 
-- Python workers do not access PostgreSQL directly; all persistent state goes through Go Core via NATS
-- The NATS protocol is versioned via payload schemas (`internal/port/messagequeue/schemas.go`)
+- Python workers access PostgreSQL directly via psycopg for memory, experience, conversations, skills, routing, and GraphRAG; Go Core remains the owner of run lifecycle and policy state
+- The NATS protocol uses typed payload schemas (`internal/port/messagequeue/schemas.go`) with JSON struct tags for contract enforcement
 - Workers can be replaced with alternative implementations (e.g., Rust) without changing the Go control plane
 
 ### Alternatives Considered

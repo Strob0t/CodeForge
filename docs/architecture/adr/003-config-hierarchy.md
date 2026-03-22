@@ -16,7 +16,7 @@ The configuration surface is large: HTTP server, PostgreSQL, NATS, LiteLLM, logg
 
 ### Decision
 
-**Three-tier configuration hierarchy:** defaults < YAML < environment variables.
+**Four-tier configuration hierarchy:** defaults < YAML < environment variables < CLI flags.
 
 #### Go Core (`internal/config/`)
 
@@ -25,14 +25,16 @@ Defaults()                    (lowest priority -- always valid)
     |
 loadYAML(&cfg, "codeforge.yaml")   (optional file -- graceful skip if missing)
     |
-loadEnv(&cfg)                 (highest priority -- non-empty env vars override)
+loadEnv(&cfg)                 (non-empty env vars override YAML and defaults)
+    |
+applyCLI(&cfg, flags)         (highest priority -- CLI flags override everything)
     |
 validate(&cfg)                (required fields, min values, constraints)
 ```
 
 Implementation details:
-- `config.go`: Typed `Config` struct with nested sections (Server, Postgres, NATS, LiteLLM, Logging, Breaker, Rate, Policy, Runtime, Sandbox, Cache, Idempotency, Orchestrator)
-- `loader.go`: `Load()` function applies the three tiers sequentially, then validates
+- `config.go`: Typed `Config` struct with nested sections (Server, Postgres, NATS, LiteLLM, Logging, Breaker, Rate, Git, Policy, Runtime (includes nested Sandbox), Orchestrator, Cache, Idempotency, Webhook, Notification, OTEL, A2A, AGUI, MCP, LSP, Auth, Workspace, Agent, Benchmark, Copilot, Experience, Limits, Quarantine, Routing)
+- `loader.go`: `Load()` / `LoadWithCLI()` function applies the four tiers sequentially, then validates
 - `Defaults()` returns a fully populated Config so the system runs with zero configuration
 - YAML file (`codeforge.yaml`) is optional; missing file returns nil (not an error)
 - Env var helpers (`setString`, `setInt`, `setDuration`, etc.) skip empty values and ignore parse errors
@@ -40,9 +42,9 @@ Implementation details:
 
 #### Python Workers (`workers/codeforge/config.py`)
 
-- `WorkerSettings` class reads from environment variables only (no YAML file)
+- `WorkerSettings` class uses the same defaults < YAML < env hierarchy as Go Core (via `load_yaml_config()` which reads `codeforge.yaml`)
 - Sensible defaults for all fields
-- Workers are intentionally simple: they receive most configuration via NATS message payloads from the Go control plane
+- Workers load YAML sections (nats, litellm, logging, routing, trust) and allow env var overrides on top
 
 #### Prefix Convention
 
@@ -50,7 +52,7 @@ Implementation details:
 |---|---|---|
 | Go Core | `CODEFORGE_*` | `CODEFORGE_PORT`, `CODEFORGE_LOG_LEVEL` |
 | External services | Provider standard | `DATABASE_URL`, `NATS_URL` |
-| LiteLLM | `LITELLM_*` | `LITELLM_URL`, `LITELLM_MASTER_KEY` |
+| LiteLLM | `LITELLM_*` | `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` |
 | Python Workers | `CODEFORGE_WORKER_*` | `CODEFORGE_WORKER_LOG_LEVEL` |
 
 ### Consequences
@@ -65,14 +67,14 @@ Implementation details:
 
 #### Negative
 
-- Three sources of truth can be confusing for debugging ("where did this value come from?"). Mitigation: startup logs could print effective config with source annotations (deferred).
+- Four sources of truth can be confusing for debugging ("where did this value come from?"). Mitigation: startup logs could print effective config with source annotations (deferred).
 - YAML file path is hardcoded to `codeforge.yaml` in working directory. Mitigation: add CLI flag or env var for config file path (deferred).
 - No hot-reload (SIGHUP) support yet, requiring service restart for config changes.
 
 #### Neutral
 
-- Python workers only use env vars (no YAML), which is acceptable since they receive per-task config via NATS
-- `codeforge.yaml.example` serves as documentation for all available settings
+- Python workers use YAML + env hierarchy (matching Go Core), loading sections relevant to worker operation
+- `codeforge.example.yaml` serves as documentation for all available settings
 
 ### Alternatives Considered
 
@@ -87,6 +89,6 @@ Implementation details:
 
 - [The Twelve-Factor App -- Config](https://12factor.net/config)
 - `internal/config/config.go` -- Config struct definitions
-- `internal/config/loader.go` -- Load function with three-tier merge
-- `internal/config/loader_test.go` -- 6 test functions
-- `codeforge.yaml.example` -- Full example configuration
+- `internal/config/loader.go` -- Load/LoadWithCLI function with four-tier merge
+- `internal/config/loader_test.go` -- 25 test functions
+- `codeforge.example.yaml` -- Full example configuration

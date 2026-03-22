@@ -65,20 +65,20 @@ LiteLLM Proxy runs as a Docker sidecar in both dev and production environments.
 # docker-compose.yml (dev)
 services:
   litellm:
-    image: docker.litellm.ai/berriai/litellm:main-stable
+    image: ghcr.io/berriai/litellm:main-stable
     ports:
       - "4000:4000"
     volumes:
-      - ./litellm_config.yaml:/app/config.yaml
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+      - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
+    command: ["--config", "/app/data/config.yaml", "--port", "4000"]
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge?schema=litellm
+      - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
 ```
 
 ### Completed (Phase 1)

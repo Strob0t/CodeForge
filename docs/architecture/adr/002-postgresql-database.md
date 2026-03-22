@@ -61,17 +61,19 @@ services:
     environment:
       POSTGRES_DB: codeforge
       POSTGRES_USER: codeforge
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeforge_dev}
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     shm_size: 256mb
     command: >
       postgres
         -c shared_buffers=128MB
         -c effective_cache_size=384MB
         -c max_connections=100
-        -c lc_collate=C.UTF-8
-        -c lc_ctype=C.UTF-8
+        -c log_line_prefix='%t [%p] %q%u@%d '
+        -c wal_level=replica
+        -c archive_mode=on
+        -c archive_command='test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U codeforge"]
       interval: 5s
@@ -84,7 +86,7 @@ services:
 ```yaml
 # LiteLLM connects to the same PostgreSQL instance
 general_settings:
-  database_url: "postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge?schema=litellm"
+  database_url: "postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge"
 ```
 
 #### Client Libraries
@@ -92,7 +94,7 @@ general_settings:
 | Layer | Library | Notes |
 |---|---|---|
 | Go Core | `pgx` v5 + `pgxpool` | Native PG protocol, connection pooling, LISTEN/NOTIFY, JSONB |
-| Go Migrations | `goose` | SQL files in `migrations/`, embeddable via Go API |
+| Go Migrations | `goose` | SQL files in `internal/adapter/postgres/migrations/`, embeddable via Go API |
 | Python Workers | `psycopg3` | Sync+async, Row Factories, small connection pool (5-10) |
 
 #### Connection Budget

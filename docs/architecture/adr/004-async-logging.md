@@ -38,7 +38,7 @@ Key design:
 - 4 worker goroutines drain the channel and call `inner.Handle()` (JSON to stdout)
 - `Close()` closes the channel, workers drain remaining records, `sync.WaitGroup` ensures completion
 - `WithAttrs()` and `WithGroup()` return new `AsyncHandler` instances sharing the same channel, workers, and drop counter
-- Factory: `logger.New(cfg)` returns `(*slog.Logger, Closer)` (async when `cfg.Async == true`, sync otherwise)
+- Factory: `logger.New(cfg)` returns `(*slog.Logger, Closer, DroppedCounter)` (async when `cfg.Async == true`, sync otherwise)
 
 #### Python Workers (`workers/codeforge/logger.py`)
 

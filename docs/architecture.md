@@ -218,7 +218,7 @@ This pattern follows the Go standard pattern (`database/sql` + `_ "github.com/li
 | `gitprovider` | `Provider` | github, gitlab, gitlocal, svn, gitea |
 | `agentbackend` | `Backend` | aider, openhands, sweagent, goose, opencode, plandex |
 | `specprovider` | `SpecProvider` | openspec, speckit, autospec |
-| `pmprovider` | `PMProvider` | plane, openproject, github_pm, gitlab_pm |
+| `pmprovider` | `PMProvider` | plane, openproject, githubpm |
 | `database` | `Store` | postgres |
 | `messagequeue` | `Queue` | nats |
 
@@ -258,7 +258,6 @@ internal/
     gitprovider/
       provider.go        # Interface + capability definitions
       registry.go        # Register(), New(), Available()
-      compliance_test.go # Reusable test suite
     agentbackend/
     specprovider/
       provider.go        # SpecProvider Interface (Detect, ReadSpecs, WriteChange, Watch)
@@ -276,7 +275,6 @@ internal/
     litellm/             # LiteLLM config management adapter
     aider/
     openhands/
-    sweagent/
     goose/               # Goose agent backend (Priority 1)
     opencode/            # OpenCode agent backend (Priority 1)
     plandex/             # Plandex agent backend (Priority 1)
@@ -284,9 +282,8 @@ internal/
     speckit/             # GitHub Spec Kit adapter
     autospec/            # Autospec adapter
     plane/               # Plane.so PM adapter
-    openproject/         # OpenProject PM adapter
-    github_pm/           # GitHub Issues/Projects PM adapter
-    gitlab_pm/           # GitLab Issues/Boards PM adapter
+    openproject/         # OpenProject PM adapter (planned)
+    githubpm/            # GitHub Issues/Projects PM adapter
     postgres/
     nats/
   service/               # Use cases (connects domain with ports)
@@ -396,7 +393,7 @@ It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives th
 
 **HITL Approval** (`internal/service/runtime.go`) intercepts `DecisionAsk` from the policy layer. When a tool call requires user approval, the runtime broadcasts an `agui.permission_request` event via WebSocket and blocks on a buffered channel with a configurable timeout (default 60s). The frontend shows an inline approval card with Allow/Deny buttons. The user's decision is sent via `POST /runs/{id}/approve/{callId}`, which resolves the channel and resumes execution.
 
-**Configuration** (`internal/config/config.go`) includes an `Agent` section: `BuiltinTools` (tool allowlist), `DefaultModel`, `MaxContextTokens` (default 120000), `MaxLoopIterations` (default 50), `AgenticByDefault` (bool), `ToolOutputMaxChars` (default 10000). All fields have env overrides with `CODEFORGE_AGENT_*` prefix. The `Runtime` section adds `ApprovalTimeoutSeconds` (default 60) with `CODEFORGE_APPROVAL_TIMEOUT_SECONDS`.
+**Configuration** (`internal/config/config.go`) includes an `Agent` section: `BuiltinTools` (tool allowlist), `DefaultModel`, `MaxContextTokens` (default 128000), `MaxLoopIterations` (default 50), `AgenticByDefault` (bool), `ToolOutputMaxChars` (default 10000). All fields have env overrides with `CODEFORGE_AGENT_*` prefix. The `Runtime` section adds `ApprovalTimeoutSeconds` (default 60) with `CODEFORGE_APPROVAL_TIMEOUT_SECONDS`.
 
 #### Observability
 
@@ -674,24 +671,15 @@ For CI/CD and external systems.
 
 The endpoint is `POST /api/v1/tasks`. No UI interaction is needed. The result is retrieved via callback or polling. This approach is ideal for GitHub Actions, GitLab CI, Jenkins, etc.
 
-#### Jinja2 Prompt Templates
+#### Prompt Templates
 
-All prompts for LLM calls are stored as Jinja2 templates in separate files, not in Python code.
+All prompts for LLM calls are stored as Go `text/template` files (`.tmpl`) and embedded via `//go:embed` directives in the Go Core. Templates are not in Python code.
 
-```text
-workers/codeforge/templates/
-  planner.jinja2          # Planning prompt
-  coder.jinja2            # Code generation prompt
-  reviewer.jinja2         # Review prompt
-  researcher.jinja2       # Research prompt
-  safety_evaluator.jinja2 # Safety check prompt
-```
+Prompts are adjustable without code changes. Contributors can improve prompts without knowing Go internals. Different prompt sets for different LLMs are possible. Templates are versionable and comparable (Git diff on prompt changes).
 
-Prompts are adjustable without code changes. Contributors can improve prompts without knowing Python. Different prompt sets for different LLMs are possible. Templates are versionable and comparable (Git diff on prompt changes).
+#### Keyword Extraction
 
-#### Keyword Extraction (KeyBERT)
-
-For the Context Layer, semantic keyword extraction from tasks and code uses SentenceTransformers/BERT. It extracts relevant keywords from user requests and codebase. Maximal Marginal Relevance (MMR) provides diverse, non-redundant keywords. Keywords improve retrieval quality in the GraphRAG layer. The process is lightweight and runs locally without an external API.
+For the Context Layer, keyword extraction from tasks and code improves retrieval quality in the GraphRAG layer. The implementation lives in flat modules (`workers/codeforge/graphrag.py`, `workers/codeforge/retrieval.py`) rather than a separate `context/` subdirectory. Keywords improve retrieval quality through BM25 scoring and reranking (`workers/codeforge/context_reranker.py`). The process is lightweight and runs locally without an external API.
 
 #### Real-time State via WebSocket
 
@@ -989,60 +977,46 @@ Trajectories enable debugging of failed agent runs, comparison of different LLMs
 ```text
 workers/
   codeforge/
-    consumer/            # Queue consumer (ingress)
-    context/             # Context Layer
-      graphrag.py        # Vector + Graph + Web retrieval
-      indexer.py         # Codebase indexing
-      keywords.py        # KeyBERT keyword extraction
-    quality/             # Quality Layer
-      debate.py          # Multi-Agent Debate (Pro/Con/Moderator)
-      reviewer.py        # Score/Chooser-based solution reviewer
-      sampler.py         # Action Sampling (AskColleagues, BinaryComparison)
-      guardrail.py       # LLM Guardrail Agent (from CrewAI)
-      action_node.py     # Structured Output / Schema validation (from MetaGPT)
-    routing/             # Routing Layer
-      router.py          # Task-based model routing
-      cost.py            # Cost tracking and budgets
-    safety/              # Safety Layer
-      evaluator.py       # Command Safety Evaluator
-      policies.py        # Project-specific security rules
-      blocklists.py      # Tool blocklists (configurable)
-    execution/           # Execution Layer
-      sandbox.py         # Docker container management
-      mount.py           # Mount mode logic
-      tools.py           # Tool provisioning (Shell, File, Git, etc.)
-      workbench.py       # Tool container with shared state (from AutoGen)
-    memory/              # Memory Layer
-      composite.py       # Composite Scoring (Semantic+Recency+Importance)
-      context_window.py  # Context window strategies (Buffered/TokenLimited/HeadAndTail)
-      experience.py      # Experience Pool (@exp_cache, from MetaGPT)
-    history/             # History Management
-      processors.py      # Context window optimization (pipeline)
-    hooks/               # Hook System (Observer Pattern)
-      agent_hooks.py     # Agent lifecycle hooks
-      env_hooks.py       # Environment lifecycle hooks
-    events/              # Event Bus (from CrewAI)
-      bus.py             # Event emitter + subscriber
-      types.py           # Agent/Task/System event definitions
-    orchestration/       # Workflow Orchestration
-      graph_flow.py      # DAG orchestration (from AutoGen)
-      termination.py     # Composable Termination Conditions
-      handoff.py         # HandoffMessage Pattern
-      planning.py        # MagenticOne Planning Loop + Stall Detection
-      pipeline.py        # Document pipeline PRD->Design->Tasks->Code (from MetaGPT)
-    trajectory/          # Trajectory Recording
-      recorder.py        # Step-by-step recording
-      replay.py          # Deterministic replay
-    agents/              # Agent backends (Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex)
-    llm/                 # LLM client via LiteLLM
-    models/              # Data models
-      components.py      # Component System (JSON-serializable configs)
-    tools/               # YAML-based tool bundles
-      bundles/           # Tool bundle directories
-      recommender.py     # BM25 Tool Recommendation (from MetaGPT)
-    templates/           # Jinja2 prompt templates
-    hitl/                # Human-in-the-Loop
-      providers.py       # Human Feedback Provider Protocol (from CrewAI)
+    __init__.py          # Version reading
+    agent_loop.py        # Core agentic loop (multi-turn tool-use)
+    history.py           # Conversation history manager (head-and-tail)
+    llm.py               # LiteLLM client wrapper
+    models.py            # Pydantic data models (NATS payloads)
+    config.py            # Worker configuration
+    runtime.py           # Runtime API client (policy checks)
+    executor.py          # Task executor
+    plan_act.py          # Plan/Act mode switching
+    qualitygate.py       # Quality gate runner (test/lint)
+    graphrag.py          # GraphRAG: vector + graph retrieval
+    repomap.py           # tree-sitter repo map (PageRank)
+    retrieval.py         # BM25 + semantic hybrid retrieval
+    context_reranker.py  # Context reranking
+    mcp_workbench.py     # MCP multi-server workbench
+    mcp_models.py        # MCP data models
+    model_resolver.py    # Health-aware model resolution
+    a2a_protocol.py      # A2A protocol types
+    artifacts.py         # Artifact handling
+    pricing.py           # Token pricing data
+    metrics.py           # Metrics collection
+    logger.py            # Structured logging (structlog)
+    json_utils.py        # JSON utilities
+    subprocess_utils.py  # Subprocess helpers
+    constants.py         # Shared constants
+    _validators.py       # Input validators
+    _tree_sitter_common.py # tree-sitter shared utilities
+    claude_code_executor.py  # Claude Code backend executor
+    claude_code_availability.py # Claude Code detection
+    consumer/            # NATS queue consumer (ingress)
+    backends/            # Agent backends (Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex)
+    routing/             # Hybrid routing (ComplexityAnalyzer, MAB, MetaRouter)
+    memory/              # Memory layer (scorer, experience pool, embeddings)
+    orchestration/       # Workflow orchestration (DAG, handoff)
+    evaluation/          # Benchmark and evaluation (hybrid pipeline, runners, exporters)
+    tools/               # Built-in tools (Read, Write, Edit, Bash, Search, Glob, ListDir, Handoff)
+    skills/              # Skills system (registry, recommender, builtins)
+    schemas/             # Structured output schemas (codegen, review, decompose)
+    trust/               # Trust annotations (levels, middleware, scorer)
+    tracing/             # OTEL tracing (setup, propagation, metrics)
 ```
 
 ### Framework Insights: Adopted Patterns
@@ -1414,7 +1388,7 @@ Agents maintain persistent identity across sessions with fingerprint, stats accu
 - Agent scan discovers active agents and persists identity records
 - Stats accumulation: tool calls, tokens, cost tracked per agent across sessions
 - Active work visibility: claim/release/list endpoints + WebSocket events
-- War Room (`frontend/src/pages/WarRoom.tsx`): live multi-agent collaboration view with swim lanes, handoff arrows, shared context panel
+- War Room (`frontend/src/features/project/WarRoom.tsx`): live multi-agent collaboration view with swim lanes, handoff arrows, shared context panel
 
 ### Benchmark and Evaluation System (Phase 26 + 28)
 
@@ -1461,9 +1435,8 @@ adapter/
   speckit/             # GitHub Spec Kit (.specify/ directory)
   autospec/            # Autospec (specs/spec.yaml)
   plane/               # Plane.so (REST API v1)
-  openproject/         # OpenProject (REST API v3)
-  github_pm/           # GitHub Issues/Projects (REST + GraphQL)
-  gitlab_pm/           # GitLab Issues/Boards (REST + GraphQL)
+  openproject/         # OpenProject (REST API v3) (planned)
+  githubpm/            # GitHub Issues/Projects (REST + GraphQL)
 ```
 
 #### Three-Tier Auto-Detection
@@ -1604,9 +1577,8 @@ internal/
     speckit/               # GitHub Spec Kit adapter (.specify/)
     autospec/              # Autospec adapter (specs/spec.yaml)
     plane/                 # Plane.so REST API v1 adapter
-    openproject/           # OpenProject REST API v3 adapter
-    github_pm/             # GitHub Issues/Projects adapter
-    gitlab_pm/             # GitLab Issues/Boards adapter
+    openproject/           # OpenProject REST API v3 adapter (planned)
+    githubpm/              # GitHub Issues/Projects adapter
   domain/
     roadmap/               # Roadmap domain (Milestone, Feature, Task)
   service/
@@ -1708,7 +1680,7 @@ flowchart TD
 
 | Field | Default | Purpose |
 |---|---|---|
-| `enabled` | false | Master switch for intelligent routing |
+| `enabled` | true | Master switch for intelligent routing |
 | `mab_enabled` | true | Enable Layer 2 (UCB1) |
 | `llm_meta_enabled` | true | Enable Layer 3 (LLM classifier) |
 | `mab_min_trials` | 10 | Minimum observations before MAB trusts data |
@@ -1772,7 +1744,7 @@ model_list:
 # docker-compose.yml (excerpt)
 services:
   litellm:
-    image: docker.litellm.ai/berriai/litellm:main-stable
+    image: ghcr.io/berriai/litellm:main-stable
     ports:
       - "4000:4000"
     volumes:
@@ -1780,12 +1752,12 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge?schema=litellm
+      - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
 ```
 
 ### Goal Discovery: Project-Aware Context for Agents

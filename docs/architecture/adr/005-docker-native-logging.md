@@ -31,19 +31,19 @@ x-logging: &default-logging
     max-file: "3"
 ```
 
-Applied to all 5 services via YAML anchor. Each service gets at most 30 MB of log storage (3 files x 10 MB), automatically rotated by Docker.
+Applied to all Docker Compose services (jaeger, playwright-mcp, postgres, nats, litellm) via YAML anchor. Go Core and Python Workers run on the host (not in Docker) and write structured JSON to stdout directly. Each containerized service gets at most 30 MB of log storage (3 files x 10 MB), automatically rotated by Docker.
 
 #### Structured JSON Output
 
 All services write structured JSON to stdout/stderr:
 
-| Service | Mechanism | Format |
-|---|---|---|
-| Go Core | `slog.JSONHandler` (via AsyncHandler) | `{"time":"...","level":"INFO","service":"codeforge","msg":"...","request_id":"..."}` |
-| Python Workers | `structlog.JSONRenderer` (via QueueHandler) | `{"timestamp":"...","level":"info","service":"codeforge-worker","event":"...","request_id":"..."}` |
-| PostgreSQL | Native | Unstructured (acceptable, DB logs are rarely parsed) |
-| NATS | Native | Structured (NATS natively logs JSON in some modes) |
-| LiteLLM | Native | Structured JSON (LiteLLM uses Python logging) |
+| Service | Runs In | Mechanism | Format |
+|---|---|---|---|
+| Go Core | Host | `slog.JSONHandler` (via AsyncHandler) | `{"time":"...","level":"INFO","service":"codeforge","msg":"...","request_id":"..."}` |
+| Python Workers | Host | `structlog.JSONRenderer` (via QueueHandler) | `{"timestamp":"...","level":"info","service":"codeforge-worker","event":"...","request_id":"..."}` |
+| PostgreSQL | Docker | Native | Unstructured (acceptable, DB logs are rarely parsed) |
+| NATS | Docker | Native | Structured (NATS natively logs JSON in some modes) |
+| LiteLLM | Docker | Native | Structured JSON (LiteLLM uses Python logging) |
 
 #### Log Access
 

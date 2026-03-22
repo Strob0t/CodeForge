@@ -70,10 +70,10 @@ POST   /api/v1/projects                    # Add project (clone/checkout)
 GET    /api/v1/projects/{id}               # Project details
 PUT    /api/v1/projects/{id}               # Update project
 DELETE /api/v1/projects/{id}               # Remove project
-POST   /api/v1/projects/{id}/pull          # Pull/fetch updates
-GET    /api/v1/projects/{id}/status        # Git/SVN status
-GET    /api/v1/projects/{id}/branches      # List branches
-POST   /api/v1/projects/{id}/checkout      # Switch branch
+POST   /api/v1/projects/{id}/git/pull      # Pull/fetch updates
+GET    /api/v1/projects/{id}/git/status    # Git/SVN status
+GET    /api/v1/projects/{id}/git/branches  # List branches
+POST   /api/v1/projects/{id}/git/checkout  # Switch branch
 ```
 
 ### Completed (Phase 1-2)

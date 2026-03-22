@@ -25,6 +25,8 @@ Go Core and Python Workers communicate exclusively through NATS:
 - Result streaming via dedicated subjects like `results.{task_id}`
 - Real-time fan-out for WebSocket updates via standard NATS pub/sub
 
+> **Note (Phase 17+):** The primary subjects have evolved to `conversation.run.start/complete` and `runs.start` for the agentic conversation loop. The `tasks.agent.*` pattern above reflects the original design; both co-exist in the current codebase.
+
 #### Key Reasons
 
 - Go-native: NATS is written in Go; `nats.go` is the reference client, making it an ideal fit for the Go Core
@@ -47,7 +49,7 @@ services:
       - "8222:8222"   # HTTP monitoring
     command: ["--jetstream", "--store_dir", "/data"]
     volumes:
-      - ./data/nats:/data
+      - nats_data:/data
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
 ```

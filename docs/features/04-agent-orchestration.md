@@ -239,7 +239,7 @@ sequenceDiagram
 
 - Python: `RetrievalSubAgent` in `workers/codeforge/retrieval.py` -- composes `HybridRetriever` + `LiteLLMClient`.
 - Go Service: `SubAgentSearchSync()` / `HandleSubAgentSearchResult()` in `internal/service/retrieval.go`.
-- **Context Optimizer**: `fetchRetrievalEntries()` tries sub-agent first, falls back to single-shot search.
+- **Context Optimizer**: `fetchRetrievalEntriesWithHits()` tries sub-agent first, falls back to single-shot search.
 - REST API: `POST /api/v1/projects/{id}/search/agent`.
 - Config: `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` in `config.Orchestrator`.
 
@@ -444,7 +444,7 @@ Context injection is **enabled by default** (`context_enabled: true`). The conve
 | `workers/codeforge/history.py` | Conversation history manager |
 | `workers/codeforge/tools/` | Built-in tool registry (7 tools) |
 | `internal/service/conversation.go` | Agentic dispatch and completion handler |
-| `internal/service/runtime.go` | HITL approval (waitForApproval, ResolveApproval) |
+| `internal/service/runtime_approval.go` | HITL approval (waitForApproval, ResolveApproval) |
 | `internal/adapter/http/handlers.go` | HTTP handlers (agentic routing, approval endpoint) |
 | `frontend/src/features/project/ChatPanel.tsx` | Chat UI with agentic enhancements |
 | `frontend/src/features/project/ToolCallCard.tsx` | Tool call display component |
@@ -496,7 +496,7 @@ All endpoints gated by `DevModeOnly` middleware.
 | `workers/codeforge/tracing/setup.py` | TracingManager with AgentNeo/NoOp fallback |
 | `workers/codeforge/tracing/metrics.py` | AgentNeo metric wrappers |
 | `internal/service/benchmark.go` | Go benchmark service (CRUD + dataset listing) |
-| `internal/adapter/postgres/benchmark.go` | PostgreSQL benchmark store |
+| `internal/adapter/postgres/store_benchmark.go` | PostgreSQL benchmark store |
 | `internal/adapter/http/handlers_benchmark.go` | HTTP handlers for benchmark API |
 | `configs/benchmarks/basic-coding.yaml` | Sample benchmark dataset |
 | `frontend/src/features/benchmarks/BenchmarkPage.tsx` | Benchmark dashboard UI |
@@ -637,7 +637,7 @@ Three-tier file scanning with priority-based ordering:
 
 | Tier | Source Files | Goal Kind | Priority |
 |------|-------------|-----------|----------|
-| 1. GSD (Goal-Structured Development) | `.planning/goals.md`, `.planning/requirements.md`, `.planning/constraints.md` | vision, requirement, constraint | 95-85 |
+| 1. GSD (Goal-Structured Development) | `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/STATE.md` | vision, requirement, state | 95-80 |
 | 2. Agent Instructions | `CLAUDE.md`, `.cursorrules`, `.clinerules` | context | 80 |
 | 3. Project Documentation | `README.md`, `docs/architecture.md`, `docs/requirements.md`, `CONTRIBUTING.md` | state, context | 75-70 |
 
@@ -647,9 +647,9 @@ Detection is workspace-path-based: files are read from disk, parsed for relevant
 
 | Kind | Purpose | Example Source |
 |------|---------|---------------|
-| `vision` | High-level project purpose and direction | `.planning/goals.md`, README intro |
-| `requirement` | Functional/non-functional requirements | `.planning/requirements.md`, docs/requirements.md |
-| `constraint` | Architecture decisions, tech choices, coding standards | `.planning/constraints.md`, CLAUDE.md |
+| `vision` | High-level project purpose and direction | `.planning/PROJECT.md`, README intro |
+| `requirement` | Functional/non-functional requirements | `.planning/REQUIREMENTS.md`, docs/requirements.md |
+| `constraint` | Architecture decisions, tech choices, coding standards | `CLAUDE.md`, `.cursorrules` |
 | `state` | Current project status, what is built, what is missing | README "Status" section, CONTRIBUTING.md |
 | `context` | General context that helps agents understand the codebase | `.cursorrules`, docs/architecture.md |
 
@@ -657,7 +657,7 @@ Detection is workspace-path-based: files are read from disk, parsed for relevant
 
 Goals reach agents through two complementary paths:
 
-1. **System prompt injection** -- `renderGoalContext()` in `conversation_agent.go` fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, renders them as structured markdown grouped by kind, and injects them into the `GoalContext` template field of the agent system prompt.
+1. **System prompt injection** -- `renderGoalContext()` in `internal/service/goal_discovery.go` fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, renders them as structured markdown grouped by kind, and injects them into the `GoalContext` template field of the agent system prompt.
 
 2. **Context pack entries** -- `ContextOptimizerService` includes goal entries (kind `EntryGoal`) as high-priority candidates during context packing, ensuring goals survive token budget trimming.
 
