@@ -1,4 +1,6 @@
-import { getCached, invalidateCache, processQueue, queueAction, setCached } from "./cache";
+import { invalidateCache } from "./cache";
+import { createCoreClient, FetchError, getAccessToken, setAccessTokenGetter } from "./core";
+import { url } from "./factory";
 import type {
   ActiveWorkItem,
   AddModelRequest,
@@ -6,7 +8,6 @@ import type {
   AgentEvent,
   AgentPerf,
   AIRoadmapView,
-  ApiError,
   APIKeyInfo,
   BackendList,
   Branch,
@@ -86,140 +87,11 @@ import type {
   User,
 } from "./types";
 
-const BASE = "/api/v1";
+export { FetchError, getAccessToken, setAccessTokenGetter };
 
-import { MAX_RETRIES, RETRY_BASE_MS, RETRYABLE_STATUSES } from "~/config/constants";
-
-import { url } from "./factory";
-
-// Access token getter — set by AuthProvider to inject JWT into requests.
-let accessTokenGetter: (() => string | null) | null = null;
-
-/** Set the function that provides the current access token. */
-export function setAccessTokenGetter(fn: () => string | null): void {
-  accessTokenGetter = fn;
-}
-
-/** Return the current access token (used by WebSocket to append ?token=). */
-export function getAccessToken(): string | null {
-  return accessTokenGetter?.() ?? null;
-}
-
-class FetchError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly body: ApiError,
-  ) {
-    super(body.error);
-    this.name = "FetchError";
-  }
-}
-
-function isRetryable(status: number, method: string): boolean {
-  // Only retry on server errors for idempotent methods
-  if (method === "POST") return false;
-  return RETRYABLE_STATUSES.has(status);
-}
-
-function isOffline(): boolean {
-  return !navigator.onLine;
-}
-
-async function executeRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(init?.headers as Record<string, string>),
-  };
-
-  // Inject access token if available.
-  const token = accessTokenGetter?.();
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: "include", // send httpOnly refresh cookie
-  });
-
-  if (!res.ok) {
-    let body: ApiError;
-    try {
-      body = (await res.json()) as ApiError;
-    } catch {
-      body = { error: `HTTP ${res.status} ${res.statusText || "Error"}` };
-    }
-    throw new FetchError(res.status, body);
-  }
-
-  // 204 No Content
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  return res.json() as Promise<T>;
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const method = init?.method ?? "GET";
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const result = await executeRequest<T>(path, init);
-
-      // Cache successful GET responses
-      if (method === "GET") {
-        setCached(path, result);
-      }
-
-      return result;
-    } catch (err) {
-      if (err instanceof FetchError) {
-        if (attempt < MAX_RETRIES && isRetryable(err.status, method)) {
-          lastError = err;
-          await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
-          continue;
-        }
-        throw err;
-      }
-
-      // Network errors (fetch throws TypeError on network failure)
-      if (err instanceof TypeError) {
-        if (attempt < MAX_RETRIES) {
-          lastError = err;
-          await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
-          continue;
-        }
-
-        // All retries exhausted — fall back to cache for GETs
-        if (method === "GET") {
-          const cached = getCached<T>(path);
-          if (cached !== undefined) return cached;
-        }
-
-        // Queue mutations for later retry when back online
-        if (method !== "GET" && isOffline() && init) {
-          return queueAction(path, init) as Promise<T>;
-        }
-
-        throw err;
-      }
-
-      throw err;
-    }
-  }
-
-  throw lastError;
-}
-
-// Process queued actions when coming back online
-if (typeof window !== "undefined") {
-  window.addEventListener("online", () => {
-    void processQueue((path, init) => executeRequest(path, init));
-  });
-}
+const core = createCoreClient();
+const { request } = core;
+const BASE = core.BASE;
 
 export const api = {
   health: {
@@ -1481,5 +1353,3 @@ export const api = {
     },
   },
 } as const;
-
-export { FetchError };
