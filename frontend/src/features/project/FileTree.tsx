@@ -1,4 +1,4 @@
-import { createMemo, createResource, For, type JSX, Show } from "solid-js";
+import { createMemo, createResource, For, type JSX, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { FileEntry } from "~/api/types";
@@ -12,6 +12,7 @@ export interface FileTreeProps {
   onFileSelect: (path: string) => void;
   selectedPath?: string;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
+  onRefetchReady?: (refetch: () => void) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,10 +298,13 @@ export default function FileTree(props: FileTreeProps): JSX.Element {
   const [state, actions] = useFileTree();
 
   // Normal mode: lazy-loaded root entries
-  const [rootEntries] = createResource(
+  const [rootEntries, { refetch: refetchRoot }] = createResource(
     () => props.projectId,
     (id) => api.files.list(id, "."),
   );
+
+  // Expose refetch to parent so it can trigger refresh after file operations
+  onMount(() => props.onRefetchReady?.(refetchRoot));
 
   // Search mode: trigger full tree fetch when debounced query becomes non-empty
   const searchActive = () => state.debouncedQuery.length > 0;
