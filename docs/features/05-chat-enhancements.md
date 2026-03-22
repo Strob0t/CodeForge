@@ -157,8 +157,65 @@
 - **069**: GIN index for conversation message full-text search
 - **070**: channels, channel_messages, channel_members tables
 
+## AG-UI Event Flow Architecture
+
+The AG-UI (Agent-User Interaction) protocol streams 8 event types from agent execution to the frontend. Events do **not** originate in the Python worker as AG-UI messages. Instead, the Python worker publishes raw protocol messages to NATS, and the Go Core service translates them into AG-UI WebSocket events.
+
+### Event Flow Path
+
+```
+Python Worker  --[NATS]--> Go Core Service --[WebSocket]--> Frontend
+```
+
+### Detailed Event Mapping
+
+| AG-UI Event | Go Emitter | NATS Trigger | Source Files |
+|---|---|---|---|
+| `agui.run_started` | `ConversationService` (direct) | Emitted before NATS publish | `conversation_agent.go`, `conversation.go` |
+| `agui.run_finished` | `ConversationService` | `conversation.run.complete` | `conversation_agent.go` |
+| `agui.text_message` | `RuntimeService` | `runs.output` | `runtime.go` (line 650) |
+| `agui.tool_call` | `RuntimeService` | `runs.toolcall.request` | `runtime_execution.go` (line 144) |
+| `agui.tool_result` | `RuntimeService` | `runs.toolcall.result` | `runtime_execution.go` (line 417) |
+| `agui.step_started` | `OrchestratorService` | Direct (orchestration steps) | `orchestrator_consensus.go` |
+| `agui.step_finished` | `OrchestratorService` | Direct (orchestration steps) | `orchestrator_consensus.go` |
+| `agui.state_delta` | Not emitted | N/A | Defined in `agui_events.go` but no producer exists |
+
+### Python Worker NATS Subjects
+
+The Python `RuntimeClient` (`workers/codeforge/runtime.py`) publishes to these subjects:
+
+- `runs.toolcall.request` -- permission request before each tool execution
+- `runs.toolcall.result` -- outcome of each tool execution (success/error, cost, tokens)
+- `runs.output` -- streaming LLM text chunks (per-token streaming via `send_output()`)
+- `runs.trajectory.event` -- structured trajectory events (step_done, tool_called, stall_detected)
+- `runs.heartbeat` -- periodic heartbeat for liveness detection
+
+The Python `ConversationHandlerMixin` publishes `conversation.run.complete` with the full result.
+
+### Go Core NATS Subscribers
+
+Go subscribes to these subjects in `RuntimeService.SubscribeToWorkerEvents()` (`runtime.go`):
+
+1. **`runs.output`** -- Broadcasts `EventTaskOutput` (native) + `AGUITextMessage` (AG-UI) for non-stderr, non-empty lines.
+2. **`runs.toolcall.request`** -- Evaluates policy, stores run state, broadcasts `EventToolCallStatus` + `AGUIToolCall`, then publishes `runs.toolcall.response` back to Python.
+3. **`runs.toolcall.result`** -- Updates run metrics, broadcasts `EventToolCallStatus` (phase=result) + `AGUIToolResult` with diff data.
+4. **`runs.trajectory.event`** -- Persists to event store, broadcasts `EventTrajectoryEvent`, and additionally emits `AGUIActionSuggestion` or `AGUIGoalProposal` for specific trajectory event types.
+5. **`conversation.run.complete`** -- Handled by `ConversationService.HandleConversationRunComplete()` which stores messages in PostgreSQL and broadcasts `AGUIRunFinished`.
+
+### Additional AG-UI Events
+
+Beyond the NATS bridge, some AG-UI events are emitted directly by Go services:
+
+- `agui.permission_request` -- Emitted by `RuntimeService` when a tool call requires HITL approval (`runtime_approval.go`)
+- `agui.action_suggestion` -- Emitted via trajectory event bridge when agent suggests follow-up actions
+- `agui.goal_proposal` -- Emitted via trajectory event bridge when agent proposes goals
+
+### Gap: `agui.state_delta`
+
+The `state_delta` event type is defined in `agui_events.go` and typed in the frontend (`websocket.ts`, `types.ts`), but no producer exists in either Go or Python. This event is intended for partial state updates (JSON Patch / Merge Patch) and would be needed for features like real-time cost accumulation display or agent mode transitions. The per-message cost feature (Feature 4) currently uses `AGUIRunFinished` for final cost data rather than incremental `state_delta` updates.
+
 ## WebSocket Events Added
 
-- `channel_message` — new message in a channel
-- `channel_typing` — user typing indicator
-- `channel_read` — read receipt / cursor update
+- `channel_message` -- new message in a channel
+- `channel_typing` -- user typing indicator
+- `channel_read` -- read receipt / cursor update
