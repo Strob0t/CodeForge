@@ -159,7 +159,7 @@ export default function GoalsPanel(props: Props) {
 
       {/* Create Form */}
       <Show when={showForm()}>
-        <div class="mx-4 mb-3 p-3 border border-cf-border rounded-cf-sm bg-cf-bg-secondary space-y-2">
+        <div class="relative z-20 mx-4 mb-3 p-3 border border-cf-border rounded-cf-sm bg-cf-bg-secondary space-y-2">
           <div class="flex gap-2">
             <select
               class="rounded-cf-sm border border-cf-border bg-cf-bg-primary text-cf-text-primary text-sm px-2 py-1"
