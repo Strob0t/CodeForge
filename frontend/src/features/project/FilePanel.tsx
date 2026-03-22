@@ -201,6 +201,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
   const { show: toast } = useToast();
 
   const { t } = useI18n();
+  const [, treeActions] = useFileTree();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
   const [newFilePath, setNewFilePath] = createSignal("");
   const [newFileContent, setNewFileContent] = createSignal("");
@@ -214,6 +215,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
       setShowCreateModal(false);
       setNewFilePath("");
       setNewFileContent("");
+      treeActions.invalidateCache();
       openFile(filePath);
     },
     {

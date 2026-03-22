@@ -330,7 +330,17 @@ func (s *ProjectService) Pull(ctx context.Context, id string) error {
 		return fmt.Errorf("create git provider: %w", err)
 	}
 
-	return gp.Pull(ctx, p.WorkspacePath)
+	if err := gp.Pull(ctx, p.WorkspacePath); err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no remote") ||
+			strings.Contains(errMsg, "does not have a default remote") ||
+			strings.Contains(errMsg, "No remote repository specified") ||
+			strings.Contains(errMsg, "no such remote") {
+			return fmt.Errorf("%w: no remote configured for this project", domain.ErrValidation)
+		}
+		return fmt.Errorf("git pull: %w", err)
+	}
+	return nil
 }
 
 // ListBranches returns all branches of a project's workspace.

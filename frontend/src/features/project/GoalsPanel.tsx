@@ -65,7 +65,7 @@ export default function GoalsPanel(props: Props) {
     setDetecting(true);
     try {
       const result = await api.goals.detect(props.projectId);
-      toast("success", t("goals.toast.detected", { count: String(result.imported) }));
+      toast("success", t("goals.toast.detected", { count: String(result.goals_created) }));
       refetch();
     } catch {
       toast("error", t("goals.toast.detectFailed"));
@@ -191,7 +191,7 @@ export default function GoalsPanel(props: Props) {
       </Show>
 
       {/* Goals List */}
-      <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+      <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4 relative z-10">
         <Show
           when={(goals() ?? []).length > 0}
           fallback={
