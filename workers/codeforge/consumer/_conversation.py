@@ -22,6 +22,42 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# Cache the step-by-step prompt content (loaded once from YAML).
+_STEP_BY_STEP_CACHE: str | None = None
+
+
+def _load_step_by_step_prompt() -> str:
+    """Load the step-by-step workflow prompt from the model_adaptive YAML.
+
+    The content is cached after the first load.
+    """
+    global _STEP_BY_STEP_CACHE
+    if _STEP_BY_STEP_CACHE is not None:
+        return _STEP_BY_STEP_CACHE
+
+    import pathlib
+
+    import yaml
+
+    # Walk up from workers/codeforge/consumer/ to find the project root.
+    here = pathlib.Path(__file__).resolve()
+    # Go up: consumer/ -> codeforge/ -> workers/ -> project root
+    project_root = here.parent.parent.parent.parent
+    yaml_path = project_root / "internal" / "service" / "prompts" / "model_adaptive" / "step_by_step.yaml"
+    if not yaml_path.exists():
+        logger.debug("step_by_step.yaml not found", path=str(yaml_path))
+        _STEP_BY_STEP_CACHE = ""
+        return ""
+
+    try:
+        with yaml_path.open() as f:
+            data = yaml.safe_load(f)
+        _STEP_BY_STEP_CACHE = str(data.get("content", "")).strip()
+    except Exception as exc:
+        logger.warning("failed to load step_by_step.yaml", error=str(exc))
+        _STEP_BY_STEP_CACHE = ""
+    return _STEP_BY_STEP_CACHE
+
 
 class ConversationHandlerMixin:
     """Handles conversation.run.start messages — agentic loop with tool calling."""
@@ -609,11 +645,17 @@ class ConversationHandlerMixin:
             return system_prompt
 
         guide = build_tool_usage_guide(registry, level)
-        if not guide:
-            return system_prompt
+        if guide:
+            system_prompt = f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
+            log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
 
-        log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
-        return f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
+        # Inject step-by-step workflow prompt for weak models (M2).
+        step_by_step = _load_step_by_step_prompt()
+        if step_by_step:
+            system_prompt = f"{system_prompt}\n\n--- Workflow Rules ---\n{step_by_step}"
+            log.info("step-by-step prompt injected", capability_level=level.value)
+
+        return system_prompt
 
     def _wire_skill_tools(
         self,
