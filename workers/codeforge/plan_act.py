@@ -33,19 +33,25 @@ def get_max_plan_iterations() -> int:
 class PlanActController:
     """Controls plan/act phase transitions in the agent loop."""
 
-    __slots__ = ("enabled", "max_plan_iterations", "phase", "plan_iterations")
+    __slots__ = ("enabled", "extra_plan_tools", "max_plan_iterations", "phase", "plan_iterations")
 
-    def __init__(self, enabled: bool, max_plan_iterations: int = _DEFAULT_MAX_PLAN_ITERATIONS) -> None:
+    def __init__(
+        self,
+        enabled: bool,
+        max_plan_iterations: int = _DEFAULT_MAX_PLAN_ITERATIONS,
+        extra_plan_tools: frozenset[str] = frozenset(),
+    ) -> None:
         self.enabled: bool = enabled
         self.phase: str = "plan" if enabled else "act"
         self.plan_iterations: int = 0
         self.max_plan_iterations: int = max_plan_iterations
+        self.extra_plan_tools: frozenset[str] = extra_plan_tools
 
     def is_tool_allowed(self, tool_name: str) -> bool:
         """Check if a tool is allowed in the current phase."""
         if not self.enabled or self.phase == "act":
             return True
-        return tool_name.lower() in PLAN_TOOLS
+        return tool_name.lower() in PLAN_TOOLS or tool_name in self.extra_plan_tools
 
     def transition_to_act(self) -> None:
         """Transition from plan to act phase."""
@@ -70,11 +76,14 @@ class PlanActController:
         if not self.enabled:
             return ""
         if self.phase == "plan":
+            extra = ""
+            if self.extra_plan_tools:
+                extra = f" Additionally, these mode-specific tools are available: {', '.join(sorted(self.extra_plan_tools))}."
             return (
                 "\n\nYou are in PLAN phase. Only use read-only tools "
                 "(read_file, search_files, glob_files, list_directory). "
                 "Analyze the problem and create a plan. "
-                "When ready, call the 'transition_to_act' tool to start implementing."
+                f"When ready, call the 'transition_to_act' tool to start implementing.{extra}"
             )
         return "\n\nYou are in ACT phase. Execute your plan using all available tools."
 
