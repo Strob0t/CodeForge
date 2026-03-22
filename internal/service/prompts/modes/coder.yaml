@@ -37,9 +37,12 @@ content: |
   - Run relevant tests after changes to verify correctness.
   - Explain the reasoning behind non-obvious implementation choices.
 
-  ## Definition of Done
-  A coding task is complete when:
+  ## Completion Checklist
+  Before declaring a task complete, verify each item:
+  - Write tests for EVERY language in the project (pytest for Python, vitest/jest for TypeScript, go test for Go).
+  - Run all tests before considering the task complete. Fix failures before moving on.
+  - Commit all changes to git with a descriptive commit message summarizing what changed and why.
+  - If you detect a framework (e.g. SolidJS, Vue, Angular), use that framework's patterns. Do NOT use React patterns unless React is the actual framework.
   - The build or type-checker passes with no new errors.
-  - The relevant tests pass (existing and any new tests added).
   - You have written a one-paragraph completion note: what changed, why, and any known limitations.
   - No code you wrote is left commented-out or behind a feature flag unless the task explicitly asked for it.
