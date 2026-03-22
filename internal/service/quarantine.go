@@ -29,8 +29,8 @@ func NewQuarantineService(db database.Store, queue messagequeue.Queue, hub broad
 }
 
 // Evaluate checks a message against quarantine thresholds. Returns true if the
-// message was blocked (quarantined or rejected). Follows a fail-open policy: if
-// evaluation errors, the message is allowed through.
+// message was blocked (quarantined or rejected). Follows a fail-closed policy:
+// if evaluation or persistence errors, the message is blocked.
 //
 // TODO(F11-D3): When tenant context is available, verify that projectID belongs
 // to the caller's tenant via a GetProject call (tenant-scoped). Currently the
