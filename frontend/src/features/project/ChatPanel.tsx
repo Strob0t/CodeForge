@@ -1,19 +1,13 @@
-// TODO: FIX-105: ChatPanel has high eslint-disable comment density, indicating
-// it needs refactoring into smaller, focused components (message list, input
-// area, toolbar, approval panel). Already noted in HIGH findings.
-//
 // TODO: FIX-106: Inline SVG icons are duplicated across ChatPanel and other
 // components. Extract shared SVG icons into a reusable icon component library
 // (e.g., frontend/src/ui/icons/).
 
 import {
-  batch,
   createEffect,
   createMemo,
   createResource,
   createSignal,
   For,
-  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -26,10 +20,8 @@ import type {
   MessageImage,
   Session,
 } from "~/api/types";
-import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
-import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 import type { TranslationKey } from "~/i18n/en";
 import { Badge, Button, CostDisplay, StreamingCursor, TypingIndicator } from "~/ui";
@@ -41,8 +33,6 @@ import ChatInput from "../chat/ChatInput";
 import { type CommandContext, executeCommand } from "../chat/commandExecutor";
 import TokenBadge from "../chat/TokenBadge";
 import ActionBar from "./ActionBar";
-import type { ActionRule } from "./actionRules";
-import { deriveActions } from "./actionRules";
 import ChatSuggestions from "./ChatSuggestions";
 import { clearContextFiles, contextFiles, removeContextFile } from "./contextFilesStore";
 import GoalProposalCard from "./GoalProposalCard";
@@ -52,41 +42,16 @@ import PermissionRequestCard from "./PermissionRequestCard";
 import SessionFooter from "./SessionFooter";
 import SessionPanel from "./SessionPanel";
 import ToolCallCard from "./ToolCallCard";
+import { useChatAGUI } from "./useChatAGUI";
 
 interface ChatPanelProps {
   projectId: string;
   activeTab?: string;
 }
 
-interface ToolCallState {
-  callId: string;
-  name: string;
-  args?: Record<string, unknown>;
-  result?: string;
-  status: "pending" | "running" | "completed" | "failed";
-  diff?: {
-    path: string;
-    hunks: {
-      old_start: number;
-      old_lines: number;
-      new_start: number;
-      new_lines: number;
-      old_content: string;
-      new_content: string;
-    }[];
-  };
-}
-
-interface PlanStepState {
-  stepId: string;
-  name: string;
-  status: "running" | "completed" | "failed" | "cancelled" | "skipped";
-}
-
 export default function ChatPanel(props: ChatPanelProps) {
   const { t } = useI18n();
   const { show: toast } = useToast();
-  const { onAGUIEvent } = useWebSocket();
   const { isRunActive } = useConversationRuns();
 
   const [forkLoading, setForkLoading] = createSignal(false);
@@ -163,49 +128,20 @@ export default function ChatPanel(props: ChatPanelProps) {
     reader.readAsText(file);
   }
 
-  // Streaming text from AG-UI text_message events, appended to the bottom of the chat
-  const [streamingContent, setStreamingContent] = createSignal("");
-  // Track whether the assistant is actively processing via run_started / run_finished
-  const [agentRunning, setAgentRunning] = createSignal(false);
-  // Error message from a failed run, shown as a system message in the chat
-  const [runError, setRunError] = createSignal<string | null>(null);
-
-  // Tool call tracking from AG-UI events
-  const [toolCalls, setToolCalls] = createSignal<ToolCallState[]>([]);
-
-  // Plan step tracking from AG-UI events
-  const [planSteps, setPlanSteps] = createSignal<PlanStepState[]>([]);
-
-  // Goal proposals from AG-UI events (rendered inline as approval cards)
-  const [goalProposals, setGoalProposals] = createSignal<AGUIGoalProposal[]>([]);
-
-  // Permission requests from AG-UI events (HITL approval cards)
-  const [permissionRequests, setPermissionRequests] = createSignal<AGUIPermissionRequest[]>([]);
-  const [resolvedPermissions, setResolvedPermissions] = createSignal<Set<string>>(new Set());
-
-  // Action suggestions from AG-UI events and rule-based derivation
-  const [actionSuggestions, setActionSuggestions] = createSignal<ActionRule[]>([]);
-
-  // Command output display (for /help, /cost etc.)
-  const [commandOutput, setCommandOutput] = createSignal<string | null>(null);
-
-  // Agentic mode tracking: step counter and running cost
-  const [stepCount, setStepCount] = createSignal(0);
-  const [runningCost, setRunningCost] = createSignal(0);
-
-  // Session-level cumulative usage (persists across runs, shown in SessionFooter)
-  const [sessionModel, setSessionModel] = createSignal("");
-  const [sessionCostUsd, setSessionCostUsd] = createSignal(0);
-  const [sessionTokensIn, setSessionTokensIn] = createSignal(0);
-  const [sessionTokensOut, setSessionTokensOut] = createSignal(0);
-  const [sessionSteps, setSessionSteps] = createSignal(0);
-
   let messagesContainerRef: HTMLDivElement | undefined;
 
   const scrollToBottom = () => {
     const el = messagesContainerRef;
     if (el) el.scrollTop = el.scrollHeight;
   };
+
+  // AG-UI event subscriptions and streaming state
+  const agui = useChatAGUI({
+    activeConversation,
+    scrollToBottom,
+    refetchMessages: () => void refetchMessages(),
+    refetchSession: () => void refetchSession(),
+  });
 
   // Auto-scroll when messages change
   const trackMessages = () => {
@@ -246,203 +182,13 @@ export default function ChatPanel(props: ChatPanelProps) {
   createEffect(() => {
     const convId = activeConversation();
     if (convId && isRunActive(convId)) {
-      setAgentRunning(true);
+      agui.setAgentRunning(true);
     }
   });
 
   // Auto-onboarding greeting disabled — it dispatches an agentic conversation
   // that makes tool calls, blocking the NATS pipeline for other conversations.
   // Users can manually send a greeting or use the "AI Discover" button instead.
-
-  // --- AG-UI event subscriptions ---
-
-  // When a run starts for the active conversation, show the thinking indicator
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupRunStarted = onAGUIEvent("agui.run_started", (payload) => {
-    const runId = payload.run_id as string;
-    if (runId === activeConversation()) {
-      batch(() => {
-        setAgentRunning(true);
-        setStreamingContent("");
-        setRunError(null);
-        setStepCount(0);
-        setRunningCost(0);
-        setGoalProposals([]);
-        setActionSuggestions([]);
-      });
-    }
-  });
-
-  // When a text_message arrives for the active conversation, update streaming content
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupTextMessage = onAGUIEvent("agui.text_message", (payload) => {
-    const runId = payload.run_id as string;
-    if (runId === activeConversation()) {
-      const content = payload.content as string;
-      setStreamingContent((prev) => prev + content);
-      scrollToBottom();
-    }
-  });
-
-  // When a tool call starts, add it to the tool calls list and increment step counter
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupToolCall = onAGUIEvent("agui.tool_call", (payload) => {
-    const runId = payload.run_id as string;
-    if (runId === activeConversation()) {
-      const callId = payload.call_id as string;
-      let args: Record<string, unknown> | undefined;
-      try {
-        args = JSON.parse(payload.args as string) as Record<string, unknown>;
-      } catch {
-        // args may not be valid JSON
-      }
-      setToolCalls((prev) => [
-        ...prev,
-        { callId, name: payload.name as string, args, status: "running" },
-      ]);
-      setStepCount((n) => n + 1);
-      scrollToBottom();
-    }
-  });
-
-  // When a tool result arrives, update the corresponding tool call and track cost
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupToolResult = onAGUIEvent("agui.tool_result", (payload) => {
-    const runId = payload.run_id as string;
-    if (runId === activeConversation()) {
-      const callId = payload.call_id as string;
-      const error = payload.error as string | undefined;
-      const diff = payload.diff as ToolCallState["diff"] | undefined;
-      setToolCalls((prev) =>
-        prev.map((tc) =>
-          tc.callId === callId
-            ? {
-                ...tc,
-                result: payload.result as string,
-                status: error ? "failed" : "completed",
-                diff,
-              }
-            : tc,
-        ),
-      );
-      // Track running cost if the event carries it
-      if (typeof payload.cost_usd === "number") {
-        setRunningCost((prev) => prev + (payload.cost_usd as number));
-      }
-      // Derive rule-based action suggestions from tool result
-      const tc = toolCalls().find((t) => t.callId === callId);
-      if (tc) {
-        const derived = deriveActions(tc.name, (payload.result as string) ?? "");
-        if (derived.length > 0) {
-          setActionSuggestions((prev) => {
-            const labels = new Set(prev.map((a) => a.label));
-            return [...prev, ...derived.filter((d) => !labels.has(d.label))];
-          });
-        }
-      }
-    }
-  });
-
-  // When a run finishes, clear streaming state and refetch persisted messages
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupRunFinished = onAGUIEvent("agui.run_finished", (payload) => {
-    const runId = payload.run_id as string;
-    if (runId === activeConversation()) {
-      const status = payload.status as string;
-      const errorMsg = payload.error as string | undefined;
-      // Extract usage data from run_finished payload
-      const model = (payload.model as string) || "";
-      const costUsd = (payload.cost_usd as number) || 0;
-      const tokensIn = (payload.tokens_in as number) || 0;
-      const tokensOut = (payload.tokens_out as number) || 0;
-      const steps = (payload.steps as number) || 0;
-
-      batch(() => {
-        setAgentRunning(false);
-        setStreamingContent("");
-        setToolCalls([]);
-        setPlanSteps([]);
-        setStepCount(0);
-        setRunningCost(0);
-        setPermissionRequests([]);
-        setResolvedPermissions(new Set<string>());
-
-        // Accumulate session-level usage
-        if (model) setSessionModel(model);
-        setSessionCostUsd((prev) => prev + costUsd);
-        setSessionTokensIn((prev) => prev + tokensIn);
-        setSessionTokensOut((prev) => prev + tokensOut);
-        setSessionSteps((prev) => prev + steps);
-
-        if (status === "failed" && errorMsg) {
-          setRunError(errorMsg);
-        } else if (status === "cancelled") {
-          setRunError("Run was cancelled.");
-        }
-      });
-
-      void refetchMessages();
-      void refetchSession();
-    }
-  });
-
-  // When a plan step starts, add it to the step tracker
-  const cleanupStepStarted = onAGUIEvent("agui.step_started", (payload) => {
-    const stepId = payload.step_id as string;
-    const name = payload.name as string;
-    setPlanSteps((prev) => [...prev, { stepId, name, status: "running" }]);
-  });
-
-  // When a plan step finishes, update its status
-  const cleanupStepFinished = onAGUIEvent("agui.step_finished", (payload) => {
-    const stepId = payload.step_id as string;
-    const status = payload.status as PlanStepState["status"];
-    setPlanSteps((prev) => prev.map((s) => (s.stepId === stepId ? { ...s, status } : s)));
-  });
-
-  // When the agent proposes a goal, add it to the proposal list for user approval
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupGoalProposal = onAGUIEvent("agui.goal_proposal", (payload) => {
-    if (payload.run_id === activeConversation()) {
-      setGoalProposals((prev) => [...prev, payload]);
-      scrollToBottom();
-    }
-  });
-
-  // When the agent requests permission (HITL), show an approval card
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupPermissionRequest = onAGUIEvent("agui.permission_request", (payload) => {
-    if (payload.run_id === activeConversation()) {
-      setPermissionRequests((prev) => [...prev, payload]);
-      scrollToBottom();
-    }
-  });
-
-  // When the agent suggests a follow-up action
-  // eslint-disable-next-line solid/reactivity -- event handler, not tracked scope
-  const cleanupActionSuggestion = onAGUIEvent("agui.action_suggestion", (payload) => {
-    if (payload.run_id === activeConversation()) {
-      const suggestion: ActionRule = {
-        label: payload.label as string,
-        action: payload.action as ActionRule["action"],
-        value: payload.value as string,
-      };
-      setActionSuggestions((prev) => [...prev, suggestion]);
-    }
-  });
-
-  onCleanup(() => {
-    cleanupRunStarted();
-    cleanupTextMessage();
-    cleanupToolCall();
-    cleanupToolResult();
-    cleanupRunFinished();
-    cleanupStepStarted();
-    cleanupStepFinished();
-    cleanupGoalProposal();
-    cleanupPermissionRequest();
-    cleanupActionSuggestion();
-  });
 
   // --- Handlers ---
 
@@ -476,11 +222,11 @@ export default function ChatPanel(props: ChatPanelProps) {
       const ctx: CommandContext = {
         conversationId: convId,
         messages: (messages() ?? []).map((m) => ({ role: m.role, content: m.content })),
-        sessionCostUsd: sessionCostUsd(),
-        sessionTokensIn: sessionTokensIn(),
-        sessionTokensOut: sessionTokensOut(),
-        sessionSteps: sessionSteps(),
-        sessionModel: sessionModel(),
+        sessionCostUsd: agui.sessionCostUsd(),
+        sessionTokensIn: agui.sessionTokensIn(),
+        sessionTokensOut: agui.sessionTokensOut(),
+        sessionSteps: agui.sessionSteps(),
+        sessionModel: agui.sessionModel(),
       };
 
       setInput("");
@@ -488,7 +234,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         const result = await executeCommand(commandId, args, ctx);
         switch (result.type) {
           case "display":
-            setCommandOutput(result.content ?? null);
+            agui.setCommandOutput(result.content ?? null);
             break;
           case "api_call":
             toast("success", result.content ?? "Done");
@@ -506,7 +252,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     }
 
     // Clear any previous command output
-    setCommandOutput(null);
+    agui.setCommandOutput(null);
 
     // Prepend context files as file references.
     const ctxPaths = contextFiles();
@@ -515,7 +261,7 @@ export default function ChatPanel(props: ChatPanelProps) {
 
     setInput("");
     setSending(true);
-    setRunError(null);
+    agui.setRunError(null);
     try {
       const convId = activeConversation();
       if (!convId) return;
@@ -597,7 +343,7 @@ export default function ChatPanel(props: ChatPanelProps) {
                 <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
               </svg>
             </button>
-            <Show when={agentRunning()}>
+            <Show when={agui.agentRunning()}>
               <span class="inline-flex items-center gap-1 rounded-full bg-cf-accent/10 px-2 py-0.5 text-xs font-medium text-cf-accent">
                 <span class="inline-block h-1.5 w-1.5 rounded-full bg-cf-accent animate-pulse" />
                 Agentic
@@ -623,7 +369,7 @@ export default function ChatPanel(props: ChatPanelProps) {
               )}
             </Show>
             {/* Fork / Rewind buttons (only when not running) */}
-            <Show when={!agentRunning() && session()}>
+            <Show when={!agui.agentRunning() && session()}>
               <Button
                 variant="secondary"
                 size="sm"
@@ -683,7 +429,7 @@ export default function ChatPanel(props: ChatPanelProps) {
             {/* Resume button (paused/completed session with a run to resume) */}
             <Show
               when={
-                !agentRunning() &&
+                !agui.agentRunning() &&
                 session()?.current_run_id &&
                 (session()?.status === "paused" || session()?.status === "completed")
               }
@@ -728,15 +474,15 @@ export default function ChatPanel(props: ChatPanelProps) {
               </Button>
             </Show>
             {/* Step counter during agentic turns */}
-            <Show when={agentRunning() && stepCount() > 0}>
-              <span class="text-xs text-cf-text-muted">Step {stepCount()}</span>
+            <Show when={agui.agentRunning() && agui.stepCount() > 0}>
+              <span class="text-xs text-cf-text-muted">Step {agui.stepCount()}</span>
             </Show>
             {/* Running cost during agentic turn */}
-            <Show when={agentRunning() && runningCost() > 0}>
-              <CostDisplay usd={runningCost()} class="text-xs text-cf-text-muted" />
+            <Show when={agui.agentRunning() && agui.runningCost() > 0}>
+              <CostDisplay usd={agui.runningCost()} class="text-xs text-cf-text-muted" />
             </Show>
             {/* Stop button during active agentic runs */}
-            <Show when={agentRunning()}>
+            <Show when={agui.agentRunning()}>
               <Button
                 variant="primary"
                 size="sm"
@@ -878,9 +624,9 @@ export default function ChatPanel(props: ChatPanelProps) {
           </ul>
 
           {/* Plan step status badges from AG-UI events */}
-          <Show when={planSteps().length > 0}>
+          <Show when={agui.planSteps().length > 0}>
             <div class="flex flex-wrap gap-2 px-1">
-              <For each={planSteps()}>
+              <For each={agui.planSteps()}>
                 {(step) => (
                   <Badge variant={stepBadgeVariant(step.status)} pill>
                     {step.name}
@@ -891,7 +637,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           </Show>
 
           {/* Slash command output (e.g. /help, /cost) */}
-          <Show when={commandOutput()}>
+          <Show when={agui.commandOutput()}>
             {(output) => (
               <div class="flex justify-start">
                 <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-secondary border border-cf-border">
@@ -902,16 +648,16 @@ export default function ChatPanel(props: ChatPanelProps) {
           </Show>
 
           {/* Active tool calls from AG-UI events — grouped with vertical line */}
-          <Show when={toolCalls().length > 0}>
+          <Show when={agui.toolCalls().length > 0}>
             <div class="flex justify-start">
               <div class="max-w-[95%] sm:max-w-[90%] w-full border-l-2 border-cf-accent/40 pl-3 ml-2">
-                <Show when={stepCount() > 0}>
+                <Show when={agui.stepCount() > 0}>
                   <div class="mb-1 text-xs text-cf-text-muted">
-                    Step {stepCount()} {"\u00B7"} {toolCalls().length} tool call
-                    {toolCalls().length !== 1 ? "s" : ""}
+                    Step {agui.stepCount()} {"\u00B7"} {agui.toolCalls().length} tool call
+                    {agui.toolCalls().length !== 1 ? "s" : ""}
                   </div>
                 </Show>
-                <For each={toolCalls()}>
+                <For each={agui.toolCalls()}>
                   {(tc) => (
                     <ToolCallCard
                       name={tc.name}
@@ -929,10 +675,10 @@ export default function ChatPanel(props: ChatPanelProps) {
           </Show>
 
           {/* Goal proposals from AG-UI events — inline approval cards */}
-          <Show when={goalProposals().length > 0}>
+          <Show when={agui.goalProposals().length > 0}>
             <div class="flex justify-start">
               <div class="max-w-[90%] sm:max-w-[75%] w-full">
-                <For each={goalProposals()}>
+                <For each={agui.goalProposals()}>
                   {(proposal) => (
                     <GoalProposalCard
                       proposal={proposal}
@@ -947,7 +693,11 @@ export default function ChatPanel(props: ChatPanelProps) {
           </Show>
 
           {/* Permission request cards from AG-UI events (HITL approval) */}
-          <For each={permissionRequests().filter((pr) => !resolvedPermissions().has(pr.call_id))}>
+          <For
+            each={agui
+              .permissionRequests()
+              .filter((pr) => !agui.resolvedPermissions().has(pr.call_id))}
+          >
             {(pr) => (
               <div class="flex justify-start">
                 <div class="max-w-[90%] sm:max-w-[75%] w-full">
@@ -959,7 +709,7 @@ export default function ChatPanel(props: ChatPanelProps) {
                     command={pr.command}
                     path={pr.path}
                     onResolved={() => {
-                      setResolvedPermissions((prev) => new Set([...prev, pr.call_id]));
+                      agui.setResolvedPermissions((prev) => new Set([...prev, pr.call_id]));
                     }}
                   />
                 </div>
@@ -968,19 +718,19 @@ export default function ChatPanel(props: ChatPanelProps) {
           </For>
 
           {/* Streaming assistant message from AG-UI text_message events */}
-          <Show when={streamingContent()}>
+          <Show when={agui.streamingContent()}>
             {(content) => (
               <div class="flex justify-start">
                 <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-primary">
                   <Markdown content={content()} />
-                  <StreamingCursor active={agentRunning()} />
+                  <StreamingCursor active={agui.agentRunning()} />
                 </div>
               </div>
             )}
           </Show>
 
           {/* Error message when a run fails */}
-          <Show when={runError()}>
+          <Show when={agui.runError()}>
             {(error) => (
               <div class="flex justify-start">
                 <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
@@ -992,11 +742,11 @@ export default function ChatPanel(props: ChatPanelProps) {
           </Show>
 
           {/* Action suggestions — shown when agent is idle and suggestions exist */}
-          <Show when={!agentRunning() && actionSuggestions().length > 0}>
+          <Show when={!agui.agentRunning() && agui.actionSuggestions().length > 0}>
             <ActionBar
-              rules={actionSuggestions()}
+              rules={agui.actionSuggestions()}
               onAction={(action) => {
-                setActionSuggestions([]);
+                agui.setActionSuggestions([]);
                 if (action.action === "send_message") {
                   sendChatMessage(action.value);
                 }
@@ -1005,7 +755,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           </Show>
 
           {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
-          <Show when={(sending() || agentRunning()) && !streamingContent()}>
+          <Show when={(sending() || agui.agentRunning()) && !agui.streamingContent()}>
             <div class="flex justify-start">
               <div class="bg-cf-bg-surface-alt rounded-cf-md px-4 py-3 inline-flex items-center gap-2">
                 <TypingIndicator />
@@ -1105,12 +855,12 @@ export default function ChatPanel(props: ChatPanelProps) {
 
         {/* Session usage footer */}
         <SessionFooter
-          model={sessionModel() || undefined}
-          steps={sessionSteps()}
-          costUsd={sessionCostUsd()}
-          tokensUsed={sessionTokensIn() + sessionTokensOut()}
+          model={agui.sessionModel() || undefined}
+          steps={agui.sessionSteps()}
+          costUsd={agui.sessionCostUsd()}
+          tokensUsed={agui.sessionTokensIn() + agui.sessionTokensOut()}
           tokensTotal={maxContextTokens()}
-          visible={sessionCostUsd() > 0 || sessionSteps() > 0}
+          visible={agui.sessionCostUsd() > 0 || agui.sessionSteps() > 0}
         />
 
         {/* Design Canvas modal */}
@@ -1122,7 +872,7 @@ export default function ChatPanel(props: ChatPanelProps) {
             const convId = activeConversation();
             if (!convId) return;
 
-            const hasVision = modelSupportsVision(sessionModel());
+            const hasVision = modelSupportsVision(agui.sessionModel());
             const promptText = buildCanvasPrompt(
               canvasExports.ascii,
               canvasExports.json,
@@ -1143,7 +893,7 @@ export default function ChatPanel(props: ChatPanelProps) {
 
             setInput("");
             setSending(true);
-            setRunError(null);
+            agui.setRunError(null);
             void (async () => {
               try {
                 await api.conversations.send(convId, {
