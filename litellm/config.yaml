@@ -31,7 +31,7 @@ model_list:
       api_base: "os.environ/LM_STUDIO_API_BASE"
       api_key: "lm-studio"
       timeout: 600
-      tags: ["background"]
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- Local Models (LM Studio via OpenAI-compatible alias) --
   # "openai/container" is commonly used in test configs to reference the local LM Studio model.
@@ -42,7 +42,7 @@ model_list:
       api_base: "os.environ/LM_STUDIO_API_BASE"
       api_key: "lm-studio"
       timeout: 600
-      tags: ["background"]
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- OpenAI --
   - model_name: "openai/*"
