@@ -134,6 +134,7 @@ class LoopConfig:
     task_type: str = ""
     provider_api_key: str = ""
     plan_act_enabled: bool = False
+    extra_plan_tools: frozenset[str] = field(default_factory=frozenset)
     rollout_id: int = -1  # -1 = not a rollout
     routing_metadata: RoutingMetadata | None = None  # RoutingMetadata from initial route
     routing_config: RoutingConfig | None = None  # RoutingConfig instance (active config for reward computation)
@@ -1394,6 +1395,7 @@ def _init_plan_act(cfg: LoopConfig, messages: list[dict[str, object]]) -> PlanAc
     plan_act = PlanActController(
         enabled=cfg.plan_act_enabled,
         max_plan_iterations=get_max_plan_iterations(),
+        extra_plan_tools=cfg.extra_plan_tools,
     )
     suffix = plan_act.get_system_suffix()
     if suffix:
