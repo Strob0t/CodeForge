@@ -387,23 +387,48 @@ browser_press_key: Enter
 browser_snapshot  (verify mode switch confirmation message)
 ```
 
-### Step 2.2: Send Initial Message
+### Step 2.2: Send Initial Message (Conversational Strategy)
 
-**Mode A (Showcase -- Weather Dashboard):**
+**Important:** Use multiple short messages instead of one large prompt. Local models handle smaller inputs faster and produce better goal proposals. Build the project description naturally through dialog.
+
+**Mode A (Showcase -- Weather Dashboard) -- Conversational Flow:**
+
+**Message 1** (introduction):
+```
+"Hi! I want to build a weather dashboard. It should have a Python backend and a TypeScript frontend that talk to each other via REST API."
+```
+Wait for agent response (may ask questions or propose initial goals).
+
+**Message 2** (backend details, after agent responds):
+```
+"For the backend, use Python with FastAPI. It should fetch weather data from wttr.in (no API key needed), cache responses, and serve 3 endpoints: current weather, forecast, and city search."
+```
+Wait for agent response.
+
+**Message 3** (frontend details, after agent responds):
+```
+"For the frontend, use TypeScript with SolidJS (NOT React). Use createSignal and createEffect, not useState/useEffect. Show current weather, a temperature chart, and a city search. Use Vite as bundler."
+```
+Wait for agent response.
+
+**Message 4** (requirements, after agent responds):
+```
+"Use separate directories: backend/ and frontend/. Write tests for both (pytest for Python, vitest for TypeScript). Everything must run locally. Commit all work to git when done."
+```
+Wait for agent to propose remaining goals.
+
+**Fallback: Single-Message Approach** (if conversational flow is too slow or agent doesn't respond well):
 
 ```
 browser_fill_form: [chat input] =
   "I need a Real-Time Weather Dashboard application. It must use two programming
    languages that communicate with each other:
-   1. Python FastAPI Backend -- fetches weather data from a public API
-      (e.g. OpenWeatherMap or wttr.in), caches responses, and serves them
-      via a REST API
-   2. TypeScript/SolidJS Frontend -- displays the weather data as an
-      interactive dashboard with charts, current conditions, and a
-      search/filter for cities
-
-   The backend and frontend must communicate via REST API. Both must have
-   tests. The project must be runnable locally."
+   1. Python FastAPI Backend -- fetches weather data from wttr.in (no API key),
+      caches responses, serves REST API (current weather, forecast, city search)
+   2. TypeScript/SolidJS Frontend -- interactive dashboard with charts and city
+      search. Use SolidJS primitives (createSignal, createEffect, NOT React hooks).
+   Separate directories: backend/ and frontend/. Tests: pytest + vitest.
+   Runnable locally. Git commit when done."
 
 browser_press_key: Enter
 ```
@@ -1246,6 +1271,24 @@ what the agent proposed vs. what was accepted>
 | Agent has no roadmap creation tool | Expected: agent describes, Claude Code creates via UI |
 | Goal proposals need manual approval clicks | Claude Code clicks Approve on each GoalProposalCard |
 | policy_preset/execution_mode not in UI | API PATCH after project creation |
+| Local models overwhelmed by long prompts | **Conversational strategy**: send multiple short messages instead of one wall-of-text. Build project description naturally through dialog (Run 1 learning) |
+| Local models confuse React and SolidJS | Explicit negative instruction ("NOT React hooks") + framework detection in stack context (Bug #4+6 fix) |
+| LiteLLM tag mismatch for local models | Ensure local model entries have all scenario tags: default, background, think, longContext, review, plan (Run 1 Bug #1 fix) |
+
+---
+
+## Learnings from Previous Runs
+
+### Run 1 (2026-03-22, qwen3-30b, single-prompt)
+- **57% score (16/28)** -- not showcase-worthy
+- Agent confused React/SolidJS (Bug #4+6, fixed)
+- goal_researcher skipped proposals (Bug #2, fixed)
+- test_main.py had `</n` syntax error (Bug #5, mitigated with post-write lint)
+- **Key learning:** Single large prompt overwhelms local models. Conversational approach recommended.
+
+### Run 2 (2026-03-22, qwen3-30b, single-prompt with explicit SolidJS)
+- Bug #2 fix confirmed: agent called `propose_goal` successfully
+- Still slow with large prompt -- switched to conversational strategy mid-run
 
 ---
 
