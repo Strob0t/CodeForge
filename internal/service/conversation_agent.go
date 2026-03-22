@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -1081,7 +1080,7 @@ func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID s
 		asmCtx := prompt.AssemblyContext{
 			ModeID:   "coder", // default for conversations
 			Autonomy: 3,       // default
-			Env:      os.Getenv("APP_ENV"),
+			Env:      s.appEnv,
 			Agentic:  true,
 		}
 		if result := s.promptAssembler.Assemble(asmCtx, data); result != "" {

@@ -152,6 +152,10 @@ func loadYAML(cfg *Config, path string) error {
 // loadEnv overlays environment variables onto cfg.
 // Only non-empty env values override the current config.
 func loadEnv(cfg *Config) {
+	// Top-level
+	setString(&cfg.AppEnv, "APP_ENV")
+	setString(&cfg.InternalKey, "CODEFORGE_INTERNAL_KEY")
+
 	setString(&cfg.Server.Port, "CODEFORGE_PORT")
 	setString(&cfg.Server.CORSOrigin, "CODEFORGE_CORS_ORIGIN")
 	setString(&cfg.Postgres.DSN, "DATABASE_URL")
@@ -315,6 +319,11 @@ func loadEnv(cfg *Config) {
 	setBool(&cfg.Copilot.Enabled, "CODEFORGE_COPILOT_ENABLED")
 	setString(&cfg.Copilot.HostsFilePath, "CODEFORGE_COPILOT_HOSTS_FILE")
 
+	// GitHub OAuth
+	setString(&cfg.GitHub.ClientID, "GITHUB_CLIENT_ID")
+	setString(&cfg.GitHub.ClientSecret, "GITHUB_CLIENT_SECRET")
+	setString(&cfg.GitHub.CallbackURL, "GITHUB_CALLBACK_URL")
+
 	// Routing
 	setBool(&cfg.Routing.Enabled, "CODEFORGE_ROUTING_ENABLED")
 
@@ -328,6 +337,15 @@ func loadEnv(cfg *Config) {
 	setInt(&cfg.Notification.SMTPPort, "CODEFORGE_SMTP_PORT")
 	setString(&cfg.Notification.SMTPFrom, "CODEFORGE_SMTP_FROM")
 	setString(&cfg.Notification.SMTPPassword, "CODEFORGE_SMTP_PASSWORD")
+
+	// Benchmark
+	setDuration(&cfg.Benchmark.WatchdogTimeout, "CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT")
+
+	// Ollama
+	setString(&cfg.Ollama.BaseURL, "OLLAMA_BASE_URL")
+
+	// Plane
+	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
 }
 
 // validate checks that required fields are set and security constraints are met.
@@ -357,7 +375,7 @@ func validate(cfg *Config) error {
 	}
 
 	// Auth validation: reject default JWT secret in production.
-	if cfg.Auth.JWTSecret == "codeforge-dev-jwt-secret-change-in-production" && os.Getenv("APP_ENV") == "production" {
+	if cfg.Auth.JWTSecret == "codeforge-dev-jwt-secret-change-in-production" && cfg.AppEnv == "production" {
 		return errors.New("FATAL: default JWT secret detected in production -- set CODEFORGE_AUTH_JWT_SECRET environment variable")
 	}
 

@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	neturl "net/url"
-	"os"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
@@ -26,14 +25,12 @@ type Provider struct {
 
 // newProvider creates a Provider from a config map.
 // Config keys: "api_token", "base_url" (optional, defaults to "https://api.plane.so").
-// Falls back to CODEFORGE_PLANE_API_TOKEN env var if api_token is not in config.
+// The api_token should be provided via the config map (sourced from cfg.Plane.APIToken
+// which reads CODEFORGE_PLANE_API_TOKEN via the config loader).
 func newProvider(config map[string]string) (*Provider, error) {
 	token := config["api_token"]
 	if token == "" {
-		token = os.Getenv("CODEFORGE_PLANE_API_TOKEN")
-	}
-	if token == "" {
-		return nil, fmt.Errorf("plane: api_token is required (config or CODEFORGE_PLANE_API_TOKEN)")
+		return nil, fmt.Errorf("plane: api_token is required (set CODEFORGE_PLANE_API_TOKEN or plane.api_token in config)")
 	}
 
 	baseURL := config["base_url"]

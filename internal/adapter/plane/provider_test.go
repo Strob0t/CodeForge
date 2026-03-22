@@ -521,15 +521,15 @@ func TestNewProvider_MissingToken(t *testing.T) {
 	}
 }
 
-func TestNewProvider_TokenFromEnv(t *testing.T) {
-	t.Setenv("CODEFORGE_PLANE_API_TOKEN", "env-token-value")
-
-	p, err := newProvider(map[string]string{})
+func TestNewProvider_TokenFromConfig(t *testing.T) {
+	// Token is now provided via config map (sourced from cfg.Plane.APIToken
+	// which reads CODEFORGE_PLANE_API_TOKEN via the config loader).
+	p, err := newProvider(map[string]string{"api_token": "config-token-value"})
 	if err != nil {
 		t.Fatalf("newProvider() error = %v", err)
 	}
-	if p.apiToken != "env-token-value" {
-		t.Errorf("apiToken = %q, want %q", p.apiToken, "env-token-value")
+	if p.apiToken != "config-token-value" {
+		t.Errorf("apiToken = %q, want %q", p.apiToken, "config-token-value")
 	}
 }
 

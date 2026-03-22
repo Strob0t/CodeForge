@@ -99,7 +99,7 @@ func TestModelRegistryRefresh(t *testing.T) {
 
 	client := litellm.NewClient(srv.URL, "test-key")
 	hub := &mockBroadcaster{}
-	registry := service.NewModelRegistry(client, hub, 0) // 0 = no polling
+	registry := service.NewModelRegistry(client, hub, 0, "") // 0 = no polling
 
 	err := registry.Refresh(context.Background())
 	if err != nil {
@@ -169,7 +169,7 @@ func TestModelRegistryStart(t *testing.T) {
 
 	client := litellm.NewClient(srv.URL, "test-key")
 	hub := &mockBroadcaster{}
-	registry := service.NewModelRegistry(client, hub, 0) // 0 = no periodic polling
+	registry := service.NewModelRegistry(client, hub, 0, "") // 0 = no periodic polling
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -192,7 +192,7 @@ func TestModelRegistryNoHub(t *testing.T) {
 
 	client := litellm.NewClient(srv.URL, "test-key")
 	// nil hub should not panic.
-	registry := service.NewModelRegistry(client, nil, 0)
+	registry := service.NewModelRegistry(client, nil, 0, "")
 
 	err := registry.Refresh(context.Background())
 	if err != nil {
@@ -210,7 +210,7 @@ func TestModelRegistryEmptyModels(t *testing.T) {
 
 	client := litellm.NewClient(srv.URL, "test-key")
 	hub := &mockBroadcaster{}
-	registry := service.NewModelRegistry(client, hub, 0)
+	registry := service.NewModelRegistry(client, hub, 0, "")
 
 	err := registry.Refresh(context.Background())
 	if err != nil {
@@ -231,7 +231,7 @@ func TestModelRegistryAllUnhealthy(t *testing.T) {
 
 	client := litellm.NewClient(srv.URL, "test-key")
 	hub := &mockBroadcaster{}
-	registry := service.NewModelRegistry(client, hub, 0)
+	registry := service.NewModelRegistry(client, hub, 0, "")
 
 	err := registry.Refresh(context.Background())
 	if err != nil {

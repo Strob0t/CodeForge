@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 
@@ -53,7 +52,13 @@ var passwordChangeExempt = map[string]bool{
 
 // Auth returns middleware that validates JWT or API key credentials.
 // When authEnabled is false, a default admin context is injected.
-func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) http.Handler {
+// The internalKey parameter is the shared secret for Python worker API calls
+// (from cfg.InternalKey / CODEFORGE_INTERNAL_KEY env var).
+func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string) func(http.Handler) http.Handler {
+	var internalKeyVal string
+	if len(internalKey) > 0 {
+		internalKeyVal = internalKey[0]
+	}
 	var authDisabledOnce sync.Once
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +129,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool) func(http.Handler) htt
 				// By design, the internal service key grants admin access for inter-service
 				// communication (Go Core <-> Python workers). The key is never exposed to
 				// external clients and must be set via CODEFORGE_INTERNAL_KEY env var.
-				if internalKey := os.Getenv("CODEFORGE_INTERNAL_KEY"); internalKey != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(internalKey)) == 1 {
+				if internalKeyVal != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(internalKeyVal)) == 1 {
 					slog.Debug("internal service key authenticated", "path", r.URL.Path)
 					svcUser := &user.User{
 						ID:       "00000000-0000-0000-0000-000000000001",

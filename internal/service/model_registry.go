@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
@@ -34,12 +33,13 @@ type ModelRegistry struct {
 
 // NewModelRegistry creates a new registry with the given poll interval.
 // Pass interval <= 0 to disable periodic polling (manual refresh only).
-func NewModelRegistry(llm *litellm.Client, hub broadcast.Broadcaster, interval time.Duration) *ModelRegistry {
+// The ollamaURL parameter comes from cfg.Ollama.BaseURL (OLLAMA_BASE_URL env var).
+func NewModelRegistry(llm *litellm.Client, hub broadcast.Broadcaster, interval time.Duration, ollamaURL string) *ModelRegistry {
 	return &ModelRegistry{
 		llm:       llm,
 		hub:       hub,
 		interval:  interval,
-		ollamaURL: os.Getenv("OLLAMA_BASE_URL"),
+		ollamaURL: ollamaURL,
 	}
 }
 

@@ -46,9 +46,15 @@ var ErrExpired = errors.New("device code expired")
 // Option configures a subscription provider.
 type Option struct {
 	httpClient *http.Client
+	clientID   string
 }
 
 // WithHTTPClient overrides the default HTTP client (primarily for testing).
 func WithHTTPClient(c *http.Client) Option {
 	return Option{httpClient: c}
+}
+
+// WithClientID overrides the default OAuth client ID.
+func WithClientID(id string) Option {
+	return Option{clientID: id}
 }

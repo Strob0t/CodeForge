@@ -1689,6 +1689,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		ActiveWork:       service.NewActiveWorkService(store, bc),
 		Routing:          service.NewRoutingService(store),
 		GoalDiscovery:    service.NewGoalDiscoveryService(store),
+		AppEnv:           os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
@@ -1805,6 +1806,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		ActiveWork:       service.NewActiveWorkService(store, bc),
 		Routing:          service.NewRoutingService(store),
 		GoalDiscovery:    service.NewGoalDiscoveryService(store),
+		AppEnv:           os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,

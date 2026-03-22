@@ -21,7 +21,7 @@ import { DEFAULT_MODEL } from "./matrix";
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8080/api/v1";
 const HEALTH_BASE = API_BASE.replace("/api/v1", "");
-const LITELLM_URL = process.env.LITELLM_URL ?? "http://codeforge-litellm:4000";
+const LITELLM_BASE_URL = process.env.LITELLM_BASE_URL ?? "http://codeforge-litellm:4000";
 const ADMIN_EMAIL = "admin@localhost";
 const ADMIN_PASS = "Changeme123";
 
@@ -83,7 +83,7 @@ export async function checkBackendHealth(): Promise<{ status: string; dev_mode: 
 
 export async function checkLiteLLMHealth(): Promise<boolean> {
   try {
-    const res = await fetch(`${LITELLM_URL}/health/liveliness`);
+    const res = await fetch(`${LITELLM_BASE_URL}/health/liveliness`);
     if (!res.ok) return false;
     const text = await res.text();
     return text.includes("I'm alive");
@@ -95,7 +95,7 @@ export async function checkLiteLLMHealth(): Promise<boolean> {
 export async function getLiteLLMModels(): Promise<string[]> {
   try {
     const masterKey = process.env.LITELLM_MASTER_KEY ?? "sk-codeforge-dev";
-    const res = await fetch(`${LITELLM_URL}/v1/models`, {
+    const res = await fetch(`${LITELLM_BASE_URL}/v1/models`, {
       headers: { Authorization: `Bearer ${masterKey}` },
     });
     if (!res.ok) return [];
@@ -334,7 +334,7 @@ export async function collectEnvironmentInfo(): Promise<{
   }
   return {
     backend_url: HEALTH_BASE,
-    litellm_url: LITELLM_URL,
+    litellm_url: LITELLM_BASE_URL,
     app_env: "development",
     default_model: DEFAULT_MODEL,
     litellm_models_available: models,
@@ -350,4 +350,4 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export { API_BASE, LITELLM_URL, HEALTH_BASE };
+export { API_BASE, LITELLM_BASE_URL, HEALTH_BASE };

@@ -487,16 +487,89 @@ Example:
 | `mcp.servers_dir` | `CODEFORGE_MCP_SERVERS_DIR` | `` | Directory with MCP server YAML definitions |
 | `mcp.server_port` | `CODEFORGE_MCP_SERVER_PORT` | `3001` | Port for built-in MCP server |
 | `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `true` | Enable JWT authentication |
-| `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | (auto) | HMAC-SHA256 signing key |
-| `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY` | `15m` | Access token lifetime |
-| `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY` | `168h` | Refresh token lifetime (7d) |
+| `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | `codeforge-dev-jwt-secret-change-in-production` | HMAC-SHA256 signing key (production rejects the default) |
+| `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_EXPIRY` | `15m` | Access token lifetime |
+| `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_EXPIRY` | `168h` | Refresh token lifetime (7d) |
 | `auth.bcrypt_cost` | `CODEFORGE_AUTH_BCRYPT_COST` | `12` | Bcrypt work factor |
-| `auth.default_admin_email` | `CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
-| `auth.default_admin_pass` | `CODEFORGE_AUTH_DEFAULT_ADMIN_PASS` | `` | Seed admin password |
+| `auth.default_admin_email` | `CODEFORGE_AUTH_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
+| `auth.default_admin_pass` | `CODEFORGE_AUTH_ADMIN_PASS` | `` | Seed admin password |
+| `auth.auto_generate_password` | `CODEFORGE_AUTH_AUTO_GENERATE_PASSWORD` | `false` | Auto-generate admin password |
+| `auth.initial_password_file` | `CODEFORGE_AUTH_INITIAL_PASSWORD_FILE` | `data/initial_admin_password` | File path for generated password |
+| `auth.setup_timeout_minutes` | `CODEFORGE_AUTH_SETUP_TIMEOUT_MINUTES` | `5` | Setup wizard timeout |
 | `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
+| `benchmark.watchdog_timeout` | `CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck benchmark runs |
 | `github.client_id` | `GITHUB_CLIENT_ID` | `` | GitHub OAuth App Client ID |
 | `github.client_secret` | `GITHUB_CLIENT_SECRET` | `` | GitHub OAuth App Client Secret |
 | `github.callback_url` | `GITHUB_CALLBACK_URL` | `http://localhost:8080/api/v1/auth/github/callback` | GitHub OAuth callback URL |
+| `postgres.max_conn_lifetime` | `CODEFORGE_PG_MAX_CONN_LIFETIME` | `30m` | Max connection lifetime |
+| `postgres.max_conn_idle_time` | `CODEFORGE_PG_MAX_CONN_IDLE_TIME` | `5m` | Max connection idle time |
+| `postgres.health_check` | `CODEFORGE_PG_HEALTH_CHECK` | `30s` | Health check interval |
+| `logging.service` | `CODEFORGE_LOG_SERVICE` | `codeforge-core` | Service name in structured logs |
+| `logging.async` | `CODEFORGE_LOG_ASYNC` | `true` | Enable async log buffering |
+| `rate.auth_rps` | `CODEFORGE_RATE_AUTH_RPS` | `0.167` | Auth endpoint rate limit (req/s) |
+| `rate.auth_burst` | `CODEFORGE_RATE_AUTH_BURST` | `5` | Auth endpoint burst capacity |
+| `policy.default` | `CODEFORGE_POLICY_DEFAULT` | `headless-safe-sandbox` | Default policy preset |
+| `policy.dir` | `CODEFORGE_POLICY_DIR` | `` | Custom policy directory |
+| `workspace.root` | `CODEFORGE_WORKSPACE_ROOT` | `data/workspaces` | Workspace root directory |
+| `workspace.pipeline_dir` | `CODEFORGE_WORKSPACE_PIPELINE_DIR` | `` | Pipeline config directory |
+| `runtime.stall_threshold` | `CODEFORGE_STALL_THRESHOLD` | `5` | Stall detection threshold (repeated actions) |
+| `runtime.stall_max_retries` | `CODEFORGE_STALL_MAX_RETRIES` | `2` | Max stall recovery retries |
+| `runtime.qg_timeout` | `CODEFORGE_QG_TIMEOUT` | `60s` | Quality gate timeout |
+| `runtime.deliver_mode` | `CODEFORGE_DELIVER_MODE` | `` | Default delivery mode |
+| `runtime.test_command` | `CODEFORGE_TEST_COMMAND` | `go test ./...` | Default test command |
+| `runtime.lint_command` | `CODEFORGE_LINT_COMMAND` | `golangci-lint run ./...` | Default lint command |
+| `runtime.commit_prefix` | `CODEFORGE_COMMIT_PREFIX` | `codeforge:` | Git commit prefix |
+| `runtime.heartbeat_interval` | `CODEFORGE_HEARTBEAT_INTERVAL` | `30s` | Agent heartbeat interval |
+| `runtime.heartbeat_timeout` | `CODEFORGE_HEARTBEAT_TIMEOUT` | `120s` | Heartbeat timeout |
+| `runtime.approval_timeout_seconds` | `CODEFORGE_APPROVAL_TIMEOUT_SECONDS` | `60` | HITL approval timeout (seconds) |
+| `idempotency.bucket` | `CODEFORGE_IDEMPOTENCY_BUCKET` | `IDEMPOTENCY` | NATS KV bucket name |
+| `idempotency.ttl` | `CODEFORGE_IDEMPOTENCY_TTL` | `24h` | Idempotency key TTL |
+| `hybrid.image` | `CODEFORGE_HYBRID_IMAGE` | `` | Docker image for hybrid mode |
+| `hybrid.mount_mode` | `CODEFORGE_HYBRID_MOUNT_MODE` | `rw` | Mount mode (rw/ro) |
+| `sandbox.memory_mb` | `CODEFORGE_SANDBOX_MEMORY_MB` | `512` | Memory limit (MB) |
+| `sandbox.cpu_quota` | `CODEFORGE_SANDBOX_CPU_QUOTA` | `1000` | CPU quota (millicores) |
+| `sandbox.pids_limit` | `CODEFORGE_SANDBOX_PIDS_LIMIT` | `100` | Process limit |
+| `sandbox.storage_gb` | `CODEFORGE_SANDBOX_STORAGE_GB` | `10` | Storage limit (GB) |
+| `sandbox.network` | `CODEFORGE_SANDBOX_NETWORK` | `none` | Network mode |
+| `sandbox.image` | `CODEFORGE_SANDBOX_IMAGE` | `ubuntu:22.04` | Container image |
+| `cache.l1_size_mb` | `CODEFORGE_CACHE_L1_SIZE_MB` | `100` | L1 in-memory cache size (MB) |
+| `cache.l2_bucket` | `CODEFORGE_CACHE_L2_BUCKET` | `CACHE` | NATS KV cache bucket |
+| `cache.l2_ttl` | `CODEFORGE_CACHE_L2_TTL` | `10m` | L2 cache TTL |
+| `orchestrator.context_budget` | `CODEFORGE_ORCH_CONTEXT_BUDGET` | `4096` | Token budget for orchestrator context |
+| `orchestrator.prompt_reserve` | `CODEFORGE_ORCH_PROMPT_RESERVE` | `1024` | Prompt token reserve |
+| `orchestrator.subagent_enabled` | `CODEFORGE_ORCH_SUBAGENT_ENABLED` | `true` | Enable sub-agent search |
+| `orchestrator.subagent_timeout` | `CODEFORGE_ORCH_SUBAGENT_TIMEOUT` | `60s` | Sub-agent request timeout |
+| `context.rerank_enabled` | `CODEFORGE_CONTEXT_RERANK_ENABLED` | `false` | Enable LLM context reranking |
+| `context.rerank_model` | `CODEFORGE_CONTEXT_RERANK_MODEL` | `` | Model for reranking |
+| `webhook.github_secret` | `CODEFORGE_WEBHOOK_GITHUB_SECRET` | `` | GitHub webhook HMAC secret |
+| `webhook.gitlab_token` | `CODEFORGE_WEBHOOK_GITLAB_TOKEN` | `` | GitLab webhook token |
+| `webhook.plane_secret` | `CODEFORGE_WEBHOOK_PLANE_SECRET` | `` | Plane webhook secret |
+| `notification.slack_webhook_url` | `CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL` | `` | Slack webhook URL |
+| `notification.discord_webhook_url` | `CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL` | `` | Discord webhook URL |
+| `smtp.host` | `CODEFORGE_SMTP_HOST` | `` | SMTP server hostname |
+| `smtp.port` | `CODEFORGE_SMTP_PORT` | `587` | SMTP server port |
+| `smtp.from` | `CODEFORGE_SMTP_FROM` | `` | SMTP sender email |
+| `smtp.password` | `CODEFORGE_SMTP_PASSWORD` | `` | SMTP password |
+| `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | (auto-detect) | Public URL for AgentCard |
+| `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | `` | Comma-separated API keys |
+| `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol |
+| `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks |
+| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `true` | Allow unauthenticated discovery |
+| `a2a.streaming` | `CODEFORGE_A2A_STREAMING` | `false` | Enable A2A streaming |
+| `agent.default_model` | `CODEFORGE_AGENT_DEFAULT_MODEL` | `` | Default agent model (empty = auto-discover) |
+| `agent.max_context_tokens` | `CODEFORGE_AGENT_MAX_CONTEXT_TOKENS` | `128000` | Max context window tokens |
+| `agent.max_loop_iterations` | `CODEFORGE_AGENT_MAX_LOOP_ITERATIONS` | `50` | Max tool-use loop iterations |
+| `agent.agentic_by_default` | `CODEFORGE_AGENT_AGENTIC_BY_DEFAULT` | `true` | Enable agentic mode by default |
+| `agent.tool_output_max_chars` | `CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS` | `10000` | Max chars per tool output |
+| `agent.conversation_rollout_count` | `CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT` | `1` | Conversation rollout count (1-8) |
+| `agent.summarize_threshold` | `CODEFORGE_SUMMARIZE_THRESHOLD` | `0` | Message count to trigger summarization (0 = disabled) |
+| `litellm.health_poll_interval` | `CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL` | `60s` | LiteLLM health poll interval |
+| `copilot.hosts_file` | `CODEFORGE_COPILOT_HOSTS_FILE` | `~/.config/github-copilot/hosts.json` | Copilot hosts file path |
+| `experience.confidence_threshold` | `CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD` | `0.85` | Minimum confidence to use cached experience |
+| `experience.max_entries` | `CODEFORGE_EXPERIENCE_MAX_ENTRIES` | `1000` | Max experience pool size |
+| (none) | `APP_ENV` | `` | Application environment (`development`/`production`) |
+| (none) | `CODEFORGE_INTERNAL_KEY` | `` | Shared secret for worker-to-core API auth |
+| (none) | `CODEFORGE_ENV_FILE` | `` | Path to .env file for OAuth device flow |
 
 #### Python Worker Config (`workers/codeforge/config.py`)
 
@@ -519,6 +592,46 @@ Example:
 | `CODEFORGE_CLAUDECODE_TIMEOUT` | `300` | CLI subprocess timeout in seconds |
 | `CODEFORGE_CLAUDECODE_TIERS` | `COMPLEX,REASONING` | Complexity tiers that include Claude Code (comma-separated) |
 | `CODEFORGE_CLAUDECODE_MAX_CONCURRENT` | `5` | Max parallel Claude Code runs per worker |
+| `CODEFORGE_ROUTING_COMPLEXITY_ENABLED` | `true` | Enable complexity analyzer layer |
+| `CODEFORGE_ROUTING_MAB_ENABLED` | `true` | Enable MAB model selector |
+| `CODEFORGE_ROUTING_LLM_META_ENABLED` | `true` | Enable LLM meta-router fallback |
+| `CODEFORGE_ROUTING_MAB_MIN_TRIALS` | `10` | Min trials before MAB active |
+| `CODEFORGE_ROUTING_MAB_EXPLORATION_RATE` | `1.414` | UCB1 exploration coefficient |
+| `CODEFORGE_ROUTING_COST_WEIGHT` | `0.3` | Cost weight in routing |
+| `CODEFORGE_ROUTING_QUALITY_WEIGHT` | `0.5` | Quality weight in routing |
+| `CODEFORGE_ROUTING_LATENCY_WEIGHT` | `0.2` | Latency weight in routing |
+| `CODEFORGE_ROUTING_META_MODEL` | `` | Model for meta-router |
+| `CODEFORGE_ROUTING_STATS_INTERVAL` | `5m` | Stats refresh interval |
+| `CODEFORGE_ROUTING_MAB_COST_PENALTY` | `0.0` | MAB cost penalty multiplier |
+| `CODEFORGE_ROUTING_COST_PENALTY_MODE` | `linear` | Penalty mode (linear/exponential) |
+| `CODEFORGE_ROUTING_MAX_COST_CEILING` | `0.10` | Max cost threshold (USD) |
+| `CODEFORGE_ROUTING_MAX_LATENCY_CEILING` | `30000` | Max latency threshold (ms) |
+| `CODEFORGE_ROUTING_CASCADE_ENABLED` | `false` | Enable cascade fallback |
+| `CODEFORGE_ROUTING_CASCADE_CONFIDENCE` | `0.7` | Cascade confidence threshold |
+| `CODEFORGE_ROUTING_CASCADE_MAX_STEPS` | `3` | Max cascade steps |
+| `CODEFORGE_ROUTING_DIVERSITY_MODE` | `false` | Enable model diversity |
+| `CODEFORGE_ROUTING_ENTROPY_WEIGHT` | `0.1` | Entropy weight in diversity mode |
+| `CODEFORGE_EFFECTIVE_MODELS_CACHE_TTL` | `5.0` | Effective models cache TTL (seconds) |
+| `CODEFORGE_DEFAULT_MODEL` | `` | Override default LLM model |
+| `CODEFORGE_MODEL_BLOCK_TTL` | `300` | Default model block duration (seconds) |
+| `CODEFORGE_MODEL_AUTH_BLOCK_TTL` | `86400` | Auth error block duration (24h) |
+| `CODEFORGE_CONSUMER_MAX_ERRORS` | `10` | Max consecutive errors before backoff |
+| `CODEFORGE_CONSUMER_BACKOFF_MULTIPLIER` | `0.5` | Backoff time multiplier |
+| `CODEFORGE_CONSUMER_BACKOFF_MAX` | `5.0` | Max backoff interval (seconds) |
+| `CODEFORGE_PLAN_ACT_MAX_ITERATIONS` | `10` | Max plan phase iterations |
+| `CODEFORGE_CORE_URL` | `http://localhost:8080` | Go Core service HTTP endpoint |
+| `CODEFORGE_TRUST_MIN_LEVEL` | `untrusted` | Minimum trust level |
+| `CODEFORGE_WORKSPACE` | `/workspaces/CodeForge` | Default workspace path |
+| `CODEFORGE_EARLY_STOP_THRESHOLD` | `0.9` | Early stopping score threshold |
+| `CODEFORGE_EARLY_STOP_QUORUM` | `3` | Early stopping quorum size |
+| `CODEFORGE_JUDGE_MODEL` | `openai/gpt-4o` | Model for evaluation judge |
+| `CODEFORGE_BENCHMARK_MAX_PARALLEL` | `3` | Max parallel benchmarks |
+| `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Benchmark datasets directory |
+| `CODEFORGE_SWEAGENT_PATH` | `sweagent` | Path to SWE-Agent CLI binary |
+| `CODEFORGE_OPENHANDS_POLL_INTERVAL` | `2.0` | OpenHands poll interval (seconds) |
+| `CODEFORGE_OPENHANDS_HTTP_TIMEOUT` | `30.0` | OpenHands HTTP timeout (seconds) |
+| `CODEFORGE_OPENHANDS_HEALTH_TIMEOUT` | `5.0` | OpenHands health check timeout |
+| `CODEFORGE_OPENHANDS_CANCEL_TIMEOUT` | `5.0` | OpenHands cancel timeout |
 
 ### Health Endpoints
 
@@ -708,12 +821,12 @@ See `.env.example` for all configurable values.
 | CODEFORGE_MCP_SERVERS_DIR |                                          | MCP server YAML definitions dir |
 | CODEFORGE_MCP_SERVER_PORT | 3001                                     | Built-in MCP server port        |
 | CODEFORGE_AUTH_ENABLED    | true                                     | Enable JWT authentication       |
-| CODEFORGE_AUTH_JWT_SECRET | (auto-generated if empty)                | HMAC-SHA256 JWT signing key     |
-| CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY | 15m                               | Access token lifetime           |
-| CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY | 168h                             | Refresh token lifetime (7d)     |
+| CODEFORGE_AUTH_JWT_SECRET | `codeforge-dev-jwt-secret-change-in-production` | HMAC-SHA256 JWT signing key (production rejects the default) |
+| CODEFORGE_AUTH_ACCESS_EXPIRY | 15m                                   | Access token lifetime           |
+| CODEFORGE_AUTH_REFRESH_EXPIRY | 168h                                  | Refresh token lifetime (7d)     |
 | CODEFORGE_AUTH_BCRYPT_COST | 12                                      | Bcrypt work factor              |
-| CODEFORGE_AUTH_DEFAULT_ADMIN_EMAIL | admin@localhost                  | Seed admin email                |
-| CODEFORGE_AUTH_DEFAULT_ADMIN_PASS |                                  | Seed admin password             |
+| CODEFORGE_AUTH_ADMIN_EMAIL | admin@localhost                          | Seed admin email                |
+| CODEFORGE_AUTH_ADMIN_PASS |                                          | Seed admin password             |
 | CODEFORGE_LLM_MAX_RETRIES  | 2                                        | Max retry attempts per LLM call |
 | CODEFORGE_LLM_BACKOFF_BASE | 2.0                                      | Exponential backoff base (sec)  |
 | CODEFORGE_LLM_BACKOFF_MAX  | 60.0                                     | Maximum backoff cap (sec)       |
@@ -734,6 +847,22 @@ See `.env.example` for all configurable values.
 | CODEFORGE_COPILOT_ENABLED   | false                                    | Enable GitHub Copilot token exchange |
 | CODEFORGE_ROUTING_ENABLED   | true                                     | Enable hybrid intelligent routing |
 | CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable experience pool caching   |
+| CODEFORGE_A2A_BASE_URL     | (auto-detect)                            | Public URL for AgentCard         |
+| CODEFORGE_A2A_API_KEYS     |                                          | Comma-separated API keys         |
+| CODEFORGE_A2A_TRANSPORT    | jsonrpc                                  | Transport protocol               |
+| CODEFORGE_A2A_MAX_TASKS    | 100                                      | Max concurrent A2A tasks         |
+| CODEFORGE_A2A_ALLOW_OPEN   | true                                     | Allow unauthenticated discovery  |
+| CODEFORGE_OTEL_INSECURE    | true                                     | Use insecure gRPC (false for TLS)|
+| DEEPSEEK_API_KEY            | (optional)                               | DeepSeek API Key                 |
+| COHERE_API_KEY              | (optional)                               | Cohere API Key                   |
+| TOGETHERAI_API_KEY          | (optional)                               | Together AI API Key              |
+| FIREWORKS_API_KEY           | (optional)                               | Fireworks AI API Key             |
+| HF_TOKEN                    | (optional)                               | HuggingFace API token            |
+| LM_STUDIO_API_BASE          | (optional)                               | LM Studio API base URL           |
+| AIHUBMIX_API_KEY            | (optional)                               | AIHubMix API Key                 |
+| CEREBRAS_API_KEY            | (optional)                               | Cerebras API Key                 |
+| CHUTES_API_KEY              | (optional)                               | Chutes API Key                   |
+| GITHUB_TOKEN                | (optional)                               | GitHub personal access token     |
 
 ### Distributed Tracing (OpenTelemetry)
 

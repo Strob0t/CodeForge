@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/logger"
@@ -39,9 +38,8 @@ func SecurityHeaders(next http.Handler) http.Handler {
 // CORS returns middleware that sets CORS headers for development.
 // When allowedOrigin is "*", credentials are not allowed (browser security).
 // In non-development environments, wildcard origins are rejected to prevent
-// misconfiguration in production.
-func CORS(allowedOrigin string) func(http.Handler) http.Handler {
-	appEnv := os.Getenv("APP_ENV")
+// misconfiguration in production. The appEnv parameter should come from cfg.AppEnv.
+func CORS(allowedOrigin, appEnv string) func(http.Handler) http.Handler {
 	if allowedOrigin == "*" {
 		if appEnv != "" && appEnv != "development" {
 			slog.Error("CORS wildcard (*) is not allowed in non-development environments; set CODEFORGE_CORS_ORIGIN to a specific origin")

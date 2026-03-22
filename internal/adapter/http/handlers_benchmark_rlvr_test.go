@@ -10,7 +10,7 @@ import (
 )
 
 func TestExportRLVRData_JSONL(t *testing.T) {
-	// DevModeOnly middleware checks APP_ENV.
+	// DevModeOnly middleware uses AppEnv from config (read from APP_ENV env var).
 	t.Setenv("APP_ENV", "development")
 
 	store := &mockStore{
