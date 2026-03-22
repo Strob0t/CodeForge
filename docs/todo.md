@@ -1489,3 +1489,17 @@
 - [x] (2026-03-19) Documented in testplan Phase 0 — container IPs must be used instead of localhost
 - [ ] Add `dev-setup.md` section for WSL2-specific Docker networking workarounds
 - [x] (2026-03-19) Created `scripts/resolve-docker-ips.sh` helper that exports correct env vars
+
+#### Multi-Language Autonomous Testplan (2026-03-22)
+
+> Design spec: `docs/specs/2026-03-22-autonomous-multi-language-testplan-design.md`
+> Testplan: `docs/testing/autonomous-multi-language-testplan.md`
+> Implementation plan: `docs/plans/2026-03-22-autonomous-multi-language-testplan.md`
+
+- [x] (2026-03-22) Research: AI coding agent benchmarks + showcase demos (SWE-bench, Commit0, DevBench, Devin, MetaGPT, Codex, etc.)
+- [x] (2026-03-22) Design spec: 10 phases, 2 modes (A: Weather Dashboard, D: Free Choice), 4-tier verification
+- [x] (2026-03-22) Implementation plan: 11 tasks, 28 steps
+- [x] (2026-03-22) Executable runbook: 11 phases with Playwright-MCP commands, decision trees, report template
+- [ ] First test run: Mode A (Weather Dashboard) with local model
+- [ ] First test run: Mode A with cloud model (Claude/GPT)
+- [ ] First test run: Mode D (Free Choice)
