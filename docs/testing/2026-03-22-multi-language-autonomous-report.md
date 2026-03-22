@@ -142,3 +142,78 @@ This behavior is consistent with local model limitations: qwen3-30b doesn't know
 - Fix Bug #1 permanently (LiteLLM tags for local models)
 - Consider adding explicit "DO NOT use React APIs" instruction in the prompt for Mode A
 - Consider lowering autonomy to 2 or 3 for goal_researcher mode to force the proposal flow
+
+---
+
+## Run 2 (2026-03-22, qwen3-30b, single-prompt with explicit SolidJS)
+
+**Status:** Partial -- stopped mid-run to switch to conversational strategy.
+
+**Key findings:**
+- Bug #2 fix confirmed: agent called `propose_goal` ("Multi-Language Weather Dashboard Vision")
+- LiteLLM tag fix confirmed: `think` scenario tag accepted by local model
+- Agent created `backend/main.py` before being stopped
+- Still slow with large prompt (~10 min for first response)
+
+**Decision:** Stopped to test conversational approach (multiple short messages).
+
+---
+
+## Run 3 (2026-03-22, qwen3-30b, conversational strategy)
+
+**Status:** Completed but failed -- agent drifted into irrelevant tool calls.
+
+**Conversational approach:**
+- Sent short message: "Hi! I want to build a weather dashboard. It should have a Python backend and a TypeScript frontend that talk to each other via REST API."
+- Agent responded with 39 messages total
+
+**What worked:**
+- Agent explored workspace correctly (list_directory, glob_files, read_file README.md)
+- Agent proposed "Project Structure Setup" goal via `propose_goal` (Bug #2 fix works)
+- Agent transitioned to ACT and updated README.md with project structure
+
+**What failed:**
+- Agent called `create_skill` which failed with UUID error (DB constraint)
+- Agent called `handoff_to` orchestrator (unnecessary)
+- Agent proposed irrelevant goal "Skill Creation UUID Constraint" (hallucination)
+- Agent entered error-loop retrying `create_skill` 3+ times
+- Only 1 file produced (updated README.md), no actual code
+- 0/11 functional checks, 0/8 quality checks
+
+**New bugs discovered:**
+
+| # | Phase | Severity | Description |
+|---|---|---|---|
+| 9 | 2 | WARNING | Local model calls `create_skill` tool despite it being irrelevant to the task. Model doesn't understand when to use specialized tools vs standard coding tools |
+| 10 | 2 | INFO | `create_skill` fails with UUID error when session_id is empty -- DB constraint violation. Should return a cleaner error |
+| 11 | 2 | WARNING | Agent drifts into error-loop retrying failed `create_skill` instead of proceeding with the actual task |
+
+---
+
+## Cross-Run Summary
+
+| Metric | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Model | qwen3-30b | qwen3-30b | qwen3-30b |
+| Prompt style | Single large | Single large + explicit SolidJS | Conversational (short) |
+| Bug fixes applied | None | LiteLLM tags | All 4 fixes |
+| propose_goal called | No (blocked) | Yes (1 goal) | Yes (1 relevant + 1 hallucinated) |
+| Files created | 21 | 2 (stopped) | 1 |
+| Functional score | 7/11 | N/A | 0/11 |
+| Overall score | 57% | N/A | ~5% |
+| Duration | ~15 min | ~10 min (stopped) | ~15 min |
+
+## Overall Conclusion
+
+**Local model (qwen3-30b) is insufficient for the multi-language testplan showcase.** Across 3 runs:
+- Run 1 (best): Created both backend + frontend code but confused React/SolidJS
+- Run 2: Bug fixes work but still slow and imprecise
+- Run 3: Conversational approach didn't help -- agent drifted into tool confusion
+
+**The bug fixes are validated:**
+- Bug #2 (plan/act extra tools): CONFIRMED working in Run 2+3
+- Bug #4+6 (framework detection): Infrastructure fix confirmed, needs cloud model to validate effect
+- Bug #5 (post-write lint): Infrastructure fix confirmed
+- Bug #7+8 (prompt checklist): Needs cloud model to validate effect
+
+**Next step: Cloud model required.** Set ANTHROPIC_API_KEY or OPENAI_API_KEY and run Mode A with Claude Sonnet 4.6 or GPT-4o. The testplan, bug fixes, and conversational strategy are all in place -- only the model capability is the bottleneck.
