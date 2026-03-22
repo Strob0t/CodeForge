@@ -23,7 +23,7 @@ import type {
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
-import { Badge, Button, StreamingCursor, TypingIndicator } from "~/ui";
+import { Button } from "~/ui";
 
 import { buildCanvasPrompt, modelSupportsVision } from "../canvas/buildCanvasPrompt";
 import { CanvasModal } from "../canvas/CanvasModal";
@@ -31,16 +31,11 @@ import type { CanvasExports } from "../canvas/canvasTypes";
 import ChatInput from "../chat/ChatInput";
 import { type CommandContext, executeCommand } from "../chat/commandExecutor";
 import TokenBadge from "../chat/TokenBadge";
-import ActionBar from "./ActionBar";
 import ChatHeader from "./ChatHeader";
+import ChatMessages from "./ChatMessages";
 import ChatSuggestions from "./ChatSuggestions";
 import { clearContextFiles, contextFiles, removeContextFile } from "./contextFilesStore";
-import GoalProposalCard from "./GoalProposalCard";
-import Markdown from "./Markdown";
-import MessageBadge from "./MessageBadge";
-import PermissionRequestCard from "./PermissionRequestCard";
 import SessionFooter from "./SessionFooter";
-import ToolCallCard from "./ToolCallCard";
 import { useChatAGUI } from "./useChatAGUI";
 
 interface ChatPanelProps {
@@ -284,12 +279,6 @@ export default function ChatPanel(props: ChatPanelProps) {
     });
   };
 
-  function stepBadgeVariant(status: string): "info" | "success" | "danger" {
-    if (status === "running") return "info";
-    if (status === "completed") return "success";
-    return "danger";
-  }
-
   // Build tool result lookup from persisted tool messages for ToolCallCard rendering
   const toolResultMap = createMemo(() => {
     const map = new Map<string, string>();
@@ -327,231 +316,30 @@ export default function ChatPanel(props: ChatPanelProps) {
           sessionByConv={sessionByConv}
         />
 
-        {/* Messages */}
-        <div ref={messagesContainerRef} class="flex-1 overflow-y-auto p-4">
-          <ul class="space-y-4 list-none m-0 p-0">
-            <For
-              each={(messages() ?? []).filter((msg) => {
-                // Hide system and tool messages (tool results shown via ToolCallCards)
-                if (msg.role === "system" || msg.role === "tool") return false;
-                return true;
-              })}
-            >
-              {(msg) => (
-                <li class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    class={`rounded-cf-md px-4 py-2 text-sm ${
-                      msg.role === "user"
-                        ? "max-w-[90%] sm:max-w-[75%] bg-cf-accent text-white whitespace-pre-wrap"
-                        : msg.tool_calls && msg.tool_calls.length > 0
-                          ? "max-w-[95%] sm:max-w-[90%] bg-cf-bg-surface-alt text-cf-text-primary"
-                          : "max-w-[90%] sm:max-w-[75%] bg-cf-bg-surface-alt text-cf-text-primary"
-                    }`}
-                  >
-                    <Show when={msg.role === "assistant"} fallback={msg.content}>
-                      <Show when={msg.content?.trim()}>
-                        <Markdown content={msg.content} />
-                      </Show>
-                    </Show>
-                    {/* Persisted tool calls from this message */}
-                    <Show when={msg.tool_calls && msg.tool_calls.length > 0}>
-                      <div class="border-l-2 border-cf-accent/40 pl-3 mt-1">
-                        <For each={msg.tool_calls}>
-                          {(tc) => {
-                            let args: Record<string, unknown> | undefined;
-                            try {
-                              args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-                            } catch {
-                              // args may not be valid JSON
-                            }
-                            const result = toolResultMap().get(tc.id);
-                            return (
-                              <ToolCallCard
-                                name={tc.function.name}
-                                args={args}
-                                result={result}
-                                status={result !== undefined ? "completed" : "pending"}
-                              />
-                            );
-                          }}
-                        </For>
-                      </div>
-                    </Show>
-                    {/* Inline image thumbnails for multimodal messages */}
-                    <Show when={msg.images && msg.images.length > 0}>
-                      <div class="mt-2 flex flex-wrap gap-2">
-                        <For each={msg.images}>
-                          {(img: MessageImage) => (
-                            <button
-                              type="button"
-                              class="block cursor-pointer rounded border border-cf-border overflow-hidden hover:opacity-80 transition-opacity"
-                              onClick={() =>
-                                window.open(`data:${img.media_type};base64,${img.data}`, "_blank")
-                              }
-                              title="Click to open full size"
-                            >
-                              <img
-                                src={`data:${img.media_type};base64,${img.data}`}
-                                alt={img.alt_text ?? "Canvas sketch"}
-                                class="max-w-[200px] max-h-[150px] object-contain"
-                              />
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                    <MessageBadge
-                      model={msg.model || undefined}
-                      tokensIn={msg.tokens_in || undefined}
-                      tokensOut={msg.tokens_out || undefined}
-                    />
-                  </div>
-                </li>
-              )}
-            </For>
-          </ul>
-
-          {/* Plan step status badges from AG-UI events */}
-          <Show when={agui.planSteps().length > 0}>
-            <div class="flex flex-wrap gap-2 px-1">
-              <For each={agui.planSteps()}>
-                {(step) => (
-                  <Badge variant={stepBadgeVariant(step.status)} pill>
-                    {step.name}
-                  </Badge>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          {/* Slash command output (e.g. /help, /cost) */}
-          <Show when={agui.commandOutput()}>
-            {(output) => (
-              <div class="flex justify-start">
-                <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-secondary border border-cf-border">
-                  <pre class="whitespace-pre-wrap font-mono text-xs">{output()}</pre>
-                </div>
-              </div>
-            )}
-          </Show>
-
-          {/* Active tool calls from AG-UI events — grouped with vertical line */}
-          <Show when={agui.toolCalls().length > 0}>
-            <div class="flex justify-start">
-              <div class="max-w-[95%] sm:max-w-[90%] w-full border-l-2 border-cf-accent/40 pl-3 ml-2">
-                <Show when={agui.stepCount() > 0}>
-                  <div class="mb-1 text-xs text-cf-text-muted">
-                    Step {agui.stepCount()} {"\u00B7"} {agui.toolCalls().length} tool call
-                    {agui.toolCalls().length !== 1 ? "s" : ""}
-                  </div>
-                </Show>
-                <For each={agui.toolCalls()}>
-                  {(tc) => (
-                    <ToolCallCard
-                      name={tc.name}
-                      args={tc.args}
-                      result={tc.result}
-                      status={tc.status}
-                      diff={tc.diff}
-                      runId={activeConversation() ?? undefined}
-                      callId={tc.callId}
-                    />
-                  )}
-                </For>
-              </div>
-            </div>
-          </Show>
-
-          {/* Goal proposals from AG-UI events — inline approval cards */}
-          <Show when={agui.goalProposals().length > 0}>
-            <div class="flex justify-start">
-              <div class="max-w-[90%] sm:max-w-[75%] w-full">
-                <For each={agui.goalProposals()}>
-                  {(proposal) => (
-                    <GoalProposalCard
-                      proposal={proposal}
-                      projectId={props.projectId}
-                      onApprove={(title) => sendChatMessage(`[Goal approved: ${title}]`)}
-                      onReject={(title) => sendChatMessage(`[Goal rejected: ${title}]`)}
-                    />
-                  )}
-                </For>
-              </div>
-            </div>
-          </Show>
-
-          {/* Permission request cards from AG-UI events (HITL approval) */}
-          <For
-            each={agui
-              .permissionRequests()
-              .filter((pr) => !agui.resolvedPermissions().has(pr.call_id))}
-          >
-            {(pr) => (
-              <div class="flex justify-start">
-                <div class="max-w-[90%] sm:max-w-[75%] w-full">
-                  <PermissionRequestCard
-                    projectId={props.projectId}
-                    runId={pr.run_id}
-                    callId={pr.call_id}
-                    tool={pr.tool}
-                    command={pr.command}
-                    path={pr.path}
-                    onResolved={() => {
-                      agui.setResolvedPermissions((prev) => new Set([...prev, pr.call_id]));
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </For>
-
-          {/* Streaming assistant message from AG-UI text_message events */}
-          <Show when={agui.streamingContent()}>
-            {(content) => (
-              <div class="flex justify-start">
-                <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-cf-bg-surface-alt text-cf-text-primary">
-                  <Markdown content={content()} />
-                  <StreamingCursor active={agui.agentRunning()} />
-                </div>
-              </div>
-            )}
-          </Show>
-
-          {/* Error message when a run fails */}
-          <Show when={agui.runError()}>
-            {(error) => (
-              <div class="flex justify-start">
-                <div class="max-w-[90%] sm:max-w-[75%] rounded-cf-md px-4 py-2 text-sm bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700">
-                  <span class="font-medium">Error: </span>
-                  {error()}
-                </div>
-              </div>
-            )}
-          </Show>
-
-          {/* Action suggestions — shown when agent is idle and suggestions exist */}
-          <Show when={!agui.agentRunning() && agui.actionSuggestions().length > 0}>
-            <ActionBar
-              rules={agui.actionSuggestions()}
-              onAction={(action) => {
-                agui.setActionSuggestions([]);
-                if (action.action === "send_message") {
-                  sendChatMessage(action.value);
-                }
-              }}
-            />
-          </Show>
-
-          {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
-          <Show when={(sending() || agui.agentRunning()) && !agui.streamingContent()}>
-            <div class="flex justify-start">
-              <div class="bg-cf-bg-surface-alt rounded-cf-md px-4 py-3 inline-flex items-center gap-2">
-                <TypingIndicator />
-                <span class="text-sm text-cf-text-tertiary">{t("chat.thinking")}</span>
-              </div>
-            </div>
-          </Show>
-        </div>
+        <ChatMessages
+          projectId={props.projectId}
+          messages={messages}
+          toolResultMap={toolResultMap}
+          activeConversation={activeConversation}
+          streamingContent={agui.streamingContent}
+          agentRunning={agui.agentRunning}
+          runError={agui.runError}
+          toolCalls={agui.toolCalls}
+          planSteps={agui.planSteps}
+          goalProposals={agui.goalProposals}
+          permissionRequests={agui.permissionRequests}
+          resolvedPermissions={agui.resolvedPermissions}
+          setResolvedPermissions={agui.setResolvedPermissions}
+          actionSuggestions={agui.actionSuggestions}
+          setActionSuggestions={agui.setActionSuggestions}
+          stepCount={agui.stepCount}
+          commandOutput={agui.commandOutput}
+          sending={sending}
+          sendChatMessage={sendChatMessage}
+          setContainerRef={(el) => {
+            messagesContainerRef = el;
+          }}
+        />
 
         {/* Contextual suggestions */}
         <ChatSuggestions
