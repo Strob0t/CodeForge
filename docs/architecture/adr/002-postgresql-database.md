@@ -33,7 +33,7 @@ The goal is to minimize tech stack complexity: use as few different technologies
 #### Key Reasons
 
 - LiteLLM hard dependency: PostgreSQL is already required, so adding a second DB (SQLite, etc.) creates unnecessary complexity
-- Shared instance, separated schemas: LiteLLM uses `?schema=litellm` in its connection string; CodeForge uses `public` schema (one container, clean isolation)
+- Shared instance, same database: Both CodeForge and LiteLLM use the `public` schema in the same `codeforge` database (LiteLLM tables are prefixed with `LiteLLM_`; no schema separation)
 - Simplicity over tooling: pgx v5 directly (no ORM, no code generator) + goose for migrations (plain SQL files) gives a minimal toolchain
 - JSONB: Flexible storage for agent configs, task metadata, LLM responses without schema migrations for every new field
 - LISTEN/NOTIFY: Real-time push for WebSocket (agent status, cost updates) without additional infrastructure
@@ -86,7 +86,7 @@ services:
 ```yaml
 # LiteLLM connects to the same PostgreSQL instance
 general_settings:
-  database_url: "postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge"
+  database_url: "os.environ/DATABASE_URL"
 ```
 
 #### Client Libraries

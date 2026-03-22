@@ -84,7 +84,7 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - [x] Port interfaces: `specprovider.SpecProvider` + `pmprovider.PMProvider` (interface + registry).
 - [x] Store: 16 methods on `database.Store` + Postgres adapter.
 - [x] RoadmapService: CRUD, AutoDetect (file markers), AIView (json/yaml/markdown).
-- [x] REST API: 12 endpoints (roadmap CRUD, milestones, features, AI view, detect).
+- [x] REST API: 20 endpoints (roadmap CRUD, milestones, features, AI view, detect, import, sync, providers).
 - [x] WS event: `roadmap.status` broadcast on mutations.
 - [x] Frontend: RoadmapPanel.tsx (milestone/feature tree, forms, auto-detect, AI view).
 - [x] `/ai` endpoint for LLM consumption (json/yaml/markdown formats).
@@ -109,12 +109,12 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - [x] Backend: Cross-milestone feature move -- `milestone_id` field added to UpdateFeature handler + SQL UPDATE, enabling drag-and-drop across milestone columns.
 - [x] Frontend: Feature-Map Visual Editor -- Kanban-style board view as new `"Feature Map"` tab in ProjectDetailPage:
   - `FeatureMapPanel.tsx` -- main panel, fetches roadmap data via `createResource`, orchestrates DnD state and mutations.
-  - `MilestoneColumn.tsx` -- vertical column with HTML5 drop zone, insertion index calculation, blue indicator line.
-  - `FeatureCard.tsx` -- draggable card with status badge, labels, inline status toggle.
-  - `FeatureCardForm.tsx` -- inline create/edit form with keyboard shortcuts (Enter/Escape).
-  - `MilestoneForm.tsx` -- inline milestone creation form.
-  - `featuremap-dnd.ts` -- DnD utilities: custom MIME type `application/x-codeforge-feature`, encode/decode helpers.
-  - 21 i18n keys (EN + DE).
+  - `featuremap/MilestoneColumn.tsx` -- vertical column with HTML5 drop zone, insertion index calculation, blue indicator line.
+  - `featuremap/FeatureCard.tsx` -- draggable card with status badge, labels, inline status toggle.
+  - `featuremap/FeatureCardForm.tsx` -- inline create/edit form with keyboard shortcuts (Enter/Escape).
+  - `featuremap/MilestoneForm.tsx` -- inline milestone creation form.
+  - `featuremap/featuremap-dnd.ts` -- DnD utilities: custom MIME type `application/x-codeforge-feature`, encode/decode helpers.
+  - 27 i18n keys (EN + DE).
 
 ### Open Items
 

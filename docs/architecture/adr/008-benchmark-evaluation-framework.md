@@ -24,14 +24,14 @@ We adopt a three-pillar evaluation stack, all running in the Python worker:
 
 - LLM-as-judge evaluation using `GEval`, `FaithfulnessMetric`, and `AnswerRelevancyMetric`
 - Custom `LiteLLMJudge` wrapper routes judge calls through the existing LiteLLM Proxy
-- `BenchmarkRunner` loads YAML datasets, executes tasks, and evaluates with configured metrics
+- 3 specialized runners (`SimpleBenchmarkRunner`, `ToolUseBenchmarkRunner`, `AgentBenchmarkRunner`) plus `MultiRolloutRunner` for parallel evaluation with diversity-aware selection. All inherit from `BaseBenchmarkRunner` ABC
 - Results persisted to PostgreSQL via Go Core API
 
 #### OpenTelemetry (Tracing & Observability)
 
 - OpenTelemetry (OTEL) provides agent execution tracing and observability
 - `TracingManager` with graceful degradation to `_NoOpTracer` when OTEL is not configured
-- Three metric wrappers: tool selection accuracy, goal decomposition, plan adaptability
+- Six metric instruments: `loop_iterations` (counter), `loop_duration` (histogram), `llm_call_duration` (histogram), `llm_tokens` (counter), `tool_duration` (histogram), `nats_processing` (histogram)
 - OTEL traces export via OTLP gRPC to any compatible backend (Jaeger, Grafana Tempo, etc.)
 
 #### GEMMAS-Inspired Collaboration Metrics

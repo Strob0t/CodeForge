@@ -84,7 +84,7 @@ services:
 ### Completed (Phase 1)
 
 - [x] LiteLLM service in `docker-compose.yml` with health check, depends_on, shared PostgreSQL.
-- [x] Initial `litellm_config.yaml` with provider configuration.
+- [x] Initial `litellm/config.yaml` with provider configuration.
 - [x] Health check integration from Go Core (`/health/ready` pings LiteLLM).
 - [x] Basic LLM call through proxy (Python workers via `litellm` client library).
 
@@ -146,7 +146,7 @@ model_list:
 | **Model Blocklist** | `workers/codeforge/routing/blocklist.py` | TTL-based model blocklist for temporarily disabling failing models |
 | **Rate Limit Tracker** | `workers/codeforge/routing/rate_tracker.py` | Per-provider rate limit tracking for intelligent request routing |
 
-- [x] Python routing package: `workers/codeforge/routing/` (7 modules, 164 tests)
+- [x] Python routing package: `workers/codeforge/routing/` (10 modules, 164 tests)
 - [x] Integration: `resolve_model_with_routing()` in llm.py, conversation handler, executor
 - [x] LiteLLM wildcard config: 6 provider entries replace 38 individual models
 - [x] Task-type complexity boost: inherent task difficulty (PLAN/REVIEW/REFACTOR etc.) shifts tier classification (29K)
@@ -157,7 +157,7 @@ model_list:
 
 Automatic retry with exponential backoff for transient LLM provider failures, plus per-provider rate-limit tracking to skip exhausted providers during routing fallback.
 
-**Retry Behaviour:** `LiteLLMClient._with_retry()` wraps all three HTTP methods (`completion`, `chat_completion`, `chat_completion_stream`) with configurable retries on 429/502/503/504. Backoff respects `Retry-After` hints from provider error bodies when available, otherwise uses exponential backoff (`base^(attempt+1)`, capped at `backoff_max`).
+**Retry Behaviour:** `LiteLLMClient._with_retry()` wraps all three HTTP methods (`completion`, `chat_completion`, `chat_completion_stream`) with configurable retries on 408/500/502/503/504 (429 is handled by fallback logic, not retry). Backoff respects `Retry-After` hints from provider error bodies when available, otherwise uses exponential backoff (`base^(attempt+1)`, capped at `backoff_max`).
 
 **Rate-Limit Tracking:** After every LLM response, `x-ratelimit-remaining-requests`, `x-ratelimit-limit-requests`, and `x-ratelimit-reset-requests` headers are parsed and fed into a `RateLimitTracker` singleton. The tracker maintains per-provider state with automatic recovery after the reset window elapses.
 

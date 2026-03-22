@@ -48,13 +48,21 @@ Mirrors the Go approach using Python stdlib:
 - `logging.handlers.QueueListener` with a background thread for draining
 - `stop_logging()` function for graceful shutdown
 
-#### Shared Log Schema
+#### Log Schemas
 
-Both Go and Python emit structured JSON with a common schema:
+Both Go and Python emit structured JSON, but with different key names:
 
+**Go (slog):**
 ```json
 {"time": "...", "level": "INFO", "service": "codeforge", "msg": "...", "request_id": "..."}
 ```
+
+**Python (structlog):**
+```json
+{"timestamp": "...", "level": "info", "service": "codeforge-worker", "event": "...", "request_id": "..."}
+```
+
+Note: Go uses `time`/`msg`, Python uses `timestamp`/`event`. The `level` and `request_id` fields are shared, enabling cross-service correlation.
 
 ### Consequences
 

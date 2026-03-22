@@ -111,10 +111,10 @@ interface MessageImage {
 
 ## Constraints
 
-- Max 5MB per image (client-side enforcement)
+- Max 15MB per image (server-side enforcement via `MaxImageSizeBytes` in `internal/domain/conversation/conversation.go`)
 - Wireframe PNGs typically 50-200KB base64
 - No new frontend dependencies (pure SVG + Canvas API)
-- Keyboard shortcuts: V=select, R=rect, E=ellipse, P=pen, T=text, A=annotate, I=image
+- Keyboard shortcuts: V=select, R=rect, E=ellipse, P=pen, T=text, A=annotate, I=image, G=polygon, N=node
 
 ## Related Files
 

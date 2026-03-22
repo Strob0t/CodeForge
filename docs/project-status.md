@@ -26,7 +26,7 @@ Policy layer with first-match-wins evaluation (4 built-in presets), YAML-configu
 
 ### Phase 5: Multi-Agent Orchestration (COMPLETED)
 
-DAG scheduling with 4 protocols (sequential, parallel, ping-pong, consensus), Meta-Agent with LLM-based feature decomposition, Agent Teams with role-based composition and pool management, Context Optimizer with token budget packing and shared team context, Modes System (21 built-in agent specialization modes).
+DAG scheduling with 4 protocols (sequential, parallel, ping-pong, consensus), Meta-Agent with LLM-based feature decomposition, Agent Teams with role-based composition and pool management, Context Optimizer with token budget packing and shared team context, Modes System (24 built-in agent specialization modes).
 
 ### Phase 6: Code-RAG (COMPLETED)
 
@@ -147,7 +147,7 @@ Hybrid verification pipeline (filter->rank), trajectory verifier evaluator (5-di
 
 ### Phase 29: Hybrid Intelligent Model Routing (COMPLETED)
 
-Three-layer routing cascade: ComplexityAnalyzer (rule-based, <1ms) -> MABModelSelector (UCB1 learning) -> LLMMetaRouter (cold-start fallback). Task-type complexity boost, model auto-discovery from LiteLLM (cached 60s), LiteLLM config simplified from 38 models to 6 provider wildcards. Adaptive retry with exponential backoff, per-provider rate-limit tracking.
+Three-layer routing cascade: ComplexityAnalyzer (rule-based, <1ms) -> MABModelSelector (UCB1 learning) -> LLMMetaRouter (cold-start fallback). Task-type complexity boost, model auto-discovery from LiteLLM (cached 60s), LiteLLM config simplified to 13 provider-level wildcard entries. Adaptive retry with exponential backoff, per-provider rate-limit tracking.
 
 ### Phase 30: Goal Discovery & Adaptive Retry (COMPLETED)
 
@@ -165,7 +165,7 @@ AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumente
 ### Test Suites (COMPLETED)
 
 **Browser E2E:** 17 Playwright tests (health, navigation, projects, costs, models, a11y).
-**LLM E2E:** 95 API-level Playwright tests across 12 spec files (prerequisites, models, conversations, streaming, multi-provider, routing, costs, MCP, benchmarks).
+**LLM E2E:** 95 API-level Playwright tests across 11 spec files (prerequisites, models, conversations, streaming, multi-provider, routing, costs, MCP, benchmarks).
 **Benchmark E2E:** 132 browser Playwright tests across 12 spec files.
 **Backend E2E:** 88 pass / 0 fail / 3 skip (97% pass rate) across all 4 pillars with real LLM calls.
 

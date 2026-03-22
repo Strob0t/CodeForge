@@ -118,7 +118,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 
 ### Modes System
 
-YAML-configurable agent specializations. Built-in modes include architect, coder, reviewer, debugger, tester, lint-fixer, planner, and researcher. Users can define custom modes in `.codeforge/modes/`. Modes support composition through pipelines and DAG workflows.
+YAML-configurable agent specializations. 24 built-in mode presets including architect, coder, reviewer, debugger, tester, documenter, refactorer, security, moderator, proponent, devops, api_tester, benchmarker, frontend, backend_architect, lsp_engineer, orchestrator, evaluator, workflow_optimizer, infra_maintainer, prototyper, goal_researcher, boundary_analyzer, and contract_reviewer. Users can define custom modes in `.codeforge/modes/`. Modes support composition through pipelines and DAG workflows.
 
 ### Worker Modules
 
@@ -293,7 +293,7 @@ sequenceDiagram
 - [x] Agent teams: team CRUD, role-based members, protocol selection.
 - [x] Context optimizer: token budget management, workspace scanning, context packing.
 - [x] Shared context: team-level versioned state with NATS notifications.
-- [x] Modes system: 8 built-in presets, ModeService, REST API.
+- [x] Modes system: 24 built-in presets, ModeService, REST API.
 
 ### Completed (Phase 6 -- Code-RAG)
 
@@ -357,7 +357,7 @@ The agentic conversation mode transforms the Chat UI into an autonomous coding a
 | Write | `Write` | Create or overwrite a file, creating parent directories |
 | Edit | `Edit` | Search-and-replace: validate old_text is unique, replace with new_text |
 | Bash | `Bash` | Execute shell command with timeout (default 120s), captures stdout+stderr |
-| Search | `Search` | Regex search across files via `grep -rn` |
+| Search | `Grep` | Regex search across files via `grep -rn` (Python tool name: `search_files`, LLM function name: `Search`, policy name: `Grep`) |
 | Glob | `Glob` | Find files by glob pattern via `pathlib.Path.glob()` |
 | ListDir | `ListDir` | List directory contents, optional recursive |
 

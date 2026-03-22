@@ -69,7 +69,7 @@ docker compose logs | jq 'select(.request_id == "abc-123")'
 
 #### Request ID Propagation
 
-- Go middleware (`internal/middleware/requestid.go`) generates UUIDs for incoming HTTP requests
+- Go middleware (`internal/middleware/requestid.go`) generates random hex strings (16-byte, 32-char) for incoming HTTP requests
 - Request ID injected into `slog` logger context (`internal/logger/context.go`)
 - NATS messages carry `X-Request-ID` header (Go to Python to Go)
 - Python workers extract request ID from NATS headers and bind to structlog context

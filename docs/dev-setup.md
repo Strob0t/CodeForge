@@ -271,7 +271,6 @@ CodeForge/
 | 4000 | LiteLLM Proxy        | LLM Routing (OpenAI-compatible)  |
 | 5432 | PostgreSQL           | Primary Database (App + LiteLLM) |
 | 4222 | NATS                 | Message Queue (client connections)|
-| 5173 | Vite HMR             | Hot Module Replacement           |
 | 6280 | docs-mcp-server      | Documentation Indexing           |
 | 8001 | playwright-mcp       | Browser Automation               |
 | 8080 | Go API               | Core Service REST/WebSocket      |
@@ -304,7 +303,7 @@ A 3-step onboarding wizard is shown on first login when the user has 0 projects.
 # All languages via pre-commit (15 hooks)
 pre-commit run --all-files
 
-# Python only (ruff with 17 rule groups including security, complexity, performance)
+# Python only (ruff with 21 rule groups including security, complexity, performance)
 ruff check workers/
 ruff format workers/
 
@@ -319,7 +318,7 @@ npm run format:check --prefix frontend
 
 #### Linter Rule Summary
 
-Python (ruff): F, E, W, I, N, UP, B, SIM, S (bandit security), C4, C90 (complexity 12), PERF, PIE, RET, FURB, LOG, T20, PT
+Python (ruff): F, E, W, I, N, UP, B, A (builtins), SIM, TCH (type-checking), RUF (ruff-specific), S (bandit security), C4, C90 (complexity 12), PERF, PIE, RET, FURB, LOG, T20, PT
 
 Go (golangci-lint): errcheck, govet, staticcheck, unused, ineffassign, gocritic, misspell, unconvert, unparam, gosec, bodyclose, noctx, errorlint, revive (18 rules), fatcontext, dupword, durationcheck
 
@@ -385,7 +384,7 @@ APP_ENV=development go run ./cmd/codeforge/ &
 cd frontend && npx playwright test --config=playwright.llm.config.ts
 ```
 
-95 tests across 11 spec files covering: prerequisites (6), model management (10), simple conversation (12), agentic conversation (10), streaming AG-UI (10), multi-provider (5), routing (10), cost tracking (12), MCP tools (10), benchmarks (7), cleanup (3). Helper module: `frontend/e2e/llm/llm-helpers.ts`.
+88 tests across 11 spec files covering: prerequisites (6), model management (7), simple conversation (11), agentic conversation (10), streaming AG-UI (10), multi-provider (5), routing (10), cost tracking (12), MCP tools (10), benchmarks (4), cleanup (3). Helper module: `frontend/e2e/llm/llm-helpers.ts`.
 
 #### Integration Tests
 
@@ -471,10 +470,10 @@ Example:
 | `orchestrator.ping_pong_max_rounds` | `CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS` | `3` | Ping-pong protocol max rounds |
 | `orchestrator.consensus_quorum` | `CODEFORGE_ORCH_CONSENSUS_QUORUM` | `0` | Consensus quorum (0=majority) |
 | `orchestrator.mode` | `CODEFORGE_ORCH_MODE` | `semi_auto` | Orchestrator mode (manual/semi_auto/full_auto) |
-| `orchestrator.decompose_model` | `CODEFORGE_ORCH_DECOMPOSE_MODEL` | `openai/gpt-4o-mini` | LLM model for feature decomposition |
+| `orchestrator.decompose_model` | `CODEFORGE_ORCH_DECOMPOSE_MODEL` | `""` | LLM model for feature decomposition (empty = auto-discover from LiteLLM) |
 | `orchestrator.decompose_max_tokens` | `CODEFORGE_ORCH_DECOMPOSE_MAX_TOKENS` | `4096` | Max tokens for decomposition response |
 | `orchestrator.max_team_size` | `CODEFORGE_ORCH_MAX_TEAM_SIZE` | `5` | Max agents per team |
-| `orchestrator.subagent_model` | `CODEFORGE_ORCH_SUBAGENT_MODEL` | `openai/gpt-4o-mini` | LLM model for sub-agent query expansion/rerank |
+| `orchestrator.subagent_model` | `CODEFORGE_ORCH_SUBAGENT_MODEL` | `""` | LLM model for sub-agent query expansion/rerank (empty = auto-discover from LiteLLM) |
 | `orchestrator.subagent_max_queries` | `CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES` | `5` | Max expanded queries per sub-agent search |
 | `orchestrator.subagent_rerank` | `CODEFORGE_ORCH_SUBAGENT_RERANK` | `true` | Enable LLM-based result reranking |
 | `rate.cleanup_interval` | `CODEFORGE_RATE_CLEANUP_INTERVAL` | `5m` | Stale rate-limit bucket cleanup interval |
@@ -487,7 +486,7 @@ Example:
 | `mcp.enabled` | `CODEFORGE_MCP_ENABLED` | `false` | Enable MCP integration |
 | `mcp.servers_dir` | `CODEFORGE_MCP_SERVERS_DIR` | `` | Directory with MCP server YAML definitions |
 | `mcp.server_port` | `CODEFORGE_MCP_SERVER_PORT` | `3001` | Port for built-in MCP server |
-| `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `false` | Enable JWT authentication |
+| `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `true` | Enable JWT authentication |
 | `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | (auto) | HMAC-SHA256 signing key |
 | `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY` | `15m` | Access token lifetime |
 | `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY` | `168h` | Refresh token lifetime (7d) |
@@ -708,7 +707,7 @@ See `.env.example` for all configurable values.
 | CODEFORGE_MCP_ENABLED     | false                                    | Enable MCP integration          |
 | CODEFORGE_MCP_SERVERS_DIR |                                          | MCP server YAML definitions dir |
 | CODEFORGE_MCP_SERVER_PORT | 3001                                     | Built-in MCP server port        |
-| CODEFORGE_AUTH_ENABLED    | false                                    | Enable JWT authentication       |
+| CODEFORGE_AUTH_ENABLED    | true                                     | Enable JWT authentication       |
 | CODEFORGE_AUTH_JWT_SECRET | (auto-generated if empty)                | HMAC-SHA256 JWT signing key     |
 | CODEFORGE_AUTH_ACCESS_TOKEN_EXPIRY | 15m                               | Access token lifetime           |
 | CODEFORGE_AUTH_REFRESH_TOKEN_EXPIRY | 168h                             | Refresh token lifetime (7d)     |
@@ -720,7 +719,7 @@ See `.env.example` for all configurable values.
 | CODEFORGE_LLM_BACKOFF_MAX  | 60.0                                     | Maximum backoff cap (sec)       |
 | CODEFORGE_LLM_CONNECT_TIMEOUT | 10.0                                  | HTTP connect timeout (sec)      |
 | CODEFORGE_LLM_READ_TIMEOUT | 300.0                                    | HTTP read timeout (sec)         |
-| CODEFORGE_AGENT_CONTEXT_ENABLED | false                                | Enable context optimizer for conversations |
+| CODEFORGE_AGENT_CONTEXT_ENABLED | true                                 | Enable context optimizer for conversations |
 | CODEFORGE_AGENT_CONTEXT_BUDGET | 2048                                  | Token budget for context entries |
 | CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE | 512                           | Tokens reserved for prompt       |
 | CODEFORGE_QUARANTINE_ENABLED | false                                   | Enable message quarantine system |
@@ -861,7 +860,7 @@ Three benchmark types:
 - **Tool-Use**: LLM calls with tool invocation validation
 - **Agent**: Full workspace lifecycle (clone, edit, test, evaluate)
 
-Seven external providers: HumanEval, MBPP, BigCodeBench, CRUXEval, LiveCodeBench, SWE-bench (full/lite/verified), SPARCBench, Aider Polyglot.
+Ten external providers: HumanEval, MBPP, BigCodeBench, CRUXEval, LiveCodeBench, SWE-bench (full/lite/verified), SPARCBench, Aider Polyglot, DPAI Arena, Terminal-Bench.
 
 #### API Endpoints
 
@@ -1009,12 +1008,12 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `e2e-quick` | Minimal hello-world + add (fast E2E validation) | 2 |
 
 ```bash
-# List seeded benchmark suites (11 pre-registered providers)
+# List seeded benchmark suites (13 pre-registered providers)
 curl -s -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/v1/benchmarks/suites | jq '.[].provider_name'
 ```
 
-**Expected suites:** `codeforge_simple`, `codeforge_agent`, `codeforge_tool_use`, `humaneval`, `mbpp`, `swebench`, `bigcodebench`, `cruxeval`, `livecodebench`, `sparcbench`, `aider_polyglot`.
+**Expected suites:** `codeforge_simple`, `codeforge_agent`, `codeforge_tool_use`, `humaneval`, `mbpp`, `swebench`, `bigcodebench`, `cruxeval`, `livecodebench`, `sparcbench`, `aider_polyglot`, `dpai_arena`, `terminal_bench`.
 
 ##### Step 3: Run a Simple Benchmark (Fastest Path)
 
@@ -1181,7 +1180,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
    - View side-by-side metric comparison with highlighting
 
 7. **Suites tab** — Manage benchmark suites:
-   - View all 11 seeded suites
+   - View all 13 seeded suites
    - Create/edit/delete custom suites
 
 ##### Step 9: Test Error Scenarios
@@ -1245,7 +1244,7 @@ npx playwright test --config=e2e/benchmark-validation/playwright.validation.conf
 | All benchmark endpoints return 403 | Missing `APP_ENV=development` | Restart backend with `APP_ENV=development go run ./cmd/codeforge/` |
 | Run stays "running" forever | Python worker not connected to NATS, or LiteLLM unreachable | Check `docker compose logs nats litellm`, verify NATS_URL and LITELLM_BASE_URL |
 | All scores are 0 | Local model context too small for LLM Judge | Expected with small local models; use a model with 32K+ context or a cloud provider |
-| "model not found" error | Model name not registered in LiteLLM | Check `litellm-config.yaml`, run `curl http://codeforge-litellm:4000/v1/models` |
+| "model not found" error | Model name not registered in LiteLLM | Check `litellm/config.yaml`, run `curl http://codeforge-litellm:4000/v1/models` |
 | "dataset not found" error | YAML file not in `configs/benchmarks/` | Verify the file exists and is valid YAML |
 | Benchmarks page not visible in UI | Frontend not detecting dev mode | Verify `/health` returns `dev_mode: true`, hard-refresh the browser |
 | `model=auto` fails | Routing not enabled | Set `CODEFORGE_ROUTING_ENABLED=true` or use an explicit model name |
@@ -1329,7 +1328,7 @@ Three-layer intelligent model routing that replaces manual tag-based LiteLLM rou
 | `CODEFORGE_ROUTING_COST_WEIGHT` | `0.3` | Weight for cost in reward function |
 | `CODEFORGE_ROUTING_QUALITY_WEIGHT` | `0.5` | Weight for quality in reward function |
 | `CODEFORGE_ROUTING_LATENCY_WEIGHT` | `0.2` | Weight for latency in reward function |
-| `CODEFORGE_ROUTING_META_ROUTER_MODEL` | `groq/llama-3.1-8b-instant` | Model for Layer 3 LLM classification |
+| `CODEFORGE_ROUTING_META_MODEL` | `""` | Model for Layer 3 LLM classification (empty = disabled) |
 
 #### LiteLLM Config
 

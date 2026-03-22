@@ -397,7 +397,7 @@ It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives th
 
 #### Observability
 
-**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording. Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 22+ event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, and delivery status. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download).
+**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording. Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 35 event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status, plan lifecycle, review lifecycle, and session management. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download).
 
 Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).
 
@@ -885,17 +885,21 @@ task:
 #### Directory Structure
 
 ```text
-# Global (shipped with CodeForge)
-modes/
+# Built-in modes are Go struct presets (not standalone YAML files)
+internal/domain/mode/presets.go    # Mode definitions (tools, autonomy, scenario)
+
+# Mode-specific prompts are YAML files loaded by the PromptAssembler
+internal/service/prompts/modes/
   architect.yaml
   coder.yaml
   reviewer.yaml
-  researcher.yaml
   tester.yaml
-  lint-fixer.yaml
-  planner.yaml
   debugger.yaml
-  dependency-updater.yaml
+  refactorer.yaml
+  security.yaml
+  documenter.yaml
+  frontend.yaml
+  ...                              # 24 built-in mode prompts
 
 # Project-specific (user-defined)
 .codeforge/
@@ -906,32 +910,31 @@ modes/
   schedules.yaml               # Cron jobs for autonomous tasks
 ```
 
-#### YAML-Based Tool Definitions
+#### Built-in Tool Modules
 
-Tools for agents are defined declaratively in YAML, not hardcoded in code. Contributors can add new tools without writing Python code.
+Tools for agents are Python modules in `workers/codeforge/tools/`. Each tool inherits from `_base.py` and defines its name, description, arguments (auto-converted to OpenAI function calling format), and `execute()` method. Per-mode tool lists are defined inline in each Mode struct (`Mode.Tools` / `Mode.DeniedTools`) in `internal/domain/mode/presets.go`.
 
-```yaml
-# tools/bundles/file_ops/config.yaml
-tools:
-  read_file:
-    docstring: "Read contents of a file"
-    arguments:
-      - name: path
-        type: string
-        required: true
-        description: "Absolute path to the file"
-  write_file:
-    docstring: "Write contents to a file"
-    arguments:
-      - name: path
-        type: string
-        required: true
-      - name: content
-        type: string
-        required: true
+```text
+workers/codeforge/tools/
+  _base.py               # Base class for all tools
+  _error_handler.py      # Error handling utilities
+  read_file.py           # Read file contents
+  write_file.py          # Write file contents
+  edit_file.py           # Edit file (search/replace)
+  bash.py                # Execute shell commands
+  search_files.py        # Search file contents (grep)
+  glob_files.py          # Glob pattern file matching
+  list_directory.py      # List directory contents
+  handoff.py             # Agent-to-agent handoff
+  propose_goal.py        # Propose project goals
+  create_skill.py        # Create reusable skills
+  search_skills.py       # Search skill registry
+  search_conversations.py # Search conversation history
+  tool_guide.py          # Tool usage guidance
+  capability.py          # Capability declarations
 ```
 
-Tool bundles are directories with `config.yaml` + optional install script. Automatic conversion to OpenAI function calling format works with any LLM that supports function calling. For LLMs without function calling, backtick/JSON-based parsing serves as a fallback.
+MCP-discovered tools are merged at runtime into the same tools array. For LLMs without function calling, backtick/JSON-based parsing serves as a fallback.
 
 #### History Processors (Context Window Management)
 
@@ -1008,10 +1011,15 @@ workers/
     claude_code_availability.py # Claude Code detection
     consumer/            # NATS queue consumer (ingress)
     backends/            # Agent backends (Aider, OpenHands, SWE-agent, Goose, OpenCode, Plandex)
-    routing/             # Hybrid routing (ComplexityAnalyzer, MAB, MetaRouter)
+    routing/             # Hybrid routing (complexity.py, mab.py, meta_router.py, router.py)
     memory/              # Memory layer (scorer, experience pool, embeddings)
     orchestration/       # Workflow orchestration (DAG, handoff)
-    evaluation/          # Benchmark and evaluation (hybrid pipeline, runners, exporters)
+    evaluation/          # Benchmark and evaluation
+      evaluators/        #   Evaluator plugins (trajectory_verifier.py, etc.)
+      runners/           #   Execution runners (multi_rollout.py, etc.)
+      export/            #   Data exporters (trajectory_exporter.py, etc.)
+      generators/        #   Code generators (swegen.py, etc.)
+      providers/         #   External benchmark providers
     tools/               # Built-in tools (Read, Write, Edit, Bash, Search, Glob, ListDir, Handoff)
     skills/              # Skills system (registry, recommender, builtins)
     schemas/             # Structured output schemas (codegen, review, decompose)
@@ -1643,7 +1651,7 @@ flowchart TD
 
 | Component | Layer | Description |
 |---|---|---|
-| LiteLLM Config Manager | Go Core | Generates `litellm_config.yaml` from CodeForge DB. CRUD for models, deployments, keys. |
+| LiteLLM Config Manager | Go Core | Generates `litellm/config.yaml` from CodeForge DB. CRUD for models, deployments, keys. |
 | User-Key Mapping | Go Core | CodeForge user -> LiteLLM Virtual Keys. API keys stored securely in CodeForge DB, forwarded to LiteLLM. |
 | Scenario Router | Go Core | Task type -> LiteLLM tag. `metadata.tags: ["think"]` in request -> LiteLLM routes to matching deployment. |
 | Cost Dashboard | Frontend | Query LiteLLM Spend API (`/spend/logs`, `/global/spend/per_team`). Visualization per project/user/agent. |
@@ -1724,9 +1732,9 @@ model_list:
     litellm_params:
       model: "groq/*"
       api_key: os.environ/GROQ_API_KEY
-  - model_name: "google/*"
+  - model_name: "gemini/*"
     litellm_params:
-      model: "google/*"
+      model: "gemini/*"
       api_key: os.environ/GEMINI_API_KEY
   - model_name: "ollama/*"
     litellm_params:
@@ -1748,8 +1756,8 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      - ./litellm/config.yaml:/app/config.yaml
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+      - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
+    command: ["--config", "/app/data/config.yaml", "--port", "4000"]
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge
