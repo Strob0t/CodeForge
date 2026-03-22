@@ -69,12 +69,8 @@ func (s *Server) getCostSummaryTool() mcpserver.ServerTool {
 
 // Tool handlers below pass ctx to dep methods so the store layer can extract
 // tenant ID via tenantctx.FromContext(ctx) for per-tenant filtering.
-//
-// NOTE: The MCP transport's AuthMiddleware currently validates API keys but does
-// NOT inject tenant context into the request context. As a result, the store
-// falls back to tenantctx.DefaultTenantID. When multi-tenant MCP access is
-// needed, the AuthMiddleware must call tenantctx.WithTenant on the context.
-// TODO(F8-D3): inject tenant context in MCP AuthMiddleware for per-user filtering.
+// The AuthMiddleware injects tenant context (currently DefaultTenantID) into
+// every request so downstream store queries are always tenant-scoped.
 
 func (s *Server) handleListProjects(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.CallToolResult, error) { //nolint:gocritic // hugeParam: mcp-go handler signature
 	projects, err := s.deps.ProjectLister.ListProjects(ctx)
