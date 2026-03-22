@@ -189,7 +189,7 @@ D1-D3 = initial scores. D1p-D3p = post-fix scores.
 
 ## 5. Related Documents
 
-- **Fix plan:** `docs/superpowers/plans/2026-03-21-feature-audit-fixes.md`
+- **Fix plan:** `docs/plans/2026-03-21-feature-audit-fixes.md`
 - **System-level audit (prior):** `docs/audits/2026-03-20-audit-overview.md`
 
 ---
