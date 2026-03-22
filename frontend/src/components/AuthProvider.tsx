@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 
 import { clearCache } from "~/api/cache";
-import { api, setAccessTokenGetter } from "~/api/client";
+import { api, FetchError, setAccessTokenGetter } from "~/api/client";
 import type { User, UserRole } from "~/api/types";
 
 interface AuthContextValue {
@@ -69,9 +69,15 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
       setUser(resp.user);
       scheduleRefresh(resp.expires_in);
       return true;
-    } catch {
-      setAccessToken(null);
-      setUser(null);
+    } catch (err: unknown) {
+      if (err instanceof FetchError && err.status >= 400 && err.status < 500) {
+        // Auth failure (401/403) — clear session
+        setAccessToken(null);
+        setUser(null);
+        return false;
+      }
+      // Network or server error — retry later instead of logging out
+      scheduleRefresh(90);
       return false;
     }
   };
