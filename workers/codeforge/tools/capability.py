@@ -65,6 +65,38 @@ class CapabilityLevel(StrEnum):
     PURE_COMPLETION = "pure_completion"
 
 
+# Tools allowed per capability level.
+# Mode-declared tools (mode.tools) are always added on top.
+# An empty frozenset means ALL tools are allowed (no filtering).
+TOOLS_BY_CAPABILITY: dict[CapabilityLevel, frozenset[str]] = {
+    CapabilityLevel.FULL: frozenset(),  # empty = all tools allowed
+    CapabilityLevel.API_WITH_TOOLS: frozenset(
+        {
+            "read_file",
+            "write_file",
+            "edit_file",
+            "bash",
+            "search_files",
+            "glob_files",
+            "list_directory",
+            "propose_goal",
+            "handoff",
+            "transition_to_act",
+        }
+    ),
+    CapabilityLevel.PURE_COMPLETION: frozenset(
+        {
+            "read_file",
+            "write_file",
+            "bash",
+            "search_files",
+            "propose_goal",
+            "transition_to_act",
+        }
+    ),
+}
+
+
 def classify_model(model: str) -> CapabilityLevel:
     """Classify a model's tool-use capability level.
 

@@ -311,6 +311,7 @@ class ConversationHandlerMixin:
     ) -> AgentLoopResult:
         """Run the LiteLLM-based agentic loop with optional multi-rollout."""
         from codeforge.agent_loop import AgentLoopExecutor, ConversationRolloutExecutor, LoopConfig
+        from codeforge.tools.capability import classify_model
 
         executor = AgentLoopExecutor(
             llm=self._llm,
@@ -320,6 +321,7 @@ class ConversationHandlerMixin:
             experience_pool=getattr(self, "_experience_pool", None),
         )
         mode_tools = frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset()
+        capability_level = classify_model(primary_model)
         loop_cfg = LoopConfig(
             max_iterations=run_msg.termination.max_steps or 50,
             max_cost=run_msg.termination.max_cost or 0.0,
@@ -334,6 +336,8 @@ class ConversationHandlerMixin:
             plan_act_enabled=run_msg.plan_act_enabled,
             extra_plan_tools=mode_tools,
             routing_metadata=getattr(routing, "routing_metadata", None),
+            capability_level=str(capability_level),
+            mode_tools=mode_tools,
         )
 
         # Use multi-rollout executor when rollout_count > 1.

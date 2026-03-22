@@ -38,6 +38,7 @@ from codeforge.models import (
 from codeforge.pricing import resolve_cost
 from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
+from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
@@ -138,6 +139,8 @@ class LoopConfig:
     rollout_id: int = -1  # -1 = not a rollout
     routing_metadata: RoutingMetadata | None = None  # RoutingMetadata from initial route
     routing_config: RoutingConfig | None = None  # RoutingConfig instance (active config for reward computation)
+    capability_level: str = "full"  # CapabilityLevel value for tool filtering
+    mode_tools: frozenset[str] = field(default_factory=frozenset)  # Mode-declared extra tools
 
 
 @dataclass
@@ -179,6 +182,26 @@ class AgentLoopExecutor:
         self._runtime = runtime
         self._workspace = workspace_path
         self._experience_pool = experience_pool
+
+    @staticmethod
+    def _filter_tools_for_capability(
+        tools_array: list[dict[str, object]],
+        capability: CapabilityLevel,
+        mode_tools: frozenset[str] | None = None,
+    ) -> list[dict[str, object]]:
+        """Filter tools based on model capability level.
+
+        FULL capability returns all tools (no filtering).
+        For weaker models, only the allowlisted tools plus any mode-declared
+        tools are kept.
+        """
+        allowed = TOOLS_BY_CAPABILITY.get(capability, frozenset())
+        if not allowed:  # FULL capability = no filtering
+            return tools_array
+        # Merge mode-declared tools so they are always available.
+        if mode_tools:
+            allowed = allowed | mode_tools
+        return [t for t in tools_array if t.get("function", {}).get("name") in allowed]
 
     @staticmethod
     def _extract_user_prompt(messages: list[dict[str, object]]) -> str:
@@ -376,6 +399,11 @@ class AgentLoopExecutor:
 
         plan_act = _init_plan_act(cfg, messages)
         tools_array = self._tools.get_openai_tools()
+
+        # Filter tools based on model capability level (M1).
+        cap_level = CapabilityLevel(cfg.capability_level) if cfg.capability_level else CapabilityLevel.FULL
+        tools_array = self._filter_tools_for_capability(tools_array, cap_level, cfg.mode_tools or None)
+
         loop_start = time.monotonic()
 
         # Publish initial routing decision as trajectory event (C1.7).
