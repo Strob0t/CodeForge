@@ -2,6 +2,8 @@ package project
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"unicode"
 
@@ -47,6 +49,25 @@ func ValidateCreateRequest(req *CreateRequest, availableProviders []string) erro
 	if req.RepoURL != "" {
 		if !IsValidRepoURL(req.RepoURL) {
 			return fmt.Errorf("repo_url must start with https:// or match git@host:path format: %w", domain.ErrValidation)
+		}
+	}
+
+	// LocalPath: if non-empty, must be absolute, exist, and be a directory.
+	// Mutually exclusive with RepoURL.
+	if req.LocalPath != "" {
+		if req.RepoURL != "" {
+			return fmt.Errorf("local_path and repo_url are mutually exclusive: %w", domain.ErrValidation)
+		}
+		clean := filepath.Clean(req.LocalPath)
+		if !filepath.IsAbs(clean) {
+			return fmt.Errorf("local_path must be absolute: %w", domain.ErrValidation)
+		}
+		info, err := os.Stat(clean)
+		if err != nil {
+			return fmt.Errorf("local_path does not exist: %w", domain.ErrValidation)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("local_path is not a directory: %w", domain.ErrValidation)
 		}
 	}
 
