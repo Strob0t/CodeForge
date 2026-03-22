@@ -151,12 +151,17 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 	return publish()
 }
 
+// consumerHealthInterval is how often we check that a consumer still exists.
+const consumerHealthInterval = 30 * time.Second
+
 // Subscribe registers a handler for messages on the given subject.
 // Messages are validated against known schemas before processing.
 // Failed messages are retried up to maxRetries times, then moved to a DLQ.
+// A background goroutine periodically checks consumer health and logs a warning
+// if the consumer has been deleted externally (e.g. NATS purge).
 func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequeue.Handler) (func(), error) {
 	name := sanitizeConsumerName("codeforge-go-", subject)
-	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
+	consumerCfg := jetstream.ConsumerConfig{
 		Name:              name,
 		Durable:           name,
 		FilterSubject:     subject,
@@ -166,7 +171,9 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 		MaxDeliver:        maxRetries + 1,
 		MaxAckPending:     100,
 		InactiveThreshold: 5 * time.Minute,
-	})
+	}
+
+	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, consumerCfg)
 	if err != nil {
 		return nil, fmt.Errorf("nats consumer create: %w", err)
 	}
@@ -180,7 +187,63 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 		return nil, fmt.Errorf("nats consume: %w", err)
 	}
 
-	return cons.Stop, nil
+	// Background health check: detect external consumer deletion and recreate.
+	healthCtx, healthCancel := context.WithCancel(ctx)
+	go q.monitorConsumer(healthCtx, name, &consumerCfg, handler)
+
+	stop := func() {
+		healthCancel()
+		cons.Stop()
+	}
+
+	return stop, nil
+}
+
+// monitorConsumer periodically checks that the named consumer still exists.
+// If the consumer has been deleted externally (e.g. NATS purge), it logs a
+// warning and attempts to recreate the consumer and restart consumption.
+func (q *Queue) monitorConsumer(ctx context.Context, name string, cfg *jetstream.ConsumerConfig, handler messagequeue.Handler) {
+	ticker := time.NewTicker(consumerHealthInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, err := q.js.Consumer(ctx, streamName, name)
+			if err == nil {
+				continue
+			}
+
+			slog.Warn("nats consumer unavailable, attempting recreation",
+				"consumer", name,
+				"error", err,
+			)
+
+			newConsumer, createErr := q.js.CreateOrUpdateConsumer(ctx, streamName, *cfg)
+			if createErr != nil {
+				slog.Error("nats consumer recreation failed",
+					"consumer", name,
+					"error", createErr,
+				)
+				continue
+			}
+
+			_, consumeErr := newConsumer.Consume(func(msg jetstream.Msg) {
+				go q.handleMessage(ctx, msg, handler)
+			})
+			if consumeErr != nil {
+				slog.Error("nats consumer re-subscribe failed",
+					"consumer", name,
+					"error", consumeErr,
+				)
+				continue
+			}
+
+			slog.Info("nats consumer recreated successfully", "consumer", name)
+		}
+	}
 }
 
 // handleMessage processes a single NATS message with validation, error handling, and ack/nak.

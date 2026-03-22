@@ -24,6 +24,7 @@ type CreateRequest struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	RepoURL     string            `json:"repo_url"`
+	LocalPath   string            `json:"local_path,omitempty"`
 	Provider    string            `json:"provider"`
 	Branch      string            `json:"branch,omitempty"`
 	Config      map[string]string `json:"config"`

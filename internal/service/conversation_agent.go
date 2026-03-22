@@ -311,7 +311,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 				"project_id", proj.ID,
 				"conversation_id", conversationID,
 			)
-			return s.SendMessageAgenticWithMode(ctx, conversationID, req.Content, "goal_researcher")
+			return s.SendMessageAgenticWithMode(ctx, conversationID, req.Content, "goal_researcher", WithModel(req.Model))
 		}
 	}
 
@@ -526,7 +526,16 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 type AgenticOption func(*agenticOpts)
 
 type agenticOpts struct {
+	model        string
 	extraContext []messagequeue.ContextEntryPayload
+}
+
+// WithModel overrides the default model resolution for the agentic run.
+// This preserves the caller's explicit model choice through mode redirects.
+func WithModel(model string) AgenticOption {
+	return func(o *agenticOpts) {
+		o.model = model
+	}
 }
 
 // WithContextEntries appends additional context entries to the NATS payload.
@@ -589,7 +598,18 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 
 	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
 	protoMessages := s.historyToPayload(history)
-	model := s.resolveModel()
+
+	// Apply functional options early so the model override is available.
+	var applied agenticOpts
+	for _, o := range opts {
+		o(&applied)
+	}
+
+	// Resolve model: explicit option override takes priority over config cascade.
+	model := applied.model
+	if model == "" {
+		model = s.resolveModel()
+	}
 	if model == "" {
 		return fmt.Errorf("no LLM model configured")
 	}
@@ -665,11 +685,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 	// Build context entries for the conversation run.
 	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID, protoMessages)
 
-	// Apply functional options (e.g. extra context entries from the caller).
-	var applied agenticOpts
-	for _, o := range opts {
-		o(&applied)
-	}
+	// Merge extra context entries from functional options.
 	if len(applied.extraContext) > 0 {
 		contextEntries = append(contextEntries, applied.extraContext...)
 	}

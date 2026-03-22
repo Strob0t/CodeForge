@@ -33,6 +33,17 @@ model_list:
       timeout: 600
       tags: ["background"]
 
+  # -- Local Models (LM Studio via OpenAI-compatible alias) --
+  # "openai/container" is commonly used in test configs to reference the local LM Studio model.
+  # This explicit entry prevents it from matching the openai/* wildcard (which requires OPENAI_API_KEY).
+  - model_name: "openai/container"
+    litellm_params:
+      model: "openai/container"
+      api_base: "os.environ/LM_STUDIO_API_BASE"
+      api_key: "lm-studio"
+      timeout: 600
+      tags: ["background"]
+
   # -- OpenAI --
   - model_name: "openai/*"
     litellm_params:

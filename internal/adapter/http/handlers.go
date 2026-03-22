@@ -152,6 +152,18 @@ func (h *Handlers) CreateProject(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "project creation failed")
 		return
 	}
+
+	// If local_path provided, adopt the workspace in the same request.
+	if req.LocalPath != "" {
+		adopted, adoptErr := h.Projects.Adopt(r.Context(), p.ID, req.LocalPath)
+		if adoptErr != nil {
+			writeDomainError(w, adoptErr, "project created but workspace adoption failed")
+			return
+		}
+		p = adopted
+		h.autoIndexProject(middleware.TenantIDFromContext(r.Context()), p.ID, p.WorkspacePath)
+	}
+
 	writeJSON(w, http.StatusCreated, p)
 }
 

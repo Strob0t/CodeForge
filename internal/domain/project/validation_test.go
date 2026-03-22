@@ -106,6 +106,24 @@ func TestValidateCreateRequest(t *testing.T) {
 			req:     CreateRequest{Name: "my-project", Description: strings.Repeat("x", 2000)},
 			wantErr: false,
 		},
+		{
+			name:    "local_path and repo_url are mutually exclusive",
+			req:     CreateRequest{Name: "my-project", LocalPath: "/tmp", RepoURL: "https://github.com/user/repo.git"},
+			wantErr: true,
+			errMsg:  "mutually exclusive",
+		},
+		{
+			name:    "local_path must be absolute",
+			req:     CreateRequest{Name: "my-project", LocalPath: "relative/path"},
+			wantErr: true,
+			errMsg:  "local_path must be absolute",
+		},
+		{
+			name:    "local_path does not exist",
+			req:     CreateRequest{Name: "my-project", LocalPath: "/nonexistent/path/that/does/not/exist"},
+			wantErr: true,
+			errMsg:  "local_path does not exist",
+		},
 	}
 
 	for _, tt := range tests {
