@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -21,9 +19,10 @@ import (
 
 // BenchmarkPrompt handles POST /api/v1/dev/benchmark
 // Sends a prompt to LiteLLM and returns the response with timing/token metrics.
-// Guarded by the DEV_MODE environment variable.
+// Guarded by the DevModeOnly middleware (APP_ENV=development); the inline check
+// provides a defence-in-depth fallback.
 func (h *Handlers) BenchmarkPrompt(w http.ResponseWriter, r *http.Request) {
-	if strings.ToLower(os.Getenv("DEV_MODE")) != "true" {
+	if h.AppEnv != "development" {
 		writeError(w, http.StatusForbidden, "dev mode not enabled")
 		return
 	}

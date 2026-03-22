@@ -3,7 +3,6 @@ package http
 import (
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
@@ -82,10 +81,9 @@ func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Discover Ollama models if OLLAMA_BASE_URL is set.
-	ollamaURL := os.Getenv("OLLAMA_BASE_URL")
-	if ollamaURL != "" {
-		ollamaModels, err := h.LiteLLM.DiscoverOllamaModels(ctx, ollamaURL)
+	// Discover Ollama models if OLLAMA_BASE_URL is configured.
+	if h.OllamaBaseURL != "" {
+		ollamaModels, err := h.LiteLLM.DiscoverOllamaModels(ctx, h.OllamaBaseURL)
 		if err != nil {
 			slog.Warn("ollama discovery failed", "error", err)
 			// Non-fatal: continue with LiteLLM models only.
@@ -101,7 +99,7 @@ func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"models":     models,
 		"count":      len(models),
-		"ollama_url": ollamaURL,
+		"ollama_url": h.OllamaBaseURL,
 	})
 }
 

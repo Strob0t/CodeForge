@@ -498,12 +498,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Delete("/prompt-sections/{id}", h.DeletePromptSection)
 		r.Post("/prompt-sections/preview", h.PreviewPromptSections)
 
-		// Dev tools (behind DEV_MODE env var)
-		r.With(middleware.DevModeOnly).Post("/dev/benchmark", h.BenchmarkPrompt)
+		// Dev tools (behind APP_ENV=development)
+		r.With(middleware.DevModeOnly(h.AppEnv)).Post("/dev/benchmark", h.BenchmarkPrompt)
 
 		// Benchmark Mode (Phase 20D — dev-mode only, requires APP_ENV=development)
 		r.Route("/benchmarks", func(r chi.Router) {
-			r.Use(middleware.DevModeOnly)
+			r.Use(middleware.DevModeOnly(h.AppEnv))
 			// Suite CRUD (Phase 26)
 			r.Get("/suites", h.ListBenchmarkSuites)
 			r.Post("/suites", h.CreateBenchmarkSuite)

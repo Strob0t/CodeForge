@@ -32,7 +32,7 @@ async def test_semaphore_limits_concurrency() -> None:
 
 
 def test_get_benchmark_semaphore_default() -> None:
-    """Default BENCHMARK_MAX_PARALLEL is 3."""
+    """Default CODEFORGE_BENCHMARK_MAX_PARALLEL is 3."""
     from codeforge.consumer._benchmark import _get_benchmark_semaphore
 
     sem = _get_benchmark_semaphore()
@@ -40,8 +40,8 @@ def test_get_benchmark_semaphore_default() -> None:
 
 
 def test_get_benchmark_semaphore_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """BENCHMARK_MAX_PARALLEL env var controls the semaphore value."""
-    monkeypatch.setenv("BENCHMARK_MAX_PARALLEL", "7")
+    """CODEFORGE_BENCHMARK_MAX_PARALLEL env var controls the semaphore value."""
+    monkeypatch.setenv("CODEFORGE_BENCHMARK_MAX_PARALLEL", "7")
     from codeforge.consumer._benchmark import _get_benchmark_semaphore
 
     sem = _get_benchmark_semaphore()

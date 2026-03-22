@@ -40,7 +40,7 @@ logger = structlog.get_logger()
 
 def _get_benchmark_semaphore() -> asyncio.Semaphore:
     """Create a semaphore with configurable max parallelism."""
-    max_parallel = int(_os.environ.get("BENCHMARK_MAX_PARALLEL", "3"))
+    max_parallel = int(_os.environ.get("CODEFORGE_BENCHMARK_MAX_PARALLEL", "3"))
     return asyncio.Semaphore(max_parallel)
 
 
@@ -471,7 +471,7 @@ def _resolve_default_dataset(provider_name: str) -> str:
     import os
     from pathlib import Path
 
-    datasets_dir = os.environ.get("BENCHMARK_DATASETS_DIR", "configs/benchmarks")
+    datasets_dir = os.environ.get("CODEFORGE_BENCHMARK_DATASETS_DIR", "configs/benchmarks")
     mapping = {
         "codeforge_simple": "basic-coding.yaml",
         "codeforge_tool_use": "tool-use-basic.yaml",

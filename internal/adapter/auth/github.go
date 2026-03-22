@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 )
 
@@ -31,20 +30,18 @@ type GitHubProvider struct {
 
 // NewGitHubProvider creates a new GitHub Copilot OAuth provider.
 func NewGitHubProvider(opts ...Option) *GitHubProvider {
-	clientID := os.Getenv("GITHUB_OAUTH_CLIENT_ID")
-	if clientID == "" {
-		clientID = defaultGitHubClientID
-	}
-
 	p := &GitHubProvider{
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		deviceCodeURL: githubDeviceCodeURL,
 		tokenURL:      githubTokenURL,
-		clientID:      clientID,
+		clientID:      defaultGitHubClientID,
 	}
 	for _, opt := range opts {
 		if opt.httpClient != nil {
 			p.httpClient = opt.httpClient
+		}
+		if opt.clientID != "" {
+			p.clientID = opt.clientID
 		}
 	}
 	return p

@@ -75,6 +75,7 @@ type ConversationService struct {
 	sessionSvc      *SessionService
 	agentCfg        *config.Agent
 	routingCfg      *config.Routing
+	appEnv          string
 	metrics         *cfotel.Metrics
 	contextOpt      *ContextOptimizerService
 	llmKeySvc       *LLMKeyService
@@ -129,6 +130,9 @@ func (s *ConversationService) SetGoalService(svc *GoalDiscoveryService) { s.goal
 
 // SetRoutingConfig configures intelligent model routing for conversation runs.
 func (s *ConversationService) SetRoutingConfig(cfg *config.Routing) { s.routingCfg = cfg }
+
+// SetAppEnv configures the application environment (e.g. "development") for prompt assembly.
+func (s *ConversationService) SetAppEnv(env string) { s.appEnv = env }
 
 // SetContextOptimizer configures the context optimizer for conversation context injection.
 func (s *ConversationService) SetContextOptimizer(opt *ContextOptimizerService) { s.contextOpt = opt }

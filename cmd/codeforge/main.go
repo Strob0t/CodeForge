@@ -103,7 +103,7 @@ func run() error {
 		"pg_max_conns", cfg.Postgres.MaxConns,
 	)
 
-	if os.Getenv("CODEFORGE_INTERNAL_KEY") == "" {
+	if cfg.InternalKey == "" {
 		slog.Warn("CODEFORGE_INTERNAL_KEY not set — Python worker API calls will fail with 401")
 	}
 
@@ -421,8 +421,11 @@ func run() error {
 		specProvs = append(specProvs, p)
 	}
 	var pmProvs []pmprovider.Provider
+	pmConfigs := map[string]map[string]string{
+		"plane": {"api_token": cfg.Plane.APIToken},
+	}
 	for _, name := range pmprovider.Available() {
-		p, err := pmprovider.New(name, nil)
+		p, err := pmprovider.New(name, pmConfigs[name])
 		if err != nil {
 			slog.Warn("failed to create PM provider", "name", name, "error", err)
 			continue
@@ -535,13 +538,13 @@ func run() error {
 	}
 	subscriptionSvc := service.NewSubscriptionService(envPath,
 		cfauth.NewAnthropicProvider(),
-		cfauth.NewGitHubProvider(),
+		cfauth.NewGitHubProvider(cfauth.WithClientID(cfg.GitHub.ClientID)),
 	)
 	slog.Info("subscription provider service initialized", "env_path", envPath)
 
 	// --- Model Registry (Phase 22) ---
 	// Periodic polling of LiteLLM model health; first refresh is synchronous.
-	modelRegistry := service.NewModelRegistry(llmClient, hub, cfg.LiteLLM.HealthPollInterval)
+	modelRegistry := service.NewModelRegistry(llmClient, hub, cfg.LiteLLM.HealthPollInterval, cfg.Ollama.BaseURL)
 	modelRegistry.SetRoutingService(routingSvc)
 	modelRegistry.Start(ctx)
 	modelRegistry.ValidateConfiguredModel(cfg.LiteLLM.ConversationModel)
@@ -566,6 +569,7 @@ func run() error {
 	conversationSvc.SetPolicyService(policySvc)
 	conversationSvc.SetModelRegistry(modelRegistry)
 	conversationSvc.SetRoutingConfig(&cfg.Routing)
+	conversationSvc.SetAppEnv(cfg.AppEnv)
 	conversationSvc.SetContextOptimizer(contextOptSvc)
 	conversationSvc.SetLLMKeyService(llmKeySvc)
 	promptLib, plErr := service.NewPromptLibraryService(service.PromptsFS(), "prompts")
@@ -696,14 +700,8 @@ func run() error {
 		return fmt.Errorf("benchmark run subscriber: %w", err)
 	}
 	benchmarkSvc.SeedDefaultSuites(ctx)
-	watchdogTimeout := 2 * time.Hour // Default: 2h (agent runs with local models can take 60+ min)
-	if v := os.Getenv("BENCHMARK_WATCHDOG_TIMEOUT"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			watchdogTimeout = d
-		}
-	}
-	cancelWatchdog := benchmarkSvc.StartWatchdog(5*time.Minute, watchdogTimeout)
-	slog.Info("benchmark service initialized with NATS bridge", "watchdog_timeout", watchdogTimeout)
+	cancelWatchdog := benchmarkSvc.StartWatchdog(5*time.Minute, cfg.Benchmark.WatchdogTimeout)
+	slog.Info("benchmark service initialized with NATS bridge", "watchdog_timeout", cfg.Benchmark.WatchdogTimeout)
 
 	// --- Backend Health Service (Phase 5.4) ---
 	backendHealthSvc := service.NewBackendHealthService(queue)
@@ -777,6 +775,8 @@ func run() error {
 		Channels:         service.NewChannelService(store),
 		Limits:           &cfg.Limits,
 		AgentConfig:      &cfg.Agent,
+		AppEnv:           cfg.AppEnv,
+		OllamaBaseURL:    cfg.Ollama.BaseURL,
 		Boundaries:       boundarySvc,
 		ReviewTrigger:    reviewTriggerSvc,
 		PromptEvolution:  evoSvc,
@@ -805,12 +805,12 @@ func run() error {
 
 	// Middleware (applied to all routes including WebSocket)
 	r.Use(cfhttp.SecurityHeaders)
-	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin))
+	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin, cfg.AppEnv))
 	if cfg.OTEL.Enabled {
 		r.Use(cfotel.HTTPMiddleware(cfg.OTEL.ServiceName))
 	}
 	r.Use(middleware.RequestID)
-	r.Use(middleware.Auth(authSvc, cfg.Auth.Enabled))
+	r.Use(middleware.Auth(authSvc, cfg.Auth.Enabled, cfg.InternalKey))
 	r.Use(middleware.TenantID)
 	r.Use(cfhttp.Logger)
 	r.Use(chimw.RealIP)
@@ -820,7 +820,7 @@ func run() error {
 	r.Get("/ws", hub.HandleWS)
 
 	// Liveness (always 200)
-	r.Get("/health", livenessHandler(logDropped))
+	r.Get("/health", livenessHandler(logDropped, cfg.AppEnv))
 
 	// Readiness (pings DB, checks NATS, checks LiteLLM)
 	r.Get("/health/ready", readinessHandler(pool, queue, llmClient))
@@ -1023,9 +1023,9 @@ func run() error {
 // It also includes a dev_mode flag so the frontend can conditionally
 // show development-only features like the benchmark page, and dropped_logs
 // to surface async logger buffer pressure.
-func livenessHandler(dropped logger.DroppedCounter) http.HandlerFunc {
+func livenessHandler(dropped logger.DroppedCounter, appEnv string) http.HandlerFunc {
+	devMode := appEnv == "development"
 	return func(w http.ResponseWriter, _ *http.Request) {
-		devMode := os.Getenv("APP_ENV") == "development"
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(struct {

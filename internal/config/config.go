@@ -71,6 +71,8 @@ func (h *ConfigHolder) Reload() error {
 
 // Config holds all runtime configuration for the CodeForge core service.
 type Config struct {
+	AppEnv       string       `yaml:"app_env"`      // Application environment: "development" | "production" (default: "")
+	InternalKey  string       `yaml:"internal_key"` // Shared secret for Python worker <-> Go Core API calls
 	Server       Server       `yaml:"server"`
 	Postgres     Postgres     `yaml:"postgres"`
 	NATS         NATS         `yaml:"nats"`
@@ -96,10 +98,13 @@ type Config struct {
 	Agent        Agent        `yaml:"agent"`
 	Benchmark    Benchmark    `yaml:"benchmark"`
 	Copilot      Copilot      `yaml:"copilot"`
+	GitHub       GitHub       `yaml:"github"`
 	Experience   Experience   `yaml:"experience"`
 	Limits       Limits       `yaml:"limits"`
 	Quarantine   Quarantine   `yaml:"quarantine"`
 	Routing      Routing      `yaml:"routing"`
+	Ollama       Ollama       `yaml:"ollama"`
+	Plane        Plane        `yaml:"plane"`
 }
 
 // Routing holds intelligent model routing configuration (Phase 29).
@@ -131,10 +136,21 @@ type Limits struct {
 
 // Benchmark holds benchmark evaluation mode configuration.
 type Benchmark struct {
-	Enabled        bool   `yaml:"enabled"`         // Enable benchmark endpoints (requires APP_ENV=development)
-	DatasetsDir    string `yaml:"datasets_dir"`    // Directory with benchmark dataset YAML files (default: configs/benchmarks)
-	TimeoutSeconds int    `yaml:"timeout_seconds"` // Timeout per evaluation task in seconds (default: 300)
-	DashboardPort  int    `yaml:"dashboard_port"`  // AgentNeo tracing dashboard port (default: 3100)
+	Enabled         bool          `yaml:"enabled"`          // Enable benchmark endpoints (requires APP_ENV=development)
+	DatasetsDir     string        `yaml:"datasets_dir"`     // Directory with benchmark dataset YAML files (default: configs/benchmarks)
+	TimeoutSeconds  int           `yaml:"timeout_seconds"`  // Timeout per evaluation task in seconds (default: 300)
+	DashboardPort   int           `yaml:"dashboard_port"`   // AgentNeo tracing dashboard port (default: 3100)
+	WatchdogTimeout time.Duration `yaml:"watchdog_timeout"` // Max time before watchdog kills stale benchmark runs (default: 2h)
+}
+
+// Ollama holds Ollama local model provider configuration.
+type Ollama struct {
+	BaseURL string `yaml:"base_url"` // Ollama API base URL (e.g. http://localhost:11434)
+}
+
+// Plane holds Plane.so project management integration configuration.
+type Plane struct {
+	APIToken string `yaml:"api_token"` // Plane.so API token for PM sync
 }
 
 // Agent holds agentic conversation loop configuration.
@@ -189,6 +205,13 @@ type Notification struct {
 type Copilot struct {
 	Enabled       bool   `yaml:"enabled"`         // Enable Copilot integration (default: false)
 	HostsFilePath string `yaml:"hosts_file_path"` // Path to hosts.json (default: ~/.config/github-copilot/hosts.json)
+}
+
+// GitHub holds GitHub OAuth integration configuration.
+type GitHub struct {
+	ClientID     string `yaml:"client_id"`     // OAuth client ID for GitHub device flow
+	ClientSecret string `yaml:"client_secret"` // OAuth client secret for GitHub device flow
+	CallbackURL  string `yaml:"callback_url"`  // OAuth callback URL for GitHub device flow
 }
 
 // Experience holds experience pool configuration.
@@ -564,14 +587,16 @@ func Defaults() Config {
 			ConversationRolloutCount: 1,
 		},
 		Benchmark: Benchmark{
-			Enabled:        false,
-			DatasetsDir:    "configs/benchmarks",
-			TimeoutSeconds: 300,
-			DashboardPort:  3100,
+			Enabled:         false,
+			DatasetsDir:     "configs/benchmarks",
+			TimeoutSeconds:  300,
+			DashboardPort:   3100,
+			WatchdogTimeout: 2 * time.Hour,
 		},
 		Copilot: Copilot{
 			Enabled: false,
 		},
+		GitHub: GitHub{},
 		Experience: Experience{
 			Enabled:             false,
 			ConfidenceThreshold: 0.85,

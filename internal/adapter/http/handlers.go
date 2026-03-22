@@ -103,6 +103,8 @@ type Handlers struct {
 	Subscription     *service.SubscriptionService
 	Limits           *config.Limits
 	AgentConfig      *config.Agent
+	AppEnv           string // From cfg.AppEnv (APP_ENV env var)
+	OllamaBaseURL    string // From cfg.Ollama.BaseURL (OLLAMA_BASE_URL env var)
 	Boundaries       *service.BoundaryService
 	ReviewTrigger    *service.ReviewTriggerService
 	PromptEvolution  *service.PromptEvolutionService
