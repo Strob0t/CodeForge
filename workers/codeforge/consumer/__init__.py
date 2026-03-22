@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 import signal
 from typing import TYPE_CHECKING
 
@@ -23,7 +22,7 @@ import nats.js.client
 import nats.js.errors
 import structlog
 
-from codeforge.config import WorkerSettings
+from codeforge.config import WorkerSettings, get_settings
 from codeforge.consumer._a2a import A2AHandlerMixin
 from codeforge.consumer._backend_health import BackendHealthHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
@@ -85,10 +84,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-# Consumer error backoff config (overridable via env vars)
-_MAX_CONSECUTIVE_ERRORS = int(os.environ.get("CODEFORGE_CONSUMER_MAX_ERRORS", "10"))
-_BACKOFF_MULTIPLIER = float(os.environ.get("CODEFORGE_CONSUMER_BACKOFF_MULTIPLIER", "0.5"))
-_BACKOFF_MAX = float(os.environ.get("CODEFORGE_CONSUMER_BACKOFF_MAX", "5.0"))
+# Consumer error backoff config (from centralized WorkerSettings)
+_MAX_CONSECUTIVE_ERRORS = get_settings().consumer_max_errors
+_BACKOFF_MULTIPLIER = get_settings().consumer_backoff_multiplier
+_BACKOFF_MAX = get_settings().consumer_backoff_max
 
 
 class TaskConsumer(
@@ -125,10 +124,7 @@ class TaskConsumer(
         self._js: JetStreamContext | None = None
         self._running = False
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
-        self._db_url = os.environ.get(
-            "DATABASE_URL",
-            "postgresql://codeforge:codeforge_dev@localhost:5432/codeforge",
-        )
+        self._db_url = get_settings().database_url
 
         from codeforge.memory.experience import ExperiencePool
 

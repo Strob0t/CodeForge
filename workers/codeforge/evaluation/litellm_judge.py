@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 import httpx
 from deepeval.models import DeepEvalBaseLLM
 
+from codeforge.config import get_settings
+
 if TYPE_CHECKING:
     from pydantic import BaseModel
-
-# Default judge model — override via CODEFORGE_JUDGE_MODEL env var.
-_DEFAULT_JUDGE_MODEL = os.environ.get("CODEFORGE_JUDGE_MODEL", "openai/gpt-4o")
 
 
 class LiteLLMJudge(DeepEvalBaseLLM):
@@ -29,9 +27,10 @@ class LiteLLMJudge(DeepEvalBaseLLM):
         api_key: str = "",
         timeout: float = 120.0,
     ) -> None:
-        model = model or _DEFAULT_JUDGE_MODEL
-        base_url = base_url or os.environ.get("LITELLM_BASE_URL", "http://localhost:4000") + "/v1"
-        api_key = api_key or os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
+        s = get_settings()
+        model = model or s.judge_model
+        base_url = base_url or s.litellm_url + "/v1"
+        api_key = api_key or s.litellm_api_key
         self.model_name = model
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key

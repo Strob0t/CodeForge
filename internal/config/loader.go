@@ -346,6 +346,9 @@ func loadEnv(cfg *Config) {
 
 	// Plane
 	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
+
+	// Env file override
+	setString(&cfg.EnvFile, "CODEFORGE_ENV_FILE")
 }
 
 // validate checks that required fields are set and security constraints are met.

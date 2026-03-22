@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.config import get_settings
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_COMPACT_COMPLETE
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ class CompactHandlerMixin:
         """Fetch messages from Go Core API."""
         import httpx
 
-        core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+        core_url = get_settings().core_url
         url = f"{core_url}/api/v1/conversations/{conversation_id}/messages"
         headers: dict[str, str] = {}
         if tenant_id:

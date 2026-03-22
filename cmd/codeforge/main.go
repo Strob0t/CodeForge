@@ -533,8 +533,8 @@ func run() error {
 
 	// --- Subscription Providers (OAuth device flow) ---
 	envPath := filepath.Join(cfg.Workspace.Root, "..", ".env")
-	if envOverride := os.Getenv("CODEFORGE_ENV_FILE"); envOverride != "" {
-		envPath = envOverride
+	if cfg.EnvFile != "" {
+		envPath = cfg.EnvFile
 	}
 	subscriptionSvc := service.NewSubscriptionService(envPath,
 		cfauth.NewAnthropicProvider(),

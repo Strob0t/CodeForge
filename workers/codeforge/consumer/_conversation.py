@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import uuid
 from typing import TYPE_CHECKING, ClassVar
 
 import structlog
 
+from codeforge.config import get_settings
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
 from codeforge.models import ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.runtime import RuntimeClient
@@ -686,8 +686,9 @@ class ConversationHandlerMixin:
         if config.mab_enabled:
             from codeforge.routing.mab import MABModelSelector
 
-            core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
-            internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
+            _settings = get_settings()
+            core_url = _settings.core_url
+            internal_key = _settings.internal_key
 
             def _load_stats(task_type: str, tier: str) -> list:
                 """Synchronous stats loader via Go Core HTTP API."""
@@ -801,8 +802,9 @@ class ConversationHandlerMixin:
         from codeforge.routing.blocklist import get_blocklist
 
         # --- Primary: Go Core (health-checked, authoritative) ---
-        core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
-        internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
+        _settings = get_settings()
+        core_url = _settings.core_url
+        internal_key = _settings.internal_key
         core_headers: dict[str, str] = {}
         if internal_key:
             core_headers["X-API-Key"] = internal_key

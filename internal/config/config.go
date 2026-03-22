@@ -105,6 +105,7 @@ type Config struct {
 	Routing      Routing      `yaml:"routing"`
 	Ollama       Ollama       `yaml:"ollama"`
 	Plane        Plane        `yaml:"plane"`
+	EnvFile      string       `yaml:"env_file"` // Path to .env file for OAuth device flow
 }
 
 // Routing holds intelligent model routing configuration (Phase 29).

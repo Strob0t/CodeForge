@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
+
+from codeforge.config import get_settings
 
 _cache_lock = asyncio.Lock()
 _claude_code_available: bool | None = None
@@ -20,7 +21,8 @@ async def is_claude_code_available() -> bool:
     """
     global _claude_code_available, _claude_code_check_time
 
-    if os.environ.get("CODEFORGE_CLAUDECODE_ENABLED", "false").lower() != "true":
+    settings = get_settings()
+    if not settings.claudecode_enabled:
         return False
 
     async with _cache_lock:
@@ -28,7 +30,7 @@ async def is_claude_code_available() -> bool:
         if _claude_code_available is not None and (now - _claude_code_check_time) < _CACHE_TTL:
             return _claude_code_available
 
-        cli_path = os.environ.get("CODEFORGE_CLAUDECODE_PATH", "claude")
+        cli_path = settings.claudecode_path
         try:
             proc = await asyncio.create_subprocess_exec(
                 cli_path,

@@ -18,10 +18,10 @@ CODEFORGE_ROUTING_ENABLED=false when all providers are unhealthy.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import TYPE_CHECKING
 
+from codeforge.config import get_settings
 from codeforge.routing.models import (
     CascadePlan,
     CascadeStep,
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # TTL for caching the effective (non-blocked) models list.
-_EFFECTIVE_MODELS_CACHE_TTL = float(os.environ.get("CODEFORGE_EFFECTIVE_MODELS_CACHE_TTL", "5.0"))
+_EFFECTIVE_MODELS_CACHE_TTL = get_settings().effective_models_cache_ttl
 
 # Maximum retries for fallback routing when primary + fallback selection fails.
 MAX_ROUTING_RETRIES: int = 3

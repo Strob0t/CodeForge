@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 
 import httpx
+
+from codeforge.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +101,9 @@ class _ModelCache:
             return self._best
 
     def _refresh(self) -> None:
-        litellm_url = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000")
-        api_key = os.environ.get("LITELLM_MASTER_KEY", "")
+        settings = get_settings()
+        litellm_url = settings.litellm_url
+        api_key = settings.litellm_api_key
         headers: dict[str, str] = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -189,7 +191,7 @@ def resolve_model(explicit: str = "") -> str:
     if explicit:
         return explicit
 
-    env_model = os.environ.get("CODEFORGE_DEFAULT_MODEL", "")
+    env_model = get_settings().default_model
     if env_model:
         return env_model
 

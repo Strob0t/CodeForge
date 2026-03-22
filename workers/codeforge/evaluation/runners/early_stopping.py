@@ -8,9 +8,9 @@ the quorum and all members have exit_code == 0, signals early stop.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
+from codeforge.config import get_settings
 from codeforge.evaluation.runners._similarity import normalized_edit_distance
 
 
@@ -42,8 +42,9 @@ class EarlyStopChecker:
         threshold: float | None = None,
         quorum: int | None = None,
     ) -> None:
-        default_threshold = float(os.environ.get("CODEFORGE_EARLY_STOP_THRESHOLD", "0.9"))
-        default_quorum = int(os.environ.get("CODEFORGE_EARLY_STOP_QUORUM", "3"))
+        s = get_settings()
+        default_threshold = s.early_stop_threshold
+        default_quorum = s.early_stop_quorum
         self._threshold = threshold if threshold is not None else default_threshold
         self._quorum = quorum if quorum is not None else default_quorum
         self._rollouts: list[_RolloutEntry] = []

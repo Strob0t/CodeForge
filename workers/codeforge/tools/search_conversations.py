@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
 
+from codeforge.config import get_settings
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class SearchConversationsTool:
 
         limit = min(arguments.get("limit", _DEFAULT_LIMIT), _MAX_LIMIT)
 
-        core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
+        core_url = get_settings().core_url
         url = f"{core_url}/api/v1/search/conversations"
 
         try:

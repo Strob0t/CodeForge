@@ -1223,18 +1223,18 @@ async def _record_routing_outcome(
     routing_config: RoutingConfig | None = None,
 ) -> None:
     """Post a routing outcome to Go Core for MAB learning. Fire-and-forget."""
-    import os
-
     import httpx
 
+    from codeforge.config import get_settings
     from codeforge.routing.models import RoutingConfig
     from codeforge.routing.reward import compute_reward
 
     quality = 1.0 if success else 0.0
     config = routing_config if routing_config is not None else RoutingConfig()
     reward = compute_reward(success, quality, cost_usd, latency_ms, config)
-    core_url = os.environ.get("CODEFORGE_CORE_URL", "http://localhost:8080")
-    internal_key = os.environ.get("CODEFORGE_INTERNAL_KEY", "")
+    settings = get_settings()
+    core_url = settings.core_url
+    internal_key = settings.internal_key
     headers: dict[str, str] = {}
     if internal_key:
         headers["X-API-Key"] = internal_key

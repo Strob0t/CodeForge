@@ -11,7 +11,6 @@ compatibility.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from dataclasses import dataclass
@@ -20,10 +19,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from codeforge.config import get_settings
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BLOCK_TTL = float(os.environ.get("CODEFORGE_MODEL_BLOCK_TTL", "300"))
-_AUTH_BLOCK_TTL = float(os.environ.get("CODEFORGE_MODEL_AUTH_BLOCK_TTL", "86400"))
+_settings = get_settings()
+_DEFAULT_BLOCK_TTL = _settings.model_block_ttl
+_AUTH_BLOCK_TTL = _settings.model_auth_block_ttl
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import os
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -33,14 +32,16 @@ class OTELConfig:
 
     @classmethod
     def from_env(cls) -> OTELConfig:
-        """Build config from CODEFORGE_OTEL_* environment variables."""
-        enabled_str = os.getenv("CODEFORGE_OTEL_ENABLED", "false")
+        """Build config from centralized WorkerSettings."""
+        from codeforge.config import get_settings
+
+        s = get_settings()
         return cls(
-            enabled=enabled_str.lower() in ("true", "1", "yes"),
-            endpoint=os.getenv("CODEFORGE_OTEL_ENDPOINT", "localhost:4317"),
-            service_name=os.getenv("CODEFORGE_OTEL_SERVICE_NAME", "codeforge-worker"),
-            insecure=os.getenv("CODEFORGE_OTEL_INSECURE", "true").lower() in ("true", "1", "yes"),
-            sample_rate=float(os.getenv("CODEFORGE_OTEL_SAMPLE_RATE", "1.0")),
+            enabled=s.otel_enabled,
+            endpoint=s.otel_endpoint,
+            service_name=s.otel_service_name,
+            insecure=s.otel_insecure,
+            sample_rate=s.otel_sample_rate,
         )
 
 

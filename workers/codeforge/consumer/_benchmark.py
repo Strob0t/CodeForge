@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os as _os
 import tempfile
 import time
 from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.config import get_settings
 from codeforge.consumer._subjects import (
     HEADER_REQUEST_ID,
     SUBJECT_BENCHMARK_RUN_RESULT,
@@ -40,8 +40,7 @@ logger = structlog.get_logger()
 
 def _get_benchmark_semaphore() -> asyncio.Semaphore:
     """Create a semaphore with configurable max parallelism."""
-    max_parallel = int(_os.environ.get("CODEFORGE_BENCHMARK_MAX_PARALLEL", "3"))
-    return asyncio.Semaphore(max_parallel)
+    return asyncio.Semaphore(get_settings().benchmark_max_parallel)
 
 
 _benchmark_semaphore: asyncio.Semaphore | None = None
@@ -70,9 +69,7 @@ def _handle_task_exception(task: asyncio.Task[None]) -> None:
 
 def _litellm_headers() -> dict[str, str]:
     """Return authorization headers for the LiteLLM proxy."""
-    import os
-
-    api_key = os.environ.get("LITELLM_MASTER_KEY", "sk-codeforge-dev")
+    api_key = get_settings().litellm_api_key
     if api_key:
         return {"Authorization": f"Bearer {api_key}"}
     return {}
@@ -168,11 +165,9 @@ class BenchmarkHandlerMixin:
 
     async def _handle_benchmark_run(self, msg: nats.aio.msg.Msg) -> None:
         """Validate, deduplicate, ack, then dispatch benchmark execution as a background task."""
-        import os
-
         from codeforge.models import BenchmarkRunRequest, BenchmarkRunResult
 
-        if os.getenv("APP_ENV") != "development":
+        if get_settings().app_env != "development":
             logger.warning("benchmark run ignored (not in dev mode)")
             await msg.ack()
             return
@@ -468,10 +463,10 @@ def _dataset_to_task_specs(dataset_path: str) -> list:
 
 def _resolve_default_dataset(provider_name: str) -> str:
     """Map built-in provider names to their default dataset YAML paths."""
-    import os
     from pathlib import Path
 
-    datasets_dir = os.environ.get("CODEFORGE_BENCHMARK_DATASETS_DIR", "configs/benchmarks")
+    settings = get_settings()
+    datasets_dir = settings.benchmark_datasets_dir
     mapping = {
         "codeforge_simple": "basic-coding.yaml",
         "codeforge_tool_use": "tool-use-basic.yaml",
@@ -484,7 +479,7 @@ def _resolve_default_dataset(provider_name: str) -> str:
     if candidate.exists():
         return str(candidate)
     # Try absolute path from workspace root
-    workspace = Path(os.environ.get("CODEFORGE_WORKSPACE", "/workspaces/CodeForge"))
+    workspace = Path(settings.workspace)
     absolute = workspace / datasets_dir / filename
     return str(absolute) if absolute.exists() else ""
 

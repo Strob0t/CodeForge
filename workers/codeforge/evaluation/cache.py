@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.config import get_settings
+
 if TYPE_CHECKING:
     import httpx
 
@@ -211,7 +213,7 @@ async def download_hf_dataset(
         import httpx
 
         headers: dict[str, str] = {}
-        hf_token = os.getenv("HF_TOKEN", "")
+        hf_token = get_settings().hf_token
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
 
@@ -317,7 +319,7 @@ async def download_hf_dataset_parquet(
         raise RuntimeError(msg) from None
 
     try:
-        hf_token = os.getenv("HF_TOKEN", "") or None
+        hf_token = get_settings().hf_token or None
         # Use trust_remote_code=False for security
         ds = hf_load_dataset(
             dataset,

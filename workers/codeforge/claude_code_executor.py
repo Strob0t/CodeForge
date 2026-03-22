@@ -13,10 +13,10 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from codeforge.config import get_settings
 from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
@@ -59,27 +59,23 @@ _MAP_TOOL_TO_POLICY: dict[str, str] = {
 # Default model for cost estimation when Claude Code doesn't report one.
 _DEFAULT_MODEL = "anthropic/claude-sonnet-4"
 
-# Concurrency limit from environment (read once at import time).
-_MAX_CONCURRENT = int(os.environ.get("CODEFORGE_CLAUDECODE_MAX_CONCURRENT", "5"))
-
 
 def get_default_max_turns() -> int:
-    """Return the default max_turns from env var or 50."""
-    return int(os.environ.get("CODEFORGE_CLAUDECODE_MAX_TURNS", "50"))
+    """Return the default max_turns from settings."""
+    return get_settings().claudecode_max_turns
 
 
 def get_timeout_seconds() -> int:
-    """Return the CLI timeout from env var or 300."""
-    return int(os.environ.get("CODEFORGE_CLAUDECODE_TIMEOUT", "300"))
+    """Return the CLI timeout from settings."""
+    return get_settings().claudecode_timeout
 
 
 def get_enabled_tiers() -> set[str]:
     """Return the set of complexity tiers that include Claude Code.
 
-    Reads from ``CODEFORGE_CLAUDECODE_TIERS`` (comma-separated).
     Default: ``COMPLEX,REASONING``.
     """
-    raw = os.environ.get("CODEFORGE_CLAUDECODE_TIERS", "COMPLEX,REASONING")
+    raw = get_settings().claudecode_tiers
     return {t.strip() for t in raw.split(",") if t.strip()}
 
 
@@ -91,7 +87,7 @@ def _get_semaphore() -> asyncio.Semaphore:
     """Return the module-level concurrency semaphore, creating it on first use."""
     global _semaphore
     if _semaphore is None:
-        _semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
+        _semaphore = asyncio.Semaphore(get_settings().claudecode_max_concurrent)
     return _semaphore
 
 

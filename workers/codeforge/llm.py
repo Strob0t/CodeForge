@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -14,6 +13,7 @@ from typing import TYPE_CHECKING, cast
 
 import httpx
 
+from codeforge.config import get_settings
 from codeforge.routing.rate_tracker import get_tracker
 
 if TYPE_CHECKING:
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Default model — empty means auto-discover from LiteLLM.
-# Override via CODEFORGE_DEFAULT_MODEL env var if needed.
-DEFAULT_MODEL: str = os.environ.get("CODEFORGE_DEFAULT_MODEL", "")
+# Override via CODEFORGE_DEFAULT_MODEL env var or codeforge.yaml if needed.
+DEFAULT_MODEL: str = get_settings().default_model
 
 # Regex to strip <think>...</think> blocks from final LLM output.
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)

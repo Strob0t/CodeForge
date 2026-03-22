@@ -10,7 +10,7 @@ Enabled when the mode's autonomy level >= 4 (set by Go dispatcher via plan_act_e
 
 from __future__ import annotations
 
-import os
+from codeforge.config import get_settings
 
 _DEFAULT_MAX_PLAN_ITERATIONS = 10
 
@@ -26,14 +26,8 @@ PLAN_TOOLS: frozenset[str] = frozenset(
 
 
 def get_max_plan_iterations() -> int:
-    """Read max plan iterations from env var, falling back to default."""
-    raw = os.environ.get("CODEFORGE_PLAN_ACT_MAX_ITERATIONS", "")
-    if raw:
-        try:
-            return int(raw)
-        except ValueError:
-            return _DEFAULT_MAX_PLAN_ITERATIONS
-    return _DEFAULT_MAX_PLAN_ITERATIONS
+    """Read max plan iterations from settings."""
+    return get_settings().plan_act_max_iterations
 
 
 class PlanActController:
