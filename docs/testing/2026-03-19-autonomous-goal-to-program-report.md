@@ -91,22 +91,22 @@ The agent tried to create a CSV with unclosed quotes to trigger csv.Error but in
 | Auto-onboarding blocks NATS pipeline | HIGH | FIXED (disabled) |
 | Goal-researcher autonomy too low | MEDIUM | FIXED (2->4) |
 | NATS sequential processing blocks pipeline | CRITICAL | FIXED (goroutine dispatch) |
-| NATS consumers not recreated after purge | HIGH | DOCUMENTED (restart backend after purge) |
-| CreateProject API ignores local_path | MEDIUM | DOCUMENTED (use AdoptProject after create) |
-| Full-auto gate overrides explicit model | HIGH | DOCUMENTED (create goal before agentic run) |
-| `openai/container` routes to wrong LiteLLM wildcard | MEDIUM | DOCUMENTED (use `lm_studio/*` for LM Studio) |
+| NATS consumers not recreated after purge | HIGH | FIXED (consumer health monitor + auto-recreate) |
+| CreateProject API ignores local_path | MEDIUM | FIXED (`local_path` field added to CreateProject API) |
+| Full-auto gate overrides explicit model | HIGH | FIXED (`WithModel` forwards explicit model through gate) |
+| `openai/container` routes to wrong LiteLLM wildcard | MEDIUM | FIXED (explicit entry in litellm/config.yaml) |
 
 ## Key Learnings
 
 1. **NATS stream MUST be purged before each test run** — old messages accumulate and block consumers
-2. **Go backend MUST be restarted AFTER NATS purge** — consumers hold stale references
+2. **Go backend auto-recreates consumers** after NATS purge (FIX-10; previously required restart)
 3. **Routing MUST be disabled** (`CODEFORGE_ROUTING_ENABLED=false`) — auto-router picks unhealthy models
 4. **Explicit model in NATS payload** overrides router (Bug 1 fix)
 5. **Local models (LM Studio) are slow** — 12min for S1 vs expected 10-15min
 6. **Agent self-correction works** — 15 edit_file calls show iterative fixing
 7. **Stall detection works** — agent correctly aborted after repeated failures
 8. **Quality instructions in prompt help** — agent ran bash (5x) for testing
-9. **workspace_path MUST be set via AdoptProject** — `POST /projects` ignores `local_path`; call `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` after creation
+9. **`local_path` in CreateProject** — `POST /projects` now accepts `local_path` for auto-adoption (FIX-7; previously required separate `POST /projects/{id}/adopt` call)
 10. **Local model argparse knowledge gap** — qwen3-30b adds explicit `--help` despite argparse auto-adding it; stronger models likely avoid this
 
 ## Run 4: Clean Slate (post all fixes, clean project)
@@ -132,9 +132,9 @@ Tool call count is low — model doesn't follow the full pipeline.
 
 ## Overall Result
 
-**PARTIAL → PASS (program)** — Run 7b produced a **functionally correct** csv2json.py (--help,
-conversion, error handling all pass). Infrastructure is fully stable (zero NATS timeouts since
-Run 4). Test file quality still varies (sys.argv patching missing). No run achieved a git commit.
+**PARTIAL → PASS (program + commit)** — Run 7b produced a **functionally correct** csv2json.py;
+Run 8 achieved the **first git commit**. Infrastructure is fully stable (zero NATS timeouts since
+Run 4). All 10 discovered bugs are now FIXED (6 during testing, 4 in follow-up fix/bugs-7-10 branch).
 The full-auto gate bug (Run 7) shows that project setup order matters: goals must exist before
 agentic runs on autonomy 4+ projects.
 

@@ -263,11 +263,9 @@ git add . && git commit -m "initial: test data"
 
 **Project Setup (API):**
 ```bash
-# 1. Create project
-PROJECT_ID=$(curl -s -X POST /api/v1/projects -d '{"name":"S1-wc-tool","config":{"autonomy_level":"4","policy_preset":"trusted-mount-autonomous","execution_mode":"mount"}}' | jq -r '.id')
-# 2. Adopt workspace (MANDATORY)
-curl -s -X POST /api/v1/projects/$PROJECT_ID/adopt -d '{"path":"/tmp/s1-wc-tool"}'
-# 3. Create goal (MANDATORY — prevents full-auto gate redirect)
+# 1. Create project with local_path (auto-adopts workspace in single call)
+PROJECT_ID=$(curl -s -X POST /api/v1/projects -d '{"name":"S1-wc-tool","local_path":"/tmp/s1-wc-tool","config":{"autonomy_level":"4","policy_preset":"trusted-mount-autonomous","execution_mode":"mount"}}' | jq -r '.id')
+# 2. Create goal (recommended — provides project context for the agent)
 curl -s -X POST /api/v1/projects/$PROJECT_ID/goals -d '{"kind":"requirement","title":"Build wc clone","content":"Build a Python wc clone with -c -l -w -m flags","priority":1}'
 # 4. Create conversation + bypass approvals
 CONV_ID=$(curl -s -X POST /api/v1/projects/$PROJECT_ID/conversations -d '{"title":"S1 wc tool"}' | jq -r '.id')
@@ -733,12 +731,11 @@ Before dispatching any agentic message, Claude Code MUST verify:
 - [ ] Go backend running with `APP_ENV=development`
 - [ ] Python worker running with `CODEFORGE_ROUTING_ENABLED=false`
 - [ ] Frontend running
-- [ ] Project created via API
-- [ ] **Workspace adopted** via `POST /projects/{id}/adopt` (MANDATORY)
-- [ ] **At least one goal created** via `POST /projects/{id}/goals` (MANDATORY — prevents full-auto gate)
+- [ ] Project created via API with `local_path` (auto-adopts workspace)
+- [ ] Goal created via `POST /projects/{id}/goals` (recommended for project context)
 - [ ] Conversation created and approvals bypassed
 - [ ] Test data files placed in workspace (if required by scenario)
-- [ ] Model `openai/container` (or target model) is healthy in LiteLLM
+- [ ] Model `openai/container` or `lm_studio/*` is healthy in LiteLLM
 
 ---
 
