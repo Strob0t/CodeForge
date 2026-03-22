@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { api, FetchError, getAccessToken, setAccessTokenGetter } from "./client";
+import type { CoreClient } from "./core";
 
 describe("API Client", () => {
   describe("exports", () => {
@@ -201,5 +202,84 @@ describe("API Client", () => {
       setAccessTokenGetter(() => null);
       expect(getAccessToken()).toBeNull();
     });
+  });
+});
+
+describe("API Core", () => {
+  it("should export FetchError from core module", async () => {
+    const mod = await import("./core");
+    expect(mod.FetchError).toBeDefined();
+    expect(typeof mod.FetchError).toBe("function");
+  });
+
+  it("should export createCoreClient from core module", async () => {
+    const mod = await import("./core");
+    expect(typeof mod.createCoreClient).toBe("function");
+  });
+
+  it("should create core client with expected methods", async () => {
+    const mod = await import("./core");
+    const client: CoreClient = mod.createCoreClient();
+    expect(typeof client.get).toBe("function");
+    expect(typeof client.post).toBe("function");
+    expect(typeof client.put).toBe("function");
+    expect(typeof client.patch).toBe("function");
+    expect(typeof client.del).toBe("function");
+    expect(typeof client.request).toBe("function");
+    expect(typeof client.invalidateCache).toBe("function");
+    expect(client.BASE).toBe("/api/v1");
+  });
+
+  it("should export setAccessTokenGetter and getAccessToken from core", async () => {
+    const mod = await import("./core");
+    expect(typeof mod.setAccessTokenGetter).toBe("function");
+    expect(typeof mod.getAccessToken).toBe("function");
+  });
+});
+
+describe("API Resources index", () => {
+  it("should export all resource factories", async () => {
+    const mod = await import("./resources");
+    expect(typeof mod.createProjectsResource).toBe("function");
+    expect(typeof mod.createBatchResource).toBe("function");
+    expect(typeof mod.createConversationsResource).toBe("function");
+    expect(typeof mod.createAuthResource).toBe("function");
+    expect(typeof mod.createVCSAccountsResource).toBe("function");
+    expect(typeof mod.createSubscriptionProvidersResource).toBe("function");
+    expect(typeof mod.createFilesResource).toBe("function");
+    expect(typeof mod.createAgentsResource).toBe("function");
+    expect(typeof mod.createTasksResource).toBe("function");
+    expect(typeof mod.createLLMResource).toBe("function");
+    expect(typeof mod.createCostsResource).toBe("function");
+    expect(typeof mod.createProvidersResource).toBe("function");
+    expect(typeof mod.createBenchmarksResource).toBe("function");
+    expect(typeof mod.createRoadmapResource).toBe("function");
+    expect(typeof mod.createSettingsResource).toBe("function");
+    expect(typeof mod.createAgentConfigResource).toBe("function");
+    expect(typeof mod.createModesResource).toBe("function");
+    expect(typeof mod.createPoliciesResource).toBe("function");
+    expect(typeof mod.createUsersResource).toBe("function");
+    expect(typeof mod.createReviewsResource).toBe("function");
+    expect(typeof mod.createScopesResource).toBe("function");
+    expect(typeof mod.createKnowledgeBasesResource).toBe("function");
+    expect(typeof mod.createPromptSectionsResource).toBe("function");
+    expect(typeof mod.createHealthResource).toBe("function");
+    expect(typeof mod.createRunsResource).toBe("function");
+    expect(typeof mod.createSessionsResource).toBe("function");
+    expect(typeof mod.createPlansResource).toBe("function");
+    expect(typeof mod.createRepomapResource).toBe("function");
+    expect(typeof mod.createRetrievalResource).toBe("function");
+    expect(typeof mod.createGraphResource).toBe("function");
+    expect(typeof mod.createDashboardResource).toBe("function");
+    expect(typeof mod.createTrajectoryResource).toBe("function");
+    expect(typeof mod.createSearchResource).toBe("function");
+    expect(typeof mod.createLSPResource).toBe("function");
+    expect(typeof mod.createDevResource).toBe("function");
+    expect(typeof mod.createMCPResource).toBe("function");
+    expect(typeof mod.createAutoAgentResource).toBe("function");
+    expect(typeof mod.createActiveWorkResource).toBe("function");
+    expect(typeof mod.createGoalsResource).toBe("function");
+    expect(typeof mod.createChannelsResource).toBe("function");
+    expect(typeof mod.createAuditResource).toBe("function");
   });
 });
