@@ -85,12 +85,12 @@
 
 ## Bugs Found
 
-| ID | Phase | Severity | Description |
-|----|-------|----------|-------------|
-| BUG-001 | 9 | Minor | Goals "Detect" toast shows "Detected and imported undefined goals" — `undefined` instead of count |
-| BUG-002 | 5 | Minor | File tree doesn't auto-refresh after creating file via New File dialog (file appears in editor tab but not in tree until page navigation) |
-| BUG-003 | 6 | Info | Git Pull on local-only project returns "internal server error" instead of user-friendly message like "No remote configured" |
-| BUG-004 | 9 | Minor | Goals ON/OFF toggle button at bottom of panel intercepted by chat header (Playwright pointer interception — z-index overlap, same as previously fixed for GoalsPanel form) |
+| ID | Phase | Severity | Status | Description | Fix |
+|----|-------|----------|--------|-------------|-----|
+| BUG-001 | 9 | Minor | FIXED | Goals "Detect" toast shows "undefined" instead of count | `result.imported` -> `result.goals_created` (`GoalsPanel.tsx:68`) |
+| BUG-002 | 5 | Minor | FIXED | File tree doesn't auto-refresh after New File creation | `onRefetchReady` callback prop + `onMount` (`FileTree.tsx`, `FilePanel.tsx`) |
+| BUG-003 | 6 | Info | FIXED | Git Pull returns 500 instead of helpful message for local projects | Detect "no remote" errors -> return 422 (`project.go:319`) |
+| BUG-004 | 9 | Minor | FIXED | Goals ON/OFF toggle intercepted by chat header (z-index overlap) | `relative z-10` on goals list container (`GoalsPanel.tsx:194`) |
 
 ---
 
@@ -115,8 +115,8 @@
 
 ### Needs Work
 - Slash commands may not intercept `/` prefix (typed as smart reference instead)
-- File tree refresh after operations
-- Git error messages could be more descriptive
+- ~~File tree refresh after operations~~ (FIXED: `3249c29`)
+- ~~Git error messages could be more descriptive~~ (FIXED: `33554a1`)
 - Some features only accessible via API (channels, policies, agent identity)
 
 ---
