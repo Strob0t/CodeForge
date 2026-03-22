@@ -293,3 +293,58 @@ class TestPlanActPayloadModel:
         # If it raises, we need a validator.
         msg = ConversationRunStartMessage.model_validate(raw)
         assert msg.plan_act_enabled is False
+
+
+class TestPlanActControllerExtraPlanTools:
+    """Bug #2: Mode-declared tools should be allowed in PLAN phase."""
+
+    def test_mode_extra_plan_tools_allowed(self) -> None:
+        """Mode-declared tools should be allowed in PLAN phase."""
+        from codeforge.plan_act import PlanActController
+
+        ctrl = PlanActController(enabled=True, extra_plan_tools=frozenset({"propose_goal", "write_file"}))
+        assert ctrl.is_tool_allowed("read_file") is True  # base PLAN tool
+        assert ctrl.is_tool_allowed("propose_goal") is True  # mode extra tool
+        assert ctrl.is_tool_allowed("write_file") is True  # mode extra tool
+        assert ctrl.is_tool_allowed("bash") is False  # still blocked
+
+    def test_no_extra_plan_tools_default(self) -> None:
+        """Without extra tools, behavior is unchanged."""
+        from codeforge.plan_act import PlanActController
+
+        ctrl = PlanActController(enabled=True)
+        assert ctrl.is_tool_allowed("propose_goal") is False
+        assert ctrl.is_tool_allowed("read_file") is True
+
+    def test_extra_plan_tools_empty_frozenset(self) -> None:
+        """Empty frozenset behaves like no extras."""
+        from codeforge.plan_act import PlanActController
+
+        ctrl = PlanActController(enabled=True, extra_plan_tools=frozenset())
+        assert ctrl.is_tool_allowed("propose_goal") is False
+        assert ctrl.is_tool_allowed("read_file") is True
+
+    def test_extra_plan_tools_ignored_in_act_phase(self) -> None:
+        """Extra tools parameter has no effect in act phase (all tools already allowed)."""
+        from codeforge.plan_act import PlanActController
+
+        ctrl = PlanActController(enabled=True, extra_plan_tools=frozenset({"propose_goal"}))
+        ctrl.transition_to_act()
+        assert ctrl.is_tool_allowed("bash") is True
+        assert ctrl.is_tool_allowed("propose_goal") is True
+
+    def test_extra_plan_tools_ignored_when_disabled(self) -> None:
+        """Extra tools parameter has no effect when plan/act is disabled."""
+        from codeforge.plan_act import PlanActController
+
+        ctrl = PlanActController(enabled=False, extra_plan_tools=frozenset({"propose_goal"}))
+        assert ctrl.is_tool_allowed("bash") is True
+        assert ctrl.is_tool_allowed("propose_goal") is True
+
+    def test_system_suffix_mentions_extra_tools(self) -> None:
+        """PLAN suffix should mention extra tools when present."""
+        from codeforge.plan_act import PlanActController
+
+        ctrl = PlanActController(enabled=True, extra_plan_tools=frozenset({"propose_goal"}))
+        suffix = ctrl.get_system_suffix()
+        assert "propose_goal" in suffix
