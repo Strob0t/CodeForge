@@ -22,6 +22,15 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# Context token limits per capability level (M3).
+# Weak models have smaller effective context windows even if the advertised
+# window is larger -- capping prevents prompt bloat and confused outputs.
+_CONTEXT_LIMITS: dict[str, int] = {
+    "full": 120_000,
+    "api_with_tools": 32_000,
+    "pure_completion": 16_000,
+}
+
 # Cache the step-by-step prompt content (loaded once from YAML).
 _STEP_BY_STEP_CACHE: str | None = None
 
@@ -152,7 +161,15 @@ class ConversationHandlerMixin:
                 )
                 run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
-            history_mgr = ConversationHistoryManager(HistoryConfig())
+            # Cap context tokens based on model capability level (M3).
+            from codeforge.tools.capability import classify_model
+
+            _cap_level = classify_model(run_msg.model)
+            _context_cap = _CONTEXT_LIMITS.get(_cap_level, 120_000)
+            history_cfg = HistoryConfig(max_context_tokens=_context_cap)
+            log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
+
+            history_mgr = ConversationHistoryManager(history_cfg)
             messages = history_mgr.build_messages(
                 system_prompt=system_prompt,
                 history=run_msg.messages,
