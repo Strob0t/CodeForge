@@ -582,7 +582,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" || leftTab() === "trajectory" || leftTab() === "boundaries" ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 overflow-hidden ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" || leftTab() === "trajectory" || leftTab() === "boundaries" ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
