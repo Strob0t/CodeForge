@@ -3,6 +3,7 @@ package quarantine
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
@@ -46,6 +47,14 @@ func ScoreMessage(ann *trust.Annotation, payload []byte) (score float64, factors
 			score += 0.1
 			factors = append(factors, "A2A origin (+0.1)")
 		}
+	}
+
+	// Sanitize invalid UTF-8 before regex matching to prevent undefined
+	// behavior in pattern matchers and avoid bypassing detection via
+	// malformed byte sequences.
+	if !utf8.Valid(payload) {
+		payload = []byte(strings.ToValidUTF8(string(payload), "\uFFFD"))
+		factors = append(factors, "invalid UTF-8 sanitized")
 	}
 
 	// Content-based scoring.

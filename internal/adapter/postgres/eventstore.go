@@ -14,6 +14,61 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 )
 
+// queryBuilder constructs parameterized WHERE clauses with sequential
+// placeholder indices, eliminating manual argIdx tracking and the
+// associated SQL injection risk from fmt.Sprintf with user-influenced data.
+type queryBuilder struct {
+	conditions []string
+	args       []any
+	argIdx     int
+}
+
+// newQueryBuilder starts a builder pre-seeded with a tenant_id = $1 condition.
+func newQueryBuilder(tenantID string) *queryBuilder {
+	return &queryBuilder{
+		conditions: []string{"tenant_id = $1"},
+		args:       []any{tenantID},
+		argIdx:     2,
+	}
+}
+
+// newQueryBuilderWith starts a builder with an initial named condition and
+// the tenant_id condition, e.g. newQueryBuilderWith("run_id", runID, tenantID).
+func newQueryBuilderWith(col string, val any, tenantID string) *queryBuilder {
+	return &queryBuilder{
+		conditions: []string{col + " = $1", "tenant_id = $2"},
+		args:       []any{val, tenantID},
+		argIdx:     3,
+	}
+}
+
+// addCondition appends a parameterized condition. tmpl must contain exactly
+// one %d verb for the placeholder index, e.g. "created_at > $%d".
+func (qb *queryBuilder) addCondition(tmpl string, val any) {
+	qb.conditions = append(qb.conditions, fmt.Sprintf(tmpl, qb.argIdx))
+	qb.args = append(qb.args, val)
+	qb.argIdx++
+}
+
+// addRawCondition appends a literal condition with no parameter (e.g. a
+// static expression). The caller is responsible for ensuring safety.
+func (qb *queryBuilder) addRawCondition(cond string) {
+	qb.conditions = append(qb.conditions, cond)
+}
+
+// where returns the joined WHERE clause.
+func (qb *queryBuilder) where() string {
+	return strings.Join(qb.conditions, " AND ")
+}
+
+// addLimit appends a LIMIT parameter and returns its placeholder index.
+func (qb *queryBuilder) addLimit(limit int) int {
+	idx := qb.argIdx
+	qb.args = append(qb.args, limit)
+	qb.argIdx++
+	return idx
+}
+
 // EventStore implements eventstore.Store using PostgreSQL (append-only).
 type EventStore struct {
 	pool *pgxpool.Pool
@@ -105,58 +160,42 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 	}
 
 	tid := middleware.TenantIDFromContext(ctx)
-
-	// Build dynamic WHERE clause.
-	args := []any{runID, tid}
-	conditions := []string{"run_id = $1", "tenant_id = $2"}
-	argIdx := 3
+	qb := newQueryBuilderWith("run_id", runID, tid)
 
 	if cursor != "" {
-		conditions = append(conditions, fmt.Sprintf("id > $%d", argIdx))
-		args = append(args, cursor)
-		argIdx++
+		qb.addCondition("id > $%d", cursor)
 	}
 	if len(filter.Types) > 0 {
 		types := make([]string, len(filter.Types))
 		for i, t := range filter.Types {
 			types[i] = string(t)
 		}
-		conditions = append(conditions, fmt.Sprintf("event_type = ANY($%d)", argIdx))
-		args = append(args, types)
-		argIdx++
+		qb.addCondition("event_type = ANY($%d)", types)
 	}
 	if filter.After != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at > $%d", argIdx))
-		args = append(args, *filter.After)
-		argIdx++
+		qb.addCondition("created_at > $%d", *filter.After)
 	}
 	if filter.Before != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at < $%d", argIdx))
-		args = append(args, *filter.Before)
-		argIdx++
+		qb.addCondition("created_at < $%d", *filter.Before)
 	}
 	if filter.AfterSequence > 0 {
-		conditions = append(conditions, fmt.Sprintf("sequence_number > $%d", argIdx))
-		args = append(args, filter.AfterSequence)
-		argIdx++
+		qb.addCondition("sequence_number > $%d", filter.AfterSequence)
 	}
-
-	where := strings.Join(conditions, " AND ")
 
 	// Count total matching events.
 	var total int
-	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM agent_events WHERE %s`, where)
-	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM agent_events WHERE %s`, qb.where())
+	if err := s.pool.QueryRow(ctx, countSQL, qb.args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count trajectory events: %w", err)
 	}
 
 	// Fetch limit+1 to detect hasMore.
+	limitIdx := qb.addLimit(limit + 1)
 	fetchSQL := fmt.Sprintf(
 		`SELECT %s FROM agent_events WHERE %s ORDER BY sequence_number ASC LIMIT $%d`,
-		eventColumns, where, argIdx)
-	args = append(args, limit+1)
+		eventColumns, qb.where(), limitIdx)
 
-	rows, err := s.pool.Query(ctx, fetchSQL, args...)
+	rows, err := s.pool.Query(ctx, fetchSQL, qb.args...)
 	if err != nil {
 		return nil, fmt.Errorf("load trajectory: %w", err)
 	}
@@ -258,26 +297,19 @@ func (s *EventStore) TrajectoryStats(ctx context.Context, runID string) (*events
 // If fromEventID is empty, starts from the beginning. If toEventID is empty, goes to the end.
 func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, toEventID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
-
-	args := []any{runID, tid}
-	conditions := []string{"run_id = $1", "tenant_id = $2"}
-	argIdx := 3
+	qb := newQueryBuilderWith("run_id", runID, tid)
 
 	if fromEventID != "" {
-		conditions = append(conditions, fmt.Sprintf("version >= (SELECT version FROM agent_events WHERE id = $%d)", argIdx))
-		args = append(args, fromEventID)
-		argIdx++
+		qb.addCondition("version >= (SELECT version FROM agent_events WHERE id = $%d)", fromEventID)
 	}
 	if toEventID != "" {
-		conditions = append(conditions, fmt.Sprintf("version <= (SELECT version FROM agent_events WHERE id = $%d)", argIdx))
-		args = append(args, toEventID)
+		qb.addCondition("version <= (SELECT version FROM agent_events WHERE id = $%d)", toEventID)
 	}
 
-	where := strings.Join(conditions, " AND ")
 	query := fmt.Sprintf(
-		`SELECT %s FROM agent_events WHERE %s ORDER BY version ASC`, eventColumns, where)
+		`SELECT %s FROM agent_events WHERE %s ORDER BY version ASC`, eventColumns, qb.where())
 
-	rows, err := s.pool.Query(ctx, query, args...)
+	rows, err := s.pool.Query(ctx, query, qb.args...)
 	if err != nil {
 		return nil, fmt.Errorf("load events range: %w", err)
 	}
@@ -324,64 +356,45 @@ func (s *EventStore) LoadAudit(ctx context.Context, filter *event.AuditFilter, c
 	}
 
 	tid := middleware.TenantIDFromContext(ctx)
-
-	args := []any{tid}
-	conditions := []string{"tenant_id = $1"}
-	argIdx := 2
+	qb := newQueryBuilder(tid)
 
 	if filter.ProjectID != "" {
-		conditions = append(conditions, fmt.Sprintf("project_id = $%d", argIdx))
-		args = append(args, filter.ProjectID)
-		argIdx++
+		qb.addCondition("project_id = $%d", filter.ProjectID)
 	}
 	if filter.RunID != "" {
-		conditions = append(conditions, fmt.Sprintf("run_id = $%d", argIdx))
-		args = append(args, filter.RunID)
-		argIdx++
+		qb.addCondition("run_id = $%d", filter.RunID)
 	}
 	if filter.AgentID != "" {
-		conditions = append(conditions, fmt.Sprintf("agent_id = $%d", argIdx))
-		args = append(args, filter.AgentID)
-		argIdx++
+		qb.addCondition("agent_id = $%d", filter.AgentID)
 	}
 	if filter.Action != "" {
-		conditions = append(conditions, fmt.Sprintf("action = $%d", argIdx))
-		args = append(args, filter.Action)
-		argIdx++
+		qb.addCondition("action = $%d", filter.Action)
 	}
 	if filter.After != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at > $%d", argIdx))
-		args = append(args, *filter.After)
-		argIdx++
+		qb.addCondition("created_at > $%d", *filter.After)
 	}
 	if filter.Before != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at < $%d", argIdx))
-		args = append(args, *filter.Before)
-		argIdx++
+		qb.addCondition("created_at < $%d", *filter.Before)
 	}
 	if cursor != "" {
-		conditions = append(conditions, fmt.Sprintf("id > $%d", argIdx))
-		args = append(args, cursor)
-		argIdx++
+		qb.addCondition("id > $%d", cursor)
 	}
-
-	where := strings.Join(conditions, " AND ")
 
 	// Count total
 	var total int
-	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM audit_trail WHERE %s`, where)
-	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+	countSQL := fmt.Sprintf(`SELECT COUNT(*) FROM audit_trail WHERE %s`, qb.where())
+	if err := s.pool.QueryRow(ctx, countSQL, qb.args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count audit entries: %w", err)
 	}
 
 	// Fetch limit+1 to detect hasMore
+	limitIdx := qb.addLimit(limit + 1)
 	fetchSQL := fmt.Sprintf(
 		`SELECT id, COALESCE(project_id::text, ''), COALESCE(run_id::text, ''), COALESCE(agent_id::text, ''), action, COALESCE(details, ''), created_at
 		 FROM audit_trail WHERE %s ORDER BY created_at DESC LIMIT $%d`,
-		where, argIdx)
-	args = append(args, limit+1)
+		qb.where(), limitIdx)
 
-	rows, err := s.pool.Query(ctx, fetchSQL, args...)
+	rows, err := s.pool.Query(ctx, fetchSQL, qb.args...)
 	if err != nil {
 		return nil, fmt.Errorf("load audit: %w", err)
 	}

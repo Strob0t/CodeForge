@@ -50,7 +50,9 @@ export function AuthProvider(props: { children: JSX.Element }): JSX.Element {
   const scheduleRefresh = (expiresIn: number): void => {
     if (refreshTimerId !== undefined) clearTimeout(refreshTimerId);
     // Refresh 60s before expiry, minimum 10s.
-    const delay = Math.max((expiresIn - 60) * 1000, 10_000);
+    // Random jitter (0-30s) prevents thundering herd when many tabs refresh.
+    const jitter = Math.random() * 30_000;
+    const delay = Math.max((expiresIn - 60) * 1000 + jitter, 10_000);
     refreshTimerId = setTimeout(() => {
       void refreshTokens();
     }, delay);

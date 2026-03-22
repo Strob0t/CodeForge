@@ -77,9 +77,9 @@ class ExperiencePool:
             if entry_emb_bytes is None:
                 continue
             entry_emb = np.frombuffer(entry_emb_bytes, dtype=np.float32)
-            similarity = float(
-                np.dot(query_emb, entry_emb) / (np.linalg.norm(query_emb) * np.linalg.norm(entry_emb) + 1e-8)
-            )
+            norm_q = np.linalg.norm(query_emb)
+            norm_e = np.linalg.norm(entry_emb)
+            similarity = 0.0 if norm_q == 0 or norm_e == 0 else float(np.dot(query_emb, entry_emb) / (norm_q * norm_e))
             if similarity > best_score:
                 best_score = similarity
                 best_entry = {

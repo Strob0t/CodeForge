@@ -4,9 +4,16 @@ package microagent
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
+
+// MaxTriggerPatternLength is the maximum allowed length for a trigger pattern
+// to prevent ReDoS attacks via excessively long or complex regex patterns.
+const MaxTriggerPatternLength = 512
 
 // Type categorizes the microagent's purpose.
 type Type string
@@ -64,6 +71,15 @@ func (r *CreateRequest) Validate() error {
 	}
 	if r.TriggerPattern == "" {
 		return errors.New("trigger_pattern is required")
+	}
+	if len(r.TriggerPattern) > MaxTriggerPatternLength {
+		return fmt.Errorf("trigger_pattern exceeds maximum length of %d", MaxTriggerPatternLength)
+	}
+	// Validate regex syntax for patterns that look like regex.
+	if strings.HasPrefix(r.TriggerPattern, "^") || strings.HasPrefix(r.TriggerPattern, "(") {
+		if _, err := regexp.Compile(r.TriggerPattern); err != nil {
+			return fmt.Errorf("invalid trigger_pattern regex: %w", err)
+		}
 	}
 	if r.Prompt == "" {
 		return errors.New("prompt is required")

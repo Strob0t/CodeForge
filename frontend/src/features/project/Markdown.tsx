@@ -121,6 +121,8 @@ function renderInline(text: string): string {
     '<code class="rounded-cf-sm bg-cf-bg-inset px-1 py-0.5 text-sm">$1</code>',
   );
   // Links — sanitize URL protocol to prevent javascript: XSS
+  // Whitelist: only http(s) and mailto URLs are allowed.
+  // All other protocols (javascript:, data:, vbscript:, etc.) resolve to "#".
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
     (_match: string, text: string, url: string) => {

@@ -356,6 +356,11 @@ func validate(cfg *Config) error {
 		return errors.New("auth.jwt_secret is required when auth.enabled is true")
 	}
 
+	// Auth validation: reject default JWT secret in production.
+	if cfg.Auth.JWTSecret == "codeforge-dev-jwt-secret-change-in-production" && os.Getenv("APP_ENV") == "production" {
+		return errors.New("FATAL: default JWT secret detected in production -- set CODEFORGE_AUTH_JWT_SECRET environment variable")
+	}
+
 	// Auth validation: enforce minimum bcrypt cost for security.
 	if cfg.Auth.BcryptCost < 10 {
 		return errors.New("auth.bcrypt_cost must be >= 10")

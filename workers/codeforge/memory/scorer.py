@@ -34,6 +34,9 @@ class CompositeScorer:
         half_life_hours: float = 168.0,
     ) -> None:
         self.weights = weights or ScoreWeights()
+        total = self.weights.semantic + self.weights.recency + self.weights.importance
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"Score weights must sum to 1.0, got {total}")
         # lambda = ln(2) / half_life
         self._decay_lambda = math.log(2) / half_life_hours
 

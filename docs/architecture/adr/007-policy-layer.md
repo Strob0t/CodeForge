@@ -60,7 +60,7 @@ No rule matched -> return defaultDecisionForMode(profile.Mode)
 
 Deny lists take precedence over allow lists within a single rule. This means a path that matches both `PathAllow` and `PathDeny` is denied (safe default).
 
-#### Built-in Presets (4)
+#### Built-in Presets (5)
 
 | Preset | Mode | Use Case | Key Rules |
 |---|---|---|---|
@@ -68,6 +68,7 @@ Deny lists take precedence over allow lists within a single rule. This means a p
 | `headless-safe-sandbox` | default | Safe autonomous execution | Allow Read/Edit/Write (deny .env/secrets), Bash limited to git/test; 50 steps, 600s, $5 |
 | `headless-permissive-sandbox` | default | Broader autonomous execution | Allow most tools, deny network commands (curl/wget/ssh); 100 steps, 1800s, $20 |
 | `trusted-mount-autonomous` | acceptEdits | Trusted agents on mounted repos | Allow all tools, deny only secrets paths; 200 steps, 3600s, $50 |
+| `supervised-ask-all` | default | Maximum oversight, first-time agent evaluation | All tools: decision = "ask", no path/command restrictions (human decides each action); 50 steps, 600s, $5 |
 
 #### Custom Policies
 
@@ -143,7 +144,7 @@ Custom profiles are loaded on startup from YAML files and can be created/deleted
 ### References
 
 - `internal/domain/policy/policy.go` -- Domain model (PolicyProfile, PermissionRule, ToolCall, Decision)
-- `internal/domain/policy/presets.go` -- 4 built-in presets
+- `internal/domain/policy/presets.go` -- 5 built-in presets
 - `internal/domain/policy/validate.go` -- Profile validation
 - `internal/domain/policy/loader.go` -- YAML loading + SaveToFile
 - `internal/service/policy.go` -- PolicyService with first-match-wins evaluation

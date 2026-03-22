@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -60,6 +61,14 @@ func (s *MicroagentService) Update(ctx context.Context, id string, req microagen
 		m.Name = req.Name
 	}
 	if req.TriggerPattern != "" {
+		if len(req.TriggerPattern) > microagent.MaxTriggerPatternLength {
+			return nil, errors.New("trigger_pattern exceeds maximum length")
+		}
+		if strings.HasPrefix(req.TriggerPattern, "^") || strings.HasPrefix(req.TriggerPattern, "(") {
+			if _, compileErr := regexp.Compile(req.TriggerPattern); compileErr != nil {
+				return nil, fmt.Errorf("invalid trigger_pattern regex: %w", compileErr)
+			}
+		}
 		m.TriggerPattern = req.TriggerPattern
 	}
 	if req.Description != "" {
@@ -101,15 +110,28 @@ func (s *MicroagentService) Match(ctx context.Context, projectID, text string) (
 	return matched, nil
 }
 
+// maxTriggerInputLength is the maximum number of characters of input text
+// to match against a regex trigger pattern, bounding regex execution time.
+const maxTriggerInputLength = 10_000
+
 // matchesTrigger checks if text matches a trigger pattern.
-// Patterns can be simple substrings or regex (prefixed with ^).
+// Patterns can be simple substrings or regex (prefixed with ^ or ().
+// Patterns exceeding MaxTriggerPatternLength are rejected to prevent ReDoS.
+// Input text is truncated to maxTriggerInputLength before regex matching.
 func matchesTrigger(pattern, text string) bool {
+	if len(pattern) > microagent.MaxTriggerPatternLength {
+		return false
+	}
 	if strings.HasPrefix(pattern, "^") || strings.HasPrefix(pattern, "(") {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			return false
 		}
-		return re.MatchString(text)
+		input := text
+		if len(input) > maxTriggerInputLength {
+			input = input[:maxTriggerInputLength]
+		}
+		return re.MatchString(input)
 	}
 	return strings.Contains(strings.ToLower(text), strings.ToLower(pattern))
 }

@@ -3,9 +3,9 @@
 Models are blocked with a TTL. After expiry they become eligible again,
 self-healing when API keys are added or billing is restored.
 
-TODO: FIX-110: This module uses a module-level singleton (_blocklist).
-Consider dependency injection (pass ModelBlocklist into HybridRouter via
-constructor) to improve testability and avoid global mutable state.
+Provides both a ``ModelBlocklist`` class for dependency injection and a
+module-level default instance via ``get_blocklist()`` for backward
+compatibility.
 """
 
 from __future__ import annotations
@@ -38,10 +38,7 @@ class BlockEntry:
 
 
 class ModelBlocklist:
-    """Thread-safe blocklist for models that returned auth/billing errors.
-
-    Follows the same singleton pattern as RateLimitTracker.
-    """
+    """Thread-safe blocklist for models that returned auth/billing errors."""
 
     __slots__ = ("_blocked", "_lock", "_now")
 
@@ -68,7 +65,12 @@ class ModelBlocklist:
         )
         with self._lock:
             self._blocked[model] = entry
-        logger.warning("model_blocklist: auth-blocked %s for %.0fs (reason: %s)", model, _AUTH_BLOCK_TTL, reason)
+        logger.warning(
+            "model_blocklist: auth-blocked %s for %.0fs (reason: %s)",
+            model,
+            _AUTH_BLOCK_TTL,
+            reason,
+        )
 
     def is_blocked(self, model: str) -> bool:
         """Return True if *model* is currently blocked (not expired).

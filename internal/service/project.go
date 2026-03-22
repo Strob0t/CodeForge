@@ -405,16 +405,22 @@ func (s *ProjectService) DetectStackByPath(_ context.Context, path string) (*pro
 
 // isUnderWorkspaceRoot validates that the path is under the workspace root
 // to prevent accidental deletion of unrelated directories.
-func (s *ProjectService) isUnderWorkspaceRoot(path string) bool {
-	absRoot, err := filepath.Abs(s.workspaceRoot)
+// It uses EvalSymlinks to resolve symlinks and clean paths, guarding against
+// symlink-based path traversal attacks.
+func (s *ProjectService) isUnderWorkspaceRoot(wsPath string) bool {
+	if wsPath == "" || s.workspaceRoot == "" {
+		return false
+	}
+	// EvalSymlinks resolves symlinks AND cleans the path.
+	resolvedPath, err := filepath.EvalSymlinks(wsPath)
+	if err != nil {
+		return false // path doesn't exist or can't be resolved — reject
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(s.workspaceRoot)
 	if err != nil {
 		return false
 	}
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(absPath, absRoot+string(filepath.Separator))
+	return strings.HasPrefix(resolvedPath, resolvedRoot+string(filepath.Separator))
 }
 
 // SetupProject chains: clone -> detect stack -> detect specs -> import specs.

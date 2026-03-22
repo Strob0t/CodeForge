@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -146,12 +147,35 @@ func TestCheckTermination_NoLimits(t *testing.T) {
 	r := &run.Run{
 		StepCount: 999,
 		CostUSD:   999,
-		StartedAt: time.Now().Add(-24 * time.Hour),
+		StartedAt: time.Now().Add(-10 * time.Minute), // within absolute timeout
 	}
 
 	reason := svc.checkTermination(r, profile)
 	if reason != "" {
 		t.Fatalf("expected no termination with empty limits, got %q", reason)
+	}
+}
+
+func TestCheckTermination_AbsoluteTimeout(t *testing.T) {
+	svc := &RuntimeService{
+		runtimeCfg: &config.Runtime{},
+	}
+
+	profile := &policy.PolicyProfile{
+		Termination: policy.TerminationCondition{},
+	}
+
+	// Run started well over 1 hour ago should be terminated
+	r := &run.Run{
+		StartedAt: time.Now().Add(-2 * time.Hour),
+	}
+
+	reason := svc.checkTermination(r, profile)
+	if reason == "" {
+		t.Fatal("expected absolute timeout termination, got empty")
+	}
+	if !strings.Contains(reason, "absolute execution timeout") {
+		t.Fatalf("expected absolute timeout message, got %q", reason)
 	}
 }
 

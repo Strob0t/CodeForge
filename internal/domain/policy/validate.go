@@ -2,6 +2,9 @@ package policy
 
 import "fmt"
 
+// MaxStepsLimit is the upper bound for MaxSteps to prevent runaway agents.
+const MaxStepsLimit = 10_000
+
 // Validate checks that a PolicyProfile is well-formed.
 func (p *PolicyProfile) Validate() error {
 	if p.Name == "" {
@@ -17,6 +20,9 @@ func (p *PolicyProfile) Validate() error {
 	}
 	if p.Termination.MaxSteps < 0 {
 		return fmt.Errorf("policy: max_steps must be >= 0")
+	}
+	if p.Termination.MaxSteps > MaxStepsLimit {
+		return fmt.Errorf("policy: max_steps must not exceed %d", MaxStepsLimit)
 	}
 	if p.Termination.TimeoutSeconds < 0 {
 		return fmt.Errorf("policy: timeout_seconds must be >= 0")

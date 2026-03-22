@@ -93,7 +93,7 @@ func run() error {
 	}
 
 	// Replace bootstrap logger with configured one.
-	log, logCloser := logger.New(cfg.Logging)
+	log, logCloser, logDropped := logger.New(cfg.Logging)
 	slog.SetDefault(log)
 	defer logCloser.Close()
 
@@ -820,7 +820,7 @@ func run() error {
 	r.Get("/ws", hub.HandleWS)
 
 	// Liveness (always 200)
-	r.Get("/health", livenessHandler)
+	r.Get("/health", livenessHandler(logDropped))
 
 	// Readiness (pings DB, checks NATS, checks LiteLLM)
 	r.Get("/health/ready", readinessHandler(pool, queue, llmClient))
@@ -1021,18 +1021,23 @@ func run() error {
 
 // livenessHandler always returns 200 (Kubernetes liveness probe).
 // It also includes a dev_mode flag so the frontend can conditionally
-// show development-only features like the benchmark page.
-func livenessHandler(w http.ResponseWriter, _ *http.Request) {
-	devMode := os.Getenv("APP_ENV") == "development"
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(struct {
-		Status  string `json:"status"`
-		DevMode bool   `json:"dev_mode"`
-	}{
-		Status:  "ok",
-		DevMode: devMode,
-	})
+// show development-only features like the benchmark page, and dropped_logs
+// to surface async logger buffer pressure.
+func livenessHandler(dropped logger.DroppedCounter) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		devMode := os.Getenv("APP_ENV") == "development"
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(struct {
+			Status      string `json:"status"`
+			DevMode     bool   `json:"dev_mode"`
+			DroppedLogs int64  `json:"dropped_logs"`
+		}{
+			Status:      "ok",
+			DevMode:     devMode,
+			DroppedLogs: dropped.DroppedCount(),
+		})
+	}
 }
 
 // readinessHandler checks all dependencies and returns 503 if any are down.

@@ -67,10 +67,16 @@ func (s *Server) getCostSummaryTool() mcpserver.ServerTool {
 	}
 }
 
+// Tool handlers below pass ctx to dep methods so the store layer can extract
+// tenant ID via tenantctx.FromContext(ctx) for per-tenant filtering.
+//
+// NOTE: The MCP transport's AuthMiddleware currently validates API keys but does
+// NOT inject tenant context into the request context. As a result, the store
+// falls back to tenantctx.DefaultTenantID. When multi-tenant MCP access is
+// needed, the AuthMiddleware must call tenantctx.WithTenant on the context.
+// TODO(F8-D3): inject tenant context in MCP AuthMiddleware for per-user filtering.
+
 func (s *Server) handleListProjects(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.CallToolResult, error) { //nolint:gocritic // hugeParam: mcp-go handler signature
-	if s.deps.ProjectLister == nil {
-		return mcplib.NewToolResultError("project lister not configured"), nil
-	}
 	projects, err := s.deps.ProjectLister.ListProjects(ctx)
 	if err != nil {
 		return mcplib.NewToolResultErrorFromErr("failed to list projects", err), nil
@@ -83,9 +89,6 @@ func (s *Server) handleListProjects(ctx context.Context, _ mcplib.CallToolReques
 }
 
 func (s *Server) handleGetProject(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) { //nolint:gocritic // hugeParam: mcp-go handler signature
-	if s.deps.ProjectLister == nil {
-		return mcplib.NewToolResultError("project lister not configured"), nil
-	}
 	args := req.GetArguments()
 	projectID, ok := args["project_id"].(string)
 	if !ok || projectID == "" {
@@ -105,9 +108,6 @@ func (s *Server) handleGetProject(ctx context.Context, req mcplib.CallToolReques
 }
 
 func (s *Server) handleGetRunStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) { //nolint:gocritic // hugeParam: mcp-go handler signature
-	if s.deps.RunReader == nil {
-		return mcplib.NewToolResultError("run reader not configured"), nil
-	}
 	args := req.GetArguments()
 	runID, ok := args["run_id"].(string)
 	if !ok || runID == "" {
@@ -127,9 +127,6 @@ func (s *Server) handleGetRunStatus(ctx context.Context, req mcplib.CallToolRequ
 }
 
 func (s *Server) handleGetCostSummary(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.CallToolResult, error) { //nolint:gocritic // hugeParam: mcp-go handler signature
-	if s.deps.CostReader == nil {
-		return mcplib.NewToolResultError("cost reader not configured"), nil
-	}
 	summary, err := s.deps.CostReader.CostSummaryGlobal(ctx)
 	if err != nil {
 		return mcplib.NewToolResultErrorFromErr("failed to get cost summary", err), nil

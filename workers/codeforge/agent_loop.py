@@ -77,13 +77,13 @@ class StallDetector:
         self._escape_count = 0
 
     @staticmethod
-    def _hash_args(args: dict[str, object]) -> str:
-        raw = json.dumps(args, sort_keys=True)[:200]
-        return hashlib.sha256(raw.encode()).hexdigest()
+    def _hash_args(name: str, args: dict[str, object]) -> str:
+        raw = json.dumps(args, sort_keys=True, default=str)
+        return hashlib.sha256(f"{name}:{raw}".encode()).hexdigest()
 
     def record(self, tool_name: str, args: dict[str, object]) -> None:
         """Append a tool call to the sliding window."""
-        self._window.append((tool_name, self._hash_args(args)))
+        self._window.append((tool_name, self._hash_args(tool_name, args)))
 
     def is_stalled(self) -> bool:
         """Return True if >= threshold entries in the window are identical."""
@@ -185,7 +185,12 @@ class AgentLoopExecutor:
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 content = msg.get("content", "")
-                return content if isinstance(content, str) else str(content)
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                    return " ".join(text_parts).strip()
+                return str(content)
         return ""
 
     async def _publish_routing_decision(self, cfg: LoopConfig) -> None:
@@ -220,6 +225,12 @@ class AgentLoopExecutor:
             logger.debug("failed to publish routing_decision trajectory event: %s", exc)
 
     @staticmethod
+    def _validate_model_name(model: str) -> bool:
+        """Validate that model name has exactly ``provider/model`` format."""
+        parts = model.split("/")
+        return len(parts) == 2 and all(p.strip() for p in parts)
+
+    @staticmethod
     def _pick_next_fallback(
         cfg: LoopConfig,
         state: _LoopState,
@@ -228,10 +239,14 @@ class AgentLoopExecutor:
         """Return the next untried fallback model, or None if exhausted.
 
         Skips models whose provider is currently rate-limited (via the rate
-        tracker) to avoid wasting time on providers that will 429 again.
+        tracker) or whose name is not in ``provider/model`` format to avoid
+        wasting time on providers that will 429 again.
         """
         for m in cfg.fallback_models:
             if m in state.failed_models:
+                continue
+            if not AgentLoopExecutor._validate_model_name(m):
+                logger.warning("skipping fallback model with invalid format: %r", m)
                 continue
             if rate_tracker is not None:
                 provider = m.split("/", 1)[0] if "/" in m else ""
@@ -325,8 +340,12 @@ class AgentLoopExecutor:
                     model=model,
                     error="",
                 )
+        except (ConnectionError, TimeoutError, OSError) as exc:
+            logger.warning("experience cache lookup failed (transient): %s", exc)
+        except ValueError as exc:
+            logger.error("experience cache data corruption: %s", exc)
         except Exception as exc:
-            logger.warning("experience pool lookup failed, continuing: %s", exc)
+            logger.error("unexpected experience cache error: %s", type(exc).__name__, exc_info=True)
         return None
 
     @_tracer.trace_agent("agent_loop")

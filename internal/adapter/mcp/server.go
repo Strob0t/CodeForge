@@ -59,7 +59,18 @@ type Server struct {
 }
 
 // NewServer creates a new MCP server with tools and resources registered.
+// It panics if any required dependency is nil (fail-fast at construction time).
 func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
+	if deps.ProjectLister == nil {
+		panic("MCP ServerDeps.ProjectLister must not be nil")
+	}
+	if deps.RunReader == nil {
+		panic("MCP ServerDeps.RunReader must not be nil")
+	}
+	if deps.CostReader == nil {
+		panic("MCP ServerDeps.CostReader must not be nil")
+	}
+
 	mcpSrv := mcpserver.NewMCPServer(cfg.Name, cfg.Version)
 
 	s := &Server{

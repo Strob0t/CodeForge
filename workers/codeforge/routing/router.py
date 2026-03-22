@@ -34,7 +34,9 @@ from codeforge.routing.models import (
 )
 
 if TYPE_CHECKING:
+    from codeforge.routing.blocklist import ModelBlocklist
     from codeforge.routing.complexity import ComplexityAnalyzer
+    from codeforge.routing.key_filter import KeyFilter
     from codeforge.routing.mab import MABModelSelector
     from codeforge.routing.meta_router import LLMMetaRouter
     from codeforge.routing.models import RoutingProfile
@@ -44,6 +46,12 @@ logger = logging.getLogger(__name__)
 
 # TTL for caching the effective (non-blocked) models list.
 _EFFECTIVE_MODELS_CACHE_TTL = float(os.environ.get("CODEFORGE_EFFECTIVE_MODELS_CACHE_TTL", "5.0"))
+
+# Maximum retries for fallback routing when primary + fallback selection fails.
+MAX_ROUTING_RETRIES: int = 3
+
+# Hard deadline (seconds) for the entire route_with_fallbacks call.
+ROUTING_TIMEOUT_SECONDS: float = 30.0
 
 COMPLEXITY_DEFAULTS: dict[ComplexityTier, list[str]] = {
     ComplexityTier.SIMPLE: [
@@ -94,6 +102,8 @@ class HybridRouter:
         available_models: list[str],
         config: RoutingConfig,
         rate_tracker: RateLimitTracker | None = None,
+        blocklist: ModelBlocklist | None = None,
+        key_filter: KeyFilter | None = None,
     ) -> None:
         self._complexity = complexity
         self._mab = mab
@@ -101,12 +111,17 @@ class HybridRouter:
         self._available_models = available_models
         self._config = config
         self._rate_tracker = rate_tracker
+        self._blocklist = blocklist
+        self._key_filter = key_filter
         self._effective_cache: list[str] | None = None
         self._effective_cache_ts: float = 0.0
 
     @property
     def _effective_models(self) -> list[str]:
         """Return available models with blocked ones filtered out.
+
+        Uses the injected blocklist if provided, otherwise falls back to the
+        module-level default instance for backward compatibility.
 
         Caches the result for _EFFECTIVE_MODELS_CACHE_TTL seconds to avoid
         re-fetching the blocklist on every call.
@@ -115,9 +130,14 @@ class HybridRouter:
         if self._effective_cache is not None and (now - self._effective_cache_ts) < _EFFECTIVE_MODELS_CACHE_TTL:
             return self._effective_cache
 
-        from codeforge.routing.blocklist import get_blocklist
+        if self._blocklist is not None:
+            bl = self._blocklist
+        else:
+            from codeforge.routing.blocklist import get_blocklist
 
-        self._effective_cache = get_blocklist().filter_available(self._available_models)
+            bl = get_blocklist()
+
+        self._effective_cache = bl.filter_available(self._available_models)
         self._effective_cache_ts = now
         return self._effective_cache
 
@@ -209,9 +229,18 @@ class HybridRouter:
         max_fallbacks: int = 3,
         primary: RoutingDecision | None = None,
         profile: RoutingProfile | None = None,
+        timeout: float = ROUTING_TIMEOUT_SECONDS,
+        max_retries: int = MAX_ROUTING_RETRIES,
     ) -> RoutingPlan:
-        if primary is None:
+        deadline = time.monotonic() + timeout
+        retries = 0
+
+        while primary is None and retries < max_retries:
+            if time.monotonic() > deadline:
+                logger.warning("route_with_fallbacks: timeout after %.1fs", timeout)
+                break
             primary = self.route(prompt, max_cost=max_cost, profile=profile)
+            retries += 1
 
         available = self._effective_models
 
@@ -225,6 +254,10 @@ class HybridRouter:
                 ),
                 fallbacks=tuple(available[:max_fallbacks]),
             )
+
+        if time.monotonic() > deadline:
+            logger.warning("route_with_fallbacks: timeout reached, returning primary only")
+            return RoutingPlan(primary=primary, fallbacks=())
 
         seen: set[str] = {primary.model}
         fallbacks: list[str] = []

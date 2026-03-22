@@ -12,6 +12,8 @@ from codeforge.consumer._subjects import SUBJECT_HANDOFF_REQUEST
 
 logger = structlog.get_logger()
 
+MAX_HANDOFF_HOPS = 10
+
 
 HANDOFF_TOOL_DEF = {
     "type": "function",
@@ -80,6 +82,11 @@ async def execute_handoff(
         metadata["handoff_hop"] = "0"
     else:
         hop = int(metadata.get("handoff_hop", "0")) + 1
+        if hop > MAX_HANDOFF_HOPS:
+            return (
+                f"Error: handoff chain exceeded maximum of {MAX_HANDOFF_HOPS} hops"
+                " (possible cycle)"
+            )
         metadata["handoff_hop"] = str(hop)
 
     payload = {

@@ -14,10 +14,11 @@ const contextDecayThreshold = 60
 // benefits most from pre-injected context (RepoMap, Retrieval, etc.).
 // By turn 15+ the agent has read files and built its own context through
 // tool calls, so injecting more wastes tokens.
-// phaseContextScale maps review pipeline mode IDs to their context budget
+// defaultPhaseScaling maps review pipeline mode IDs to their context budget
 // percentage. Focused phases (reviewer, contract_reviewer) need less context
 // than boundary analysis which requires full codebase visibility.
-var phaseContextScale = map[string]int{
+// These defaults can be overridden via config (Agent.PhaseScaling).
+var defaultPhaseScaling = map[string]int{
 	"boundary_analyzer": 100,
 	"contract_reviewer": 60,
 	"reviewer":          50,
@@ -27,11 +28,21 @@ var phaseContextScale = map[string]int{
 // PhaseAwareContextBudget scales the context budget based on the active
 // review pipeline phase. Boundary analysis gets the full budget; focused
 // review/refactor phases get a reduced slice to save tokens.
-func PhaseAwareContextBudget(baseBudget int, modeID string) int {
+// If overrides is non-nil, its entries take precedence over the defaults.
+func PhaseAwareContextBudget(baseBudget int, modeID string, overrides ...map[string]int) int {
 	if baseBudget <= 0 {
 		return 0
 	}
-	pct, ok := phaseContextScale[modeID]
+
+	// Check overrides first (config-provided values).
+	if len(overrides) > 0 && overrides[0] != nil {
+		if pct, ok := overrides[0][modeID]; ok {
+			return baseBudget * pct / 100
+		}
+	}
+
+	// Fall back to built-in defaults.
+	pct, ok := defaultPhaseScaling[modeID]
 	if !ok {
 		return baseBudget
 	}
