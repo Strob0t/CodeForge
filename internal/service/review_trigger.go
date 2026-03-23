@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	mq "github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // ReviewTriggerStore is the subset of the store needed by ReviewTriggerService.
@@ -71,4 +75,24 @@ func (s *ReviewTriggerService) TriggerReview(ctx context.Context, projectID, com
 	}
 
 	return true, nil
+}
+
+// HandleReviewTriggerComplete processes a review.trigger.complete message from the Python worker.
+// It logs the completion status with project_id, commit_sha, status, and run_id.
+func (s *ReviewTriggerService) HandleReviewTriggerComplete(_ context.Context, _ string, data []byte) error {
+	var p mq.ReviewTriggerCompletePayload
+	if err := json.Unmarshal(data, &p); err != nil {
+		return fmt.Errorf("unmarshal review trigger complete: %w", err)
+	}
+	if p.ProjectID == "" {
+		return errors.New("missing project_id in review trigger complete")
+	}
+
+	slog.Info("review trigger complete",
+		"project_id", p.ProjectID,
+		"commit_sha", p.CommitSHA,
+		"status", p.Status,
+		"run_id", p.RunID,
+	)
+	return nil
 }
