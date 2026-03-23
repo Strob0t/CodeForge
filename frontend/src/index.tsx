@@ -5,6 +5,7 @@ import { Route, Router } from "@solidjs/router";
 import { render } from "solid-js/web";
 
 import App from "./App.tsx";
+import A2APage from "./features/a2a/A2APage.tsx";
 import ActivityPage from "./features/activity/ActivityPage.tsx";
 import ChangePasswordPage from "./features/auth/ChangePasswordPage.tsx";
 import ForgotPasswordPage from "./features/auth/ForgotPasswordPage.tsx";
@@ -46,6 +47,7 @@ render(
       <Route path="/ai" component={AIConfigPage} />
       <Route path="/knowledge" component={KnowledgePage} />
       <Route path="/mcp" component={MCPServersPage} />
+      <Route path="/a2a" component={A2APage} />
       <Route path="/prompts" component={PromptEditorPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />

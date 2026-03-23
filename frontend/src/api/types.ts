@@ -2130,6 +2130,86 @@ export interface ProjectCostBar {
   cost_usd: number;
 }
 
+// --- A2A Federation types (Phase 27) ---
+
+/** Matches Go domain/a2a.RemoteAgent */
+export interface A2ARemoteAgent {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  trust_level: string;
+  enabled: boolean;
+  skills: string[];
+  last_seen?: string;
+  card_json?: string;
+  tenant_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create remote agent request */
+export interface CreateA2ARemoteAgentRequest {
+  name: string;
+  url: string;
+  trust_level?: string;
+}
+
+/** A2A task state (matches Go domain/a2a.TaskState) */
+export type A2ATaskState =
+  | "submitted"
+  | "working"
+  | "completed"
+  | "failed"
+  | "canceled"
+  | "rejected"
+  | "input-required"
+  | "auth-required";
+
+/** A2A task direction */
+export type A2ATaskDirection = "inbound" | "outbound";
+
+/** Matches Go domain/a2a.A2ATask */
+export interface A2ATask {
+  id: string;
+  context_id: string;
+  state: A2ATaskState;
+  direction: A2ATaskDirection;
+  skill_id: string;
+  trust_origin: string;
+  trust_level: string;
+  source_addr: string;
+  project_id: string;
+  remote_agent_id: string;
+  tenant_id: string;
+  metadata: Record<string, string>;
+  error_message: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Send A2A task request */
+export interface SendA2ATaskRequest {
+  skill_id: string;
+  prompt: string;
+}
+
+/** Matches Go database.A2APushConfig */
+export interface A2APushConfig {
+  id: string;
+  task_id: string;
+  url: string;
+  token: string;
+  created_at: string;
+}
+
+/** Create push config request */
+export interface CreateA2APushConfigRequest {
+  url: string;
+  token?: string;
+}
+
 /** A single boundary file detected in a project. */
 export interface BoundaryFile {
   path: string;

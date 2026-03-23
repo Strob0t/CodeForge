@@ -1,4 +1,5 @@
 import { createCoreClient, FetchError, getAccessToken, setAccessTokenGetter } from "./core";
+import { createA2AResource } from "./resources/a2a";
 import { createAgentsResource, createTasksResource } from "./resources/agents";
 import {
   createAuthResource,
@@ -48,6 +49,7 @@ export { FetchError, getAccessToken, setAccessTokenGetter };
 const core = createCoreClient();
 
 export const api = {
+  a2a: createA2AResource(core),
   health: createHealthResource(),
   projects: createProjectsResource(core),
   batch: createBatchResource(core),
