@@ -2145,3 +2145,41 @@ export interface BoundaryConfig {
   last_analyzed: string;
   version: number;
 }
+
+// --- Quarantine types (Phase 23) ---
+
+/** Quarantine message status (matches Go domain/quarantine.Status) */
+export type QuarantineStatus = "pending" | "approved" | "rejected" | "expired";
+
+/** Matches Go domain/quarantine.Message */
+export interface QuarantineMessage {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  subject: string;
+  payload: string;
+  trust_origin: string;
+  trust_level: string;
+  risk_score: number;
+  risk_factors: string[];
+  status: QuarantineStatus;
+  reviewed_by: string;
+  review_note: string;
+  created_at: string;
+  reviewed_at?: string;
+  expires_at: string;
+}
+
+/** Matches Go domain/quarantine.Stats */
+export interface QuarantineStats {
+  pending: number;
+  approved: number;
+  rejected: number;
+  expired: number;
+}
+
+/** Request body for approve/reject actions */
+export interface QuarantineReviewRequest {
+  reviewed_by: string;
+  note: string;
+}
