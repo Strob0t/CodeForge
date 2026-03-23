@@ -471,16 +471,6 @@ func sampleReviewTriggerRequestPayload() mq.ReviewTriggerRequestPayload {
 	}
 }
 
-func sampleReviewBoundaryAnalyzedPayload() mq.ReviewBoundaryAnalyzedPayload {
-	return mq.ReviewBoundaryAnalyzedPayload{
-		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
-		Boundaries: []mq.ReviewBoundaryEntry{
-			{Path: "/internal/adapter/http/handlers.go", Type: "api", Counterpart: "/internal/port/http.go", AutoDetected: true},
-		},
-	}
-}
-
 func sampleReviewApprovalRequiredPayload() mq.ReviewApprovalRequiredPayload {
 	return mq.ReviewApprovalRequiredPayload{
 		RunID:     "550e8400-e29b-41d4-a716-446655440020",
@@ -494,14 +484,6 @@ func sampleReviewApprovalRequiredPayload() mq.ReviewApprovalRequiredPayload {
 			Structural:   false,
 		},
 		ImpactLevel: "high",
-	}
-}
-
-func sampleReviewApprovalResponsePayload() mq.ReviewApprovalResponsePayload {
-	return mq.ReviewApprovalResponsePayload{
-		RunID:    "550e8400-e29b-41d4-a716-446655440020",
-		Decision: "approved",
-		Reason:   "Changes look safe.",
 	}
 }
 
@@ -615,9 +597,7 @@ func allFixtures() []fixtureEntry {
 		// FIX-086: Review/Refactor subjects (Phase 31)
 		{mq.SubjectReviewTriggerRequest, sampleReviewTriggerRequestPayload()},
 		{mq.SubjectReviewTriggerComplete, sampleReviewTriggerCompletePayload()},
-		{mq.SubjectReviewBoundaryAnalyzed, sampleReviewBoundaryAnalyzedPayload()},
 		{mq.SubjectReviewApprovalRequired, sampleReviewApprovalRequiredPayload()},
-		{mq.SubjectReviewApprovalResponse, sampleReviewApprovalResponsePayload()},
 		// FIX-086: Prompt evolution subjects (Phase 33)
 		{mq.SubjectPromptEvolutionReflect, samplePromptEvolutionReflectPayload()},
 		{mq.SubjectPromptEvolutionReflectComplete, samplePromptEvolutionReflectCompletePayload()},
@@ -710,9 +690,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		// FIX-086: Review/Refactor subjects
 		mq.SubjectReviewTriggerRequest:   {"project_id", "tenant_id", "commit_sha", "source"},
 		mq.SubjectReviewTriggerComplete:  {"project_id", "tenant_id", "commit_sha", "status", "run_id"},
-		mq.SubjectReviewBoundaryAnalyzed: {"project_id", "tenant_id", "boundaries"},
 		mq.SubjectReviewApprovalRequired: {"run_id", "project_id", "tenant_id", "impact_level"},
-		mq.SubjectReviewApprovalResponse: {"run_id", "decision"},
 		// FIX-086: Prompt evolution subjects
 		mq.SubjectPromptEvolutionReflect:         {"tenant_id", "mode_id", "model_family", "current_prompt"},
 		mq.SubjectPromptEvolutionReflectComplete: {"tenant_id", "mode_id", "model_family", "tactical_fixes"},

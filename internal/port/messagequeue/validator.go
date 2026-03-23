@@ -103,12 +103,8 @@ func Validate(subject string, data []byte) error {
 		target = &ReviewTriggerRequestPayload{}
 	case subject == SubjectReviewTriggerComplete:
 		target = &ReviewTriggerCompletePayload{}
-	case subject == SubjectReviewBoundaryAnalyzed:
-		target = &ReviewBoundaryAnalyzedPayload{}
 	case subject == SubjectReviewApprovalRequired:
 		target = &ReviewApprovalRequiredPayload{}
-	case subject == SubjectReviewApprovalResponse:
-		target = &ReviewApprovalResponsePayload{}
 
 	// --- Prompt Evolution subjects (Phase 33) ---
 	case subject == SubjectPromptEvolutionReflect:

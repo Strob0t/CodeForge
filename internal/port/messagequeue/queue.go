@@ -83,10 +83,6 @@ const (
 	SubjectGraphSearchRequest = "graph.search.request" // Go → Python: graph search request
 	SubjectGraphSearchResult  = "graph.search.result"  // Python → Go: graph search results
 
-	// MCP subjects (Phase 15A)
-	SubjectMCPServerStatus  = "mcp.server.status"    // Python → Go: connection status update
-	SubjectMCPToolDiscovery = "mcp.tools.discovered" // Python → Go: tools found on server
-
 	// Conversation run subjects (Phase 17C)
 	SubjectConversationRunStart        = "conversation.run.start"        // Go → Python: start a conversation run
 	SubjectConversationRunComplete     = "conversation.run.complete"     // Python → Go: conversation run finished
@@ -127,9 +123,7 @@ const (
 	// Review/Refactor subjects (Phase 31)
 	SubjectReviewTriggerRequest   = "review.trigger.request"   // Go → Python: trigger a review run
 	SubjectReviewTriggerComplete  = "review.trigger.complete"  // Python → Go: review run finished
-	SubjectReviewBoundaryAnalyzed = "review.boundary.analyzed" // Python → Go: layer boundaries detected
 	SubjectReviewApprovalRequired = "review.approval.required" // Python → Go: human approval needed
-	SubjectReviewApprovalResponse = "review.approval.response" // Go → Python: approval decision
 
 	// Prompt evolution subjects (Phase 33)
 	SubjectPromptEvolutionReflect         = "prompt.evolution.reflect"          // Go → Python: request failure reflection
