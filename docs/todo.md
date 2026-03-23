@@ -1503,3 +1503,30 @@
 - [ ] First test run: Mode A (Weather Dashboard) with local model
 - [ ] First test run: Mode A with cloud model (Claude/GPT)
 - [ ] First test run: Mode D (Free Choice)
+
+#### Universal Audit Remediation (2026-03-23)
+
+> Audit report: `docs/audits/2026-03-23-universal-audit-report.md`
+> 11 commits, 57 files changed, +3287 / -863 lines
+
+**Resolved Findings:**
+- [x] (2026-03-23) **F-002 (CRITICAL):** Hexagonal architecture violation -- event types moved from `adapter/ws/events.go` to `internal/domain/event/` (broadcast.go, broadcast_payloads.go, agui.go). OTEL span helpers moved from `adapter/otel/spans.go` to `internal/telemetry/spans.go`. LSP service decoupled via `port/codeintel/provider.go` interface + `adapter/lsp/noop.go` fallback
+- [x] (2026-03-23) **F-008 (HIGH):** Silenced database errors -- 38 `_ = s.store.*` calls in service layer replaced with `logBestEffort` helper (`internal/service/log_best_effort.go`) that logs non-fatal errors with structured context
+- [x] (2026-03-23) **F-010 (HIGH):** Test coverage gaps -- 2384 LOC new tests: `runtime_execution_test.go` (903 LOC), `runtime_lifecycle_test.go` (904 LOC), `test_conversation_handler.py` (577 LOC)
+- [x] (2026-03-23) **F-033 (MEDIUM):** Handler struct concrete types -- `Handlers.LiteLLM *litellm.Client` replaced with `Handlers.LLM llm.Provider`, `Handlers.Copilot *copilot.Client` replaced with `Handlers.TokenExchanger tokenexchange.Exchanger`
+- [x] (2026-03-23) **F-034 (MEDIUM):** Event types in adapter layer -- moved to `internal/domain/event/` (55 event constants + 49 payload structs)
+
+**Remaining Findings (not yet addressed):**
+- [ ] **F-001 (CRITICAL):** Rotate all exposed API keys in `.env` and `data/.env`
+- [ ] **F-003 (CRITICAL):** Remove hardcoded JWT secret from `codeforge.yaml`, generate via `openssl rand -hex 32`
+- [ ] **F-004 (HIGH):** Configure TLS in production stack (Traefik ACME/Let's Encrypt, PostgreSQL `sslmode=require`)
+- [ ] **F-006 (HIGH):** Decompose `database.Store` god interface (~290 methods) into domain-specific repositories
+- [ ] **F-007 (HIGH):** Decompose `Handlers` struct (69 fields, 353 methods) into domain-specific handler groups
+- [ ] **F-009 (HIGH):** Fix safety check fail-open pattern in `workers/codeforge/skills/safety.py` -- change to fail-closed
+- [ ] **F-011 (HIGH):** Refactor `RuntimeService.StartRun` (282 lines, 12 responsibilities) into helper methods
+- [ ] **F-012 (HIGH):** Split `RuntimeService` god object (41 methods, 2051 LOC) into focused services
+- [ ] **F-013 (HIGH):** Wrap A2A SDK types in port interfaces (anti-corruption layer)
+- [ ] **F-014 (HIGH):** Move direct HTTP calls from service layer to adapter layer via `port/httpclient/` interface
+- [ ] **F-015 (HIGH):** Redact PII (user email) from INFO-level production logs (GDPR Art. 5(1)(c))
+- [ ] **F-016 (HIGH):** Implement GDPR data deletion (`DELETE /users/me`) and export (`GET /users/me/export`) endpoints
+- [ ] **F-017 to F-055:** 24 MEDIUM + 10 LOW findings -- see audit report for full details

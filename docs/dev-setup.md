@@ -90,7 +90,7 @@ CodeForge/
 │   │   ├── conversation/     # Conversation + message models
 │   │   ├── cost/             # Cost aggregation models
 │   │   ├── errors.go         # Sentinel errors (ErrNotFound, ErrConflict)
-│   │   ├── event/            # Agent event types (22+ types)
+│   │   ├── event/            # Event types: agent events (22+ types), broadcast events (55 constants + 49 payloads), AG-UI events
 │   │   ├── experience/       # Experience pool caching
 │   │   ├── feedback/         # Human feedback provider protocol
 │   │   ├── goal/             # Goal discovery models
@@ -124,19 +124,22 @@ CodeForge/
 │   ├── git/                  # Git worker pool (semaphore-bounded)
 │   ├── logger/               # Async slog JSON logging
 │   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
-│   ├── port/                 # Interfaces + Registries (12 packages)
+│   ├── port/                 # Interfaces + Registries (15 packages)
 │   │   ├── agentbackend/     # Agent backend interface + registry
 │   │   ├── benchprovider/    # Benchmark provider interface
 │   │   ├── broadcast/        # Broadcaster interface (WS events)
 │   │   ├── cache/            # Cache interface (Get/Set/Delete)
+│   │   ├── codeintel/        # Code intelligence interface (LSP abstraction)
 │   │   ├── database/         # Store interface (80+ methods)
 │   │   ├── eventstore/       # Event store interface + trajectory types
 │   │   ├── feedback/         # Feedback provider interface
 │   │   ├── gitprovider/      # Git provider interface + registry
 │   │   ├── messagequeue/     # Message queue interface + schemas
+│   │   ├── metrics/          # Metrics recorder interface (OTEL abstraction)
 │   │   ├── notifier/         # Notification interface (Slack, Discord, Email)
 │   │   ├── pmprovider/       # PM provider interface + registry
-│   │   └── specprovider/     # Spec provider interface + registry
+│   │   ├── specprovider/     # Spec provider interface + registry
+│   │   └── tokenexchange/    # Token exchange interface (Copilot abstraction)
 │   ├── adapter/              # Concrete Implementations (33 packages)
 │   │   ├── a2a/              # A2A protocol server/client
 │   │   ├── aider/            # Aider agent backend
@@ -171,6 +174,7 @@ CodeForge/
 │   │   └── ws/               # WebSocket hub + event broadcasting
 │   ├── resilience/           # Circuit breaker
 │   ├── secrets/              # Secrets vault with SIGHUP reload
+│   ├── telemetry/            # OTEL span helpers (API-only, no SDK dependency)
 │   └── service/              # Use Cases (Runtime, Orchestrator, Policy, etc.)
 ├── workers/                  # Python AI Workers
 │   └── codeforge/

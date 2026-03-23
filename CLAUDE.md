@@ -54,6 +54,10 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
   - API with tools (OpenAI, Claude API, Gemini): + Context (GraphRAG) + Routing + Tools
   - Pure completion (Ollama, LM Studio): + everything (Context, Tools, Prompts, Quality)
 - **Worker Modules:** Context (GraphRAG), Quality (Debate/Reviewer/Sampler/Guardrail), Routing, Safety, Execution, Memory, History, Events, Orchestration, Hooks, Trajectory, HITL
+- **Event types** live in `internal/domain/event/` (broadcast.go, broadcast_payloads.go, agui.go) -- not in adapter layer
+- **OTEL span helpers** live in `internal/telemetry/` (API-only, no SDK dependency) -- services use `port/metrics.Recorder` interface
+- **Port interfaces for decoupling:** `port/codeintel/` (LSP provider), `port/tokenexchange/` (Copilot token exchange), `port/llm/` (LLM provider)
+- **logBestEffort pattern** (`internal/service/log_best_effort.go`) for non-fatal store errors -- logs with structured context instead of silencing
 
 ### Agent System
 - **Execution Modes:** Sandbox (isolated container), Mount (direct file access), Hybrid
@@ -80,7 +84,7 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - Config: `MaxLoopIterations` (50), `MaxContextTokens` (120K), `ContextEnabled` (true), `ContextBudget` (2048), `ContextPromptReserve` (512), `ApprovalTimeoutSeconds` (60)
 - **Adaptive Context Budget:** Linear decay from `ContextBudget` to 0 over 60 messages — `internal/service/context_budget.go`
 - **Auto-Indexing:** Clone/Adopt/Setup trigger RepoMap + Retrieval Index + GraphRAG — `internal/adapter/http/handlers.go`
-- Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`
+- Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`, `internal/service/runtime_execution.go`, `internal/service/runtime_lifecycle.go`
 
 ### Chat Enhancements — **implemented**
 HITL Permission UI (`PermissionRequestCard`: approve/deny/allow-always, countdown, preset mapping, `POST /policies/allow-always`), Inline Diff Review (`DiffPreview`), Action Buttons (copy/retry/apply/diff), Per-Message Cost (`MessageBadge`+`CostBreakdown` via AG-UI `state_delta`), Smart References (`@/#//` autocomplete, `AutocompletePopover`, `useFrequencyTracker`), Slash Commands (`/compact`/`/rewind`/`/clear`/`/help`/`/mode`/`/model` via `CommandRegistry`), Conversation Search (PostgreSQL FTS, GIN, `ts_rank`, `POST /search/conversations`), Notification Center (`notificationStore`, browser push, Web Audio, tab badge), Real-Time Channels (3 tables, 9 endpoints, WS events, `ChannelList`/`ChannelView`/`ThreadPanel`). Spec: `docs/features/05-chat-enhancements.md`

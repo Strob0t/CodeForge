@@ -259,12 +259,18 @@ internal/
       provider.go        # Interface + capability definitions
       registry.go        # Register(), New(), Available()
     agentbackend/
+    codeintel/
+      provider.go        # Code intelligence interface (LSP abstraction)
     specprovider/
       provider.go        # SpecProvider Interface (Detect, ReadSpecs, WriteChange, Watch)
       registry.go        # Register(), New(), Available()
     pmprovider/
       provider.go        # PMProvider Interface (Detect, SyncItems, CreateItem, Webhooks)
       registry.go        # Register(), New(), Available()
+    tokenexchange/
+      exchanger.go       # Token exchange interface (Copilot abstraction)
+    metrics/
+      recorder.go        # Metrics recorder interface (OTEL abstraction)
     database/
     messagequeue/
   adapter/               # Concrete implementations
@@ -286,6 +292,7 @@ internal/
     githubpm/            # GitHub Issues/Projects PM adapter
     postgres/
     nats/
+  telemetry/             # OTEL span helpers (API-only, no SDK dependency)
   service/               # Use cases (connects domain with ports)
 ```
 
@@ -397,7 +404,7 @@ It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives th
 
 #### Observability
 
-**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording. Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 35 event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status, plan lifecycle, review lifecycle, and session management. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download).
+**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording plus all broadcast event types and AG-UI event constants (55 event constants + 49 payload structs, moved from the adapter layer to enforce hexagonal architecture). Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 35 event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status, plan lifecycle, review lifecycle, and session management. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download).
 
 Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).
 
