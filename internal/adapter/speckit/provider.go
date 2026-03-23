@@ -96,7 +96,7 @@ func extractMarkdownTitle(absPath, relPath string) string {
 	if err != nil {
 		return fileBaseName(relPath)
 	}
-	defer f.Close() //nolint:errcheck // Best-effort read for title extraction.
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
