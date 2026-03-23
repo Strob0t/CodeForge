@@ -112,6 +112,15 @@ export function BenchmarksIcon(): JSX.Element {
   );
 }
 
+export function QuarantineIcon(): JSX.Element {
+  return (
+    <svg {...svgBase}>
+      <path d="M10 3L4 7v6c0 3.3 2.7 4.5 6 7 3.3-2.5 6-3.7 6-7V7l-6-4z" />
+      <path d="M10 8v4M10 14h.01" />
+    </svg>
+  );
+}
+
 export function CollapseIcon(): JSX.Element {
   return (
     <svg {...svgBase}>
