@@ -8,22 +8,23 @@ import (
 	"sync"
 	"time"
 
-	lspAdapter "github.com/Strob0t/CodeForge/internal/adapter/lsp"
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	lspPort "github.com/Strob0t/CodeForge/internal/port/lsp"
 )
 
 // LSPService manages language server clients per project.
 type LSPService struct {
-	cfg         *config.LSP
-	broadcaster broadcast.Broadcaster
-	store       database.Store
+	cfg           *config.LSP
+	broadcaster   broadcast.Broadcaster
+	store         database.Store
+	clientFactory lspPort.ClientFactory
 
-	clients map[string]map[string]*lspAdapter.Client // projectID -> language -> client
+	clients map[string]map[string]lspPort.Client // projectID -> language -> client
 	mu      sync.RWMutex
 
 	// Debounce diagnostic broadcasts per projectID+URI.
@@ -32,13 +33,15 @@ type LSPService struct {
 }
 
 // NewLSPService creates a new LSP service.
-func NewLSPService(cfg *config.LSP, broadcaster broadcast.Broadcaster, store database.Store) *LSPService {
+// The clientFactory creates LSP client instances; pass nil to disable LSP.
+func NewLSPService(cfg *config.LSP, broadcaster broadcast.Broadcaster, store database.Store, clientFactory lspPort.ClientFactory) *LSPService {
 	return &LSPService{
-		cfg:         cfg,
-		broadcaster: broadcaster,
-		store:       store,
-		clients:     make(map[string]map[string]*lspAdapter.Client),
-		diagTimers:  make(map[string]*time.Timer),
+		cfg:           cfg,
+		broadcaster:   broadcaster,
+		store:         store,
+		clientFactory: clientFactory,
+		clients:       make(map[string]map[string]lspPort.Client),
+		diagTimers:    make(map[string]*time.Timer),
 	}
 }
 
@@ -58,7 +61,7 @@ func (s *LSPService) StartServers(ctx context.Context, projectID, workspacePath 
 
 	s.mu.Lock()
 	if s.clients[projectID] == nil {
-		s.clients[projectID] = make(map[string]*lspAdapter.Client)
+		s.clients[projectID] = make(map[string]lspPort.Client)
 	}
 	s.mu.Unlock()
 
@@ -77,7 +80,7 @@ func (s *LSPService) StartServers(ctx context.Context, projectID, workspacePath 
 			continue // Already running.
 		}
 
-		client := lspAdapter.NewClient(lang, cfg, s.cfg, workspacePath)
+		client := s.clientFactory(lang, cfg, workspacePath)
 		client.SetDiagnosticCallback(func(uri string, diags []lspDomain.Diagnostic) {
 			s.onDiagnostic(projectID, uri, diags)
 		})
@@ -257,7 +260,7 @@ func (s *LSPService) DiagnosticsAsContextEntries(projectID string) []cfcontext.C
 
 // clientForURI finds the appropriate language server client for a file URI.
 // It infers language from the file extension.
-func (s *LSPService) clientForURI(projectID, uri string) (*lspAdapter.Client, error) {
+func (s *LSPService) clientForURI(projectID, uri string) (lspPort.Client, error) {
 	s.mu.RLock()
 	clients := s.clients[projectID]
 	s.mu.RUnlock()

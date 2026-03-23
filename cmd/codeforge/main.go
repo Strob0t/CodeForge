@@ -27,6 +27,7 @@ import (
 	emailAdapter "github.com/Strob0t/CodeForge/internal/adapter/email"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	lspAdapter "github.com/Strob0t/CodeForge/internal/adapter/lsp"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfmcp "github.com/Strob0t/CodeForge/internal/adapter/mcp"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
@@ -42,6 +43,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/crypto"
+	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
@@ -51,6 +53,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	lspPort "github.com/Strob0t/CodeForge/internal/port/lsp"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
@@ -368,7 +371,11 @@ func run() error {
 	// --- LSP Service ---
 	var lspSvc *service.LSPService
 	if cfg.LSP.Enabled {
-		lspSvc = service.NewLSPService(&cfg.LSP, hub, store)
+		lspCfg := &cfg.LSP
+		lspFactory := func(language string, serverCfg lspDomain.LanguageServerConfig, workspacePath string) lspPort.Client {
+			return lspAdapter.NewClient(language, serverCfg, lspCfg, workspacePath)
+		}
+		lspSvc = service.NewLSPService(lspCfg, hub, store, lspFactory)
 		contextOptSvc.SetLSP(lspSvc)
 		slog.Info("lsp service initialized")
 	}
