@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
@@ -100,7 +100,7 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 	}
 
 	// Broadcast alert to admin UI.
-	s.hub.BroadcastEvent(ctx, ws.EventQuarantineAlert, map[string]any{
+	s.hub.BroadcastEvent(ctx, event.EventQuarantineAlert, map[string]any{
 		"id":         msg.ID,
 		"project_id": projectID,
 		"subject":    subject,
@@ -132,7 +132,7 @@ func (s *QuarantineService) Approve(ctx context.Context, id, reviewedBy, note st
 		return fmt.Errorf("replay quarantined message: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventQuarantineResolved, map[string]any{
+	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, map[string]any{
 		"id":          id,
 		"project_id":  msg.ProjectID,
 		"action":      "approved",
@@ -158,7 +158,7 @@ func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note str
 		return fmt.Errorf("update quarantine status: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventQuarantineResolved, map[string]any{
+	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, map[string]any{
 		"id":          id,
 		"project_id":  msg.ProjectID,
 		"action":      "rejected",

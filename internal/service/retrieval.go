@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
@@ -137,7 +136,7 @@ func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspac
 	}
 	s.mu.Unlock()
 
-	s.hub.BroadcastEvent(ctx, ws.EventRetrievalStatus, ws.RetrievalStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRetrievalStatus, event.RetrievalStatusEvent{
 		ProjectID:      projectID,
 		Status:         "building",
 		EmbeddingModel: embeddingModel,
@@ -165,7 +164,7 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 	}
 	s.mu.Unlock()
 
-	s.hub.BroadcastEvent(ctx, ws.EventRetrievalStatus, ws.RetrievalStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRetrievalStatus, event.RetrievalStatusEvent{
 		ProjectID:      payload.ProjectID,
 		Status:         status,
 		FileCount:      payload.FileCount,

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
@@ -1329,53 +1328,7 @@ func TestHandleToolCallRequest_DenyByPolicy(t *testing.T) {
 	}
 }
 
-func TestHandleToolCallRequest_TerminationMaxSteps(t *testing.T) {
-	svc, store, queue, _ := newRuntimeTestEnv()
-	ctx := context.Background()
-
-	// headless-safe-sandbox has max_steps: 200 by default
-	// Set step count to 200 to trigger termination
-	store.mu.Lock()
-	store.runs = append(store.runs, run.Run{
-		ID:            "run-3",
-		TaskID:        "task-1",
-		AgentID:       "agent-1",
-		ProjectID:     "proj-1",
-		PolicyProfile: "headless-safe-sandbox",
-		Status:        run.StatusRunning,
-		StepCount:     200,
-		StartedAt:     time.Now(),
-	})
-	store.mu.Unlock()
-
-	req := messagequeue.ToolCallRequestPayload{
-		RunID:  "run-3",
-		CallID: "call-3",
-		Tool:   "Read",
-		Path:   "main.go",
-	}
-	err := svc.HandleToolCallRequest(ctx, &req)
-	if err != nil {
-		t.Fatalf("HandleToolCallRequest failed: %v", err)
-	}
-
-	// Should be denied due to max steps
-	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
-	if !ok {
-		t.Fatal("expected tool call response to be published")
-	}
-	var resp messagequeue.ToolCallResponsePayload
-	_ = json.Unmarshal(msg.Data, &resp)
-	if resp.Decision != "deny" {
-		t.Fatalf("expected 'deny' for max steps termination, got %q", resp.Decision)
-	}
-
-	// Run should be completed with timeout status
-	r, _ := store.GetRun(ctx, "run-3")
-	if r.Status != run.StatusTimeout {
-		t.Fatalf("expected run status timeout, got %s", r.Status)
-	}
-}
+// TestHandleToolCallRequest_TerminationMaxSteps moved to runtime_execution_test.go
 
 func TestHandleToolCallRequest_RunNotRunning(t *testing.T) {
 	svc, store, queue, _ := newRuntimeTestEnv()
@@ -1725,7 +1678,7 @@ func TestHandleToolCallResult_StallDetected(t *testing.T) {
 	found := false
 	for _, ev := range bc.events {
 		if ev.EventType == "run.status" {
-			if statusEv, ok := ev.Data.(ws.RunStatusEvent); ok && statusEv.RunID == r.ID && statusEv.Status == "failed" {
+			if statusEv, ok := ev.Data.(event.RunStatusEvent); ok && statusEv.RunID == r.ID && statusEv.Status == "failed" {
 				found = true
 			}
 		}
@@ -2173,11 +2126,11 @@ func TestHandleToolCallResult_BudgetAlert80Percent(t *testing.T) {
 	defer bc.mu.Unlock()
 	var alertCount int
 	for _, ev := range bc.events {
-		if ev.EventType != ws.EventBudgetAlert {
+		if ev.EventType != event.EventBudgetAlert {
 			continue
 		}
 		alertCount++
-		alert := ev.Data.(ws.BudgetAlertEvent)
+		alert := ev.Data.(event.BudgetAlertEvent)
 		if alert.RunID != "run-budget80" {
 			t.Fatalf("expected run-budget80, got %s", alert.RunID)
 		}
@@ -2226,7 +2179,7 @@ func TestHandleToolCallResult_BudgetAlert90Percent(t *testing.T) {
 	defer bc.mu.Unlock()
 	var alertCount int
 	for _, ev := range bc.events {
-		if ev.EventType == ws.EventBudgetAlert {
+		if ev.EventType == event.EventBudgetAlert {
 			alertCount++
 		}
 	}
@@ -2282,7 +2235,7 @@ func TestHandleToolCallResult_BudgetAlertNoDuplicate(t *testing.T) {
 	defer bc.mu.Unlock()
 	var alertCount int
 	for _, ev := range bc.events {
-		if ev.EventType == ws.EventBudgetAlert {
+		if ev.EventType == event.EventBudgetAlert {
 			alertCount++
 		}
 	}

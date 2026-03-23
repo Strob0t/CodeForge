@@ -17,8 +17,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -31,9 +29,18 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
+	"github.com/Strob0t/CodeForge/internal/port/tokenexchange"
 	"github.com/Strob0t/CodeForge/internal/service"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
+
+// llmFull combines all LLM port interfaces used by handlers.
+type llmFull interface {
+	llm.Provider
+	llm.ModelDiscoverer
+	llm.ModelAdmin
+}
 
 // Handlers holds the HTTP handler dependencies.
 // TODO: decompose into domain-specific handler groups (e.g., ProjectHandlers,
@@ -42,7 +49,7 @@ type Handlers struct {
 	Projects         *service.ProjectService
 	Tasks            *service.TaskService
 	Agents           *service.AgentService
-	LiteLLM          *litellm.Client
+	LLM              llmFull
 	Policies         *service.PolicyService
 	PolicyDir        string // Custom policy YAML directory (empty = no persistence)
 	Runtime          *service.RuntimeService
@@ -82,7 +89,7 @@ type Handlers struct {
 	Benchmarks       *service.BenchmarkService
 	ReviewRouter     *service.ReviewRouterService
 	ModelRegistry    *service.ModelRegistry
-	Copilot          *copilot.Client
+	TokenExchanger   tokenexchange.Exchanger
 	Memory           *service.MemoryService
 	ExperiencePool   *service.ExperiencePoolService
 	Microagents      *service.MicroagentService

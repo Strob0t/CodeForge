@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -93,8 +92,8 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	// Dispatch to backend (async via NATS)
 	if _, err := backend.Execute(ctx, t); err != nil {
 		// Revert agent status on failure
-		_ = s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle)
-		_ = s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending)
+		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))
 		return fmt.Errorf("dispatch task: %w", err)
 	}
 
@@ -105,12 +104,12 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	})
 
 	// Broadcast state changes
-	s.hub.BroadcastEvent(ctx, ws.EventAgentStatus, ws.AgentStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
 		AgentID:   agentID,
 		ProjectID: ag.ProjectID,
 		Status:    string(agent.StatusRunning),
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventTaskStatus, ws.TaskStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventTaskStatus, event.TaskStatusEvent{
 		TaskID:    taskID,
 		ProjectID: t.ProjectID,
 		Status:    string(task.StatusQueued),
@@ -136,8 +135,8 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("stop task: %w", err)
 	}
 
-	_ = s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle)
-	_ = s.store.UpdateTaskStatus(ctx, taskID, task.StatusCancelled)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", taskID))
 
 	// Record event
 	s.appendEvent(ctx, event.TypeAgentError, agentID, taskID, ag.ProjectID, map[string]string{
@@ -145,12 +144,12 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 	})
 
 	// Broadcast state changes
-	s.hub.BroadcastEvent(ctx, ws.EventAgentStatus, ws.AgentStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
 		AgentID:   agentID,
 		ProjectID: ag.ProjectID,
 		Status:    string(agent.StatusIdle),
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventTaskStatus, ws.TaskStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventTaskStatus, event.TaskStatusEvent{
 		TaskID:    taskID,
 		ProjectID: ag.ProjectID,
 		Status:    string(task.StatusCancelled),
@@ -181,7 +180,7 @@ func (s *AgentService) HandleResult(ctx context.Context, result task.Result, tas
 		"error":  result.Error,
 	})
 
-	s.hub.BroadcastEvent(ctx, ws.EventTaskStatus, ws.TaskStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventTaskStatus, event.TaskStatusEvent{
 		TaskID:    taskID,
 		ProjectID: projectID,
 		Status:    status,
@@ -225,12 +224,12 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 // StartOutputSubscriber subscribes to streaming task output and forwards to WebSocket.
 func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskOutput, func(msgCtx context.Context, _ string, data []byte) error {
-		var output ws.TaskOutputEvent
+		var output event.TaskOutputEvent
 		if err := json.Unmarshal(data, &output); err != nil {
 			return fmt.Errorf("unmarshal output: %w", err)
 		}
 
-		s.hub.BroadcastEvent(msgCtx, ws.EventTaskOutput, output)
+		s.hub.BroadcastEvent(msgCtx, event.EventTaskOutput, output)
 		return nil
 	})
 }
@@ -238,12 +237,12 @@ func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func()
 // StartAgentOutputSubscriber subscribes to agent backend output and forwards to WebSocket.
 func (s *AgentService) StartAgentOutputSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectAgentOutput, func(msgCtx context.Context, _ string, data []byte) error {
-		var output ws.AgentOutputEvent
+		var output event.AgentOutputEvent
 		if err := json.Unmarshal(data, &output); err != nil {
 			slog.Error("malformed agent output message", "error", err)
 			return nil // log and skip, don't fail subscription
 		}
-		s.hub.BroadcastEvent(msgCtx, ws.EventAgentOutput, output)
+		s.hub.BroadcastEvent(msgCtx, event.EventAgentOutput, output)
 		return nil
 	})
 }
@@ -256,7 +255,7 @@ func (s *AgentService) SendMessage(ctx context.Context, msg *agent.InboxMessage)
 	if err := s.store.SendAgentMessage(ctx, msg); err != nil {
 		return fmt.Errorf("store inbox message: %w", err)
 	}
-	s.hub.BroadcastEvent(ctx, ws.EventAgentMessage, ws.AgentMessageEvent{
+	s.hub.BroadcastEvent(ctx, event.EventAgentMessage, event.AgentMessageEvent{
 		AgentID:   msg.AgentID,
 		FromAgent: msg.FromAgent,
 		Content:   msg.Content,

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -799,7 +799,7 @@ func (s *RoadmapService) broadcastStatus(ctx context.Context, r *roadmap.Roadmap
 	if s.hub == nil {
 		return
 	}
-	s.hub.BroadcastEvent(ctx, ws.EventRoadmapStatus, ws.RoadmapStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRoadmapStatus, event.RoadmapStatusEvent{
 		RoadmapID: r.ID,
 		ProjectID: r.ProjectID,
 		Status:    string(r.Status),

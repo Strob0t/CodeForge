@@ -9,7 +9,6 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/crypto"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
@@ -221,7 +220,7 @@ func (s *ReviewService) HandlePlanComplete(ctx context.Context, planID, status s
 		return
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventReviewStatus, ws.ReviewStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventReviewStatus, event.ReviewStatusEvent{
 		ReviewID:  r.ID,
 		PolicyID:  r.PolicyID,
 		ProjectID: r.ProjectID,
@@ -287,7 +286,7 @@ func (s *ReviewService) triggerReview(ctx context.Context, policy *review.Review
 		slog.Error("start review plan", "review_id", r.ID, "plan_id", p.ID, "error", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventReviewStatus, ws.ReviewStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventReviewStatus, event.ReviewStatusEvent{
 		ReviewID:  r.ID,
 		PolicyID:  policy.ID,
 		ProjectID: policy.ProjectID,
@@ -356,7 +355,7 @@ func (s *ReviewService) runCronCheck(ctx context.Context) {
 			}
 			// Touch updatedAt so we don't re-trigger.
 			p.UpdatedAt = now
-			_ = s.store.UpdateReviewPolicy(ctx, p)
+			logBestEffort(ctx, s.store.UpdateReviewPolicy(ctx, p), "UpdateReviewPolicy", slog.String("policy_id", p.ID))
 		}
 	}
 }

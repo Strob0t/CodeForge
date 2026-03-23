@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -74,7 +74,7 @@ func (s *SharedContextService) AddItem(ctx context.Context, req cfcontext.AddSha
 
 	// Broadcast via WebSocket for real-time frontend updates.
 	if s.hub != nil {
-		s.hub.BroadcastEvent(ctx, ws.EventSharedContextUpdate, ws.SharedContextUpdateEvent{
+		s.hub.BroadcastEvent(ctx, event.EventSharedContextUpdate, event.SharedContextUpdateEvent{
 			TeamID: req.TeamID,
 			Key:    req.Key,
 			Author: req.Author,

@@ -10,8 +10,8 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -128,7 +128,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq
 }
 
 func (e *Executor) broadcastStatus(ctx context.Context, taskID, state, direction string) {
-	e.hub.BroadcastEvent(ctx, ws.EventA2ATaskStatus, map[string]string{
+	e.hub.BroadcastEvent(ctx, event.EventA2ATaskStatus, map[string]string{
 		"task_id":   taskID,
 		"state":     state,
 		"direction": direction,

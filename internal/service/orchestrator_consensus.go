@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -86,9 +85,9 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 	r, err := s.runtime.StartRun(ctx, req)
 	if err != nil {
 		slog.Error("start step run", "step_id", stepID, "error", err)
-		_ = s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", err.Error())
+		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", err.Error()), "UpdatePlanStepStatus", slog.String("step_id", stepID))
 		s.broadcastStepStatus(ctx, p, step, plan.StepStatusFailed)
-		s.hub.BroadcastEvent(ctx, ws.AGUIStepFinished, ws.AGUIStepFinishedEvent{
+		s.hub.BroadcastEvent(ctx, event.AGUIStepFinished, event.AGUIStepFinishedEvent{
 			RunID:  "",
 			StepID: step.ID,
 			Status: string(plan.StepStatusFailed),
@@ -96,9 +95,9 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		return
 	}
 
-	_ = s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusRunning, r.ID, "")
+	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusRunning, r.ID, ""), "UpdatePlanStepStatus", slog.String("step_id", stepID))
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusRunning)
-	s.hub.BroadcastEvent(ctx, ws.AGUIStepStarted, ws.AGUIStepStartedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIStepStarted, event.AGUIStepStartedEvent{
 		RunID:  r.ID,
 		StepID: step.ID,
 		Name:   step.TaskID,
@@ -129,7 +128,7 @@ func (s *OrchestratorService) evaluateStepReview(ctx context.Context, p *plan.Ex
 	routed := s.reviewRouter.ShouldRoute(decision)
 
 	// Broadcast the review decision for frontend visibility.
-	s.hub.BroadcastEvent(ctx, ws.EventReviewRouterDecision, ws.ReviewRouterDecisionEvent{
+	s.hub.BroadcastEvent(ctx, event.EventReviewRouterDecision, event.ReviewRouterDecisionEvent{
 		PlanID:             p.ID,
 		StepID:             step.ID,
 		ProjectID:          p.ProjectID,
@@ -192,11 +191,11 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	s.debateMu.Unlock()
 
 	// Mark the parent step as running while the debate executes.
-	_ = s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusRunning, "", "")
+	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusRunning, "", ""), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusRunning)
 
 	// Broadcast debate started event.
-	s.hub.BroadcastEvent(ctx, ws.EventDebateStatus, ws.DebateStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDebateStatus, event.DebateStatusEvent{
 		PlanID:       p.ID,
 		StepID:       step.ID,
 		ProjectID:    p.ProjectID,
@@ -215,7 +214,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	if err != nil {
 		slog.Error("start debate sub-plan", "debate_plan_id", debatePlan.ID, "error", err)
 		// Revert step to pending so it can be retried without debate.
-		_ = s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", "")
+		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
 		s.broadcastStepStatus(ctx, p, step, plan.StepStatusPending)
 
 		s.debateMu.Lock()
@@ -282,7 +281,7 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 	}
 
 	// Broadcast debate completion.
-	s.hub.BroadcastEvent(ctx, ws.EventDebateStatus, ws.DebateStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDebateStatus, event.DebateStatusEvent{
 		PlanID:       ds.ParentPlanID,
 		StepID:       ds.ParentStepID,
 		ProjectID:    ds.ProjectID,
@@ -312,7 +311,7 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 	s.debateMu.Unlock()
 
 	// Reset the parent step to pending so advancePlan can dispatch the actual run.
-	_ = s.store.UpdatePlanStepStatus(ctx, ds.ParentStepID, plan.StepStatusPending, "", "")
+	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, ds.ParentStepID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", ds.ParentStepID))
 	s.broadcastStepStatus(ctx, parentPlan, parentStep, plan.StepStatusPending)
 
 	// Re-advance the parent plan to dispatch the original step.
@@ -338,7 +337,7 @@ func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.Executio
 func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPlan) {
 	for i := range p.Steps {
 		if p.Steps[i].Status == plan.StepStatusPending {
-			_ = s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusSkipped, "", "plan failed")
+			logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusSkipped, "", "plan failed"), "UpdatePlanStepStatus", slog.String("step_id", p.Steps[i].ID))
 			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusSkipped)
 		}
 	}
@@ -359,7 +358,7 @@ func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPla
 // --- helpers ---
 
 func (s *OrchestratorService) broadcastPlanStatus(ctx context.Context, p *plan.ExecutionPlan) {
-	s.hub.BroadcastEvent(ctx, ws.EventPlanStatus, ws.PlanStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventPlanStatus, event.PlanStatusEvent{
 		PlanID:    p.ID,
 		ProjectID: p.ProjectID,
 		Status:    string(p.Status),
@@ -367,7 +366,7 @@ func (s *OrchestratorService) broadcastPlanStatus(ctx context.Context, p *plan.E
 }
 
 func (s *OrchestratorService) broadcastStepStatus(ctx context.Context, p *plan.ExecutionPlan, step *plan.Step, status plan.StepStatus) {
-	s.hub.BroadcastEvent(ctx, ws.EventPlanStepStatus, ws.PlanStepStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventPlanStepStatus, event.PlanStepStatusEvent{
 		PlanID:    p.ID,
 		StepID:    step.ID,
 		ProjectID: p.ProjectID,
@@ -379,7 +378,7 @@ func (s *OrchestratorService) broadcastStepStatus(ctx context.Context, p *plan.E
 	// Emit AG-UI step_finished for terminal statuses.
 	switch status {
 	case plan.StepStatusCompleted, plan.StepStatusFailed, plan.StepStatusCancelled, plan.StepStatusSkipped:
-		s.hub.BroadcastEvent(ctx, ws.AGUIStepFinished, ws.AGUIStepFinishedEvent{
+		s.hub.BroadcastEvent(ctx, event.AGUIStepFinished, event.AGUIStepFinishedEvent{
 			RunID:  step.RunID,
 			StepID: step.ID,
 			Status: string(status),

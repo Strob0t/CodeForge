@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
@@ -91,7 +91,7 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 
 	// Broadcast to WS for War Room (Phase 23D).
 	if s.hub != nil {
-		s.hub.BroadcastEvent(ctx, ws.EventHandoffStatus, ws.HandoffStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventHandoffStatus, event.HandoffStatusEvent{
 			SourceAgentID: msg.SourceAgentID,
 			TargetAgentID: msg.TargetAgentID,
 			PlanID:        msg.PlanID,
@@ -127,7 +127,7 @@ func (s *HandoffService) routeToA2A(ctx context.Context, msg *orchestration.Hand
 
 	// Broadcast to WS for War Room.
 	if s.hub != nil {
-		s.hub.BroadcastEvent(ctx, ws.EventHandoffStatus, ws.HandoffStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventHandoffStatus, event.HandoffStatusEvent{
 			SourceAgentID: msg.SourceAgentID,
 			TargetAgentID: msg.TargetAgentID,
 			PlanID:        msg.PlanID,

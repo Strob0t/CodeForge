@@ -8,11 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
-
-	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -25,6 +20,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	cfmetrics "github.com/Strob0t/CodeForge/internal/port/metrics"
+	"github.com/Strob0t/CodeForge/internal/telemetry"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -55,7 +52,7 @@ type RuntimeService struct {
 	quarantine          *QuarantineService
 	feedbackProvidersMu sync.RWMutex
 	feedbackProviders   []feedbackPort.Provider
-	metrics             *cfotel.Metrics
+	metrics             cfmetrics.Recorder
 	runSpans            sync.Map // map[runID]trace.Span
 	goalSvc             *GoalDiscoveryService
 }
@@ -155,7 +152,7 @@ func (s *RuntimeService) SetQuarantineService(q *QuarantineService) {
 }
 
 // SetMetrics sets the OTEL metrics collector.
-func (s *RuntimeService) SetMetrics(m *cfotel.Metrics) {
+func (s *RuntimeService) SetMetrics(m cfmetrics.Recorder) {
 	s.metrics = m
 }
 
@@ -278,20 +275,17 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	r.Status = run.StatusRunning
 
 	// OTEL: start run span and record metric
-	_, runSpan := cfotel.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
+	_, runSpan := telemetry.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
 	s.runSpans.Store(r.ID, runSpan)
 	if s.metrics != nil {
-		s.metrics.RunsStarted.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("project.id", r.ProjectID),
-			attribute.String("exec_mode", string(req.ExecMode)),
-		))
+		s.metrics.RecordRunStarted(ctx, "project.id", r.ProjectID, "exec_mode", string(req.ExecMode))
 	}
 
 	// Mark agent as running
-	_ = s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning), "UpdateAgentStatus", slog.String("agent_id", req.AgentID))
 
 	// Mark task as running
-	_ = s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning)
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning), "UpdateTaskStatus", slog.String("task_id", req.TaskID))
 
 	// Start sandbox/hybrid container if applicable
 	if s.sandbox != nil {
@@ -428,7 +422,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	})
 
 	// Broadcast WS
-	s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -436,7 +430,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	})
 
 	// Broadcast AG-UI run_started alongside native event
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     r.ID,
 		AgentName: ag.Name,
 	})
@@ -492,14 +486,14 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	}
 
 	// Set agent idle
-	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-	_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusCancelled)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 
 	// Notify worker via NATS
 	cancelPayload := struct {
 		RunID string `json:"run_id"`
 	}{RunID: runID}
-	_ = s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload)
+	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
 
 	// Record event
 	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
@@ -508,7 +502,7 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	})
 
 	// Broadcast WS
-	s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -640,14 +634,14 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 		if err := json.Unmarshal(data, &output); err != nil {
 			return fmt.Errorf("unmarshal run output: %w", err)
 		}
-		s.hub.BroadcastEvent(msgCtx, ws.EventTaskOutput, ws.TaskOutputEvent{
+		s.hub.BroadcastEvent(msgCtx, event.EventTaskOutput, event.TaskOutputEvent{
 			TaskID: output.TaskID,
 			Line:   output.Line,
 			Stream: output.Stream,
 		})
 		// Also emit AG-UI text_message for agentic conversation streaming.
 		if output.Line != "" && output.Stream != "stderr" {
-			s.hub.BroadcastEvent(msgCtx, ws.AGUITextMessage, ws.AGUITextMessageEvent{
+			s.hub.BroadcastEvent(msgCtx, event.AGUITextMessage, event.AGUITextMessageEvent{
 				RunID:   output.TaskID,
 				Role:    "assistant",
 				Content: output.Line,
@@ -698,7 +692,7 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			return nil // Log and continue, don't fail the subscription
 		}
 
-		s.hub.BroadcastEvent(msgCtx, ws.EventTrajectoryEvent, ws.TrajectoryEventPayload{
+		s.hub.BroadcastEvent(msgCtx, event.EventTrajectoryEvent, event.TrajectoryEventPayload{
 			RunID:          payload.RunID,
 			ProjectID:      payload.ProjectID,
 			EventType:      payload.EventType,
@@ -722,7 +716,7 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 				Value  string `json:"value"`
 			}
 			if err := json.Unmarshal(data, &suggestion); err == nil {
-				s.hub.BroadcastEvent(msgCtx, ws.AGUIActionSuggestion, ws.AGUIActionSuggestionEvent{
+				s.hub.BroadcastEvent(msgCtx, event.AGUIActionSuggestion, event.AGUIActionSuggestionEvent{
 					RunID:  payload.RunID,
 					Label:  suggestion.Label,
 					Action: suggestion.Action,
@@ -745,7 +739,7 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 				} `json:"data"`
 			}
 			if err := json.Unmarshal(data, &proposal); err == nil {
-				s.hub.BroadcastEvent(msgCtx, ws.AGUIGoalProposal, ws.AGUIGoalProposalEvent{
+				s.hub.BroadcastEvent(msgCtx, event.AGUIGoalProposal, event.AGUIGoalProposalEvent{
 					RunID:      payload.RunID,
 					ProposalID: proposal.Data.ProposalID,
 					Action:     proposal.Data.Action,

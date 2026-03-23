@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -144,10 +144,10 @@ func TestActiveWorkServiceClaimSuccess(t *testing.T) {
 	if len(bc.events) != 1 {
 		t.Fatalf("expected 1 broadcast, got %d", len(bc.events))
 	}
-	if bc.events[0].eventType != ws.EventActiveWorkClaimed {
-		t.Errorf("event type = %q, want %q", bc.events[0].eventType, ws.EventActiveWorkClaimed)
+	if bc.events[0].eventType != event.EventActiveWorkClaimed {
+		t.Errorf("event type = %q, want %q", bc.events[0].eventType, event.EventActiveWorkClaimed)
 	}
-	ev, ok := bc.events[0].payload.(ws.ActiveWorkClaimedEvent)
+	ev, ok := bc.events[0].payload.(event.ActiveWorkClaimedEvent)
 	if !ok {
 		t.Fatalf("payload type = %T, want ActiveWorkClaimedEvent", bc.events[0].payload)
 	}
@@ -243,10 +243,10 @@ func TestActiveWorkServiceReleaseStaleWorkBroadcastsPerTask(t *testing.T) {
 		t.Fatalf("expected 2 broadcasts, got %d", len(bc.events))
 	}
 	for i, ev := range bc.events {
-		if ev.eventType != ws.EventActiveWorkReleased {
-			t.Errorf("event[%d] type = %q, want %q", i, ev.eventType, ws.EventActiveWorkReleased)
+		if ev.eventType != event.EventActiveWorkReleased {
+			t.Errorf("event[%d] type = %q, want %q", i, ev.eventType, event.EventActiveWorkReleased)
 		}
-		rel, ok := ev.payload.(ws.ActiveWorkReleasedEvent)
+		rel, ok := ev.payload.(event.ActiveWorkReleasedEvent)
 		if !ok {
 			t.Fatalf("event[%d] payload type = %T, want ActiveWorkReleasedEvent", i, ev.payload)
 		}

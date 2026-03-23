@@ -9,12 +9,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -487,7 +485,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	}
 
 	// Broadcast run started via WebSocket.
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     runID,
 		ThreadID:  conversationID,
 		AgentName: "agent",
@@ -495,7 +493,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 
 	// Publish to NATS for the Python worker (with dedup to prevent duplicate runs).
 	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, dedupKey); err != nil {
-		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+		s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 			RunID:  runID,
 			Status: "failed",
 			Error:  err.Error(),
@@ -504,10 +502,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	}
 
 	if s.metrics != nil {
-		s.metrics.RunsStarted.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("type", "conversation_agentic"),
-			attribute.String("project.id", proj.ID),
-		))
+		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)
 	}
 
 	slog.Info("conversation agentic run dispatched",
@@ -722,7 +717,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		return fmt.Errorf("marshal conversation run start: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     runID,
 		ThreadID:  conversationID,
 		AgentName: modeID,
@@ -813,21 +808,18 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	}
 
 	if s.metrics != nil {
-		attrs := metric.WithAttributes(
-			attribute.String("type", "conversation_agentic"),
-			attribute.String("status", wsStatus),
-		)
+		metricAttrs := []string{"type", "conversation_agentic", "status", wsStatus}
 		if wsStatus == "completed" {
-			s.metrics.RunsCompleted.Add(ctx, 1, attrs)
+			s.metrics.RecordRunCompleted(ctx, metricAttrs...)
 		} else {
-			s.metrics.RunsFailed.Add(ctx, 1, attrs)
+			s.metrics.RecordRunFailed(ctx, metricAttrs...)
 		}
 		if payload.CostUSD > 0 {
-			s.metrics.RunCost.Record(ctx, payload.CostUSD, attrs)
+			s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
 		}
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 		RunID:     payload.RunID,
 		Status:    wsStatus,
 		Error:     payload.Error,
@@ -898,7 +890,7 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 		return fmt.Errorf("publish conversation run cancel: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 		RunID:  conversationID,
 		Status: "cancelled",
 	})

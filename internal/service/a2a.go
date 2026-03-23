@@ -19,8 +19,8 @@ import (
 	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -186,7 +186,7 @@ func (s *A2AService) SendTask(ctx context.Context, remoteAgentID, skillID, promp
 
 	// Broadcast to WS.
 	if s.hub != nil {
-		s.hub.BroadcastEvent(ctx, ws.EventA2ATaskCreated, ws.A2ATaskStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventA2ATaskCreated, event.A2ATaskStatusEvent{
 			TaskID:        dt.ID,
 			State:         string(dt.State),
 			SkillID:       dt.SkillID,
@@ -217,7 +217,7 @@ func (s *A2AService) GetRemoteTask(ctx context.Context, remoteAgentID, taskID st
 	if getErr == nil {
 		dt.State = a2adomain.TaskState(string(sdkTask.Status.State))
 		dt.UpdatedAt = time.Now().UTC()
-		_ = s.store.UpdateA2ATask(ctx, dt)
+		logBestEffort(ctx, s.store.UpdateA2ATask(ctx, dt), "UpdateA2ATask", slog.String("task_id", taskID))
 	}
 
 	return sdkTask, nil
@@ -242,7 +242,7 @@ func (s *A2AService) CancelRemoteTask(ctx context.Context, remoteAgentID, taskID
 	if getErr == nil {
 		dt.State = a2adomain.TaskStateCanceled
 		dt.UpdatedAt = time.Now().UTC()
-		_ = s.store.UpdateA2ATask(ctx, dt)
+		logBestEffort(ctx, s.store.UpdateA2ATask(ctx, dt), "UpdateA2ATask", slog.String("task_id", taskID))
 	}
 
 	return nil
@@ -458,7 +458,7 @@ func (s *A2AService) HandleTaskComplete(ctx context.Context, taskID, state, errM
 
 	// Broadcast WS event.
 	if s.hub != nil {
-		s.hub.BroadcastEvent(ctx, ws.EventA2ATaskComplete, ws.A2ATaskStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventA2ATaskComplete, event.A2ATaskStatusEvent{
 			TaskID:        dt.ID,
 			State:         string(dt.State),
 			Direction:     string(dt.Direction),

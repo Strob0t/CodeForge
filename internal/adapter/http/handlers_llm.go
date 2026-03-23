@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
-	models, err := h.LiteLLM.ListModels(r.Context())
+	models, err := h.LLM.ListModels(r.Context())
 	if err != nil {
 		slog.Error("litellm unavailable", "error", err)
 		writeError(w, http.StatusBadGateway, "LLM service unavailable")
@@ -20,7 +20,7 @@ func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
 
 // AddLLMModel handles POST /api/v1/llm/models
 func (h *Handlers) AddLLMModel(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[litellm.AddModelRequest](w, r, h.Limits.MaxRequestBodySize)
+	req, ok := readJSON[llm.AddModelRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
@@ -29,7 +29,7 @@ func (h *Handlers) AddLLMModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.LiteLLM.AddModel(r.Context(), req); err != nil {
+	if err := h.LLM.AddModel(r.Context(), req); err != nil {
 		slog.Error("litellm request failed", "error", err)
 		writeError(w, http.StatusBadGateway, "LLM service error")
 		return
@@ -50,7 +50,7 @@ func (h *Handlers) DeleteLLMModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.LiteLLM.DeleteModel(r.Context(), req.ID); err != nil {
+	if err := h.LLM.DeleteModel(r.Context(), req.ID); err != nil {
 		slog.Error("litellm request failed", "error", err)
 		writeError(w, http.StatusBadGateway, "LLM service error")
 		return
@@ -60,7 +60,7 @@ func (h *Handlers) DeleteLLMModel(w http.ResponseWriter, r *http.Request) {
 
 // LLMHealth handles GET /api/v1/llm/health
 func (h *Handlers) LLMHealth(w http.ResponseWriter, r *http.Request) {
-	healthy, err := h.LiteLLM.Health(r.Context())
+	healthy, err := h.LLM.Health(r.Context())
 	status := "healthy"
 	if !healthy || err != nil {
 		status = "unhealthy"
@@ -74,7 +74,7 @@ func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Discover models from LiteLLM.
-	models, err := h.LiteLLM.DiscoverModels(ctx)
+	models, err := h.LLM.DiscoverModels(ctx)
 	if err != nil {
 		slog.Error("litellm discovery failed", "error", err)
 		writeError(w, http.StatusBadGateway, "LLM discovery failed")
@@ -83,7 +83,7 @@ func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
 
 	// Discover Ollama models if OLLAMA_BASE_URL is configured.
 	if h.OllamaBaseURL != "" {
-		ollamaModels, err := h.LiteLLM.DiscoverOllamaModels(ctx, h.OllamaBaseURL)
+		ollamaModels, err := h.LLM.DiscoverOllamaModels(ctx, h.OllamaBaseURL)
 		if err != nil {
 			slog.Warn("ollama discovery failed", "error", err)
 			// Non-fatal: continue with LiteLLM models only.
@@ -93,7 +93,7 @@ func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if models == nil {
-		models = []litellm.DiscoveredModel{}
+		models = []llm.DiscoveredModel{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -112,8 +112,8 @@ func (h *Handlers) AvailableLLMModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type resp struct {
-		Models    []litellm.DiscoveredModel `json:"models"`
-		BestModel string                    `json:"best_model"`
+		Models    []llm.DiscoveredModel `json:"models"`
+		BestModel string                `json:"best_model"`
 	}
 	writeJSON(w, http.StatusOK, resp{
 		Models:    h.ModelRegistry.AvailableModels(),
@@ -138,11 +138,11 @@ func (h *Handlers) RefreshLLMModels(w http.ResponseWriter, r *http.Request) {
 
 // HandleCopilotExchange handles POST /api/v1/copilot/exchange.
 func (h *Handlers) HandleCopilotExchange(w http.ResponseWriter, r *http.Request) {
-	if h.Copilot == nil {
+	if h.TokenExchanger == nil {
 		writeError(w, http.StatusNotFound, "copilot integration not enabled")
 		return
 	}
-	token, expiry, err := h.Copilot.ExchangeToken(r.Context())
+	token, expiry, err := h.TokenExchanger.ExchangeToken(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "copilot token exchange failed")
 		return

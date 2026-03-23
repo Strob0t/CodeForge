@@ -159,7 +159,7 @@ func (s *AuthService) RefreshTokens(ctx context.Context, rawToken string) (*user
 	}
 
 	if time.Now().After(rt.ExpiresAt) {
-		_ = s.store.DeleteRefreshToken(ctx, rt.ID)
+		logBestEffort(ctx, s.store.DeleteRefreshToken(ctx, rt.ID), "DeleteRefreshToken")
 		return nil, "", errors.New("refresh token expired")
 	}
 

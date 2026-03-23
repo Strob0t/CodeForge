@@ -1,7 +1,7 @@
-// Package ws -- AG-UI (Agent-User Interaction) protocol event types.
+// Package event -- AG-UI (Agent-User Interaction) protocol event types.
 // These follow the CopilotKit AG-UI specification for agent <-> frontend streaming.
 // When enabled, these events are emitted alongside native CodeForge WS events.
-package ws
+package event
 
 import "encoding/json"
 

@@ -10,17 +10,15 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 
-	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	cfmetrics "github.com/Strob0t/CodeForge/internal/port/metrics"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -76,7 +74,7 @@ type ConversationService struct {
 	agentCfg        *config.Agent
 	routingCfg      *config.Routing
 	appEnv          string
-	metrics         *cfotel.Metrics
+	metrics         cfmetrics.Recorder
 	contextOpt      *ContextOptimizerService
 	llmKeySvc       *LLMKeyService
 	promptAssembler *PromptAssembler
@@ -123,7 +121,7 @@ func (s *ConversationService) SetModelRegistry(r *ModelRegistry) { s.modelRegist
 func (s *ConversationService) SetMicroagentService(svc *MicroagentService) { s.microagentSvc = svc }
 
 // SetMetrics sets the OTEL metrics collector.
-func (s *ConversationService) SetMetrics(m *cfotel.Metrics) { s.metrics = m }
+func (s *ConversationService) SetMetrics(m cfmetrics.Recorder) { s.metrics = m }
 
 // SetGoalService wires the goal discovery service for system prompt injection.
 func (s *ConversationService) SetGoalService(svc *GoalDiscoveryService) { s.goalSvc = svc }
@@ -283,7 +281,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 	}
 
 	// Broadcast run started via WebSocket.
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     runID,
 		ThreadID:  conversationID,
 		AgentName: "assistant",
@@ -291,7 +289,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 
 	// Publish to NATS for the Python worker.
 	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, dedupKey); err != nil {
-		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+		s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 			RunID:  runID,
 			Status: "failed",
 			Error:  err.Error(),
@@ -300,10 +298,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 	}
 
 	if s.metrics != nil {
-		s.metrics.RunsStarted.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("type", "conversation"),
-			attribute.String("project.id", conv.ProjectID),
-		))
+		s.metrics.RecordRunStarted(ctx, "type", "conversation", "project.id", conv.ProjectID)
 	}
 
 	slog.Info("conversation simple run dispatched",

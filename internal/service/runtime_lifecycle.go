@@ -9,11 +9,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -22,6 +19,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
 
 func (s *RuntimeService) cleanupRunState(runID string) {
@@ -68,10 +66,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 		sp.SetStatus(codes.Error, reason)
 	}
 	if s.metrics != nil {
-		s.metrics.RunsFailed.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("project.id", r.ProjectID),
-			attribute.String("status", "timeout"),
-		))
+		s.metrics.RecordRunFailed(ctx, "project.id", r.ProjectID, "status", "timeout")
 	}
 
 	s.cleanupRunState(runID)
@@ -79,19 +74,19 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 	if err := s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
-	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-	_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 
 	cancelPayload := struct {
 		RunID string `json:"run_id"`
 	}{RunID: runID}
-	_ = s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload)
+	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
 
 	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 		"status": string(run.StatusTimeout),
 		"reason": reason,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -124,16 +119,13 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		}
 	}
 	if s.metrics != nil {
-		attrs := metric.WithAttributes(
-			attribute.String("project.id", r.ProjectID),
-			attribute.String("status", string(status)),
-		)
+		metricAttrs := []string{"project.id", r.ProjectID, "status", string(status)}
 		if status == run.StatusCompleted {
-			s.metrics.RunsCompleted.Add(ctx, 1, attrs)
+			s.metrics.RecordRunCompleted(ctx, metricAttrs...)
 		} else {
-			s.metrics.RunsFailed.Add(ctx, 1, attrs)
+			s.metrics.RecordRunFailed(ctx, metricAttrs...)
 		}
-		s.metrics.RunCost.Record(ctx, payload.CostUSD, attrs)
+		s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
 	}
 
 	s.cleanupRunState(r.ID)
@@ -151,11 +143,11 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	if status == run.StatusFailed || status == run.StatusTimeout {
 		taskStatus = task.StatusFailed
 	}
-	_ = s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatus)
-	_ = s.store.UpdateTaskResult(ctx, r.TaskID, taskResult, payload.CostUSD)
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatus), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
+	logBestEffort(ctx, s.store.UpdateTaskResult(ctx, r.TaskID, taskResult, payload.CostUSD), "UpdateTaskResult", slog.String("task_id", r.TaskID))
 
 	// Set agent back to idle
-	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
 
 	// Accumulate agent identity stats (Phase 23C).
 	if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
@@ -171,7 +163,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	})
 
 	// Broadcast WS
-	s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -182,7 +174,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		TokensOut: payload.TokensOut,
 		Model:     payload.Model,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventAgentStatus, ws.AgentStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
 		AgentID:   r.AgentID,
 		ProjectID: r.ProjectID,
 		Status:    string(agent.StatusIdle),
@@ -196,7 +188,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	case run.StatusCancelled:
 		aguiStatus = "cancelled"
 	}
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 		RunID:     r.ID,
 		Status:    aguiStatus,
 		Model:     payload.Model,
@@ -253,7 +245,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 	}
 
 	// OTEL: delivery span
-	_, deliverySpan := cfotel.StartDeliverySpan(ctx, r.ID, string(r.DeliverMode))
+	_, deliverySpan := telemetry.StartDeliverySpan(ctx, r.ID, string(r.DeliverMode))
 	defer deliverySpan.End()
 
 	// Get task title for commit message
@@ -266,7 +258,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 	s.appendRunEvent(ctx, event.TypeDeliveryStarted, r, map[string]string{
 		"mode": string(r.DeliverMode),
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventDelivery, ws.DeliveryEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDelivery, event.DeliveryEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -283,7 +275,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 			"mode":  string(r.DeliverMode),
 			"error": deliverErr.Error(),
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventDelivery, ws.DeliveryEvent{
+		s.hub.BroadcastEvent(ctx, event.EventDelivery, event.DeliveryEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
@@ -306,7 +298,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		"branch_name": deliverResult.BranchName,
 		"pr_url":      deliverResult.PRURL,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventDelivery, ws.DeliveryEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDelivery, event.DeliveryEvent{
 		RunID:      r.ID,
 		TaskID:     r.TaskID,
 		ProjectID:  r.ProjectID,

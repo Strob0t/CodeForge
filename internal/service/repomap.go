@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -54,7 +54,7 @@ func (s *RepoMapService) RequestGeneration(ctx context.Context, projectID string
 		return fmt.Errorf("publish repomap request: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventRepoMapStatus, ws.RepoMapStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRepoMapStatus, event.RepoMapStatusEvent{
 		ProjectID: projectID,
 		Status:    "generating",
 	})
@@ -67,7 +67,7 @@ func (s *RepoMapService) RequestGeneration(ctx context.Context, projectID string
 func (s *RepoMapService) HandleResult(ctx context.Context, payload *messagequeue.RepoMapResultPayload) error {
 	if payload.Error != "" {
 		slog.Error("repomap generation failed", "project_id", payload.ProjectID, "error", payload.Error)
-		s.hub.BroadcastEvent(ctx, ws.EventRepoMapStatus, ws.RepoMapStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventRepoMapStatus, event.RepoMapStatusEvent{
 			ProjectID: payload.ProjectID,
 			Status:    "failed",
 			Error:     payload.Error,
@@ -88,7 +88,7 @@ func (s *RepoMapService) HandleResult(ctx context.Context, payload *messagequeue
 		return fmt.Errorf("upsert repomap: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, ws.EventRepoMapStatus, ws.RepoMapStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRepoMapStatus, event.RepoMapStatusEvent{
 		ProjectID:   payload.ProjectID,
 		Status:      "ready",
 		TokenCount:  payload.TokenCount,

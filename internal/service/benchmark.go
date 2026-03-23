@@ -197,7 +197,7 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 			// No suite fallback — the dataset is mandatory and must exist.
 			run.Status = benchmark.StatusFailed
 			run.ErrorMessage = fmt.Sprintf("dataset %q not found", run.Dataset)
-			_ = s.store.UpdateBenchmarkRun(ctx, run) //nolint:errcheck // best effort
+			logBestEffort(ctx, s.store.UpdateBenchmarkRun(ctx, run), "UpdateBenchmarkRun", slog.String("run_id", run.ID))
 			return nil, fmt.Errorf("%w: dataset %q not found", domain.ErrValidation, run.Dataset)
 		} else {
 			slog.Warn("dataset path resolution failed, relying on suite provider", "original", run.Dataset, "candidate", absCandidate, "error", statErr)
@@ -246,7 +246,7 @@ func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRu
 		// Run is already saved — mark as failed if we can't dispatch.
 		slog.Error("failed to publish benchmark run request", "run_id", run.ID, "error", err)
 		run.Status = benchmark.StatusFailed
-		_ = s.store.UpdateBenchmarkRun(ctx, run) //nolint:errcheck // best effort
+		logBestEffort(ctx, s.store.UpdateBenchmarkRun(ctx, run), "UpdateBenchmarkRun", slog.String("run_id", run.ID))
 		return nil, fmt.Errorf("publish benchmark run request: %w", err)
 	}
 

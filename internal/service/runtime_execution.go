@@ -7,10 +7,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 
-	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/artifact"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -18,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
 
 func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *messagequeue.ToolCallRequestPayload) error {
@@ -52,12 +50,12 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
 		// Terminate the run
-		_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model)
+		logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
 		s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 			"status": string(run.StatusTimeout),
 			"reason": reason,
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
@@ -132,7 +130,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	if decision != policy.DecisionAllow {
 		phase = "denied"
 	}
-	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
 		RunID:    r.ID,
 		CallID:   req.CallID,
 		Tool:     req.Tool,
@@ -141,7 +139,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	})
 
 	// Broadcast AG-UI tool_call alongside native event
-	s.hub.BroadcastEvent(ctx, ws.AGUIToolCall, ws.AGUIToolCallEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
 		RunID:  r.ID,
 		CallID: req.CallID,
 		Name:   req.Tool,
@@ -149,14 +147,11 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	})
 
 	// OTEL: record tool call span and metric
-	_, toolSpan := cfotel.StartToolCallSpan(ctx, req.CallID, req.Tool)
+	_, toolSpan := telemetry.StartToolCallSpan(ctx, req.CallID, req.Tool)
 	toolSpan.SetAttributes(attribute.String("decision", string(decision)))
 	toolSpan.End()
 	if s.metrics != nil {
-		s.metrics.ToolCalls.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("tool", req.Tool),
-			attribute.String("decision", string(decision)),
-		))
+		s.metrics.RecordToolCall(ctx, "tool", req.Tool, "decision", string(decision))
 	}
 
 	// Create checkpoint for file-modifying tools
@@ -171,7 +166,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 
 	// Increment step count
 	newSteps := r.StepCount + 1
-	_ = s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut)
+	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
 
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
 }
@@ -282,7 +277,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	if decision != policy.DecisionAllow {
 		phase = "denied"
 	}
-	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
 		RunID:    req.RunID,
 		CallID:   req.CallID,
 		Tool:     req.Tool,
@@ -307,7 +302,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	newCost := r.CostUSD + result.CostUSD
 	newTokensIn := r.TokensIn + result.TokensIn
 	newTokensOut := r.TokensOut + result.TokensOut
-	_ = s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut)
+	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
 
 	// Budget alert checks (80% and 90% thresholds) + post-execution budget enforcement
 	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
@@ -321,14 +316,14 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if newCost >= maxCost {
 			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
 			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
-			_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, newCost, r.StepCount, newTokensIn, newTokensOut, r.Model)
+			logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, newCost, r.StepCount, newTokensIn, newTokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
 			s.cleanupRunState(r.ID)
 			s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 				"status": string(run.StatusTimeout),
 				"reason": reason,
 			})
 			s.appendAudit(ctx, r, "budget.exceeded", reason)
-			s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+			s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 				RunID:     r.ID,
 				TaskID:    r.TaskID,
 				ProjectID: r.ProjectID,
@@ -338,8 +333,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				TokensIn:  newTokensIn,
 				TokensOut: newTokensOut,
 			})
-			_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-			_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 			if s.onRunComplete != nil {
 				s.onRunComplete(ctx, r.ID, run.StatusTimeout)
 			}
@@ -350,7 +345,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 			if pct >= threshold {
 				alertKey := fmt.Sprintf("%s:%d", r.ID, int(threshold))
 				if _, alreadySent := s.budgetAlerts.LoadOrStore(alertKey, true); !alreadySent {
-					s.hub.BroadcastEvent(ctx, ws.EventBudgetAlert, ws.BudgetAlertEvent{
+					s.hub.BroadcastEvent(ctx, event.EventBudgetAlert, event.BudgetAlertEvent{
 						RunID:      r.ID,
 						TaskID:     r.TaskID,
 						ProjectID:  r.ProjectID,
@@ -370,13 +365,13 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
 			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
-			_ = s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount, newTokensIn, newTokensOut, r.Model)
+			logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount, newTokensIn, newTokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
 			s.stallTrackers.Delete(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+			s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 				RunID:     r.ID,
 				TaskID:    r.TaskID,
 				ProjectID: r.ProjectID,
@@ -387,8 +382,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				TokensOut: newTokensOut,
 			})
 			// Set agent idle, task failed
-			_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-			_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 			return nil
 		}
 	}
@@ -402,7 +397,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
 
 	// Broadcast WS with token data
-	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
 		RunID:  r.ID,
 		CallID: result.CallID,
 		Tool:   result.Tool,
@@ -414,7 +409,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	if !result.Success {
 		toolResultErr = result.Output
 	}
-	s.hub.BroadcastEvent(ctx, ws.AGUIToolResult, ws.AGUIToolResultEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIToolResult, event.AGUIToolResultEvent{
 		RunID:  r.ID,
 		CallID: result.CallID,
 		Result: result.Output,
@@ -450,7 +445,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			if err := s.store.UpdateRunArtifact(ctx, r.ID, m.RequiredArtifact, &valid, result.Errors); err != nil {
 				slog.Error("failed to persist artifact validation", "run_id", r.ID, "error", err)
 			}
-			s.hub.BroadcastEvent(ctx, ws.EventArtifactValidation, ws.ArtifactValidationEvent{
+			s.hub.BroadcastEvent(ctx, event.EventArtifactValidation, event.ArtifactValidationEvent{
 				RunID:        r.ID,
 				TaskID:       r.TaskID,
 				ProjectID:    r.ProjectID,
@@ -528,13 +523,13 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			"run_tests": fmt.Sprintf("%t", profile.QualityGate.RequireTestsPass),
 			"run_lint":  fmt.Sprintf("%t", profile.QualityGate.RequireLintPass),
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+		s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
 			Status:    "started",
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
@@ -576,7 +571,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 	if allPassed {
 		s.appendAudit(ctx, r, "qualitygate.passed", "Quality gate passed")
 		s.appendRunEvent(ctx, event.TypeQualityGatePassed, r, map[string]string{})
-		s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+		s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
 			RunID:       r.ID,
 			TaskID:      r.TaskID,
 			ProjectID:   r.ProjectID,
@@ -620,7 +615,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 	s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{
 		"error": errMsg,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+	s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
 		RunID:       r.ID,
 		TaskID:      r.TaskID,
 		ProjectID:   r.ProjectID,

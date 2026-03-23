@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -77,7 +77,7 @@ func (s *GraphService) RequestBuild(ctx context.Context, projectID, workspacePat
 	}
 	s.mu.Unlock()
 
-	s.hub.BroadcastEvent(ctx, ws.EventGraphStatus, ws.GraphStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventGraphStatus, event.GraphStatusEvent{
 		ProjectID: projectID,
 		Status:    "building",
 	})
@@ -104,7 +104,7 @@ func (s *GraphService) HandleBuildResult(ctx context.Context, payload *messagequ
 	}
 	s.mu.Unlock()
 
-	s.hub.BroadcastEvent(ctx, ws.EventGraphStatus, ws.GraphStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventGraphStatus, event.GraphStatusEvent{
 		ProjectID: payload.ProjectID,
 		Status:    status,
 		NodeCount: payload.NodeCount,

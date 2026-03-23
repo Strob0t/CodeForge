@@ -6,7 +6,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -319,7 +318,7 @@ func TestAgentService_SendMessage(t *testing.T) {
 	// Verify WS broadcast was sent
 	found := false
 	for _, ev := range bc.events {
-		if ev.eventType == ws.EventAgentMessage {
+		if ev.eventType == event.EventAgentMessage {
 			found = true
 			break
 		}
@@ -493,7 +492,7 @@ func TestAgentOutput_ForwardedToWebSocket(t *testing.T) {
 	svc := NewAgentService(&mockStore{}, &mockQueue{}, bc)
 
 	// Simulate a valid agent output message.
-	payload, _ := json.Marshal(ws.AgentOutputEvent{
+	payload, _ := json.Marshal(event.AgentOutputEvent{
 		TaskID: "task-1",
 		Line:   "Compiling main.go",
 		Stream: "stdout",
@@ -509,19 +508,19 @@ func TestAgentOutput_ForwardedToWebSocket(t *testing.T) {
 	// The mockQueue Subscribe stores the handler but doesn't invoke it.
 	// Instead, test the broadcast by simulating what the handler does:
 	// unmarshal and broadcast.
-	var output ws.AgentOutputEvent
+	var output event.AgentOutputEvent
 	if err := json.Unmarshal(payload, &output); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	bc.BroadcastEvent(context.Background(), ws.EventAgentOutput, output)
+	bc.BroadcastEvent(context.Background(), event.EventAgentOutput, output)
 
 	if len(bc.events) != 1 {
 		t.Fatalf("expected 1 broadcast event, got %d", len(bc.events))
 	}
-	if bc.events[0].eventType != ws.EventAgentOutput {
-		t.Errorf("expected event type %s, got %s", ws.EventAgentOutput, bc.events[0].eventType)
+	if bc.events[0].eventType != event.EventAgentOutput {
+		t.Errorf("expected event type %s, got %s", event.EventAgentOutput, bc.events[0].eventType)
 	}
-	ev, ok := bc.events[0].payload.(ws.AgentOutputEvent)
+	ev, ok := bc.events[0].payload.(event.AgentOutputEvent)
 	if !ok {
 		t.Fatalf("expected AgentOutputEvent payload, got %T", bc.events[0].payload)
 	}
