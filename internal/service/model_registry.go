@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 // ModelRegistry maintains an in-memory cache of discovered LLM models
@@ -21,11 +21,11 @@ import (
 // the database are scoped via tenantFromCtx() in store_routing.go.
 type ModelRegistry struct {
 	mu          sync.RWMutex
-	models      []litellm.DiscoveredModel
+	models      []llm.DiscoveredModel
 	bestModel   string
 	lastRefresh time.Time
 	interval    time.Duration
-	llm         *litellm.Client
+	discoverer  llm.ModelDiscoverer
 	hub         broadcast.Broadcaster
 	ollamaURL   string // from OLLAMA_BASE_URL env
 	routingSvc  *RoutingService
@@ -34,12 +34,12 @@ type ModelRegistry struct {
 // NewModelRegistry creates a new registry with the given poll interval.
 // Pass interval <= 0 to disable periodic polling (manual refresh only).
 // The ollamaURL parameter comes from cfg.Ollama.BaseURL (OLLAMA_BASE_URL env var).
-func NewModelRegistry(llm *litellm.Client, hub broadcast.Broadcaster, interval time.Duration, ollamaURL string) *ModelRegistry {
+func NewModelRegistry(discoverer llm.ModelDiscoverer, hub broadcast.Broadcaster, interval time.Duration, ollamaURL string) *ModelRegistry {
 	return &ModelRegistry{
-		llm:       llm,
-		hub:       hub,
-		interval:  interval,
-		ollamaURL: ollamaURL,
+		discoverer: discoverer,
+		hub:        hub,
+		interval:   interval,
+		ollamaURL:  ollamaURL,
 	}
 }
 
@@ -76,14 +76,14 @@ func (r *ModelRegistry) Start(ctx context.Context) {
 // Refresh discovers models from LiteLLM (and Ollama if configured),
 // updates the cache, and broadcasts a WS event if the best model changed.
 func (r *ModelRegistry) Refresh(ctx context.Context) error {
-	models, err := r.llm.DiscoverModels(ctx)
+	models, err := r.discoverer.DiscoverModels(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Discover Ollama models if configured.
 	if r.ollamaURL != "" {
-		ollamaModels, ollamaErr := r.llm.DiscoverOllamaModels(ctx, r.ollamaURL)
+		ollamaModels, ollamaErr := r.discoverer.DiscoverOllamaModels(ctx, r.ollamaURL)
 		if ollamaErr != nil {
 			slog.Warn("model registry: ollama discovery failed", "error", ollamaErr)
 		} else {
@@ -92,17 +92,17 @@ func (r *ModelRegistry) Refresh(ctx context.Context) error {
 	}
 
 	if models == nil {
-		models = []litellm.DiscoveredModel{}
+		models = []llm.DiscoveredModel{}
 	}
 
 	// Filter reachable models for best-model selection.
-	reachable := make([]litellm.DiscoveredModel, 0, len(models))
+	reachable := make([]llm.DiscoveredModel, 0, len(models))
 	for i := range models {
 		if models[i].Status == "reachable" {
 			reachable = append(reachable, models[i])
 		}
 	}
-	newBest := litellm.SelectStrongestModel(reachable)
+	newBest := llm.SelectStrongestModel(reachable)
 
 	r.mu.Lock()
 	oldBest := r.bestModel
@@ -136,10 +136,10 @@ func (r *ModelRegistry) SetRoutingService(routingSvc *RoutingService) {
 }
 
 // AvailableModels returns a copy of the cached discovered models.
-func (r *ModelRegistry) AvailableModels() []litellm.DiscoveredModel {
+func (r *ModelRegistry) AvailableModels() []llm.DiscoveredModel {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]litellm.DiscoveredModel, len(r.models))
+	out := make([]llm.DiscoveredModel, len(r.models))
 	copy(out, r.models)
 	return out
 }
@@ -190,7 +190,7 @@ func (r *ModelRegistry) ValidateConfiguredModel(modelName string) {
 }
 
 // broadcastHealth sends a models.health WS event with current state.
-func (r *ModelRegistry) broadcastHealth(ctx context.Context, models []litellm.DiscoveredModel, bestModel string) {
+func (r *ModelRegistry) broadcastHealth(ctx context.Context, models []llm.DiscoveredModel, bestModel string) {
 	if r.hub == nil {
 		return
 	}

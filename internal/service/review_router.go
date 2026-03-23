@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 // reviewRouterData provides data for the review router prompt template.
@@ -24,19 +24,19 @@ type reviewRouterData struct {
 // ReviewRouterService uses an LLM to evaluate whether a plan step needs
 // moderated review before execution, based on confidence scoring.
 type ReviewRouterService struct {
-	llm     *litellm.Client
+	llm     llm.Provider
 	orchCfg *config.Orchestrator
 	limits  *config.Limits
 }
 
 // NewReviewRouterService creates a ReviewRouterService.
 func NewReviewRouterService(
-	llm *litellm.Client,
+	llmProvider llm.Provider,
 	orchCfg *config.Orchestrator,
 	limits *config.Limits,
 ) *ReviewRouterService {
 	return &ReviewRouterService{
-		llm:     llm,
+		llm:     llmProvider,
 		orchCfg: orchCfg,
 		limits:  limits,
 	}
@@ -72,9 +72,9 @@ func (s *ReviewRouterService) Evaluate(ctx context.Context, step *plan.Step, tas
 		model = s.orchCfg.DecomposeModel
 	}
 
-	resp, err := s.llm.ChatCompletion(ctx, litellm.ChatCompletionRequest{
+	resp, err := s.llm.ChatCompletion(ctx, llm.ChatCompletionRequest{
 		Model: model,
-		Messages: []litellm.ChatMessage{
+		Messages: []llm.ChatMessage{
 			{Role: "user", Content: prompt},
 		},
 		Temperature: 0.1,

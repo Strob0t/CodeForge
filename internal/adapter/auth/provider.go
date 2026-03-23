@@ -3,45 +3,30 @@
 package auth
 
 import (
-	"context"
-	"errors"
 	"net/http"
+
+	"github.com/Strob0t/CodeForge/internal/port/subscription"
 )
 
-// SubscriptionProvider defines the interface for OAuth-based subscription providers.
-type SubscriptionProvider interface {
-	Name() string
-	DeviceFlowStart(ctx context.Context) (*DeviceCode, error)
-	DeviceFlowPoll(ctx context.Context, code string) (*Token, error)
-	ExchangeForAPIKey(ctx context.Context, token *Token) (string, error)
-	EnvVarName() string
-}
+// Type aliases — canonical definitions live in port/subscription.
+type (
+	SubscriptionProvider = subscription.Provider
+	DeviceCode           = subscription.DeviceCode
+	Token                = subscription.Token
+)
 
-// DeviceCode holds the response from initiating a device authorization flow.
-type DeviceCode struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
-}
+// Error aliases — canonical definitions live in port/subscription.
+var (
+	ErrAuthPending = subscription.ErrAuthPending
+	ErrSlowDown    = subscription.ErrSlowDown
+	ErrExpired     = subscription.ErrExpired
+)
 
-// Token holds OAuth tokens.
-type Token struct {
-	AccessToken  string `json:"access_token"`            //nolint:gosec // G117: OAuth field name, not a credential
-	RefreshToken string `json:"refresh_token,omitempty"` //nolint:gosec // G117: OAuth field name, not a credential
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in,omitempty"`
-}
-
-// ErrAuthPending indicates the user hasn't completed authorization yet.
-var ErrAuthPending = errors.New("authorization pending")
-
-// ErrSlowDown indicates the polling interval should be increased.
-var ErrSlowDown = errors.New("slow down")
-
-// ErrExpired indicates the device code has expired.
-var ErrExpired = errors.New("device code expired")
+// Compile-time assertions: both providers satisfy subscription.Provider.
+var (
+	_ subscription.Provider = (*AnthropicProvider)(nil)
+	_ subscription.Provider = (*GitHubProvider)(nil)
+)
 
 // Option configures a subscription provider.
 type Option struct {
