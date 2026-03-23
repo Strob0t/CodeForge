@@ -7,8 +7,7 @@ before executing, storing new results on success.
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 import numpy as np
 import structlog
@@ -17,11 +16,14 @@ from codeforge.memory.embedding import compute_embedding
 from codeforge.memory.scorer import CompositeScorer
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from codeforge.llm import LiteLLMClient
 
 logger = structlog.get_logger()
 
-F = TypeVar("F", bound=Callable[..., Any])
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class ExperiencePool:
@@ -184,7 +186,7 @@ def exp_cache(
     pool: ExperiencePool,
     project_id_arg: str = "project_id",
     task_desc_arg: str = "task_desc",
-) -> Callable[[F], F]:
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator that checks the experience pool before executing a function.
 
     Usage:
@@ -193,9 +195,9 @@ def exp_cache(
             ...
     """
 
-    def decorator(func: F) -> F:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             project_id = kwargs.get(project_id_arg, "")
             task_desc = kwargs.get(task_desc_arg, "")
 
@@ -224,6 +226,6 @@ def exp_cache(
 
             return result
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper  # type: ignore[return-value]  # async wrapper is Callable[P, Coroutine] not Callable[P, R]
 
     return decorator
