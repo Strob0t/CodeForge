@@ -67,24 +67,28 @@ model_list:
     litellm_params:
       model: "groq/*"
       api_key: "os.environ/GROQ_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- Mistral AI --
   - model_name: "mistral/*"
     litellm_params:
       model: "mistral/*"
       api_key: "os.environ/MISTRAL_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- OpenRouter --
   - model_name: "openrouter/*"
     litellm_params:
       model: "openrouter/*"
       api_key: "os.environ/OPENROUTER_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- Cerebras (fast inference) --
   - model_name: "cerebras/*"
     litellm_params:
       model: "cerebras/*"
       api_key: "os.environ/CEREBRAS_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- GitHub Copilot --
   # Disabled: device-code auth blocks LiteLLM startup synchronously.
