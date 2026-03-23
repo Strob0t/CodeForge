@@ -57,7 +57,9 @@ from codeforge.consumer._subjects import (
     SUBJECT_HANDOFF_REQUEST,
     SUBJECT_MEMORY_RECALL,
     SUBJECT_MEMORY_STORE,
+    SUBJECT_PROMPT_EVOLUTION_PROMOTED,
     SUBJECT_PROMPT_EVOLUTION_REFLECT,
+    SUBJECT_PROMPT_EVOLUTION_REVERTED,
     SUBJECT_QG_REQUEST,
     SUBJECT_REPOMAP_REQUEST,
     SUBJECT_RETRIEVAL_INDEX_REQUEST,
@@ -184,6 +186,8 @@ class TaskConsumer(
             (SUBJECT_BACKEND_HEALTH_REQUEST, self._handle_backend_health),
             (SUBJECT_REVIEW_TRIGGER_REQUEST, self._handle_review_trigger),
             (SUBJECT_PROMPT_EVOLUTION_REFLECT, self._handle_prompt_evolution_reflect),
+            (SUBJECT_PROMPT_EVOLUTION_PROMOTED, self._handle_prompt_promoted),
+            (SUBJECT_PROMPT_EVOLUTION_REVERTED, self._handle_prompt_reverted),
             (SUBJECT_SHARED_UPDATED, self._handle_shared_context_updated),
         ]
 

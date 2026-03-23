@@ -1,7 +1,8 @@
-"""Prompt evolution handler mixin for reflection and mutation."""
+"""Prompt evolution handler mixin for reflection, mutation, and event awareness."""
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import TYPE_CHECKING
 
@@ -138,3 +139,39 @@ class PromptEvolutionHandlerMixin:
                 result.model_dump_json().encode(),
                 headers={"Nats-Msg-Id": str(uuid.uuid4())},
             )
+
+    async def _handle_prompt_promoted(self, msg: nats.aio.msg.Msg) -> None:
+        """Handle prompt.evolution.promoted event.
+
+        Awareness event: logs that a variant was promoted so Python workers
+        know to clear any cached prompt variants.
+        """
+        try:
+            data = json.loads(msg.data)
+            logger.info(
+                "prompt variant promoted, clearing cached prompts",
+                mode_id=data.get("mode_id", ""),
+                variant_id=data.get("variant_id", ""),
+                new_version=data.get("new_version"),
+            )
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.warning("failed to parse prompt promoted event", error=str(exc))
+        await msg.ack()
+
+    async def _handle_prompt_reverted(self, msg: nats.aio.msg.Msg) -> None:
+        """Handle prompt.evolution.reverted event.
+
+        Awareness event: logs that a variant was reverted so Python workers
+        know to clear any cached prompt variants.
+        """
+        try:
+            data = json.loads(msg.data)
+            logger.info(
+                "prompt variant reverted, clearing cached prompts",
+                mode_id=data.get("mode_id", ""),
+                variant_id=data.get("variant_id", ""),
+                new_version=data.get("new_version"),
+            )
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.warning("failed to parse prompt reverted event", error=str(exc))
+        await msg.ack()

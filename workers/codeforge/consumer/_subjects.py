@@ -106,6 +106,8 @@ SUBJECT_REVIEW_APPROVAL_REQUIRED = "review.approval.required"
 SUBJECT_PROMPT_EVOLUTION_REFLECT = "prompt.evolution.reflect"
 SUBJECT_PROMPT_EVOLUTION_REFLECT_COMPLETE = "prompt.evolution.reflect.complete"
 SUBJECT_PROMPT_EVOLUTION_MUTATE_COMPLETE = "prompt.evolution.mutate.complete"
+SUBJECT_PROMPT_EVOLUTION_PROMOTED = "prompt.evolution.promoted"
+SUBJECT_PROMPT_EVOLUTION_REVERTED = "prompt.evolution.reverted"
 
 # Headers
 HEADER_REQUEST_ID = "X-Request-ID"
