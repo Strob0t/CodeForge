@@ -7,9 +7,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 
-	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/artifact"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -17,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
 
 func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *messagequeue.ToolCallRequestPayload) error {
@@ -148,14 +147,11 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	})
 
 	// OTEL: record tool call span and metric
-	_, toolSpan := cfotel.StartToolCallSpan(ctx, req.CallID, req.Tool)
+	_, toolSpan := telemetry.StartToolCallSpan(ctx, req.CallID, req.Tool)
 	toolSpan.SetAttributes(attribute.String("decision", string(decision)))
 	toolSpan.End()
 	if s.metrics != nil {
-		s.metrics.ToolCalls.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("tool", req.Tool),
-			attribute.String("decision", string(decision)),
-		))
+		s.metrics.RecordToolCall(ctx, "tool", req.Tool, "decision", string(decision))
 	}
 
 	// Create checkpoint for file-modifying tools

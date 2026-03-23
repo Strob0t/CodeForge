@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
 
 func TestInitTracerDisabled(t *testing.T) {
@@ -91,13 +93,13 @@ func TestStartRunSpan(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	newCtx, span := StartRunSpan(ctx, "run-1", "task-1", "proj-1")
+	newCtx, span := telemetry.StartRunSpan(ctx, "run-1", "task-1", "proj-1")
 
 	if newCtx == nil {
-		t.Fatal("StartRunSpan() returned nil context")
+		t.Fatal("telemetry.StartRunSpan() returned nil context")
 	}
 	if span == nil {
-		t.Fatal("StartRunSpan() returned nil span")
+		t.Fatal("telemetry.StartRunSpan() returned nil span")
 	}
 
 	// End the span to avoid leaks.
@@ -108,13 +110,13 @@ func TestStartToolCallSpan(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	newCtx, span := StartToolCallSpan(ctx, "call-1", "read_file")
+	newCtx, span := telemetry.StartToolCallSpan(ctx, "call-1", "read_file")
 
 	if newCtx == nil {
-		t.Fatal("StartToolCallSpan() returned nil context")
+		t.Fatal("telemetry.StartToolCallSpan() returned nil context")
 	}
 	if span == nil {
-		t.Fatal("StartToolCallSpan() returned nil span")
+		t.Fatal("telemetry.StartToolCallSpan() returned nil span")
 	}
 
 	span.End()
@@ -124,13 +126,13 @@ func TestStartDeliverySpan(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	newCtx, span := StartDeliverySpan(ctx, "run-1", "pr")
+	newCtx, span := telemetry.StartDeliverySpan(ctx, "run-1", "pr")
 
 	if newCtx == nil {
-		t.Fatal("StartDeliverySpan() returned nil context")
+		t.Fatal("telemetry.StartDeliverySpan() returned nil context")
 	}
 	if span == nil {
-		t.Fatal("StartDeliverySpan() returned nil span")
+		t.Fatal("telemetry.StartDeliverySpan() returned nil span")
 	}
 
 	span.End()

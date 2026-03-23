@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
@@ -504,10 +502,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	}
 
 	if s.metrics != nil {
-		s.metrics.RunsStarted.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("type", "conversation_agentic"),
-			attribute.String("project.id", proj.ID),
-		))
+		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)
 	}
 
 	slog.Info("conversation agentic run dispatched",
@@ -813,17 +808,14 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	}
 
 	if s.metrics != nil {
-		attrs := metric.WithAttributes(
-			attribute.String("type", "conversation_agentic"),
-			attribute.String("status", wsStatus),
-		)
+		metricAttrs := []string{"type", "conversation_agentic", "status", wsStatus}
 		if wsStatus == "completed" {
-			s.metrics.RunsCompleted.Add(ctx, 1, attrs)
+			s.metrics.RecordRunCompleted(ctx, metricAttrs...)
 		} else {
-			s.metrics.RunsFailed.Add(ctx, 1, attrs)
+			s.metrics.RecordRunFailed(ctx, metricAttrs...)
 		}
 		if payload.CostUSD > 0 {
-			s.metrics.RunCost.Record(ctx, payload.CostUSD, attrs)
+			s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
 		}
 	}
 

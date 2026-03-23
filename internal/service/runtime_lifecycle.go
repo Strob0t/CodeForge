@@ -9,10 +9,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -21,6 +19,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
 
 func (s *RuntimeService) cleanupRunState(runID string) {
@@ -67,10 +66,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 		sp.SetStatus(codes.Error, reason)
 	}
 	if s.metrics != nil {
-		s.metrics.RunsFailed.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("project.id", r.ProjectID),
-			attribute.String("status", "timeout"),
-		))
+		s.metrics.RecordRunFailed(ctx, "project.id", r.ProjectID, "status", "timeout")
 	}
 
 	s.cleanupRunState(runID)
@@ -123,16 +119,13 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		}
 	}
 	if s.metrics != nil {
-		attrs := metric.WithAttributes(
-			attribute.String("project.id", r.ProjectID),
-			attribute.String("status", string(status)),
-		)
+		metricAttrs := []string{"project.id", r.ProjectID, "status", string(status)}
 		if status == run.StatusCompleted {
-			s.metrics.RunsCompleted.Add(ctx, 1, attrs)
+			s.metrics.RecordRunCompleted(ctx, metricAttrs...)
 		} else {
-			s.metrics.RunsFailed.Add(ctx, 1, attrs)
+			s.metrics.RecordRunFailed(ctx, metricAttrs...)
 		}
-		s.metrics.RunCost.Record(ctx, payload.CostUSD, attrs)
+		s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
 	}
 
 	s.cleanupRunState(r.ID)
@@ -252,7 +245,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 	}
 
 	// OTEL: delivery span
-	_, deliverySpan := cfotel.StartDeliverySpan(ctx, r.ID, string(r.DeliverMode))
+	_, deliverySpan := telemetry.StartDeliverySpan(ctx, r.ID, string(r.DeliverMode))
 	defer deliverySpan.End()
 
 	// Get task title for commit message

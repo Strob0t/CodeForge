@@ -8,10 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
-
-	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -24,6 +20,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	cfmetrics "github.com/Strob0t/CodeForge/internal/port/metrics"
+	"github.com/Strob0t/CodeForge/internal/telemetry"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -54,7 +52,7 @@ type RuntimeService struct {
 	quarantine          *QuarantineService
 	feedbackProvidersMu sync.RWMutex
 	feedbackProviders   []feedbackPort.Provider
-	metrics             *cfotel.Metrics
+	metrics             cfmetrics.Recorder
 	runSpans            sync.Map // map[runID]trace.Span
 	goalSvc             *GoalDiscoveryService
 }
@@ -154,7 +152,7 @@ func (s *RuntimeService) SetQuarantineService(q *QuarantineService) {
 }
 
 // SetMetrics sets the OTEL metrics collector.
-func (s *RuntimeService) SetMetrics(m *cfotel.Metrics) {
+func (s *RuntimeService) SetMetrics(m cfmetrics.Recorder) {
 	s.metrics = m
 }
 
@@ -277,13 +275,10 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	r.Status = run.StatusRunning
 
 	// OTEL: start run span and record metric
-	_, runSpan := cfotel.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
+	_, runSpan := telemetry.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
 	s.runSpans.Store(r.ID, runSpan)
 	if s.metrics != nil {
-		s.metrics.RunsStarted.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("project.id", r.ProjectID),
-			attribute.String("exec_mode", string(req.ExecMode)),
-		))
+		s.metrics.RecordRunStarted(ctx, "project.id", r.ProjectID, "exec_mode", string(req.ExecMode))
 	}
 
 	// Mark agent as running
