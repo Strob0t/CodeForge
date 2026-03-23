@@ -329,6 +329,39 @@ func (s *ConversationService) CompactConversation(ctx context.Context, conversat
 	return s.queue.Publish(ctx, messagequeue.SubjectConversationCompactRequest, data)
 }
 
+// errMissingConversationID is returned when a compact-complete payload lacks a conversation ID.
+var errMissingConversationID = errors.New("missing conversation_id")
+
+// HandleCompactComplete processes a conversation.compact.complete message from the Python worker.
+// It logs the outcome and silently drops non-completed statuses.
+func (s *ConversationService) HandleCompactComplete(_ context.Context, _ string, data []byte) error {
+	var p messagequeue.ConversationCompactCompletePayload
+	if err := json.Unmarshal(data, &p); err != nil {
+		return fmt.Errorf("unmarshal compact complete: %w", err)
+	}
+	if p.ConversationID == "" {
+		return errMissingConversationID
+	}
+	if p.Status != "completed" {
+		slog.Warn("compact not completed", "conversation_id", p.ConversationID, "status", p.Status)
+		return nil
+	}
+	slog.Info("compact complete",
+		"conversation_id", p.ConversationID,
+		"original_count", p.OriginalCount,
+		"summary_len", len(p.Summary),
+	)
+	return nil
+}
+
+// StartCompactSubscriber subscribes to conversation.compact.complete and returns a cancel function.
+func (s *ConversationService) StartCompactSubscriber(ctx context.Context) (func(), error) {
+	if s.queue == nil {
+		return func() {}, nil
+	}
+	return s.queue.Subscribe(ctx, messagequeue.SubjectConversationCompactComplete, s.HandleCompactComplete)
+}
+
 // ClearConversation deletes all messages from a conversation.
 func (s *ConversationService) ClearConversation(ctx context.Context, conversationID string) error {
 	_, err := s.db.GetConversation(ctx, conversationID)

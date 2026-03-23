@@ -73,6 +73,8 @@ func Validate(subject string, data []byte) error {
 		target = &ConversationRunStartPayload{}
 	case subject == SubjectConversationRunComplete:
 		target = &ConversationRunCompletePayload{}
+	case subject == SubjectConversationCompactComplete:
+		target = &ConversationCompactCompletePayload{}
 
 	// --- GEMMAS Evaluation subjects (Phase 20G) ---
 	case subject == SubjectEvalGemmasRequest:
@@ -99,12 +101,10 @@ func Validate(subject string, data []byte) error {
 	// --- Review/Refactor subjects (Phase 31) ---
 	case subject == SubjectReviewTriggerRequest:
 		target = &ReviewTriggerRequestPayload{}
-	case subject == SubjectReviewBoundaryAnalyzed:
-		target = &ReviewBoundaryAnalyzedPayload{}
+	case subject == SubjectReviewTriggerComplete:
+		target = &ReviewTriggerCompletePayload{}
 	case subject == SubjectReviewApprovalRequired:
 		target = &ReviewApprovalRequiredPayload{}
-	case subject == SubjectReviewApprovalResponse:
-		target = &ReviewApprovalResponsePayload{}
 
 	// --- Prompt Evolution subjects (Phase 33) ---
 	case subject == SubjectPromptEvolutionReflect:

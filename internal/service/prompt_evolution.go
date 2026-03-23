@@ -115,6 +115,53 @@ func (s *PromptEvolutionService) HandleMutateComplete(ctx context.Context, data 
 	return nil
 }
 
+// HandleReflectComplete processes a prompt.evolution.reflect.complete message from the Python worker.
+// It logs the tactical fixes and strategic principles received from the reflection step.
+func (s *PromptEvolutionService) HandleReflectComplete(_ context.Context, _ string, data []byte) error {
+	var payload mq.PromptEvolutionReflectCompletePayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("unmarshal reflect complete: %w", err)
+	}
+
+	if payload.Error != "" {
+		slog.Warn("prompt reflection returned error",
+			"mode_id", payload.ModeID,
+			"model_family", payload.ModelFamily,
+			"error", payload.Error,
+		)
+		return nil
+	}
+
+	slog.Info("prompt reflection complete",
+		"mode_id", payload.ModeID,
+		"model_family", payload.ModelFamily,
+		"tactical_fixes", len(payload.TacticalFixes),
+		"strategic_principles", len(payload.StrategicPrinciples),
+	)
+	return nil
+}
+
+// handleMutateCompleteMsg wraps HandleMutateComplete with the mq.Handler signature.
+func (s *PromptEvolutionService) handleMutateCompleteMsg(ctx context.Context, _ string, data []byte) error {
+	return s.HandleMutateComplete(ctx, data)
+}
+
+// StartSubscribers subscribes to prompt evolution result subjects and returns cancel functions.
+func (s *PromptEvolutionService) StartSubscribers(ctx context.Context) ([]func(), error) {
+	cancelReflect, err := s.queue.Subscribe(ctx, mq.SubjectPromptEvolutionReflectComplete, s.HandleReflectComplete)
+	if err != nil {
+		return nil, fmt.Errorf("subscribe reflect complete: %w", err)
+	}
+
+	cancelMutate, err := s.queue.Subscribe(ctx, mq.SubjectPromptEvolutionMutateComplete, s.handleMutateCompleteMsg)
+	if err != nil {
+		cancelReflect()
+		return nil, fmt.Errorf("subscribe mutate complete: %w", err)
+	}
+
+	return []func(){cancelReflect, cancelMutate}, nil
+}
+
 // PromoteVariant promotes a candidate variant, retiring any previously promoted variant
 // for the same mode and model family.
 func (s *PromptEvolutionService) PromoteVariant(ctx context.Context, tenantID, variantID string) error {

@@ -345,6 +345,81 @@ func TestPromptEvolutionService_RevertMode(t *testing.T) {
 	})
 }
 
+func TestPromptEvolutionService_HandleReflectComplete(t *testing.T) {
+	t.Parallel()
+
+	t.Run("happy_path_with_fixes", func(t *testing.T) {
+		t.Parallel()
+		queue := &fakeQueue{}
+		svc := NewPromptEvolutionService(queue, nil, ptrTo(prompt.DefaultEvolutionConfig()))
+
+		payload := mq.PromptEvolutionReflectCompletePayload{
+			TenantID:    "t1",
+			ModeID:      "coder",
+			ModelFamily: "openai",
+			TacticalFixes: []mq.PromptEvolutionTacticalFix{
+				{TaskID: "task-1", FailureDescription: "err unchecked", RootCause: "missing pattern", ProposedAddition: "check err", Confidence: 0.9},
+			},
+			StrategicPrinciples: []string{"always handle errors"},
+		}
+		data, _ := json.Marshal(payload)
+
+		err := svc.HandleReflectComplete(context.Background(), "", data)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("error_payload_is_logged_not_returned", func(t *testing.T) {
+		t.Parallel()
+		svc := NewPromptEvolutionService(&fakeQueue{}, nil, ptrTo(prompt.DefaultEvolutionConfig()))
+
+		payload := mq.PromptEvolutionReflectCompletePayload{
+			TenantID:    "t1",
+			ModeID:      "coder",
+			ModelFamily: "openai",
+			Error:       "LLM call failed",
+		}
+		data, _ := json.Marshal(payload)
+
+		err := svc.HandleReflectComplete(context.Background(), "", data)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("malformed_json_returns_error", func(t *testing.T) {
+		t.Parallel()
+		svc := NewPromptEvolutionService(&fakeQueue{}, nil, ptrTo(prompt.DefaultEvolutionConfig()))
+
+		err := svc.HandleReflectComplete(context.Background(), "", []byte(`{bad`))
+		if err == nil {
+			t.Fatal("expected error for malformed JSON")
+		}
+	})
+}
+
+func TestPromptEvolutionService_StartSubscribers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns_cancels_for_both_subjects", func(t *testing.T) {
+		t.Parallel()
+		queue := &fakeQueue{}
+		svc := NewPromptEvolutionService(queue, nil, ptrTo(prompt.DefaultEvolutionConfig()))
+
+		cancels, err := svc.StartSubscribers(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cancels) != 2 {
+			t.Fatalf("expected 2 cancel functions (reflect + mutate), got %d", len(cancels))
+		}
+		for _, cancel := range cancels {
+			cancel() // should not panic
+		}
+	})
+}
+
 func TestPromptEvolutionService_GetStatus(t *testing.T) {
 	t.Parallel()
 
