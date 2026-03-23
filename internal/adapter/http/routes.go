@@ -80,9 +80,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		})
 
 		// Projects
-		r.Get("/projects", h.ListProjects)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.CreateProject)
-		r.Get("/projects/remote-branches", h.ListRemoteBranches)
+		r.Get("/projects", h.Project.ListProjects)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.Project.CreateProject)
+		r.Get("/projects/remote-branches", h.Project.ListRemoteBranches)
 
 		// Batch project operations
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/delete", h.BatchDeleteProjects)
@@ -93,16 +93,16 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Post("/search", h.GlobalSearch)
 		r.Post("/search/conversations", h.SearchConversations)
 
-		r.Get("/projects/{id}", h.GetProject)
-		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.DeleteProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}", h.UpdateProject)
+		r.Get("/projects/{id}", h.Project.GetProject)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.Project.DeleteProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}", h.Project.UpdateProject)
 
 		// Workspace operations (nested under projects)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/clone", h.CloneProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/adopt", h.AdoptProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/setup", h.SetupProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/init-workspace", h.InitWorkspace)
-		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/clone", h.Project.CloneProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/adopt", h.Project.AdoptProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/setup", h.Project.SetupProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/init-workspace", h.Project.InitWorkspace)
+		r.Get("/projects/{id}/workspace", h.Project.GetWorkspaceInfo)
 
 		// File operations (nested under projects)
 		r.Get("/projects/{id}/files", h.ListFiles)
@@ -113,14 +113,14 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Patch("/projects/{id}/files/rename", h.RenameFile)
 
 		// Stack Detection
-		r.Get("/projects/{id}/detect-stack", h.DetectProjectStack)
-		r.Post("/detect-stack", h.DetectStackByPath)
+		r.Get("/projects/{id}/detect-stack", h.Project.DetectProjectStack)
+		r.Post("/detect-stack", h.Project.DetectStackByPath)
 
 		// Git operations (nested under projects)
-		r.Get("/projects/{id}/git/status", h.ProjectGitStatus)
-		r.Post("/projects/{id}/git/pull", h.PullProject)
-		r.Get("/projects/{id}/git/branches", h.ListProjectBranches)
-		r.Post("/projects/{id}/git/checkout", h.CheckoutBranch)
+		r.Get("/projects/{id}/git/status", h.Project.ProjectGitStatus)
+		r.Post("/projects/{id}/git/pull", h.Project.PullProject)
+		r.Get("/projects/{id}/git/branches", h.Project.ListProjectBranches)
+		r.Post("/projects/{id}/git/checkout", h.Project.CheckoutBranch)
 
 		// Agents (nested under projects)
 		r.Post("/projects/{id}/agents", h.CreateAgent)
@@ -191,10 +191,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/backends/health", h.CheckBackendHealth)
 
 		// Parse repo URL
-		r.Post("/parse-repo-url", h.ParseRepoURL)
+		r.Post("/parse-repo-url", h.Project.ParseRepoURL)
 
 		// Repo info (fetch metadata from remote hosting API)
-		r.Get("/repos/info", h.FetchRepoInfo)
+		r.Get("/repos/info", h.Project.FetchRepoInfo)
 
 		// Policy profiles
 		r.Get("/policies", h.ListPolicyProfiles)

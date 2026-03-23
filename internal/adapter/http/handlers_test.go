@@ -3490,8 +3490,8 @@ func TestListRemoteBranches_URLValidation(t *testing.T) {
 			}
 			req := httptest.NewRequest(http.MethodGet, reqURL, http.NoBody)
 			rr := httptest.NewRecorder()
-			h := &cfhttp.Handlers{}
-			h.ListRemoteBranches(rr, req)
+			ph := &cfhttp.ProjectHandlers{}
+			ph.ListRemoteBranches(rr, req)
 			if rr.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", rr.Code, tt.wantStatus)
 			}
