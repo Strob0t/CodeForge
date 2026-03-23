@@ -8,6 +8,8 @@ import logging
 import os
 from typing import Any
 
+import httpx
+
 from codeforge.backends._base import BackendInfo, ConfigField, OutputCallback, TaskResult
 from codeforge.config import resolve_backend_path
 from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
@@ -64,8 +66,6 @@ class OpenHandsExecutor:
     async def check_available(self) -> bool:
         """Check if the OpenHands HTTP API is reachable."""
         try:
-            import httpx
-
             async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
                 resp = await client.get(f"{self._url}/api/health")
                 return resp.status_code == 200
@@ -84,14 +84,6 @@ class OpenHandsExecutor:
         """Submit a task to OpenHands and poll for completion."""
         config = config or {}
         timeout = config.get("timeout", _DEFAULT_TIMEOUT)
-
-        try:
-            import httpx
-        except ImportError:
-            return TaskResult(
-                status="failed",
-                error="httpx is required for the OpenHands backend (pip install httpx)",
-            )
 
         base = self._url.rstrip("/")
         headers = self._build_headers(config)
@@ -115,8 +107,6 @@ class OpenHandsExecutor:
         if conversation_id is None:
             return
         try:
-            import httpx
-
             base = self._url.rstrip("/")
             async with httpx.AsyncClient(timeout=_CANCEL_TIMEOUT) as client:
                 await client.delete(f"{base}/api/conversations/{conversation_id}")
@@ -147,7 +137,9 @@ class OpenHandsExecutor:
         return payload
 
     @staticmethod
-    async def _start_conversation(client: Any, base: str, payload: dict[str, Any]) -> tuple[str, TaskResult | None]:
+    async def _start_conversation(
+        client: httpx.AsyncClient, base: str, payload: dict[str, Any]
+    ) -> tuple[str, TaskResult | None]:
         """Start a conversation and return (conversation_id, None) or ("", TaskResult)."""
         try:
             resp = await client.post(f"{base}/api/conversations", json=payload)
@@ -162,7 +154,7 @@ class OpenHandsExecutor:
 
     async def _poll_until_done(
         self,
-        client: Any,
+        client: httpx.AsyncClient,
         base: str,
         conversation_id: str,
         task_id: str,
@@ -199,7 +191,9 @@ class OpenHandsExecutor:
         )
 
     @staticmethod
-    async def _poll_once(client: Any, base: str, conversation_id: str, task_id: str) -> dict[str, Any] | None:
+    async def _poll_once(
+        client: httpx.AsyncClient, base: str, conversation_id: str, task_id: str
+    ) -> dict[str, Any] | None:
         try:
             resp = await client.get(f"{base}/api/conversations/{conversation_id}")
             resp.raise_for_status()
