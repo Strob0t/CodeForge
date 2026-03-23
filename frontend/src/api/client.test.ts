@@ -145,6 +145,15 @@ describe("API Client", () => {
       expect(typeof api.audit.list).toBe("function");
     });
 
+    it("should have routing resource group", () => {
+      expect(api.routing).toBeDefined();
+      expect(typeof api.routing.stats).toBe("function");
+      expect(typeof api.routing.refreshStats).toBe("function");
+      expect(typeof api.routing.outcomes).toBe("function");
+      expect(typeof api.routing.recordOutcome).toBe("function");
+      expect(typeof api.routing.seedFromBenchmarks).toBe("function");
+    });
+
     it("should have scopes resource group", () => {
       expect(api.scopes).toBeDefined();
       expect(typeof api.scopes.list).toBe("function");
@@ -280,5 +289,6 @@ describe("API Resources index", () => {
     expect(typeof mod.createGoalsResource).toBe("function");
     expect(typeof mod.createChannelsResource).toBe("function");
     expect(typeof mod.createAuditResource).toBe("function");
+    expect(typeof mod.createRoutingResource).toBe("function");
   });
 });
