@@ -1328,53 +1328,7 @@ func TestHandleToolCallRequest_DenyByPolicy(t *testing.T) {
 	}
 }
 
-func TestHandleToolCallRequest_TerminationMaxSteps(t *testing.T) {
-	svc, store, queue, _ := newRuntimeTestEnv()
-	ctx := context.Background()
-
-	// headless-safe-sandbox has max_steps: 200 by default
-	// Set step count to 200 to trigger termination
-	store.mu.Lock()
-	store.runs = append(store.runs, run.Run{
-		ID:            "run-3",
-		TaskID:        "task-1",
-		AgentID:       "agent-1",
-		ProjectID:     "proj-1",
-		PolicyProfile: "headless-safe-sandbox",
-		Status:        run.StatusRunning,
-		StepCount:     200,
-		StartedAt:     time.Now(),
-	})
-	store.mu.Unlock()
-
-	req := messagequeue.ToolCallRequestPayload{
-		RunID:  "run-3",
-		CallID: "call-3",
-		Tool:   "Read",
-		Path:   "main.go",
-	}
-	err := svc.HandleToolCallRequest(ctx, &req)
-	if err != nil {
-		t.Fatalf("HandleToolCallRequest failed: %v", err)
-	}
-
-	// Should be denied due to max steps
-	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
-	if !ok {
-		t.Fatal("expected tool call response to be published")
-	}
-	var resp messagequeue.ToolCallResponsePayload
-	_ = json.Unmarshal(msg.Data, &resp)
-	if resp.Decision != "deny" {
-		t.Fatalf("expected 'deny' for max steps termination, got %q", resp.Decision)
-	}
-
-	// Run should be completed with timeout status
-	r, _ := store.GetRun(ctx, "run-3")
-	if r.Status != run.StatusTimeout {
-		t.Fatalf("expected run status timeout, got %s", r.Status)
-	}
-}
+// TestHandleToolCallRequest_TerminationMaxSteps moved to runtime_execution_test.go
 
 func TestHandleToolCallRequest_RunNotRunning(t *testing.T) {
 	svc, store, queue, _ := newRuntimeTestEnv()
