@@ -150,7 +150,7 @@ class TrajectoryVerifierEvaluator:
             for dim in _SCORE_DIMENSIONS
         ]
 
-    async def _call_verifier(self, prompt: str) -> Any:
+    async def _call_verifier(self, prompt: str) -> object:
         """Call the verifier LLM. Isolated for testability (mock target)."""
         import litellm
 
