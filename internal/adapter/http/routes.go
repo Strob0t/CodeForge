@@ -309,6 +309,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		if h.PromptEvolution != nil {
 			r.Get("/prompt-evolution/status", h.GetPromptEvolutionStatus)
 			r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+				Post("/prompt-evolution/reflect", h.TriggerPromptEvolutionReflect)
+			r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 				Post("/prompt-evolution/revert/{modeId}", h.RevertPromptEvolutionMode)
 			r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 				Post("/prompt-evolution/promote/{variantId}", h.PromotePromptEvolutionVariant)

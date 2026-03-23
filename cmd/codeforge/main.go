@@ -594,7 +594,7 @@ func run() error {
 
 		// Wire prompt evolution: selector overrides base YAML with evolved variants.
 		evoCfg := prompt.DefaultEvolutionConfig()
-		promptSelector := service.NewPromptSelector(nil, &evoCfg) // nil store until PostgreSQL adapter is built
+		promptSelector := service.NewPromptSelector(store, &evoCfg)
 		assembler.SetSelector(promptSelector)
 
 		conversationSvc.SetPromptAssembler(assembler)
@@ -604,7 +604,10 @@ func run() error {
 
 	// --- Prompt Evolution Service ---
 	evoCfg := prompt.DefaultEvolutionConfig()
-	evoSvc := service.NewPromptEvolutionService(queue, nil, &evoCfg) // nil store until PostgreSQL adapter is built
+	evoSvc := service.NewPromptEvolutionService(queue, store, &evoCfg)
+	scoreCollector := service.NewPromptScoreCollector(store)
+	slog.Info("prompt score collector initialized")
+	_ = scoreCollector // TODO: wire to run completion handler for automatic score collection
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)
