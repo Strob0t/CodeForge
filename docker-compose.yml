@@ -110,9 +110,11 @@ services:
     logging: *default-logging
     ports:
       - "6280:6280"
+      - "6281:6281"
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OPENAI_API_KEY: "ollama"
+      OPENAI_API_BASE: "http://host.docker.internal:11434/v1"
+      DOCS_MCP_EMBEDDING_MODEL: "nomic-embed-text"
     volumes:
       - docs_mcp_data:/data
       - docs_mcp_config:/config
@@ -124,7 +126,7 @@ services:
         reservations:
           memory: 256M
     healthcheck:
-      test: [ "CMD", "node", "-e", "fetch('http://localhost:6280/health').then(r=>{if(!r.ok)throw r}).catch(()=>process.exit(1))" ]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6281"]
       interval: 10s
       timeout: 5s
       retries: 5
