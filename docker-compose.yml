@@ -52,6 +52,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   postgres:
     image: postgres:18-alpine
@@ -83,6 +87,10 @@ services:
       retries: 5
     networks:
       - codeforge
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   nats:
     image: nats:2-alpine
@@ -102,6 +110,10 @@ services:
       retries: 5
     networks:
       - codeforge
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   docs-mcp:
     image: ghcr.io/arabold/docs-mcp-server:latest
@@ -173,6 +185,10 @@ services:
       start_period: 15s
     networks:
       - codeforge
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
 volumes:
   pgdata:
